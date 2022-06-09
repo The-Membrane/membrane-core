@@ -1,4 +1,5 @@
 use cosmwasm_std::StdError;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -15,8 +16,14 @@ pub enum ContractError {
     #[error("Makes position insolvent")]
     PositionInsolvent {},
 
+    #[error("User has no positions in this basket")]
+    NoUserPositions {},
+
     #[error("Position doesn't exist")]
     NonExistentPosition {},
+
+    #[error("Basket doesn't exist")]
+    NonExistentBasket {},
 
     #[error("Invalid Withdrawal")]
     InvalidWithdrawal {},
@@ -32,6 +39,15 @@ pub enum ContractError {
 
     #[error("Repayment exceeds outstanding credit")]
     Cw20MsgError {},
+
+    #[error("Config ID wasn't previously incremented")]
+    ConfigIDError {},
+
+    #[error("Info.sender is not the config.owner")]
+    NotContractOwner {},
+
+    #[error("Info.sender is not the basket.owner")]
+    NotBasketOwner {},
 
     #[error("Custom Error val: {val:?}")]
     CustomError {

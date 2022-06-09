@@ -1,13 +1,13 @@
 use std::fmt;
 
-use cosmwasm_std::{Addr, Uint128, Coin, Binary};
+use cosmwasm_std::{Addr, Uint128, Coin, Binary, Decimal};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::state::cAsset;
+use crate::state::{cAsset, Position};
 
 //TODO: add cw20
-use cw20::Cw20ReceiveMsg;
+use crate::cw20::Cw20ReceiveMsg;
 
 
 
@@ -35,6 +35,35 @@ impl fmt::Display for AssetInfo {
     }
 }
 
+impl AssetInfo {
+
+    pub fn is_native_token(&self) -> bool {
+        match self {
+            AssetInfo::NativeToken { .. } => true,
+            AssetInfo::Token { .. } => false,
+        }
+    }
+
+    pub fn equal(&self, asset: &AssetInfo) -> bool {
+        match self {
+            AssetInfo::Token { address, .. } => {
+                let self_addr = address;
+                match asset {
+                    AssetInfo::Token { address, .. } => self_addr == address,
+                    AssetInfo::NativeToken { .. } => false,
+                }
+            }
+            AssetInfo::NativeToken { denom, .. } => {
+                let self_denom = denom;
+                match asset {
+                    AssetInfo::Token { .. } => false,
+                    AssetInfo::NativeToken { denom, .. } => self_denom == denom,
+                }
+            }
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct Asset{
@@ -51,7 +80,12 @@ impl fmt::Display for Asset {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
-    pub collateral_types: Vec<cAsset>,
+    pub owner: Option<String>,
+    pub collateral_types: Option<Vec<cAsset>>,
+    pub credit_asset: Option<Asset>,
+    pub credit_price: Option<Decimal>,
+    pub credit_interest: Option<Decimal>,
+    //TODO: Optional owner for basket
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -80,8 +114,23 @@ pub enum ExecuteMsg {
         position_owner: Option<String>, //If not the sender
         credit_asset: Asset,
     },
+    CreateBasket {
+        owner: Option<String>,
+        collateral_types: Vec<cAsset>,
+        credit_asset: Asset,
+        credit_price: Option<Decimal>,
+        credit_interest: Option<Decimal>,
+    },
+    EditBasket {
+        basket_id: Uint128,
+        added_cAsset: Option<cAsset>,
+        owner: Option<String>,
+        credit_interest: Option<Decimal>,
+    }, 
+    EditAdmin {
+        owner: String,
+    },
 
-    //TODO: Add withdrawal and repay messages, add TakeCredit function
     
 }
 
@@ -106,23 +155,57 @@ pub enum Cw20HookMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     // GetCount returns the current count as a json-encoded number
-    GetUserPositions {},
+    GetUserPositions { //All positions from a user
+        basket_id: Option<Uint128>, 
+        user: String
+    },
+    GetPosition { //Singular position
+        position_id: Uint128, 
+        basket_id: Uint128, 
+        user: String 
+    },
+    // GetAllPositions{ //All Positions
+    //     start_after: Option<String>,
+    //     limit: Option<u32>,
+    // },
+    GetBasketPositions { //All positions in a basket
+        basket_id: Uint128,
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+    GetBasket { basket_id: Uint128 }, //Singular basket
+    GetAllBaskets { //All baskets
+        start_after: Option<Uint128>,
+        limit: Option<u32>, 
+    },
 }
 
 // We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct CountResponse {
-    pub count: i32,
+pub struct PositionResponse {
+    pub position_id: String,
+    pub collateral_assets: Vec<cAsset>,
+    pub avg_borrow_LTV: String,
+    pub avg_max_LTV: String,
+    pub credit_amount: String,
+    pub basket_id: String,
+    
 }
-
-
-
-
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct PositionsResponse{
+    pub user: String,
+    pub positions: Vec<Position>,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum BasketQueryMsg {
-    // GetCount returns the current count as a json-encoded number
-    GetBasket { basket_id: Uint128 },
+pub struct BasketResponse{
+    pub owner: String,
+    pub basket_id: String,
+    pub current_position_id: String,
+    pub collateral_types: Vec<cAsset>, 
+    pub credit_asset: Asset, 
+    pub credit_price: String,
+    pub credit_interest: String,
 }
+
 

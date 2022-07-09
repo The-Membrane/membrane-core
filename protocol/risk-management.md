@@ -2,18 +2,14 @@
 
 ### Collateral
 
-Each collateral has a debt cap (CDL supply cap). The cap is based off available liquidity for the asset in the accepted markets, initially just Osmosis. The max cap will be 20% of time-weighted average liquidity (TWAL) to account for price volatility and LP providers removing liquidity occasionally/during downturns.\
+Each collateral has a debt cap (CDL supply cap). The cap is based off the proportional value of the given asset within Membrane's TVL. This ensures a large diversification of token risk, minimizing the risk effects of bad debt or a malicious token attack to the cap assigned to the token. \
 \
-Collateral deemed as riskier will have lower % of TWAL for their debt cap, as well as lower minimum collateral ratios (i.e. lower LTVs).\
+Collateral deemed as riskier will have lower % of TVL for their debt cap, as well as lower minimum collateral ratios (i.e. lower LTVs).\
 \
 Risk is determined by:\
-\- Liquidity -> Debt Caps\
-\- Volatility -> Collateral Ratio\
-\- Centralization risk (supply or regulatory)\
-\- Value reflexivity\
+\- Systemic or Protocol Risk -> Debt Caps\
+\- Volatility Risk -> Collateral Ratio\
+\- Liquidity Risk -> Stability Pool\
 \
 An amalgamation of them all will factor into the interest rate ranges decided by governance.
 
-### Debt Token
-
-The supply limit for CDL is 5x available liquidity, aka liquidity is minimum 20% of total MC.&#x20;

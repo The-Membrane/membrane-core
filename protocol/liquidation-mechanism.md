@@ -23,8 +23,7 @@ Smart contracts aren't autonomous so they need to be called by an external sourc
 _Ex: If a position's liquidation point is 80% LTV and the position gets to 81%, the caller's fee would be 1% of the liquidated collateral._
 
 The fee will keep increasing until a bot deems its profitable/desirable to liquidate, but if 1 bot waits too long it may lose the chance to capture the fee. This mechanism finds the lowest viable liquidation fee which benefits the user and the overall market.\
-\
-_Bots can get up to a 2x bonus on the current fee based on MBRN staked proportional to the liquidation amount. This boost won't push fees far enough to negatively impact users but instead it'll give bots who obtain the boost liquidation priority due to increased speed into its profitability window._&#x20;
+
 
 The lower the fee, the longer the user's position can stay solvent to avoid additional liquidations as well as less of the asset getting sold on the open market, assuming the bot doesn't hold it, which protects against market wide cascades.
 

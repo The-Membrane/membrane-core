@@ -34,6 +34,15 @@ pub enum ExecuteMsg {
     } 
 }
 
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMsg {
+    CheckLiquidatible { asset: LiqAsset }, //Check if the amount of said asset is liquidatible
+    AssetPool{ asset_info: AssetInfo }, //Returns asset pool info
+}
+
+
 // We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct LiquidatibleResponse {
@@ -41,7 +50,8 @@ pub struct LiquidatibleResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum QueryMsg {
-    CheckLiquidatible { asset: LiqAsset }, //Check if the amount of said asset is liquidatible
+pub struct PoolResponse {
+    pub credit_asset: Asset,
+    pub liq_premium: Decimal,
+    pub deposits: Vec<Deposit>
 }

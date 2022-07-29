@@ -22,14 +22,6 @@ impl fmt::Display for LiqAsset {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct cAsset {
-    pub asset: Asset, //amount is 0 when adding to basket_contract configor initiator
-    pub oracle: String, //This is a String (not an Addr) so it can be used in eMsgs
-    pub max_borrow_LTV: Decimal, //aka max borrow LTV
-    pub max_LTV: Decimal, //ie liquidation point 
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct UserRatio {
     pub user: Addr,
     pub ratio: Decimal,
@@ -156,7 +148,16 @@ pub struct PremiumSlot {
     pub residue_bid: Decimal256,
 }
 
-//CDP//
+////////////////CDP///////////
+/// 
+/// 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct cAsset {
+    pub asset: Asset, //amount is 0 when adding to basket_contract configor initiator
+    pub debt_total: Uint128,
+    pub max_borrow_LTV: Decimal, //aka max borrow LTV
+    pub max_LTV: Decimal, //ie liquidation point 
+}
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Position {
     pub position_id: Uint128,
@@ -173,10 +174,13 @@ pub struct Basket {
     pub basket_id: Uint128,
     pub current_position_id: Uint128,
     pub collateral_types: Vec<cAsset>, 
+    pub collateral_debt_caps: Vec<Uint128>,
     pub credit_asset: Asset, //Depending on type of token we use for credit this.info will be an Addr or denom (Cw20 or Native token respectively)
     pub credit_price: Option<Decimal>, //This is credit_repayment_price, not market price
     pub credit_interest: Option<Decimal>,
-    pub liq_queue: Option<Addr>, //Each basket holds its on liq_queue contract
+    pub debt_pool_ids: Vec<u64>,
+    pub debt_liquidity_multiplier_for_caps: Decimal, //Ex: 5 = debt cap at 5x liquidity.
+    pub liq_queue: Option<Addr>, //Each basket holds its own liq_queue contract
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -194,6 +198,19 @@ pub struct RepayPropagation {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct SellWallDistribution {
     pub distributions: Vec<( AssetInfo, Decimal )>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct UserInfo {
+    pub basket_id: Uint128,
+    pub position_id: Uint128,
+    pub position_owner: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct PriceInfo {
+    pub price: Decimal,
+    pub last_time_updated: u64,
 }
 
 

@@ -4,7 +4,7 @@ use cosmwasm_std::{Addr, Uint128, Coin, Binary, Decimal};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{ Asset, cAsset, Position, LiqAsset, SellWallDistribution, AssetInfo };
+use crate::types::{ Asset, cAsset, Position, LiqAsset, SellWallDistribution, AssetInfo, UserInfo };
 
 use cw20::Cw20ReceiveMsg;
 
@@ -17,7 +17,10 @@ pub struct InstantiateMsg {
     pub dex_router: Option<String>,
     pub fee_collector: Option<String>,
     pub osmosis_proxy: Option<String>,
+    pub debt_auction: Option<String>,
     pub owner: Option<String>,
+    pub oracle_time_limit: u64, //in seconds until oracle failure is acceoted
+    pub debt_minimum: Decimal, //Debt minimum value per position
     //For Basket creation
     pub collateral_types: Option<Vec<cAsset>>,
     pub credit_asset: Option<Asset>,
@@ -71,12 +74,14 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         credit_interest: Option<Decimal>,
         liq_queue: Option<String>,
+        pool_ids: Option<Vec<u64>>,
+        liquidity_multiplier: Option<Decimal>,
     }, 
     EditAdmin {
         owner: String,
     },
-
-
+    //Callbacks; Only callable by the contract
+    Callback( CallbackMsg ),
     
 }
 
@@ -93,6 +98,18 @@ pub enum Cw20HookMsg {
         basket_id: Uint128,
         position_id: Uint128,
         position_owner: Option<String>, //If not the sender
+    },
+}
+
+// NOTE: Since CallbackMsg are always sent by the contract itself, we assume all types are already
+// validated and don't do additional checks. E.g. user addresses are Addr instead of String
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CallbackMsg {
+    BadDebtCheck {
+        basket_id: Uint128,
+        position_id: Uint128,
+        position_owner: Addr,
     },
 }
 
@@ -121,8 +138,11 @@ pub enum QueryMsg {
         start_after: Option<Uint128>,
         limit: Option<u32>, 
     },
+    GetBasketDebtCaps {
+        basket_id: Uint128,
+    },
     //Used internally to test state propagation
-    Prop {},
+    Propagation {},
 }
 
 // We define a custom struct for each query response
@@ -174,4 +194,9 @@ pub struct PropResponse {
     pub position_id: Uint128,
     pub basket_id: Uint128,
     pub position_owner: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct DebtCapResponse{
+    pub caps: Vec<String>,
 }

@@ -13,6 +13,7 @@ pub struct InstantiateMsg {}
 pub enum ExecuteMsg {
     CreateDenom {
         subdenom: String,
+        basket_id: String,
     },
     ChangeAdmin {
         denom: String,
@@ -39,6 +40,9 @@ pub enum QueryMsg {
     },
     //This will be replaced by TWAP but is here for testing
     SpotPrice { asset: String },
+    /// For a given pool ID, list all tokens traded on it with current liquidity (spot).
+    /// As well as the total number of LP shares and their denom
+    PoolState { id: u64 },
 }
 
 // We define a custom struct for each query response

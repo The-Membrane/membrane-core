@@ -4,14 +4,14 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128,
+    to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128, QueryRequest,
 };
 use cw2::set_contract_version;
 
 use crate::error::TokenFactoryError;
 use membrane::osmosis_proxy::{ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg};
 use crate::state::{State, STATE};
-use osmo_bindings::{ OsmosisMsg, OsmosisQuerier, OsmosisQuery };
+use osmo_bindings::{ OsmosisMsg, OsmosisQuerier, OsmosisQuery, PoolStateResponse };
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:tokenfactory-demo";
@@ -43,7 +43,7 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
     match msg {
-        ExecuteMsg::CreateDenom { subdenom } => create_denom(subdenom),
+        ExecuteMsg::CreateDenom { subdenom, basket_id } => create_denom(subdenom, basket_id),
         ExecuteMsg::ChangeAdmin {
             denom,
             new_admin_address,
@@ -61,15 +61,17 @@ pub fn execute(
     }
 }
 
-pub fn create_denom(subdenom: String) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+pub fn create_denom(subdenom: String, basket_id: String) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
     if subdenom.eq("") {
         return Err(TokenFactoryError::InvalidSubdenom { subdenom });
     }
 
-    let create_denom_msg = OsmosisMsg::CreateDenom { subdenom };
+    let create_denom_msg = OsmosisMsg::CreateDenom { subdenom: subdenom.clone() };
 
     let res = Response::new()
         .add_attribute("method", "create_denom")
+        .add_attribute("sub_denom", subdenom)
+        .add_attribute("basket_id", basket_id)
         .add_message(create_denom_msg);
 
     Ok(res)
@@ -154,7 +156,20 @@ pub fn query(deps: Deps<OsmosisQuery>, _env: Env, msg: QueryMsg) -> StdResult<Bi
             subdenom,
         } => to_binary(&get_denom(deps, creator_address, subdenom)),
         QueryMsg::SpotPrice { asset } => todo!(),
+        QueryMsg::PoolState { id } => {
+            to_binary(&get_pool_state(deps, id)?)
+        },
     }
+}
+
+fn get_pool_state(deps: Deps<OsmosisQuery>, id: u64) -> StdResult<PoolStateResponse> {
+    
+    let msg = OsmosisQuery::PoolState { id };
+    let request: QueryRequest<OsmosisQuery> = OsmosisQuery::into(msg);
+
+    let response: PoolStateResponse = deps.querier.query( &request )?;
+
+    Ok( response )
 }
 
 fn get_denom(deps: Deps<OsmosisQuery>, creator_addr: String, subdenom: String) -> GetDenomResponse {

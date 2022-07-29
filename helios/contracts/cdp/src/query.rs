@@ -1,9 +1,11 @@
-use cosmwasm_std::{Deps, StdResult, Uint128, Addr, StdError, Order, QuerierWrapper, Decimal, to_binary, QueryRequest, WasmQuery};
+use cosmwasm_std::{Deps, StdResult, Uint128, Addr, StdError, Order, QuerierWrapper, Decimal, to_binary, QueryRequest, WasmQuery, Storage, Env};
 use cw_storage_plus::Bound;
-use membrane::{positions::{PropResponse, ConfigResponse, PositionResponse, BasketResponse, PositionsResponse}, types::{Position, Basket, AssetInfo, LiqAsset}, stability_pool::PoolResponse};
+use membrane::{positions::{PropResponse, ConfigResponse, PositionResponse, BasketResponse, PositionsResponse, DebtCapResponse}, types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PriceInfo}, stability_pool::PoolResponse};
 use membrane::stability_pool::{ QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse };
+use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg };
+use osmo_bindings::SpotPriceResponse;
 
-use crate::state::{CONFIG, POSITIONS, REPAY, BASKETS, Config};
+use crate::{state::{CONFIG, POSITIONS, REPAY, BASKETS, Config}, positions::{read_price, get_asset_liquidity}, math::{decimal_multiplication, decimal_division, decimal_subtraction}, ContractError};
 
 
 const MAX_LIMIT: u32 = 31;
@@ -295,4 +297,177 @@ pub fn query_stability_pool_liquidatible(
     }))?;
 
     Ok( query_res.leftover )
+}
+
+//Calculate debt caps
+//They are 
+pub fn query_basket_debt_caps(
+    deps: Deps,
+    env: Env,
+    basket_id: Uint128,
+) -> StdResult<DebtCapResponse>{
+   
+    let config: Config = CONFIG.load( deps.storage )?;
+
+    let basket: Basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
+
+     //Get the Basket's asset ratios
+     let cAsset_ratios = get_cAsset_ratios_imut( deps.storage, env, deps.querier, basket.clone().collateral_types, config.clone())?;
+
+     //Get the debt cap 
+     let debt_cap = get_asset_liquidity( 
+        deps.querier, 
+        config, 
+        basket.debt_pool_ids, 
+        basket.credit_asset.info 
+        )? * basket.debt_liquidity_multiplier_for_caps;
+ 
+     let mut asset_caps = vec![];
+ 
+     for cAsset in cAsset_ratios{
+         asset_caps.push( cAsset * debt_cap );
+     }                       
+ 
+     let mut res = vec![];
+     //Append caps and asset_infos
+     for ( index, asset ) in basket.collateral_types.iter().enumerate(){
+        res.push( format!("{}: {}/{}, ", asset.asset.info, basket.collateral_types[index].debt_total, asset_caps[index]) );
+     }
+     
+     Ok( DebtCapResponse { caps: res } )
+}
+
+fn get_cAsset_ratios_imut(
+    storage: &dyn Storage,
+    env: Env,
+    querier: QuerierWrapper,
+    collateral_assets: Vec<cAsset>,
+    config: Config,
+) -> StdResult<Vec<Decimal>>{
+    let (cAsset_values, cAsset_prices) = get_asset_values_imut(storage, env, querier, collateral_assets.clone(), config)?;
+
+    let total_value: Decimal = cAsset_values.iter().sum();
+
+    //getting each cAsset's % of total value
+    let mut cAsset_ratios: Vec<Decimal> = vec![];
+    for cAsset in cAsset_values{
+        cAsset_ratios.push(cAsset/total_value) ;
+    }
+
+    //Error correction for ratios so we end up w/ least amount undistributed funds
+    let ratio_total: Option<Decimal> = Some(cAsset_ratios.iter().sum());
+
+    if ratio_total.unwrap() != Decimal::percent(100){
+        let mut new_ratios: Vec<Decimal> = vec![];
+        
+        match ratio_total{
+            Some( total ) if total > Decimal::percent(100) => {
+
+                    let margin_of_error = total - Decimal::percent(100);
+
+                    let num_users = Decimal::new(Uint128::from( cAsset_ratios.len() as u128 ));
+
+                    let error_correction = decimal_division( margin_of_error, num_users );
+
+                    new_ratios = cAsset_ratios.into_iter()
+                    .map(|ratio| 
+                        decimal_subtraction( ratio, error_correction )
+                    ).collect::<Vec<Decimal>>();
+                    
+            },
+            Some( total ) if total < Decimal::percent(100) => {
+
+                let margin_of_error = Decimal::percent(100) - total;
+
+                let num_users = Decimal::new(Uint128::from( cAsset_ratios.len() as u128 ));
+
+                let error_correction = decimal_division( margin_of_error, num_users );
+
+                new_ratios = cAsset_ratios.into_iter()
+                        .map(|ratio| 
+                            ratio + error_correction
+                        ).collect::<Vec<Decimal>>();
+            },
+            None => { return Err(StdError::GenericErr { msg: "Input amounts were null".to_string() }) },
+            Some(_) => { /*Unreachable due to if statement*/ },
+        }
+        return Ok( new_ratios )
+    }
+
+    Ok( cAsset_ratios )
+}
+
+
+//Get Asset values / query oracle
+pub fn get_asset_values_imut(
+    storage: &dyn Storage, 
+    env: Env, 
+    querier: QuerierWrapper, 
+    assets: Vec<cAsset>, 
+    config: Config
+) -> StdResult<(Vec<Decimal>, Vec<Decimal>)>
+{
+
+   //Getting proportions for position collateral to calculate avg LTV
+    //Using the index in the for loop to parse through the assets Vec and collateral_assets Vec
+    //, as they are now aligned due to the collateral check w/ the Config's data
+    let mut cAsset_values: Vec<Decimal> = vec![];
+    let mut cAsset_prices: Vec<Decimal> = vec![];
+
+    if config.clone().osmosis_proxy.is_some(){
+
+        for (i, casset) in assets.iter().enumerate() {
+
+        let price_info: PriceInfo = match read_price( storage, &casset.asset.info ){
+            Ok( info ) => { info },
+            Err(_) => { 
+                //Set time to fail in the next check. We don't want the error to stop from querying though
+                PriceInfo {
+                    price: Decimal::zero(),
+                    last_time_updated: env.block.time.plus_seconds( config.oracle_time_limit + 1u64 ).seconds(),
+                } 
+            },
+        }; 
+        let mut valid_price: bool = false;
+        let mut price: Decimal;
+
+        //If last_time_updated hasn't hit the limit set by the config...
+        //..don't query and use the saved price.
+        //Else try to query new price.
+        let time_elapsed: Option<u64> = env.block.time.seconds().checked_sub(price_info.last_time_updated);
+
+        //If its None then the subtraction was negative meaning the initial read_price() errored
+        if time_elapsed.is_some() && time_elapsed.unwrap() <= config.oracle_time_limit{
+            price = price_info.price;
+            valid_price = true;
+        }else{
+
+            //TODO: REPLACE WITH TWAP WHEN RELEASED PLEEEEASSSE, DONT LET THIS BE OUR DOWNFALL
+            price = match querier.query::<SpotPriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+                msg: to_binary(&OsmoQueryMsg::SpotPrice {
+                    asset: casset.asset.info.to_string(),
+                })?,
+            })){
+                Ok( res ) => { res.price },
+                Err( err ) => { 
+                    
+                    if valid_price{
+                        price_info.price
+                    }else{
+                        return Err( err )
+                    }
+                }
+            };
+        }
+        
+        cAsset_prices.push(price);
+        let collateral_value = decimal_multiplication(Decimal::from_ratio(casset.asset.amount, Uint128::new(1u128)), price);
+        cAsset_values.push(collateral_value); 
+        }
+    }
+    
+
+    
+    Ok((cAsset_values, cAsset_prices))
 }

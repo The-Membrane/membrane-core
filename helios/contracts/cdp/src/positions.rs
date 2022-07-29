@@ -4,10 +4,11 @@ use std::str::FromStr;
 
 use cosmwasm_bignumber::Uint256;
 use cosmwasm_std::{MessageInfo, attr, Response, DepsMut, Uint128, CosmosMsg, Decimal, Storage, Api, Coin, to_binary, QueryRequest, WasmQuery, QuerierWrapper, StdResult, StdError, Addr, WasmMsg, BankMsg, SubMsg, coin, Env};
+use cosmwasm_storage::{Bucket, ReadonlyBucket};
 use cw20::Cw20ExecuteMsg;
-use osmo_bindings::SpotPriceResponse;
+use osmo_bindings::{ SpotPriceResponse, PoolStateResponse };
 
-use membrane::{types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistribution, RepayPropagation, LiqAsset}};
+use membrane::{types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistribution, RepayPropagation, LiqAsset, UserInfo, PriceInfo}, positions::CallbackMsg};
 use membrane::positions::ExecuteMsg;
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse, Cw20HookMsg as LQ_Cw20HookMsg};
@@ -16,10 +17,13 @@ use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQue
 
 use crate::{ContractError, state::{REPAY, CONFIG, BASKETS, POSITIONS, Config}, math::{decimal_multiplication, decimal_division, decimal_subtraction}, query::{query_stability_pool_fee, query_stability_pool_liquidatible}};
 
-const LIQ_QUEUE_REPLY_ID: u64 = 1u64;
+pub const LIQ_QUEUE_REPLY_ID: u64 = 1u64;
 pub const STABILITY_POOL_REPLY_ID: u64 = 2u64;
 pub const SELL_WALL_REPLY_ID: u64 = 3u64;
+pub const CREATE_DENOM_REPLY_ID: u64 = 4u64;
+pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
+static PREFIX_PRICE: &[u8] = b"price";
 
 //Deposit collateral to existing position. New or same collateral.
 //Anyone can deposit, to any position. There will be barriers for withdrawals.
@@ -44,7 +48,6 @@ pub fn deposit(
     //This has to error bc users can't withdraw without a price set. Don't want to trap users.
     if basket.credit_price.is_none(){ return Err(ContractError::NoRepaymentPrice {  })}
 
-    
 
     let mut new_position: Position;
 
@@ -53,7 +56,7 @@ pub fn deposit(
        
     match POSITIONS.load(deps.storage, (basket_id.to_string(), valid_owner_addr.clone())){
         
-        //If Some, adds collateral to the position_id or a new position is created            
+        //If Ok, adds collateral to the position_id or a new position is created            
         Ok( positions) => {
 
             //If the user wants to create a new/separate position, no position id is passed         
@@ -66,24 +69,25 @@ pub fn deposit(
 
                     //Go thru each deposited asset to add quantity to position
                     for deposited_cAsset in cAssets.clone(){
-                        let deposited_asset = deposited_cAsset.asset;
+                        let deposited_asset = deposited_cAsset.clone().asset;
 
                         //HAve to reload positions each loop or else the state won't be edited for multiple deposits
                         //We can unwrap and ? safety bc of the layered conditionals
                         let position_s =  POSITIONS.load(deps.storage, (basket_id.to_string(), valid_owner_addr.clone()))?;
                         let existing_position = position_s.clone().into_iter().find(|x| x.position_id == pos_id).unwrap();
 
-                        //Add amount if collateral asset exists in the position
+                        //Search for cAsset in the position then match
                         let temp_cAsset: Option<cAsset> = existing_position.clone().collateral_assets.into_iter().find(|x| x.asset.info.equal(&deposited_asset.clone().info));
 
                         match temp_cAsset {
+                            //If Some, add amount to cAsset in the position
                             Some(cAsset) => {
                                 let new_cAsset = cAsset{
                                     asset: Asset {
                                         amount: cAsset.clone().asset.amount + deposited_asset.clone().amount,
                                         info: cAsset.clone().asset.info,
                                     },
-                                    oracle: cAsset.clone().oracle,
+                                    debt_total: cAsset.clone().debt_total,
                                     max_borrow_LTV: cAsset.clone().max_borrow_LTV,
                                     max_LTV: cAsset.clone().max_LTV,
                                 };
@@ -115,11 +119,10 @@ pub fn deposit(
 
                             },
                             
-                            // //if not, add cAsset to Position if in Basket options
+                            // //if None, add cAsset to Position if in Basket options
                             None => {
-                                let mut assets: Vec<Asset> = Vec::new();
-                                assets.push(deposited_asset.clone());
-                                let new_cAsset = assert_basket_assets(deps.storage, basket_id, assets)?;
+
+                                let new_cAsset = deposited_cAsset.clone();
 
                                 POSITIONS.update(deps.storage, (basket_id.to_string(), valid_owner_addr.clone()), |positions| -> Result<Vec<Position>, ContractError> 
                                 {
@@ -130,9 +133,9 @@ pub fn deposit(
                                     p.collateral_assets.push(
                                         cAsset{
                                             asset: deposited_asset, 
-                                            oracle: new_cAsset[0].clone().oracle,
-                                            max_borrow_LTV:  new_cAsset[0].clone().max_borrow_LTV,
-                                            max_LTV:  new_cAsset[0].clone().max_LTV,                                            
+                                            debt_total: Uint128::zero(),
+                                            max_borrow_LTV:  new_cAsset.clone().max_borrow_LTV,
+                                            max_LTV:  new_cAsset.clone().max_LTV,                                            
                                         }
                                     );
 
@@ -157,12 +160,7 @@ pub fn deposit(
 
             }else{
                 //If user doesn't pass an ID, we create a new position
-                let mut assets: Vec<Asset> = Vec::new();
-                for cAsset in cAssets.clone(){
-                    assets.push(cAsset.asset);
-                }
-
-                new_position = create_position(deps.storage, assets, basket_id)?;
+                new_position = create_position(deps.storage, cAssets.clone(), basket_id)?;
                 
                 //For response
                 new_position_id = new_position.clone().position_id;
@@ -170,12 +168,12 @@ pub fn deposit(
                 //Need to add new position to the old set of positions if a new one was created.
                 POSITIONS.update(deps.storage, (basket_id.to_string(), valid_owner_addr.clone()), |positions| -> Result<Vec<Position>, ContractError> 
                 {
-                    let unwrapped_pos = positions.unwrap();
+                    //We can .unwrap() here bc the initial .load() matched Ok()
+                    let mut update_pos = positions.unwrap();
 
-                    let mut update = unwrapped_pos.clone().into_iter().filter(|x| x.position_id != new_position_id.clone()).collect::<Vec<Position>>();
-                    update.push( new_position );
+                    update_pos.push( new_position );
 
-                    Ok( update )
+                    Ok( update_pos )
 
                 })?;
 
@@ -183,28 +181,19 @@ pub fn deposit(
     
 
         
-    },
-    // If Err() meaning no positions loaded, new position is created 
-    Err(_) => {
-        let mut assets: Vec<Asset> = Vec::new();
-        for cAsset in cAssets.clone(){
-                assets.push(cAsset.asset);
-            }
+        },
+        // If Err() meaning no positions loaded, new position is created 
+        Err(_) => {
 
-            new_position = create_position(deps.storage, assets, basket_id)?;
+            new_position = create_position(deps.storage, cAssets.clone(), basket_id)?;
                 
             //For response
             new_position_id = new_position.clone().position_id;
             
-            //Need to add new position to the old set of positions if a new one was created.
+            //Add new Vec of Positions to state under the user
             POSITIONS.update(deps.storage, (basket_id.to_string(), valid_owner_addr.clone()), |_positions| -> Result<Vec<Position>, ContractError> 
             {
-                let mut update: Vec<Position> = Vec::new();
-
-                //let mut update = unwrapped_pos.clone().into_iter().filter(|x| x.position_id != new_position_id.clone()).collect::<Vec<Position>>();
-                update.push( new_position );
-
-                Ok( update )
+                Ok( vec![ new_position ] )
 
             })?;
         }
@@ -237,6 +226,7 @@ pub fn deposit(
 
 pub fn withdraw(
     deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     position_id: Uint128,
     basket_id: Uint128,
@@ -316,7 +306,7 @@ pub fn withdraw(
                     //If resulting LTV makes the position insolvent, error. If not construct withdrawal_msg
                     if basket.credit_price.is_some(){
                         //This is taking max_borrow_LTV so users can't max borrow and then withdraw to get a higher initial LTV
-                        if insolvency_check(deps.querier, updated_cAsset_list.clone(), target_position.clone().credit_amount, basket.credit_price.unwrap(), true, config.clone())?.0{ 
+                        if insolvency_check(deps.storage, env.clone(), deps.querier, updated_cAsset_list.clone(), target_position.clone().credit_amount, basket.credit_price.unwrap(), true, config.clone())?.0{ 
                             return Err(ContractError::PositionInsolvent {  })
                         }else{
                             
@@ -392,26 +382,29 @@ pub fn withdraw(
 
 pub fn repay(
     storage: &mut dyn Storage,
+    querier: QuerierWrapper,
     api: &dyn Api,
+    env: Env,
     info: MessageInfo,
     basket_id: Uint128,
     position_id: Uint128,
     position_owner: Option<String>,
     credit_asset: Asset,
 ) ->Result<Response, ContractError>{
+    let config: Config = CONFIG.load( storage )?;
     
     let basket: Basket = match BASKETS.load(storage, basket_id.to_string()) {
         Err(_) => { return Err(ContractError::NonExistentBasket {  })},
         Ok( basket ) => { basket },
     };
-    
-    if basket_id != Uint128::new(1) { panic!() }
-
+        
     if basket.credit_price.is_none(){
         return Err(ContractError::NoRepaymentPrice {  })
     }
 
     let valid_owner_addr = validate_position_owner(api, info.clone(), position_owner)?;
+    let target_position = get_target_position(storage, basket_id, valid_owner_addr.clone(), position_id)?;
+
     let response = Response::new();
     
     let mut total_loan: Decimal = Decimal::percent(0);
@@ -470,7 +463,7 @@ pub fn repay(
                                 ..position
                             }
                          );
-
+                       
                         update
 
 
@@ -489,6 +482,9 @@ pub fn repay(
             }
     
     })?;
+
+     //Subtract paid debt from debt-per-asset tallies
+     update_basket_debt( storage, env, querier, config, basket_id, target_position.collateral_assets, credit_asset.amount, false )?;
     
     Ok( response.add_attributes(vec![
         attr("method", "repay".to_string() ),
@@ -503,6 +499,7 @@ pub fn repay(
 //2) Send position collateral + fee
 pub fn liq_repay(
     deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     credit_asset: Asset,
 ) ->Result<Response, ContractError>
@@ -538,14 +535,14 @@ pub fn liq_repay(
     let repay_propagation = REPAY.load(deps.storage)?;
 
    //Position repayment
-    let res = match repay(deps.storage, deps.api, info.clone(), repay_propagation.clone().basket_id, repay_propagation.clone().position_id, Some(repay_propagation.clone().position_owner.to_string()), credit_asset.clone() ){
+    let res = match repay(deps.storage, deps.querier, deps.api, env.clone(), info.clone(), repay_propagation.clone().basket_id, repay_propagation.clone().position_id, Some(repay_propagation.clone().position_owner.to_string()), credit_asset.clone() ){
         Ok( res ) => { res },
         Err( e ) => { return Err( e )  }
     };
 
     
-    let cAsset_ratios = get_cAsset_ratios(deps.querier, target_position.clone().collateral_assets, config.clone())?;
-    let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices) = get_avg_LTV(deps.querier, target_position.clone().collateral_assets, config.clone())?;
+    let cAsset_ratios = get_cAsset_ratios(deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, config.clone())?;
+    let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices) = get_avg_LTV(deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, config.clone())?;
 
     let repay_value = decimal_multiplication(Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128)), basket.credit_price.unwrap());
 
@@ -659,6 +656,7 @@ pub fn liq_repay(
 
 pub fn increase_debt(
     deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     basket_id: Uint128,
     position_id: Uint128,
@@ -683,6 +681,11 @@ pub fn increase_debt(
     };
     let decimal_amount: Decimal = Decimal::from_ratio(amount, Uint128::new(1u128));
     let total_credit = target_position.credit_amount + decimal_amount;
+
+    //Test for minimum debt requirements
+    if decimal_multiplication( total_credit, basket.credit_price.unwrap() ) < config.debt_minimum{
+        return Err( ContractError::CustomError { val: "Total debt below minimum".to_string() })
+    }
     
     let message: CosmosMsg;
 
@@ -692,7 +695,7 @@ pub fn increase_debt(
         //If resulting LTV makes the position insolvent, error. If not construct mint msg
         //credit_value / asset_value > avg_LTV
                 
-        if insolvency_check(deps.querier, target_position.collateral_assets, total_credit, basket.credit_price.unwrap(), true, config.clone())?.0 { 
+        if insolvency_check( deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, total_credit, basket.credit_price.unwrap(), true, config.clone())?.0 { 
             return Err(ContractError::PositionInsolvent {  })
         }else{
             
@@ -729,6 +732,9 @@ pub fn increase_debt(
 
                     None => return Err(ContractError::NoUserPositions {  })
             }})?;
+
+            //Add new debt to debt-per-asset tallies
+            update_basket_debt( deps.storage, env, deps.querier, config, basket_id, target_position.collateral_assets, amount, true )?;
             }
             
         }else{
@@ -752,7 +758,9 @@ pub fn increase_debt(
 //Then sends liquidation messages to the modules if they have funds
 //If not, sell wall
 pub fn liquidate(
-    deps: DepsMut,
+    storage: &mut dyn Storage,
+    api: &dyn Api,
+    querier: QuerierWrapper,
     env: Env,
     info: MessageInfo,
     basket_id: Uint128,
@@ -762,26 +770,18 @@ pub fn liquidate(
     
     //TODO: Add batch liquidations so we don't need to do minimum fee bonuses for small accounts
 
-    let config: Config = CONFIG.load(deps.storage)?;
+    let config: Config = CONFIG.load(storage)?;
 
-    let basket: Basket= match BASKETS.load(deps.storage, basket_id.to_string()) {
+    let basket: Basket= match BASKETS.load(storage, basket_id.to_string()) {
         Err(_) => { return Err(ContractError::NonExistentBasket {  })},
         Ok( basket ) => { basket },
     };
-    let valid_position_owner = validate_position_owner(deps.api, info.clone(), Some(position_owner.clone()))?;
+    let valid_position_owner = validate_position_owner(api, info.clone(), Some(position_owner.clone()))?;
 
-    let positions: Vec<Position> = match POSITIONS.load(deps.storage, (basket_id.to_string(), valid_position_owner.clone())){
-        Err(_) => {  return Err(ContractError::NoUserPositions {  }) },
-        Ok( positions ) => { positions },
-    };
-
-    let target_position = match positions.into_iter().find(|x| x.position_id == position_id) {
-        Some(position) => position,
-        None => return Err(ContractError::NonExistentPosition {  }) 
-    };
+    let target_position = get_target_position( storage, basket_id, valid_position_owner.clone(), position_id )?;
 
     //Check position health comparative to max_LTV
-    let (unhealthy, current_LTV) = insolvency_check(deps.querier, target_position.clone().collateral_assets, target_position.clone().credit_amount, basket.credit_price.unwrap(), false, config.clone())?;
+    let (unhealthy, current_LTV) = insolvency_check( storage, env.clone(), querier, target_position.clone().collateral_assets, target_position.clone().credit_amount, basket.credit_price.unwrap(), false, config.clone())?;
     //TODO: Delete
     let unhealthy = true;
     let current_LTV = Decimal::percent(90);
@@ -792,7 +792,7 @@ pub fn liquidate(
     //Send liquidation amounts and info to the modules
     //1) We need to calculate how much needs to be liquidated (down to max_borrow_LTV): 
     
-    let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices) = get_avg_LTV(deps.querier, target_position.clone().collateral_assets, config.clone())?;
+    let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices) = get_avg_LTV( storage, env.clone(), querier, target_position.clone().collateral_assets, config.clone())?;
     
     
     // max_borrow_LTV/ current_LTV, * current_loan_value, current_loan_value - __ = value of loan amount  
@@ -822,7 +822,7 @@ pub fn liquidate(
     let mut submessages = vec![];
     let mut fee_messages: Vec<CosmosMsg> = vec![];
     
-    let cAsset_ratios = get_cAsset_ratios(deps.querier, target_position.clone().collateral_assets, config.clone())?;
+    let cAsset_ratios = get_cAsset_ratios( storage, env.clone(), querier, target_position.clone().collateral_assets, config.clone())?;
 
     //Dynamic fee that goes to the caller (info.sender): current_LTV - max_LTV
     let caller_fee = decimal_subtraction(current_LTV, avg_max_LTV);
@@ -855,11 +855,11 @@ pub fn liquidate(
         
         //Subtract caller fee from Position's claims
         let caller_fee_in_collateral_amount = decimal_multiplication(collateral_amount, caller_fee) * Uint128::new(1u128);
-        update_position_claims(deps.storage, basket_id, position_id, valid_position_owner.clone(),  cAsset.clone().asset.info, caller_fee_in_collateral_amount)?;
+        update_position_claims(storage, basket_id, position_id, valid_position_owner.clone(),  cAsset.clone().asset.info, caller_fee_in_collateral_amount)?;
 
         //Subtract Protocol fee from Position's claims
         let protocol_fee_in_collateral_amount = decimal_multiplication(collateral_amount, config.clone().liq_fee) * Uint128::new(1u128);
-        update_position_claims(deps.storage, basket_id, position_id, valid_position_owner.clone(),  cAsset.clone().asset.info, protocol_fee_in_collateral_amount)?;
+        update_position_claims(storage, basket_id, position_id, valid_position_owner.clone(),  cAsset.clone().asset.info, protocol_fee_in_collateral_amount)?;
 
         //panic!("{}, {}", caller_fee_in_collateral_amount, protocol_fee_in_collateral_amount );
 
@@ -939,7 +939,7 @@ pub fn liquidate(
          /////////////LiqQueue calls//////
         if basket.clone().liq_queue.is_some(){
 
-            let res: LQ_LiquidatibleResponse = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+            let res: LQ_LiquidatibleResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: basket.clone().liq_queue.unwrap().to_string(),
                 msg: to_binary(
                     &LQ_QueryMsg::CheckLiquidatible {
@@ -986,7 +986,6 @@ pub fn liquidate(
                 funds: vec![],
             });
             
-
             //Convert to submsg
             let sub_msg: SubMsg = SubMsg::reply_always(msg, LIQ_QUEUE_REPLY_ID);
 
@@ -1002,7 +1001,7 @@ pub fn liquidate(
     //Build SubMsgs to send to the Stability Pool
     if config.clone().stability_pool.is_some(){ 
 
-        let sp_liq_fee = query_stability_pool_fee( deps.querier, config.clone(), basket.clone() )?;
+        let sp_liq_fee = query_stability_pool_fee( querier, config.clone(), basket.clone() )?;
 
         //If LTV is 90% and the fees are 10%, the position would pay everything to pay the liquidators. 
         //So above that, the liquidators are losing the premium guarantee.
@@ -1014,7 +1013,7 @@ pub fn liquidate(
 
             //Go straight to sell wall
             let ( sell_wall_msgs, collateral_distributions ) = sell_wall( 
-                deps.storage, 
+                storage, 
                 target_position.clone().collateral_assets, 
                 cAsset_ratios.clone(), 
                 sell_wall_repayment_amount, 
@@ -1046,7 +1045,7 @@ pub fn liquidate(
                 positions_contract: env.clone().contract.address,
             };
 
-            REPAY.save(deps.storage, &repay_propagation)?;
+            REPAY.save(storage, &repay_propagation)?;
             
         }else{
             
@@ -1054,7 +1053,7 @@ pub fn liquidate(
             //If no funds, go directly to the sell wall
             let leftover_repayment = 
                         query_stability_pool_liquidatible(
-                            deps.querier, 
+                            querier, 
                             config.clone(), 
                             liq_queue_leftover_credit_repayment,
                              basket.clone().credit_asset.info
@@ -1067,7 +1066,7 @@ pub fn liquidate(
 
                //Sell wall remaining
                let ( sell_wall_msgs, distributions ) = sell_wall( 
-                deps.storage, 
+                storage, 
                 target_position.clone().collateral_assets, 
                 cAsset_ratios.clone(), 
                 sell_wall_repayment_amount, 
@@ -1105,7 +1104,7 @@ pub fn liquidate(
                 positions_contract: env.clone().contract.address,
             };
 
-            REPAY.save(deps.storage, &repay_propagation)?;
+            REPAY.save(storage, &repay_propagation)?;
 
             ///////////////////
 
@@ -1144,7 +1143,24 @@ pub fn liquidate(
         }
     }
 
-    //panic!("{}", leftover_position_value);
+    //Add the Bad debt callback message as the last SubMsg
+    let msg = CosmosMsg::Wasm(
+            WasmMsg::Execute {
+                 contract_addr: env.contract.address.to_string(), 
+                 msg: to_binary(&ExecuteMsg::Callback(
+                        CallbackMsg::BadDebtCheck{
+                            basket_id,
+                            position_id,
+                            position_owner: valid_position_owner.clone(),
+                        }
+                 ))?, 
+                 funds: vec![] 
+                }
+    );
+    //Not replying for this, the logic needed will be handled in the callback
+    //Replying on Error is just so an Error doesn't cancel transaction
+    let call_back = SubMsg::reply_on_error( msg, BAD_DEBT_REPLY_ID );
+
 
     //If the SP hasn't repaid everything the liq_queue hasn't AND the value of the position is <= the value that needs to be repaid...
     //..sell wall everything from the start, don't go through either module. 
@@ -1155,7 +1171,7 @@ pub fn liquidate(
         //Sell wall credit_repay_amount
         //The other submessages were for the LQ and SP so we reassign the submessage variable
         let ( sell_wall_msgs, collateral_distributions ) = sell_wall( 
-            deps.storage, 
+            storage, 
             target_position.clone().collateral_assets, 
             cAsset_ratios.clone(), 
             credit_repay_amount, 
@@ -1184,18 +1200,20 @@ pub fn liquidate(
             positions_contract: env.clone().contract.address,
         };
 
-        REPAY.save(deps.storage, &repay_propagation)?;
+        REPAY.save(storage, &repay_propagation)?;
 
         Ok (       
             res.add_messages( fee_messages )
             .add_submessages(submessages)
+            .add_submessage( call_back )
         )
 
     }else{
 
         Ok( res
             .add_messages( fee_messages )
-            .add_submessages( submessages ) 
+            .add_submessages( submessages )
+            .add_submessage( call_back )
         )
 
     }
@@ -1210,11 +1228,12 @@ pub fn create_basket(
     collateral_types: Vec<cAsset>,
     credit_asset: Asset,
     credit_price: Option<Decimal>,
-    credit_interest: Option<Decimal>
+    credit_interest: Option<Decimal>,
 ) -> Result<Response, ContractError>{
     let mut config: Config = CONFIG.load(deps.storage)?;
 
     let valid_owner: Addr = validate_position_owner(deps.api, info.clone(), owner)?;
+
 
     //Only contract owner can create new baskets. This can be governance.
     if info.sender != config.owner{
@@ -1237,11 +1256,28 @@ pub fn create_basket(
         basket_id: config.current_basket_id.clone(),
         current_position_id: Uint128::from(1u128),
         collateral_types: new_cAssets,
+        collateral_debt_caps: vec![],
         credit_asset: credit_asset.clone(),
         credit_price,
         credit_interest,
+        debt_pool_ids: vec![],
+        debt_liquidity_multiplier_for_caps: Decimal::one(),
         liq_queue: None,
     };
+
+    let mut subdenom: String;
+    let sub_msg: SubMsg;
+
+    if let AssetInfo::NativeToken { denom } = credit_asset.clone().info {
+         //Create credit as native token using a tokenfactory proxy
+        sub_msg = create_denom( config.clone(), String::from(denom.clone()), new_basket.basket_id.to_string() )?;
+
+        subdenom = denom;
+    }else{
+        return Err( ContractError::CustomError { val: "Can't create a basket without creating a native token denom".to_string() } )
+    }
+   
+
 
     BASKETS.update(deps.storage, new_basket.basket_id.to_string(), |basket| -> Result<Basket, ContractError>{
         match basket{
@@ -1271,14 +1307,16 @@ pub fn create_basket(
         None => { "None".to_string() },
     };
 
+
     Ok(response.add_attributes(vec![
         attr("method", "create_basket"),
         attr("basket_id", config.current_basket_id.to_string()),
         attr("position_owner", valid_owner.to_string()),
         attr("credit_asset", credit_asset.to_string() ),
+        attr("credit_subdenom", subdenom),
         attr("credit_price", price),
         attr("credit_interest", interest),
-    ]))
+    ]).add_submessage(sub_msg))
 }
 
 pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. Can only add cAssets. Can edit owner. Credit price can only be chaged thru the accrue function, but credit_interest is mutable here.
@@ -1289,6 +1327,8 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
     owner: Option<String>,
     credit_interest: Option<Decimal>,
     liq_queue: Option<String>,
+    pool_ids: Option<Vec<u64>>,
+    liquidity_multiplier: Option<Decimal>,
 )->Result<Response, ContractError>{
 
     let new_owner: Option<Addr>;
@@ -1321,6 +1361,12 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                     }
                     if liq_queue.is_some(){
                         basket.liq_queue = new_queue.clone();
+                    }
+                    if pool_ids.is_some(){
+                        basket.debt_pool_ids = pool_ids.clone().unwrap();
+                    }
+                    if liquidity_multiplier.is_some(){
+                        basket.debt_liquidity_multiplier_for_caps = liquidity_multiplier.clone().unwrap();
                     }
                 }
 
@@ -1377,7 +1423,7 @@ pub fn edit_contract_owner(
 //create_position = check collateral types, create position object
 pub fn create_position(
     deps: &mut dyn Storage,
-    assets: Vec<Asset>, //Assets being added into the position
+    cAssets: Vec<cAsset>, //Assets being added into the position
     basket_id: Uint128,
 ) -> Result<Position, ContractError> {
 
@@ -1385,9 +1431,6 @@ pub fn create_position(
         Err(_) => { return Err(ContractError::NonExistentBasket {  })},
         Ok( basket ) => { basket },
     };
-
-    //Assert assets are in the basket
-    let collateral_assets: Vec<cAsset> = assert_basket_assets(deps, basket_id, assets)?;
 
     //increment config id
     BASKETS.update(deps, basket_id.to_string(),|basket| -> Result<_, ContractError> {
@@ -1406,7 +1449,7 @@ pub fn create_position(
 
     new_position = Position {
         position_id: basket.current_position_id,
-        collateral_assets,
+        collateral_assets: cAssets,
         avg_borrow_LTV: Decimal::zero(),
         avg_max_LTV: Decimal::zero(),
         credit_amount: Decimal::zero(),
@@ -1420,6 +1463,7 @@ pub fn create_position(
 
 pub fn sell_wall_using_ids(
     storage: &mut dyn Storage,
+    env: Env,
     querier: QuerierWrapper,
     basket_id: Uint128,
     position_id: Uint128,
@@ -1438,7 +1482,7 @@ pub fn sell_wall_using_ids(
         None => return Err( StdError::NotFound { kind: "Position".to_string() } )
     };
 
-    let cAsset_ratios  = get_cAsset_ratios( querier, target_position.clone().collateral_assets, config )?;
+    let cAsset_ratios  = get_cAsset_ratios( storage, env, querier, target_position.clone().collateral_assets, config )?;
 
     match sell_wall(
         storage, 
@@ -1642,12 +1686,14 @@ pub fn assert_credit(credit: Option<Uint128>) -> StdResult<Uint128>{
 }
 
 pub fn get_avg_LTV(
-    deps: QuerierWrapper, 
+    storage: &mut dyn Storage,
+    env: Env,
+    querier: QuerierWrapper, 
     collateral_assets: Vec<cAsset>,
     config: Config,
 )-> StdResult<(Decimal, Decimal, Decimal, Vec<Decimal>)>{
 
-    let (cAsset_values, cAsset_prices) = get_asset_values(deps, collateral_assets.clone(), config)?;
+    let (cAsset_values, cAsset_prices) = get_asset_values(storage, env, querier, collateral_assets.clone(), config)?;
 
     //panic!("{}", cAsset_values.len());
 
@@ -1685,11 +1731,13 @@ pub fn get_avg_LTV(
 }
 
 pub fn get_cAsset_ratios(
-    deps: QuerierWrapper,
+    storage: &mut dyn Storage,
+    env: Env,
+    querier: QuerierWrapper,
     collateral_assets: Vec<cAsset>,
     config: Config,
 ) -> StdResult<Vec<Decimal>>{
-    let (cAsset_values, cAsset_prices) = get_asset_values(deps, collateral_assets.clone(), config)?;
+    let (cAsset_values, cAsset_prices) = get_asset_values(storage, env, querier, collateral_assets.clone(), config)?;
 
     let total_value: Decimal = cAsset_values.iter().sum();
 
@@ -1744,7 +1792,9 @@ pub fn get_cAsset_ratios(
 
 
 pub fn insolvency_check( //Returns true if insolvent
-    deps: QuerierWrapper,
+    storage: &mut dyn Storage,
+    env: Env,
+    querier: QuerierWrapper,
     collateral_assets: Vec<cAsset>,
     credit_amount: Decimal,
     credit_price: Decimal,
@@ -1757,7 +1807,7 @@ pub fn insolvency_check( //Returns true if insolvent
         return Ok( (true, Decimal::percent(100)) )
     }
     
-    let avg_LTVs: (Decimal, Decimal, Decimal, Vec<Decimal>) = get_avg_LTV(deps, collateral_assets, config)?;
+    let avg_LTVs: (Decimal, Decimal, Decimal, Vec<Decimal>) = get_avg_LTV(storage, env, querier, collateral_assets, config)?;
     
     //TODO: Change, this is solely for testing. This would liquidate anyone anytime oracles failed.
     //Returns insolvent if oracle's failed
@@ -1784,14 +1834,14 @@ pub fn insolvency_check( //Returns true if insolvent
 }
 
 pub fn assert_basket_assets(
-    deps: &mut dyn Storage,
+    storage: &mut dyn Storage,
     basket_id: Uint128,
     assets: Vec<Asset>,
-
+    add_to_cAsset: bool,
 ) -> Result<Vec<cAsset>, ContractError> {
     //let config: Config = CONFIG.load(deps)?;
 
-    let basket: Basket= match BASKETS.load(deps, basket_id.to_string()) {
+    let basket: Basket= match BASKETS.load(storage, basket_id.to_string()) {
         Err(_) => { return Err(ContractError::NonExistentBasket {  })},
         Ok( basket ) => { basket },
     };
@@ -1801,7 +1851,7 @@ pub fn assert_basket_assets(
     let mut valid = false;
     let mut collateral_assets: Vec<cAsset> = Vec::new();
     
-    //TODO: if multi-asset sends arent't possible, will need to change this
+    
     for asset in assets {
        for cAsset in basket.clone().collateral_types{
         match (asset.clone().info, cAsset.asset.info){
@@ -1833,9 +1883,63 @@ pub fn assert_basket_assets(
         }
         valid = false;
     }
+
+    //Add valid asset amounts to running basket total
+    //This is done before deposit() so if that errors this will revert as well
+    update_basket_tally( storage, basket_id, collateral_assets.clone(), add_to_cAsset)?;
+
     Ok(collateral_assets)
 }
 
+fn update_basket_tally(
+    storage: &mut dyn Storage,
+    basket_id: Uint128,
+    collateral_assets: Vec<cAsset>,
+    add_to_cAsset: bool,
+)-> Result<(), ContractError>{
+
+    BASKETS.update(storage, basket_id.to_string(), | basket | -> Result<Basket, ContractError> {
+        match basket{
+
+            Some( mut basket ) => {
+                
+                for cAsset in collateral_assets.iter(){
+
+                    basket.collateral_types = basket.clone().collateral_types
+                        .into_iter()
+                        .map(| mut asset | {
+                            //Add or subtract deposited amount to/from the correlated cAsset object
+                            if asset.asset.info.equal(&cAsset.asset.info){
+                                if add_to_cAsset {                                 
+                                     
+                                    asset.asset.amount += cAsset.asset.amount;
+                                 }else{
+
+                                    match asset.asset.amount.checked_sub( cAsset.asset.amount ){
+                                        Ok( difference ) => {
+                                            asset.asset.amount = difference;
+                                        },
+                                        Err(_) => {
+                                            //Don't subtract bc it'll end up being an invalid withdrawal error anyway
+                                            //Can't return an Error here without inferring the map return type
+                                        }
+                                    };
+                                 } 
+                                 
+                             }                            
+                            asset
+                        }).collect::<Vec<cAsset>>();
+                }
+
+                Ok( basket )
+            },
+            //None should be unreachable 
+            None => { return Err( ContractError::NonExistentBasket {  } )},
+        }
+    })?;
+
+    Ok(())
+}
 
 //Validate Recipient
 pub fn validate_position_owner(
@@ -1880,41 +1984,99 @@ pub fn assert_sent_native_token_balance(
     Ok( asset )
 }
 
+pub fn store_price(
+    storage: &mut dyn Storage,
+    asset_token: &AssetInfo,
+    price: &PriceInfo,
+) -> StdResult<()> {
+    let mut price_bucket: Bucket<PriceInfo> = Bucket::new(storage, PREFIX_PRICE);
+    price_bucket.save( &to_binary(asset_token)?, price)
+}
+
+pub fn read_price(
+    storage: &dyn Storage,
+    asset_token: &AssetInfo,
+) -> StdResult<PriceInfo> {
+    let price_bucket: ReadonlyBucket<PriceInfo> = ReadonlyBucket::new(storage, PREFIX_PRICE);
+    price_bucket.load(&to_binary(asset_token)?)
+}
+
 //Get Asset values / query oracle
-pub fn get_asset_values(querier: QuerierWrapper, assets: Vec<cAsset>, config: Config) -> StdResult<(Vec<Decimal>, Vec<Decimal>)>
+pub fn get_asset_values(
+    storage: &mut dyn Storage, 
+    env: Env, 
+    querier: QuerierWrapper, 
+    assets: Vec<cAsset>, 
+    config: Config
+) -> StdResult<(Vec<Decimal>, Vec<Decimal>)>
 {
 
    //Getting proportions for position collateral to calculate avg LTV
     //Using the index in the for loop to parse through the assets Vec and collateral_assets Vec
     //, as they are now aligned due to the collateral check w/ the Config's data
-    let mut cAsset_values: Vec<Decimal> = Vec::new();
-    let mut cAsset_prices: Vec<Decimal> = Vec::new();
+    let mut cAsset_values: Vec<Decimal> = vec![];
+    let mut cAsset_prices: Vec<Decimal> = vec![];
 
     if config.clone().osmosis_proxy.is_some(){
 
-        for (i,n) in assets.iter().enumerate() {
+        for (i, casset) in assets.iter().enumerate() {
 
-        //TODO: REPLACE WITH TWAP WHEN RELEASED PLEEEEASSSE, DONT LET THIS BE OUR DOWNFALL
-        let res: SpotPriceResponse = match querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+        let price_info: PriceInfo = match read_price( storage, &casset.asset.info ){
+            Ok( info ) => { info },
+            Err(_) => { 
+                //Set time to fail in the next check. We don't want the error to stop from querying though
+                PriceInfo {
+                    price: Decimal::zero(),
+                    last_time_updated: env.block.time.plus_seconds( config.oracle_time_limit + 1u64 ).seconds(),
+                } 
+            },
+        }; 
+        let mut valid_price: bool = false;
+        let mut price: Decimal;
+
+        //If last_time_updated hasn't hit the limit set by the config...
+        //..don't query and use the saved price.
+        //Else try to query new price.
+        let time_elapsed: Option<u64> = env.block.time.seconds().checked_sub(price_info.last_time_updated);
+
+        //If its None then the subtraction was negative meaning the initial read_price() errored
+        if time_elapsed.is_some() && time_elapsed.unwrap() <= config.oracle_time_limit{
+            price = price_info.price;
+            valid_price = true;
+        }else{
+
+            //TODO: REPLACE WITH TWAP WHEN RELEASED PLEEEEASSSE, DONT LET THIS BE OUR DOWNFALL
+            price = match querier.query::<SpotPriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
                 msg: to_binary(&OsmoQueryMsg::SpotPrice {
-                    asset: assets[i].asset.info.to_string(),
+                    asset: casset.asset.info.to_string(),
                 })?,
             })){
-                Ok( res ) => { 
-                    res },
-                Err( err ) => { return Err( err )}
+                Ok( res ) => { res.price },
+                Err( err ) => { 
+                    
+                    if valid_price{
+                        price_info.price
+                    }else{
+                        return Err( err )
+                    }
+                }
             };
 
-            cAsset_prices.push(res.price);
-            let collateral_value = decimal_multiplication(Decimal::from_ratio(assets[i].asset.amount, Uint128::new(1u128)), res.price);
-            cAsset_values.push(collateral_value); 
-
-
+            store_price(
+                storage, 
+                &casset.asset.info, 
+                &PriceInfo {
+                    price,
+                    last_time_updated: env.block.time.seconds(),    
+                }
+            )?;
         }
-    }else{
-        //TODO: Delete full else block. For contact tests.
-        return Ok( (vec![Decimal::one()], vec![Decimal::one()]) )
+        
+        cAsset_prices.push(price);
+        let collateral_value = decimal_multiplication(Decimal::from_ratio(casset.asset.amount, Uint128::new(1u128)), price);
+        cAsset_values.push(collateral_value); 
+        }
     }
     
 
@@ -1966,7 +2128,243 @@ pub fn update_position_claims(
             None => { return Err(StdError::GenericErr { msg: "Invalid position owner".to_string() }) }
         }
     })?;
+    
+    //Subtract liquidated amount from total asset tally
+    let collateral_assets = vec![
+            cAsset { 
+                asset: Asset { info: liquidated_asset, amount: liquidated_amount }, 
+                debt_total: Uint128::zero(),
+                max_borrow_LTV: Decimal::zero(), 
+                max_LTV: Decimal::zero()
+            }
+    ];
+    match update_basket_tally(storage, basket_id, collateral_assets, false){
+        Ok( res ) => {},
+        Err( err ) => return Err( StdError::GenericErr { msg: err.to_string() } )
+    };
 
     Ok(())
 }
+
+ fn get_cAsset_caps(
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    //These are Basket specific fields
+    credit_info: AssetInfo,
+    collateral_assets: Vec<cAsset>, 
+    liquidity_multiplier: Decimal,
+    pool_ids: Vec<u64>,
+ )-> Result<Vec<Uint128>, ContractError>{
+
+    let config: Config = CONFIG.load( storage )?;
+
+    //Get the Basket's asset ratios
+    let cAsset_ratios = get_cAsset_ratios(storage, env, querier, collateral_assets, config.clone())?;
+
+    //Get the debt cap 
+    let debt_cap = get_asset_liquidity( querier, config, pool_ids, credit_info )? * liquidity_multiplier;
+
+    let mut asset_caps = vec![];
+
+    for cAsset in cAsset_ratios{
+
+        asset_caps.push( cAsset * debt_cap );
+    }                       
+
+    //Save these to the basket when returned. For queries.
+    Ok( asset_caps )
+ }
+
+ pub fn get_asset_liquidity(
+    querier: QuerierWrapper,
+    config: Config,
+    pool_ids: Vec<u64>,
+    asset_info: AssetInfo,
+ )-> StdResult<Uint128>{
+
+    //Assumption that credit is a native token
+    let mut denom = String::from("");
+    if let AssetInfo::NativeToken { denom: denomination } = asset_info{
+        denom = denomination
+    };
+
+    let mut total_pooled = Uint128::zero();
+
+    if config.clone().osmosis_proxy.is_some(){
+
+        for id in pool_ids{
+
+            let res: PoolStateResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+                msg: to_binary(&OsmoQueryMsg::PoolState {   
+                    id,
+                })?,
+            }))?;
+
+
+            let pooled_amount = res.assets
+                                .into_iter()
+                                .filter(|coin| {
+                                coin.denom == denom
+                                }).collect::<Vec<Coin>>()
+                                [0].amount;
+
+            total_pooled += pooled_amount;
+
+        }
+
+        
+    }else{
+        return Err( StdError::GenericErr { msg: "No proxy contract setup".to_string() })
+    }
+
+   Ok( total_pooled )
+
+ }
+
+ fn update_basket_debt(
+     storage: &mut dyn Storage,
+     env: Env,
+     querier: QuerierWrapper,
+     config: Config,
+     basket_id: Uint128,
+     collateral_assets: Vec<cAsset>,
+     credit_amount: Uint128,
+     add_to_debt: bool,
+ )-> Result<(), ContractError>{
+
+    let basket: Basket = match BASKETS.load( storage, basket_id.to_string()) {
+        Err(_) => { return Err(ContractError::NonExistentBasket {  })},
+        Ok( basket ) => { basket },
+    };
+
+    //Save the debt distribution per asset to a Vec
+    let cAsset_ratios = get_cAsset_ratios(storage, env.clone(), querier, collateral_assets.clone(), config)?;
+
+    let mut asset_debt = vec![];
+
+    for asset in cAsset_ratios{
+        asset_debt.push( asset*credit_amount );
+    }
+
+    let mut over_cap = false;
+    let mut assets_over_cap = vec!{};
+    //Calculate debt per asset caps
+    let cAsset_caps = get_cAsset_caps(
+            storage, 
+            querier, 
+            env, 
+            basket.credit_asset.info, 
+            collateral_assets.clone(), 
+            basket.debt_liquidity_multiplier_for_caps, 
+            basket.debt_pool_ids,
+        )?;
+ 
+     BASKETS.update(storage, basket_id.to_string(), | basket | -> Result<Basket, ContractError> {
+         match basket{
+ 
+             Some( mut basket ) => {
+                 
+                 for ( index, cAsset ) in collateral_assets.iter().enumerate(){
+ 
+                     basket.collateral_types = basket.clone().collateral_types
+                         .into_iter()
+                         .map(| mut asset | {
+                             //Add or subtract deposited amount to/from the correlated cAsset object
+                             if asset.asset.info.equal(&cAsset.asset.info){
+                                if add_to_debt {               
+                                    
+                                    //Assert its not over the cap
+                                    if ( asset.debt_total + asset_debt[index] ) < cAsset_caps[index]{
+                                        asset.debt_total += asset_debt[index];
+                                    }else{
+                                        over_cap = true;
+                                        assets_over_cap.push( asset.asset.info.to_string() );
+                                    }
+
+                                 }else{
+
+                                    match  asset.debt_total.checked_sub( asset_debt[index] ){
+                                        Ok( difference ) => {
+                                            asset.debt_total = difference;
+                                        },
+                                        Err(_) => {
+                                            //Don't subtract bc it'll end up being an invalid withdrawal error anyway
+                                            //Can't return an Error here without inferring the map return type
+                                        }
+                                    };
+                                 } 
+                                 
+                             }
+                             
+                             asset
+                         }).collect::<Vec<cAsset>>();
+                 }
+ 
+                 Ok( basket )
+             },
+             //None should be unreachable 
+             None => { return Err( ContractError::NonExistentBasket {  } )},
+         }
+     })?;
+
+     //Error if over the asset cap
+     if over_cap{
+        let mut assets = String::from("");
+
+        assets_over_cap.into_iter().map(|asset| {
+                assets += &format!("{} ", asset);
+        });
+
+        return Err( ContractError::CustomError { val: format!("This increase of debt sets [ {} ] assets above the protocol debt cap", assets) } )
+    }
+ 
+     Ok(())
+ }
+
+ fn get_target_position(
+    storage: &dyn Storage,
+    basket_id: Uint128,
+    valid_position_owner: Addr,
+    position_id: Uint128,
+ )-> Result<Position, ContractError>{
+
+    let positions: Vec<Position> = match POSITIONS.load(storage, (basket_id.to_string(), valid_position_owner.clone())){
+        Err(_) => {  return Err(ContractError::NoUserPositions {  }) },
+        Ok( positions ) => { positions },
+    };
+
+    match positions.into_iter().find(|x| x.position_id == position_id) {
+        Some(position) => Ok( position ),
+        None => return Err(ContractError::NonExistentPosition {  }) 
+    }
+
+ }
+
+ fn create_denom(
+    config: Config,
+    subdenom: String,
+    basket_id: String,
+ )-> StdResult<SubMsg>{
+    
+    if config.osmosis_proxy.is_some(){
+
+        let message = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.osmosis_proxy.unwrap().to_string(),
+            msg: to_binary(
+                    &OsmoExecuteMsg::CreateDenom { 
+                        subdenom,
+                        basket_id,
+                     })?,
+            funds: vec![],
+        });
+        
+        return Ok( SubMsg::reply_on_success(message, CREATE_DENOM_REPLY_ID));
+
+    }
+    return Err( StdError::GenericErr { msg: "No osmosis proxy added to the config yet".to_string() } )
+
+ }
+
 

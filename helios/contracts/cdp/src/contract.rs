@@ -10,22 +10,20 @@ use cw2::set_contract_version;
 use cw20::{Cw20ReceiveMsg, Cw20ExecuteMsg};
 use cw_storage_plus::Bound;
 use cosmwasm_bignumber::{ Uint256, Decimal256 };
-
+use osmo_bindings::{ SpotPriceResponse, OsmosisMsg, FullDenomResponse, OsmosisQuery };
 
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
-
-use membrane::positions::{ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, PositionResponse, PositionsResponse, BasketResponse, ConfigResponse, PropResponse};
-
-use osmo_bindings::{ SpotPriceResponse, OsmosisMsg };
-
+use membrane::positions::{ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, PositionResponse, PositionsResponse, BasketResponse, ConfigResponse, PropResponse, CallbackMsg};
 use membrane::types::{ AssetInfo, Asset, cAsset, Basket, Position, LiqAsset, RepayPropagation, SellWallDistribution };
+use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, GetDenomResponse };
+use membrane::debt_auction::{ ExecuteMsg as AuctionExecuteMsg };
 
 
 //use crate::liq_queue::LiquidatibleResponse;
 use crate::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 use crate::error::ContractError;
-use crate::positions::{create_basket, assert_basket_assets, assert_sent_native_token_balance, deposit, withdraw, increase_debt, repay, liq_repay, edit_contract_owner, liquidate, edit_basket, sell_wall_using_ids, SELL_WALL_REPLY_ID, STABILITY_POOL_REPLY_ID, withdrawal_msg, update_position_claims};
-use crate::query::{query_stability_pool_liquidatible, query_config, query_position, query_user_positions, query_basket_positions, query_basket, query_baskets, query_prop, query_stability_pool_fee};
+use crate::positions::{create_basket, assert_basket_assets, assert_sent_native_token_balance, deposit, withdraw, increase_debt, repay, liq_repay, edit_contract_owner, liquidate, edit_basket, sell_wall_using_ids, SELL_WALL_REPLY_ID, STABILITY_POOL_REPLY_ID, LIQ_QUEUE_REPLY_ID, withdrawal_msg, update_position_claims, CREATE_DENOM_REPLY_ID, BAD_DEBT_REPLY_ID};
+use crate::query::{query_stability_pool_liquidatible, query_config, query_position, query_user_positions, query_basket_positions, query_basket, query_baskets, query_prop, query_stability_pool_fee, query_basket_debt_caps};
 //use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, AssetInfo, Cw20HookMsg, Asset, PositionResponse, PositionsResponse, BasketResponse, LiqModuleMsg};
 //use crate::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
 //use crate::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse, Cw20HookMsg as LQ_Cw20HookMsg};
@@ -57,7 +55,10 @@ pub fn instantiate(
         stability_pool: None, 
         dex_router: None,
         fee_collector: None,
-        osmosis_proxy: None,        
+        osmosis_proxy: None,    
+        debt_auction: None,    
+        oracle_time_limit: msg.oracle_time_limit,
+        debt_minimum: msg.debt_minimum,
     };
     
     // //Set optional config parameters
@@ -105,13 +106,24 @@ pub fn instantiate(
         None => {},
     };
 
+    match msg.debt_auction {
+        Some( address ) => {
+            
+            match deps.api.addr_validate( &address ){
+                Ok( addr ) => config.debt_auction = Some( addr ),
+                Err(_) => {},
+            }
+        },
+        None => {},
+    };
+
     let current_basket_id = &config.current_basket_id.clone().to_string();
 
     CONFIG.save(deps.storage, &config)?;
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let response = Response::new();
+    let mut create_res = Response::new();
     let mut attrs = vec![];
     let sender = &info.sender.clone().to_string();
 
@@ -130,8 +142,8 @@ pub fn instantiate(
                 check = false;
             }
         }
-        if( check ){
-            let _res = create_basket(
+        if( check ) && msg.credit_asset.is_some(){
+            create_res = create_basket(
                 deps,
                 info,
                 msg.owner,
@@ -151,7 +163,7 @@ pub fn instantiate(
     }
 
     //response.add_attributes(attrs);
-    Ok(response.add_attributes(attrs))
+    Ok(create_res.add_attributes(attrs))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -169,16 +181,16 @@ pub fn execute(
             for asset in assets.clone(){
                 valid_assets.push( assert_sent_native_token_balance( asset, &info )? );
             }
-            let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, basket_id, valid_assets)?;
+            let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, basket_id, valid_assets, true)?;
             deposit(deps, info, position_owner, position_id, basket_id, cAssets)
         }
     ,
         ExecuteMsg::Withdraw{ position_id, basket_id, assets } => {
-            let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, basket_id, assets)?;
-            withdraw(deps, info, position_id, basket_id, cAssets)
+            let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, basket_id, assets, false)?;
+            withdraw(deps, env, info, position_id, basket_id, cAssets)
         },
         
-        ExecuteMsg::IncreaseDebt { basket_id, position_id, amount } => increase_debt(deps, info, basket_id, position_id, amount),
+        ExecuteMsg::IncreaseDebt { basket_id, position_id, amount } => increase_debt(deps, env, info, basket_id, position_id, amount),
         ExecuteMsg::Repay { basket_id, position_id, position_owner} => {
             let basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
                 Err(_) => { return Err(ContractError::NonExistentBasket {  })},
@@ -186,28 +198,107 @@ pub fn execute(
             };
 
             let credit_asset = assert_sent_native_token_balance(basket.credit_asset.info, &info)?;
-            repay(deps.storage, deps.api, info, basket_id, position_id, position_owner, credit_asset)
+            repay(deps.storage, deps.querier, deps.api, env, info, basket_id, position_id, position_owner, credit_asset)
         },
         ExecuteMsg::LiqRepay { credit_asset} => {
             let credit_asset = assert_sent_native_token_balance(credit_asset.info, &info)?;
-            liq_repay(deps, info, credit_asset)
+            liq_repay(deps, env, info, credit_asset)
         }
         ExecuteMsg::EditAdmin { owner } => edit_contract_owner(deps, info, owner),
-        ExecuteMsg::EditBasket {basket_id,added_cAsset,owner,credit_interest, liq_queue } => edit_basket(deps, info, basket_id, added_cAsset, owner, credit_interest, liq_queue ),
-        ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, credit_interest } => create_basket(deps, info, owner, collateral_types, credit_asset, credit_price, credit_interest),
-        ExecuteMsg::Liquidate { basket_id, position_id, position_owner } => liquidate(deps, env, info, basket_id, position_id, position_owner),
+        ExecuteMsg::EditBasket {basket_id,added_cAsset,owner,credit_interest, liq_queue, pool_ids, liquidity_multiplier } => edit_basket(deps, info, basket_id, added_cAsset, owner, credit_interest, liq_queue, pool_ids, liquidity_multiplier ),
+        ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, credit_interest } => create_basket(deps, info, owner, collateral_types, credit_asset, credit_price, credit_interest ),
+        ExecuteMsg::Liquidate { basket_id, position_id, position_owner } => liquidate(deps.storage, deps.api, deps.querier, env, info, basket_id, position_id, position_owner),
+        ExecuteMsg::Callback( msg ) => {
+            if info.sender == env.contract.address{
+                callback_handler( deps, msg )
+            }else{
+                return Err( ContractError::Unauthorized {  } )
+            }
+        },
+        
      
-
     }
 }
 
+pub fn callback_handler(
+    deps: DepsMut,
+    msg: CallbackMsg,
+) -> Result<Response, ContractError>{
+    
+    match msg {
+        CallbackMsg::BadDebtCheck { basket_id, position_owner, position_id } => {
+            check_for_bad_debt( deps, basket_id, position_id, position_owner )
+        },
+    }
+}
 
+fn check_for_bad_debt(
+    deps: DepsMut,
+    basket_id: Uint128,
+    position_id: Uint128,
+    position_owner: Addr,
+) -> Result<Response, ContractError>{
+
+    let config: Config = CONFIG.load( deps.storage )?;
+
+    let basket: Basket= match BASKETS.load(deps.storage, basket_id.to_string()) {
+        Err(_) => { return Err(ContractError::NonExistentBasket {  })},
+        Ok( basket ) => { basket },
+    };
+    let positions: Vec<Position> = match POSITIONS.load(deps.storage, (basket_id.to_string(), position_owner.clone())){
+        Err(_) => {  return Err(ContractError::NoUserPositions {  }) },
+        Ok( positions ) => { positions },
+    };
+
+    //Filter position by id
+    let target_position = match positions.into_iter().find(|x| x.position_id == position_id) {
+        Some(position) => position,
+        None => return Err(ContractError::NonExistentPosition {  }) 
+    };
+
+    //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
+    //This is allowed bc any calls here will be after a liquidation where the sell wall would've sold all it could to cover debts
+    let total_assets: Uint128 = 
+        target_position.collateral_assets
+            .iter()
+            .map(|asset| asset.asset.amount)
+            .collect::<Vec<Uint128>>()
+            .iter()
+            .sum();
+
+    if total_assets > Uint128::zero(){
+        return Err( ContractError::PositionSolvent {  } )
+    }else{
+        let mut message: CosmosMsg;
+
+        //Send bad debt amount to the auction contract
+        if config.debt_auction.is_some(){
+            let auction_msg = AuctionExecuteMsg::StartAuction {
+                    basket_id, 
+                    position_id, 
+                    position_owner: position_owner.to_string(), 
+                    debt_amount: target_position.credit_amount * Uint128::new(1u128)
+                };
+
+            message = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.debt_auction.unwrap().to_string(), 
+                msg: to_binary(&auction_msg)?, 
+                funds: vec![ ],
+            })
+        }else{
+            return Err( ContractError::CustomError { val: "Debt Auction contract not added to config".to_string() } )
+        }
+        
+
+        return Ok( Response::new().add_message(message) )
+    }
+}
 
 //From a receive cw20 hook. Comes from the contract address so easy to validate sent funds. 
 //Check if sent funds are equal to amount in msg so we don't have to recheck in the function
 pub fn receive_cw20(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     cw20_msg: Cw20ReceiveMsg,
 ) -> Result<Response, ContractError> {
@@ -228,16 +319,14 @@ pub fn receive_cw20(
                 deps.api.addr_validate(&cw20_msg.sender.clone())?
             };
 
-            let mut assets: Vec<Asset> = Vec::new();
-            assets.push(passed_asset);
-            let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, basket_id, assets)?;
+            let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, basket_id, vec![ passed_asset ], true)?;
 
             deposit(deps, info, Some(valid_owner_addr.to_string()), position_id, basket_id, cAssets) 
         },
 
         Ok(Cw20HookMsg::Repay { basket_id, position_id, position_owner}) => {
 
-            repay(deps.storage, deps.api, info, basket_id, position_id, position_owner, passed_asset )
+            repay(deps.storage, deps.querier, deps.api, env, info, basket_id, position_id, position_owner, passed_asset )
         }
         Err(_) => Err(ContractError::Cw20MsgError {}),
     }
@@ -249,23 +338,80 @@ pub fn receive_cw20(
 
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<Response> {
+pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     //panic!("here".to_string());
     match msg.id {
         LIQ_QUEUE_REPLY_ID => handle_liq_queue_reply(deps, msg),
-        STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, msg),
+        STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, env, msg),
         SELL_WALL_REPLY_ID => handle_sell_wall_reply(deps, msg),
+        CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, msg),
+        BAD_DEBT_REPLY_ID => Ok( Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 }
 
-//TODO: WHATEVER IS SENT IN THE REPLY HAS TO GET SUBTRACTED FROM THE USER'S POSITION
-//Done for LQ, need to do for refactored SP
+fn handle_create_denom_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
+    match msg.result.into_result(){
+        Ok( result ) => {
 
-//ADD an SP from LQ reply ID. It won't use the propogation, it'll just auto sell if there are leftovers.
+            let instantiate_event = result
+                .events
+                .into_iter()
+                .find(|e| {
+                    e.attributes
+                        .iter()
+                        .any(|attr| attr.key == "basket_id")
+                })
+                .ok_or_else(|| StdError::generic_err(format!("unable to find create_denom event")))?;
+
+            let subdenom = &instantiate_event.attributes
+                .iter()
+                .find(|attr| attr.key == "subdenom")
+                .unwrap()
+                .value;
+
+            let basket_id = &instantiate_event.attributes
+                .iter()
+                .find(|attr| attr.key == "basket_id")
+                .unwrap()
+                .value;
+
+            let config: Config = CONFIG.load( deps.storage )?;
+
+            //Query fulldenom to save to basket 
+            let res: GetDenomResponse = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+                msg: to_binary(&OsmoQueryMsg::GetDenom {   
+                    creator_address: config.osmosis_proxy.unwrap().to_string(),
+                    subdenom: subdenom.to_string(),
+                })?,
+            }))?;
+
+            BASKETS.update( deps.storage, basket_id.to_string(), |basket| -> StdResult<Basket>{
+                match basket{
+                    Some( mut basket ) => {
+                        
+                        basket.credit_asset = Asset {
+                            info: AssetInfo::NativeToken { denom: res.denom },
+                            ..basket.credit_asset
+                        };
+
+                        Ok( basket )
+                    },
+                    None => {return Err( StdError::GenericErr { msg: "Non-existent basket".to_string() } )},
+                }
+            })?;
+                
+        },//We only reply on success 
+        Err( err ) => {return Err( StdError::GenericErr { msg: err } )}
+
+    }
 
 
-fn handle_stability_pool_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
+    Ok( Response::new() ) 
+}
+
+fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{
 
     match msg.result.into_result(){
          Ok(result)  => {
@@ -307,6 +453,7 @@ fn handle_stability_pool_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>
                 //Sell Wall SP leftovers and LQ leftovers
                 let ( sell_wall_msgs, collateral_distributions ) = sell_wall_using_ids( 
                     deps.storage,
+                    env,
                     deps.querier,
                     repay_propagation.clone().basket_id,
                     repay_propagation.clone().position_id,
@@ -352,6 +499,7 @@ fn handle_stability_pool_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>
                     //Sell wall remaining
                     let ( sell_wall_msgs, collateral_distributions ) = sell_wall_using_ids( 
                         deps.storage,
+                        env,
                         deps.querier, 
                         repay_propagation.clone().basket_id,
                         repay_propagation.clone().position_id,
@@ -417,6 +565,7 @@ fn handle_stability_pool_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>
             //Sell wall remaining
             let ( sell_wall_msgs, collateral_distributions ) = sell_wall_using_ids( 
                 deps.storage,
+                env,
                 deps.querier,
                 repay_propagation.clone().basket_id,
                 repay_propagation.clone().position_id,
@@ -463,16 +612,17 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
          Ok(result)  => {
             //1) Parse potential repaid_amount and substract from running total
             //2) Send collateral to the Queue
+            
 
             let liq_event = result
                 .events
-                .iter()
+                .into_iter()
                 .find(|e| {
                     e.attributes
                         .iter()
                         .any(|attr| attr.key == "repay_amount")
                 })
-                .ok_or_else(|| StdError::generic_err(format!("unable to find stability pool event")))?;
+                .ok_or_else(|| StdError::generic_err(format!("unable to find liq-queue event")))?;
 
             let repay = &liq_event.attributes
                 .iter()
@@ -480,6 +630,7 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
                 .unwrap()
                 .value;
 
+            
             let repay_amount = Uint128::from_str(&repay)?;
 
             let mut prop: RepayPropagation = REPAY.load(deps.storage)?;
@@ -497,7 +648,7 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
 
             let send_amount = Uint128::from_str(&amount)?;
 
-                        let token = &liq_event.attributes
+            let token = &liq_event.attributes
                 .iter()
                 .find(|attr| attr.key == "collateral_token")
                 .unwrap()
@@ -608,7 +759,7 @@ fn handle_sell_wall_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
 
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => { to_binary(&query_config(deps)?) }
         QueryMsg::GetPosition { position_id, basket_id, user} => {
@@ -628,9 +779,12 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetAllBaskets { start_after, limit } => {
             to_binary(&query_baskets(deps, start_after, limit)?)
         },
-        QueryMsg::Prop {  } => {
+        QueryMsg::Propagation {  } => {
             to_binary(&query_prop( deps )?)
-        }
+        },
+        QueryMsg::GetBasketDebtCaps { basket_id } => {
+            to_binary( &query_basket_debt_caps(deps, env, basket_id)?)
+        },
     }
 }
 

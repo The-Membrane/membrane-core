@@ -31,10 +31,10 @@ mod tests {
                         Asset {
                             info: AssetInfo::NativeToken { denom: "debit".to_string() },
                             amount: Uint128::from(0u128),
-                        },
-                oracle: "funnybone".to_string(),
-                max_borrow_LTV: Decimal::percent(50),
-                max_LTV: Decimal::percent(90),
+                        }, 
+                    debt_total: Uint128::zero(),
+                    max_borrow_LTV: Decimal::percent(50),
+                    max_LTV: Decimal::percent(90),
                 } 
             ]),
                 credit_interest: Some(Decimal::percent(1)),
@@ -43,6 +43,9 @@ mod tests {
                 dex_router: Some("router".to_string()),
                 fee_collector: Some("fee_collector".to_string()),
                 osmosis_proxy: Some("proxy".to_string()),
+                debt_auction: Some( "debt_auction".to_string()),
+                oracle_time_limit: 60u64,
+                debt_minimum: Decimal::percent(10_000),
         };
 
         //Instantiating contract
@@ -60,8 +63,8 @@ mod tests {
                         Asset {
                             info: AssetInfo::NativeToken { denom: "debit".to_string() },
                             amount: Uint128::from(0u128),
-                        },
-                    oracle: "funnybone".to_string(),
+                        }, 
+                    debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                        } 
@@ -207,8 +210,8 @@ mod tests {
                         Asset {
                             info: AssetInfo::NativeToken { denom: "debit".to_string() },
                             amount: Uint128::from(0u128),
-                        },
-                    oracle: "funnybone".to_string(),
+                        }, 
+                    debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                     } 
@@ -219,6 +222,9 @@ mod tests {
                 dex_router: Some("router".to_string()),
                 fee_collector: Some("fee_collector".to_string()),
                 osmosis_proxy: Some("proxy".to_string()),
+                debt_auction: Some( "debt_auction".to_string()),
+                oracle_time_limit: 60u64,
+                debt_minimum: Decimal::percent(10_000),
         };
 
         //Instantiating contract
@@ -346,8 +352,8 @@ mod tests {
                         Asset {
                             info: AssetInfo::NativeToken { denom: "debit".to_string() },
                             amount: Uint128::from(0u128),
-                        },
-                    oracle: "funnybone".to_string(),
+                        }, 
+                    debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                        } 
@@ -358,6 +364,9 @@ mod tests {
                 dex_router: Some("router".to_string()),
                 fee_collector: Some("fee_collector".to_string()),
                 osmosis_proxy: Some("proxy".to_string()),
+                debt_auction: Some( "debt_auction".to_string()),
+                oracle_time_limit: 60u64,
+                debt_minimum: Decimal::percent(10_000),
         };
 
         //Instantiating contract
@@ -389,7 +398,7 @@ mod tests {
                             info: AssetInfo::NativeToken { denom: "debit".to_string() },
                             amount: Uint128::from(0u128),
                         },
-                    oracle: "funnybone".to_string(),
+                    debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                        } 
@@ -489,8 +498,8 @@ mod tests {
                         Asset {
                             info: AssetInfo::NativeToken { denom: "debit".to_string() },
                             amount: Uint128::from(0u128),
-                        },
-                    oracle: "funnybone".to_string(),
+                        }, 
+                    debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                        } 
@@ -500,7 +509,10 @@ mod tests {
                 stability_pool: Some("stability_pool".to_string()),
                 dex_router: Some("router".to_string()),
                 fee_collector: Some("fee_collector".to_string()),
-                osmosis_proxy: None,
+                osmosis_proxy: Some("osmosis_proxy".to_string()),
+                debt_auction: Some( "debt_auction".to_string()),
+                oracle_time_limit: 60u64,
+                debt_minimum: Decimal::percent(10_000),
         };
 
         //Instantiating contract

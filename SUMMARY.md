@@ -28,7 +28,6 @@
 * [Liquidity Querier](smart-contracts/liquidity-querier.md)
 * [Osmosis Router](smart-contracts/osmosis-router.md)
 * [MBRN](smart-contracts/mbrn.md)
-* [CDL](smart-contracts/cdl.md)
 
 ## Group 1
 

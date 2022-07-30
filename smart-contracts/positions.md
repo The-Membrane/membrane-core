@@ -66,11 +66,11 @@ pub struct Cw20ReceiveMsg {
 }
 ```
 
-| Key    | Type    | Description                                                             |
-| ------ | ------- | ----------------------------------------------------------------------- |
-| sender | String  | Sender of the token transfer                                            |
-| amount | Uint128 | Amount of tokens received                                               |
-| msg    | Binary  | Base64-encoded string of JSON of [Receive Hook](positions.md#undefined) |
+| Key      | Type    | Description                                                             |
+| -------- | ------- | ----------------------------------------------------------------------- |
+| `sender` | String  | Sender of the token transfer                                            |
+| `amount` | Uint128 | Amount of tokens received                                               |
+| `msg`    | Binary  | Base64-encoded string of JSON of [Receive Hook](positions.md#undefined) |
 
 ### `Deposit`
 
@@ -169,9 +169,9 @@ pub enum ExecuteMsg {
 
 | Key               | Type    | Description                     |
 | ----------------- | ------- | ------------------------------- |
-| `basket_id`       | Uint128 | ID of basket the position is in |
-| `position_id`     | Uint128 | ID of position                  |
-| `*position_owner` | String  | Owner of position to repay      |
+| `basket_id`       | Uint128 | ID of basket the Position is in |
+| `position_id`     | Uint128 | ID of Position                  |
+| `*position_owner` | String  | Owner of Position to repay      |
 | `credit_asset`    | Asset   | Asset object for repayment info |
 
 \* = optional
@@ -204,6 +204,28 @@ pub struct RepayFee {
 | `*fee_ratios`       | Vec\<RepayFee> | List of fee ratios used by the [Liquidation Queue](liquidation-queue.md)                            |
 
 \* = optional
+
+### `Liquidate`
+
+Assert's the position is insolvent and calculates the distribution of repayment to the various liquidation modules. Does a bad debt check at the end of the procedure that starts a[ MBRN auction](mbrn-auction.md) if necessary.
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecuteMsg {
+    Liquidate {
+        basket_id: Uint128,
+        position_id: Uint128,
+        position_owner: String,
+    },
+}
+```
+
+| Key              | Type    | Description                     |
+| ---------------- | ------- | ------------------------------- |
+| `basket_id`      | Uint128 | ID of basket the Position is in |
+| `position_id`    | Uint128 | ID of Position                  |
+| `position_owner` | String  | Owner of Position               |
 
 ### `CreateBasket`
 
@@ -277,6 +299,26 @@ pub enum ExecuteMsg {
 | ------- | ------ | ------------------------ |
 | `owner` | String | Positions contract owner |
 
+### `Callback`
+
+Messages usable only by the contract to enable functionality in line with message semantics
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecuteMsg {
+    Callback(CallbackMsg)
+}
+
+pub enum CallbackMsg {
+    BadDebtCheck {
+        basket_id: Uint128,
+        position_id: Uint128,
+        position_owner: Addr,
+    },
+}
+```
+
 ## Receive Hook
 
 ### `Deposit`
@@ -335,7 +377,49 @@ pub enum ExecuteMsg {
 
 \* = optional
 
+## CallbackMsg
+
+### `BadDebtCheck`
+
+After liquidations, this checks for bad debt in the liquidated position.
+
+```
+BadDebtCheck {
+        basket_id: Uint128,
+        position_id: Uint128,
+        position_owner: Addr,
+}
+```
+
+| Key              | Type    | Description                     |
+| ---------------- | ------- | ------------------------------- |
+| `basket_id`      | Uint128 | ID of basket the Position is in |
+| `position_id`    | Uint128 | ID of Position                  |
+| `position_owner` | Addr    | Owner of Position               |
+
 ## QueryMsg
+
+### `Config`
+
+Returns Config
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMsg {
+    Config {}
+}
+
+pub struct ConfigResponse {
+    pub owner: String,
+    pub current_basket_id: Uint128,
+    pub stability_pool: String,
+    pub dex_router: String, 
+    pub fee_collector: String,
+    pub osmosis_proxy: String,
+    pub liq_fee: Decimal, // 5 = 5%
+}
+```
 
 ### `GetUserPositions`
 
@@ -494,3 +578,48 @@ pub struct BasketResponse{
 | -------------- | ------- | --------------------------- |
 | `*start_after` | Uint128 | User address to start after |
 | `*limit`       | u32     | Response output limit       |
+
+### `GetBasketDebtCaps`
+
+Returns a basket's debt caps per collateral asset, calculates on every call
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMsg {
+    GetBasketDebtCaps {
+        basket_id: Uint128,
+    }
+}
+```
+
+| Key         | Type    | Description   |
+| ----------- | ------- | ------------- |
+| `basket_id` | Uint128 | ID of basket  |
+
+### Propagation
+
+Returns `RepayPropagation.`Used internally to test state propagation.
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMsg {
+    Propagation {}
+}
+
+pub struct PropResponse {
+    pub liq_queue_leftovers: Decimal,
+    pub stability_pool: Decimal,
+    pub sell_wall_distributions: Vec<SellWallDistribution>,
+    pub positions_contract: String,
+    //So the sell wall knows who to repay to
+    pub position_id: Uint128,
+    pub basket_id: Uint128,
+    pub position_owner: String,
+}
+
+pub struct SellWallDistribution {
+    pub distributions: Vec<( AssetInfo, Decimal )>,
+}
+```

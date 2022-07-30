@@ -3,7 +3,7 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use cdp::msg::{ ExecuteMsg, InstantiateMsg, QueryMsg};
+use membrane::positions::{ ExecuteMsg, InstantiateMsg, QueryMsg};
 //use cdp::state::State;
 
 fn main() {

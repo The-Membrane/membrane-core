@@ -1969,7 +1969,11 @@ pub fn assert_sent_native_token_balance(
     if let AssetInfo::NativeToken { denom} = &asset_info {
         match message_info.funds.iter().find(|x| x.denom == *denom) {
             Some(coin) => {
-                asset = Asset{ info: asset_info, amount: coin.amount};
+                if coin.amount > Uint128::zero(){
+                    asset = Asset{ info: asset_info, amount: coin.amount};
+                }else{
+                    return Err(StdError::generic_err("You gave me nothing to deposit"))
+                }                
             },
             None => {
                 {

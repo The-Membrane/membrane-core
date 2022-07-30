@@ -13,8 +13,6 @@ use cw20::{Cw20ExecuteMsg, Cw20QueryMsg};
 
 use crate::error::ContractError;
 use crate::math::{decimal_division, decimal_subtraction, decimal_multiplication};
-//use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, DepositResponse, ClaimsResponse, PoolResponse, PositionUserInfo};
-//use crate::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
 use crate::state::{ ASSETS, CONFIG, Config, USERS };
 
 // version info for migration info
@@ -98,7 +96,6 @@ pub fn deposit(
 ) -> Result<Response, ContractError>{
 
     let valid_owner_addr = validate_position_owner(deps.api, info.clone(), position_owner)?;
-
     
     //Outputs asset objects w/ correct amounts
     assets = validate_assets(deps.storage, assets.clone(), info.clone(), true, true)?;

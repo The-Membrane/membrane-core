@@ -38,9 +38,9 @@ The protocol liquidates what collateral it can through the LQ and the SP before 
 
 If either of the modules error or don't repay what was queried beforehand, the reply will catch it and sell the collateral on the market to cover. If the LQ has leftovers it will try to use the SP to cover, but if that also errors or is out of funds it'll use the sell wall for both. If the LQ does use the SP and that has errors, it goes to the sell wall.\
 \
-The last message that gets executed is the [BadDebtCheck ](../smart-contracts/positions.md#baddebtcheck)CallbackMsg. The check is lazy in the sense that it doesn't look for undercollateralized positions, just positions without collateral and debt to repay. This is because the liquidation function market sells collateral once under the Stability Pool + caller fee + protocol fee threshold.\
+The last message that gets executed is the [BadDebtCheck ](../smart-contracts/positions.md#baddebtcheck)CallbackMsg. The check is lazy in the sense that it doesn't look for undercollateralized positions, just positions without collateral and debt to repay. This is because the liquidation function market sells collateral once the position value is under the Stability Pool + caller + protocol fee threshold.\
 \
-On success, i.e. bad debt is true, the contract activates a debt auction through the [Auction ](../smart-contracts/mbrn-auction.md)contract.
+On success, i.e. bad debt is true, the contract activates a debt auction through the [Auction ](../smart-contracts/mbrn-auction.md)contract. It being lazy allows it to be added without slowing down liquidation calls and if necessary, auctions can be called manually.
 
 #### Liquidation Function Walkthrough
 

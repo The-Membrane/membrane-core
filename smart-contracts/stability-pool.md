@@ -215,7 +215,7 @@ pub enum AssetInfo {
 
 ### `CheckLiquidatible`
 
-Returns the amount of said asset that isn't liquidatible (ie; leftover)
+Returns the amount of said asset that isn't liquidatible (i.e. leftover)
 
 ```
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

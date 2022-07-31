@@ -36,7 +36,11 @@ Additional Sources:&#x20;
 
 The protocol liquidates what collateral it can through the LQ and the SP before selling the remaining on the market. In the case that the modules take enough collateral without fully repaying the liquidation leaving the Sell Wall w/o enough to sell on the market to avoid bad debt, the protocol will skip the discounts and sell for the full amount from the start.
 
-If either of the modules error or don't repay what was queried beforehand, the reply will catch it and sell the collateral on the market to cover. If the LQ has leftovers it will try to use the SP to cover, but if that also errors or is out of funds it'll use the sell wall for both. If the LQ does use the SP and that has errors, it goes to the sell wall.
+If either of the modules error or don't repay what was queried beforehand, the reply will catch it and sell the collateral on the market to cover. If the LQ has leftovers it will try to use the SP to cover, but if that also errors or is out of funds it'll use the sell wall for both. If the LQ does use the SP and that has errors, it goes to the sell wall.\
+\
+The last message that gets executed is the [BadDebtCheck ](../smart-contracts/positions.md#baddebtcheck)CallbackMsg. The check is lazy in the sense that it doesn't look for undercollateralized positions, just positions without collateral and debt to repay. This is because the liquidation function market sells collateral once under the Stability Pool + caller fee + protocol fee threshold.\
+\
+On success, i.e. bad debt is true, the contract activates a debt auction through the [Auction ](../smart-contracts/mbrn-auction.md)contract.
 
 #### Liquidation Function Walkthrough
 
@@ -74,6 +78,8 @@ _Stability Pool:_
 * Query leftover credit to repay from `RepayPropagation`
 * Send SP and LQ leftovers to the sell wall and add to existing Sell Wall distributions
 * If there are none, send only LQ leftovers to the SP
+
+
 
 _Sell Wall:_
 

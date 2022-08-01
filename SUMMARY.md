@@ -25,7 +25,7 @@
 * [Oracle](smart-contracts/oracle.md)
 * [MBRN Auction](smart-contracts/mbrn-auction.md)
 * [PID Controller](smart-contracts/pid-controller.md)
-* [Liquidity Querier](smart-contracts/liquidity-querier.md)
+* [Osmosis Proxy](smart-contracts/osmosis-proxy.md)
 * [Osmosis Router](smart-contracts/osmosis-router.md)
 * [MBRN](smart-contracts/mbrn.md)
 

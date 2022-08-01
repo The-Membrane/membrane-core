@@ -30,6 +30,16 @@ pub struct AssetPool {
     pub liq_premium: Decimal,
     pub deposits: Vec<Deposit>
 }
+
+pub struct Asset{
+    pub info: AssetInfo,
+    pub amount: Uint128,
+}
+
+pub struct Deposit {
+    pub user: Addr,
+    pub amount: Decimal,
+}
 ```
 
 | Key           | Type      | Description                                    |
@@ -147,11 +157,11 @@ pub struct PositionUserInfo{
 }
 ```
 
-| Key                      | Type             | Description                                               |
-| ------------------------ | ---------------- | --------------------------------------------------------- |
-| `*claim_`_`as_`_`native` | String           | Claim all assets as a native token                        |
-| `*claim_`_`as`_`_cw20`   | String           | Claim all assets as a CW20 token                          |
-| `*deposit_to`            | PositionUserInfo | Deposit to Position in [Positions ](positions.md)contract |
+| Key                | Type             | Description                                               |
+| ------------------ | ---------------- | --------------------------------------------------------- |
+| `*claim-as-native` | String           | Claim all assets as a native token                        |
+| `*claim-as-cw20`   | String           | Claim all assets as a CW20 token                          |
+| `*deposit_to`      | PositionUserInfo | Deposit to Position in [Positions ](positions.md)contract |
 
 \* = optional
 
@@ -182,17 +192,11 @@ Called by the Positions contract. Distributes liquidated funds to the users whos
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     Distribute { //Distributes liquidated funds to users
-        distribution_assets: Vec<cAsset>,
+        distribution_assets: Vec<Asset>,
+        distribution_asset_ratios: Vec<Decimal>,
         credit_asset: AssetInfo,
-        credit_price: Decimal,
-    } 
-}
-
-pub struct cAsset {
-    pub asset: Asset, //amount is 0 when adding to basket_contract configor initiator
-    pub debt_total: Uint128,
-    pub max_borrow_LTV: Decimal, //aka max borrow LTV
-    pub max_LTV: Decimal, //ie liquidation point 
+        distribute_for: Uint128,
+    }
 }
 
 pub enum AssetInfo {
@@ -205,11 +209,39 @@ pub enum AssetInfo {
 }
 ```
 
-| Key                   | Type         | Description                                                      |
-| --------------------- | ------------ | ---------------------------------------------------------------- |
-| `distribution_assets` | Vec\<cAsset> | Assets to be distributed to users                                |
-| `credit_asset`        | AssetInfo    | AssetInfo corresponding to the Asset Pool that was used to repay |
-| `credit_price`        | Decimal      | Redemption price of `credit_asset`                               |
+| Key                         | Type          | Description                                                      |
+| --------------------------- | ------------- | ---------------------------------------------------------------- |
+| `distribution_assets`       | Vec\<Asset>   | Assets to be distributed to users                                |
+| `distribution-asset-ratios` | Vec\<Decimal> | Ratios of distribution assets                                    |
+| `credit_asset`              | AssetInfo     | AssetInfo corresponding to the Asset Pool that was used to repay |
+| `credit_price`              | Decimal       | Redemption price of `credit_asset`                               |
+
+## Receive Hook
+
+### `Distribute`
+
+Called by the Positions contract. Distributes liquidated funds to the users whose Deposits were used to repay the debt.
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Cw20HookMsg {
+    Distribute { //Distributes liquidated funds to users
+        distribution_assets: Vec<Asset>,
+        distribution_asset_ratios: Vec<Decimal>,
+        credit_asset: AssetInfo,
+        distribute_for: Uint128,
+    } 
+} 
+
+```
+
+| Key                         | Type          | Description                                                      |
+| --------------------------- | ------------- | ---------------------------------------------------------------- |
+| `distribution_assets`       | Vec\<Asset>   | Assets to be distributed to users                                |
+| `distribution-asset-ratios` | Vec\<Decimal> | Ratios of distribution assets                                    |
+| `credit_asset`              | AssetInfo     | AssetInfo corresponding to the Asset Pool that was used to repay |
+| `credit_price`              | Decimal       | Redemption price of `credit_asset`                               |
 
 ## QueryMsg
 

@@ -15,11 +15,6 @@ pub struct Config {
     pub waiting_period: u64, //Wait period is at max doubled due to slot_total calculation
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct User {
-    pub claimable_assets: Vec<Asset>, //Collateral assets earned from liquidations
-}
-
 // #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 // pub struct StoreSum {
 //     pub bid_for: CanonicalAddr,

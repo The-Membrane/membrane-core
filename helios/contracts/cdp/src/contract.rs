@@ -331,8 +331,6 @@ pub fn receive_cw20(
         Err(_) => Err(ContractError::Cw20MsgError {}),
     }
 
-
-
 }
 
 

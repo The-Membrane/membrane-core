@@ -40,7 +40,7 @@ pub enum ContractError {
     #[error("Repayment exceeds outstanding credit")]
     ExcessRepayment {},
 
-    #[error("Repayment exceeds outstanding credit")]
+    #[error("Cw20Msg Error")]
     Cw20MsgError {},
 
     #[error("Config ID wasn't previously incremented")]

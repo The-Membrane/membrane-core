@@ -9,6 +9,9 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
+    #[error("Cw20Msg Error")]
+    Cw20MsgError {},
+
     #[error("Distributed funds are less than repaid funds")]
     InsufficientFunds {},
 

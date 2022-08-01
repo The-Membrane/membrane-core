@@ -790,6 +790,9 @@ mod tests {
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(10000));
 
+             //Assert withdrawal was sent.
+             assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 90000, "debit")]);
+
             //Assert asset tally and CreateDenom is working
             let query_msg = QueryMsg::GetBasket { 
                 basket_id: Uint128::new(1u128), 

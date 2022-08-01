@@ -1,51 +1,61 @@
+use cw20::Cw20ReceiveMsg;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, Uint128, Decimal};
 
-use crate::types::{Asset, AssetPool, LiqAsset, cAsset, AssetInfo, Deposit};
+use crate::types::{ Asset, AssetPool, LiqAsset, cAsset, AssetInfo, Deposit, PositionUserInfo };
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct PositionUserInfo{
-    pub basket_id: Uint128,
-    pub position_id: Uint128,
-}
 pub struct InstantiateMsg {
     pub asset_pool: Option<AssetPool>,
     pub owner: Option<String>,
+    pub dex_router: Option<String>,
+    pub max_spread: Option<Decimal>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
+    Recieve(Cw20ReceiveMsg),
     Deposit { //Deposit a list of accepted assets
-        user: Option<String>, 
-        assets: Vec<Asset> 
+        user: Option<String>,
+        assets: Vec<AssetInfo>,
     },
     Withdraw { //Withdraw a list of accepted assets 
         assets: Vec<Asset>
     }, 
-    Liquidate { //Use assets from an Asset pool to liquidate for contract owner (Positions Contract)
-        credit_asset: LiqAsset,
-        // position_id: Uint128,
-        // basket_id: Uint128,
-        // position_owner: String,
+    Claim { //Claim ALL liquidation revenue
+        claim_as_native: Option<String>, //Native FullDenom
+        claim_as_cw20: Option<String>, //Contract Address
+        deposit_to: Option<PositionUserInfo>, //Deposit to Position in CDP contract
     }, 
-    ClaimAs { //Claim ALL liquidation revenue, claim_as is a contract address
-        claim_as: Option<String>,
-        deposit_to: Option<PositionUserInfo>,
-    }, 
+    ////Only callable by the owner////
     AddPool { //Adds an asset pool 
         asset_pool: AssetPool 
     },
+    Liquidate { //Use assets from an Asset pool to liquidate for a Position (Positions Contract)
+        credit_asset: LiqAsset
+    }, 
     Distribute { //Distributes liquidated funds to users
-        distribution_assets: Vec<cAsset>,
+        distribution_assets: Vec<Asset>,
+        distribution_asset_ratios: Vec<Decimal>,
         credit_asset: AssetInfo,
-        credit_price: Decimal,
+        distribute_for: Uint128,
     } 
 }
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Cw20HookMsg {
+    Distribute { //Distributes liquidated funds to users
+        distribution_assets: Vec<Asset>,
+        distribution_asset_ratios: Vec<Decimal>,
+        credit_asset: AssetInfo,
+        distribute_for: Uint128,
+    } 
+} 
+
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -93,14 +103,6 @@ pub struct PoolResponse {
     pub deposits: Vec<Deposit>
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Cw20HookMsg {
-    Distribute { //Distributes liquidated funds to users
-        distribution_assets: Vec<cAsset>,
-        credit_asset: AssetInfo,
-    } 
-} 
 
 
 

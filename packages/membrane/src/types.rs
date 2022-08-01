@@ -10,6 +10,14 @@ use cw_storage_plus::{Item, Map};
 //Stability Pool
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct PositionUserInfo{
+    pub basket_id: Uint128,
+    pub position_id: Option<Uint128>,
+    pub position_owner: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct LiqAsset {
     pub info: AssetInfo,
     pub amount: Decimal,
@@ -31,7 +39,6 @@ pub struct UserRatio {
 pub struct Deposit {
     pub user: Addr,
     pub amount: Decimal,
-
 }
 
 impl fmt::Display for Deposit {
@@ -158,6 +165,7 @@ pub struct cAsset {
     pub max_borrow_LTV: Decimal, //aka max borrow LTV
     pub max_LTV: Decimal, //ie liquidation point 
 }
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Position {
     pub position_id: Uint128,

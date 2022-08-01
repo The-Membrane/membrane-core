@@ -8,12 +8,8 @@ use cw20::Cw20ReceiveMsg;
 use crate::types::{Asset, AssetInfo, BidInput, Bid, PremiumSlot};
 
 
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct PositionUserInfo{
-    pub basket_id: Uint128,
-    pub position_id: Uint128,
-}
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub waiting_period: u64, //seconds

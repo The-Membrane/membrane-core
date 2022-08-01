@@ -506,8 +506,6 @@ pub fn liq_repay(
 {
     let config = CONFIG.load(deps.storage)?;
     let repay_propagation = REPAY.load(deps.storage)?;
-
-    //assert_eq!(info.sender, config.clone().stability_pool.unwrap());
     
     //Can only be called by the SP contract
     if config.clone().stability_pool.is_none() || info.sender != config.clone().stability_pool.unwrap(){
@@ -548,6 +546,7 @@ pub fn liq_repay(
 
     let mut messages = vec![];
     let mut coins: Vec<Coin> = vec![];
+    let mut native_repayment = Uint128::zero();
     
     
     //Stability Pool receives pro rata assets
@@ -570,8 +569,9 @@ pub fn liq_repay(
 
         let collateral_value = decimal_multiplication(repay_value, cAsset_ratios[num]);
         let collateral_amount = decimal_division(collateral_value, cAsset_prices[num]);
-       
         let collateral_w_fee = (decimal_multiplication(collateral_amount, sp_liq_fee) + collateral_amount) * Uint128::new(1u128);
+
+        let repay_amount_per_asset = credit_asset.amount * cAsset_ratios[num];
         
         //Remove collateral from user's position claims
         update_position_claims(
@@ -590,14 +590,13 @@ pub fn liq_repay(
                 //DistributionMsg builder
                 //Only adding the 1 cAsset for the CW20Msg
                 let distribution_msg = SP_Cw20HookMsg::Distribute { 
-                        distribution_assets: vec![ cAsset{
-                            asset: Asset {
+                        distribution_assets: vec![ Asset {
                                 amount: collateral_w_fee,
                                 ..cAsset.clone().asset
-                            },
-                            ..cAsset
-                        }],
+                            }],
+                        distribution_asset_ratios: vec![],
                         credit_asset: credit_asset.clone().info, 
+                        distribute_for: repay_amount_per_asset,
                     };
                 
                 //CW20 Send                         
@@ -616,19 +615,14 @@ pub fn liq_repay(
             AssetInfo::NativeToken { denom: _ } => {
 
                 //Adding each native token to the list of distribution assets
-                distribution_assets.push( cAsset{
-                    asset: Asset {
-                        amount: collateral_w_fee,
-                        ..cAsset.clone().asset
-                    },
-                    ..cAsset.clone()
-                });
-
                 let asset = Asset{ 
                     amount: collateral_w_fee ,
                     ..cAsset.clone().asset
                 };
-
+                //Add to the distribution_for field for native sends
+                native_repayment += repay_amount_per_asset;
+                
+                distribution_assets.push( asset.clone() );
                 coins.push(asset_to_coin(asset)?);
                 
             },
@@ -638,8 +632,9 @@ pub fn liq_repay(
     //Adds Native token distribution msg to messages
     let distribution_msg = SP_ExecuteMsg::Distribute { 
         distribution_assets, 
+        distribution_asset_ratios: cAsset_ratios, //The distributions are based off cAsset_ratios so they shouldn't change
         credit_asset: credit_asset.info,
-        credit_price: basket.clone().credit_price.unwrap(), 
+        distribute_for: native_repayment,
     };
     //Build the Execute msg w/ the full list of native tokens
     let msg = CosmosMsg::Wasm(WasmMsg::Execute {

@@ -613,13 +613,41 @@ pub enum QueryMsg {
         basket_id: Uint128,
     }
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct DebtCapResponse{
+    pub caps: Vec<String>,
+}
 ```
 
 | Key         | Type    | Description   |
 | ----------- | ------- | ------------- |
 | `basket_id` | Uint128 | ID of basket  |
 
-### Propagation
+### `GetBasketBadDebt`
+
+Returns a basket's bad debt.
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMsg {
+    GetBasketBadDebt {
+        basket_id: Uint128,
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct BadDebtResponse{
+    pub has_bad_debt: Vec<( PositionUserInfo, Decimal )>,
+}
+```
+
+| Key         | Type    | Description   |
+| ----------- | ------- | ------------- |
+| `basket_id` | Uint128 | ID of basket  |
+
+### `Propagation`
 
 Returns `RepayPropagation.`Used internally to test state propagation.
 

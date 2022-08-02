@@ -18,7 +18,7 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Recieve(Cw20ReceiveMsg),
+    Receive(Cw20ReceiveMsg),
     Deposit { //Deposit a list of accepted assets
         user: Option<String>,
         assets: Vec<AssetInfo>,

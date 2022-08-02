@@ -94,7 +94,7 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::Recieve( msg ) => receive_cw20(deps, env, info, msg),
+        ExecuteMsg::Receive( msg ) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ user, assets } => {
             //Outputs asset objects w/ correct amounts
             let valid_assets = validate_assets(deps.storage, assets.clone(), info.clone(), true)?;

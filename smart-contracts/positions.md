@@ -12,11 +12,20 @@ The contract also contains the logic for initiating liquidations of CDPs and the
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
+    pub oracle_time_limit: u64, //in seconds until oracle failure is acceoted
+    pub debt_minimum: Decimal, //Debt minimum value per position
+    pub liq_fee: Decimal,
+//Contracts
+    pub stability_pool: Option<String>,
+    pub dex_router: Option<String>,
+    pub fee_collector: Option<String>,
+    pub osmosis_proxy: Option<String>,
+    pub debt_auction: Option<String>,
+//Basket Creation
     pub collateral_types: Option<Vec<cAsset>>,
     pub credit_asset: Option<Asset>,
     pub credit_price: Option<Decimal>,
     pub credit_interest: Option<Decimal>,
-    pub basket_owner: Option<String>,
 }
 
 
@@ -35,14 +44,21 @@ pub enum AssetInfo {
 }
 ```
 
-| Key                 | Type         | Description                                                     |
-| ------------------- | ------------ | --------------------------------------------------------------- |
-| `*owner`            | String       | Contract owner that defaults to info.sender                     |
-| `*collateral_types` | Vec\<cAsset> | Accepted cAssets for an initial basket                          |
-| `*credit_asset`     | Asset        | Credit asset for an initial basket                              |
-| `*credit_price`     | Decimal      | Credit price for an initial basket                              |
-| `*credit_interest`  | Decimal      | Credit interest for an initial basket                           |
-| `*basket_owner`     | String       | Basket owner for an initial basket that defaults to info.sender |
+| Key                 | Type         | Description                                                        |
+| ------------------- | ------------ | ------------------------------------------------------------------ |
+| `*owner`            | String       | Contract owner that defaults to info.sender                        |
+| `oracle-time-limit` | u64          | Limit in seconds that the oracle has before the values are invalid |
+| `debt_minimum`      | Decimal      | Minimum value in debt per position                                 |
+| `liq_fee`           | Decimal      | Fee that goes to the protocol during liquidations                  |
+| `*stability_pool`   | String       | Stability Pool Contract                                            |
+| `*dex_router`       | String       | DEX Router Contract                                                |
+| `*fee_collector`    | String       | Address that is sent liq\_fees                                     |
+| `*osmosis_proxy`    | String       | Osmosis Proxy contract to use SDK modules                          |
+| `*debt_auction`     | String       | Auction Contract that sells protocol tokens to repay debt          |
+| `*collateral_types` | Vec\<cAsset> | Accepted cAssets for an initial basket                             |
+| `*credit_asset`     | Asset        | Credit asset for an initial basket                                 |
+| `*credit_price`     | Decimal      | Credit price for an initial basket                                 |
+| `*credit_interest`  | Decimal      | Credit interest for an initial basket                              |
 
 \* = optional
 
@@ -414,10 +430,13 @@ pub struct ConfigResponse {
     pub owner: String,
     pub current_basket_id: Uint128,
     pub stability_pool: String,
-    pub dex_router: String, 
+    pub dex_router: String, //Apollo's router, will need to change msg types if the router changes most likely.
     pub fee_collector: String,
     pub osmosis_proxy: String,
+    pub debt_auction: String,
     pub liq_fee: Decimal, // 5 = 5%
+    pub oracle_time_limit: u64,
+    pub debt_minimum: Decimal,
 }
 ```
 
@@ -542,6 +561,9 @@ pub struct BasketResponse{
     pub credit_asset: Asset, 
     pub credit_price: String,
     pub credit_interest: String,
+    pub debt_pool_ids: Vec<u64>,
+    pub debt_liquidity_multiplier_for_caps: Decimal, //Ex: 5 = debt cap at 5x liquidity.
+    pub liq_queue: String,    
 }
 ```
 

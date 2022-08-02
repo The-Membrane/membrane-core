@@ -23,6 +23,8 @@ We want this phase of the mechanism to be reactive when low while not taking too
 pub struct InstantiateMsg {
     pub asset_pool: Option<AssetPool>,
     pub owner: Option<String>,
+    pub dex_router: Option<String>,
+    pub max_spread: Option<Decimal>,
 }
 
 pub struct AssetPool {
@@ -42,10 +44,12 @@ pub struct Deposit {
 }
 ```
 
-| Key           | Type      | Description                                    |
-| ------------- | --------- | ---------------------------------------------- |
-| `*asset_pool` | AssetPool | Initial Asset Pool for the contract            |
-| `*owner`      | String    | Owner of the contract, defaults to info.sender |
+| Key           | Type      | Description                                       |
+| ------------- | --------- | ------------------------------------------------- |
+| `*asset_pool` | AssetPool | Initial Asset Pool for the contract               |
+| `*owner`      | String    | Owner of the contract, defaults to info.sender    |
+| `*dex_router` | String    | DEX Router Contract                               |
+| `*max_spread` | Decimal   | Max spread for claim\_as() swaps, defaults to 10% |
 
 \* = optional
 

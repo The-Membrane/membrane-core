@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::state::{cAsset, Position, LiqAsset, RepayFee};
 
-//TODO: add cw20
 use crate::cw20::Cw20ReceiveMsg;
 
 

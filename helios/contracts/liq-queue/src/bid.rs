@@ -24,9 +24,6 @@ use crate::math::{decimal_division, decimal_subtraction, decimal_multiplication}
 //use crate::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
 use crate::state::{ CONFIG, Config, QUEUES, EPOCH_SCALE_SUM};
 
-// version info for migration info
-const CONTRACT_NAME: &str = "crates.io:stability-pool";
-const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const MAX_LIMIT: u8 = 31;
 

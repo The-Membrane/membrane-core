@@ -3,8 +3,9 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use membrane::positions::{ ExecuteMsg, InstantiateMsg, QueryMsg};
-//use cdp::state::State;
+use membrane::positions::{ ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, CallbackMsg, PositionResponse, PositionsResponse, BasketResponse, ConfigResponse, PropResponse, DebtCapResponse };
+use cdp::state::{ Config };
+use membrane::types::{ RepayPropagation };
 
 fn main() {
     let mut out_dir = current_dir().unwrap();
@@ -15,6 +16,14 @@ fn main() {
     export_schema(&schema_for!(InstantiateMsg), &out_dir);
     export_schema(&schema_for!(ExecuteMsg), &out_dir);
     export_schema(&schema_for!(QueryMsg), &out_dir);
-    // export_schema(&schema_for!(State), &out_dir);
-    // export_schema(&schema_for!(CountResponse), &out_dir);
+    export_schema(&schema_for!(Cw20HookMsg), &out_dir);
+    export_schema(&schema_for!(CallbackMsg), &out_dir);
+    export_schema(&schema_for!(PositionsResponse), &out_dir);
+    export_schema(&schema_for!(PositionResponse), &out_dir);
+    export_schema(&schema_for!(BasketResponse), &out_dir);
+    export_schema(&schema_for!(ConfigResponse), &out_dir);
+    export_schema(&schema_for!(PropResponse), &out_dir);
+    export_schema(&schema_for!(DebtCapResponse), &out_dir);
+    export_schema(&schema_for!(Config), &out_dir);
+    export_schema(&schema_for!(RepayPropagation), &out_dir);
 }

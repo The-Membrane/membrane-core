@@ -25,7 +25,7 @@ use crate::query::{query_config, query_liquidatible, query_premium_slots, query_
 use crate::state::{ CONFIG, Config, QUEUES, EPOCH_SCALE_SUM};
 
 // version info for migration info
-const CONTRACT_NAME: &str = "crates.io:stability-pool";
+const CONTRACT_NAME: &str = "crates.io:liq-queue";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 
@@ -53,8 +53,6 @@ pub fn instantiate(
             added_assets: Some(vec![]),
         };
     }
-
-    
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;

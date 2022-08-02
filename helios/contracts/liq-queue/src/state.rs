@@ -32,6 +32,5 @@ pub const QUEUES: Map<String, Queue> = Map::new("queue"); //Each asset (String o
 //(bid_for, premium, epoch, scale) -> sum_snapshot
 pub const EPOCH_SCALE_SUM: Map<(String, Uint128, Uint128, Uint128), Decimal> = Map::new("epoch_scale_sum"); 
 
-//Use oracle contract w/ cAsset info instead
-pub const ORACLES: Map<AssetInfo, Addr> = Map::new("oracles");
+
 

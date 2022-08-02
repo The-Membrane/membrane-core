@@ -32,7 +32,7 @@ use crate::state::{Config, CONFIG, POSITIONS, BASKETS,  REPAY };
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cdp";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const PRICE_EXPIRE_TIME: u64 = 60;
+
 
 
 
@@ -46,8 +46,7 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
-    
-  
+      
     let mut config = Config {
         liq_fee: msg.liq_fee,
         owner: info.sender.clone(),

@@ -50,9 +50,6 @@ pub fn deposit(
 
 
     let mut new_position: Position;
-
-    //Finds the list of positions the position_owner has in the selected basket
-    //POSITIONS.update(deps.storage, (basket_id.to_string(), valid_owner_addr), |positions: Option<Vec<Position>>| -> Result<Vec<Position>, ContractError>{
        
     match POSITIONS.load(deps.storage, (basket_id.to_string(), valid_owner_addr.clone())){
         
@@ -169,11 +166,11 @@ pub fn deposit(
                 POSITIONS.update(deps.storage, (basket_id.to_string(), valid_owner_addr.clone()), |positions| -> Result<Vec<Position>, ContractError> 
                 {
                     //We can .unwrap() here bc the initial .load() matched Ok()
-                    let mut update_pos = positions.unwrap();
+                    let mut old_positions = positions.unwrap();
 
-                    update_pos.push( new_position );
+                    old_positions.push( new_position );
 
-                    Ok( update_pos )
+                    Ok( old_positions )
 
                 })?;
 
@@ -182,7 +179,7 @@ pub fn deposit(
 
         
         },
-        // If Err() meaning no positions loaded, new position is created 
+        // If Err() meaning no positions loaded, new Vec<Position> is created 
         Err(_) => {
 
             new_position = create_position(deps.storage, cAssets.clone(), basket_id)?;
@@ -191,11 +188,7 @@ pub fn deposit(
             new_position_id = new_position.clone().position_id;
             
             //Add new Vec of Positions to state under the user
-            POSITIONS.update(deps.storage, (basket_id.to_string(), valid_owner_addr.clone()), |_positions| -> Result<Vec<Position>, ContractError> 
-            {
-                Ok( vec![ new_position ] )
-
-            })?;
+            POSITIONS.save(deps.storage, (basket_id.to_string(), valid_owner_addr.clone()), &vec![ new_position ] )?;
         }
     };
 

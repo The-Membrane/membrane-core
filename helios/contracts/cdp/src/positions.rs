@@ -11,7 +11,7 @@ use osmo_bindings::{ SpotPriceResponse, PoolStateResponse };
 use membrane::{types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistribution, RepayPropagation, LiqAsset, UserInfo, PriceInfo}, positions::CallbackMsg};
 use membrane::positions::ExecuteMsg;
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg};
-use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse, Cw20HookMsg as LQ_Cw20HookMsg};
+use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse };
 use membrane::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
 use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg };
 
@@ -442,6 +442,11 @@ pub fn repay(
                         if position.credit_amount >= Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128)) {
                             //Repay amount
                             position.credit_amount -= Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128));
+                            
+                            //Position's resulting debt can't be below minimum without being fully repaid
+                            if position.credit_amount < config.debt_minimum && !position.credit_amount.is_zero(){
+                                return Err( ContractError::BelowMinimumDebt{})
+                            }
 
                             total_loan = position.clone().credit_amount;
                         }else{
@@ -638,7 +643,6 @@ pub fn liq_repay(
     
     messages.push(msg);   
 
-
     Ok( res.add_messages(messages) )
 }
 
@@ -672,7 +676,7 @@ pub fn increase_debt(
 
     //Test for minimum debt requirements
     if decimal_multiplication( total_credit, basket.credit_price.unwrap() ) < config.debt_minimum{
-        return Err( ContractError::CustomError { val: "Total debt below minimum".to_string() })
+        return Err( ContractError::BelowMinimumDebt { })
     }
     
     let message: CosmosMsg;
@@ -788,7 +792,20 @@ pub fn liquidate(
     
     //repay value = the % of the loan insolvent. Insolvent is anything between current and max borrow LTV.
     //IE, repay what to get the position down to borrow LTV
-    let repay_value = loan_value - decimal_multiplication(decimal_division(avg_borrow_LTV, current_LTV), loan_value);
+    let mut repay_value = loan_value - decimal_multiplication(decimal_division(avg_borrow_LTV, current_LTV), loan_value);
+
+    ///Assert repay_value is above the minimum, if not repay at least the minimum
+    /// Repay the full loan if the resulting is going to be less than the minimum.
+    if repay_value < config.debt_minimum{
+        //If setting the repay value to the minimum leaves at least the minimum in the position...
+        //..then partially liquidate
+        if loan_value - config.debt_minimum >= config.debt_minimum{
+            repay_value = config.debt_minimum;
+        }else{ //Else liquidate it all
+            repay_value = loan_value;
+        }
+    }
+
     let credit_repay_amount = match decimal_division(repay_value, basket.clone().credit_price.unwrap()){
         
         //Repay amount has to be above 0, or there is nothing to liquidate and there was a mistake prior
@@ -801,6 +818,7 @@ pub fn liquidate(
         }
         x => { x }
     };
+    
     
      
     // Don't send any funds here, only send user_ids and repayment amounts.

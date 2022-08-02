@@ -172,6 +172,76 @@ mod tests {
         Box::new(contract)
     }
 
+    pub fn liq_queue_contract_minimumliq()-> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: LQ_MockExecuteMsg| -> StdResult<Response> {
+                match msg {
+                    LQ_MockExecuteMsg::Liquidate {
+                        credit_price,
+                        collateral_price,
+                        collateral_amount,
+                        bid_for,
+                        bid_with,
+                        basket_id,
+                        position_id,
+                        position_owner,
+                    } => {
+                        
+                        match bid_for{
+                            AssetInfo::Token { address: _ } => {
+                                
+                                return Ok(Response::new().add_attributes(vec![
+                                    attr("action", "execute_bid"),
+                                    attr("denom", bid_with.to_string()),
+                                    attr("repay_amount", Uint128::new(500u128).to_string()),
+                                    attr("collateral_token", bid_for.to_string()),
+                                    attr("collateral_info", "token"),
+                                    attr("collateral_amount", collateral_amount),
+                                ]))
+                            },
+                            
+                            AssetInfo::NativeToken { denom: _ } => {
+                                
+                                if collateral_amount.to_string() != String::from("500") {
+                                    panic!("{}", collateral_amount.to_string());
+                                }
+
+
+                                return Ok(Response::new().add_attributes(vec![
+                                    attr("action", "execute_bid"),
+                                    attr("denom", bid_with.to_string()),
+                                    attr("repay_amount", Uint128::new(500u128).to_string()),
+                                    attr("collateral_token", bid_for.to_string()),
+                                    attr("collateral_info", "native_token"),
+                                    attr("collateral_amount", collateral_amount),
+                                ]))
+                            }
+                        }
+                    }
+                }
+            },
+            |_, _, _, _: LQ_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
+            |_, _, msg: LQ_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    LQ_MockQueryMsg::CheckLiquidatible { 
+                        bid_for, 
+                        collateral_price, 
+                        collateral_amount, 
+                        credit_info, 
+                        credit_price 
+                    } => Ok(
+                        to_binary(
+                            &LQ_LiquidatibleResponse {
+                                leftover_collateral: "499".to_string(),
+                                total_credit_repaid: "500".to_string(),
+                            })?),
+                }
+            },
+        );
+        Box::new(contract)
+    }
+
+
     //Mock SP Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
@@ -180,9 +250,10 @@ mod tests {
             credit_asset: LiqAsset, 
         },
         Distribute {
-            distribution_assets: Vec<cAsset>,
+            distribution_assets: Vec<Asset>,
+            distribution_asset_ratios: Vec<Decimal>,
             credit_asset: AssetInfo,
-            credit_price: Decimal,
+            distribute_for: Uint128,
         },
     }
 
@@ -217,41 +288,27 @@ mod tests {
                             .add_attribute("leftover_repayment", "0"))
                     }
                     SP_MockExecuteMsg::Distribute { 
-                        distribution_assets, 
+                        distribution_assets,
+                        distribution_asset_ratios, 
                         credit_asset, 
-                        credit_price } => {
+                        distribute_for } => {
                         
                         if distribution_assets != vec![
-                                cAsset { 
-                                    asset: 
                                         Asset { 
                                             info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
                                             amount: Uint128::new(244) 
-                                        }, 
-                                    debt_total: Uint128::zero(),
-                                    max_borrow_LTV: Decimal::percent(50), 
-                                    max_LTV: Decimal::percent(70),}]
+                                        }]
                             && distribution_assets != vec![
-                                cAsset { 
-                                    asset: 
-                                        Asset { 
-                                            info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
-                                            amount: Uint128::new(2447) 
-                                        },  
-                                    debt_total: Uint128::zero(),
-                                    max_borrow_LTV: Decimal::percent(50), 
-                                    max_LTV: Decimal::percent(70),}]
+                                Asset { 
+                                    info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                                    amount: Uint128::new(2447) 
+                                }]
                             &&
                             distribution_assets != vec![
-                                cAsset { 
-                                    asset: 
-                                        Asset { 
-                                            info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
-                                            amount: Uint128::new(55000) 
-                                        },  
-                                    debt_total: Uint128::zero(),
-                                    max_borrow_LTV: Decimal::percent(50), 
-                                    max_LTV: Decimal::percent(70),}]{
+                                Asset { 
+                                    info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                                    amount: Uint128::new(55000) 
+                                }]{
                                             assert_ne!(distribution_assets, distribution_assets);
                                         }
 
@@ -299,10 +356,72 @@ mod tests {
                     }
                     SP_MockExecuteMsg::Distribute { 
                         distribution_assets, 
+                        distribution_asset_ratios,
                         credit_asset, 
-                        credit_price } => {
+                        distribute_for } => {
 
                                                 
+                        Ok(Response::new()
+                            .add_attribute("method", "distribute")
+                            .add_attribute("credit_asset", "cdl"))
+                    },
+                }
+            },
+            |_, _, _, _: SP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
+            |_, _, msg: SP_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    SP_MockQueryMsg::CheckLiquidatible { 
+                        asset,
+                    } => Ok(
+                        to_binary(
+                            &SP_LiquidatibleResponse {
+                                leftover: Decimal::zero(),
+                            })?),
+                    SP_MockQueryMsg::AssetPool { asset_info 
+                    } => Ok(
+                        to_binary(&PoolResponse {
+                            credit_asset: Asset {
+                                info: AssetInfo::NativeToken { denom: "cdl".to_string() },
+                                amount: Uint128::zero(),
+                            },
+                            liq_premium: Decimal::percent(10),
+                            deposits: vec![],
+                        })?),
+                }
+            },
+        );
+        Box::new(contract)
+    }
+
+    pub fn stability_pool_contract_minimumliq()-> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: SP_MockExecuteMsg| -> StdResult<Response> {
+                match msg {
+                    SP_MockExecuteMsg::Liquidate {
+                        credit_asset
+                    } => {
+                        if credit_asset.to_string() != "499 credit_fulldenom".to_string() {
+                            panic!("{}", credit_asset.to_string());
+                        }
+                        
+                        Ok(Response::new()
+                            .add_attribute("method", "liquidate")
+                            .add_attribute("leftover_repayment", "0"))
+                    }
+                    SP_MockExecuteMsg::Distribute { 
+                        distribution_assets,
+                        distribution_asset_ratios, 
+                        credit_asset, 
+                        distribute_for } => {
+                        
+                        if distribution_assets != vec![
+                                        Asset { 
+                                            info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                                            amount: Uint128::new(548) 
+                        }]{
+                            assert_ne!(distribution_assets, distribution_assets);
+                        }
+
                         Ok(Response::new()
                             .add_attribute("method", "distribute")
                             .add_attribute("credit_asset", "cdl"))
@@ -553,13 +672,15 @@ mod tests {
             })
         }
 
-    fn proper_instantiate( sp_error: bool, lq_error: bool ) -> (App, CDPContract, LQContract) {
+    fn proper_instantiate( sp_error: bool, lq_error: bool, liq_minimum: bool ) -> (App, CDPContract, LQContract) {
         let mut app = mock_app();
         
         //Instanitate SP
         let mut sp_id: u64;
         if sp_error{
             sp_id = app.store_code(stability_pool_contract_errors());
+        }else if liq_minimum{
+            sp_id = app.store_code(stability_pool_contract_minimumliq());
         }else{
             sp_id = app.store_code(stability_pool_contract());
         }
@@ -593,7 +714,9 @@ mod tests {
         let mut lq_id: u64;
         if lq_error{
             lq_id = app.store_code(liq_queue_contract_errors());
-        }else{
+        }else if liq_minimum{
+            lq_id = app.store_code(liq_queue_contract_minimumliq());
+        } else{
             lq_id = app.store_code(liq_queue_contract());
         }
         
@@ -670,7 +793,7 @@ mod tests {
                 osmosis_proxy: Some( osmosis_proxy_contract_addr.to_string() ),   
                 debt_auction: Some( auction_contract_addr.to_string() ),
                 oracle_time_limit: 60u64,
-                debt_minimum: Decimal::percent(10_000),
+                debt_minimum: Decimal::percent(500_00),
         };
 
         
@@ -702,7 +825,7 @@ mod tests {
 
         #[test]
         fn withdrawal() {
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false);
+            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -808,7 +931,7 @@ mod tests {
 
         #[test]
         fn increase_debt__repay() {
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false);
+            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -879,6 +1002,16 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
         
+            //Error on Partial Repayment under config.debt_minimum 
+            let msg = ExecuteMsg::Repay { 
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                position_owner: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![coin(49_901, "credit")]).unwrap();
+            app.execute(Addr::unchecked("test"), cosmos_msg).unwrap_err();
+
+
             let query_msg = QueryMsg::GetPosition { 
                 position_id: Uint128::new(1u128), 
                 basket_id: Uint128::new(1u128), 
@@ -917,7 +1050,7 @@ mod tests {
         #[test]
         fn liq_repay() {
 
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true);
+            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -1017,7 +1150,7 @@ mod tests {
         
         #[test]
         fn liquidate() {
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false);
+            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -1111,7 +1244,7 @@ mod tests {
 
             /////////SP Errors////
             /// 
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( true, false);
+            let (mut app, cdp_contract, lq_contract) = proper_instantiate( true, false, false);
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket { 
@@ -1191,7 +1324,7 @@ mod tests {
             //////LQ Errors///
             /// 
             
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true);
+            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true, false);
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket { 
@@ -1278,7 +1411,7 @@ mod tests {
             //////All Errors/////
             /// 
                 
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( true, true);
+            let (mut app, cdp_contract, lq_contract) = proper_instantiate( true, true, false);
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket { 
@@ -1365,9 +1498,103 @@ mod tests {
         }
 
         #[test]
+        fn liquidate_minimums() {
+            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false, true);
+
+            let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
+            let sp_addr = res.stability_pool;
+            let router_addr = res.dex_router;
+            let fee_collector = res.fee_collector;
+            
+
+            //Add liq-queue to the initial basket
+            let msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: None, 
+                owner: None, 
+                credit_interest: None, 
+                liq_queue: Some( lq_contract.addr().to_string() ),
+                liquidity_multiplier: Some( Decimal::percent( 500 ) ),
+                pool_ids: Some( vec![ 1u64 ] ), 
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Initial Deposit
+            let assets: Vec<AssetInfo> = vec![
+                AssetInfo::NativeToken { denom: "debit".to_string() },
+            ];
+
+            let msg = ExecuteMsg::Deposit { 
+                assets,
+                position_owner: Some( USER.to_string() ),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg, 
+                    vec![
+                        Coin { 
+                            denom: "debit".to_string(),
+                            amount: Uint128::from(100_000u128),
+                            } 
+                        ])
+                    .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Increase Debt
+            let msg = ExecuteMsg::IncreaseDebt{
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                amount: Uint128::from(999u128),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Call liquidate on CDP contract
+            let msg = ExecuteMsg::Liquidate { 
+                    basket_id: Uint128::new(1u128), 
+                    position_id: Uint128::new(1u128), 
+                    position_owner: USER.to_string(), 
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            
+            //Call LiqRepay to mimic a successfull SP Liquidate call
+            let msg = ExecuteMsg::LiqRepay { 
+                credit_asset: Asset { 
+                    info: AssetInfo::NativeToken { denom: "credit_fulldenom".to_string() },
+                    amount: Uint128::new(499),
+                    } };
+
+            let cosmos_msg = cdp_contract.call(msg, vec![coin( 499, "credit_fulldenom")]).unwrap();
+            app.execute( Addr::unchecked(sp_addr.clone()), cosmos_msg).unwrap();
+
+            let query_msg = QueryMsg::GetPosition { 
+                position_id: Uint128::new(1u128), 
+                basket_id: Uint128::new(1u128), 
+                user:  USER.to_string(),  
+            };
+            let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            //assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97290));
+
+            //Assert sell wall wasn't sent assets
+            assert_eq!(app.wrap().query_all_balances(router_addr.clone()).unwrap(), vec![]);
+
+            //Assert fees were sent.
+            assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 9, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 199, "debit")]);
+
+            //Assert collateral to be liquidated was sent 
+            assert_eq!(app.wrap().query_all_balances(sp_addr.clone()).unwrap(), vec![coin(1726, "credit_fulldenom"), coin( 548, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(lq_contract.addr()).unwrap(), vec![coin( 500, "debit")]);
+        }
+
+        #[test]
         fn debt_caps() {
 
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true);
+            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;

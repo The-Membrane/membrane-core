@@ -37,11 +37,15 @@ pub fn query_config(
             Ok( ConfigResponse {
                 owner: config.clone().owner.to_string(),
                 current_basket_id: config.clone().current_basket_id,
-                stability_pool: config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("None")).into_string(),
-                dex_router: config.clone().dex_router.unwrap_or_else(|| Addr::unchecked("None")).into_string(),
-                fee_collector: config.clone().fee_collector.unwrap_or_else(|| Addr::unchecked("None")).into_string(),
-                osmosis_proxy: config.clone().osmosis_proxy.unwrap_or_else(|| Addr::unchecked("None")).into_string(),
+                stability_pool: config.clone().stability_pool.unwrap_or(Addr::unchecked("None")).into_string(),
+                dex_router: config.clone().dex_router.unwrap_or(Addr::unchecked("None")).into_string(),
+                fee_collector: config.clone().fee_collector.unwrap_or(Addr::unchecked("None")).into_string(),
+                osmosis_proxy: config.clone().osmosis_proxy.unwrap_or( Addr::unchecked("None")).into_string(),
+                debt_auction: config.clone().debt_auction.unwrap_or( Addr::unchecked("None")).into_string(),
                 liq_fee: config.clone().liq_fee,
+                oracle_time_limit: config.oracle_time_limit,
+                debt_minimum: config.debt_minimum,
+                
             })
         },
         Err( err ) => return Err( err ),
@@ -177,6 +181,9 @@ pub fn query_basket(
                 credit_asset: basket.credit_asset,
                 credit_price,
                 credit_interest,
+                debt_pool_ids: basket.debt_pool_ids,
+                debt_liquidity_multiplier_for_caps: basket.debt_liquidity_multiplier_for_caps,
+                liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
             }
         },
         Err(_) => { return Err(StdError::generic_err("Invalid basket_id")) },
@@ -228,6 +235,10 @@ pub fn query_baskets(
                 credit_asset: basket.credit_asset,
                 credit_price,
                 credit_interest,
+                debt_pool_ids: basket.debt_pool_ids,
+                debt_liquidity_multiplier_for_caps: basket.debt_liquidity_multiplier_for_caps,
+                liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
+                
             })
             
         })

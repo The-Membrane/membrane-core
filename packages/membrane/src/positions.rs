@@ -12,15 +12,16 @@ use cw20::Cw20ReceiveMsg;
 //Msg Start
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
+    pub owner: Option<String>,
+    pub oracle_time_limit: u64, //in seconds until oracle failure is acceoted
+    pub debt_minimum: Decimal, //Debt minimum value per position
     pub liq_fee: Decimal,
+    //Contracts
     pub stability_pool: Option<String>,
     pub dex_router: Option<String>,
     pub fee_collector: Option<String>,
     pub osmosis_proxy: Option<String>,
     pub debt_auction: Option<String>,
-    pub owner: Option<String>,
-    pub oracle_time_limit: u64, //in seconds until oracle failure is acceoted
-    pub debt_minimum: Decimal, //Debt minimum value per position
     //For Basket creation
     pub collateral_types: Option<Vec<cAsset>>,
     pub credit_asset: Option<Asset>,
@@ -171,6 +172,9 @@ pub struct BasketResponse{
     pub credit_asset: Asset, 
     pub credit_price: String,
     pub credit_interest: String,
+    pub debt_pool_ids: Vec<u64>,
+    pub debt_liquidity_multiplier_for_caps: Decimal, //Ex: 5 = debt cap at 5x liquidity.
+    pub liq_queue: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -181,7 +185,10 @@ pub struct ConfigResponse {
     pub dex_router: String, //Apollo's router, will need to change msg types if the router changes most likely.
     pub fee_collector: String,
     pub osmosis_proxy: String,
+    pub debt_auction: String,
     pub liq_fee: Decimal, // 5 = 5%
+    pub oracle_time_limit: u64,
+    pub debt_minimum: Decimal,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

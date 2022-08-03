@@ -101,20 +101,20 @@ Deposits basket accepted collateral to a new or existing position.
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     Deposit {
-        assets: Vec<Asset>,
-        position_owner: Option<String>,
+        assets: Vec<AssetInfo>,
         basket_id: Uint128,
         position_id: Option<Uint128>,
+        position_owner: Option<String>,
     },
 }
 ```
 
-| Key                | Type        | Description                                                              |
-| ------------------ | ----------- | ------------------------------------------------------------------------ |
-| `assets`           | Vec\<Asset> | Asset objects to deposit                                                 |
-| \*`position_owner` | String      | Owner of the position, defaults to info.sender                           |
-| `basket_id`        | Uint128     | Basket ID to deposit to.                                                 |
-| \*`position_id`    | Uint128     | Position ID to deposit to. If none is passed, a new position is created. |
+| Key                | Type            | Description                                                              |
+| ------------------ | --------------- | ------------------------------------------------------------------------ |
+| `assets`           | Vec\<AssetInfo> | Asset info of sent assets                                                |
+| `basket_id`        | Uint128         | Basket ID to deposit to.                                                 |
+| \*`position_id`    | Uint128         | Position ID to deposit to. If none is passed, a new position is created. |
+| \*`position_owner` | String          | Owner of the position, defaults to info.sender                           |
 
 \* = optional
 
@@ -534,11 +534,11 @@ pub struct Position {
 }
 ```
 
-| Key            | Type    | Description                 |
-| -------------- | ------- | --------------------------- |
-| `basket_id`    | Uint128 | ID of Basket to parse       |
-| `*start_after` | String  | User address to start after |
-| `*limit`       | u32     | Response output limit       |
+| Key            | Type    | Description                        |
+| -------------- | ------- | ---------------------------------- |
+| `basket_id`    | Uint128 | ID of Basket to parse              |
+| `*start_after` | String  | User address to start after        |
+| `*limit`       | u32     | Limit to # of users parsed through |
 
 \* = optional
 
@@ -599,7 +599,9 @@ pub struct BasketResponse{
 | Key            | Type    | Description                 |
 | -------------- | ------- | --------------------------- |
 | `*start_after` | Uint128 | User address to start after |
-| `*limit`       | u32     | Response output limit       |
+| `*limit`       | u32     | Basket limit                |
+
+&#x20;\* = optional
 
 ### `GetBasketDebtCaps`
 
@@ -626,7 +628,7 @@ pub struct DebtCapResponse{
 
 ### `GetBasketBadDebt`
 
-Returns a basket's bad debt.
+Returns a basket's bad debt
 
 ```
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -646,6 +648,60 @@ pub struct BadDebtResponse{
 | Key         | Type    | Description   |
 | ----------- | ------- | ------------- |
 | `basket_id` | Uint128 | ID of basket  |
+
+### `GetBasketInsolvency`
+
+Return's any insolvent positions in a basket
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMsg {
+    GetBasketInsolvency {
+        basket_id: Uint128,
+        start_after: Option<String>,
+        limit: Option<u32>,
+    }
+}
+
+pub struct InsolvencyResponse{
+    pub insolvent_positions: Vec<InsolventPosition>,
+}
+```
+
+| Key            | Type    | Description                              |
+| -------------- | ------- | ---------------------------------------- |
+| `basket_id`    | Uint128 | ID of basket                             |
+| `*start_after` | String  | Get responses starting after user        |
+| `*limit`       | u32     | Limit the number of users parsed through |
+
+&#x20;\* = optional
+
+### `GetPositionInsolvency`
+
+Returns a single position's insolvency info
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMsg {
+    GetPositionInsolvency {
+        basket_id: Uint128,
+        position_id: Uint128,
+        position_owner: String,
+    }
+}
+
+pub struct InsolvencyResponse{
+    pub insolvent_positions: Vec<InsolventPosition>,
+}
+```
+
+| Key              | Type    | Description           |
+| ---------------- | ------- | --------------------- |
+| `basket_id`      | Uint128 | Basket ID to query    |
+| `position_id`    | Uint128 | Position ID to query  |
+| `position_owner` | String  | Owner of the position |
 
 ### `Propagation`
 

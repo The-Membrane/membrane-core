@@ -202,13 +202,15 @@ pub fn query_baskets(
 
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
 
-    let start: Option<Bound<String>> = match BASKETS.load(deps.storage, start_after.unwrap().to_string()){
+    let start: Option<Bound<String>> = if let Some(_start) = start_after { match BASKETS.load(deps.storage, start_after.unwrap().to_string()){
         Ok(_x) => {
             Some(Bound::exclusive(start_after.unwrap().to_string()))
         },
         Err(_) => {
             None
         },
+    }}else {
+        None
     };
 
     BASKETS
@@ -254,8 +256,14 @@ pub fn query_basket_positions(
      
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
 
-    let start_after_addr = deps.api.addr_validate(&start_after.unwrap())?;
-    let start = Some(Bound::exclusive(start_after_addr));
+    let start = if let Some(start) = start_after {
+        let start_after_addr = deps.api.addr_validate(&start)?;
+        Some(Bound::exclusive(start_after_addr))
+    }else{
+        None
+    };
+    
+    
 
     POSITIONS
         .prefix(basket_id.to_string())
@@ -405,8 +413,12 @@ pub fn query_basket_insolvency(
 
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
 
-    let start_after_addr = deps.api.addr_validate(&start_after.unwrap())?;
-    let start = Some(Bound::exclusive(start_after_addr));
+    let start = if let Some(start) = start_after {
+        let start_after_addr = deps.api.addr_validate(&start)?;
+        Some(Bound::exclusive(start_after_addr))
+    }else{
+        None
+    };
 
     let _iter = POSITIONS
         .prefix(basket_id.to_string())
@@ -446,6 +458,50 @@ pub fn query_basket_insolvency(
     } else {           
     Ok( res )
     }
+}
+
+pub fn query_position_insolvency(
+    deps: Deps,
+    env: Env,
+    basket_id: Uint128,
+    position_id: Uint128,
+    position_owner: String,
+) -> StdResult<InsolvencyResponse>{
+
+    let config: Config = CONFIG.load( deps.storage )?;
+
+    let valid_owner_addr = deps.api.addr_validate( &position_owner)?;
+
+    let basket: Basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
+    
+    let positions: Vec<Position> = POSITIONS.load( deps.storage, (basket_id.to_string(), valid_owner_addr))?;
+
+    let target_position = match positions.into_iter().find(|x| x.position_id == position_id){
+        Some( position ) => position,
+        None => return Err( StdError::NotFound { kind: "Position".to_string() } )
+    };
+
+    ///
+    let mut res = InsolvencyResponse { insolvent_positions: vec![] };
+      
+    let ( insolvent, current_LTV, available_fee ) = insolvency_check_imut(deps.storage, env.clone(), deps.querier, target_position.collateral_assets, target_position.credit_amount, basket.clone().credit_price.unwrap(), false, config.clone())?;
+                
+    //Since its a Singular position we'll output whether insolvent or not
+    res.insolvent_positions.push( InsolventPosition {
+        insolvent,
+        position_info: PositionUserInfo { 
+            basket_id: basket_id.clone(), 
+            position_id: Some( target_position.position_id ), 
+            position_owner: Some( position_owner.to_string() ), 
+        },
+        current_LTV,
+        available_fee,
+    } );
+    
+
+                
+    Ok( res )
+    
 }
 
 ////Helper/////

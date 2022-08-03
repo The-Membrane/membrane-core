@@ -1483,7 +1483,6 @@ pub fn sell_wall_using_ids(
     let positions: Vec<Position> = POSITIONS.load(storage, (basket_id.to_string(), position_owner.clone()))?;
 
     let target_position = match positions.into_iter().find(|x| x.position_id == position_id){
-        
         Some( position ) => position,
         None => return Err( StdError::NotFound { kind: "Position".to_string() } )
     };

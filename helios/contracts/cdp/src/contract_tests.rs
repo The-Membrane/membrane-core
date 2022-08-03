@@ -179,7 +179,7 @@ mod tests {
             QueryMsg::GetPosition {
                 position_id: Uint128::from(1u128),
                 basket_id: Uint128::from(1u128),
-                user: "owner".to_string()
+                position_owner: "owner".to_string()
             })
             .unwrap();
         

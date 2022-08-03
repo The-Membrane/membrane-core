@@ -35,8 +35,8 @@ pub enum ExecuteMsg {
     Receive(Cw20ReceiveMsg),
     Deposit{
         assets: Vec<AssetInfo>,
-        position_owner: Option<String>,
         basket_id: Uint128,
+        position_owner: Option<String>,
         position_id: Option<Uint128>, //If the user wants to create a new/separate position, no position id is passed         
     },
     IncreaseDebt { //only works on open positions
@@ -125,9 +125,9 @@ pub enum QueryMsg {
         limit: Option<u32>,
     },
     GetPosition { //Singular position
-        position_id: Uint128, 
         basket_id: Uint128, 
-        user: String 
+        position_id: Uint128, 
+        position_owner: String 
     },
     GetBasketPositions { //All positions in a basket
         basket_id: Uint128,
@@ -144,6 +144,16 @@ pub enum QueryMsg {
     },
     GetBasketBadDebt {
         basket_id: Uint128,
+    },
+    GetBasketInsolvency {    
+        basket_id: Uint128,
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+    GetPositionInsolvency {
+        basket_id: Uint128,
+        position_id: Uint128,
+        position_owner: String,
     },
     //Used internally to test state propagation
     Propagation {},

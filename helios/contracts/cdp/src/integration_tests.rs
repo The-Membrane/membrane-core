@@ -823,7 +823,7 @@ mod tests {
     mod cdp {
         
         use super::*;
-        use membrane::{positions::{ExecuteMsg, ConfigResponse, PropResponse, PositionResponse, BasketResponse, DebtCapResponse, BadDebtResponse}, types::UserInfo};
+        use membrane::{positions::{ExecuteMsg, ConfigResponse, PropResponse, PositionResponse, BasketResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse}, types::{UserInfo, InsolventPosition, PositionUserInfo}};
 
         #[test]
         fn withdrawal() {
@@ -910,7 +910,7 @@ mod tests {
             let query_msg = QueryMsg::GetPosition { 
                 position_id: Uint128::new(1u128), 
                 basket_id: Uint128::new(1u128), 
-                user:  USER.to_string(),  
+                position_owner:  USER.to_string(),  
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(10000));
@@ -1017,7 +1017,7 @@ mod tests {
             let query_msg = QueryMsg::GetPosition { 
                 position_id: Uint128::new(1u128), 
                 basket_id: Uint128::new(1u128), 
-                user:  "test".to_string(),  
+                position_owner:  "test".to_string(),  
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res.credit_amount, String::from("50000"));
@@ -1041,7 +1041,7 @@ mod tests {
             let query_msg = QueryMsg::GetPosition { 
                 position_id: Uint128::new(1u128), 
                 basket_id: Uint128::new(1u128), 
-                user:  "test".to_string(),  
+                position_owner:  "test".to_string(),  
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res.credit_amount, String::from("0"));
@@ -1142,7 +1142,7 @@ mod tests {
             let query_msg = QueryMsg::GetPosition { 
                 position_id: Uint128::new(1u128), 
                 basket_id: Uint128::new(1u128), 
-                user:  "test".to_string(),  
+                position_owner:  "test".to_string(),  
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res.credit_amount, String::from("0"));           
@@ -1227,7 +1227,7 @@ mod tests {
             let query_msg = QueryMsg::GetPosition { 
                 position_id: Uint128::new(1u128), 
                 basket_id: Uint128::new(1u128), 
-                user:  USER.to_string(),  
+                position_owner:  USER.to_string(),  
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97290));
@@ -1306,7 +1306,7 @@ mod tests {
             let query_msg = QueryMsg::GetPosition { 
                 position_id: Uint128::new(1u128), 
                 basket_id: Uint128::new(1u128), 
-                user:  USER.to_string(),  
+                position_owner:  USER.to_string(),  
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97312));
@@ -1475,7 +1475,7 @@ mod tests {
             let query_msg = QueryMsg::GetPosition { 
                 position_id: Uint128::new(1u128), 
                 basket_id: Uint128::new(1u128), 
-                user:  USER.to_string(),  
+                position_owner:  USER.to_string(),  
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97312));
@@ -1576,7 +1576,7 @@ mod tests {
             let query_msg = QueryMsg::GetPosition { 
                 position_id: Uint128::new(1u128), 
                 basket_id: Uint128::new(1u128), 
-                user:  USER.to_string(),  
+                position_owner:  USER.to_string(),  
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98744));
@@ -1737,8 +1737,110 @@ mod tests {
             //Assert no bad debt
             assert_eq!( res.has_bad_debt, vec![] );
 
-
         }
         
+        #[test]
+        fn insolvency_checks() {
+
+            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true, false);
+
+            let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
+            let sp_addr = res.stability_pool;
+            let router_addr = res.dex_router;
+            let fee_collector = res.fee_collector;
+            
+            
+            //Add liq-queue to the initial basket
+            let msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: None, 
+                owner: None, 
+                credit_interest: None, 
+                liq_queue: Some( lq_contract.addr().to_string() ),
+                liquidity_multiplier: Some( Decimal::percent( 500 ) ),
+                pool_ids: Some( vec![ 1u64 ] ), 
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Deposit #1
+            let assets: Vec<AssetInfo> = vec![
+                AssetInfo::NativeToken { denom: "debit".to_string() },
+            ];
+
+            let msg = ExecuteMsg::Deposit { 
+                assets,
+                position_owner: Some( "big_bank".to_string() ),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg, 
+                    vec![
+                        Coin { 
+                            denom: "debit".to_string(),
+                            amount: Uint128::from(10_000_000u128),
+                            } 
+                        ])
+                    .unwrap();
+            app.execute(Addr::unchecked("big_bank"), cosmos_msg).unwrap();
+
+            //Deposit #2
+            let assets: Vec<AssetInfo> = vec![
+                AssetInfo::NativeToken { denom: "debit".to_string() },
+            ];
+
+            let msg = ExecuteMsg::Deposit { 
+                assets,
+                position_owner: Some( "little_bank".to_string() ),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg, 
+                    vec![
+                        Coin { 
+                            denom: "debit".to_string(),
+                            amount: Uint128::from(1_000u128),
+                            } 
+                        ])
+                    .unwrap();
+            app.execute(Addr::unchecked("little_bank"), cosmos_msg).unwrap();
+
+            
+            //Increase Debt for 1 position
+            let msg = ExecuteMsg::IncreaseDebt{
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                amount: Uint128::from(50_000u128),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("big_bank"), cosmos_msg).unwrap();
+
+            //Query for Insolvency from 1 position w/o debt and 1 position with
+            let query_msg = QueryMsg::GetBasketInsolvency { basket_id: Uint128::new(1), start_after: None, limit: None };
+            let res: InsolvencyResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            //Assert no insolvencies
+            assert_eq!( res.insolvent_positions, vec![] );
+
+            //Query the indebted position 
+            let query_msg = QueryMsg::GetPositionInsolvency { basket_id: Uint128::new(1), position_id:  Uint128::new(1), position_owner: String::from("big_bank") };
+            let res: InsolvencyResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            //Assert no insolvencies
+            assert_eq!( res.insolvent_positions, vec![ 
+                InsolventPosition { 
+                    insolvent: false, 
+                    position_info: PositionUserInfo { 
+                        basket_id: Uint128::new(1), 
+                        position_id: Some( Uint128::new(1) ), 
+                        position_owner: Some( String::from("big_bank") ), 
+                    }, 
+                    current_LTV: Decimal::percent(5) * Decimal::percent(10), 
+                    available_fee: Uint128::zero(),
+                 }] );
+        }
+
     }
 }

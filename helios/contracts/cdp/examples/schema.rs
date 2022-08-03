@@ -3,7 +3,7 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use membrane::positions::{ ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, CallbackMsg, PositionResponse, PositionsResponse, BasketResponse, ConfigResponse, PropResponse, DebtCapResponse, BadDebtResponse };
+use membrane::positions::{ ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, CallbackMsg, PositionResponse, PositionsResponse, BasketResponse, ConfigResponse, PropResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse };
 use cdp::state::{ Config };
 use membrane::types::{ RepayPropagation };
 
@@ -25,6 +25,7 @@ fn main() {
     export_schema(&schema_for!(PropResponse), &out_dir);
     export_schema(&schema_for!(DebtCapResponse), &out_dir);
     export_schema(&schema_for!(BadDebtResponse), &out_dir);
+    export_schema(&schema_for!(InsolvencyResponse), &out_dir);
     export_schema(&schema_for!(Config), &out_dir);
     export_schema(&schema_for!(RepayPropagation), &out_dir);
 }

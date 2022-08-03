@@ -23,7 +23,7 @@ use membrane::debt_auction::{ ExecuteMsg as AuctionExecuteMsg };
 use crate::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 use crate::error::ContractError;
 use crate::positions::{create_basket, assert_basket_assets, assert_sent_native_token_balance, deposit, withdraw, increase_debt, repay, liq_repay, edit_contract_owner, liquidate, edit_basket, sell_wall_using_ids, SELL_WALL_REPLY_ID, STABILITY_POOL_REPLY_ID, LIQ_QUEUE_REPLY_ID, withdrawal_msg, update_position_claims, CREATE_DENOM_REPLY_ID, BAD_DEBT_REPLY_ID};
-use crate::query::{query_stability_pool_liquidatible, query_config, query_position, query_user_positions, query_basket_positions, query_basket, query_baskets, query_prop, query_stability_pool_fee, query_basket_debt_caps, query_bad_debt};
+use crate::query::{query_stability_pool_liquidatible, query_config, query_position, query_user_positions, query_basket_positions, query_basket, query_baskets, query_prop, query_stability_pool_fee, query_basket_debt_caps, query_bad_debt, query_basket_insolvency, query_position_insolvency};
 //use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, AssetInfo, Cw20HookMsg, Asset, PositionResponse, PositionsResponse, BasketResponse, LiqModuleMsg};
 //use crate::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
 //use crate::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse, Cw20HookMsg as LQ_Cw20HookMsg};
@@ -759,8 +759,8 @@ fn handle_sell_wall_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => { to_binary(&query_config(deps)?) }
-        QueryMsg::GetPosition { position_id, basket_id, user} => {
-            let valid_addr: Addr = deps.api.addr_validate(&user)?;
+        QueryMsg::GetPosition { position_id, basket_id, position_owner} => {
+            let valid_addr: Addr = deps.api.addr_validate(&position_owner)?;
             to_binary(&query_position(deps, position_id, basket_id, valid_addr)?)
         },
         QueryMsg::GetUserPositions { basket_id, user, limit } => {
@@ -785,6 +785,12 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetBasketBadDebt { basket_id } => {
             to_binary( &query_bad_debt( deps, basket_id )? ) 
         },
+        QueryMsg::GetBasketInsolvency { basket_id, start_after, limit } => {
+            to_binary( &query_basket_insolvency(deps, env, basket_id, start_after, limit)? )
+        },
+        QueryMsg::GetPositionInsolvency { basket_id, position_id, position_owner } => {
+            to_binary( &query_position_insolvency(deps, env, basket_id, position_id, position_owner)? )
+        }
     }
 }
 

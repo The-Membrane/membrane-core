@@ -4,7 +4,7 @@ use cosmwasm_std::{Addr, Uint128, Coin, Binary, Decimal};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{ Asset, cAsset, Position, LiqAsset, SellWallDistribution, AssetInfo, UserInfo };
+use crate::types::{ Asset, cAsset, Position, LiqAsset, SellWallDistribution, AssetInfo, UserInfo, PositionUserInfo, InsolventPosition };
 
 use cw20::Cw20ReceiveMsg;
 
@@ -142,6 +142,9 @@ pub enum QueryMsg {
     GetBasketDebtCaps {
         basket_id: Uint128,
     },
+    GetBasketBadDebt {
+        basket_id: Uint128,
+    },
     //Used internally to test state propagation
     Propagation {},
 }
@@ -206,4 +209,14 @@ pub struct PropResponse {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct DebtCapResponse{
     pub caps: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct BadDebtResponse{
+    pub has_bad_debt: Vec<( PositionUserInfo, Decimal )>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct InsolvencyResponse{
+    pub insolvent_positions: Vec<InsolventPosition>,
 }

@@ -8,11 +8,11 @@ use cosmwasm_std::entry_point;
 use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Storage, Addr, Api, Uint128, CosmosMsg, BankMsg, WasmMsg, Coin, Decimal, BankQuery, BalanceResponse, QueryRequest, WasmQuery, QuerierWrapper, attr, CanonicalAddr};
 use cosmwasm_storage::{ReadonlyBucket, Bucket};
 use cw2::set_contract_version;
-use cw20::{Cw20ExecuteMsg, Cw20QueryMsg};
-use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, SlotResponse, ClaimsResponse, PositionUserInfo};
+use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg};
+use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, SlotResponse, ClaimsResponse };
 //use cw_multi_test::Contract;
 use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
-use membrane::types::{ Asset, AssetInfo, LiqAsset, cAsset,  UserRatio, BidInput, Bid, Queue, PremiumSlot };
+use membrane::types::{ Asset, AssetInfo, LiqAsset, cAsset,  UserRatio, BidInput, Bid, Queue, PremiumSlot, PositionUserInfo };
 
 
 
@@ -78,24 +78,26 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-    //ExecuteMsg::Recieve(_) => todo!(),
-    ExecuteMsg::SubmitBid { bid_input, bid_owner } => submit_bid(deps, info, env, bid_input, bid_owner),
-    ExecuteMsg::RetractBid { bid_id, bid_for, amount } => retract_bid(deps, info, env, bid_id, bid_for, amount),
-    ExecuteMsg::Liquidate {
-        credit_price, 
-        collateral_price, 
-        collateral_amount,
-        bid_for, 
-        bid_with, 
-        basket_id,
-        position_id, 
-        position_owner } => execute_liquidation(deps, env, info, collateral_amount, bid_for, collateral_price, credit_price, bid_with, basket_id, position_id, position_owner),
-    ExecuteMsg::ClaimLiquidations { bid_for, bid_ids } => claim_liquidations(deps, env, info, bid_for, bid_ids),
-    ExecuteMsg::AddQueue { bid_for, bid_asset, max_premium, bid_threshold } => add_queue(deps, info, bid_for, bid_asset, max_premium, bid_threshold),
-    ExecuteMsg::UpdateQueue { bid_for, max_premium, bid_threshold } => edit_queue(deps, info, bid_for, max_premium, bid_threshold ),
-    ExecuteMsg::UpdateConfig { owner, waiting_period } => update_config(deps, info, owner, waiting_period),
-
-}
+        //Receive but don't act upon
+        ExecuteMsg::Receive(Cw20ReceiveMsg) => Ok( Response::new().add_attribute("asset_received", format!("{} {}", Cw20ReceiveMsg.amount, info.sender.clone()) ) ),
+        ExecuteMsg::SubmitBid { bid_input, bid_owner } => submit_bid(deps, info, env, bid_input, bid_owner),
+        ExecuteMsg::RetractBid { bid_id, bid_for, amount } => retract_bid(deps, info, env, bid_id, bid_for, amount),
+        ExecuteMsg::Liquidate {
+            credit_price, 
+            collateral_price, 
+            collateral_amount,
+            bid_for, 
+            bid_with, 
+            basket_id,
+            position_id, 
+            position_owner } => {
+                execute_liquidation(deps, env, info, collateral_amount, bid_for, collateral_price, credit_price, bid_with, basket_id, position_id, position_owner)
+            },
+        ExecuteMsg::ClaimLiquidations { bid_for, bid_ids } => claim_liquidations(deps, env, info, bid_for, bid_ids),
+        ExecuteMsg::AddQueue { bid_for, bid_asset, max_premium, bid_threshold } => add_queue(deps, info, bid_for, bid_asset, max_premium, bid_threshold),
+        ExecuteMsg::UpdateQueue { bid_for, max_premium, bid_threshold } => edit_queue(deps, info, bid_for, max_premium, bid_threshold ),
+        ExecuteMsg::UpdateConfig { owner, waiting_period } => update_config(deps, info, owner, waiting_period),
+    }
 }//Functions assume Cw20 asset amounts are taken from Messageinfo
 
 fn update_config(

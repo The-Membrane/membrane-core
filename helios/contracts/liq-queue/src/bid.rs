@@ -138,7 +138,7 @@ fn process_bid_activation(bid: &mut Bid, slot: &mut PremiumSlot ) {
 
 }
 
-fn assert_bid_asset_from_sent_funds(
+pub fn assert_bid_asset_from_sent_funds(
     bid_asset: AssetInfo,
     info: &MessageInfo
 )-> StdResult<Asset>{
@@ -161,7 +161,6 @@ fn assert_bid_asset_from_sent_funds(
         AssetInfo::Token { address } => { return Err(StdError::GenericErr { msg: "Bid asset's are native assets".to_string() })}
     }
 
-    
 }
 
 pub fn store_queue(
@@ -293,7 +292,7 @@ pub fn execute_liquidation(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    collateral_amount: Uint256, //Coming from RecieveMsg info OR info.funds.
+    collateral_amount: Uint256, //Coming from ReceiveMsg info OR info.funds.
     //All from Positions Contract
     bid_for: AssetInfo, //aka collateral_info
     collateral_price: Decimal,

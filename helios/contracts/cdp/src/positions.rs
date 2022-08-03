@@ -773,12 +773,12 @@ pub fn liquidate(
     let target_position = get_target_position( storage, basket_id, valid_position_owner.clone(), position_id )?;
 
     //Check position health comparative to max_LTV
-    let (unhealthy, current_LTV) = insolvency_check( storage, env.clone(), querier, target_position.clone().collateral_assets, target_position.clone().credit_amount, basket.credit_price.unwrap(), false, config.clone())?;
+    let (insolvent, current_LTV, _available_fee) = insolvency_check( storage, env.clone(), querier, target_position.clone().collateral_assets, target_position.clone().credit_amount, basket.credit_price.unwrap(), false, config.clone())?;
     //TODO: Delete
-    let unhealthy = true;
+    let insolvent = true;
     let current_LTV = Decimal::percent(90);
 
-    if !unhealthy{  return Err(ContractError::PositionSolvent { }) } 
+    if !insolvent{  return Err(ContractError::PositionSolvent { }) } 
     
     
     //Send liquidation amounts and info to the modules
@@ -1797,7 +1797,7 @@ pub fn get_cAsset_ratios(
 }
 
 
-pub fn insolvency_check( //Returns true if insolvent
+pub fn insolvency_check( //Returns true if insolvent, current_LTV and available fee to the caller if insolvent
     storage: &mut dyn Storage,
     env: Env,
     querier: QuerierWrapper,
@@ -1806,11 +1806,11 @@ pub fn insolvency_check( //Returns true if insolvent
     credit_price: Decimal,
     max_borrow: bool, //Toggle for either over max_borrow or over max_LTV (liquidatable), ie taking the minimum collateral ratio into account.
     config: Config,
-) -> StdResult<(bool, Decimal)>{
+) -> StdResult<(bool, Decimal, Uint128)>{
 
     //No assets but still has debt
     if collateral_assets.len() == 0 && !credit_amount.is_zero(){
-        return Ok( (true, Decimal::percent(100)) )
+        return Ok( (true, Decimal::percent(100), Uint128::zero()) )
     }
     
     let avg_LTVs: (Decimal, Decimal, Decimal, Vec<Decimal>) = get_avg_LTV(storage, env, querier, collateral_assets, config)?;
@@ -1818,7 +1818,7 @@ pub fn insolvency_check( //Returns true if insolvent
     //TODO: Change, this is solely for testing. This would liquidate anyone anytime oracles failed.
     //Returns insolvent if oracle's failed
     if avg_LTVs == (Decimal::percent(0), Decimal::percent(50), Decimal::percent(100_000_000), vec![Decimal::one()]){
-         return Ok((true, Decimal::percent(90))) 
+         return Ok((true, Decimal::percent(90), Uint128::zero())) 
         }
 
     let asset_values: Decimal = avg_LTVs.2; //pulls total_asset_value
@@ -1836,7 +1836,20 @@ pub fn insolvency_check( //Returns true if insolvent
         },
     }
 
-    Ok( (check, current_LTV) )
+    let available_fee = if check{
+        match max_borrow{
+            true => { //Checks max_borrow
+                (current_LTV - avg_LTVs.0) * Uint128::new(1)
+            },
+            false => { //Checks max_LTV
+                (current_LTV - avg_LTVs.1) * Uint128::new(1)
+            },
+        }
+    } else {
+        Uint128::zero()
+    };
+
+    Ok( (check, current_LTV, available_fee) )
 }
 
 pub fn assert_basket_assets(

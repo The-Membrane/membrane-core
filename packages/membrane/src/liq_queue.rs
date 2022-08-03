@@ -18,7 +18,7 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    //Recieve(Cw20ReceiveMsg),
+    Receive(Cw20ReceiveMsg),
     SubmitBid { //Deposit a list of accepted assets
         bid_input: BidInput,
         bid_owner: Option<String>,
@@ -63,7 +63,9 @@ pub enum ExecuteMsg {
 // #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 // #[serde(rename_all = "snake_case")]
 // pub enum Cw20HookMsg {
-   
+//     Liquidate {
+        
+//     }
 // }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

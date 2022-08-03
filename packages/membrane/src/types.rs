@@ -221,6 +221,15 @@ pub struct PriceInfo {
     pub last_time_updated: u64,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct InsolventPosition {
+    pub insolvent: bool,
+    pub position_info: PositionUserInfo,
+    pub current_LTV: Decimal,
+    pub available_fee: Uint128,
+}
+
+
 
 //////////Switching to cw-asset//////
 

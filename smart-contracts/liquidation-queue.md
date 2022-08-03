@@ -22,5 +22,6 @@ To prevent bots from sniping loans, submitted bids are only activated after `wai
 
 * Automatic activation after `wait_period` elaspes. This increases computation time in return for less reliance on external contract calls.
 * Liquidations send the [RepayMsg ](positions.md#repay)for the position in the Positions contract
-* Prices are taken from input by the Positions contract, the messages are guaranteed the same block so the price will still be <6 secs old (on Osmosis).
+* Prices are taken from input by the Positions contract, the messages are guaranteed the same block so the price will be block\__time +_[ __ Position's config](positions.md#config) oracle\__time\__limit second's old.
 * The position is assumed insolvent since called by the Positions contract, ie there is no additional solvency check in this contract.
+* ExecuteMsg::Liquidate doesn't take any assets up front, instead receiving assets in the Reply fn of the [Positions ](positions.md)contract

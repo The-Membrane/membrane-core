@@ -36,8 +36,8 @@ pub enum ExecuteMsg {
     Deposit{
         assets: Vec<AssetInfo>,
         basket_id: Uint128,
-        position_owner: Option<String>,
         position_id: Option<Uint128>, //If the user wants to create a new/separate position, no position id is passed         
+        position_owner: Option<String>,
     },
     IncreaseDebt { //only works on open positions
         basket_id: Uint128,

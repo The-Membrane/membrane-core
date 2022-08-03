@@ -781,11 +781,20 @@ pub fn claim(
         return Err( ContractError::CustomError { val: "Can't claim as multiple assets, if not all claimable assets".to_string() } )
     }
 
-    messages = user_claims_msgs( deps.storage, deps.api, config.clone(), info.clone(), deposit_to, config.clone().dex_router, claim_as_native, claim_as_cw20 )?;
+    messages = user_claims_msgs( deps.storage, deps.api, config.clone(), info.clone(), deposit_to.clone(), config.clone().dex_router, claim_as_native.clone(), claim_as_cw20.clone() )?;
     
+    let deposit_attribute = if let Some( position ) = deposit_to {
+        format!("{:?}", position)
+    } else {
+        String::from("None")
+    };
 
     let res = Response::new()
-        .add_attribute("user", info.sender);
+        .add_attribute("method", "claim")
+        .add_attribute("user", info.sender)
+        .add_attribute("claim_as_native", claim_as_native.unwrap_or_default())
+        .add_attribute("claim_as_cw20", claim_as_cw20.unwrap_or_default())
+        .add_attribute("deposit_to", deposit_attribute);
     
    
     Ok( res

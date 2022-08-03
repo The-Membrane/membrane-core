@@ -643,7 +643,7 @@ pub fn liq_repay(
     
     messages.push(msg);   
 
-    Ok( res.add_messages(messages) )
+    Ok( res.add_messages(messages).add_attribute("method", "liq_repay") )
 }
 
 pub fn increase_debt(
@@ -1195,7 +1195,7 @@ pub fn liquidate(
                 SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
             }).collect::<Vec<SubMsg>>();
 
-             // Set repay values for reply msg
+            // Set repay values for reply msg
         let repay_propagation = RepayPropagation {
             liq_queue_leftovers: Decimal::zero(), 
             stability_pool: Decimal::zero(),
@@ -1212,6 +1212,10 @@ pub fn liquidate(
             res.add_messages( fee_messages )
             .add_submessages(submessages)
             .add_submessage( call_back )
+            .add_attributes( vec![
+                attr("method", "liquidate"),
+                attr("propagation_info", format!("{:?}", repay_propagation) )] 
+            )
         )
 
     }else{
@@ -1220,6 +1224,10 @@ pub fn liquidate(
             .add_messages( fee_messages )
             .add_submessages( submessages )
             .add_submessage( call_back )
+            .add_attributes( vec![
+                attr("method", "liquidate"),
+                attr("propagation_info", format!("{:?}", REPAY.load( storage )?) )] 
+            )
         )
 
     }
@@ -2053,7 +2061,7 @@ pub fn get_asset_values(
                 } 
             },
         }; 
-        let mut valid_price: bool = false;
+        //let mut valid_price: bool = false;
         let mut price: Decimal;
 
         //If last_time_updated hasn't hit the limit set by the config...
@@ -2064,7 +2072,7 @@ pub fn get_asset_values(
         //If its None then the subtraction was negative meaning the initial read_price() errored
         if time_elapsed.is_some() && time_elapsed.unwrap() <= config.oracle_time_limit{
             price = price_info.price;
-            valid_price = true;
+            //valid_price = true;
         }else{
 
             //TODO: REPLACE WITH TWAP WHEN RELEASED PLEEEEASSSE, DONT LET THIS BE OUR DOWNFALL
@@ -2076,12 +2084,7 @@ pub fn get_asset_values(
             })){
                 Ok( res ) => { res.price },
                 Err( err ) => { 
-                    
-                    if valid_price{
-                        price_info.price
-                    }else{
-                        return Err( err )
-                    }
+                    return Err( err )
                 }
             };
 

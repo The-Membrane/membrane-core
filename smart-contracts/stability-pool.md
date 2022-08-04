@@ -16,13 +16,15 @@ Pro-rata distributions, like the Liq Queue and Liquity's SP are better than FIFO
 \
 We want this phase of the mechanism to be reactive when low while not taking too much potential capital from the Liq Queue which will likely liquidate collateral for lower premiums a majority of the time, which is better for the users.
 
-## InitMsg
+## InstantiateMsg
 
 ```
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub asset_pool: Option<AssetPool>,
     pub owner: Option<String>,
+    pub dex_router: Option<String>,
+    pub max_spread: Option<Decimal>,
 }
 
 pub struct AssetPool {
@@ -42,10 +44,12 @@ pub struct Deposit {
 }
 ```
 
-| Key           | Type      | Description                                    |
-| ------------- | --------- | ---------------------------------------------- |
-| `*asset_pool` | AssetPool | Initial Asset Pool for the contract            |
-| `*owner`      | String    | Owner of the contract, defaults to info.sender |
+| Key           | Type      | Description                                       |
+| ------------- | --------- | ------------------------------------------------- |
+| `*asset_pool` | AssetPool | Initial Asset Pool for the contract               |
+| `*owner`      | String    | Owner of the contract, defaults to info.sender    |
+| `*dex_router` | String    | DEX Router Contract                               |
+| `*max_spread` | Decimal   | Max spread for claim\_as() swaps, defaults to 10% |
 
 \* = optional
 

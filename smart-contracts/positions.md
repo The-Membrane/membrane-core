@@ -6,7 +6,7 @@ Collateral parameters are held in the cAsset object, which also holds the addres
 
 The contract also contains the logic for initiating liquidations of CDPs and the sell wall but external debt repayment logic goes through the **Queue** and **Stability Pool** contracts.
 
-## InitMsg
+## InstantiateMsg
 
 ```
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

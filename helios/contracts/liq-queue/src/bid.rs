@@ -1071,20 +1071,23 @@ pub fn read_bids_by_user(
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
     let start = start_after.unwrap_or_else(|| Uint128::zero());
     
-    QUEUES.load(deps, bid_for)?
-        .slots
-        .into_iter()
-        .map(|slot| {
-            match slot.bids
+    
+    let queue = QUEUES.load(deps, bid_for)?;
+
+        
+    for slot in queue.slots{
+        match slot.bids
                     .into_iter()
                     .filter(|bid| bid.id > start)
                     .find(| bid | bid.user == user){
-                None => {  },
-                Some ( bid ) => { 
-                    read_bids.push( bid ); 
-                }
+                    Some ( bid ) => { 
+                        read_bids.push( bid ); 
+                    }
+                    None => { },
+                
             }
-        });
+    }
+
     
     read_bids = read_bids
                     .into_iter()

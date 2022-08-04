@@ -181,12 +181,12 @@ fn add_queue(
     
     let max_premium_plus_1 = (max_premium + Uint128::new(1u128)).u128();
 
-    for premium in 0..max_premium_plus_1{
+    for premium in 0..max_premium_plus_1 as u64{
 
         slots.push(
             PremiumSlot {
                 bids: vec![],
-                liq_premium: Decimal256::percent(1) * Decimal256::from_uint256( Uint256::from(premium)), //This is a hard coded 1% per slot
+                liq_premium: Decimal256::percent( premium ), //This is a hard coded 1% per slot
                 sum_snapshot: Decimal256::zero(),
                 product_snapshot: Decimal256::one(),
                 total_bid_amount: Uint256::zero(),
@@ -216,7 +216,7 @@ fn add_queue(
 
     //Save Config
     let mut new_assets = config.added_assets.unwrap();
-    new_assets.push( bid_asset.clone() );
+    new_assets.push( bid_for.clone() );
 
     config.added_assets = Some( new_assets );
 

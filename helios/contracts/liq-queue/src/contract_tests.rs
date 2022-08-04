@@ -3,7 +3,7 @@ use crate::contract::{execute, instantiate, query};
 //use crate::state::{AssetInfo, BidInput};
 
 //use cw_multi_test::Contract;
-use membrane::liq_queue::{InstantiateMsg, QueryMsg, ConfigResponse, ExecuteMsg, Cw20HookMsg, BidResponse, QueueResponse, SlotResponse};
+use membrane::liq_queue::{InstantiateMsg, QueryMsg, ConfigResponse, ExecuteMsg, BidResponse, QueueResponse, SlotResponse};
 use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg};
 use membrane::types::{ AssetInfo, BidInput, Asset };
 use cosmwasm_bignumber::{Uint256, Decimal256};
@@ -313,7 +313,6 @@ fn retract_bid() {
     );
 
     let env = mock_env();
-    let wait_end = env.block.time.plus_seconds(60u64);
     execute(deps.as_mut(), env, info, msg).unwrap();
 
     //Bid not found

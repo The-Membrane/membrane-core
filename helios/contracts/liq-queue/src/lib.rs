@@ -2,7 +2,7 @@ pub mod contract;
 mod error;
 pub mod helpers;
 pub mod contract_tests;
-//pub mod msg;
+pub mod query_tests;
 pub mod state;
 //pub mod cw20;
 //pub mod positions;

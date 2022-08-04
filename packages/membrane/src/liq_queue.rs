@@ -159,7 +159,6 @@ pub struct LiquidatibleResponse {
 pub struct QueueResponse {
     pub bid_asset: String,
     pub max_premium: String, 
-    pub slots: Vec<PremiumSlot>,
     pub current_bid_id: String,
     pub bid_threshold: String,
 }

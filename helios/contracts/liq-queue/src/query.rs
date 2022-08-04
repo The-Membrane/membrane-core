@@ -41,7 +41,6 @@ pub fn query_queue(
         QueueResponse {
         bid_asset: queue.bid_asset.to_string(),
         max_premium: queue.max_premium.to_string(), 
-        slots: queue.slots,
         current_bid_id: queue.current_bid_id.to_string(),
         bid_threshold: queue.bid_threshold.to_string(),
         }
@@ -59,24 +58,26 @@ pub fn query_queues(
 
     let mut resp: Vec<QueueResponse> = vec![];
 
-    let asset_list = config.added_assets.unwrap();
+    let asset_list = config.added_assets.clone().unwrap();
 
     let limit = limit.unwrap_or(31u8) as usize;
 
     if start_after.is_some(){
         let start_after = &start_after.unwrap();
 
-        let start = asset_list.split(|asset| asset.equal( start_after ));
+        let start = asset_list
+            .iter()
+            .position(|info| info.equal(&start_after));
+        let start = start.unwrap_or_default();
 
-        for asset in start.take(limit){
+        for index in start..asset_list.len(){
 
-            let queue = QUEUES.load(deps.storage, asset[0].to_string())?;
+            let queue = QUEUES.load(deps.storage, asset_list[index].to_string())?;
 
             resp.push(
                 QueueResponse {
                     bid_asset: queue.bid_asset.to_string(),
                     max_premium: queue.max_premium.to_string(), 
-                    slots: queue.slots,
                     current_bid_id: queue.current_bid_id.to_string(),
                     bid_threshold: queue.bid_threshold.to_string(),
                 }
@@ -86,14 +87,13 @@ pub fn query_queues(
     }else{
        
         for asset in asset_list.iter().take(limit){
-                
+
             let queue = QUEUES.load(deps.storage, asset.to_string())?;
 
             resp.push(
                 QueueResponse {
                     bid_asset: queue.bid_asset.to_string(),
                     max_premium: queue.max_premium.to_string(), 
-                    slots: queue.slots,
                     current_bid_id: queue.current_bid_id.to_string(),
                     bid_threshold: queue.bid_threshold.to_string(),
                 });
@@ -186,9 +186,11 @@ pub fn query_premium_slot(
 ) -> StdResult<SlotResponse>{
     let queue = QUEUES.load(deps.storage, bid_for.to_string())?;
 
-    let slot = match queue.slots.into_iter().find(|temp_slot| temp_slot.liq_premium == Decimal256::from_uint256(Uint256::from(premium as u128))){
+    let slot = match queue.slots.into_iter().find(|temp_slot| temp_slot.liq_premium == Decimal256::percent( premium )){
         Some( slot ) => { slot },
-        None => { return Err(StdError::GenericErr { msg: "Invalid premium".to_string() })},
+        None => { 
+            //panic!("{}", temp_slot.liq );
+            return Err(StdError::GenericErr { msg: "Invalid premium".to_string() })},
     };
 
     Ok( SlotResponse {
@@ -306,16 +308,17 @@ pub fn query_bids_by_user(
 
     let valid_user = deps.api.addr_validate(&user)?;
 
-    let user_bids = read_bids_by_user(deps.storage, bid_for.clone().to_string(), valid_user, limit, Some(Uint128::zero()))?;
+    let user_bids = read_bids_by_user(deps.storage, bid_for.clone().to_string(), valid_user, limit, None)?;
+
 
     let responses = user_bids
-                                        .into_iter()
-                                        .map(|bid| 
-                                            match query_bid(deps, bid_for.clone(), bid.id){
-                                                Ok( res ) => { Ok( res ) },
-                                                Err(_) => { return Err(StdError::GenericErr { msg: "Invalid bid id".to_string() }) }
-                                            }
-                                        ).collect::<StdResult<Vec<BidResponse>>>();
+        .into_iter()
+        .map(|bid| {
+            match query_bid(deps, bid_for.clone(), bid.id){
+                Ok( res ) => { Ok( res ) },
+                Err( err ) => {return Err( err ) }
+            }
+        }).collect::<StdResult<Vec<BidResponse>>>();
 
     responses 
 

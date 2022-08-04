@@ -365,34 +365,6 @@ pub enum ExecuteMsg {
 
 \* = optional
 
-### `Repay`
-
-{% hint style="info" %}
-Used for repaying CW20 as collateral. For repaying native asset credit assets, you need to use the [ExecuteMsg variant](positions.md#repay).
-{% endhint %}
-
-Repay outstanding debt for a position, not exclusive to the position owner.
-
-```
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ExecuteMsg {
-    Repay {
-        basket_id: Uint128,
-        position_id: Uint128,
-        position_owner: Option<String>, 
-    },
-}
-```
-
-| Key               | Type    | Description                                             |
-| ----------------- | ------- | ------------------------------------------------------- |
-| `basket_id`       | Uint128 | ID of basket the position is in                         |
-| `position_id`     | Uint128 | ID of position                                          |
-| `*position_owner` | String  | Owner of position to repay for, defaults to info.sender |
-
-\* = optional
-
 ## CallbackMsg
 
 ### `BadDebtCheck`
@@ -490,8 +462,6 @@ pub enum QueryMsg {
 pub struct PositionResponse {
     pub position_id: String,
     pub collateral_assets: Vec<cAsset>,
-    pub avg_borrow_LTV: String,
-    pub avg_max_LTV: String,
     pub credit_amount: String,
     pub basket_id: String,
     
@@ -527,8 +497,6 @@ pub struct PositionsResponse{
 pub struct Position {
     pub position_id: Uint128,
     pub collateral_assets: Vec<cAsset>,
-    pub avg_borrow_LTV: Decimal,
-    pub avg_max_LTV: Decimal,
     pub credit_amount: Decimal,
     pub basket_id: Uint128,
 }

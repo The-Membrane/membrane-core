@@ -57,7 +57,6 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         waiting_period: Option<u64>,
     },
-    
 }
 
 // #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

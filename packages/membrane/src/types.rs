@@ -170,8 +170,6 @@ pub struct cAsset {
 pub struct Position {
     pub position_id: Uint128,
     pub collateral_assets: Vec<cAsset>,
-    pub avg_borrow_LTV: Decimal,
-    pub avg_max_LTV: Decimal,
     pub credit_amount: Decimal,
     pub basket_id: Uint128,
 }

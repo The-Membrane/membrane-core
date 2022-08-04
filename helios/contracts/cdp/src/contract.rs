@@ -137,7 +137,7 @@ pub fn instantiate(
 
         //cAsset checks
         for cAsset in collateral_types.clone(){
-            if cAsset.max_borrow_LTV >= cAsset.max_LTV && cAsset.max_borrow_LTV < Decimal::from_ratio( Uint128::new(100u128), Uint128::new(1u128)){
+            if cAsset.max_borrow_LTV >= cAsset.max_LTV && cAsset.max_borrow_LTV >= Decimal::from_ratio( Uint128::new(100u128), Uint128::new(1u128)){
                 check = false;
             }
         }
@@ -322,11 +322,6 @@ pub fn receive_cw20(
 
             deposit(deps, info, Some(valid_owner_addr.to_string()), position_id, basket_id, cAssets) 
         },
-
-        Ok(Cw20HookMsg::Repay { basket_id, position_id, position_owner}) => {
-
-            repay(deps.storage, deps.querier, deps.api, env, info, basket_id, position_id, position_owner, passed_asset )
-        }
         Err(_) => Err(ContractError::Cw20MsgError {}),
     }
 

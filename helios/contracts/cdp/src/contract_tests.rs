@@ -10,7 +10,7 @@ mod tests {
     use super::*;
     use cosmwasm_std::testing::{mock_dependencies_with_balance, mock_env, mock_info};
     use cosmwasm_std::{coins, from_binary, attr, Uint128, Decimal, StdError};
-    use membrane::positions::{ExecuteMsg, InstantiateMsg, PositionResponse, QueryMsg};
+    use membrane::positions::{ExecuteMsg, InstantiateMsg, PositionResponse, QueryMsg, PositionsResponse, BasketResponse};
     use membrane::types::{AssetInfo, Asset, cAsset};
     use schemars::_serde_json::to_string;
 
@@ -187,7 +187,6 @@ mod tests {
 
         assert_eq!(resp.position_id, "1".to_string());
         assert_eq!(resp.basket_id, "1".to_string());
-        assert_eq!(resp.avg_borrow_LTV, "0".to_string()); //This is 0 bc avg_LTV is calc'd and saved during solvency checks
         assert_eq!(resp.credit_amount, "0".to_string());
 
     }
@@ -535,8 +534,8 @@ mod tests {
             _ => panic!("This should've errored bc there are no open positions in this basket under the user's ownership"),
         }
         
-         //Initial deposit
-         let assets: Vec<AssetInfo> = vec![
+        //Initial deposit
+        let assets: Vec<AssetInfo> = vec![
                 AssetInfo::NativeToken { denom: "debit".to_string() },
         ];
 
@@ -551,18 +550,8 @@ mod tests {
 
         let _res = execute(deps.as_mut(), mock_env(), info.clone(), exec_msg).unwrap();
 
-        //Successful increase of user debt
-        //Not really tho
-        let increase_debt_msg = ExecuteMsg::IncreaseDebt{
-            basket_id: Uint128::from(1u128),
-            position_id: Uint128::from(1u128),
-            amount: Uint128::from(1u128),
-        };
-
-        let _res = execute(deps.as_mut(), mock_env(), info.clone(), increase_debt_msg.clone());
-
-         //Invalid Collateral Error
-         let repay_msg = ExecuteMsg::Repay { 
+        //Invalid Collateral Error
+        let repay_msg = ExecuteMsg::Repay { 
             basket_id: Uint128::from(1u128), 
             position_id: Uint128::from(1u128), 
             position_owner:  Some(info.clone().sender.to_string()), 
@@ -627,5 +616,143 @@ mod tests {
         
     }
 
+    #[test]
+    fn misc_query() {
+
+        let mut deps     = mock_dependencies_with_balance(&coins(2, "token"));
+        
+        let msg = InstantiateMsg {
+                owner: Some("sender88".to_string()),
+                credit_asset: Some(Asset {
+                    info: AssetInfo::NativeToken { denom: "credit".to_string() },
+                    amount: Uint128::from(0u128),
+                }),
+                credit_price: Some(Decimal::one()),
+                collateral_types: Some(vec![
+                cAsset {
+                    asset:
+                        Asset {
+                            info: AssetInfo::NativeToken { denom: "debit".to_string() },
+                            amount: Uint128::from(0u128),
+                        }, 
+                    debt_total: Uint128::zero(),
+                    max_borrow_LTV: Decimal::percent(50),
+                    max_LTV: Decimal::percent(90),
+                       } 
+                ]),
+                credit_interest: Some(Decimal::percent(1)),
+                liq_fee: Decimal::percent(1),
+                stability_pool: Some("stability_pool".to_string()),
+                dex_router: Some("router".to_string()),
+                fee_collector: Some("fee_collector".to_string()),
+                osmosis_proxy: Some("osmosis_proxy".to_string()),
+                debt_auction: Some( "debt_auction".to_string()),
+                oracle_time_limit: 60u64,
+                debt_minimum: Decimal::percent(10_000),
+        };
+
+        //Instantiating contract
+        let v_info = mock_info("sender88", &coins(1, "credit"));
+        let _res = instantiate(deps.as_mut(), mock_env(), v_info.clone(), msg.clone()).unwrap();
+
+        //Edit Admin
+        let msg = ExecuteMsg::EditAdmin { owner: String::from("owner") };
+        let _res = execute(deps.as_mut(), mock_env(), v_info.clone(), msg.clone()).unwrap();
+
+        //Add 2ndary basket
+        let create_basket_msg = ExecuteMsg::CreateBasket {
+            owner: Some("owner".to_string()),
+            collateral_types: vec![
+                cAsset {
+                    asset:
+                        Asset {
+                            info: AssetInfo::NativeToken { denom: "debit".to_string() },
+                            amount: Uint128::from(0u128),
+                        },
+                    debt_total: Uint128::zero(),
+                    max_borrow_LTV: Decimal::percent(50),
+                    max_LTV: Decimal::percent(90),
+                       } 
+            ],
+            credit_asset: Asset {
+                info: AssetInfo::NativeToken { denom: "credit".to_string() },
+                amount: Uint128::from(0u128),
+            },
+            credit_price: Some( Decimal::percent(100) ),
+            credit_interest: Some(Decimal::percent(1))
+        };
+        let v_info = mock_info("owner", &[] );
+        let _res = execute(deps.as_mut(), mock_env(), v_info.clone(), create_basket_msg).unwrap();
+
+        //Initial deposit to Basket 1
+        let assets: Vec<AssetInfo> = vec![
+                AssetInfo::NativeToken { denom: "debit".to_string() },
+        ];
+        
+        let exec_msg = ExecuteMsg::Deposit { 
+            assets,
+            position_owner: Some( String::from("sender88") ),
+            basket_id: Uint128::from(1u128),
+            position_id: None,
+        };
+        let info = mock_info("sender88", &coins(11, "debit"));
+        let _res = execute(deps.as_mut(), mock_env(), info.clone(), exec_msg).unwrap();
+
+        //Initial deposit to Basket 2
+        let assets: Vec<AssetInfo> = vec![
+                AssetInfo::NativeToken { denom: "debit".to_string() },
+        ];
+        
+        let exec_msg = ExecuteMsg::Deposit { 
+            assets,
+            position_owner: Some( String::from("sender88") ),
+            basket_id: Uint128::from(2u128),
+            position_id: None,
+        };
+        let info = mock_info("sender88", &coins(11, "debit"));
+        let _res = execute(deps.as_mut(), mock_env(), info.clone(), exec_msg).unwrap();
+
+
+        //Query UserPositions
+        let msg = QueryMsg::GetUserPositions { 
+            basket_id: None, 
+            user: String::from("sender88"), 
+            limit: None,
+        };
+        let res = query( deps.as_ref(), mock_env(), msg)
+        .unwrap();
     
+        let resp: Vec<PositionResponse> = from_binary(&res).unwrap();
+        assert_eq!(resp[0].position_id, String::from(Uint128::from(1u128)) );
+        assert_eq!(resp[1].position_id, String::from(Uint128::from(1u128)) );
+        assert_eq!(resp.len().to_string(), String::from("2"));
+
+        //Query BasketPositions
+        let msg = QueryMsg::GetBasketPositions { 
+            basket_id: Uint128::from(1u128), 
+            start_after: None,
+            limit: None,
+        };
+        let res = query( deps.as_ref(), mock_env(), msg)
+        .unwrap();
+
+        let resp: Vec<PositionsResponse> = from_binary(&res).unwrap();
+        assert_eq!(resp[0].positions[0].collateral_assets[0].asset.amount.to_string(), String::from("11"));
+        assert_eq!(resp.len().to_string(), String::from("1"));
+
+        //Query AllBaskets
+        let msg = QueryMsg::GetAllBaskets { 
+            start_after: None,
+            limit: None,
+        };
+        let res = query( deps.as_ref(), mock_env(), msg)
+        .unwrap();
+
+        let resp: Vec<BasketResponse> = from_binary(&res).unwrap();
+        assert_eq!( resp[0].basket_id, String::from(Uint128::from(1u128)) );
+        assert_eq!( resp[1].basket_id, String::from(Uint128::from(2u128)) );
+        assert_eq!(resp.len().to_string(), String::from("2"));   
+
+    }
+
 }

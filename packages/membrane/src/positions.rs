@@ -95,11 +95,6 @@ pub enum Cw20HookMsg {
         position_owner: Option<String>,
         position_id: Option<Uint128>,
     },
-    Repay {
-        basket_id: Uint128,
-        position_id: Uint128,
-        position_owner: Option<String>, //If not the sender
-    },
 }
 
 // NOTE: Since CallbackMsg are always sent by the contract itself, we assume all types are already
@@ -119,12 +114,12 @@ pub enum CallbackMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
-    GetUserPositions { //All positions from a user
+    GetUserPositions { //All positions from a user 
         basket_id: Option<Uint128>, 
         user: String,
         limit: Option<u32>,
     },
-    GetPosition { //Singular position
+    GetPosition { //Singular position 
         basket_id: Uint128, 
         position_id: Uint128, 
         position_owner: String 
@@ -134,23 +129,23 @@ pub enum QueryMsg {
         start_after: Option<String>,
         limit: Option<u32>,
     },
-    GetBasket { basket_id: Uint128 }, //Singular basket
+    GetBasket { basket_id: Uint128 }, //Singular basket  
     GetAllBaskets { //All baskets
         start_after: Option<Uint128>,
         limit: Option<u32>, 
     },
-    GetBasketDebtCaps {
+    GetBasketDebtCaps { 
         basket_id: Uint128,
     },
-    GetBasketBadDebt {
+    GetBasketBadDebt {  
         basket_id: Uint128,
     },
-    GetBasketInsolvency {    
+    GetBasketInsolvency {     
         basket_id: Uint128,
         start_after: Option<String>,
         limit: Option<u32>,
     },
-    GetPositionInsolvency {
+    GetPositionInsolvency { 
         basket_id: Uint128,
         position_id: Uint128,
         position_owner: String,
@@ -164,8 +159,6 @@ pub enum QueryMsg {
 pub struct PositionResponse {
     pub position_id: String,
     pub collateral_assets: Vec<cAsset>,
-    pub avg_borrow_LTV: String,
-    pub avg_max_LTV: String,
     pub credit_amount: String,
     pub basket_id: String,
     

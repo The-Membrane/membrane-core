@@ -13,7 +13,7 @@ use cw20::{Cw20ExecuteMsg, Cw20QueryMsg};
 
 use crate::error::ContractError;
 use crate::math::{decimal_division, decimal_subtraction, decimal_multiplication};
-use crate::state::{ CONFIG, Config, User, QUEUES };
+use crate::state::{ CONFIG, Config, QUEUES };
 //use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, SlotResponse, ConfigResponse, BidResponse, ClaimsResponse, LiquidatibleResponse, QueueResponse};
 //use crate::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
 use crate::bid::{read_bid, read_bids_by_user, read_premium_slot, calculate_remaining_bid, calculate_liquidated_collateral };

@@ -95,8 +95,6 @@ pub fn deposit(
                                 let temp_pos = Position {
                                     position_id: existing_position.clone().position_id,
                                     collateral_assets: temp_list,
-                                    avg_borrow_LTV: existing_position.clone().avg_borrow_LTV, //We don't recalc bc it changes w/ price, leave it for solvency chcks
-                                    avg_max_LTV: existing_position.clone().avg_max_LTV,
                                     credit_amount: existing_position.clone().credit_amount,
                                     basket_id: existing_position.clone().basket_id,
                                 };
@@ -322,8 +320,6 @@ pub fn withdraw(
 
                                             updated_positions.push(
                                                 Position{
-                                                    avg_borrow_LTV: Decimal::percent(0),
-                                                    avg_max_LTV: Decimal::percent(0),
                                                     collateral_assets: updated_cAsset_list.clone(),
                                                     ..position
                                             });
@@ -1248,7 +1244,6 @@ pub fn create_basket(
 
     let valid_owner: Addr = validate_position_owner(deps.api, info.clone(), owner)?;
 
-
     //Only contract owner can create new baskets. This can be governance.
     if info.sender != config.owner{
         return Err(ContractError::NotContractOwner {})
@@ -1345,6 +1340,11 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
     liquidity_multiplier: Option<Decimal>,
 )->Result<Response, ContractError>{
 
+    let config = CONFIG.load( deps.storage )?;
+    if info.sender.clone() != config.owner{
+        return Err( ContractError::Unauthorized {  } )
+    }
+
     let new_owner: Option<Addr>;
 
     if let Some(owner) = owner {
@@ -1415,10 +1415,12 @@ pub fn edit_contract_owner(
     info: MessageInfo,
     owner: String,
 )-> Result<Response, ContractError>{
-    if info.sender.to_string() == owner{
+
+    let mut config: Config = CONFIG.load(deps.storage)?;
+
+    if info.sender == config.owner{
 
         let valid_owner: Addr = deps.api.addr_validate(&owner)?;
-        let mut config: Config = CONFIG.load(deps.storage)?;
         
         config.owner = valid_owner;
 
@@ -1464,8 +1466,6 @@ pub fn create_position(
     new_position = Position {
         position_id: basket.current_position_id,
         collateral_assets: cAssets,
-        avg_borrow_LTV: Decimal::zero(),
-        avg_max_LTV: Decimal::zero(),
         credit_amount: Decimal::zero(),
         basket_id,
     };   

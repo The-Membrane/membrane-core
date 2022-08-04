@@ -284,7 +284,7 @@ pub fn retract_bid(
 
 }
 
-/// Positions contract (owner) executes the liquidation providing a whitelisted collateral.
+/// Positions contract (owner) executes the liquidation and pays in the msg reply
 /// This operation returns a repay_amount based on the available bids on each
 /// premium slot, consuming bids from lowest to higher premium slots
 #[allow(clippy::too_many_arguments)]
@@ -292,8 +292,8 @@ pub fn execute_liquidation(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    collateral_amount: Uint256, //Coming from ReceiveMsg info OR info.funds.
     //All from Positions Contract
+    collateral_amount: Uint256, 
     bid_for: AssetInfo, //aka collateral_info
     collateral_price: Decimal,
     credit_price: Decimal,

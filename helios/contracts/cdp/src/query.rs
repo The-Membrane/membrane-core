@@ -72,8 +72,6 @@ pub fn query_position(
             Ok(PositionResponse {
                 position_id: position.position_id.to_string(),
                 collateral_assets: position.collateral_assets,
-                avg_borrow_LTV: position.avg_borrow_LTV.to_string(),
-                avg_max_LTV: position.avg_max_LTV.to_string(),
                 credit_amount: position.credit_amount.to_string(),
                 basket_id: position.basket_id.to_string(),
             })
@@ -107,8 +105,6 @@ pub fn query_user_positions(
                 PositionResponse {
                         position_id: position.position_id.to_string(),
                         collateral_assets: position.collateral_assets,
-                        avg_borrow_LTV: position.avg_borrow_LTV.to_string(),
-                        avg_max_LTV: position.avg_max_LTV.to_string(),
                         credit_amount: position.credit_amount.to_string(),
                         basket_id: position.basket_id.to_string(),
                     }
@@ -136,8 +132,6 @@ pub fn query_user_positions(
                             PositionResponse {
                                 position_id: position.position_id.to_string(),
                                 collateral_assets: position.collateral_assets,
-                                avg_borrow_LTV: position.avg_borrow_LTV.to_string(),
-                                avg_max_LTV: position.avg_max_LTV.to_string(),
                                 credit_amount: position.credit_amount.to_string(),
                                 basket_id: position.basket_id.to_string(),
                             }

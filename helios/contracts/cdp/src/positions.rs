@@ -1249,15 +1249,25 @@ pub fn create_basket(
         return Err(ContractError::NotContractOwner {})
     }
 
+
+    let mut check = true;
     //Each cAsset has to initialize amount as 0
     let new_cAssets: Vec<cAsset> = collateral_types
         .into_iter()
         .map(|mut asset| {
             asset.asset.amount = Uint128::zero();
 
+            if asset.max_borrow_LTV >= asset.max_LTV && asset.max_borrow_LTV >= Decimal::from_ratio( Uint128::new(100u128), Uint128::new(1u128)){
+                check = false;
+            }
+
             asset
         })
         .collect::<Vec<cAsset>>();
+
+    if !check {
+        return Err( ContractError::CustomError { val: "Max borrow LTV can't be greater or equal to max_LTV nor equal to 100".to_string() } )
+    }
 
 
     let new_basket: Basket = Basket {
@@ -1278,7 +1288,7 @@ pub fn create_basket(
     let sub_msg: SubMsg;
 
     if let AssetInfo::NativeToken { denom } = credit_asset.clone().info {
-         //Create credit as native token using a tokenfactory proxy
+        //Create credit as native token using a tokenfactory proxy
         sub_msg = create_denom( config.clone(), String::from(denom.clone()), new_basket.basket_id.to_string() )?;
 
         subdenom = denom;
@@ -1365,6 +1375,21 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                     return Err(ContractError::NotBasketOwner {  })
                 }else{
                     if added_cAsset.is_some(){
+
+                        let mut check = true;
+                        //Each cAsset has to initialize amount as 0..
+                        //..needs minimum viable LTV parameters
+                        let mut new_cAsset = added_cAsset.clone().unwrap();
+                        new_cAsset.asset.amount = Uint128::zero();
+
+                        if new_cAsset.max_borrow_LTV >= new_cAsset.max_LTV && new_cAsset.max_borrow_LTV >= Decimal::from_ratio( Uint128::new(100u128), Uint128::new(1u128)){
+                            check = false;
+                        }       
+
+                        if !check {
+                            return Err( ContractError::CustomError { val: "Max borrow LTV can't be greater or equal to max_LTV nor equal to 100".to_string() } )
+                        }
+
                         basket.collateral_types.push(added_cAsset.clone().unwrap());
                     }
                     if new_owner.is_some(){

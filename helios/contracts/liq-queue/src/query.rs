@@ -188,9 +188,7 @@ pub fn query_premium_slot(
 
     let slot = match queue.slots.into_iter().find(|temp_slot| temp_slot.liq_premium == Decimal256::percent( premium )){
         Some( slot ) => { slot },
-        None => { 
-            //panic!("{}", temp_slot.liq );
-            return Err(StdError::GenericErr { msg: "Invalid premium".to_string() })},
+        None => { return Err(StdError::GenericErr { msg: "Invalid premium".to_string() })},
     };
 
     Ok( SlotResponse {

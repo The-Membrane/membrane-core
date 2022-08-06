@@ -56,7 +56,6 @@ pub fn submit_bid( //Create Bid and add to the corresponding Slot
         .find(|slot| slot.liq_premium == Decimal256::percent(1) * Decimal256::from_uint256(Uint256::from(bid_input.liq_premium as u128))){
             Some( mut slot ) => {
 
-                //let amount = Decimal::from_ratio(bid_asset.amount, Uint128::new(1u128));
 
                 bid = Bid {
                     user: valid_owner_addr.clone(),
@@ -77,7 +76,7 @@ pub fn submit_bid( //Create Bid and add to the corresponding Slot
 
                 
                 //Add to total_queue_amount and total_slot_amount if below bid_threshold
-                if slot.total_bid_amount < queue.bid_threshold {
+                if slot.total_bid_amount <= queue.bid_threshold {
 
                     queue.bid_asset.amount += bid_asset.amount;
                     slot.total_bid_amount += bid.amount;
@@ -129,7 +128,6 @@ pub fn submit_bid( //Create Bid and add to the corresponding Slot
 }
 
 fn process_bid_activation(bid: &mut Bid, slot: &mut PremiumSlot ) {
-    //panic!("{}", slot.product_snapshot);
     bid.product_snapshot = slot.product_snapshot;
     bid.sum_snapshot = slot.sum_snapshot;
     bid.wait_end = None;
@@ -214,13 +212,15 @@ pub fn retract_bid(
         let (withdrawable_amount, residue_bid) = calculate_remaining_bid(&bid, &slot)?;
         let (liquidated_collateral, residue_collateral) = calculate_liquidated_collateral(deps.storage, &bid, deps.api.addr_canonicalize(&bid_for.to_string())?)?;
 
-        
         // accumulate pending reward to be claimed later
         bid.pending_liquidated_collateral += liquidated_collateral;
 
         // stack residues, will give it to next claimer if it becomes bigger than 1.0
         slot.residue_collateral += residue_collateral;
         slot.residue_bid += residue_bid;
+        
+        //Store slot so store_bid() is using the correct slot
+        store_premium_slot(deps.storage, bid_for.clone(), slot.clone())?;
 
         //Check requested amount
         let withdraw_amount = assert_withdraw_amount( amount, withdrawable_amount)?;
@@ -237,10 +237,13 @@ pub fn retract_bid(
                     product_snapshot: slot.product_snapshot,
                     sum_snapshot: slot.sum_snapshot,
                     scale_snapshot: slot.current_scale,
-                    ..bid
+                    ..bid.clone()
             })?;
         }
 
+        //Reload slot so that store_slot() below doesn't override the above store_bid()
+        let mut slot: PremiumSlot = read_premium_slot(deps.storage, bid_for.clone(), bid.clone().liq_premium)?;
+    
         slot.total_bid_amount = slot.total_bid_amount - withdraw_amount;
     
         //User's share
@@ -269,7 +272,6 @@ pub fn retract_bid(
                 }, info.sender
             )?
         );
-
 
     }
 
@@ -328,7 +330,7 @@ pub fn execute_liquidation(
     let max_premium_plus_1 = (queue.max_premium + Uint128::from(1u128)).u128();
 
     for premium in 0..max_premium_plus_1 {
-        //panic!( "{}", remaining_collateral_to_liquidate.to_string() );
+        
         let mut slot: PremiumSlot = match read_premium_slot(deps.storage, bid_for.clone(), premium as u8) {
             Ok(slot) => slot,
             Err(_) => continue,
@@ -339,6 +341,7 @@ pub fn execute_liquidation(
         if slot.total_bid_amount.is_zero() { 
             continue;
         };
+        
         //panic!( "{}", remaining_collateral_to_liquidate.to_string() );
         let (pool_repay_amount, pool_liquidated_collateral) = execute_pool_liquidation(
             deps.storage,
@@ -351,10 +354,11 @@ pub fn execute_liquidation(
             &mut filled,
         )?;
 
-        store_premium_slot(deps.storage, bid_for.clone(), slot)?;
+        //panic!("{:?}", slot);
+        store_premium_slot(deps.storage, bid_for.clone(), slot.clone())?;        
 
         repay_amount += pool_repay_amount;
-        //panic!( "{}", repay_amount.to_string() );
+        
 
         if filled {
             remaining_collateral_to_liquidate = Uint256::zero();
@@ -379,13 +383,18 @@ pub fn execute_liquidation(
         ..queue.bid_asset.clone()
     };
 
+    //Have to reload Queue to use newly saved Slots
+    let mut queue = QUEUES.load(deps.storage, bid_for.clone().to_string())?;
+
+    
     //Store total bids
     queue.bid_asset.amount = match queue.bid_asset.amount.checked_sub(Uint128::new(r_amount)){
         Ok( amount ) => amount,
         Err(_) =>  return Err(ContractError::InsufficientBids {  }),
     };
-    store_queue(deps.storage, bid_for.clone().to_string(), queue.clone())?;
 
+    store_queue(deps.storage, bid_for.clone().to_string(), queue.clone())?;
+    
      let repay_msg = CDP_ExecuteMsg::Repay { 
         basket_id,
         position_id,
@@ -451,7 +460,7 @@ pub fn claim_liquidations(
             return Err(ContractError::Unauthorized {  });
         }
         
-        if bid.wait_end.is_some() && bid.wait_end.unwrap() < env.block.time.seconds() {
+        if bid.wait_end.is_some() && bid.wait_end.unwrap() > env.block.time.seconds() {
             // bid not activated
             continue;
         }
@@ -662,9 +671,9 @@ pub(crate) fn set_slot_total(
 
     let config = CONFIG.load(deps)?;
 
-    //If elapsed time is not > wait_period && total is above threshold, don't recalculate/activate any bids
+    //If elapsed time is less than wait_period && total is above threshold, don't recalculate/activate any bids
     //This double's wait_period but decreases runtime for recurrent liquidations
-    if !(block_time - slot.last_total > config.waiting_period) && slot.total_bid_amount >= queue.bid_threshold{
+    if (block_time - slot.last_total) < config.waiting_period && slot.total_bid_amount >= queue.bid_threshold{
         return ( Ok( slot ) )
     }   
 
@@ -682,7 +691,7 @@ pub(crate) fn set_slot_total(
                 process_bid_activation(&mut bid, &mut slot);
 
             //IF the slot total is less than the threshold, activate the bid
-            }else if bid.wait_end.is_some() && slot.total_bid_amount < queue.bid_threshold {
+            }else if bid.wait_end.is_some() && slot.total_bid_amount <= queue.bid_threshold {
 
                 let b_amount: u128 = bid.amount.into();
                 queue.bid_asset.amount += Uint128::new(b_amount);
@@ -823,8 +832,8 @@ pub fn calculate_remaining_bid(
     slot: &PremiumSlot,
 ) -> StdResult<(Uint256, Decimal256)> {
     let scale_diff: Uint128 = slot.current_scale.checked_sub(bid.scale_snapshot)?;
-    let epoch_diff: Uint128 = slot.current_epoch.checked_sub(bid.epoch_snapshot)?;
-
+    let epoch_diff: Uint128 = slot.current_epoch.checked_sub(bid.epoch_snapshot)?;   
+        
     let remaining_bid_dec: Decimal256 = if !epoch_diff.is_zero() {
         // pool was emptied, return 0
         Decimal256::zero()
@@ -854,7 +863,7 @@ pub fn read_premium_slot(
 ) -> StdResult<PremiumSlot>{
     let queue = QUEUES.load(deps, bid_for.to_string())?;
 
-    let slot = match queue.slots.into_iter().find(|slot| slot.liq_premium == Decimal256::percent(1) * Decimal256::from_uint256(Uint256::from(premium as u128))){//Hard coded 1% per slot
+    let slot = match queue.slots.into_iter().find(|slot| slot.liq_premium == Decimal256::percent( premium as u64)){//Hard coded 1% per slot
         Some( slot ) => { slot },
         None => { return Err(StdError::GenericErr { msg: "Invalid premium".to_string() })},
     };
@@ -876,16 +885,17 @@ fn store_premium_slot(
         .filter(|temp_slot| temp_slot.liq_premium != slot.liq_premium)
         .collect::<Vec<PremiumSlot>>();
 
+
     //Add updated slot to new_slots
     new_slots.push( slot );
 
-     //Set 
-     queue.slots = new_slots;
+    //Set 
+    queue.slots = new_slots;
 
      //Update
      QUEUES.update(deps, bid_for.to_string(), |old_queue| -> Result<Queue, ContractError>{
          match old_queue {
-             Some( old_queue) => { Ok( queue ) },
+             Some( _old_queue) => { Ok( queue ) },
              None => { return Err(ContractError::InvalidAsset {  })}
          }
      })?;
@@ -1076,18 +1086,15 @@ pub fn read_bids_by_user(
 
         
     for slot in queue.slots{
-        match slot.bids
-                    .into_iter()
-                    .filter(|bid| bid.id > start)
-                    .find(| bid | bid.user == user){
-                    Some ( bid ) => { 
-                        read_bids.push( bid ); 
-                    }
-                    None => { },
-                
-            }
+        
+        read_bids.extend( slot.bids
+            .into_iter()
+            .filter(|bid| bid.id > start)
+            .filter(| bid | bid.user == user)
+            .collect::<Vec<Bid>>() );
+        
     }
-
+    
     
     read_bids = read_bids
                     .into_iter()

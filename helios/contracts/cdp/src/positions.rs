@@ -1871,10 +1871,10 @@ pub fn insolvency_check( //Returns true if insolvent, current_LTV and available 
     let available_fee = if check{
         match max_borrow{
             true => { //Checks max_borrow
-                (current_LTV - avg_LTVs.0) * Uint128::new(1)
+                (current_LTV - avg_LTVs.0) * Uint128::new(1u128)
             },
             false => { //Checks max_LTV
-                (current_LTV - avg_LTVs.1) * Uint128::new(1)
+                (current_LTV - avg_LTVs.1) * Uint128::new(1u128)
             },
         }
     } else {

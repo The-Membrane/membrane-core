@@ -301,12 +301,13 @@ pub fn query_bids_by_user(
     deps: Deps,
     bid_for: AssetInfo,
     user: String,
-    limit: Option<u8>,
+    limit: Option<u32>,
+    start_after: Option<Uint128>,
 ) -> StdResult<Vec<BidResponse>>{
 
     let valid_user = deps.api.addr_validate(&user)?;
 
-    let user_bids = read_bids_by_user(deps.storage, bid_for.clone().to_string(), valid_user, limit, None)?;
+    let user_bids = read_bids_by_user(deps.storage, bid_for.clone().to_string(), valid_user, limit, start_after)?;
 
 
     let responses = user_bids
@@ -336,7 +337,7 @@ pub fn query_user_claims(
 
     for asset in config.added_assets.unwrap(){ //Can unwrap bc added_assets is_some after instantiation
         
-        let responses: Vec<BidResponse> = query_bids_by_user(deps, asset.clone(), valid_user.to_string(), None)?;
+        let responses: Vec<BidResponse> = query_bids_by_user(deps, asset.clone(), valid_user.to_string(), None, None)?;
 
         let mut resp = ClaimsResponse {
             bid_for: asset.to_string(),

@@ -25,7 +25,7 @@ use crate::math::{decimal_division, decimal_subtraction, decimal_multiplication}
 use crate::state::{ CONFIG, Config, QUEUES, EPOCH_SCALE_SUM};
 
 
-const MAX_LIMIT: u8 = 31;
+const MAX_LIMIT: u32 = 2147483646;
 
 static PREFIX_EPOCH_SCALE_SUM: &[u8] = b"epoch_scale_sum";
 
@@ -1073,14 +1073,13 @@ pub fn read_bids_by_user(
     deps: &dyn Storage,
     bid_for: String,
     user: Addr,
-    limit: Option<u8>,
+    limit: Option<u32>,
     start_after: Option<Uint128>, //bid.id
 ) -> StdResult<Vec<Bid>>{
 
     let mut read_bids: Vec<Bid> = vec![];
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
     let start = start_after.unwrap_or_else(|| Uint128::zero());
-    
     
     let queue = QUEUES.load(deps, bid_for)?;
 

@@ -78,7 +78,8 @@ pub enum QueryMsg {
     BidsByUser{
         bid_for: AssetInfo,
         user: String,
-        limit: Option<u8>,
+        limit: Option<u32>,
+        start_after: Option<Uint128>,
     },
     Queue {
         bid_for: AssetInfo,

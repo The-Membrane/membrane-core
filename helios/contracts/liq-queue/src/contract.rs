@@ -284,7 +284,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::PremiumSlots{ bid_for, start_after, limit } => to_binary(&query_premium_slots( deps, bid_for, start_after, limit )?),
         QueryMsg::UserClaims{ user } => to_binary(&query_user_claims( deps, user )?),
         QueryMsg::Bid { bid_for, bid_id } => to_binary(&query_bid( deps, bid_for, bid_id )?),
-        QueryMsg::BidsByUser{ bid_for, user, limit } => to_binary( &query_bids_by_user( deps, bid_for, user, limit )?),
+        QueryMsg::BidsByUser{ bid_for, user, limit, start_after } => to_binary( &query_bids_by_user( deps, bid_for, user, limit, start_after )?),
         QueryMsg::Queue { bid_for } => to_binary(&query_queue( deps, bid_for )?),
         QueryMsg::Queues{ start_after, limit} => to_binary(&query_queues( deps, start_after, limit )?),
         

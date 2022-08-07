@@ -437,8 +437,8 @@ pub fn liquidate(
 pub fn distribute_funds(
     deps: DepsMut,
     info: MessageInfo,
-    env: Env,
-    distribution_assets: Vec<Asset>,
+    _env: Env,
+    mut distribution_assets: Vec<Asset>,
     distribution_asset_ratios: Vec<Decimal>,
     credit_asset: AssetInfo,
     distribute_for: Uint128, //How much repayment is this distributing for
@@ -468,6 +468,8 @@ pub fn distribute_funds(
     let valid_assets = validate_assets(deps.storage, assets.clone(), info, false)?;
     
     if valid_assets.len() != distribution_assets.len() { return Err(ContractError::InvalidAssetObject{ }) }
+    //Set distribution_assets to the valid_assets
+    distribution_assets = valid_assets;
     
 
     //Load repaid_amount
@@ -481,7 +483,7 @@ pub fn distribute_funds(
         prop.repaid_amount -= distribute_for;
         PROP.save( deps.storage, &prop );
     }else{
-        return Err( ContractError::CustomError { val: "Distribution attempting to distribute_for too much".to_string() } )
+        return Err( ContractError::CustomError { val: format!("Distribution attempting to distribute_for too much ( {} > {} )", distribute_for, prop.repaid_amount) } )
     }
    
 

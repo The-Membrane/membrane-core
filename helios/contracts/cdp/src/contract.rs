@@ -176,6 +176,8 @@ pub fn execute(
         ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ assets, position_owner, position_id, basket_id} => {
             let mut valid_assets = vec![];
+
+            if assets.len() != info.funds.len() { return Err( ContractError::CustomError { val: String::from("Length discrepency between sent assets and AssetInfo List") } ) }
             
             for asset in assets.clone(){
                 valid_assets.push( assert_sent_native_token_balance( asset, &info )? );

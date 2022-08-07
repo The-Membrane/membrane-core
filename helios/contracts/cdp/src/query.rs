@@ -54,6 +54,7 @@ pub fn query_config(
 
 pub fn query_position(
     deps: Deps,
+    env: Env,
     position_id: Uint128,
     basket_id: Uint128,
     user: Addr
@@ -69,11 +70,18 @@ pub fn query_position(
 
     match position{
         Some (position) => {
+
+            let config = CONFIG.load( deps.storage )?;
+
+            let ( borrow, max, value, prices) = get_avg_LTV_imut( deps.storage, env.clone(), deps.querier, position.clone().collateral_assets, config.clone() )?;
+
             Ok(PositionResponse {
                 position_id: position.position_id.to_string(),
                 collateral_assets: position.collateral_assets,
                 credit_amount: position.credit_amount.to_string(),
                 basket_id: position.basket_id.to_string(),
+                avg_borrow_LTV: borrow,
+                avg_max_LTV: max,
             })
         },
 
@@ -83,12 +91,17 @@ pub fn query_position(
 
 pub fn query_user_positions(
     deps: Deps,
+    env: Env,
     basket_id: Option<Uint128>,
     user: Addr,
     limit: Option<u32>
 ) -> StdResult<Vec<PositionResponse>>{
 
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
+
+    let config = CONFIG.load( deps.storage )?;
+
+    let mut error: Option<StdError> = None;
     
     //Basket_id means only position from said basket
     if basket_id.is_some(){
@@ -98,17 +111,36 @@ pub fn query_user_positions(
             Ok( positions ) => { positions },
         };
 
-        let user_positions: Vec<PositionResponse> = positions
+        let mut user_positions: Vec<PositionResponse> = vec![];
+        
+    let _iter = positions
             .into_iter()
             .take(limit)
-            .map(|position| 
-                PositionResponse {
-                        position_id: position.position_id.to_string(),
-                        collateral_assets: position.collateral_assets,
-                        credit_amount: position.credit_amount.to_string(),
-                        basket_id: position.basket_id.to_string(),
+            .map(|position| {
+                
+                let ( borrow, max, value, prices) = match get_avg_LTV_imut( deps.storage, env.clone(), deps.querier, position.clone().collateral_assets, config.clone() ){
+
+                    Ok( ( borrow, max, value, prices) ) => {
+                        ( borrow, max, value, prices)
+                    },
+                    Err( err ) => { 
+                        error = Some( err );
+                        ( Decimal::zero(), Decimal::zero(), Decimal::zero(), vec![] )
                     }
-            ).collect::<Vec<PositionResponse>>();
+                };
+
+                if error.is_none(){
+                    user_positions.push( PositionResponse {
+                            position_id: position.position_id.to_string(),
+                            collateral_assets: position.collateral_assets,
+                            credit_amount: position.credit_amount.to_string(),
+                            basket_id: position.basket_id.to_string(),
+                            avg_borrow_LTV: borrow,
+                            avg_max_LTV: max,
+                    } )
+                } 
+                }
+            );
 
         Ok( user_positions )
         
@@ -128,12 +160,17 @@ pub fn query_user_positions(
                 Ok(positions) => {
 
                     for position in positions{
+
+                        let ( borrow, max, value, prices) = get_avg_LTV_imut( deps.storage, env.clone(), deps.querier, position.clone().collateral_assets, config.clone() )?;
+
                         response.push(
                             PositionResponse {
                                 position_id: position.position_id.to_string(),
                                 collateral_assets: position.collateral_assets,
                                 credit_amount: position.credit_amount.to_string(),
                                 basket_id: position.basket_id.to_string(),
+                                avg_borrow_LTV: borrow,
+                                avg_max_LTV: max,
                             }
                         );
                     

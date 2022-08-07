@@ -663,7 +663,7 @@ mod tests {
                 .unwrap(); 
                 bank.init_balance(storage, &Addr::unchecked("sender"), vec![coin(50_000, "credit_fulldenom")])
                 .unwrap(); 
-                bank.init_balance(storage, &Addr::unchecked("big_bank"),  vec![coin(10_000_000, "debit")])
+                bank.init_balance(storage, &Addr::unchecked("big_bank"),  vec![coin(10_000_000, "debit"), coin(10_000_000, "double_debit")])
                 .unwrap(); 
                 bank.init_balance(storage, &Addr::unchecked("little_bank"),  vec![coin(1_000, "debit")])
                 .unwrap(); 
@@ -1644,10 +1644,20 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt{
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(5_000_000u128),
+                amount: Uint128::from(249_996u128),
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("big_bank"), cosmos_msg).unwrap_err();
+
+             ///Successful increase on the cap
+             let msg = ExecuteMsg::IncreaseDebt{
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                amount: Uint128::from(249_995u128),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("big_bank"), cosmos_msg).unwrap();
+
         
         }
         
@@ -1842,5 +1852,175 @@ mod tests {
                  }] );
         }
 
+        #[test]
+        fn two_collateral_cdp_LTV_tests() {
+
+            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true, false);
+
+            let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
+            let sp_addr = res.stability_pool;
+            let router_addr = res.dex_router;
+            let fee_collector = res.fee_collector;
+            
+            
+            //Add liq-queue to the initial basket
+            let msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: Some( 
+                    cAsset {
+                        asset:
+                            Asset {
+                                info: AssetInfo::NativeToken { denom: "double_debit".to_string() },
+                                amount: Uint128::zero(),
+                            }, 
+                        debt_total: Uint128::zero(),
+                        max_borrow_LTV: Decimal::percent(40),
+                        max_LTV: Decimal::percent(60),
+                        
+                    }
+                 ), 
+                owner: None, 
+                credit_interest: None, 
+                liq_queue: Some( lq_contract.addr().to_string() ),
+                liquidity_multiplier: Some( Decimal::percent( 500 ) ),
+                pool_ids: Some( vec![ 1u64 ] ), 
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Initial Deposit
+            let assets: Vec<AssetInfo> = vec![
+                AssetInfo::NativeToken { denom: "debit".to_string() },
+                AssetInfo::NativeToken { denom: "double_debit".to_string() },
+            ];
+
+            let msg = ExecuteMsg::Deposit { 
+                assets,
+                position_owner: Some( "big_bank".to_string() ),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg, 
+                    vec![
+                        Coin { 
+                            denom: "debit".to_string(),
+                            amount: Uint128::from(10_000u128),
+                            },
+                        Coin { 
+                            denom: "double_debit".to_string(),
+                            amount: Uint128::from(10_000u128),
+                            } 
+                        ])
+                    .unwrap();
+            app.execute(Addr::unchecked("big_bank"), cosmos_msg).unwrap();
+
+           //Increase Debt
+           let msg = ExecuteMsg::IncreaseDebt{
+            basket_id: Uint128::from(1u128),
+            position_id: Uint128::from(1u128),
+            amount: Uint128::from(4999u128),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("big_bank"), cosmos_msg).unwrap();
+
+            //Query for Insolvency 
+            let query_msg = QueryMsg::GetPosition { 
+                basket_id: Uint128::new(1),
+                position_id: Uint128::new(1),
+                position_owner: String::from("big_bank"),
+            };
+            let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            //Assert LTVs
+            assert_eq!( res.avg_borrow_LTV.to_string(), String::from("0.45") );
+            assert_eq!( res.avg_max_LTV.to_string(), String::from("0.65") );
+        }
+        
+        #[test]
+        fn two_collateral_cdp_LTV_tests_bignums() {
+
+            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true, false);
+
+            let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
+            let sp_addr = res.stability_pool;
+            let router_addr = res.dex_router;
+            let fee_collector = res.fee_collector;
+            
+            
+            //Add liq-queue to the initial basket
+            let msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: Some( 
+                    cAsset {
+                        asset:
+                            Asset {
+                                info: AssetInfo::NativeToken { denom: "double_debit".to_string() },
+                                amount: Uint128::zero(),
+                            }, 
+                        debt_total: Uint128::zero(),
+                        max_borrow_LTV: Decimal::percent(40),
+                        max_LTV: Decimal::percent(60),
+                        
+                    }
+                 ), 
+                owner: None, 
+                credit_interest: None, 
+                liq_queue: Some( lq_contract.addr().to_string() ),
+                liquidity_multiplier: Some( Decimal::percent( 500 ) ),
+                pool_ids: Some( vec![ 1u64 ] ), 
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Initial Deposit
+            let assets: Vec<AssetInfo> = vec![
+                AssetInfo::NativeToken { denom: "debit".to_string() },
+                AssetInfo::NativeToken { denom: "double_debit".to_string() },
+            ];
+
+            let msg = ExecuteMsg::Deposit { 
+                assets,
+                position_owner: Some( "big_bank".to_string() ),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg, 
+                    vec![
+                        Coin { 
+                            denom: "debit".to_string(),
+                            amount: Uint128::from(10_000_000u128),
+                            },
+                        Coin { 
+                            denom: "double_debit".to_string(),
+                            amount: Uint128::from(10_000_000u128),
+                            } 
+                        ])
+                    .unwrap();
+            app.execute(Addr::unchecked("big_bank"), cosmos_msg).unwrap();
+
+           //Increase Debt
+           let msg = ExecuteMsg::IncreaseDebt{
+            basket_id: Uint128::from(1u128),
+            position_id: Uint128::from(1u128),
+            amount: Uint128::from(249_995u128),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("big_bank"), cosmos_msg).unwrap();
+
+            //Query for Insolvency 
+            let query_msg = QueryMsg::GetPosition { 
+                basket_id: Uint128::new(1),
+                position_id: Uint128::new(1),
+                position_owner: String::from("big_bank"),
+            };
+            let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            //Assert LTVs
+            assert_eq!( res.avg_borrow_LTV.to_string(), String::from("0.45") );
+            assert_eq!( res.avg_max_LTV.to_string(), String::from("0.65") );
+        }
     }
+
 }

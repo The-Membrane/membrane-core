@@ -1378,11 +1378,12 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
 
                         let mut check = true;
                         //Each cAsset has to initialize amount as 0..
-                        //..needs minimum viable LTV parameters
                         let mut new_cAsset = added_cAsset.clone().unwrap();
                         new_cAsset.asset.amount = Uint128::zero();
+                        new_cAsset.debt_total = Uint128::zero();
 
-                        if new_cAsset.max_borrow_LTV >= new_cAsset.max_LTV && new_cAsset.max_borrow_LTV >= Decimal::from_ratio( Uint128::new(100u128), Uint128::new(1u128)){
+                        //..needs minimum viable LTV parameters
+                        if new_cAsset.max_borrow_LTV >= new_cAsset.max_LTV || new_cAsset.max_borrow_LTV >= Decimal::from_ratio( Uint128::new(100u128), Uint128::new(1u128)){
                             check = false;
                         }       
 
@@ -2326,7 +2327,7 @@ pub fn update_position_claims(
                                 if add_to_debt {               
                                     
                                     //Assert its not over the cap
-                                    if ( asset.debt_total + asset_debt[index] ) < cAsset_caps[index]{
+                                    if ( asset.debt_total + asset_debt[index] ) <= cAsset_caps[index]{
                                         asset.debt_total += asset_debt[index];
                                     }else{
                                         over_cap = true;

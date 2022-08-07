@@ -161,6 +161,8 @@ pub struct PositionResponse {
     pub collateral_assets: Vec<cAsset>,
     pub credit_amount: String,
     pub basket_id: String,
+    pub avg_borrow_LTV: Decimal,
+    pub avg_max_LTV: Decimal,
     
 }
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

@@ -756,11 +756,11 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Config {} => { to_binary(&query_config(deps)?) }
         QueryMsg::GetPosition { position_id, basket_id, position_owner} => {
             let valid_addr: Addr = deps.api.addr_validate(&position_owner)?;
-            to_binary(&query_position(deps, position_id, basket_id, valid_addr)?)
+            to_binary(&query_position(deps, env, position_id, basket_id, valid_addr)?)
         },
         QueryMsg::GetUserPositions { basket_id, user, limit } => {
             let valid_addr: Addr = deps.api.addr_validate(&user)?;
-            to_binary(&query_user_positions(deps, basket_id, valid_addr, limit)?)
+            to_binary(&query_user_positions(deps, env, basket_id, valid_addr, limit)?)
         },
         QueryMsg::GetBasketPositions { basket_id, start_after, limit } => {
             to_binary(&query_basket_positions(deps, basket_id, start_after, limit)?)

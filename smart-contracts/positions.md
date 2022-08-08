@@ -408,7 +408,7 @@ pub struct ConfigResponse {
     pub debt_auction: String,
     pub liq_fee: Decimal, // 5 = 5%
     pub oracle_time_limit: u64,
-    pub debt_minimum: Decimal,
+    pub debt_minimum: Uint128,
 }
 ```
 

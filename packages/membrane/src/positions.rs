@@ -14,7 +14,7 @@ use cw20::Cw20ReceiveMsg;
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub oracle_time_limit: u64, //in seconds until oracle failure is acceoted
-    pub debt_minimum: Decimal, //Debt minimum value per position
+    pub debt_minimum: Uint128, //Debt minimum value per position
     pub liq_fee: Decimal,
     //Contracts
     pub stability_pool: Option<String>,
@@ -27,6 +27,9 @@ pub struct InstantiateMsg {
     pub credit_asset: Option<Asset>,
     pub credit_price: Option<Decimal>,
     pub credit_interest: Option<Decimal>,
+    pub collateral_supply_caps: Option<Vec<Uint128>>,
+    pub base_interest_rate: Option<Decimal>,
+    pub desired_debt_cap_util: Option<Decimal>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -68,6 +71,10 @@ pub enum ExecuteMsg {
         credit_asset: Asset,
         credit_price: Option<Decimal>,
         credit_interest: Option<Decimal>,
+        collateral_supply_caps: Option<Vec<Uint128>>,
+        base_interest_rate: Option<Decimal>,
+        desired_debt_cap_util: Option<Decimal>,
+        
     },
     EditBasket {
         basket_id: Uint128,
@@ -77,6 +84,9 @@ pub enum ExecuteMsg {
         liq_queue: Option<String>,
         pool_ids: Option<Vec<u64>>,
         liquidity_multiplier: Option<Decimal>,
+        collateral_supply_caps: Option<Vec<Uint128>>,
+        base_interest_rate: Option<Decimal>,
+        desired_debt_cap_util: Option<Decimal>,
     }, 
     EditAdmin {
         owner: String,
@@ -177,12 +187,16 @@ pub struct BasketResponse{
     pub basket_id: String,
     pub current_position_id: String,
     pub collateral_types: Vec<cAsset>, 
+    pub collateral_supply_caps: Vec<Uint128>,
     pub credit_asset: Asset, 
     pub credit_price: String,
     pub credit_interest: String,
     pub debt_pool_ids: Vec<u64>,
     pub debt_liquidity_multiplier_for_caps: Decimal, //Ex: 5 = debt cap at 5x liquidity.
     pub liq_queue: String,
+    pub base_interest_rate: Decimal, //Enter as percent, 0.02
+    pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
+    pub pending_revenue: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -196,7 +210,7 @@ pub struct ConfigResponse {
     pub debt_auction: String,
     pub liq_fee: Decimal, // 5 = 5%
     pub oracle_time_limit: u64,
-    pub debt_minimum: Decimal,
+    pub debt_minimum: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -218,7 +232,7 @@ pub struct DebtCapResponse{
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct BadDebtResponse{
-    pub has_bad_debt: Vec<( PositionUserInfo, Decimal )>,
+    pub has_bad_debt: Vec<( PositionUserInfo, Uint128 )>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

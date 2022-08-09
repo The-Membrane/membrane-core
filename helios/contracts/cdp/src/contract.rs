@@ -42,7 +42,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -145,11 +145,15 @@ pub fn instantiate(
             create_res = create_basket(
                 deps,
                 info,
+                env,
                 msg.owner,
                 collateral_types.clone(),
                 msg.credit_asset.unwrap(),
                 msg.credit_price,
                 msg.credit_interest,
+                msg.collateral_supply_caps,
+                msg.base_interest_rate,
+                msg.desired_debt_cap_util,
             )?;
             
             attrs.push(("basket_id", current_basket_id));
@@ -183,7 +187,7 @@ pub fn execute(
                 valid_assets.push( assert_sent_native_token_balance( asset, &info )? );
             }
             let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, basket_id, valid_assets, true)?;
-            deposit(deps, info, position_owner, position_id, basket_id, cAssets)
+            deposit(deps, env, info, position_owner, position_id, basket_id, cAssets)
         }
     ,
         ExecuteMsg::Withdraw{ position_id, basket_id, assets } => {
@@ -206,8 +210,8 @@ pub fn execute(
             liq_repay(deps, env, info, credit_asset)
         }
         ExecuteMsg::EditAdmin { owner } => edit_contract_owner(deps, info, owner),
-        ExecuteMsg::EditBasket {basket_id,added_cAsset,owner,credit_interest, liq_queue, pool_ids, liquidity_multiplier } => edit_basket(deps, info, basket_id, added_cAsset, owner, credit_interest, liq_queue, pool_ids, liquidity_multiplier ),
-        ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, credit_interest } => create_basket(deps, info, owner, collateral_types, credit_asset, credit_price, credit_interest ),
+        ExecuteMsg::EditBasket {basket_id,added_cAsset,owner,credit_interest, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util } => edit_basket(deps, info, basket_id, added_cAsset, owner, credit_interest, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util ),
+        ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, credit_interest, collateral_supply_caps, base_interest_rate, desired_debt_cap_util } => create_basket( deps, info, env, owner, collateral_types, credit_asset, credit_price, credit_interest, collateral_supply_caps, base_interest_rate, desired_debt_cap_util ),
         ExecuteMsg::Liquidate { basket_id, position_id, position_owner } => liquidate(deps.storage, deps.api, deps.querier, env, info, basket_id, position_id, position_owner),
         ExecuteMsg::Callback( msg ) => {
             if info.sender == env.contract.address{
@@ -322,7 +326,7 @@ pub fn receive_cw20(
 
             let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, basket_id, vec![ passed_asset ], true)?;
 
-            deposit(deps, info, Some(valid_owner_addr.to_string()), position_id, basket_id, cAssets) 
+            deposit(deps, env, info, Some(valid_owner_addr.to_string()), position_id, basket_id, cAssets) 
         },
         Err(_) => Err(ContractError::Cw20MsgError {}),
     }

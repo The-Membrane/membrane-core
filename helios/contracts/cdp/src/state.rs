@@ -25,27 +25,15 @@ pub struct Config {
     pub fee_collector: Option<Addr>,
     pub osmosis_proxy: Option<Addr>,
     pub debt_auction: Option<Addr>,
-    pub liq_fee: Decimal, // 5 = 5%
-    pub oracle_time_limit: u64, //in seconds until oracle failure is acceoted. Think of it as how many blocks you allow the oracle to fail for.
+    pub liq_fee: Decimal, //Enter as percent, 0.02
+    pub oracle_time_limit: u64, //in seconds until oracle failure is accepted. Think of it as how many blocks you allow the oracle to fail for.
     //This needs to be large enough so that USDC positions are profitable to liquidate, 1-2% of debt value needs to be more than gas fees assuming ~98% LTV.
-    pub debt_minimum: Decimal, //Debt minimum value per position. 
+    pub debt_minimum: Uint128, //Debt minimum value per position. 
     
 }
-
-
-
-// #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-// pub struct RepayFee {
-//     pub fee: Decimal,
-//     pub ratio: Decimal,
-// }
 
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const POSITIONS: Map<(String, Addr), Vec<Position>> = Map::new("positions"); //basket_id, owner
 pub const BASKETS: Map<String, Basket> = Map::new("baskets");
 pub const REPAY: Item<RepayPropagation> = Item::new("repay_propagation");
-
-
-//LIQUIDATION QUEUE
-//....

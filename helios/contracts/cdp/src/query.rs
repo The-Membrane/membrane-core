@@ -215,6 +215,10 @@ pub fn query_basket(
                 debt_pool_ids: basket.debt_pool_ids,
                 debt_liquidity_multiplier_for_caps: basket.debt_liquidity_multiplier_for_caps,
                 liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
+                collateral_supply_caps: basket.collateral_supply_caps,
+                base_interest_rate: basket.base_interest_rate,
+                desired_debt_cap_util: basket.desired_debt_cap_util,
+                pending_revenue: basket.pending_revenue,
             }
         },
         Err(_) => { return Err(StdError::generic_err("Invalid basket_id")) },
@@ -271,6 +275,10 @@ pub fn query_baskets(
                 debt_pool_ids: basket.debt_pool_ids,
                 debt_liquidity_multiplier_for_caps: basket.debt_liquidity_multiplier_for_caps,
                 liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
+                collateral_supply_caps: basket.collateral_supply_caps,
+                base_interest_rate: basket.base_interest_rate,
+                desired_debt_cap_util: basket.desired_debt_cap_util,
+                pending_revenue: basket.pending_revenue,
                 
             })
             
@@ -460,7 +468,7 @@ pub fn query_basket_insolvency(
             
             for position in positions{
 
-                let ( insolvent, current_LTV, available_fee ) = match insolvency_check_imut(deps.storage, env.clone(), deps.querier, position.collateral_assets, position.credit_amount, basket.clone().credit_price.unwrap(), false, config.clone()){
+                let ( insolvent, current_LTV, available_fee ) = match insolvency_check_imut(deps.storage, env.clone(), deps.querier, position.collateral_assets, Decimal::from_ratio(position.credit_amount, Uint128::new(1u128)), basket.clone().credit_price.unwrap(), false, config.clone()){
                     Ok( ( insolvent, current_LTV, available_fee ) ) => ( insolvent, current_LTV, available_fee ),
                     Err( err ) => {
                                                 error = Some( err );
@@ -515,7 +523,7 @@ pub fn query_position_insolvency(
     ///
     let mut res = InsolvencyResponse { insolvent_positions: vec![] };
       
-    let ( insolvent, current_LTV, available_fee ) = insolvency_check_imut(deps.storage, env.clone(), deps.querier, target_position.collateral_assets, target_position.credit_amount, basket.clone().credit_price.unwrap(), false, config.clone())?;
+    let ( insolvent, current_LTV, available_fee ) = insolvency_check_imut(deps.storage, env.clone(), deps.querier, target_position.collateral_assets, Decimal::from_ratio( target_position.credit_amount, Uint128::new(1u128)), basket.clone().credit_price.unwrap(), false, config.clone())?;
                 
     //Since its a Singular position we'll output whether insolvent or not
     res.insolvent_positions.push( InsolventPosition {

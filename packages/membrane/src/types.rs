@@ -160,7 +160,7 @@ pub struct PremiumSlot {
 /// 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct cAsset {
-    pub asset: Asset, //amount is 0 when adding to basket_contract configor initiator
+    pub asset: Asset, //amount is 0 when adding to basket_contract config or initiator
     pub debt_total: Uint128,
     pub max_borrow_LTV: Decimal, //aka max borrow LTV
     pub max_LTV: Decimal, //ie liquidation point 
@@ -170,8 +170,9 @@ pub struct cAsset {
 pub struct Position {
     pub position_id: Uint128,
     pub collateral_assets: Vec<cAsset>,
-    pub credit_amount: Decimal,
+    pub credit_amount: Uint128,
     pub basket_id: Uint128,
+    pub last_accrued: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -180,12 +181,17 @@ pub struct Basket {
     pub basket_id: Uint128,
     pub current_position_id: Uint128,
     pub collateral_types: Vec<cAsset>, 
-    pub collateral_debt_caps: Vec<Uint128>,
+    pub collateral_supply_caps: Vec<Uint128>,
     pub credit_asset: Asset, //Depending on type of token we use for credit this.info will be an Addr or denom (Cw20 or Native token respectively)
     pub credit_price: Option<Decimal>, //This is credit_repayment_price, not market price
     pub credit_interest: Option<Decimal>,
     pub debt_pool_ids: Vec<u64>,
     pub debt_liquidity_multiplier_for_caps: Decimal, //Ex: 5 = debt cap at 5x liquidity.
+    pub base_interest_rate: Decimal, //Enter as percent, 0.02
+    pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
+    pub pending_revenue: Uint128,
+    pub credit_last_accrued: u64,
+    //Contracts
     pub liq_queue: Option<Addr>, //Each basket holds its own liq_queue contract
 }
 

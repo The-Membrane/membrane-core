@@ -23,12 +23,15 @@ pub const SELL_WALL_REPLY_ID: u64 = 3u64;
 pub const CREATE_DENOM_REPLY_ID: u64 = 4u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
+const SECONDS_PER_YEAR: u64 = 31536000u64;
+
 static PREFIX_PRICE: &[u8] = b"price";
 
 //Deposit collateral to existing position. New or same collateral.
 //Anyone can deposit, to any position. There will be barriers for withdrawals.
 pub fn deposit(
     deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     position_owner: Option<String>,
     position_id: Option<Uint128>,
@@ -97,6 +100,7 @@ pub fn deposit(
                                     collateral_assets: temp_list,
                                     credit_amount: existing_position.clone().credit_amount,
                                     basket_id: existing_position.clone().basket_id,
+                                    last_accrued: existing_position.clone().last_accrued,
                                 };
 
 
@@ -155,7 +159,7 @@ pub fn deposit(
 
             }else{
                 //If user doesn't pass an ID, we create a new position
-                new_position = create_position(deps.storage, cAssets.clone(), basket_id)?;
+                new_position = create_position(deps.storage, cAssets.clone(), basket_id, env)?;
                 
                 //For response
                 new_position_id = new_position.clone().position_id;
@@ -180,7 +184,7 @@ pub fn deposit(
         // If Err() meaning no positions loaded, new Vec<Position> is created 
         Err(_) => {
 
-            new_position = create_position(deps.storage, cAssets.clone(), basket_id)?;
+            new_position = create_position(deps.storage, cAssets.clone(), basket_id, env)?;
                 
             //For response
             new_position_id = new_position.clone().position_id;
@@ -226,24 +230,26 @@ pub fn withdraw(
 
     let config: Config = CONFIG.load(deps.storage)?;
 
-    let basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
+    let mut basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
         Err(_) => { return Err(ContractError::NonExistentBasket {  })},
         Ok( basket ) => { basket },
     };
     
-    
+       
     let mut message: CosmosMsg;
     let mut msgs = vec![];
     let response = Response::new();
         
 
     //Each cAsset
-    //We reload at every loop to account for edited state data. Otherwise users could siphon funds they don't own.
+    //We reload at every loop to account for edited state data
+    //Otherwise users could siphon funds they don't own w/ duplicate cAssets. 
+    //Could fix the problem at the duplicate assets but I like operating on the most up to date state.
     for cAsset in cAssets.clone(){
         
         let withdraw_asset = cAsset.asset;
 
-         //This forces withdrawals to be done by the info.sender 
+        //This forces withdrawals to be done by the info.sender 
         //so no need to check if the withdrawal is done by the position owner
         let positions: Vec<Position> = match POSITIONS.load(deps.storage, (basket_id.to_string(), info.sender.clone())){
             Err(_) => {  return Err(ContractError::NoUserPositions {  }) },
@@ -251,12 +257,14 @@ pub fn withdraw(
         };
 
         //Search position by user and then filter by id
-        let target_position = match positions.into_iter().find(|x| x.position_id == position_id) {
+        let mut target_position = match positions.into_iter().find(|x| x.position_id == position_id) {
             Some(position) => position,
             None => return Err(ContractError::NonExistentPosition {  })
         };
         
-        
+        //Accrue interest
+        accrue( deps.storage, deps.querier, env.clone(), &mut target_position, &mut basket)?;
+
         //If the cAsset is found in the position, attempt withdrawal 
         match target_position.clone().collateral_assets.into_iter().find(|x| x.asset.info.equal(&withdraw_asset.info)){
             //Some cAsset
@@ -297,7 +305,7 @@ pub fn withdraw(
                     //If resulting LTV makes the position insolvent, error. If not construct withdrawal_msg
                     if basket.credit_price.is_some(){
                         //This is taking max_borrow_LTV so users can't max borrow and then withdraw to get a higher initial LTV
-                        if insolvency_check(deps.storage, env.clone(), deps.querier, updated_cAsset_list.clone(), target_position.clone().credit_amount, basket.credit_price.unwrap(), true, config.clone())?.0{ 
+                        if insolvency_check(deps.storage, env.clone(), deps.querier, updated_cAsset_list.clone(), Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)), basket.credit_price.unwrap(), true, config.clone())?.0{ 
                             return Err(ContractError::PositionInsolvent {  })
                         }else{
                             
@@ -382,7 +390,7 @@ pub fn repay(
 ) ->Result<Response, ContractError>{
     let config: Config = CONFIG.load( storage )?;
     
-    let basket: Basket = match BASKETS.load(storage, basket_id.to_string()) {
+    let mut basket: Basket = match BASKETS.load(storage, basket_id.to_string()) {
         Err(_) => { return Err(ContractError::NonExistentBasket {  })},
         Ok( basket ) => { basket },
     };
@@ -392,11 +400,14 @@ pub fn repay(
     }
 
     let valid_owner_addr = validate_position_owner(api, info.clone(), position_owner)?;
-    let target_position = get_target_position(storage, basket_id, valid_owner_addr.clone(), position_id)?;
+    let mut target_position = get_target_position(storage, basket_id, valid_owner_addr.clone(), position_id)?;
 
+    //Accrue interest
+    accrue( storage, querier, env.clone(), &mut target_position, &mut basket)?;
+    
     let response = Response::new();
     
-    let mut total_loan: Decimal = Decimal::percent(0);
+    let mut total_loan = Uint128::zero();
     let mut updated_list: Vec<Position> = vec![];
 
 
@@ -432,19 +443,19 @@ pub fn repay(
 
                updated_list = match position_list.clone().into_iter().find(|x| x.position_id == position_id.clone()) {
 
-                    Some( mut position) => {
+                    Some( _position) => {
                         
                         //Can the amount be repaid?
-                        if position.credit_amount >= Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128)) {
+                        if target_position.credit_amount >= credit_asset.amount {
                             //Repay amount
-                            position.credit_amount -= Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128));
+                            target_position.credit_amount -= credit_asset.amount;
                             
                             //Position's resulting debt can't be below minimum without being fully repaid
-                            if position.credit_amount < config.debt_minimum && !position.credit_amount.is_zero(){
+                            if target_position.credit_amount < config.debt_minimum && !target_position.credit_amount.is_zero(){
                                 return Err( ContractError::BelowMinimumDebt{})
                             }
 
-                            total_loan = position.clone().credit_amount;
+                            total_loan = target_position.clone().credit_amount;
                         }else{
                             return Err(ContractError::ExcessRepayment {  })
                         }
@@ -454,7 +465,7 @@ pub fn repay(
                         update.push( 
                             Position {
                                 credit_amount: total_loan.clone(),
-                                ..position
+                                ..target_position.clone()
                             }
                          );
                        
@@ -477,8 +488,8 @@ pub fn repay(
     
     })?;
 
-     //Subtract paid debt from debt-per-asset tallies
-     update_basket_debt( storage, env, querier, config, basket_id, target_position.collateral_assets, credit_asset.amount, false )?;
+    //Subtract paid debt from debt-per-asset tallies
+    update_basket_debt( storage, env, querier, config, basket_id, target_position.collateral_assets, credit_asset.amount, false, false )?;
     
     Ok( response.add_attributes(vec![
         attr("method", "repay".to_string() ),
@@ -653,7 +664,7 @@ pub fn increase_debt(
 
     let config: Config = CONFIG.load(deps.storage)?;
 
-    let basket: Basket= match BASKETS.load(deps.storage, basket_id.to_string()) {
+    let mut basket: Basket= match BASKETS.load(deps.storage, basket_id.to_string()) {
         Err(_) => { return Err(ContractError::NonExistentBasket {  })},
         Ok( basket ) => { basket },
     };
@@ -663,15 +674,20 @@ pub fn increase_debt(
     };
 
     //Filter position by id
-    let target_position = match positions.into_iter().find(|x| x.position_id == position_id) {
+    let mut target_position = match positions.into_iter().find(|x| x.position_id == position_id) {
         Some(position) => position,
         None => return Err(ContractError::NonExistentPosition {  }) 
     };
-    let decimal_amount: Decimal = Decimal::from_ratio(amount, Uint128::new(1u128));
-    let total_credit = target_position.credit_amount + decimal_amount;
+
+    //Accrue interest
+    accrue( deps.storage, deps.querier, env.clone(), &mut target_position, &mut basket)?;
+    
+    
+    let total_credit = target_position.credit_amount + amount;
 
     //Test for minimum debt requirements
-    if decimal_multiplication( total_credit, basket.credit_price.unwrap() ) < config.debt_minimum{
+    if decimal_multiplication( Decimal::from_ratio(total_credit, Uint128::new(1u128)), basket.credit_price.unwrap() )
+     < Decimal::from_ratio(config.debt_minimum, Uint128::new(1u128)){
         return Err( ContractError::BelowMinimumDebt { })
     }
     
@@ -683,7 +699,8 @@ pub fn increase_debt(
         //If resulting LTV makes the position insolvent, error. If not construct mint msg
         //credit_value / asset_value > avg_LTV
                 
-        if insolvency_check( deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, total_credit, basket.credit_price.unwrap(), true, config.clone())?.0 { 
+        if insolvency_check( deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, Decimal::from_ratio(total_credit, Uint128::new(1u128)), basket.credit_price.unwrap(), true, config.clone())?.0 { 
+            //panic!("{}", total_credit);
             return Err(ContractError::PositionInsolvent {  })
         }else{
             
@@ -722,7 +739,16 @@ pub fn increase_debt(
             }})?;
 
             //Add new debt to debt-per-asset tallies
-            update_basket_debt( deps.storage, env, deps.querier, config, basket_id, target_position.collateral_assets, amount, true )?;
+            update_basket_debt( 
+                deps.storage, 
+                env, 
+                deps.querier, 
+                config, 
+                basket_id, 
+                target_position.collateral_assets, 
+                amount, 
+                true, 
+                false )?;
             }
             
         }else{
@@ -755,21 +781,23 @@ pub fn liquidate(
     position_id: Uint128,
     position_owner: String,
 ) -> Result<Response, ContractError>{
-    
-    //TODO: Add batch liquidations so we don't need to do minimum fee bonuses for small accounts
-
+        
     let config: Config = CONFIG.load(storage)?;
 
-    let basket: Basket= match BASKETS.load(storage, basket_id.to_string()) {
+    let mut basket: Basket= match BASKETS.load(storage, basket_id.to_string()) {
         Err(_) => { return Err(ContractError::NonExistentBasket {  })},
         Ok( basket ) => { basket },
     };
     let valid_position_owner = validate_position_owner(api, info.clone(), Some(position_owner.clone()))?;
 
-    let target_position = get_target_position( storage, basket_id, valid_position_owner.clone(), position_id )?;
+    let mut target_position = get_target_position( storage, basket_id, valid_position_owner.clone(), position_id )?;
+
+    //Accrue interest
+    accrue( storage, querier, env.clone(), &mut target_position, &mut basket)?;
+    
 
     //Check position health comparative to max_LTV
-    let (insolvent, current_LTV, _available_fee) = insolvency_check( storage, env.clone(), querier, target_position.clone().collateral_assets, target_position.clone().credit_amount, basket.credit_price.unwrap(), false, config.clone())?;
+    let (insolvent, current_LTV, _available_fee) = insolvency_check( storage, env.clone(), querier, target_position.clone().collateral_assets, Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)), basket.credit_price.unwrap(), false, config.clone())?;
     //TODO: Delete
     let insolvent = true;
     let current_LTV = Decimal::percent(90);
@@ -784,19 +812,20 @@ pub fn liquidate(
     
     
     // max_borrow_LTV/ current_LTV, * current_loan_value, current_loan_value - __ = value of loan amount  
-    let loan_value = decimal_multiplication(basket.credit_price.unwrap(), target_position.clone().credit_amount);
-    
+    let loan_value = decimal_multiplication(basket.credit_price.unwrap(), Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)));
+        
     //repay value = the % of the loan insolvent. Insolvent is anything between current and max borrow LTV.
     //IE, repay what to get the position down to borrow LTV
     let mut repay_value = loan_value - decimal_multiplication(decimal_division(avg_borrow_LTV, current_LTV), loan_value);
 
     ///Assert repay_value is above the minimum, if not repay at least the minimum
     /// Repay the full loan if the resulting is going to be less than the minimum.
-    if repay_value < config.debt_minimum{
+    let decimal_debt_minimum = Decimal::from_ratio(config.debt_minimum, Uint128::new(1u128));
+    if repay_value < decimal_debt_minimum{
         //If setting the repay value to the minimum leaves at least the minimum in the position...
         //..then partially liquidate
-        if loan_value - config.debt_minimum >= config.debt_minimum{
-            repay_value = config.debt_minimum;
+        if loan_value - decimal_debt_minimum >= decimal_debt_minimum{
+            repay_value = decimal_debt_minimum;
         }else{ //Else liquidate it all
             repay_value = loan_value;
         }
@@ -809,7 +838,7 @@ pub fn liquidate(
             return Err(ContractError::PositionSolvent {  })
         },
         //No need to repay more than the debt
-        x if x > target_position.clone().credit_amount => {
+        x if x > Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)) => {
             return Err(ContractError::FaultyCalc { })
         }
         x => { x }
@@ -1234,11 +1263,15 @@ pub fn liquidate(
 pub fn create_basket(
     deps: DepsMut,
     info: MessageInfo,
+    env: Env,
     owner: Option<String>,
     collateral_types: Vec<cAsset>,
     credit_asset: Asset,
     credit_price: Option<Decimal>,
     credit_interest: Option<Decimal>,
+    collateral_supply_caps: Option<Vec<Uint128>>,
+    base_interest_rate: Option<Decimal>,
+    desired_debt_cap_util: Option<Decimal>,
 ) -> Result<Response, ContractError>{
     let mut config: Config = CONFIG.load(deps.storage)?;
 
@@ -1269,18 +1302,25 @@ pub fn create_basket(
         return Err( ContractError::CustomError { val: "Max borrow LTV can't be greater or equal to max_LTV nor equal to 100".to_string() } )
     }
 
+    let collateral_supply_caps = collateral_supply_caps.unwrap_or_else(|| vec![]);
+    let base_interest_rate = base_interest_rate.unwrap_or_else(|| Decimal::percent(0));
+    let desired_debt_cap_util = desired_debt_cap_util.unwrap_or_else(|| Decimal::percent(100));    
 
     let new_basket: Basket = Basket {
         owner: valid_owner.clone(),
         basket_id: config.current_basket_id.clone(),
         current_position_id: Uint128::from(1u128),
         collateral_types: new_cAssets,
-        collateral_debt_caps: vec![],
+        collateral_supply_caps,
         credit_asset: credit_asset.clone(),
         credit_price,
         credit_interest,
         debt_pool_ids: vec![],
         debt_liquidity_multiplier_for_caps: Decimal::one(),
+        base_interest_rate,
+        desired_debt_cap_util,
+        pending_revenue: Uint128::zero(),
+        credit_last_accrued: env.block.time.seconds(),
         liq_queue: None,
     };
 
@@ -1348,6 +1388,9 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
     liq_queue: Option<String>,
     pool_ids: Option<Vec<u64>>,
     liquidity_multiplier: Option<Decimal>,
+    collateral_supply_caps: Option<Vec<Uint128>>,
+    base_interest_rate: Option<Decimal>,
+    desired_debt_cap_util: Option<Decimal>,
 )->Result<Response, ContractError>{
 
     let config = CONFIG.load( deps.storage )?;
@@ -1408,6 +1451,15 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                     if liquidity_multiplier.is_some(){
                         basket.debt_liquidity_multiplier_for_caps = liquidity_multiplier.clone().unwrap();
                     }
+                    if collateral_supply_caps.is_some(){
+                        basket.collateral_supply_caps = collateral_supply_caps.clone().unwrap();
+                    }
+                    if base_interest_rate.is_some(){
+                        basket.base_interest_rate = base_interest_rate.clone().unwrap();
+                    }
+                    if desired_debt_cap_util.is_some(){
+                        basket.desired_debt_cap_util = desired_debt_cap_util.clone().unwrap();
+                    }
                 }
 
                 Ok( basket )
@@ -1467,6 +1519,7 @@ pub fn create_position(
     deps: &mut dyn Storage,
     cAssets: Vec<cAsset>, //Assets being added into the position
     basket_id: Uint128,
+    env: Env,
 ) -> Result<Position, ContractError> {
 
     let basket: Basket = match BASKETS.load(deps, basket_id.to_string()) {
@@ -1492,8 +1545,9 @@ pub fn create_position(
     new_position = Position {
         position_id: basket.current_position_id,
         collateral_assets: cAssets,
-        credit_amount: Decimal::zero(),
+        credit_amount: Uint128::zero(),
         basket_id,
+        last_accrued: env.block.time.seconds(),
     };   
 
 
@@ -2197,13 +2251,13 @@ pub fn update_position_claims(
     Ok(())
 }
 
- fn get_cAsset_caps(
+ fn get_basket_debt_caps(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     //These are Basket specific fields
     credit_info: AssetInfo,
-    collateral_assets: Vec<cAsset>, 
+    basket_assets: Vec<cAsset>, 
     liquidity_multiplier: Decimal,
     pool_ids: Vec<u64>,
  )-> Result<Vec<Uint128>, ContractError>{
@@ -2211,20 +2265,20 @@ pub fn update_position_claims(
     let config: Config = CONFIG.load( storage )?;
 
     //Get the Basket's asset ratios
-    let cAsset_ratios = get_cAsset_ratios(storage, env, querier, collateral_assets, config.clone())?;
+    let cAsset_ratios = get_cAsset_ratios(storage, env, querier, basket_assets, config.clone())?;
 
     //Get the debt cap 
     let debt_cap = get_asset_liquidity( querier, config, pool_ids, credit_info )? * liquidity_multiplier;
 
-    let mut asset_caps = vec![];
+    let mut per_asset_debt_caps = vec![];
 
     for cAsset in cAsset_ratios{
 
-        asset_caps.push( cAsset * debt_cap );
+        per_asset_debt_caps.push( cAsset * debt_cap );
     }                       
 
     //Save these to the basket when returned. For queries.
-    Ok( asset_caps )
+    Ok( per_asset_debt_caps )
  }
 
  pub fn get_asset_liquidity(
@@ -2283,6 +2337,7 @@ pub fn update_position_claims(
      collateral_assets: Vec<cAsset>,
      credit_amount: Uint128,
      add_to_debt: bool,
+     interest_accrual: bool,
  )-> Result<(), ContractError>{
 
     let basket: Basket = match BASKETS.load( storage, basket_id.to_string()) {
@@ -2302,12 +2357,12 @@ pub fn update_position_claims(
     let mut over_cap = false;
     let mut assets_over_cap = vec!{};
     //Calculate debt per asset caps
-    let cAsset_caps = get_cAsset_caps(
+    let cAsset_caps = get_basket_debt_caps(
             storage, 
             querier, 
             env, 
             basket.credit_asset.info, 
-            collateral_assets.clone(), 
+            basket.collateral_types, 
             basket.debt_liquidity_multiplier_for_caps, 
             basket.debt_pool_ids,
         )?;
@@ -2327,7 +2382,8 @@ pub fn update_position_claims(
                                 if add_to_debt {               
                                     
                                     //Assert its not over the cap
-                                    if ( asset.debt_total + asset_debt[index] ) <= cAsset_caps[index]{
+                                    //IF the debt is adding to interest then we allow it to exceed the cap
+                                    if ( asset.debt_total + asset_debt[index] ) <= cAsset_caps[index] || interest_accrual{
                                         asset.debt_total += asset_debt[index];
                                     }else{
                                         over_cap = true;
@@ -2336,7 +2392,7 @@ pub fn update_position_claims(
 
                                  }else{
 
-                                    match  asset.debt_total.checked_sub( asset_debt[index] ){
+                                    match asset.debt_total.checked_sub( asset_debt[index] ){
                                         Ok( difference ) => {
                                             asset.debt_total = difference;
                                         },
@@ -2365,7 +2421,7 @@ pub fn update_position_claims(
         let mut assets = String::from("");
 
         assets_over_cap.into_iter().map(|asset| {
-                assets += &format!("{} ", asset);
+                assets += &format!("{}, ", asset);
         });
 
         return Err( ContractError::CustomError { val: format!("This increase of debt sets [ {} ] assets above the protocol debt cap", assets) } )
@@ -2416,6 +2472,178 @@ pub fn update_position_claims(
     }
     return Err( StdError::GenericErr { msg: "No osmosis proxy added to the config yet".to_string() } )
 
+ }
+
+ fn accumulate_interest(
+    debt: Uint128,
+    rate: Decimal,
+    time_elapsed: u64,
+ ) -> StdResult<Uint128>{
+
+    let applied_rate = rate.checked_mul(Decimal::from_ratio(
+        Uint128::from(time_elapsed),
+        Uint128::from(SECONDS_PER_YEAR),
+    ))?;
+
+    let accrued_interest = debt * applied_rate;
+
+    Ok( accrued_interest )
+ }
+
+ fn get_interest_rates(
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    basket: &mut Basket,
+ ) -> StdResult<Vec<Decimal>> {
+
+    let mut rates = vec![];
+
+    for asset in basket.clone().collateral_types{
+        //Base_Rate * max collateral_ratio
+        //ex: 2% * 110% = 2.2%
+        //Higher rates for riskier assets
+
+        //base * (1/max_LTV)
+        rates.push( decimal_multiplication( basket.clone().base_interest_rate, decimal_division( Decimal::one(), asset.max_LTV ) ));
+    }
+
+    //panic!("{:?}", rates);
+
+    //Get proportion of debt caps filled
+    let mut debt_proportions = vec![];
+    let debt_caps = match get_basket_debt_caps( storage, querier, env, basket.clone().credit_asset.info, basket.clone().collateral_types, basket.debt_liquidity_multiplier_for_caps, basket.clone().debt_pool_ids){
+
+        Ok( caps ) => { caps },
+        Err( err ) => { return Err( StdError::GenericErr { msg: err.to_string() } ) }
+    };
+    for (i, asset) in basket.collateral_types.iter().enumerate(){
+        debt_proportions.push( Decimal::from_ratio(asset.debt_total, debt_caps[i]) );
+    }
+
+    //Gets pro-rata rate and uses multiplier if above desired utilization
+    let mut two_slope_pro_rata_rates = vec![];
+    for (i, _rate) in rates.iter().enumerate(){
+        //If debt_proportion is above desired utilization, the rates start multiplying
+        //For every % above the desired, it adds a multiple
+        //Ex: Desired = 90%, proportion = 91%, interest = 2%. New rate = 4%.
+        //Acts as two_slope rate
+
+        //Slope 2
+        if debt_proportions[i] > basket.desired_debt_cap_util{
+            //Ex: 91% > 90%
+            ////0.01 * 100 = 1
+            //1% = 1
+            let percent_over_desired = decimal_multiplication( decimal_subtraction( debt_proportions[i], basket.desired_debt_cap_util), Decimal::percent(100_00) );
+            let multiplier = percent_over_desired + Decimal::one();
+
+            //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
+            //// rate = 3.6%
+            two_slope_pro_rata_rates.push( decimal_multiplication( decimal_multiplication( rates[i], debt_proportions[i] ), multiplier ) );
+        } else {
+        //Slope 1
+            two_slope_pro_rata_rates.push( decimal_multiplication( rates[i], debt_proportions[i] ) );
+        }
+        
+    }
+
+    //If debt_proportion is above desired utilization, the rates start multiplying
+    //For every % above the desired, it adds a multiple
+    //Ex: Desired = 90%, proportion = 91%, interest = 2%. New rate = 4%.
+    //Acts as two_slope rate
+
+    Ok( two_slope_pro_rata_rates )     
+
+ }
+
+ fn get_position_avg_rate(
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    basket: &mut Basket,
+    position_assets: Vec<cAsset>,
+ ) -> StdResult<Decimal>{
+    let config = CONFIG.load( storage )?;
+
+    let ratios = get_cAsset_ratios(storage, env.clone(), querier, position_assets.clone(), config)?;
+
+    let interest_rates = get_interest_rates( storage, querier, env, basket )?;
+
+    //panic!("{:?}", interest_rates);
+
+    let mut avg_rate = Decimal::zero();
+
+    for (i, _cAsset) in position_assets.clone().iter().enumerate(){
+        avg_rate += decimal_multiplication(ratios[i], interest_rates[i]);
+    }
+
+    Ok( avg_rate )
+ }
+
+ fn accrue(
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    position: &mut Position,
+    basket: &mut Basket,
+ ) -> StdResult<()>{
+
+    let config = CONFIG.load( storage )?;
+
+    //Calc time-elapsed
+    let time_elapsed = env.block.time.seconds() - position.last_accrued;
+    //Update last accrued time
+    position.last_accrued = env.block.time.seconds();
+
+    //Calc avg_rate for the position
+    let avg_rate = get_position_avg_rate( storage, querier, env.clone(), basket, position.clone().collateral_assets )?;
+    
+    //Calc accrued interested
+    let accrued_interest = accumulate_interest(position.credit_amount, avg_rate, time_elapsed)?;
+
+    //Add accrued interest to the position's debt
+    position.credit_amount += accrued_interest * Uint128::new(1u128);
+
+    //Add accrued interest to the basket's pending revenue
+    //Okay with rounding down here since the position's credit will round down as well
+    basket.pending_revenue += accrued_interest * Uint128::new(1u128);
+
+    //Add accrued interest to the basket's debt cap
+    match update_basket_debt(
+        storage, 
+        env.clone(), 
+        querier, 
+        config, 
+        basket.basket_id, 
+        position.clone().collateral_assets, 
+        accrued_interest * Uint128::new(1u128), 
+        true, 
+        true){
+
+            Ok( _ok ) => {},
+            Err( err ) => { return Err( StdError::GenericErr { msg: err.to_string() } ) }
+        };
+
+    //Accrue Interest to the Repayment Price
+    if basket.credit_interest.is_some() && !basket.credit_interest.unwrap().is_zero(){
+        //Calc Time-elapsed and update last_Accrued 
+        let time_elasped = env.block.time.seconds() - basket.credit_last_accrued;
+        basket.credit_last_accrued = env.block.time.seconds();
+
+        //Calculate rate of change
+        let mut applied_rate = basket.credit_interest.unwrap().checked_mul(Decimal::from_ratio(
+            Uint128::from(time_elapsed),
+            Uint128::from(SECONDS_PER_YEAR),
+        ))?;
+        //Add 1 to make the value 1.__
+        applied_rate += Decimal::one();
+    
+        let new_price = decimal_multiplication( basket.credit_price.unwrap(), applied_rate );
+
+        basket.credit_price = Some( new_price )
+    }
+
+    Ok( () )
  }
 
 

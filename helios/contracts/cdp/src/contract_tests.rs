@@ -45,7 +45,10 @@ mod tests {
                 osmosis_proxy: Some("proxy".to_string()),
                 debt_auction: Some( "debt_auction".to_string()),
                 oracle_time_limit: 60u64,
-                debt_minimum: Decimal::percent(10_000),
+                debt_minimum: Uint128::new(100u128),
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
         };
 
         //Instantiating contract
@@ -74,7 +77,10 @@ mod tests {
                 amount: Uint128::from(0u128),
             },
             credit_price: None,
-            credit_interest: Some(Decimal::percent(1))
+            credit_interest: Some(Decimal::percent(1)),
+            collateral_supply_caps: None,
+            base_interest_rate: None,
+            desired_debt_cap_util: None,
         };
 
         let _res = execute(deps.as_mut(), mock_env(), v_info.clone(), create_basket_msg).unwrap();
@@ -173,21 +179,7 @@ mod tests {
             ]
         );
 
-        //Query position data to make sure it was saved to state correctly
-        let res = query(deps.as_ref(),
-            mock_env(),
-            QueryMsg::GetPosition {
-                position_id: Uint128::from(1u128),
-                basket_id: Uint128::from(1u128),
-                position_owner: "owner".to_string()
-            })
-            .unwrap();
         
-        let resp: PositionResponse = from_binary(&res).unwrap();
-
-        assert_eq!(resp.position_id, "1".to_string());
-        assert_eq!(resp.basket_id, "1".to_string());
-        assert_eq!(resp.credit_amount, "0".to_string());
 
     }
 
@@ -223,7 +215,10 @@ mod tests {
                 osmosis_proxy: Some("proxy".to_string()),
                 debt_auction: Some( "debt_auction".to_string()),
                 oracle_time_limit: 60u64,
-                debt_minimum: Decimal::percent(10_000),
+                debt_minimum: Uint128::new(100u128),
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
         };
 
         //Instantiating contract
@@ -365,7 +360,10 @@ mod tests {
                 osmosis_proxy: Some("proxy".to_string()),
                 debt_auction: Some( "debt_auction".to_string()),
                 oracle_time_limit: 60u64,
-                debt_minimum: Decimal::percent(10_000),
+                debt_minimum: Uint128::new(100u128),
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
         };
 
         //Instantiating contract
@@ -407,7 +405,10 @@ mod tests {
                 amount: Uint128::from(0u128),
             },
             credit_price: None,
-            credit_interest: Some(Decimal::percent(1))
+            credit_interest: Some(Decimal::percent(1)),
+            collateral_supply_caps: None,
+            base_interest_rate: None,
+            desired_debt_cap_util: None,
         };
 
         let _res = execute(deps.as_mut(), mock_env(), info.clone(), create_basket_msg).unwrap();
@@ -511,7 +512,10 @@ mod tests {
                 osmosis_proxy: Some("osmosis_proxy".to_string()),
                 debt_auction: Some( "debt_auction".to_string()),
                 oracle_time_limit: 60u64,
-                debt_minimum: Decimal::percent(10_000),
+                debt_minimum: Uint128::new(100u128),
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
         };
 
         //Instantiating contract
@@ -648,7 +652,10 @@ mod tests {
                 osmosis_proxy: Some("osmosis_proxy".to_string()),
                 debt_auction: Some( "debt_auction".to_string()),
                 oracle_time_limit: 60u64,
-                debt_minimum: Decimal::percent(10_000),
+                debt_minimum: Uint128::new(100u128),
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
         };
 
         //Instantiating contract
@@ -679,7 +686,10 @@ mod tests {
                 amount: Uint128::from(0u128),
             },
             credit_price: Some( Decimal::percent(100) ),
-            credit_interest: Some(Decimal::percent(1))
+            credit_interest: Some(Decimal::percent(1)),
+            collateral_supply_caps: None,
+            base_interest_rate: None,
+            desired_debt_cap_util: None,
         };
         let v_info = mock_info("owner", &[] );
         let _res = execute(deps.as_mut(), mock_env(), v_info.clone(), create_basket_msg).unwrap();
@@ -727,19 +737,7 @@ mod tests {
         assert_eq!(resp[1].position_id, String::from(Uint128::from(1u128)) );
         assert_eq!(resp.len().to_string(), String::from("2"));
 
-        //Query BasketPositions
-        let msg = QueryMsg::GetBasketPositions { 
-            basket_id: Uint128::from(1u128), 
-            start_after: None,
-            limit: None,
-        };
-        let res = query( deps.as_ref(), mock_env(), msg)
-        .unwrap();
-
-        let resp: Vec<PositionsResponse> = from_binary(&res).unwrap();
-        assert_eq!(resp[0].positions[0].collateral_assets[0].asset.amount.to_string(), String::from("11"));
-        assert_eq!(resp.len().to_string(), String::from("1"));
-
+        
         //Query AllBaskets
         let msg = QueryMsg::GetAllBaskets { 
             start_after: None,

@@ -367,6 +367,9 @@ pub fn withdraw(
         
     }
 
+    //Save updated repayment price
+    BASKETS.save( deps.storage, basket_id.to_string(), &basket )?;
+
     let mut attrs = vec![];
     attrs.push(("method", "withdraw"));
     
@@ -427,7 +430,7 @@ pub fn repay(
     //Only one of these match arms will be used once the credit_contract type is decided on
     match credit_asset.clone().info {
         AssetInfo::Token { address: submitted_address } => {
-            if let AssetInfo::Token { address } = basket.credit_asset.info{
+            if let AssetInfo::Token { address } = basket.clone().credit_asset.info{
 
                 if submitted_address != address || info.sender.clone() != address {
                     return Err(ContractError::InvalidCollateral {  })
@@ -437,7 +440,7 @@ pub fn repay(
         },
         AssetInfo::NativeToken { denom: submitted_denom } => { 
            
-            if let AssetInfo::NativeToken { denom } = basket.credit_asset.info{
+            if let AssetInfo::NativeToken { denom } = basket.clone().credit_asset.info{
 
                 if submitted_denom != denom {
                     return Err(ContractError::InvalidCollateral {  })
@@ -463,10 +466,10 @@ pub fn repay(
                             target_position.credit_amount -= credit_asset.amount;
                             
                             //Position's resulting debt can't be below minimum without being fully repaid
-                            if target_position.credit_amount < config.debt_minimum && !target_position.credit_amount.is_zero(){
+                            if target_position.credit_amount * basket.clone().credit_price.unwrap() < config.debt_minimum && !target_position.credit_amount.is_zero(){
                                 return Err( ContractError::BelowMinimumDebt{})
                             }
-
+                            
                             total_loan = target_position.clone().credit_amount;
                         }else{
                             return Err(ContractError::ExcessRepayment {  })
@@ -499,6 +502,9 @@ pub fn repay(
             }
     
     })?;
+
+    //Save updated repayment price
+    BASKETS.save( storage, basket_id.to_string(), &basket )?;
 
     //Subtract paid debt from debt-per-asset tallies
     update_basket_debt( storage, env, querier, config, basket_id, target_position.collateral_assets, credit_asset.amount, false, false )?;
@@ -717,7 +723,7 @@ pub fn increase_debt(
         }else{
             
             
-            message = credit_mint_msg(config.clone(), basket.credit_asset, info.sender.clone())?;
+            message = credit_mint_msg(config.clone(), basket.clone().credit_asset, info.sender.clone())?;
             
             //Add credit amount to the position
             POSITIONS.update(deps.storage, (basket_id.to_string(), info.sender.clone()), |positions: Option<Vec<Position>>| -> Result<Vec<Position>, ContractError>{
@@ -749,6 +755,9 @@ pub fn increase_debt(
 
                     None => return Err(ContractError::NoUserPositions {  })
             }})?;
+
+            //Save updated repayment price
+            BASKETS.save( deps.storage, basket_id.to_string(), &basket )?;
 
             //Add new debt to debt-per-asset tallies
             update_basket_debt( 
@@ -807,6 +816,8 @@ pub fn liquidate(
     //Accrue interest
     accrue( storage, querier, env.clone(), &mut target_position, &mut basket)?;
     
+    //Save updated repayment price
+    BASKETS.save( storage, basket_id.to_string(), &basket )?;
 
     //Check position health comparative to max_LTV
     let (insolvent, current_LTV, _available_fee) = insolvency_check( storage, env.clone(), querier, target_position.clone().collateral_assets, Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)), basket.credit_price.unwrap(), false, config.clone())?;
@@ -2038,7 +2049,7 @@ fn update_basket_tally(
                             if asset.asset.info.equal(&cAsset.asset.info){
                                 if add_to_cAsset {   
                                     //If the addition pushes the collateral total over the supply limit, Error
-                                    if asset.asset.amount + cAsset.asset.amount > basket.collateral_supply_caps[i]{
+                                    if basket.collateral_supply_caps != vec![] && asset.asset.amount + cAsset.asset.amount > basket.collateral_supply_caps[i]{
                                         error = Some( Err( ContractError::CustomError { val: format!("Collateral pushes total over basket supply caps: {} / {}", asset.asset.amount + cAsset.asset.amount, basket.collateral_supply_caps[i]) } ) )
                                     } else { //Add 
                                         asset.asset.amount += cAsset.asset.amount;
@@ -2655,8 +2666,10 @@ pub fn update_position_claims(
 
     //Accrue Interest to the Repayment Price
     if basket.credit_interest.is_some() && !basket.credit_interest.unwrap().is_zero(){
+        
         //Calc Time-elapsed and update last_Accrued 
         let time_elasped = env.block.time.seconds() - basket.credit_last_accrued;
+        if !time_elasped == 0u64 {panic!("{}", time_elapsed) }
         basket.credit_last_accrued = env.block.time.seconds();
 
         //Calculate rate of change
@@ -2664,12 +2677,15 @@ pub fn update_position_claims(
             Uint128::from(time_elapsed),
             Uint128::from(SECONDS_PER_YEAR),
         ))?;
+        
         //Add 1 to make the value 1.__
         applied_rate += Decimal::one();
     
         let new_price = decimal_multiplication( basket.credit_price.unwrap(), applied_rate );
 
-        basket.credit_price = Some( new_price )
+        basket.credit_price = Some( new_price );
+
+        //panic!("{}", applied_rate);
     }
 
     Ok( () )

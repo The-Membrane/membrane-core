@@ -19,7 +19,8 @@ pub struct InstantiateMsg {
     //Contracts
     pub stability_pool: Option<String>,
     pub dex_router: Option<String>,
-    pub fee_collector: Option<String>,
+    pub liq_fee_collector: Option<String>,
+    pub interest_revenue_collector: Option<String>,
     pub osmosis_proxy: Option<String>,
     pub debt_auction: Option<String>,
     //For Basket creation
@@ -205,7 +206,8 @@ pub struct ConfigResponse {
     pub current_basket_id: Uint128,
     pub stability_pool: String,
     pub dex_router: String, //Apollo's router, will need to change msg types if the router changes most likely.
-    pub fee_collector: String,
+    pub liq_fee_collector: String,
+    pub interest_revenue_collector: String,
     pub osmosis_proxy: String,
     pub debt_auction: String,
     pub liq_fee: Decimal, // 5 = 5%

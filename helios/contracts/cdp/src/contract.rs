@@ -53,7 +53,8 @@ pub fn instantiate(
         current_basket_id: Uint128::from(1u128),
         stability_pool: None, 
         dex_router: None,
-        fee_collector: None,
+        liq_fee_collector: None,
+        interest_revenue_collector: None,
         osmosis_proxy: None,    
         debt_auction: None,    
         oracle_time_limit: msg.oracle_time_limit,
@@ -83,11 +84,22 @@ pub fn instantiate(
         None => {},
     };
 
-    match msg.fee_collector {
+    match msg.liq_fee_collector {
         Some( address ) => {
             
             match deps.api.addr_validate( &address ){
-                Ok( addr ) => config.fee_collector = Some( addr ),
+                Ok( addr ) => config.liq_fee_collector = Some( addr ),
+                Err(_) => {},
+            }
+        },
+        None => {},
+    };
+
+    match msg.interest_revenue_collector {
+        Some( address ) => {
+            
+            match deps.api.addr_validate( &address ){
+                Ok( addr ) => config.interest_revenue_collector = Some( addr ),
                 Err(_) => {},
             }
         },

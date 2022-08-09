@@ -264,7 +264,7 @@ pub fn withdraw(
         
         //Accrue interest
         accrue( deps.storage, deps.querier, env.clone(), &mut target_position, &mut basket)?;
-
+        
         //If the cAsset is found in the position, attempt withdrawal 
         match target_position.clone().collateral_assets.into_iter().find(|x| x.asset.info.equal(&withdraw_asset.info)){
             //Some cAsset
@@ -274,6 +274,18 @@ pub fn withdraw(
                 if withdraw_asset.amount > position_collateral.asset.amount{
                     return Err(ContractError::InvalidWithdrawal {  })
                 }else{
+                    //Now that its a valid withdrawal and debt has accrued, we can update basket tallies
+                    update_basket_tally( 
+                        deps.storage, 
+                        basket_id, 
+                        vec![
+                            cAsset {
+                                asset: withdraw_asset.clone(),
+                                ..position_collateral
+                            }
+                        ], 
+                        false)?;
+
                     //Update cAsset data to account for the withdrawal
                     let leftover_amount = position_collateral.asset.amount - withdraw_asset.amount;
                                         
@@ -920,7 +932,7 @@ pub fn liquidate(
                     contract_addr: address.to_string(),
                     msg: to_binary(&Cw20ExecuteMsg::Transfer {
                         amount: protocol_fee_in_collateral_amount,
-                        recipient: config.clone().fee_collector.unwrap().to_string(),
+                        recipient: config.clone().liq_fee_collector.unwrap().to_string(),
                     })?,
                     funds: vec![],
                 });
@@ -957,7 +969,7 @@ pub fn liquidate(
 
         //Create Msg to send all native token liq fees for protocol
         let msg = CosmosMsg::Bank(BankMsg::Send {
-            to_address: config.clone().fee_collector.unwrap().to_string(),
+            to_address: config.clone().liq_fee_collector.unwrap().to_string(),
             amount: protocol_coins,
         });
         fee_messages.push( msg );
@@ -1992,7 +2004,12 @@ pub fn assert_basket_assets(
 
     //Add valid asset amounts to running basket total
     //This is done before deposit() so if that errors this will revert as well
-    update_basket_tally( storage, basket_id, collateral_assets.clone(), add_to_cAsset)?;
+    //////We don't want this to trigger for withdrawals bc debt needs to accrue on the previous basket state
+    //////For deposit's its fine bc it'll error when invalid and doesn't accrue debt 
+    if add_to_cAsset{
+        update_basket_tally( storage, basket_id, collateral_assets.clone(), add_to_cAsset)?;
+    }
+    
 
     Ok(collateral_assets)
 }

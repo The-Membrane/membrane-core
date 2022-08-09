@@ -845,7 +845,7 @@ mod tests {
                 .unwrap(); //contract0 = Stability Pool contract
                 bank.init_balance(storage, &Addr::unchecked("test"), vec![coin(50_000, "credit_fulldenom"), coin(100_000, "debit")])
                 .unwrap(); 
-                bank.init_balance(storage, &Addr::unchecked("sender"), vec![coin(50_000, "credit_fulldenom")])
+                bank.init_balance(storage, &Addr::unchecked("sender"), vec![coin(50_001, "credit_fulldenom")])
                 .unwrap(); 
                 bank.init_balance(storage, &Addr::unchecked("big_bank"),  vec![coin(10_000_000, "debit"), coin(10_000_000, "double_debit")])
                 .unwrap();
@@ -989,7 +989,8 @@ mod tests {
                 liq_fee: Decimal::percent(1),
                 stability_pool: Some( sp_contract_addr.to_string() ),
                 dex_router: Some( router_contract_addr.to_string() ),
-                fee_collector:  Some( "fee_collector".to_string()),
+                liq_fee_collector: Some( "fee_collector".to_string()),
+                interest_revenue_collector: Some( "fee_collector".to_string()),
                 osmosis_proxy: Some( osmosis_proxy_contract_addr.to_string() ),   
                 debt_auction: Some( auction_contract_addr.to_string() ),
                 oracle_time_limit: 60u64,
@@ -1034,7 +1035,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.fee_collector;
+            let fee_collector = res.liq_fee_collector;
             
              
             //Edit Basket
@@ -1047,7 +1048,7 @@ mod tests {
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: None,
-                base_interest_rate: None,
+                base_interest_rate: Some( Decimal::percent(10) ),
                 desired_debt_cap_util: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -1104,7 +1105,7 @@ mod tests {
                 position_id: Uint128::from(1u128),
                 assets: vec![Asset { 
                     info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
-                    amount: Uint128::from(100_000u128)
+                    amount: Uint128::from(100000u128)
                 }],
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -1155,7 +1156,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.fee_collector;
+            let fee_collector = res.liq_fee_collector;
             
               
             //Edit Basket
@@ -1225,7 +1226,7 @@ mod tests {
             app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
 
             //Send credit
-            app.send_tokens(Addr::unchecked("sender"), Addr::unchecked("test"), &[ coin(50_000, "credit_fulldenom") ]).unwrap();
+            app.send_tokens(Addr::unchecked("sender"), Addr::unchecked("test"), &[ coin(50_001, "credit_fulldenom") ]).unwrap();
         
             //Error on Partial Repayment under config.debt_minimum 
             let msg = ExecuteMsg::Repay { 
@@ -1251,6 +1252,15 @@ mod tests {
             };
             let res: DebtCapResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res.caps, vec![ "debit: 50000/249995, " ] );
+
+            //Excess Repayment
+            let msg = ExecuteMsg::Repay { 
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                position_owner: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![coin(50_001, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked("test"), cosmos_msg).unwrap_err();
 
             //Successful repayment
             let repay_msg = ExecuteMsg::Repay { 
@@ -1278,7 +1288,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.fee_collector;
+            let fee_collector = res.liq_fee_collector;
             
               
             //Edit Basket
@@ -1397,14 +1407,14 @@ mod tests {
 
             //Would normally liquidate and leave 99181 "debit"
             // but w/ accrued interest its leaving 99166
-            let query_msg = QueryMsg::GetPosition { 
-                position_id: Uint128::new(1u128), 
-                basket_id: Uint128::new(1u128), 
-                position_owner:  "test".to_string(),  
+            let query_msg = QueryMsg::GetUserPositions { 
+                basket_id: None, 
+                user: String::from("test"), 
+                limit: None,
             };
             
-            let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(99166));
+            let res: Vec<PositionResponse> = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            assert_eq!(res[0].collateral_assets[0].asset.amount, Uint128::new(99166));
            
         }
 
@@ -1416,7 +1426,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.fee_collector; 
+            let fee_collector = res.liq_fee_collector;
             
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket { 
@@ -1519,7 +1529,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.fee_collector;
+            let fee_collector = res.liq_fee_collector;
             
 
             //Add liq-queue to the initial basket
@@ -1880,7 +1890,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.fee_collector;
+            let fee_collector = res.liq_fee_collector;
             
 
             //Add liq-queue to the initial basket
@@ -1979,7 +1989,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.fee_collector;
+            let fee_collector = res.liq_fee_collector;
             
 
             //Add liq-queue to the initial basket
@@ -2077,7 +2087,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.fee_collector;
+            let fee_collector = res.liq_fee_collector;
             
             
             //Add liq-queue to the initial basket
@@ -2148,7 +2158,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.fee_collector;
+            let fee_collector = res.liq_fee_collector;
             
             
             //Add liq-queue to the initial basket
@@ -2239,7 +2249,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.fee_collector;
+            let fee_collector = res.liq_fee_collector;
             
             
             //Add liq-queue to the initial basket
@@ -2345,7 +2355,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.fee_collector;
+            let fee_collector = res.liq_fee_collector;
             
             
             //Add liq-queue to the initial basket
@@ -2433,7 +2443,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.fee_collector;
+            let fee_collector = res.liq_fee_collector;
             
             
             //Add liq-queue to the initial basket

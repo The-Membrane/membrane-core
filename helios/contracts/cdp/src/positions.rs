@@ -1284,13 +1284,14 @@ pub fn create_basket(
     collateral_supply_caps: Option<Vec<Uint128>>,
     base_interest_rate: Option<Decimal>,
     desired_debt_cap_util: Option<Decimal>,
+    instantiate_msg: bool,
 ) -> Result<Response, ContractError>{
     let mut config: Config = CONFIG.load(deps.storage)?;
 
     let valid_owner: Addr = validate_position_owner(deps.api, info.clone(), owner)?;
 
     //Only contract owner can create new baskets. This can be governance.
-    if info.sender != config.owner{
+    if !instantiate_msg && info.sender != config.owner{
         return Err(ContractError::NotContractOwner {})
     }
 
@@ -1406,10 +1407,7 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
 )->Result<Response, ContractError>{
 
     let config = CONFIG.load( deps.storage )?;
-    if info.sender.clone() != config.owner{
-        return Err( ContractError::Unauthorized {  } )
-    }
-
+    
     let new_owner: Option<Addr>;
 
     if let Some(owner) = owner {
@@ -1426,8 +1424,8 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
         match basket{
             Some( mut basket ) => {
 
-                if info.sender != basket.owner{
-                    return Err(ContractError::NotBasketOwner {  })
+                if info.sender.clone() != config.owner && info.sender.clone() != config.owner{
+                    return Err(ContractError::Unauthorized {  })
                 }else{
                     if added_cAsset.is_some(){
 
@@ -1959,7 +1957,7 @@ pub fn assert_basket_assets(
 ) -> Result<Vec<cAsset>, ContractError> {
     //let config: Config = CONFIG.load(deps)?;
 
-    let basket: Basket= match BASKETS.load(storage, basket_id.to_string()) {
+    let basket: Basket = match BASKETS.load(storage, basket_id.to_string()) {
         Err(_) => { return Err(ContractError::NonExistentBasket {  })},
         Ok( basket ) => { basket },
     };
@@ -2009,6 +2007,8 @@ pub fn assert_basket_assets(
     if add_to_cAsset{
         update_basket_tally( storage, basket_id, collateral_assets.clone(), add_to_cAsset)?;
     }
+
+
     
 
     Ok(collateral_assets)
@@ -2025,17 +2025,25 @@ fn update_basket_tally(
         match basket{
 
             Some( mut basket ) => {
+
+                let mut error: Option<Result<Basket, ContractError>> = None;
                 
                 for cAsset in collateral_assets.iter(){
 
                     basket.collateral_types = basket.clone().collateral_types
                         .into_iter()
-                        .map(| mut asset | {
+                        .enumerate()
+                        .map(| ( i, mut asset ) | {
                             //Add or subtract deposited amount to/from the correlated cAsset object
                             if asset.asset.info.equal(&cAsset.asset.info){
-                                if add_to_cAsset {                                 
-                                     
-                                    asset.asset.amount += cAsset.asset.amount;
+                                if add_to_cAsset {   
+                                    //If the addition pushes the collateral total over the supply limit, Error
+                                    if asset.asset.amount + cAsset.asset.amount > basket.collateral_supply_caps[i]{
+                                        error = Some( Err( ContractError::CustomError { val: format!("Collateral pushes total over basket supply caps: {} / {}", asset.asset.amount + cAsset.asset.amount, basket.collateral_supply_caps[i]) } ) )
+                                    } else { //Add 
+                                        asset.asset.amount += cAsset.asset.amount;
+                                    }
+                                    
                                  }else{
 
                                     match asset.asset.amount.checked_sub( cAsset.asset.amount ){
@@ -2052,6 +2060,10 @@ fn update_basket_tally(
                              }                            
                             asset
                         }).collect::<Vec<cAsset>>();
+                }
+
+                if error.is_some(){
+                    return error.unwrap()
                 }
 
                 Ok( basket )

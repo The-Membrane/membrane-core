@@ -62,6 +62,17 @@ pub fn instantiate(
     };
     
     // //Set optional config parameters
+    match msg.owner {
+        Some( address ) => {
+            
+            match deps.api.addr_validate( &address ){
+                Ok( addr ) => config.owner = addr,
+                Err(_) => {},
+            }
+        },
+        None => { },
+    };
+    
     match msg.stability_pool {
         Some( address ) => {
             
@@ -158,7 +169,7 @@ pub fn instantiate(
                 deps,
                 info,
                 env,
-                msg.owner,
+                Some( config.owner.to_string() ),
                 collateral_types.clone(),
                 msg.credit_asset.unwrap(),
                 msg.credit_price,
@@ -166,6 +177,7 @@ pub fn instantiate(
                 msg.collateral_supply_caps,
                 msg.base_interest_rate,
                 msg.desired_debt_cap_util,
+                true,
             )?;
             
             attrs.push(("basket_id", current_basket_id));
@@ -223,7 +235,7 @@ pub fn execute(
         }
         ExecuteMsg::EditAdmin { owner } => edit_contract_owner(deps, info, owner),
         ExecuteMsg::EditBasket {basket_id,added_cAsset,owner,credit_interest, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util } => edit_basket(deps, info, basket_id, added_cAsset, owner, credit_interest, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util ),
-        ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, credit_interest, collateral_supply_caps, base_interest_rate, desired_debt_cap_util } => create_basket( deps, info, env, owner, collateral_types, credit_asset, credit_price, credit_interest, collateral_supply_caps, base_interest_rate, desired_debt_cap_util ),
+        ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, credit_interest, collateral_supply_caps, base_interest_rate, desired_debt_cap_util } => create_basket( deps, info, env, owner, collateral_types, credit_asset, credit_price, credit_interest, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, false ),
         ExecuteMsg::Liquidate { basket_id, position_id, position_owner } => liquidate(deps.storage, deps.api, deps.querier, env, info, basket_id, position_id, position_owner),
         ExecuteMsg::Callback( msg ) => {
             if info.sender == env.contract.address{

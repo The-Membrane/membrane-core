@@ -2707,7 +2707,7 @@ pub fn mint_revenue(
 
     let config = CONFIG.load( deps.storage )?;
 
-    let basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
+    let mut basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
 
     if info.sender != config.owner && info.sender != basket.owner{
         return Err( ContractError::Unauthorized {  } )
@@ -2717,6 +2717,13 @@ pub fn mint_revenue(
 
     //Set amount
     let amount = amount.unwrap_or_else(|| basket.pending_revenue);
+
+    //Subtract amount from pending revenue
+    basket.pending_revenue = match basket.pending_revenue.checked_sub(amount){
+        Ok( new_balance ) => { new_balance },
+        Err( err ) => return Err( ContractError::CustomError { val: err.to_string() } )
+    }; //Save basket
+    BASKETS.save( deps.storage, basket_id.to_string(), &basket )?;
 
     let mut message: Vec<CosmosMsg> = vec![];
     let mut repay_attr = String::from("None");
@@ -2763,7 +2770,7 @@ pub fn mint_revenue(
             ));
 
     } else {
-        
+
         //Mint to the interest collector
         //or to the basket.owner if not 
         message.push( credit_mint_msg(

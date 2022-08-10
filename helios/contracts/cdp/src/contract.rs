@@ -14,7 +14,7 @@ use osmo_bindings::{ SpotPriceResponse, OsmosisMsg, FullDenomResponse, OsmosisQu
 
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
 use membrane::positions::{ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, PositionResponse, PositionsResponse, BasketResponse, ConfigResponse, PropResponse, CallbackMsg};
-use membrane::types::{ AssetInfo, Asset, cAsset, Basket, Position, LiqAsset, RepayPropagation, SellWallDistribution };
+use membrane::types::{ AssetInfo, Asset, cAsset, Basket, Position, LiqAsset, RepayPropagation, SellWallDistribution, UserInfo };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, GetDenomResponse };
 use membrane::debt_auction::{ ExecuteMsg as AuctionExecuteMsg };
 
@@ -240,7 +240,7 @@ pub fn execute(
         ExecuteMsg::MintRevenue { basket_id, send_to, repay_for, amount } => mint_revenue(deps, info, env, basket_id, send_to, repay_for, amount),
         ExecuteMsg::Callback( msg ) => {
             if info.sender == env.contract.address{
-                callback_handler( deps, msg )
+                callback_handler( deps, env, msg )
             }else{
                 return Err( ContractError::Unauthorized {  } )
             }
@@ -252,18 +252,20 @@ pub fn execute(
 
 pub fn callback_handler(
     deps: DepsMut,
+    env: Env,
     msg: CallbackMsg,
 ) -> Result<Response, ContractError>{
     
     match msg {
         CallbackMsg::BadDebtCheck { basket_id, position_owner, position_id } => {
-            check_for_bad_debt( deps, basket_id, position_id, position_owner )
+            check_for_bad_debt( deps, env, basket_id, position_id, position_owner )
         },
     }
 }
 
 fn check_for_bad_debt(
     deps: DepsMut,
+    env: Env,
     basket_id: Uint128,
     position_id: Uint128,
     position_owner: Addr,
@@ -296,18 +298,70 @@ fn check_for_bad_debt(
             .iter()
             .sum();
 
-    if total_assets > Uint128::zero(){
+    if total_assets > Uint128::zero() || target_position.credit_amount.is_zero(){
         return Err( ContractError::PositionSolvent {  } )
-    }else{
-        let mut message: CosmosMsg;
+    } else {
 
-        //Send bad debt amount to the auction contract
-        if config.debt_auction.is_some(){
+        let mut message: CosmosMsg;
+        let mut bad_debt_amount = target_position.credit_amount;
+
+        //If the basket has revenue, mint and repay the bad debt
+        if !basket.pending_revenue.is_zero() {
+
+            if bad_debt_amount >= basket.pending_revenue {
+                
+                //If bad_debt is greater or equal, mint all revenue to repay
+                //and send the rest to the auction
+                let mint_msg = ExecuteMsg::MintRevenue { 
+                    basket_id, 
+                    send_to: None, 
+                    repay_for: Some( UserInfo {
+                        basket_id,
+                        position_id,
+                        position_owner: position_owner.to_string(),
+                    }), 
+                    amount: None, 
+                };
+    
+                message = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: env.contract.address.to_string(), 
+                    msg: to_binary(&mint_msg)?, 
+                    funds: vec![ ],
+                });
+
+                bad_debt_amount -= basket.pending_revenue;
+            } else {
+                
+                //If less than revenue, repay the debt and no auction
+                let mint_msg = ExecuteMsg::MintRevenue { 
+                    basket_id, 
+                    send_to: None, 
+                    repay_for: Some( UserInfo {
+                        basket_id,
+                        position_id,
+                        position_owner: position_owner.to_string(),
+                    }), 
+                    amount: Some( bad_debt_amount ), 
+                };
+    
+                message = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: env.contract.address.to_string(), 
+                    msg: to_binary(&mint_msg)?, 
+                    funds: vec![ ],
+                });
+
+                bad_debt_amount = Uint128::zero();
+            }
+            
+        }
+
+        //Send bad debt amount to the auction contract if greater than 0
+        if config.debt_auction.is_some() && !bad_debt_amount.is_zero(){
             let auction_msg = AuctionExecuteMsg::StartAuction {
                     basket_id, 
                     position_id, 
                     position_owner: position_owner.to_string(), 
-                    debt_amount: target_position.credit_amount * Uint128::new(1u128)
+                    debt_amount: bad_debt_amount,
                 };
 
             message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -322,6 +376,7 @@ fn check_for_bad_debt(
 
         return Ok( Response::new().add_message(message) )
     }
+
 }
 
 //From a receive cw20 hook. Comes from the contract address so easy to validate sent funds. 
@@ -816,7 +871,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         },
         QueryMsg::GetPositionInsolvency { basket_id, position_id, position_owner } => {
             to_binary( &query_position_insolvency(deps, env, basket_id, position_id, position_owner)? )
-        }
+        },
+        
     }
 }
 

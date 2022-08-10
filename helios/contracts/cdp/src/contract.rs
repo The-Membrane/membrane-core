@@ -302,7 +302,7 @@ fn check_for_bad_debt(
         return Err( ContractError::PositionSolvent {  } )
     } else {
 
-        let mut message: CosmosMsg;
+        let mut messages: Vec<CosmosMsg> = vec![];
         let mut bad_debt_amount = target_position.credit_amount;
 
         //If the basket has revenue, mint and repay the bad debt
@@ -323,11 +323,11 @@ fn check_for_bad_debt(
                     amount: None, 
                 };
     
-                message = CosmosMsg::Wasm(WasmMsg::Execute {
+                messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: env.contract.address.to_string(), 
                     msg: to_binary(&mint_msg)?, 
                     funds: vec![ ],
-                });
+                }));
 
                 bad_debt_amount -= basket.pending_revenue;
             } else {
@@ -344,11 +344,11 @@ fn check_for_bad_debt(
                     amount: Some( bad_debt_amount ), 
                 };
     
-                message = CosmosMsg::Wasm(WasmMsg::Execute {
+                messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: env.contract.address.to_string(), 
                     msg: to_binary(&mint_msg)?, 
                     funds: vec![ ],
-                });
+                }));
 
                 bad_debt_amount = Uint128::zero();
             }
@@ -364,17 +364,16 @@ fn check_for_bad_debt(
                     debt_amount: bad_debt_amount,
                 };
 
-            message = CosmosMsg::Wasm(WasmMsg::Execute {
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.debt_auction.unwrap().to_string(), 
                 msg: to_binary(&auction_msg)?, 
                 funds: vec![ ],
-            })
+            }));
         }else{
             return Err( ContractError::CustomError { val: "Debt Auction contract not added to config".to_string() } )
         }
-        
 
-        return Ok( Response::new().add_message(message) )
+        return Ok( Response::new().add_messages(messages) )
     }
 
 }

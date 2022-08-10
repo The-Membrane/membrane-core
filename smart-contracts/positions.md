@@ -244,6 +244,38 @@ pub enum ExecuteMsg {
 | `position_id`    | Uint128 | ID of Position                  |
 | `position_owner` | String  | Owner of Position               |
 
+### `MintRevenue`
+
+Mint pending revenue from chosen basket, only usable by config or basket.owner
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecuteMsg {
+    MintRevenue {
+        basket_id: Uint128,
+        send_to: Option<String>, //Defaults to config.interest_revenue_collector
+        repay_for: Option<UserInfo>, //Repay for a position w/ the revenue
+        amount: Option<Uint128>,
+    },
+}
+
+pub struct UserInfo {
+    pub basket_id: Uint128,
+    pub position_id: Uint128,
+    pub position_owner: String,
+}
+```
+
+| Key          | Type     | Description                                                                 |
+| ------------ | -------- | --------------------------------------------------------------------------- |
+| `basket_id`  | Uint128  | ID of Basket                                                                |
+| `*send_to`   | String   | Address to send revenue to, defaults to config.interest\_revenue\_collector |
+| `*repay_for` | UserInfo | Position Info to repay for w/ revenue. To be used for BadDebt situations.   |
+| `*amount`    | Uint128  | Amount to mint, defaults to all                                             |
+
+&#x20;\* = optional
+
 ### `CreateBasket`
 
 Add Basket to the Position's contract, only callable by the contract owner.
@@ -640,6 +672,19 @@ pub enum QueryMsg {
 
 pub struct InsolvencyResponse{
     pub insolvent_positions: Vec<InsolventPosition>,
+}
+
+pub struct InsolventPosition {
+    pub insolvent: bool,
+    pub position_info: UserInfo,
+    pub current_LTV: Decimal,
+    pub available_fee: Uint128,
+}
+
+pub struct UserInfo {
+    pub basket_id: Uint128,
+    pub position_id: Uint128,
+    pub position_owner: String,
 }
 ```
 

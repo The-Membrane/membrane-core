@@ -1,6 +1,6 @@
 use cosmwasm_std::{Deps, StdResult, Uint128, Addr, StdError, Order, QuerierWrapper, Decimal, to_binary, QueryRequest, WasmQuery, Storage, Env, MessageInfo};
 use cw_storage_plus::Bound;
-use membrane::{positions::{PropResponse, ConfigResponse, PositionResponse, BasketResponse, PositionsResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse}, types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PriceInfo, PositionUserInfo, InsolventPosition}, stability_pool::PoolResponse};
+use membrane::{positions::{PropResponse, ConfigResponse, PositionResponse, BasketResponse, PositionsResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse}, types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PriceInfo, PositionUserInfo, InsolventPosition, UserInfo}, stability_pool::PoolResponse};
 use membrane::stability_pool::{ QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg };
 use osmo_bindings::SpotPriceResponse;
@@ -480,10 +480,10 @@ pub fn query_basket_insolvency(
                 if insolvent {
                     res.insolvent_positions.push( InsolventPosition {
                         insolvent,
-                        position_info: PositionUserInfo { 
+                        position_info: UserInfo { 
                             basket_id: basket_id.clone(), 
-                            position_id: Some( position.position_id ), 
-                            position_owner: Some( addr.to_string() ), 
+                            position_id: position.position_id, 
+                            position_owner: addr.to_string(), 
                         },
                         current_LTV,
                         available_fee,
@@ -529,17 +529,15 @@ pub fn query_position_insolvency(
     //Since its a Singular position we'll output whether insolvent or not
     res.insolvent_positions.push( InsolventPosition {
         insolvent,
-        position_info: PositionUserInfo { 
+        position_info: UserInfo { 
             basket_id: basket_id.clone(), 
-            position_id: Some( target_position.position_id ), 
-            position_owner: Some( position_owner.to_string() ), 
+            position_id: target_position.position_id, 
+            position_owner: position_owner.to_string(), 
         },
         current_LTV,
         available_fee,
     } );
     
-
-                
     Ok( res )
     
 }

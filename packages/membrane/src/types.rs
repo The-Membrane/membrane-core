@@ -219,6 +219,12 @@ pub struct UserInfo {
     pub position_owner: String,
 }
 
+impl fmt::Display for UserInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "owner: {}, basket: {}, position: {}", self.position_owner, self.basket_id, self.position_id)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct PriceInfo {
     pub price: Decimal,
@@ -228,7 +234,7 @@ pub struct PriceInfo {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InsolventPosition {
     pub insolvent: bool,
-    pub position_info: PositionUserInfo,
+    pub position_info: UserInfo,
     pub current_LTV: Decimal,
     pub available_fee: Uint128,
 }

@@ -66,6 +66,12 @@ pub enum ExecuteMsg {
         position_id: Uint128,
         position_owner: String,
     },
+    MintRevenue {
+        basket_id: Uint128,
+        send_to: Option<String>, //Defaults to config.interest_revenue_collector
+        repay_for: Option<UserInfo>, //Repay for a position w/ the revenue
+        amount: Option<Uint128>,
+    },
     CreateBasket {
         owner: Option<String>,
         collateral_types: Vec<cAsset>,

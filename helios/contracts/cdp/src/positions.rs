@@ -8,7 +8,7 @@ use cosmwasm_storage::{Bucket, ReadonlyBucket};
 use cw20::Cw20ExecuteMsg;
 use osmo_bindings::{ SpotPriceResponse, PoolStateResponse };
 
-use membrane::{types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistribution, RepayPropagation, LiqAsset, UserInfo, PriceInfo}, positions::CallbackMsg};
+use membrane::{types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistribution, RepayPropagation, LiqAsset, UserInfo, PriceInfo, PositionUserInfo}, positions::CallbackMsg};
 use membrane::positions::ExecuteMsg;
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse };
@@ -1213,6 +1213,7 @@ pub fn liquidate(
     );
     //Not replying for this, the logic needed will be handled in the callback
     //Replying on Error is just so an Error doesn't cancel transaction
+    //Don't care about the success case so didnt reply_always
     let call_back = SubMsg::reply_on_error( msg, BAD_DEBT_REPLY_ID );
 
 
@@ -2691,4 +2692,96 @@ pub fn update_position_claims(
     Ok( () )
  }
 
+pub fn mint_revenue(
+    deps: DepsMut,
+    info: MessageInfo,
+    env: Env,
+    basket_id: Uint128,
+    send_to: Option<String>,
+    repay_for: Option<UserInfo>,
+    amount: Option<Uint128>,
+) -> Result<Response, ContractError> {
+    
+    //Can't send_to and repay_for at the same time
+    if send_to.is_some() && repay_for.is_some(){ return Err( ContractError::CustomError { val: String::from("Can only send to one address at a time") } ) }
 
+    let config = CONFIG.load( deps.storage )?;
+
+    let basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
+
+    if info.sender != config.owner && info.sender != basket.owner{
+        return Err( ContractError::Unauthorized {  } )
+    }
+
+    if basket.pending_revenue.is_zero(){ return Err( ContractError::CustomError { val: String::from("No revenue to mint") } ) }
+
+    //Set amount
+    let amount = amount.unwrap_or_else(|| basket.pending_revenue);
+
+    let mut message: Vec<CosmosMsg> = vec![];
+    let mut repay_attr = String::from("None");
+
+    //If send to is_some 
+    if send_to.is_some(){
+
+        message.push( credit_mint_msg(
+            config.clone(), 
+            Asset {
+                amount,
+                ..basket.credit_asset.clone()
+            }, //Send_to or interest_collector or config.owner
+            deps.api.addr_validate(&send_to.clone().unwrap()).unwrap_or(config.interest_revenue_collector.unwrap_or(basket.owner) ),
+        )?);
+
+    } else if repay_for.is_some() {
+
+        repay_attr = repay_for.clone().unwrap().to_string();
+
+        //Need to mint credit to the contract 
+        message.push( credit_mint_msg(
+            config.clone(), 
+            Asset {
+                amount,
+                ..basket.credit_asset.clone()
+            }, 
+            env.clone().contract.address,
+        )?);
+
+        //and then send it for repayment
+        let msg = ExecuteMsg::Repay { 
+            basket_id: repay_for.clone().unwrap().basket_id, 
+            position_id: repay_for.clone().unwrap().position_id, 
+            position_owner: Some( repay_for.unwrap().position_owner ), 
+        };
+
+        message.push( CosmosMsg::Wasm(
+            WasmMsg::Execute { 
+                contract_addr: env.contract.address.to_string(), 
+                msg: to_binary( &msg )?, 
+                funds: vec![coin( amount.u128(), basket.credit_asset.info.to_string() )], 
+            }
+            ));
+
+    } else {
+        
+        //Mint to the interest collector
+        //or to the basket.owner if not 
+        message.push( credit_mint_msg(
+            config.clone(), 
+            Asset {
+                amount,
+                ..basket.credit_asset
+            }, 
+            config.interest_revenue_collector.unwrap_or(basket.owner),
+        )?);
+    }    
+
+    Ok( Response::new().add_messages( message )
+    .add_attributes(vec![
+        attr("basket", basket_id.to_string() ),
+        attr("amount", amount.to_string() ),
+        attr("repay_for", repay_attr),
+        attr("send_to", send_to.unwrap_or( String::from("None") )),
+    ]) )
+
+}

@@ -623,7 +623,10 @@ mod tests {
                             amount, 
                             mint_to_address
                      } => {
-                        
+                        if amount == Uint128::new(1428u128){
+                            assert_eq!( String::from("credit_fulldenom 1428 fee_collector"), format!("{} {} {}", denom, amount.to_string(), mint_to_address) );
+                        }
+
                         Ok(Response::new())
                     },
                     Osmo_MockExecuteMsg::CreateDenom { 
@@ -681,7 +684,7 @@ mod tests {
                             amount, 
                             mint_to_address
                      } => {
-                        
+                        println!( "{}", format!("{} {} {}", denom, amount.to_string(), mint_to_address) );
                         Ok(Response::new())
                     },
                     Osmo_MockExecuteMsg::CreateDenom { 
@@ -1582,6 +1585,99 @@ mod tests {
             let res: Vec<PositionResponse> = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res[0].collateral_assets[0].asset.amount, Uint128::new(99542));
            
+        }
+
+        #[test]
+        fn revenue() {
+            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false, true, false);
+
+            let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
+            let sp_addr = res.stability_pool;
+            let router_addr = res.dex_router;
+            let fee_collector = res.liq_fee_collector;
+            
+              
+            //Edit Basket
+            let msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: None, 
+                owner: None, 
+                credit_interest: None, 
+                liq_queue: Some( lq_contract.addr().to_string() ),
+                liquidity_multiplier: Some( Decimal::percent( 500 ) ),
+                pool_ids: Some( vec![ 1u64 ] ),
+                collateral_supply_caps: None,
+                base_interest_rate: Some( Decimal::percent(10) ),
+                desired_debt_cap_util: None, 
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            
+            //Initial Deposit
+            let assets: Vec<AssetInfo> = vec![
+                AssetInfo::NativeToken { denom: "debit".to_string() },
+            ];
+
+            let msg = ExecuteMsg::Deposit { 
+                assets,
+                position_owner: Some( "test".to_string() ),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg, 
+                    vec![
+                        Coin { 
+                            denom: "debit".to_string(),
+                            amount: Uint128::from(100_000u128),
+                            } 
+                        ])
+                    .unwrap();
+            app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
+
+            //Successful Increase
+            let msg = ExecuteMsg::IncreaseDebt{
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                amount: Uint128::from(49_999u128),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
+            //Send credit
+            app.send_tokens(Addr::unchecked("sender"), Addr::unchecked("test"), &[ coin(49_999, "credit_fulldenom") ]).unwrap();
+                       
+            //Successful repayment that will leave the accrued interest left 
+            let msg = ExecuteMsg::Repay { 
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                position_owner: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![coin(49_000, "credit_fulldenom")]).unwrap();
+            app.set_block( BlockInfo { 
+                height: app.block_info().height, 
+                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
+                chain_id: app.block_info().chain_id } );
+            app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
+
+            let query_msg = QueryMsg::GetBasket { basket_id: Uint128::new(1u128) };   
+            let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            ///1428 revenue 
+            assert_eq!(res.pending_revenue.to_string(), String::from("1428"));
+
+            //Successful Mint
+            let msg = ExecuteMsg::MintRevenue { 
+                basket_id: Uint128::from(1u128), 
+                send_to: None, 
+                repay_for: None, 
+                amount: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Mint fields are assert in the msg handler
+            //So as long as the Osmo Proxy contract works, the mint will
+                       
         }
 
         #[test]
@@ -2503,10 +2599,10 @@ mod tests {
             assert_eq!( res.insolvent_positions, vec![ 
                 InsolventPosition { 
                     insolvent: false, 
-                    position_info: PositionUserInfo { 
+                    position_info: UserInfo { 
                         basket_id: Uint128::new(1), 
-                        position_id: Some( Uint128::new(1) ), 
-                        position_owner: Some( String::from("big_bank") ), 
+                        position_id: Uint128::new(1), 
+                        position_owner:  String::from("big_bank"), 
                     }, 
                     current_LTV: Decimal::percent(5) * Decimal::percent(10), 
                     available_fee: Uint128::zero(),

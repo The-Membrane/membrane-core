@@ -40,7 +40,7 @@ If either of the modules error or don't repay what was queried beforehand, the r
 \
 The last message that gets executed is the [BadDebtCheck ](../smart-contracts/positions.md#baddebtcheck)CallbackMsg. The check is lazy in the sense that it doesn't look for undercollateralized positions, just positions without collateral and debt to repay. This is because the liquidation function market sells collateral once the position value is under the Stability Pool + caller + protocol fee threshold.\
 \
-On success, i.e. bad debt is true, the contract activates a debt auction through the [Auction ](../smart-contracts/mbrn-auction.md)contract. It being lazy allows it to be added without slowing down liquidation calls and if necessary, auctions can be called manually.
+On success, i.e. bad debt is true, the contract repays the position w/ protocol revenue and/or activates a debt auction through the [Auction ](../smart-contracts/mbrn-auction.md)contract. It being lazy allows it to be added without slowing down liquidation calls and if necessary, auctions can be called manually.
 
 #### Liquidation Function Walkthrough
 

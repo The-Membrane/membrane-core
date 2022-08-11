@@ -421,6 +421,7 @@ pub fn repay(
     accrue( storage, querier, env.clone(), &mut target_position, &mut basket)?;
     
     let response = Response::new();
+    let mut burn_msg: Option<CosmosMsg> = None;
     
     let mut total_loan = Uint128::zero();
     let mut updated_list: Vec<Position> = vec![];
@@ -469,6 +470,8 @@ pub fn repay(
                             if target_position.credit_amount * basket.clone().credit_price.unwrap() < config.debt_minimum && !target_position.credit_amount.is_zero(){
                                 return Err( ContractError::BelowMinimumDebt{})
                             }
+
+                            burn_msg = Some( credit_burn_msg(config.clone(), env.clone(), credit_asset.clone())? );
                             
                             total_loan = target_position.clone().credit_amount;
                         }else{
@@ -509,7 +512,8 @@ pub fn repay(
     //Subtract paid debt from debt-per-asset tallies
     update_basket_debt( storage, env, querier, config, basket_id, target_position.collateral_assets, credit_asset.amount, false, false )?;
     
-    Ok( response.add_attributes(vec![
+    //This is a sae unwrap bc the code paths to errors if it is uninitialized
+    Ok( response.add_message( burn_msg.unwrap() ).add_attributes(vec![
         attr("method", "repay".to_string() ),
         attr("basket_id", basket_id.to_string() ),
         attr("position_id", position_id.to_string() ),
@@ -1727,6 +1731,38 @@ pub fn credit_mint_msg(
                             denom, 
                             amount: credit_asset.amount, 
                             mint_to_address: recipient.to_string() })?,
+                funds: vec![],
+            });
+            Ok(message)
+        }else{
+            return Err(StdError::GenericErr { msg: "No proxy contract setup".to_string() })
+        }
+        },
+    }
+}
+
+pub fn credit_burn_msg(
+    config: Config,
+    env: Env,
+    credit_asset: Asset,
+)-> StdResult<CosmosMsg>{
+
+
+    match credit_asset.clone().info{
+        
+        AssetInfo::Token { address:_ } =>{
+            return Err(StdError::GenericErr { msg: "Credit has to be a native token".to_string() })
+        },
+        AssetInfo::NativeToken { denom } => {
+
+        if config.osmosis_proxy.is_some(){
+            let message = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.osmosis_proxy.unwrap().to_string(),
+                msg: to_binary(
+                        &OsmoExecuteMsg::BurnTokens { 
+                            denom, 
+                            amount: credit_asset.amount, 
+                            burn_from_address: env.contract.address.to_string() })?,
                 funds: vec![],
             });
             Ok(message)

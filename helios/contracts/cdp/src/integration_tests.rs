@@ -590,6 +590,11 @@ mod tests {
             amount: Uint128,
             mint_to_address: String,
         },
+        BurnTokens {
+            denom: String,
+            amount: Uint128,
+            burn_from_address: String,
+        },
         CreateDenom {
             subdenom: String,
         },
@@ -627,6 +632,13 @@ mod tests {
                             assert_eq!( String::from("credit_fulldenom 1428 fee_collector"), format!("{} {} {}", denom, amount.to_string(), mint_to_address) );
                         }
 
+                        Ok(Response::new())
+                    },
+                    Osmo_MockExecuteMsg::BurnTokens {
+                        denom,
+                        amount,
+                        burn_from_address,
+                    } => {
                         Ok(Response::new())
                     },
                     Osmo_MockExecuteMsg::CreateDenom { 
@@ -685,6 +697,13 @@ mod tests {
                             mint_to_address
                      } => {
                         println!( "{}", format!("{} {} {}", denom, amount.to_string(), mint_to_address) );
+                        Ok(Response::new())
+                    },
+                    Osmo_MockExecuteMsg::BurnTokens {
+                        denom,
+                        amount,
+                        burn_from_address,
+                    } => {
                         Ok(Response::new())
                     },
                     Osmo_MockExecuteMsg::CreateDenom { 

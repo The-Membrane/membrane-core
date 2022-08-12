@@ -1408,7 +1408,7 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
             };
             let res: DebtCapResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res.caps, vec![ "debit: 50000/249995, " ] );
+            assert_eq!(res.caps, String::from("debit: 50000/249995, ") );
 
             //Excess Repayment
             let msg = ExecuteMsg::Repay { 
@@ -2532,7 +2532,16 @@ mod tests {
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket { 
                 basket_id: Uint128::new(1u128), 
-                added_cAsset: None, 
+                added_cAsset:  Some( cAsset {
+                    asset:
+                        Asset {
+                            info: AssetInfo::NativeToken { denom: "double_debit".to_string() },
+                            amount: Uint128::from(0u128),
+                        }, 
+                    debt_total: Uint128::zero(),
+                    max_borrow_LTV: Decimal::percent(50),
+                    max_LTV: Decimal::percent(90),
+                } ), 
                 owner: None, 
                 credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
@@ -2585,6 +2594,53 @@ mod tests {
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("big_bank"), cosmos_msg).unwrap();
+
+            //2nd Deposit
+            let assets: Vec<AssetInfo> = vec![
+                AssetInfo::NativeToken { denom: "double_debit".to_string() },
+            ];
+
+            let msg = ExecuteMsg::Deposit { 
+                assets,
+                position_owner: Some( "big_bank".to_string() ),
+                basket_id: Uint128::from(1u128),
+                position_id: Some( Uint128::from(1u128) ),
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg, 
+                    vec![
+                        Coin { 
+                            denom: "double_debit".to_string(),
+                            amount: Uint128::from(10_000_000u128),
+                            } 
+                        ])
+                    .unwrap();
+            app.execute(Addr::unchecked("big_bank"), cosmos_msg).unwrap();
+
+            //Query Basket Debt Caps
+            let query_msg = QueryMsg::GetBasketDebtCaps {
+                basket_id: Uint128::new(1u128), 
+            };
+            let res: DebtCapResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            assert_eq!(res.caps, String::from("debit: 124998/124997, double_debit: 124997/124997, ") );
+
+            //Withdraw 2nd Deposit
+            let assets: Vec<Asset> = vec![
+                Asset{ info: AssetInfo::NativeToken { denom: "double_debit".to_string() },
+                amount: Uint128::new(10_000_000),}
+            ];
+
+            let msg = ExecuteMsg::Withdraw { basket_id: Uint128::from(1u128), position_id: Uint128::from(1u128), assets };
+            let cosmos_msg = cdp_contract.call( msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("big_bank"), cosmos_msg).unwrap();
+
+            //Query Basket Debt Caps
+            let query_msg = QueryMsg::GetBasketDebtCaps {
+                basket_id: Uint128::new(1u128), 
+            };
+            let res: DebtCapResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            assert_eq!(res.caps, String::from("debit: 249995/249995, double_debit: 0/0, ") );
 
         
         }

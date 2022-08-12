@@ -386,10 +386,10 @@ pub fn query_basket_debt_caps(
          asset_caps.push( cAsset * debt_cap );
     }                       
  
-    let mut res = vec![];
+    let mut res = String::from("");
     //Append caps and asset_infos
     for ( index, asset ) in basket.collateral_types.iter().enumerate(){
-        res.push( format!("{}: {}/{}, ", asset.asset.info, basket.collateral_types[index].debt_total, asset_caps[index]) );
+        res += &format!("{}: {}/{}, ", asset.asset.info, basket.collateral_types[index].debt_total, asset_caps[index]);
     }
      
     Ok( DebtCapResponse { caps: res } )

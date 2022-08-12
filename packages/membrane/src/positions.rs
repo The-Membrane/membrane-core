@@ -235,7 +235,7 @@ pub struct PropResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct DebtCapResponse{
-    pub caps: Vec<String>,
+    pub caps: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

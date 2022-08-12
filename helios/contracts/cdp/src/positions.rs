@@ -277,7 +277,7 @@ pub fn withdraw(
                     //Now that its a valid withdrawal and debt has accrued, we can update basket tallies
                     update_basket_tally( 
                         deps.storage, 
-                        basket_id, 
+                        &mut basket, 
                         vec![
                             cAsset {
                                 asset: withdraw_asset.clone(),
@@ -617,11 +617,6 @@ pub fn liq_repay(
                 //DistributionMsg builder
                 //Only adding the 1 cAsset for the CW20Msg
                 let distribution_msg = SP_Cw20HookMsg::Distribute { 
-                        distribution_assets: vec![ Asset {
-                                amount: collateral_w_fee,
-                                ..cAsset.clone().asset
-                            }],
-                        distribution_asset_ratios: vec![],
                         credit_asset: credit_asset.clone().info, 
                         distribute_for: repay_amount_per_asset,
                     };
@@ -1898,45 +1893,47 @@ pub fn get_cAsset_ratios(
         cAsset_ratios.push(cAsset/total_value) ;
     }
 
-    //Error correction for ratios so we end up w/ least amount undistributed funds
-    let ratio_total: Option<Decimal> = Some(cAsset_ratios.iter().sum());
+    // //Error correction for ratios so we end up w/ least amount of undistributed funds
+    // let ratio_total: Option<Decimal> = Some(cAsset_ratios.iter().sum());
 
-    if ratio_total.unwrap() != Decimal::percent(100){
-        let mut new_ratios: Vec<Decimal> = vec![];
+    // if ratio_total.unwrap() != Decimal::percent(100){
+    //     let mut new_ratios: Vec<Decimal> = vec![];
         
-        match ratio_total{
-            Some( total ) if total > Decimal::percent(100) => {
+    //     match ratio_total{
+    //         Some( total ) if total > Decimal::percent(100) => {
 
-                    let margin_of_error = total - Decimal::percent(100);
+    //                 let margin_of_error = total - Decimal::percent(100);
 
-                    let num_users = Decimal::new(Uint128::from( cAsset_ratios.len() as u128 ));
+    //                 let num_users = Decimal::new(Uint128::from( cAsset_ratios.len() as u128 ));
 
-                    let error_correction = decimal_division( margin_of_error, num_users );
+    //                 let error_correction = decimal_division( margin_of_error, num_users );
 
-                    new_ratios = cAsset_ratios.into_iter()
-                    .map(|ratio| 
-                        decimal_subtraction( ratio, error_correction )
-                    ).collect::<Vec<Decimal>>();
+    //                 new_ratios = cAsset_ratios.into_iter()
+    //                 .map(|ratio| 
+    //                     decimal_subtraction( ratio, error_correction )
+    //                 ).collect::<Vec<Decimal>>();
                     
-            },
-            Some( total ) if total < Decimal::percent(100) => {
+    //         },
+    //         Some( total ) if total < Decimal::percent(100) => {
 
-                let margin_of_error = Decimal::percent(100) - total;
+    //             let margin_of_error = Decimal::percent(100) - total;
 
-                let num_users = Decimal::new(Uint128::from( cAsset_ratios.len() as u128 ));
+    //             let num_users = Decimal::new(Uint128::from( cAsset_ratios.len() as u128 ));
 
-                let error_correction = decimal_division( margin_of_error, num_users );
+    //             let error_correction = decimal_division( margin_of_error, num_users );
 
-                new_ratios = cAsset_ratios.into_iter()
-                        .map(|ratio| 
-                            ratio + error_correction
-                        ).collect::<Vec<Decimal>>();
-            },
-            None => { return Err(StdError::GenericErr { msg: "Input amounts were null".to_string() }) },
-            Some(_) => { /*Unreachable due to if statement*/ },
-        }
-        return Ok( new_ratios )
-    }
+    //             new_ratios = cAsset_ratios.into_iter()
+    //                     .map(|ratio| 
+    //                         ratio + error_correction
+    //                     ).collect::<Vec<Decimal>>();
+    //         },
+    //         None => { return Err(StdError::GenericErr { msg: "Input amounts were null".to_string() }) },
+    //         Some(_) => { /*Unreachable due to if statement*/ },
+    //     }
+        
+    
+    //     return Ok( new_ratios )
+    // }
 
     Ok( cAsset_ratios )
 }
@@ -2005,7 +2002,7 @@ pub fn assert_basket_assets(
 ) -> Result<Vec<cAsset>, ContractError> {
     //let config: Config = CONFIG.load(deps)?;
 
-    let basket: Basket = match BASKETS.load(storage, basket_id.to_string()) {
+    let mut basket: Basket = match BASKETS.load(storage, basket_id.to_string()) {
         Err(_) => { return Err(ContractError::NonExistentBasket {  })},
         Ok( basket ) => { basket },
     };
@@ -2053,7 +2050,8 @@ pub fn assert_basket_assets(
     //////We don't want this to trigger for withdrawals bc debt needs to accrue on the previous basket state
     //////For deposit's its fine bc it'll error when invalid and doesn't accrue debt 
     if add_to_cAsset{
-        update_basket_tally( storage, basket_id, collateral_assets.clone(), add_to_cAsset)?;
+        update_basket_tally( storage, &mut basket, collateral_assets.clone(), add_to_cAsset)?;
+        BASKETS.save( storage, basket_id.to_string(), &basket)?;
     }
 
 
@@ -2064,63 +2062,52 @@ pub fn assert_basket_assets(
 
 fn update_basket_tally(
     storage: &mut dyn Storage,
-    basket_id: Uint128,
+    basket: &mut Basket,
     collateral_assets: Vec<cAsset>,
     add_to_cAsset: bool,
 )-> Result<(), ContractError>{
 
-    BASKETS.update(storage, basket_id.to_string(), | basket | -> Result<Basket, ContractError> {
-        match basket{
 
-            Some( mut basket ) => {
+    let mut error: Option<Result<_, ContractError>> = None;
+    
+    for cAsset in collateral_assets.iter(){
 
-                let mut error: Option<Result<Basket, ContractError>> = None;
-                
-                for cAsset in collateral_assets.iter(){
+        basket.collateral_types = basket.clone().collateral_types
+            .into_iter()
+            .enumerate()
+            .map(| ( i, mut asset ) | {
+                //Add or subtract deposited amount to/from the correlated cAsset object
+                if asset.asset.info.equal(&cAsset.asset.info){
+                    if add_to_cAsset {   
+                        //If the addition pushes the collateral total over the supply limit, Error
+                        if basket.collateral_supply_caps != vec![] && asset.asset.amount + cAsset.asset.amount > basket.collateral_supply_caps[i]{
+                            error = Some( Err( ContractError::CustomError { val: format!("Collateral pushes total over basket supply caps: {} / {}", asset.asset.amount + cAsset.asset.amount, basket.collateral_supply_caps[i]) } ) )
+                        } else { //Add 
+                            asset.asset.amount += cAsset.asset.amount;
+                        }
+                        
+                        }else{
 
-                    basket.collateral_types = basket.clone().collateral_types
-                        .into_iter()
-                        .enumerate()
-                        .map(| ( i, mut asset ) | {
-                            //Add or subtract deposited amount to/from the correlated cAsset object
-                            if asset.asset.info.equal(&cAsset.asset.info){
-                                if add_to_cAsset {   
-                                    //If the addition pushes the collateral total over the supply limit, Error
-                                    if basket.collateral_supply_caps != vec![] && asset.asset.amount + cAsset.asset.amount > basket.collateral_supply_caps[i]{
-                                        error = Some( Err( ContractError::CustomError { val: format!("Collateral pushes total over basket supply caps: {} / {}", asset.asset.amount + cAsset.asset.amount, basket.collateral_supply_caps[i]) } ) )
-                                    } else { //Add 
-                                        asset.asset.amount += cAsset.asset.amount;
-                                    }
-                                    
-                                 }else{
+                        match asset.asset.amount.checked_sub( cAsset.asset.amount ){
+                            Ok( difference ) => {
+                                asset.asset.amount = difference;
+                            },
+                            Err(_) => {
+                                //Don't subtract bc it'll end up being an invalid withdrawal error anyway
+                                //Can't return an Error here without inferring the map return type
+                            }
+                        };
+                        } 
+                        
+                    }                            
+                asset
+            }).collect::<Vec<cAsset>>();
+    }
 
-                                    match asset.asset.amount.checked_sub( cAsset.asset.amount ){
-                                        Ok( difference ) => {
-                                            asset.asset.amount = difference;
-                                        },
-                                        Err(_) => {
-                                            //Don't subtract bc it'll end up being an invalid withdrawal error anyway
-                                            //Can't return an Error here without inferring the map return type
-                                        }
-                                    };
-                                 } 
-                                 
-                             }                            
-                            asset
-                        }).collect::<Vec<cAsset>>();
-                }
-
-                if error.is_some(){
-                    return error.unwrap()
-                }
-
-                Ok( basket )
-            },
-            //None should be unreachable 
-            None => { return Err( ContractError::NonExistentBasket {  } )},
-        }
-    })?;
-
+    if error.is_some(){
+        return error.unwrap()
+    }
+            
     Ok(())
 }
 
@@ -2165,7 +2152,7 @@ pub fn assert_sent_native_token_balance(
             }
         }
     } else {
-        return Err(StdError::generic_err("Asset type not native, check Msg schema and use AssetInfo::Token{ address: Addr }"))
+        return Err(StdError::generic_err("Asset type not native, check Msg schema and use AssetInfo::NativeToken{ denom: String }"))
     }
 
     Ok( asset )
@@ -2320,8 +2307,12 @@ pub fn update_position_claims(
                 max_LTV: Decimal::zero()
             }
     ];
-    match update_basket_tally(storage, basket_id, collateral_assets, false){
-        Ok( res ) => {},
+
+    let mut basket = BASKETS.load( storage, basket_id.to_string())?;
+    match update_basket_tally(storage, &mut basket, collateral_assets, false){
+        Ok( res ) => {
+            BASKETS.save( storage, basket_id.to_string(), &basket)?;
+        },
         Err( err ) => return Err( StdError::GenericErr { msg: err.to_string() } )
     };
 
@@ -2333,25 +2324,26 @@ pub fn update_position_claims(
     querier: QuerierWrapper,
     env: Env,
     //These are Basket specific fields
-    credit_info: AssetInfo,
-    basket_assets: Vec<cAsset>, 
-    liquidity_multiplier: Decimal,
-    pool_ids: Vec<u64>,
+    basket: Basket,
  )-> Result<Vec<Uint128>, ContractError>{
 
     let config: Config = CONFIG.load( storage )?;
 
     //Get the Basket's asset ratios
-    let cAsset_ratios = get_cAsset_ratios(storage, env, querier, basket_assets, config.clone())?;
+    let cAsset_ratios = get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config.clone())?;
 
     //Get the debt cap 
-    let debt_cap = get_asset_liquidity( querier, config, pool_ids, credit_info )? * liquidity_multiplier;
+    let debt_cap = get_asset_liquidity( querier, config, basket.clone().debt_pool_ids, basket.clone().credit_asset.info )? * basket.clone().debt_liquidity_multiplier_for_caps;
 
     let mut per_asset_debt_caps = vec![];
 
-    for cAsset in cAsset_ratios{
-
-        per_asset_debt_caps.push( cAsset * debt_cap );
+    for ( i, cAsset)  in cAsset_ratios.clone().into_iter().enumerate(){
+        if basket.clone().collateral_supply_caps[i] == Uint128::zero(){
+            per_asset_debt_caps.push( Uint128::zero() );
+        } else {
+            per_asset_debt_caps.push( cAsset * debt_cap );
+        }
+        
     }                       
 
     //Save these to the basket when returned. For queries.
@@ -2438,10 +2430,7 @@ pub fn update_position_claims(
             storage, 
             querier, 
             env, 
-            basket.credit_asset.info, 
-            basket.collateral_types, 
-            basket.debt_liquidity_multiplier_for_caps, 
-            basket.debt_pool_ids,
+            basket
         )?;
  
      BASKETS.update(storage, basket_id.to_string(), | basket | -> Result<Basket, ContractError> {
@@ -2589,13 +2578,20 @@ pub fn update_position_claims(
 
     //Get proportion of debt caps filled
     let mut debt_proportions = vec![];
-    let debt_caps = match get_basket_debt_caps( storage, querier, env, basket.clone().credit_asset.info, basket.clone().collateral_types, basket.debt_liquidity_multiplier_for_caps, basket.clone().debt_pool_ids){
+    let debt_caps = match get_basket_debt_caps( storage, querier, env, basket.clone()){
 
         Ok( caps ) => { caps },
         Err( err ) => { return Err( StdError::GenericErr { msg: err.to_string() } ) }
     };
     for (i, asset) in basket.collateral_types.iter().enumerate(){
-        debt_proportions.push( Decimal::from_ratio(asset.debt_total, debt_caps[i]) );
+        
+        //If there is 0 of an Asset then it's cap is 0
+        if debt_caps[i].is_zero(){
+            debt_proportions.push( Decimal::zero() );
+        } else {
+            debt_proportions.push( Decimal::from_ratio(asset.debt_total, debt_caps[i]) );
+        }
+        
     }
 
     //Gets pro-rata rate and uses multiplier if above desired utilization

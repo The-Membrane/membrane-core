@@ -49,8 +49,6 @@ pub enum ExecuteMsg {
 #[serde(rename_all = "snake_case")]
 pub enum Cw20HookMsg {
     Distribute { //Distributes liquidated funds to users
-        distribution_assets: Vec<Asset>,
-        distribution_asset_ratios: Vec<Decimal>,
         credit_asset: AssetInfo,
         distribute_for: Uint128,
     } 

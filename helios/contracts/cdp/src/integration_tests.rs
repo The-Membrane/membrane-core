@@ -838,6 +838,42 @@ mod tests {
         Box::new(contract)
     }
 
+    //Mock Cw20 Contract
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Cw20_MockExecuteMsg {
+        Transfer {
+            recipient: String,
+            amount: Uint128,
+        }
+    }
+    
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub struct Cw20_MockInstantiateMsg {}
+
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Cw20_MockQueryMsg {}
+
+    pub fn cw20_contract()-> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: Cw20_MockExecuteMsg| -> StdResult<Response> {
+                match msg {
+                    Cw20_MockExecuteMsg::Transfer { 
+                        recipient, 
+                        amount }  => {
+                        
+                        Ok(Response::default())
+                    },
+                }
+            },
+            |_, _, _, _: Cw20_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
+            |_, _, msg: Cw20_MockQueryMsg| -> StdResult<Binary> { Ok( to_binary(&MockResponse {})? ) },
+        );
+        Box::new(contract)
+    }
+
     // const NATIVE_DENOM: &str = "denom";
 
     // fn mock_app() -> App {
@@ -861,9 +897,9 @@ mod tests {
                                     
                 let bank = BankKeeper::new();
 
-                bank.init_balance(storage, &Addr::unchecked(USER), vec![coin(100_000, "debit")])
+                bank.init_balance(storage, &Addr::unchecked(USER), vec![coin(100_000, "debit"), coin(100_000, "2nddebit")])
                 .unwrap();
-                bank.init_balance(storage, &Addr::unchecked("contract0"), vec![coin(2225, "credit_fulldenom")])
+                bank.init_balance(storage, &Addr::unchecked("contract1"), vec![coin(2225, "credit_fulldenom")])
                 .unwrap(); //contract0 = Stability Pool contract
                 bank.init_balance(storage, &Addr::unchecked("test"), vec![coin(50_000, "credit_fulldenom"), coin(100_000, "debit")])
                 .unwrap(); 
@@ -884,8 +920,19 @@ mod tests {
             })
         }
 
-    fn proper_instantiate( sp_error: bool, lq_error: bool, liq_minimum: bool, bignums: bool ) -> (App, CDPContract, LQContract) {
+    fn proper_instantiate( sp_error: bool, lq_error: bool, liq_minimum: bool, bignums: bool ) -> (App, CDPContract, LQContract, Addr) {
         let mut app = mock_app();
+
+        //Instantiate Cw20
+        let cw20_id = app.store_code(cw20_contract());
+        let cw20_contract_addr = app
+            .instantiate_contract(
+                cw20_id, 
+                Addr::unchecked(ADMIN), 
+                &Cw20_MockInstantiateMsg {},
+                &[], 
+                "test",
+                None).unwrap();
         
         //Instanitate SP
         let mut sp_id: u64;
@@ -1038,7 +1085,7 @@ mod tests {
         let cdp_contract = CDPContract(cdp_contract_addr);
 
 
-        (app, cdp_contract, lq_contract)
+        (app, cdp_contract, lq_contract, cw20_contract_addr)
     }
 
     
@@ -1048,11 +1095,12 @@ mod tests {
         
         use super::*;
         use cosmwasm_std::BlockInfo;
-        use membrane::{positions::{ExecuteMsg, ConfigResponse, PropResponse, PositionResponse, BasketResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, PositionsResponse}, types::{UserInfo, InsolventPosition, PositionUserInfo}};
+        use cw20::Cw20ReceiveMsg;
+        use membrane::{positions::{ExecuteMsg, ConfigResponse, PropResponse, PositionResponse, BasketResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, PositionsResponse, Cw20HookMsg}, types::{UserInfo, InsolventPosition, PositionUserInfo}};
 
         #[test]
         fn withdrawal() {
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false, false, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -1063,7 +1111,16 @@ mod tests {
             //Edit Basket
             let msg = ExecuteMsg::EditBasket { 
                 basket_id: Uint128::new(1u128), 
-                added_cAsset: None, 
+                added_cAsset: Some( cAsset {
+                    asset:
+                        Asset {
+                            info: AssetInfo::NativeToken { denom: "2nddebit".to_string() },
+                            amount: Uint128::from(0u128),
+                        }, 
+                    debt_total: Uint128::zero(),
+                    max_borrow_LTV: Decimal::percent(50),
+                    max_LTV: Decimal::percent(90),
+                } ), 
                 owner: None, 
                 credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
@@ -1080,6 +1137,7 @@ mod tests {
             //Initial Deposit
             let assets: Vec<AssetInfo> = vec![
                 AssetInfo::NativeToken { denom: "debit".to_string() },
+                AssetInfo::NativeToken { denom: "2nddebit".to_string() },
             ];
 
             let msg = ExecuteMsg::Deposit { 
@@ -1095,6 +1153,10 @@ mod tests {
                         Coin { 
                             denom: "debit".to_string(),
                             amount: Uint128::from(100_000u128),
+                            },
+                        Coin { 
+                            denom: "2nddebit".to_string(),
+                            amount: Uint128::from(100_000u128),
                             } 
                         ])
                     .unwrap();
@@ -1109,6 +1171,7 @@ mod tests {
 
             let resp: Vec<PositionsResponse> = app.wrap().query_wasm_smart(cdp_contract.addr(),&msg.clone() ).unwrap();
             assert_eq!(resp[0].positions[0].collateral_assets[0].asset.amount.to_string(), String::from("100000"));
+            assert_eq!(resp[0].positions[0].collateral_assets[1].asset.amount.to_string(), String::from("100000"));
             assert_eq!(resp.len().to_string(), String::from("1"));
 
             //Increase Debt
@@ -1127,7 +1190,10 @@ mod tests {
                 position_id: Uint128::from(1u128),
                 assets: vec![Asset { 
                     info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
-                    amount: Uint128::from(100000u128)
+                    amount: Uint128::from(100_000u128)
+                }, Asset { 
+                    info: AssetInfo::NativeToken { denom: "2nddebit".to_string() }, 
+                    amount: Uint128::from(100_000u128)
                 }],
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -1139,6 +1205,9 @@ mod tests {
                 position_id: Uint128::from(1u128),
                 assets: vec![Asset { 
                     info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                    amount: Uint128::from(90_000u128)
+                }, Asset { 
+                    info: AssetInfo::NativeToken { denom: "2nddebit".to_string() }, 
                     amount: Uint128::from(90_000u128)
                 }], 
             };
@@ -1154,9 +1223,10 @@ mod tests {
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(10000));
+            assert_eq!(res.collateral_assets[1].asset.amount, Uint128::new(10000));
 
-             //Assert withdrawal was sent.
-             assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 90000, "debit")]);
+            //Assert withdrawal was sent.
+            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 90000, "2nddebit"), coin( 90000, "debit")]);
 
             //Assert asset tally and CreateDenom is working
             let query_msg = QueryMsg::GetBasket { 
@@ -1164,16 +1234,81 @@ mod tests {
             };
             let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res.collateral_types[0].asset.amount, Uint128::new(10000));
+            assert_eq!(res.collateral_types[1].asset.amount, Uint128::new(10000));
             //Assert Denom change
-            assert_eq!( res.credit_asset.info.to_string(), "credit_fulldenom".to_string() );
+            assert_eq!( res.credit_asset.info.to_string(), "credit_fulldenom".to_string() );          
+
+        }
+
+        #[test]
+        fn cw20_withdrawal() {
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
+
+            let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
+            let sp_addr = res.stability_pool;
+            let router_addr = res.dex_router;
+            let fee_collector = res.liq_fee_collector;
+            
+             
+            //Edit Basket
+            let msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: Some( cAsset {
+                    asset:
+                        Asset {
+                            info: AssetInfo::Token { address: cw20_addr.clone() },
+                            amount: Uint128::from(0u128),
+                        }, 
+                    debt_total: Uint128::zero(),
+                    max_borrow_LTV: Decimal::percent(50),
+                    max_LTV: Decimal::percent(90),
+                } ), 
+                owner: None, 
+                credit_interest: None, 
+                liq_queue: Some( lq_contract.addr().to_string() ),
+                liquidity_multiplier: Some( Decimal::percent( 500 ) ),
+                pool_ids: Some( vec![ 1u64 ] ),
+                collateral_supply_caps: None,
+                base_interest_rate: Some( Decimal::percent(10) ),
+                desired_debt_cap_util: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             
+            //Initial Deposit
+            let exec_msg = ExecuteMsg::Receive( Cw20ReceiveMsg {
+                sender: String::from("sender88"),
+                amount: Uint128::new(1),
+                msg: to_binary(&Cw20HookMsg::Deposit{
+                        position_owner: None,
+                        basket_id: Uint128::from(1u128),
+                        position_id: None,       
+                }).unwrap(),
+            });
+            let cosmos_msg = cdp_contract
+                .call(exec_msg,vec![])
+                    .unwrap();
+            app.execute(cw20_addr.clone(), cosmos_msg).unwrap();
+
+            //Successful attempt
+            let withdrawal_msg = ExecuteMsg::Withdraw {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                assets: vec![Asset { 
+                    info: AssetInfo::Token { address: cw20_addr.clone() }, 
+                    amount: Uint128::from(1u128)
+                }], 
+            };
+
+            let cosmos_msg = cdp_contract.call( withdrawal_msg, vec![] ).unwrap();
+            app.execute(Addr::unchecked("sender88"), cosmos_msg).unwrap();
 
         }
 
         #[test]
         fn increase_debt__repay() {
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false, false, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -1305,7 +1440,7 @@ mod tests {
 
         #[test]
         fn accrue_debt() {
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false, true, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, true, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -1427,8 +1562,18 @@ mod tests {
                 chain_id: app.block_info().chain_id } );
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Would normally liquidate and leave 99181 "debit"
-            // but w/ accrued interest its leaving 99166
+            //Successful LiqRepay
+            let msg = ExecuteMsg::LiqRepay { 
+                credit_asset: Asset {
+                    info: AssetInfo::NativeToken { denom: "credit_fulldenom".to_string() },
+                    amount: Uint128::new(499),
+                }
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![ coin(499, "credit_fulldenom") ]).unwrap();
+            app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg).unwrap();  
+
+            //Would normally liquidate and leave 98609 "debit"
+            // but w/ accrued interest its leaving 98589
             let query_msg = QueryMsg::GetUserPositions { 
                 basket_id: None, 
                 user: String::from("test"), 
@@ -1436,13 +1581,26 @@ mod tests {
             };
             
             let res: Vec<PositionResponse> = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res[0].collateral_assets[0].asset.amount, Uint128::new(99166));
+            assert_eq!(res[0].collateral_assets[0].asset.amount, Uint128::new(98589));
+
+             //Assert sell wall was sent Assets
+             assert_eq!(app.wrap().query_all_balances(router_addr.clone()).unwrap(), vec![]);
+
+             //Assert fees were sent.
+             assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 11, "debit")]);
+             //The fee is 222
+             assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"), coin( 100_222, "debit")]);
+ 
+             
+             assert_eq!(app.wrap().query_all_balances(sp_addr.clone()).unwrap(), vec![coin( 1726 , "credit_fulldenom"), coin( 565, "debit")]);
+             assert_eq!(app.wrap().query_all_balances(lq_contract.addr()).unwrap(), vec![coin( 613, "debit")]);
+ 
            
         }
 
         #[test]
         fn accrue_credit_repayment_price() {
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false, true, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, true, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -1608,7 +1766,7 @@ mod tests {
 
         #[test]
         fn revenue() {
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false, true, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, true, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -1694,7 +1852,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Mint fields are assert in the msg handler
+            //Mint fields are asserted in the msg handler
             //So as long as the Osmo Proxy contract works, the mint will
                        
         }
@@ -1702,7 +1860,7 @@ mod tests {
         #[test]
         fn liq_repay() {
 
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true, false, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, true, false, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -1805,7 +1963,7 @@ mod tests {
         
         #[test]
         fn liquidate() {
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false, false, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -1893,7 +2051,7 @@ mod tests {
 
             //Assert fees were sent.
             assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 22, "debit")]);
-            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 444, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"), coin( 444, "debit")]);
 
             //Assert collateral to be liquidated was sent 
             assert_eq!(app.wrap().query_all_balances(sp_addr.clone()).unwrap(), vec![coin(2003, "credit_fulldenom"), coin( 244, "debit")]);
@@ -1902,7 +2060,7 @@ mod tests {
 
             /////////SP Errors////
             /// 
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( true, false, false, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( true, false, false, false);
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket { 
@@ -1975,7 +2133,7 @@ mod tests {
 
             //Assert fees were sent.
             assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 22, "debit")]);
-            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 444, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"), coin( 444, "debit")]);
 
             //Assert collateral to be liquidated was sent 
             assert_eq!(app.wrap().query_all_balances(lq_contract.addr()).unwrap(), vec![coin( 2000, "debit")]);
@@ -1985,7 +2143,7 @@ mod tests {
             //////LQ Errors///
             /// 
             
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true, false, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, true, false, false);
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket { 
@@ -2064,7 +2222,7 @@ mod tests {
 
             //Assert fees were sent. 
             assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 22, "debit")]);
-            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 444, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"),coin( 444, "debit")]);
 
             //Assert collateral to be liquidated was sent 
             assert_eq!(app.wrap().query_all_balances(sp_addr.clone()).unwrap(), vec![coin( 2447 , "debit")]);
@@ -2075,7 +2233,7 @@ mod tests {
             //////All Errors/////
             /// 
                 
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( true, true, false, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( true, true, false, false);
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket { 
@@ -2150,7 +2308,7 @@ mod tests {
 
             //Assert fees were sent.
             assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 22, "debit")]);
-            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 444, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"),coin( 444, "debit")]);
 
             //Assert neither module was sent any due to the Error
             assert_eq!(app.wrap().query_all_balances(sp_addr.clone()).unwrap(), vec![coin( 2225 , "credit_fulldenom")]);
@@ -2166,7 +2324,7 @@ mod tests {
 
         #[test]
         fn liquidate_bignums() {
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false, false, true);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, true);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -2255,7 +2413,7 @@ mod tests {
 
             //Assert fees were sent.
             assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 22_222_222_250, "debit")]);
-            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 444_444_545_000, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"), coin( 444_444_545_000, "debit")]);
 
             //Assert collateral to be liquidated was sent 
             assert_eq!(app.wrap().query_all_balances(sp_addr.clone()).unwrap(), vec![coin(2225, "credit_fulldenom"), coin( 244_444_444_444, "debit")]);
@@ -2265,7 +2423,7 @@ mod tests {
 
         #[test]
         fn liquidate_minimums() {
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false, true, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, true, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -2353,7 +2511,7 @@ mod tests {
 
             //Assert fees were sent.
             assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 9, "debit")]);
-            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 199, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"), coin( 199, "debit")]);
 
             //Assert collateral to be liquidated was sent 
             assert_eq!(app.wrap().query_all_balances(sp_addr.clone()).unwrap(), vec![coin(1726, "credit_fulldenom"), coin( 548, "debit")]);
@@ -2363,7 +2521,7 @@ mod tests {
         #[test]
         fn debt_caps() {
 
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true, false, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, true, false, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -2434,7 +2592,7 @@ mod tests {
         #[test]
         fn bad_debt() {
 
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true, false, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, true, false, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -2525,7 +2683,7 @@ mod tests {
         #[test]
         fn insolvency_checks() {
 
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true, false, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, true, false, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -2631,7 +2789,7 @@ mod tests {
         #[test]
         fn two_collateral_cdp_LTV_tests() {
 
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, true, false, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, true, false, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -2719,7 +2877,7 @@ mod tests {
         #[test]
         fn two_collateral_cdp_LTV_tests_bignums() {
 
-            let (mut app, cdp_contract, lq_contract) = proper_instantiate( false, false, false, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;

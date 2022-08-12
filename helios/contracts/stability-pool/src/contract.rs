@@ -106,7 +106,7 @@ pub fn execute(
         ExecuteMsg::Liquidate { credit_asset } => liquidate( deps, info, credit_asset ),
         ExecuteMsg::Claim { claim_as_native, claim_as_cw20, deposit_to } => claim( deps, info, claim_as_native, claim_as_cw20, deposit_to ),
         ExecuteMsg::AddPool { asset_pool } => add_asset_pool( deps, info, asset_pool.credit_asset, asset_pool.liq_premium ),
-        ExecuteMsg::Distribute { distribution_assets, distribution_asset_ratios, credit_asset, distribute_for } => distribute_funds( deps, info, env, distribution_assets, distribution_asset_ratios, credit_asset, distribute_for ), 
+        ExecuteMsg::Distribute { distribution_assets, distribution_asset_ratios, credit_asset, distribute_for } => distribute_funds( deps, info, None, env, distribution_assets, distribution_asset_ratios, credit_asset, distribute_for ), 
     }
 }
 
@@ -125,16 +125,15 @@ pub fn receive_cw20(
         },
         amount: cw20_msg.amount,
     };
-
+    
     match from_binary(&cw20_msg.msg){
         Ok( Cw20HookMsg::Distribute {
-                mut distribution_assets,
-                distribution_asset_ratios,
                 credit_asset,
                 distribute_for,
             }) => {
-            distribution_assets.push( passed_asset );
-            distribute_funds(deps, info, env, distribution_assets, distribution_asset_ratios, credit_asset, distribute_for )
+            let distribution_assets = vec![ passed_asset ];
+            let distribution_asset_ratios = vec![ Decimal::percent(100) ];
+            distribute_funds(deps, info, Some(cw20_msg.sender), env, distribution_assets, distribution_asset_ratios, credit_asset, distribute_for )
         },
         Err(_) => Err(ContractError::Cw20MsgError {}),
     }
@@ -437,6 +436,7 @@ pub fn liquidate(
 pub fn distribute_funds(
     deps: DepsMut,
     info: MessageInfo,
+    cw20_sender: Option<String>,
     _env: Env,
     mut distribution_assets: Vec<Asset>,
     distribution_asset_ratios: Vec<Decimal>,
@@ -445,8 +445,10 @@ pub fn distribute_funds(
 ) -> Result<Response, ContractError>{
 
     let config = CONFIG.load(deps.storage)?;
-    //Can only be called by its owner 
-    if info.sender != config.owner {
+    //Can only be called by its owner
+    if info.sender != config.owner && cw20_sender.is_none(){
+        return Err(ContractError::Unauthorized { })
+    } else if cw20_sender.is_some() && cw20_sender.clone().unwrap() != config.owner.to_string() {
         return Err(ContractError::Unauthorized { })
     }
 
@@ -465,11 +467,15 @@ pub fn distribute_funds(
         .into_iter()
         .map(|asset| asset.info )
         .collect::<Vec<AssetInfo>>();
-    let valid_assets = validate_assets(deps.storage, assets.clone(), info, false)?;
     
-    if valid_assets.len() != distribution_assets.len() { return Err(ContractError::InvalidAssetObject{ }) }
-    //Set distribution_assets to the valid_assets
-    distribution_assets = valid_assets;
+        //This check is redundant for Cw20s and will fail bc validate_assets() only validates natives
+    if cw20_sender.is_none() {
+        let valid_assets = validate_assets(deps.storage, assets.clone(), info, false)?;
+        
+        if valid_assets.len() != distribution_assets.len() { return Err(ContractError::InvalidAssetObject{ }) }
+        //Set distribution_assets to the valid_assets
+        distribution_assets = valid_assets;
+    }
     
 
     //Load repaid_amount
@@ -583,7 +589,7 @@ pub fn distribute_funds(
     //2) Split to users
     
     let mut cAsset_ratios = distribution_asset_ratios;
-    let messages: Vec<CosmosMsg> = vec![];
+    //let messages: Vec<CosmosMsg> = vec![];
 
         
     for mut user_ratio in distribution_ratios{
@@ -751,6 +757,7 @@ pub fn distribute_funds(
             }
         }
     }  
+
     //Response Builder
     let res = Response::new()
     .add_attribute("method", "distribute")
@@ -1438,6 +1445,7 @@ pub fn validate_assets(
                         },
                         AssetInfo::Token { address: _ } => {
                              //Functions assume Cw20 asset amounts are taken from Messageinfo
+
                          }
                     }
                 },

@@ -34,9 +34,6 @@ const CONTRACT_NAME: &str = "crates.io:cdp";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 
-
-
-
 //TODO: //Add function to update existing cAssets and Baskets and Config
 
 #[cfg_attr(not(feature = "library"), entry_point)]

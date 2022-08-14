@@ -304,6 +304,8 @@ pub fn withdraw(
                     //Now that its a valid withdrawal and debt has accrued, we can update basket tallies
                     update_basket_tally( 
                         deps.storage, 
+                        deps.querier,
+                        env.clone(),
                         &mut basket, 
                         vec![
                             cAsset {
@@ -691,6 +693,8 @@ pub fn liq_repay(
         //Remove collateral from user's position claims
         update_position_claims(
             deps.storage, 
+            deps.querier, 
+            env.clone(),
             repay_propagation.clone().basket_id,
             repay_propagation.clone().position_id, 
             repay_propagation.clone().position_owner, 
@@ -995,11 +999,11 @@ pub fn liquidate(
         
         //Subtract caller fee from Position's claims
         let caller_fee_in_collateral_amount = decimal_multiplication(collateral_amount, caller_fee) * Uint128::new(1u128);
-        update_position_claims(storage, basket_id, position_id, valid_position_owner.clone(),  cAsset.clone().asset.info, caller_fee_in_collateral_amount)?;
+        update_position_claims(storage, querier, env.clone(), basket_id, position_id, valid_position_owner.clone(),  cAsset.clone().asset.info, caller_fee_in_collateral_amount)?;
 
         //Subtract Protocol fee from Position's claims
         let protocol_fee_in_collateral_amount = decimal_multiplication(collateral_amount, config.clone().liq_fee) * Uint128::new(1u128);
-        update_position_claims(storage, basket_id, position_id, valid_position_owner.clone(),  cAsset.clone().asset.info, protocol_fee_in_collateral_amount)?;
+        update_position_claims(storage, querier, env.clone(), basket_id, position_id, valid_position_owner.clone(),  cAsset.clone().asset.info, protocol_fee_in_collateral_amount)?;
 
         //panic!("{}, {}", caller_fee_in_collateral_amount, protocol_fee_in_collateral_amount );
 
@@ -1286,7 +1290,7 @@ pub fn liquidate(
     //Add the Bad debt callback message as the last SubMsg
     let msg = CosmosMsg::Wasm(
             WasmMsg::Execute {
-                 contract_addr: env.contract.address.to_string(), 
+                 contract_addr: env.clone().contract.address.to_string(), 
                  msg: to_binary(&ExecuteMsg::Callback(
                         CallbackMsg::BadDebtCheck{
                             basket_id,
@@ -1408,7 +1412,7 @@ pub fn create_basket(
     credit_asset: Asset,
     credit_price: Option<Decimal>,
     credit_interest: Option<Decimal>,
-    collateral_supply_caps: Option<Vec<Uint128>>,
+    collateral_supply_caps: Option<Vec<Decimal>>,
     base_interest_rate: Option<Decimal>,
     desired_debt_cap_util: Option<Decimal>,
     instantiate_msg: bool,
@@ -1528,7 +1532,7 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
     liq_queue: Option<String>,
     pool_ids: Option<Vec<u64>>,
     liquidity_multiplier: Option<Decimal>,
-    collateral_supply_caps: Option<Vec<Uint128>>,
+    collateral_supply_caps: Option<Vec<Decimal>>,
     base_interest_rate: Option<Decimal>,
     desired_debt_cap_util: Option<Decimal>,
 )->Result<Response, ContractError>{
@@ -2131,6 +2135,8 @@ pub fn insolvency_check( //Returns true if insolvent, current_LTV and available 
 
 pub fn assert_basket_assets(
     storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
     basket_id: Uint128,
     assets: Vec<Asset>,
     add_to_cAsset: bool,
@@ -2185,7 +2191,7 @@ pub fn assert_basket_assets(
     //////We don't want this to trigger for withdrawals bc debt needs to accrue on the previous basket state
     //////For deposit's its fine bc it'll error when invalid and doesn't accrue debt 
     if add_to_cAsset{
-        update_basket_tally( storage, &mut basket, collateral_assets.clone(), add_to_cAsset)?;
+        update_basket_tally( storage, querier, env, &mut basket, collateral_assets.clone(), add_to_cAsset)?;
         BASKETS.save( storage, basket_id.to_string(), &basket)?;
     }
 
@@ -2197,13 +2203,14 @@ pub fn assert_basket_assets(
 
 fn update_basket_tally(
     storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
     basket: &mut Basket,
     collateral_assets: Vec<cAsset>,
     add_to_cAsset: bool,
 )-> Result<(), ContractError>{
 
-
-    let mut error: Option<Result<_, ContractError>> = None;
+    let config = CONFIG.load( storage )?;
     
     for cAsset in collateral_assets.iter(){
 
@@ -2214,14 +2221,9 @@ fn update_basket_tally(
                 //Add or subtract deposited amount to/from the correlated cAsset object
                 if asset.asset.info.equal(&cAsset.asset.info){
                     if add_to_cAsset {   
-                        //If the addition pushes the collateral total over the supply limit, Error
-                        if basket.collateral_supply_caps != vec![] && asset.asset.amount + cAsset.asset.amount > basket.collateral_supply_caps[i]{
-                            error = Some( Err( ContractError::CustomError { val: format!("Collateral pushes total over basket supply caps: {} / {}", asset.asset.amount + cAsset.asset.amount, basket.collateral_supply_caps[i]) } ) )
-                        } else { //Add 
-                            asset.asset.amount += cAsset.asset.amount;
-                        }
                         
-                        }else{
+                        asset.asset.amount += cAsset.asset.amount;
+                    }else{
 
                         match asset.asset.amount.checked_sub( cAsset.asset.amount ){
                             Ok( difference ) => {
@@ -2239,8 +2241,15 @@ fn update_basket_tally(
             }).collect::<Vec<cAsset>>();
     }
 
-    if error.is_some(){
-        return error.unwrap()
+    let new_basket_ratios = get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config)?;
+    
+    //Assert new ratios aren't above Collateral Supply Caps. If so, error.
+    for (i, ratio) in new_basket_ratios.into_iter().enumerate(){
+        if basket.collateral_supply_caps != vec![]{
+            if ratio > basket.collateral_supply_caps[i]{
+                return Err( ContractError::CustomError { val: format!("Supply cap ratio for {} is over the limit", basket.collateral_types[i].asset.info) } )
+            }
+        }
     }
             
     Ok(())
@@ -2393,6 +2402,8 @@ pub fn get_asset_values(
 
 pub fn update_position_claims(
     storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
     basket_id: Uint128,
     position_id: Uint128,
     position_owner: Addr,
@@ -2444,7 +2455,7 @@ pub fn update_position_claims(
     ];
 
     let mut basket = BASKETS.load( storage, basket_id.to_string())?;
-    match update_basket_tally(storage, &mut basket, collateral_assets, false){
+    match update_basket_tally(storage, querier, env, &mut basket, collateral_assets, false){
         Ok( res ) => {
             BASKETS.save( storage, basket_id.to_string(), &basket)?;
         },
@@ -2474,8 +2485,8 @@ pub fn update_position_claims(
 
     for ( i, cAsset)  in cAsset_ratios.clone().into_iter().enumerate(){
         if basket.clone().collateral_supply_caps != vec![] {
-            if basket.clone().collateral_supply_caps[i] == Uint128::zero(){
-            per_asset_debt_caps.push( Uint128::zero() );
+            if basket.clone().collateral_supply_caps[i].is_zero(){
+                per_asset_debt_caps.push( Uint128::zero() );
             }
         } else {
             per_asset_debt_caps.push( cAsset * debt_cap );

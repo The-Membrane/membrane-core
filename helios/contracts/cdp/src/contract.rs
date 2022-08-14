@@ -210,12 +210,12 @@ pub fn execute(
             for asset in assets.clone(){
                 valid_assets.push( assert_sent_native_token_balance( asset, &info )? );
             }
-            let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, basket_id, valid_assets, true)?;
+            let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, deps.querier, env.clone(), basket_id, valid_assets, true)?;
             deposit(deps, env, info, position_owner, position_id, basket_id, cAssets)
         }
     ,
         ExecuteMsg::Withdraw{ position_id, basket_id, assets } => {
-            let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, basket_id, assets, false)?;
+            let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, deps.querier, env.clone(), basket_id, assets, false)?;
             withdraw(deps, env, info, position_id, basket_id, cAssets)
         },
         
@@ -511,7 +511,7 @@ pub fn receive_cw20(
                 deps.api.addr_validate(&cw20_msg.sender.clone())?
             };
 
-            let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, basket_id, vec![ passed_asset ], true)?;
+            let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, deps.querier, env.clone(), basket_id, vec![ passed_asset ], true)?;
 
             deposit(deps, env, info, Some(valid_owner_addr.to_string()), position_id, basket_id, cAssets) 
         },
@@ -526,9 +526,9 @@ pub fn receive_cw20(
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     //panic!("here".to_string());
     match msg.id {
-        LIQ_QUEUE_REPLY_ID => handle_liq_queue_reply(deps, msg),
+        LIQ_QUEUE_REPLY_ID => handle_liq_queue_reply(deps, msg, env),
         STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, env, msg),
-        SELL_WALL_REPLY_ID => handle_sell_wall_reply(deps, msg),
+        SELL_WALL_REPLY_ID => handle_sell_wall_reply(deps, msg, env),
         CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, msg),
         WITHDRAW_REPLY_ID => handle_withdraw_reply( deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok( Response::new() ),
@@ -835,7 +835,7 @@ fn add_distributions(
     old_distributions
 }
 
-fn handle_liq_queue_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
+fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Response>{
 
     match msg.result.into_result(){
          Ok(result)  => {
@@ -913,7 +913,7 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
                 REPAY.save(deps.storage, &prop)?;
                 //SP reply handles LQ_leftovers 
 
-                update_position_claims(deps.storage, prop.basket_id, prop.position_id, prop.position_owner, token_info, send_amount)?;
+                update_position_claims(deps.storage, deps.querier, env, prop.basket_id, prop.position_id, prop.position_owner, token_info, send_amount)?;
             }
 
             
@@ -931,7 +931,7 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
     }        
 }
 
-fn handle_sell_wall_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
+fn handle_sell_wall_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Response>{
 
     
     match msg.result.into_result(){ 
@@ -951,6 +951,8 @@ fn handle_sell_wall_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
                     for (asset, amount) in distribution.distributions{
                         update_position_claims(
                             deps.storage, 
+                            deps.querier, 
+                            env.clone(),
                             repay_propagation.clone().basket_id, 
                             repay_propagation.clone().position_id, 
                             repay_propagation.clone().position_owner, 

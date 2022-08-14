@@ -55,6 +55,30 @@ pub struct Deposit {
 
 ## ExecuteMsg
 
+### `UpdateConfig`
+
+Update Config if info.sender is config.owner
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecuteMsg {
+    UpdateConfig {
+        owner: Option<String>,
+        dex_router: Option<String>,
+        max_spread: Option<Decimal>,
+    }
+}
+```
+
+| Key           | Type    | Description                      |
+| ------------- | ------- | -------------------------------- |
+| `*owner`      | String  | Address of Owner of the contract |
+| `*dex_router` | String  | Dex Router contract              |
+| `*max_spread` | Decimal | Max spread for ClaimAs swaps     |
+
+&#x20;\* = optional
+
 ### `Receive`
 
 Can be called during a CW20 token transfer when the Positions contract is the recipient. Allows the token transfer to execute a [Receive Hook](stability-pool.md#receive-hook) as a subsequent action within the same transaction.
@@ -248,6 +272,25 @@ pub enum Cw20HookMsg {
 | `credit_price`              | Decimal       | Redemption price of `credit_asset`                               |
 
 ## QueryMsg
+
+### `Config`
+
+Returns the current Config fields
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMsg {
+    Config {}
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct ConfigResponse {
+    pub owner: String, 
+    pub dex_router: String,
+    pub max_spread: String, 
+}
+```
 
 ### `CheckLiquidatible`
 

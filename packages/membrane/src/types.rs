@@ -196,18 +196,6 @@ pub struct Basket {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct RepayPropagation {
-    pub liq_queue_leftovers: Decimal,
-    pub stability_pool: Decimal,
-    pub sell_wall_distributions: Vec<SellWallDistribution>,
-    pub positions_contract: Addr,
-    //So the sell wall knows who to repay to
-    pub position_id: Uint128,
-    pub basket_id: Uint128,
-    pub position_owner: Addr,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct SellWallDistribution {
     pub distributions: Vec<( AssetInfo, Decimal )>,
 }

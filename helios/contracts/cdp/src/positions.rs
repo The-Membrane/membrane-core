@@ -5,22 +5,23 @@ use std::{str::FromStr, convert::TryInto};
 use cosmwasm_bignumber::Uint256;
 use cosmwasm_std::{MessageInfo, attr, Response, DepsMut, Uint128, CosmosMsg, Decimal, Storage, Api, Coin, to_binary, QueryRequest, WasmQuery, QuerierWrapper, StdResult, StdError, Addr, WasmMsg, BankMsg, SubMsg, coin, Env};
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
-use cw20::Cw20ExecuteMsg;
+use cw20::{Cw20ExecuteMsg, BalanceResponse, Cw20QueryMsg};
 use osmo_bindings::{ SpotPriceResponse, PoolStateResponse };
 
-use membrane::{types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistribution, RepayPropagation, LiqAsset, UserInfo, PriceInfo, PositionUserInfo}, positions::CallbackMsg};
+use membrane::{types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistribution, LiqAsset, UserInfo, PriceInfo, PositionUserInfo}, positions::CallbackMsg};
 use membrane::positions::ExecuteMsg;
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse };
 use membrane::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
 use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg };
 
-use crate::{ContractError, state::{REPAY, CONFIG, BASKETS, POSITIONS, Config}, math::{decimal_multiplication, decimal_division, decimal_subtraction}, query::{query_stability_pool_fee, query_stability_pool_liquidatible}};
+use crate::{ContractError, state::{ RepayPropagation, REPAY, CONFIG, BASKETS, POSITIONS, Config, WithdrawPropagation, WITHDRAW}, math::{decimal_multiplication, decimal_division, decimal_subtraction}, query::{query_stability_pool_fee, query_stability_pool_liquidatible}};
 
 pub const LIQ_QUEUE_REPLY_ID: u64 = 1u64;
 pub const STABILITY_POOL_REPLY_ID: u64 = 2u64;
 pub const SELL_WALL_REPLY_ID: u64 = 3u64;
 pub const CREATE_DENOM_REPLY_ID: u64 = 4u64;
+pub const WITHDRAW_REPLY_ID: u64 = 5u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 const SECONDS_PER_YEAR: u64 = 31536000u64;
@@ -263,13 +264,17 @@ pub fn withdraw(
     let mut message: CosmosMsg;
     let mut msgs = vec![];
     let response = Response::new();
-        
+       
+
     //For debt cap updates
     let old_assets = get_target_position( deps.storage, basket_id, info.sender.clone(), position_id)?.collateral_assets;
     let mut new_assets = vec![];
     let mut credit_amount = Uint128::zero();
     
+    //Set withdrawal prop variables
+    let mut prop_assets = vec![];
 
+    
     //Each cAsset
     //We reload at every loop to account for edited state data
     //Otherwise users could siphon funds they don't own w/ duplicate cAssets. 
@@ -289,7 +294,9 @@ pub fn withdraw(
         match target_position.clone().collateral_assets.into_iter().find(|x| x.asset.info.equal(&withdraw_asset.info)){
             //Some cAsset
             Some( position_collateral ) => {
-                
+
+                prop_assets.push( position_collateral.clone().asset );
+
                 //Cant withdraw more than the positions amount
                 if withdraw_asset.amount > position_collateral.asset.amount{
                     return Err(ContractError::InvalidWithdrawal {  })
@@ -307,8 +314,7 @@ pub fn withdraw(
                         false)?;
 
                     //Update cAsset data to account for the withdrawal
-                    let leftover_amount = position_collateral.asset.amount - withdraw_asset.amount;
-                                        
+                    let leftover_amount = position_collateral.asset.amount - withdraw_asset.amount;     
 
                     let mut updated_cAsset_list: Vec<cAsset> = target_position.clone().collateral_assets
                             .into_iter()
@@ -380,9 +386,9 @@ pub fn withdraw(
                         return Err(ContractError::NoRepaymentPrice {  })
                     }
                     
-                    //This is here in case there are multiple withdrawal messages created.
+                    //This is here (instead of outside the loop) in case there are multiple withdrawal messages created.
                     message = withdrawal_msg(withdraw_asset, info.sender.clone())?;
-                    msgs.push(message);
+                    msgs.push( SubMsg::reply_on_success(message, WITHDRAW_REPLY_ID) );
                 }
                 
             },
@@ -391,7 +397,7 @@ pub fn withdraw(
         
     }
     
-    //Save updated repayment priceand asset tallies
+    //Save updated repayment price and asset tallies
     BASKETS.save( deps.storage, basket_id.to_string(), &basket )?;
 
     if !credit_amount.is_zero(){
@@ -433,8 +439,24 @@ pub fn withdraw(
             }
         }
         //Update debt caps 
-        update_debt_per_asset_in_position( deps.storage, env, deps.querier, config, basket_id, old_assets, new_assets, Decimal::from_ratio(credit_amount, Uint128::new(1u128)) )?;
+        update_debt_per_asset_in_position( deps.storage, env.clone(), deps.querier, config, basket_id, old_assets, new_assets, Decimal::from_ratio(credit_amount, Uint128::new(1u128)) )?;
     }
+
+    //Set Withdrawal_Prop
+    let prop_assets_info: Vec<AssetInfo> = prop_assets.clone()
+        .into_iter()
+        .map(|asset| asset.info )
+        .collect::<Vec<AssetInfo>>();
+    let withdraw_amounts: Vec<Uint128> = cAssets.clone()
+        .into_iter()
+        .map(|asset| asset.asset.amount )
+        .collect::<Vec<Uint128>>();
+    let withdrawal_prop = WithdrawPropagation {
+        positions_prev_collateral: prop_assets,
+        withdraw_amounts,
+        contracts_prev_collateral_amount: get_contract_balances(deps.querier, env, prop_assets_info)?,
+    };
+    WITHDRAW.save( deps.storage, &withdrawal_prop )?;
 
     let mut attrs = vec![];
     attrs.push(("method", "withdraw"));
@@ -455,7 +477,7 @@ pub fn withdraw(
     }
 
     
-    Ok( response.add_attributes(attrs).add_messages(msgs) )
+    Ok( response.add_attributes(attrs).add_submessages(msgs) )
 }
 
 pub fn repay(
@@ -1347,6 +1369,35 @@ pub fn liquidate(
 
 }
 
+pub fn get_contract_balances(
+    querier: QuerierWrapper,
+    env: Env,
+    assets: Vec<AssetInfo>,
+) -> Result<Vec<Uint128>, ContractError>{
+    
+    let mut balances = vec![];
+
+    for asset in assets{
+        match asset {
+            AssetInfo::NativeToken { denom } => {
+                balances.push( querier.query_balance( env.clone().contract.address, denom)?.amount );
+            },
+            AssetInfo::Token { address } => {
+               let res: BalanceResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart { 
+                contract_addr: address.to_string(),
+                msg: to_binary( &Cw20QueryMsg::Balance {
+                    address: env.contract.address.to_string(),
+                } )?,
+                }))?;
+
+                balances.push( res.balance );
+            }
+        }
+    }
+
+    Ok( balances )
+}
+
 
 pub fn create_basket(
     deps: DepsMut,
@@ -1913,7 +1964,11 @@ pub fn get_avg_LTV(
     //getting each cAsset's % of total value
     let mut cAsset_ratios: Vec<Decimal> = vec![];
     for cAsset in cAsset_values{
-        cAsset_ratios.push( decimal_division( cAsset, total_value) );
+        if total_value == Decimal::zero() {
+            cAsset_ratios.push( Decimal::zero() );
+        } else {
+            cAsset_ratios.push( decimal_division( cAsset, total_value) );
+        }        
     }
 
     //converting % of value to avg_LTV by multiplying collateral LTV by % of total value
@@ -1922,8 +1977,8 @@ pub fn get_avg_LTV(
 
     if cAsset_ratios.len() == 0{
         //TODO: Change back to no values. This is for testing without oracles
-       //return Ok((Decimal::percent(0), Decimal::percent(0), Decimal::percent(0)))
-       return Ok((Decimal::percent(50), Decimal::percent(50), Decimal::percent(100_000_000), vec![Decimal::one()]))
+       return Ok((Decimal::percent(0), Decimal::percent(0), Decimal::percent(0), vec![]))
+       //return Ok((Decimal::percent(50), Decimal::percent(50), Decimal::percent(100_000_000), vec![Decimal::one()]))
     }
 
     //Skip unecessary calculations if length is 1
@@ -1955,7 +2010,11 @@ pub fn get_cAsset_ratios(
     //getting each cAsset's % of total value
     let mut cAsset_ratios: Vec<Decimal> = vec![];
     for cAsset in cAsset_values{
-        cAsset_ratios.push(cAsset/total_value) ;
+        if total_value == Decimal::zero() {
+            cAsset_ratios.push( Decimal::zero() );
+        } else {
+            cAsset_ratios.push( decimal_division( cAsset, total_value) );
+        }        
     }
 
     // //Error correction for ratios so we end up w/ least amount of undistributed funds
@@ -2024,22 +2083,33 @@ pub fn insolvency_check( //Returns true if insolvent, current_LTV and available 
     
     //TODO: Change, this is solely for testing. This would liquidate anyone anytime oracles failed.
     //Returns insolvent if oracle's failed
-    if avg_LTVs == (Decimal::percent(0), Decimal::percent(50), Decimal::percent(100_000_000), vec![Decimal::one()]){
-         return Ok((true, Decimal::percent(90), Uint128::zero())) 
-        }
+    // if avg_LTVs == (Decimal::percent(0), Decimal::percent(50), Decimal::percent(100_000_000), vec![Decimal::one()]){
+    //      return Ok((true, Decimal::percent(90), Uint128::zero())) 
+    //     }
 
     let asset_values: Decimal = avg_LTVs.2; //pulls total_asset_value
     
-
     let mut check: bool;
-    let current_LTV = decimal_division( decimal_multiplication(credit_amount, credit_price) , asset_values);
+    let current_LTV = if asset_values.is_zero() {
+            Decimal::percent(100)
+        } else {
+            decimal_division( decimal_multiplication(credit_amount, credit_price) , asset_values)
+        };
 
     match max_borrow{
         true => { //Checks max_borrow
-            check = current_LTV > avg_LTVs.0;
+            check = if asset_values.is_zero() && credit_amount.is_zero() {
+                false
+            } else {
+                current_LTV > avg_LTVs.0
+            };
         },
         false => { //Checks max_LTV
-            check = current_LTV > avg_LTVs.1;
+            check = if asset_values.is_zero() && credit_amount.is_zero() {
+                false
+            } else {
+                current_LTV > avg_LTVs.1  
+            };
         },
     }
 

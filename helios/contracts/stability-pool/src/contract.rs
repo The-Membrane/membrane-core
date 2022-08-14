@@ -7,7 +7,7 @@ use cosmwasm_std::entry_point;
 use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Storage, Addr, Api, Uint128, CosmosMsg, BankMsg, WasmMsg, Coin, Decimal, BankQuery, BalanceResponse, QueryRequest, WasmQuery, QuerierWrapper, attr, from_binary};
 use cw2::set_contract_version;
 use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
-use membrane::stability_pool::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, DepositResponse, ClaimsResponse, PoolResponse, Cw20HookMsg };
+use membrane::stability_pool::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, DepositResponse, ClaimsResponse, PoolResponse, Cw20HookMsg, ConfigResponse };
 use membrane::apollo_router::{ ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterCw20HookMsg };
 use membrane::types::{ Asset, AssetInfo, LiqAsset, AssetPool, Deposit, cAsset, UserRatio, User, PositionUserInfo };
 use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg};
@@ -94,6 +94,7 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
+        ExecuteMsg::UpdateConfig { owner, dex_router, max_spread } => update_config(deps, info, owner, dex_router, max_spread),
         ExecuteMsg::Receive( msg ) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ user, assets } => {
             //Outputs asset objects w/ correct amounts
@@ -108,6 +109,55 @@ pub fn execute(
         ExecuteMsg::AddPool { asset_pool } => add_asset_pool( deps, info, asset_pool.credit_asset, asset_pool.liq_premium ),
         ExecuteMsg::Distribute { distribution_assets, distribution_asset_ratios, credit_asset, distribute_for } => distribute_funds( deps, info, None, env, distribution_assets, distribution_asset_ratios, credit_asset, distribute_for ), 
     }
+}
+
+fn update_config(
+    deps: DepsMut,
+    info: MessageInfo,
+    owner: Option<String>,
+    dex_router: Option<String>,
+    max_spread: Option<Decimal>,
+) -> Result<Response, ContractError>{
+
+    let mut config = CONFIG.load( deps.storage )?;
+
+    //Assert Authority
+    if info.sender != config.owner { return Err( ContractError::Unauthorized {  } ) }
+
+    let mut attrs = vec![
+        attr( "method", "update_config" ),  
+    ];
+
+    //Match Optionals
+    match owner {
+        Some( owner ) => { 
+            let valid_addr = deps.api.addr_validate(&owner)?;
+            config.owner = valid_addr.clone();
+            attrs.push( attr("new_owner", valid_addr.to_string()) );
+        },
+        None => {},
+    }
+    match dex_router {
+        Some( dex_router ) => { 
+            let valid_addr = deps.api.addr_validate(&dex_router)?;
+            config.dex_router = Some( valid_addr.clone() );
+            attrs.push( attr("new_dex_router", valid_addr.to_string()) );
+        },
+        None => {},
+    }
+    match max_spread {
+        Some( max_spread ) => { 
+            config.max_spread = Some( max_spread.clone() );
+            attrs.push( attr("new_max_spread", max_spread.to_string()) );
+        },
+        None => {},
+    }
+    
+    //Save new Config
+    CONFIG.save(deps.storage, &config)?;
+
+    Ok( Response::new().add_attributes( attrs ) )
+    
 }
 
 //From a receive cw20 hook. Comes from the contract address so easy to validate sent funds. 
@@ -1527,11 +1577,27 @@ pub fn validate_position_owner(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
+        QueryMsg::Config {  } => to_binary( &query_config( deps )? ),
         QueryMsg::CheckLiquidatible { asset } => to_binary(&query_liquidatible(deps, asset)?),
         QueryMsg::AssetDeposits { user, asset_info } => to_binary(&query_deposits(deps, user, asset_info)?),
         QueryMsg::UserClaims{ user } => to_binary(&query_user_claims( deps, user )?),
         QueryMsg::AssetPool { asset_info } => to_binary( &query_pool(deps, asset_info )?),
     }
+}
+
+fn query_config(
+    deps: Deps
+) -> StdResult<ConfigResponse>{
+    
+    let config = CONFIG.load( deps.storage )?;
+
+    Ok(
+        ConfigResponse {
+            owner: config.owner.to_string(),
+            dex_router: config.dex_router.unwrap_or(Addr::unchecked("None")).to_string(),
+            max_spread: config.max_spread.unwrap().to_string(),
+        }
+    )
 }
 
 pub fn query_pool(

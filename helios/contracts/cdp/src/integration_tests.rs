@@ -4,6 +4,7 @@ mod tests {
     use crate::helpers::{ LQContract, CDPContract };
         
     use cosmwasm_bignumber::Uint256;
+    use cw20::BalanceResponse;
     use membrane::positions::{ InstantiateMsg, QueryMsg };
     use membrane::liq_queue::{ LiquidatibleResponse as LQ_LiquidatibleResponse};
     use membrane::stability_pool::{ LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
@@ -854,7 +855,11 @@ mod tests {
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Cw20_MockQueryMsg {}
+    pub enum Cw20_MockQueryMsg {
+        Balance{
+            address: String,
+        }
+    }
 
     pub fn cw20_contract()-> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
@@ -869,7 +874,12 @@ mod tests {
                 }
             },
             |_, _, _, _: Cw20_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
-            |_, _, msg: Cw20_MockQueryMsg| -> StdResult<Binary> { Ok( to_binary(&MockResponse {})? ) },
+            |_, _, msg: Cw20_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    Cw20_MockQueryMsg::Balance { address } => {
+                        Ok( to_binary(&BalanceResponse { balance: Uint128::zero()})? )
+                    }
+                }  },
         );
         Box::new(contract)
     }

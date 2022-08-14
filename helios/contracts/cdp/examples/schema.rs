@@ -4,8 +4,7 @@ use std::fs::create_dir_all;
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
 use membrane::positions::{ ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, CallbackMsg, PositionResponse, PositionsResponse, BasketResponse, ConfigResponse, PropResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse };
-use cdp::state::{ Config };
-use membrane::types::{ RepayPropagation };
+use cdp::state::{ RepayPropagation, Config };
 
 fn main() {
     let mut out_dir = current_dir().unwrap();

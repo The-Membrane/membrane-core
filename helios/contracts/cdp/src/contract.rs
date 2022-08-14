@@ -14,7 +14,7 @@ use osmo_bindings::{ SpotPriceResponse, OsmosisMsg, FullDenomResponse, OsmosisQu
 
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
 use membrane::positions::{ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, PositionResponse, PositionsResponse, BasketResponse, ConfigResponse, PropResponse, CallbackMsg};
-use membrane::types::{ AssetInfo, Asset, cAsset, Basket, Position, LiqAsset, RepayPropagation, SellWallDistribution, UserInfo };
+use membrane::types::{ AssetInfo, Asset, cAsset, Basket, Position, LiqAsset, SellWallDistribution, UserInfo };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, GetDenomResponse };
 use membrane::debt_auction::{ ExecuteMsg as AuctionExecuteMsg };
 
@@ -22,12 +22,12 @@ use membrane::debt_auction::{ ExecuteMsg as AuctionExecuteMsg };
 //use crate::liq_queue::LiquidatibleResponse;
 use crate::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 use crate::error::ContractError;
-use crate::positions::{create_basket, assert_basket_assets, assert_sent_native_token_balance, deposit, withdraw, increase_debt, repay, liq_repay, edit_contract_owner, liquidate, edit_basket, sell_wall_using_ids, SELL_WALL_REPLY_ID, STABILITY_POOL_REPLY_ID, LIQ_QUEUE_REPLY_ID, withdrawal_msg, update_position_claims, CREATE_DENOM_REPLY_ID, BAD_DEBT_REPLY_ID, mint_revenue};
+use crate::positions::{create_basket, assert_basket_assets, assert_sent_native_token_balance, deposit, withdraw, increase_debt, repay, liq_repay, edit_contract_owner, liquidate, edit_basket, sell_wall_using_ids, SELL_WALL_REPLY_ID, STABILITY_POOL_REPLY_ID, LIQ_QUEUE_REPLY_ID, withdrawal_msg, update_position_claims, CREATE_DENOM_REPLY_ID, BAD_DEBT_REPLY_ID, mint_revenue, WITHDRAW_REPLY_ID, get_contract_balances};
 use crate::query::{query_stability_pool_liquidatible, query_config, query_position, query_user_positions, query_basket_positions, query_basket, query_baskets, query_prop, query_stability_pool_fee, query_basket_debt_caps, query_bad_debt, query_basket_insolvency, query_position_insolvency};
 //use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, AssetInfo, Cw20HookMsg, Asset, PositionResponse, PositionsResponse, BasketResponse, LiqModuleMsg};
 //use crate::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
 //use crate::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse, Cw20HookMsg as LQ_Cw20HookMsg};
-use crate::state::{Config, CONFIG, POSITIONS, BASKETS,  REPAY };
+use crate::state::{Config, CONFIG, POSITIONS, BASKETS, RepayPropagation, REPAY, WITHDRAW };
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cdp";
@@ -530,9 +530,53 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, env, msg),
         SELL_WALL_REPLY_ID => handle_sell_wall_reply(deps, msg),
         CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, msg),
+        WITHDRAW_REPLY_ID => handle_withdraw_reply( deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok( Response::new() ),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
+}
+
+fn handle_withdraw_reply(
+    deps: DepsMut,
+    env: Env,
+    msg: Reply
+) -> StdResult<Response>{
+    match msg.result.into_result(){
+        Ok( _result ) => {
+            let mut withdraw_prop = WITHDRAW.load( deps.storage )?;  
+            
+            let asset_info: AssetInfo = withdraw_prop.positions_prev_collateral[0].clone().info;
+            let position_amount: Uint128 = withdraw_prop.positions_prev_collateral[0].amount;
+            let withdraw_amount: Uint128 = withdraw_prop.withdraw_amounts[0];
+
+            let current_asset_balance = match get_contract_balances( deps.querier, env, vec![ asset_info ] ){
+                Ok( balances ) => { balances[0] },
+                Err( err ) => return Err( StdError::GenericErr { msg: err.to_string() })
+            };
+
+            //If balance differnce is more than what they tried to withdraw or position amount, error
+            if withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > position_amount || withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > withdraw_amount {
+                return Err( StdError::GenericErr { msg: String::from("Invalid withdrawal, possible bug found") } )
+            }
+            
+            //Remove the first entry from each field
+            withdraw_prop.positions_prev_collateral.remove(0);
+            withdraw_prop.withdraw_amounts.remove(0);
+            withdraw_prop.contracts_prev_collateral_amount.remove(0);
+
+            //Save new prop
+            WITHDRAW.save( deps.storage, &withdraw_prop )?;
+
+            //We can go by first entries for these fields bc the replies will come in FIFO in terms of assets sent
+            //This only works bc we send native tokens one at a time
+
+        },//We only reply on success 
+        Err( err ) => {return Err( StdError::GenericErr { msg: err } )}
+
+    }
+
+
+    Ok( Response::new() ) 
 }
 
 fn handle_create_denom_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{

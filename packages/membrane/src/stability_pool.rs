@@ -18,6 +18,11 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
+    UpdateConfig {
+        owner: Option<String>,
+        dex_router: Option<String>,
+        max_spread: Option<Decimal>,
+    },
     Receive(Cw20ReceiveMsg),
     Deposit { //Deposit a list of accepted assets
         user: Option<String>,
@@ -58,6 +63,7 @@ pub enum Cw20HookMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
+    Config {},
     //Check if the amount of said asset is liquidatible
     CheckLiquidatible { 
         asset: LiqAsset 
@@ -78,6 +84,13 @@ pub enum QueryMsg {
 }
 
 // We define a custom struct for each query response
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct ConfigResponse {
+    pub owner: String, 
+    pub dex_router: String,
+    pub max_spread: String, 
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct LiquidatibleResponse {
     pub leftover: Decimal,

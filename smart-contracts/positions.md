@@ -27,6 +27,9 @@ pub struct InstantiateMsg {
     pub credit_asset: Option<Asset>,
     pub credit_price: Option<Decimal>,
     pub credit_interest: Option<Decimal>,
+    pub collateral_supply_caps: Option<Vec<Decimal>>,
+    pub base_interest_rate: Option<Decimal>,
+    pub desired_debt_cap_util: Option<Decimal>,
 }
 
 
@@ -45,21 +48,24 @@ pub enum AssetInfo {
 }
 ```
 
-| Key                 | Type         | Description                                                        |
-| ------------------- | ------------ | ------------------------------------------------------------------ |
-| `*owner`            | String       | Contract owner that defaults to info.sender                        |
-| `oracle-time-limit` | u64          | Limit in seconds that the oracle has before the values are invalid |
-| `debt_minimum`      | Decimal      | Minimum value in debt per position                                 |
-| `liq_fee`           | Decimal      | Fee that goes to the protocol during liquidations                  |
-| `*stability_pool`   | String       | Stability Pool Contract                                            |
-| `*dex_router`       | String       | DEX Router Contract                                                |
-| `*fee_collector`    | String       | Address that is sent liq\_fees                                     |
-| `*osmosis_proxy`    | String       | Osmosis Proxy contract to use SDK modules                          |
-| `*debt_auction`     | String       | Auction Contract that sells protocol tokens to repay debt          |
-| `*collateral_types` | Vec\<cAsset> | Accepted cAssets for an initial basket                             |
-| `*credit_asset`     | Asset        | Credit asset for an initial basket                                 |
-| `*credit_price`     | Decimal      | Credit price for an initial basket                                 |
-| `*credit_interest`  | Decimal      | Credit interest for an initial basket                              |
+| Key                             | Type          | Description                                                        |
+| ------------------------------- | ------------- | ------------------------------------------------------------------ |
+| `*owner`                        | String        | Contract owner that defaults to info.sender                        |
+| `oracle-time-limit`             | u64           | Limit in seconds that the oracle has before the values are invalid |
+| `debt_minimum`                  | Decimal       | Minimum value in debt per position                                 |
+| `liq_fee`                       | Decimal       | Fee that goes to the protocol during liquidations                  |
+| `*stability_pool`               | String        | Stability Pool Contract                                            |
+| `*dex_router`                   | String        | DEX Router Contract                                                |
+| `*fee_collector`                | String        | Address that is sent liq\_fees                                     |
+| `*osmosis_proxy`                | String        | Osmosis Proxy contract to use SDK modules                          |
+| `*debt_auction`                 | String        | Auction Contract that sells protocol tokens to repay debt          |
+| `*collateral_types`             | Vec\<cAsset>  | Accepted cAssets for an initial basket                             |
+| `*credit_asset`                 | Asset         | Credit asset for an initial basket                                 |
+| `*credit_price`                 | Decimal       | Credit price for an initial basket                                 |
+| `*credit_interest`              | Decimal       | Credit interest for an initial basket                              |
+| `*collateral_`_`supply_`_`caps` | Vec\<Decimal> | Credit collateral ratio caps                                       |
+| `*base_`_`interest_`_`rate`     | Decimal       | Base interest rate for collateral types                            |
+| `*desired_`_`debt_`_`cap_util`  | Decimal       | % cap before slope 2 begins in the interest rate equation          |
 
 \* = optional
 
@@ -328,17 +334,23 @@ pub enum ExecuteMsg {
         credit_asset: Asset,
         credit_price: Option<Decimal>,
         credit_interest: Option<Decimal>,
-    },
+        collateral_supply_caps: Option<Vec<Decimal>>,
+        base_interest_rate: Option<Decimal>,
+        desired_debt_cap_util: Option<Decimal>,
+    }
 }
 ```
 
-| Key                | Type         | Description                               |
-| ------------------ | ------------ | ----------------------------------------- |
-| `*owner`           | String       | Basket owner, defaults to info.sender     |
-| `collateral_type`  | Vec\<cAsset> | List of accepted cAssets                  |
-| `credit_asset`     | Asset        | Asset info for Basket's credit asset      |
-| `*credit_price`    | Decimal      | Price of credit in basket                 |
-| `*credit_interest` | Decimal      | Interest rate of credit's repayment price |
+| Key                             | Type          | Description                                               |
+| ------------------------------- | ------------- | --------------------------------------------------------- |
+| `*owner`                        | String        | Basket owner, defaults to info.sender                     |
+| `collateral_type`               | Vec\<cAsset>  | List of accepted cAssets                                  |
+| `credit_asset`                  | Asset         | Asset info for Basket's credit asset                      |
+| `*credit_price`                 | Decimal       | Price of credit in basket                                 |
+| `*credit_interest`              | Decimal       | Interest rate of credit's repayment price                 |
+| `*collateral_`_`supply_`_`caps` | Vec\<Decimal> | Credit collateral ratio caps                              |
+| `*base_`_`interest_`_`rate`     | Decimal       | Base interest rate for collateral types                   |
+| `*desired_`_`debt_`_`cap_util`  | Decimal       | % cap before slope 2 begins in the interest rate equation |
 
 \* = optional
 
@@ -355,16 +367,28 @@ pub enum ExecuteMsg {
         added_cAsset: Option<cAsset>,
         owner: Option<String>,
         credit_interest: Option<Decimal>,
-    }, 
+        liq_queue: Option<String>,
+        pool_ids: Option<Vec<u64>>,
+        liquidity_multiplier: Option<Decimal>,
+        collateral_supply_caps: Option<Vec<Uint128>>,
+        base_interest_rate: Option<Decimal>,
+        desired_debt_cap_util: Option<Decimal>,
+    }
 }
 ```
 
-| Key                | Type    | Description                                     |
-| ------------------ | ------- | ----------------------------------------------- |
-| `basket_id`        | Uint128 | ID of existing Basket                           |
-| `*added_cAsset`    | cAsset  | cAsset object to add to accepted basket objects |
-| `*owner`           | String  | New owner of Basket                             |
-| `*credit_interest` | Decimal | Credit repayment price interest                 |
+| Key                            | Type          | Description                                               |
+| ------------------------------ | ------------- | --------------------------------------------------------- |
+| `basket_id`                    | Uint128       | ID of existing Basket                                     |
+| `*added_cAsset`                | cAsset        | cAsset object to add to accepted basket objects           |
+| `*owner`                       | String        | New owner of Basket                                       |
+| `*credit_interest`             | Decimal       | Credit repayment price interest                           |
+| `*liq_queue`                   | String        | Liq Queue contract for the credit asset                   |
+| `*pool_ids`                    | Vec\<u64>     | Osmosis Pool IDs to query credit liquidity from           |
+| `*liquidity_multiplier`        | Decimal       | Multiplier for credit liquidity to determine debt cap     |
+| `*collateral_`_`supply_caps`_  | Vec\<Uint128> | Credit collateral ratio caps                              |
+| `*base_`_`interest_`_`rate`    | Decimal       | Base interest rate for collateral types                   |
+| `*desired_`_`debt_`_`cap_util` | Decimal       | % cap before slope 2 begins in the interest rate equation |
 
 \* = optional
 
@@ -598,7 +622,7 @@ pub struct BasketResponse{
     pub basket_id: String,
     pub current_position_id: String,
     pub collateral_types: Vec<cAsset>, 
-    pub collateral_supply_caps: Vec<Uint128>,
+    pub collateral_supply_caps: Vec<Decimal>,
     pub credit_asset: Asset, 
     pub credit_price: String,
     pub credit_interest: String,

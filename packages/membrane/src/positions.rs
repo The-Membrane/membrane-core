@@ -36,6 +36,18 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
+    UpdateConfig {
+        owner: Option<String>,
+        stability_pool: Option<String>,
+        dex_router: Option<String>,
+        osmosis_proxy: Option<String>,
+        debt_auction: Option<String>,
+        liq_fee_collector: Option<String>,
+        interest_revenue_collector: Option<String>,
+        liq_fee: Option<Decimal>,
+        debt_minimum: Option<Uint128>,
+        oracle_time_limit: Option<u64>,
+    },
     Receive(Cw20ReceiveMsg),
     Deposit{
         assets: Vec<AssetInfo>,
@@ -99,8 +111,7 @@ pub enum ExecuteMsg {
         owner: String,
     },
     //Callbacks; Only callable by the contract
-    Callback( CallbackMsg ),
-    
+    Callback( CallbackMsg ),    
 }
 
 

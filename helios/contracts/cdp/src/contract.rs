@@ -198,6 +198,9 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
+        ExecuteMsg::UpdateConfig { owner, stability_pool, dex_router, osmosis_proxy, debt_auction, liq_fee_collector, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit } => {
+            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, liq_fee_collector, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit )
+        },
         ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ assets, position_owner, position_id, basket_id} => {
             let mut valid_assets = vec![];
@@ -241,10 +244,118 @@ pub fn execute(
             }else{
                 return Err( ContractError::Unauthorized {  } )
             }
-        },
-        
-     
+        },     
     }
+}
+
+fn update_config(
+    deps: DepsMut,
+    info: MessageInfo,
+    owner: Option<String>,
+    stability_pool: Option<String>,
+    dex_router: Option<String>,
+    osmosis_proxy: Option<String>,
+    debt_auction: Option<String>,
+    liq_fee_collector: Option<String>,
+    interest_revenue_collector: Option<String>,
+    liq_fee: Option<Decimal>,
+    debt_minimum: Option<Uint128>,
+    oracle_time_limit: Option<u64>,
+) -> Result<Response, ContractError>{
+
+    let mut config = CONFIG.load( deps.storage )?;
+
+    //Assert Authority
+    if info.sender != config.owner { return Err( ContractError::Unauthorized {  } ) }
+
+    let mut attrs = vec![
+        attr( "method", "update_config" ),  
+    ];
+
+    //Match Optionals
+    match owner {
+        Some( owner ) => { 
+            let valid_addr = deps.api.addr_validate(&owner)?;
+            config.owner = valid_addr.clone();
+            attrs.push( attr("new_owner", valid_addr.to_string()) );
+        },
+        None => {},
+    }
+    match stability_pool {
+        Some( stability_pool ) => { 
+            let valid_addr = deps.api.addr_validate(&stability_pool)?;
+            config.stability_pool = Some( valid_addr.clone() );
+            attrs.push( attr("new_stability_pool", valid_addr.to_string()) );
+        },
+        None => {},
+    }
+    match dex_router {
+        Some( dex_router ) => { 
+            let valid_addr = deps.api.addr_validate(&dex_router)?;
+            config.dex_router = Some( valid_addr.clone() );
+            attrs.push( attr("new_dex_router", valid_addr.to_string()) );
+        },
+        None => {},
+    }
+    match osmosis_proxy {
+        Some( osmosis_proxy ) => { 
+            let valid_addr = deps.api.addr_validate(&osmosis_proxy)?;
+            config.osmosis_proxy = Some( valid_addr.clone() );
+            attrs.push( attr("new_osmosis_proxy", valid_addr.to_string()) );
+        },
+        None => {},
+    }
+    match debt_auction {
+        Some( debt_auction ) => { 
+            let valid_addr = deps.api.addr_validate(&debt_auction)?;
+            config.debt_auction = Some( valid_addr.clone() );
+            attrs.push( attr("new_debt_auction", valid_addr.to_string()) );
+        },
+        None => {},
+    }
+    match liq_fee_collector {
+        Some( liq_fee_collector ) => { 
+            let valid_addr = deps.api.addr_validate(&liq_fee_collector)?;
+            config.liq_fee_collector = Some( valid_addr.clone() );
+            attrs.push( attr("new_liq_fee_collector", valid_addr.to_string()) );
+        },
+        None => {},
+    }
+    match interest_revenue_collector {
+        Some( interest_revenue_collector ) => { 
+            let valid_addr = deps.api.addr_validate(&interest_revenue_collector)?;
+            config.interest_revenue_collector = Some( valid_addr.clone() );
+            attrs.push( attr("new_interest_revenue_collector", valid_addr.to_string()) );
+        },
+        None => {},
+    }
+    match liq_fee {
+        Some( liq_fee ) => { 
+            config.liq_fee = liq_fee.clone();
+            attrs.push( attr("new_liq_fee", liq_fee.to_string()) );
+        },
+        None => {},
+    }
+    match debt_minimum {
+        Some( debt_minimum ) => { 
+            config.debt_minimum = debt_minimum.clone();
+            attrs.push( attr("new_debt_minimum", debt_minimum.to_string()) );
+        },
+        None => {},
+    }
+    match oracle_time_limit {
+        Some( oracle_time_limit ) => { 
+            config.oracle_time_limit = oracle_time_limit.clone();
+            attrs.push( attr("new_oracle_time_limit", oracle_time_limit.to_string()) );
+        },
+        None => {},
+    }
+
+    //Save new Config
+    CONFIG.save(deps.storage, &config)?;
+
+    Ok( Response::new().add_attributes( attrs ) )
+    
 }
 
 pub fn callback_handler(

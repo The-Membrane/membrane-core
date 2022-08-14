@@ -65,6 +65,44 @@ pub enum AssetInfo {
 
 ## ExecuteMsg
 
+### `UpdateConfig`
+
+Update Config by the current config.owner
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecuteMsg {
+    UpdateConfig {
+        owner: Option<String>,
+        stability_pool: Option<String>,
+        dex_router: Option<String>,
+        osmosis_proxy: Option<String>,
+        debt_auction: Option<String>,
+        liq_fee_collector: Option<String>,
+        interest_revenue_collector: Option<String>,
+        liq_fee: Option<Decimal>,
+        debt_minimum: Option<Uint128>,
+        oracle_time_limit: Option<u64>,
+    }
+}
+```
+
+| Key                             | Type    | Description                        |
+| ------------------------------- | ------- | ---------------------------------- |
+| `*owner`                        | String  | Owner of contract                  |
+| `*stability_pool`               | String  | Stability Pool contract            |
+| `*dex_router`                   | String  | Dex Router contract                |
+| `*osmosis_proxy`                | String  | Osmosis Proxy contract             |
+| `*debt_auction`                 | String  | Debt Auction contract              |
+| `*liq_`_`fee_`_`collector`      | String  | Liquidation fee collector address  |
+| `*interest_`_`fee_`_`collector` | String  | CDP interest fee collector address |
+| _`*liq_fee`_                    | Decimal | Liquidation fee                    |
+| `*debt_minimum`                 | Uint128 | Debt minimum in terms of value     |
+| `*oracle_`_`time_`_`limit`      | u64     | Oracle expiration time limit       |
+
+&#x20;\* = optional
+
 ### `Receive`
 
 Can be called during a CW20 token transfer when the Positions contract is the recipient. Allows the token transfer to execute a [Receive Hook](positions.md#receive-hook) as a subsequent action within the same transaction.

@@ -1140,7 +1140,7 @@ pub fn liquidate(
 
     //If this is some that means the module is in use.
     //Build SubMsgs to send to the Stability Pool
-    if config.clone().stability_pool.is_some(){ 
+    if config.clone().stability_pool.is_some() && !liq_queue_leftover_credit_repayment.is_zero(){ 
 
         let sp_liq_fee = query_stability_pool_fee( querier, config.clone(), basket.clone() )?;
 

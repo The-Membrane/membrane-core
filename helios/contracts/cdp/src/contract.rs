@@ -27,14 +27,13 @@ use crate::query::{query_stability_pool_liquidatible, query_config, query_positi
 //use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, AssetInfo, Cw20HookMsg, Asset, PositionResponse, PositionsResponse, BasketResponse, LiqModuleMsg};
 //use crate::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
 //use crate::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse, Cw20HookMsg as LQ_Cw20HookMsg};
-use crate::state::{Config, CONFIG, POSITIONS, BASKETS, RepayPropagation, REPAY, WITHDRAW };
+use crate::state::{ Config, CONFIG, POSITIONS, BASKETS, RepayPropagation, REPAY, WITHDRAW };
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cdp";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 
-//TODO: //Add function to update existing cAssets and Baskets and Config
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -52,13 +51,13 @@ pub fn instantiate(
         dex_router: None,
         liq_fee_collector: None,
         interest_revenue_collector: None,
-        osmosis_proxy: None,    
+        osmosis_proxy: None,
         debt_auction: None,    
         oracle_time_limit: msg.oracle_time_limit,
         debt_minimum: msg.debt_minimum,
     };
     
-    // //Set optional config parameters
+    //Set optional config parameters
     match msg.owner {
         Some( address ) => {
             
@@ -69,7 +68,6 @@ pub fn instantiate(
         },
         None => { },
     };
-    
     match msg.stability_pool {
         Some( address ) => {
             
@@ -80,7 +78,6 @@ pub fn instantiate(
         },
         None => {},
     };
-
     match msg.dex_router {
         Some( address ) => {
             
@@ -91,7 +88,6 @@ pub fn instantiate(
         },
         None => {},
     };
-
     match msg.liq_fee_collector {
         Some( address ) => {
             
@@ -102,7 +98,6 @@ pub fn instantiate(
         },
         None => {},
     };
-
     match msg.interest_revenue_collector {
         Some( address ) => {
             
@@ -113,7 +108,6 @@ pub fn instantiate(
         },
         None => {},
     };
-
     match msg.osmosis_proxy {
         Some( address ) => {
             
@@ -124,7 +118,6 @@ pub fn instantiate(
         },
         None => {},
     };
-
     match msg.debt_auction {
         Some( address ) => {
             
@@ -149,7 +142,7 @@ pub fn instantiate(
     attrs.push(("method", "instantiate"));
     attrs.push(("owner", sender));
     
-
+    //Create Basket
     if msg.collateral_types.is_some() && msg.credit_asset.is_some(){
 
         let mut check = true;
@@ -189,6 +182,7 @@ pub fn instantiate(
     //response.add_attributes(attrs);
     Ok(create_res.add_attributes(attrs))
 }
+
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
@@ -640,6 +634,7 @@ fn handle_create_denom_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
     Ok( Response::new() ) 
 }
 
+
 fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{
 
     match msg.result.into_result(){
@@ -932,11 +927,10 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Resp
 }
 
 fn handle_sell_wall_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Response>{
-
     
     match msg.result.into_result(){ 
 
-        Ok( result ) => {
+        Ok( _result ) => {
             //On success we update the position owner's claims bc it means the protocol sent assets on their behalf
             let mut repay_propagation = REPAY.load( deps.storage )?;
             
@@ -1024,12 +1018,6 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         },
         QueryMsg::GetPositionInsolvency { basket_id, position_id, position_owner } => {
             to_binary( &query_position_insolvency(deps, env, basket_id, position_id, position_owner)? )
-        },
-        
+        }        
     }
 }
-
-
-
-
-

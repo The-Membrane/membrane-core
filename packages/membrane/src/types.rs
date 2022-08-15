@@ -162,7 +162,7 @@ pub struct PremiumSlot {
 pub struct cAsset {
     pub asset: Asset, //amount is 0 when adding to basket_contract config or initiator
     pub debt_total: Uint128,
-    pub max_borrow_LTV: Decimal, //aka max borrow LTV
+    pub max_borrow_LTV: Decimal, //aka what u can bprrpw up to
     pub max_LTV: Decimal, //ie liquidation point 
 }
 
@@ -229,7 +229,7 @@ pub struct InsolventPosition {
 
 
 
-//////////Switching to cw-asset//////
+//////////Possibly switching to cw-asset//////
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]

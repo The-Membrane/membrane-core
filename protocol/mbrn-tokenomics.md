@@ -14,8 +14,6 @@ The primary parameters set by communal governance are accepted collateral types,
 
 Initially, interest accrued by the protocol will go towards a Safety Fund, which is held by the DAO to be used in case of a shortfall event.&#x20;
 
-Governance can decide what % of revenue flows to stakers, keeping in mind the value of the Safety Fund in user's sentiment of protocol safety. Either way, stakers will continue to get multiples of revenue as **MBRN** inflation to reward holders and early adopters.
+Governance can decide what revenue flows to stakers, keeping in mind the value of the Safety Fund in user's sentiment of protocol safety. Either way, stakers will continue to get multiples of revenue as **MBRN** inflation to reward holders and early adopters.
 
-### Utilities
-
-Staking **MBRN** will grant liquidation bots bonus % of collateral, as well as lowering fixed interest rates towards the variable rate.
+**MBRN** also captures the protocol's liquidation fee, initially set at 1%.

@@ -227,6 +227,33 @@ pub struct InsolventPosition {
     pub available_fee: Uint128,
 }
 
+////////Builder Vesting////////
+/// 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct VestingPeriod {
+    pub cliff: u64, //In days
+    pub linear: u64, //In days
+}
+
+impl VestingPeriod {
+    pub fn equal(&self, vesting_period: &VestingPeriod ) -> bool{
+
+        if vesting_period.cliff == self.cliff && vesting_period.linear == self.linear {
+            true
+        } else {
+            false
+        }
+
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Allocation {
+    pub amount: Uint128,
+    pub amount_withdrawn: Uint128,
+    pub start_time_of_allocation: u64, //block time of allocation in seconds
+    pub vesting_period: VestingPeriod,  //In days
+}
 
 
 //////////Possibly switching to cw-asset//////

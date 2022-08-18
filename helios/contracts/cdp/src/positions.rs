@@ -1826,7 +1826,6 @@ pub fn credit_mint_msg(
     recipient: Addr,
 )-> StdResult<CosmosMsg>{
 
-
     match credit_asset.clone().info{
         
         AssetInfo::Token { address:_ } =>{
@@ -2819,9 +2818,9 @@ pub fn update_position_claims(
     };
     for (i, asset) in basket.collateral_types.iter().enumerate(){
         
-        //If there is 0 of an Asset then it's cap is 0
+        //If there is 0 of an Asset then it's cap is 0 but its proportion is 100%
         if debt_caps[i].is_zero(){
-            debt_proportions.push( Decimal::zero() );
+            debt_proportions.push( Decimal::percent(100) );
         } else {
             debt_proportions.push( Decimal::from_ratio(asset.debt_total, debt_caps[i]) );
         }

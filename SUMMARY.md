@@ -23,6 +23,6 @@
 * [Osmosis Proxy](smart-contracts/osmosis-proxy.md)
 * [MBRN](smart-contracts/mbrn.md)
 
-## Group 1
+## Technical Explanations
 
-* [Page 1](group-1/page-1.md)
+* [Liquidation Mechanism](technical-explanations/liquidation-mechanism.md)

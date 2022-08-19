@@ -12,7 +12,7 @@ mod tests {
     use cosmwasm_std::{coins, from_binary, attr, Uint128, Decimal, StdError, coin, to_binary, Addr};
     use cw20::Cw20ReceiveMsg;
     use membrane::positions::{ExecuteMsg, InstantiateMsg, PositionResponse, QueryMsg, PositionsResponse, BasketResponse, ConfigResponse, Cw20HookMsg};
-    use membrane::types::{AssetInfo, Asset, cAsset};
+    use membrane::types::{AssetInfo, Asset, cAsset, TWAPPoolInfo};
     use schemars::_serde_json::to_string;
 
     #[test]
@@ -36,6 +36,12 @@ mod tests {
                     debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
+                    pool_info: None,
+                    pool_info_for_price:  TWAPPoolInfo { 
+                        pool_id: 0u64, 
+                        base_asset_denom: String::from("None"), 
+                        quote_asset_denom: String::from("None") 
+                    },
                 },
                 cAsset {
                     asset:
@@ -46,6 +52,12 @@ mod tests {
                     debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(70),
+                    pool_info: None,
+                    pool_info_for_price:  TWAPPoolInfo { 
+                        pool_id: 0u64, 
+                        base_asset_denom: String::from("None"), 
+                        quote_asset_denom: String::from("None") 
+                    },
                 }  
             ]),
                 credit_interest: Some(Decimal::percent(1)),
@@ -61,6 +73,14 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
+                twap_timeframe: 90u64,
+                credit_asset_twap_price_source: Some( TWAPPoolInfo { 
+                    pool_id: 0u64, 
+                    base_asset_denom: String::from("None"), 
+                    quote_asset_denom: String::from("None") 
+                } ),
+                credit_pool_ids: None,
+                liquidity_multiplier_for_debt_caps: None,
         };
 
         //Instantiating contract
@@ -82,6 +102,12 @@ mod tests {
                     debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
+                    pool_info: None,
+                    pool_info_for_price:  TWAPPoolInfo { 
+                        pool_id: 0u64, 
+                        base_asset_denom: String::from("None"), 
+                        quote_asset_denom: String::from("None") 
+                    },
                        } 
             ],
             credit_asset: Asset {
@@ -93,6 +119,13 @@ mod tests {
             collateral_supply_caps: None,
             base_interest_rate: None,
             desired_debt_cap_util: None,
+            credit_asset_twap_price_source:  TWAPPoolInfo { 
+                pool_id: 0u64, 
+                base_asset_denom: String::from("None"), 
+                quote_asset_denom: String::from("None") 
+            },
+            credit_pool_ids: vec![],
+            liquidity_multiplier_for_debt_caps: None,
         };
 
         let _res = execute(deps.as_mut(), mock_env(), mock_info("owner", &[]), create_basket_msg).unwrap();
@@ -201,47 +234,67 @@ mod tests {
         let mut deps = mock_dependencies_with_balance(&coins(2, "token"));
 
         let msg = InstantiateMsg {
-                owner: Some("owner".to_string()),
-                credit_asset: Some(Asset {
-                    info: AssetInfo::NativeToken { denom: "credit".to_string() },
-                    amount: Uint128::from(0u128),
-                }),
-                credit_price: Some(Decimal::one()),
-                collateral_types: Some(vec![
-                cAsset {
-                    asset:
-                        Asset {
-                            info: AssetInfo::Token { address: Addr::unchecked("debit") },
-                            amount: Uint128::from(0u128),
-                        }, 
-                    debt_total: Uint128::zero(),
-                    max_borrow_LTV: Decimal::percent(50),
-                    max_LTV: Decimal::percent(90),
+            owner: Some("owner".to_string()),
+            credit_asset: Some(Asset {
+                info: AssetInfo::NativeToken { denom: "credit".to_string() },
+                amount: Uint128::from(0u128),
+            }),
+            credit_price: Some(Decimal::one()),
+            collateral_types: Some(vec![
+            cAsset {
+                asset:
+                    Asset {
+                        info: AssetInfo::Token { address: Addr::unchecked("debit") },
+                        amount: Uint128::from(0u128),
+                    }, 
+                debt_total: Uint128::zero(),
+                max_borrow_LTV: Decimal::percent(50),
+                max_LTV: Decimal::percent(90),
+                pool_info: None,
+                pool_info_for_price:  TWAPPoolInfo { 
+                    pool_id: 0u64, 
+                    base_asset_denom: String::from("None"), 
+                    quote_asset_denom: String::from("None") 
                 },
-                cAsset {
-                    asset:
-                        Asset {
-                            info: AssetInfo::Token { address: Addr::unchecked("2nddebit") },
-                            amount: Uint128::from(0u128),
-                        }, 
-                    debt_total: Uint128::zero(),
-                    max_borrow_LTV: Decimal::percent(50),
-                    max_LTV: Decimal::percent(70),
-                }  
-            ]),
-                credit_interest: Some(Decimal::percent(1)),
-                liq_fee: Decimal::percent(1),
-                stability_pool: Some("stability_pool".to_string()),
-                dex_router: Some("router".to_string()),
-                liq_fee_collector: Some("fee_collector".to_string()),
-                interest_revenue_collector: None,
-                osmosis_proxy: Some("proxy".to_string()),
-                debt_auction: Some( "debt_auction".to_string()),
-                oracle_time_limit: 60u64,
-                debt_minimum: Uint128::new(100u128),
-                collateral_supply_caps: None,
-                base_interest_rate: None,
-                desired_debt_cap_util: None,
+            },
+            cAsset {
+                asset:
+                    Asset {
+                        info: AssetInfo::Token { address: Addr::unchecked("2nddebit") },
+                        amount: Uint128::from(0u128),
+                    }, 
+                debt_total: Uint128::zero(),
+                max_borrow_LTV: Decimal::percent(50),
+                max_LTV: Decimal::percent(70),
+                pool_info: None,
+                pool_info_for_price:  TWAPPoolInfo { 
+                    pool_id: 0u64, 
+                    base_asset_denom: String::from("None"), 
+                    quote_asset_denom: String::from("None") 
+                },
+            }  
+        ]),
+            credit_interest: Some(Decimal::percent(1)),
+            liq_fee: Decimal::percent(1),
+            stability_pool: Some("stability_pool".to_string()),
+            dex_router: Some("router".to_string()),
+            liq_fee_collector: Some("fee_collector".to_string()),
+            interest_revenue_collector: None,
+            osmosis_proxy: Some("proxy".to_string()),
+            debt_auction: Some( "debt_auction".to_string()),
+            oracle_time_limit: 60u64,
+            debt_minimum: Uint128::new(100u128),
+            collateral_supply_caps: None,
+            base_interest_rate: None,
+            desired_debt_cap_util: None,
+            twap_timeframe: 90u64,
+            credit_asset_twap_price_source: Some( TWAPPoolInfo { 
+                pool_id: 0u64, 
+                base_asset_denom: String::from("None"), 
+                quote_asset_denom: String::from("None") 
+            } ),
+            credit_pool_ids: None,
+            liquidity_multiplier_for_debt_caps: None,
         };
 
         //Instantiating contract
@@ -295,6 +348,12 @@ mod tests {
                     debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
+                    pool_info: None,
+                    pool_info_for_price:  TWAPPoolInfo { 
+                        pool_id: 0u64, 
+                        base_asset_denom: String::from("None"), 
+                        quote_asset_denom: String::from("None") 
+                    },
                     } 
                 ]),
                 credit_interest: Some(Decimal::percent(1)),
@@ -310,6 +369,14 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
+                twap_timeframe: 90u64,
+                credit_asset_twap_price_source: Some( TWAPPoolInfo { 
+                    pool_id: 0u64, 
+                    base_asset_denom: String::from("None"), 
+                    quote_asset_denom: String::from("None") 
+                } ),
+                credit_pool_ids: None,
+                liquidity_multiplier_for_debt_caps: None,
         };
 
         //Instantiating contract
@@ -441,6 +508,12 @@ mod tests {
                     debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
+                    pool_info: None,
+                    pool_info_for_price:  TWAPPoolInfo { 
+                        pool_id: 0u64, 
+                        base_asset_denom: String::from("None"), 
+                        quote_asset_denom: String::from("None") 
+                    },
                        } 
                 ]),
                 credit_interest: Some(Decimal::percent(1)),
@@ -456,6 +529,14 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
+                twap_timeframe: 90u64,
+                credit_asset_twap_price_source: Some( TWAPPoolInfo { 
+                    pool_id: 0u64, 
+                    base_asset_denom: String::from("None"), 
+                    quote_asset_denom: String::from("None") 
+                } ),
+                credit_pool_ids: None,
+                liquidity_multiplier_for_debt_caps: None,
         };
 
         //Instantiating contract
@@ -490,6 +571,12 @@ mod tests {
                     debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
+                    pool_info: None,
+                    pool_info_for_price:  TWAPPoolInfo { 
+                        pool_id: 0u64, 
+                        base_asset_denom: String::from("None"), 
+                        quote_asset_denom: String::from("None") 
+                    },
                        } 
             ],
             credit_asset: Asset {
@@ -501,6 +588,13 @@ mod tests {
             collateral_supply_caps: None,
             base_interest_rate: None,
             desired_debt_cap_util: None,
+            credit_asset_twap_price_source:  TWAPPoolInfo { 
+                pool_id: 0u64, 
+                base_asset_denom: String::from("None"), 
+                quote_asset_denom: String::from("None") 
+            },
+            credit_pool_ids: vec![],
+            liquidity_multiplier_for_debt_caps: None,
         };
         let info = mock_info("owner", &coins(11, "debit"));
         let _res = execute(deps.as_mut(), mock_env(), info.clone(), create_basket_msg).unwrap();
@@ -594,6 +688,12 @@ mod tests {
                     debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
+                    pool_info: None,
+                    pool_info_for_price:  TWAPPoolInfo { 
+                        pool_id: 0u64, 
+                        base_asset_denom: String::from("None"), 
+                        quote_asset_denom: String::from("None") 
+                    },
                        } 
                 ]),
                 credit_interest: Some(Decimal::percent(1)),
@@ -609,6 +709,14 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
+                twap_timeframe: 90u64,
+                credit_asset_twap_price_source: Some( TWAPPoolInfo { 
+                    pool_id: 0u64, 
+                    base_asset_denom: String::from("None"), 
+                    quote_asset_denom: String::from("None") 
+                } ),
+                credit_pool_ids: None,
+                liquidity_multiplier_for_debt_caps: None,
         };
 
         //Instantiating contract
@@ -735,6 +843,12 @@ mod tests {
                     debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
+                    pool_info: None,
+                    pool_info_for_price:  TWAPPoolInfo { 
+                        pool_id: 0u64, 
+                        base_asset_denom: String::from("None"), 
+                        quote_asset_denom: String::from("None") 
+                    },
                        } 
                 ]),
                 credit_interest: Some(Decimal::percent(1)),
@@ -750,6 +864,14 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
+                twap_timeframe: 90u64,
+                credit_asset_twap_price_source: Some( TWAPPoolInfo { 
+                    pool_id: 0u64, 
+                    base_asset_denom: String::from("None"), 
+                    quote_asset_denom: String::from("None") 
+                } ),
+                credit_pool_ids: None,
+                liquidity_multiplier_for_debt_caps: None,
         };
 
         //Instantiating contract
@@ -773,6 +895,12 @@ mod tests {
                     debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
+                    pool_info: None,
+                    pool_info_for_price:  TWAPPoolInfo { 
+                        pool_id: 0u64, 
+                        base_asset_denom: String::from("None"), 
+                        quote_asset_denom: String::from("None") 
+                    },
                        } 
             ],
             credit_asset: Asset {
@@ -784,6 +912,13 @@ mod tests {
             collateral_supply_caps: None,
             base_interest_rate: None,
             desired_debt_cap_util: None,
+            credit_asset_twap_price_source:  TWAPPoolInfo { 
+                pool_id: 0u64, 
+                base_asset_denom: String::from("None"), 
+                quote_asset_denom: String::from("None") 
+            },
+            credit_pool_ids: vec![],
+            liquidity_multiplier_for_debt_caps: None,
         };
         let v_info = mock_info("owner", &[] );
         let _res = execute(deps.as_mut(), mock_env(), v_info.clone(), create_basket_msg).unwrap();

@@ -4,7 +4,7 @@ use cosmwasm_std::{Addr, Uint128, Coin, Binary, Decimal};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{ Asset, cAsset, Position, LiqAsset, SellWallDistribution, AssetInfo, UserInfo, PositionUserInfo, InsolventPosition };
+use crate::types::{ Asset, cAsset, Position, LiqAsset, SellWallDistribution, AssetInfo, UserInfo, PositionUserInfo, InsolventPosition, TWAPPoolInfo, PoolInfo };
 
 use cw20::Cw20ReceiveMsg;
 
@@ -23,7 +23,8 @@ pub struct InstantiateMsg {
     pub interest_revenue_collector: Option<String>,
     pub osmosis_proxy: Option<String>,
     pub debt_auction: Option<String>,
-    //For Basket creation
+    pub twap_timeframe: u64, //in days
+    // //For Basket creation
     pub collateral_types: Option<Vec<cAsset>>,
     pub credit_asset: Option<Asset>,
     pub credit_price: Option<Decimal>,
@@ -31,6 +32,10 @@ pub struct InstantiateMsg {
     pub collateral_supply_caps: Option<Vec<Decimal>>,
     pub base_interest_rate: Option<Decimal>,
     pub desired_debt_cap_util: Option<Decimal>,
+    pub credit_asset_twap_price_source: Option<TWAPPoolInfo>,
+    pub credit_pool_ids: Option<Vec<u64>>, 
+    pub liquidity_multiplier_for_debt_caps: Option<Decimal>,
+
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -47,6 +52,7 @@ pub enum ExecuteMsg {
         liq_fee: Option<Decimal>,
         debt_minimum: Option<Uint128>,
         oracle_time_limit: Option<u64>,
+        twap_timeframe: Option<u64>,
     },
     Receive(Cw20ReceiveMsg),
     Deposit{
@@ -92,8 +98,10 @@ pub enum ExecuteMsg {
         credit_interest: Option<Decimal>,
         collateral_supply_caps: Option<Vec<Decimal>>,
         base_interest_rate: Option<Decimal>,
-        desired_debt_cap_util: Option<Decimal>,
-        
+        desired_debt_cap_util: Option<Decimal>,        
+        credit_pool_ids: Vec<u64>, //For liquidity measuring
+        credit_asset_twap_price_source: TWAPPoolInfo,
+        liquidity_multiplier_for_debt_caps: Option<Decimal>, //Ex: 5 = debt cap at 5x liquidity
     },
     EditBasket {
         basket_id: Uint128,
@@ -106,6 +114,16 @@ pub enum ExecuteMsg {
         collateral_supply_caps: Option<Vec<Decimal>>,
         base_interest_rate: Option<Decimal>,
         desired_debt_cap_util: Option<Decimal>,
+        credit_asset_twap_price_source: Option<TWAPPoolInfo>,        
+    },
+    EditcAsset {
+        basket_id: Uint128,
+        asset: AssetInfo, 
+        //Editables
+        max_borrow_LTV: Option<Decimal>, //aka what u can borrow up to
+        max_LTV: Option<Decimal>, //ie liquidation point 
+        //Osmosis Pool ID to pull TWAP from
+        pool_info_for_price: Option<TWAPPoolInfo>,
     }, 
     EditAdmin {
         owner: String,
@@ -209,8 +227,9 @@ pub struct BasketResponse{
     pub credit_asset: Asset, 
     pub credit_price: String,
     pub credit_interest: String,
-    pub debt_pool_ids: Vec<u64>,
-    pub debt_liquidity_multiplier_for_caps: Decimal, //Ex: 5 = debt cap at 5x liquidity.
+    pub credit_pool_ids: Vec<u64>,
+    pub credit_asset_twap_price_source: TWAPPoolInfo,
+    pub liquidity_multiplier_for_debt_caps: Decimal, //Ex: 5 = debt cap at 5x liquidity.
     pub liq_queue: String,
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
@@ -230,6 +249,7 @@ pub struct ConfigResponse {
     pub liq_fee: Decimal, // 5 = 5%
     pub oracle_time_limit: u64,
     pub debt_minimum: Uint128,
+    pub twap_timeframe: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

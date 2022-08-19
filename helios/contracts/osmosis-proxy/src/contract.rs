@@ -1,20 +1,24 @@
 //Token factory fork
 //https://github.com/osmosis-labs/bindings/blob/main/contracts/tokenfactory
 
+use std::error::Error;
+
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128, QueryRequest,
+    to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128, QueryRequest, CosmosMsg, StdError, Coin,
 };
 use cw2::set_contract_version;
+
+//use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
 use crate::error::TokenFactoryError;
 use membrane::osmosis_proxy::{ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg};
 use crate::state::{State, STATE};
-use osmo_bindings::{ OsmosisMsg, OsmosisQuerier, OsmosisQuery, PoolStateResponse };
+use osmo_bindings::{ OsmosisMsg, OsmosisQuerier, OsmosisQuery, PoolStateResponse, ArithmeticTwapToNowResponse };
 
 // version info for migration info
-const CONTRACT_NAME: &str = "crates.io:tokenfactory-demo";
+const CONTRACT_NAME: &str = "crates.io:osmosis-proxy";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -58,8 +62,38 @@ pub fn execute(
             amount,
             burn_from_address,
         } => burn_tokens(deps, denom, amount, burn_from_address),
+        
     }
 }
+
+// fn exit_pool(
+//     sender: String,
+//     pool_id: u64,
+//     share_in_amount: Uint128,
+//     token_out_mins: Vec<Coin>,
+// ) -> Result<Response<>, TokenFactoryError>{
+//     let mut token_mins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
+//     if token_out_mins != vec![]{
+//         for token in token_out_mins {
+//             token_mins.push( osmosis_std::types::cosmos::base::v1beta1::Coin {
+//                 denom: token.denom,
+//                 amount: token.amount.to_string(),
+//             } );
+//         }
+//     }    
+
+//     let msg: CosmosMsg = MsgExitPool {
+//         sender,
+//         pool_id,
+//         share_in_amount: share_in_amount.to_string(),
+//         token_out_mins: token_mins,
+//     }.into();
+
+//     Ok( Response::new()
+//             .add_message(msg)
+//             .add_attribute("method", "exit_pool") )
+
+// }
 
 pub fn create_denom(subdenom: String, basket_id: String) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
     if subdenom.eq("") {
@@ -159,7 +193,31 @@ pub fn query(deps: Deps<OsmosisQuery>, _env: Env, msg: QueryMsg) -> StdResult<Bi
         QueryMsg::PoolState { id } => {
             to_binary(&get_pool_state(deps, id)?)
         },
+        QueryMsg::ArithmeticTwapToNow { 
+            id, 
+            quote_asset_denom, 
+            base_asset_denom, 
+            start_time 
+        } => {
+            to_binary(&get_arithmetic_twap_to_now(deps, id, quote_asset_denom, base_asset_denom, start_time)? ) 
+        },
     }
+}
+
+fn get_arithmetic_twap_to_now(
+    deps: Deps<OsmosisQuery>, 
+    id: u64,
+    quote_asset_denom: String,
+    base_asset_denom: String,
+    start_time: i64,
+) -> StdResult<ArithmeticTwapToNowResponse> {
+
+    let msg = OsmosisQuery::arithmetic_twap_to_now( id, quote_asset_denom, base_asset_denom, start_time );
+    let request: QueryRequest<OsmosisQuery> = OsmosisQuery::into(msg);
+
+    let response: ArithmeticTwapToNowResponse = deps.querier.query( &request )?;
+
+    Ok( response )
 }
 
 fn get_pool_state(deps: Deps<OsmosisQuery>, id: u64) -> StdResult<PoolStateResponse> {

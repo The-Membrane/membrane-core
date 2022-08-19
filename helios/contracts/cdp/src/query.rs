@@ -46,6 +46,7 @@ pub fn query_config(
                 liq_fee: config.clone().liq_fee,
                 oracle_time_limit: config.oracle_time_limit,
                 debt_minimum: config.debt_minimum,
+                twap_timeframe: config.twap_timeframe,
                 
             })
         },
@@ -213,8 +214,9 @@ pub fn query_basket(
                 credit_asset: basket.credit_asset,
                 credit_price,
                 credit_interest,
-                debt_pool_ids: basket.debt_pool_ids,
-                debt_liquidity_multiplier_for_caps: basket.debt_liquidity_multiplier_for_caps,
+                credit_pool_ids: basket.credit_pool_ids,
+                credit_asset_twap_price_source: basket.credit_asset_twap_price_source,
+                liquidity_multiplier_for_debt_caps: basket.liquidity_multiplier_for_debt_caps,
                 liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
                 collateral_supply_caps: basket.collateral_supply_caps,
                 base_interest_rate: basket.base_interest_rate,
@@ -273,8 +275,9 @@ pub fn query_baskets(
                 credit_asset: basket.credit_asset,
                 credit_price,
                 credit_interest,
-                debt_pool_ids: basket.debt_pool_ids,
-                debt_liquidity_multiplier_for_caps: basket.debt_liquidity_multiplier_for_caps,
+                credit_pool_ids: basket.credit_pool_ids,
+                credit_asset_twap_price_source: basket.credit_asset_twap_price_source,
+                liquidity_multiplier_for_debt_caps: basket.liquidity_multiplier_for_debt_caps,
                 liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
                 collateral_supply_caps: basket.collateral_supply_caps,
                 base_interest_rate: basket.base_interest_rate,
@@ -376,9 +379,9 @@ pub fn query_basket_debt_caps(
     let debt_cap = get_asset_liquidity( 
         deps.querier, 
         config, 
-        basket.debt_pool_ids, 
+        basket.credit_pool_ids, 
         basket.credit_asset.info 
-        )? * basket.debt_liquidity_multiplier_for_caps;
+        )? * basket.liquidity_multiplier_for_debt_caps;
  
     let mut asset_caps = vec![];
  

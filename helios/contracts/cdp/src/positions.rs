@@ -1,11 +1,13 @@
 
 use std::{str::FromStr, convert::TryInto};
+use std::time::{ SystemTime, UNIX_EPOCH };
 
 use cosmwasm_bignumber::Uint256;
 use cosmwasm_std::{MessageInfo, attr, Response, DepsMut, Uint128, CosmosMsg, Decimal, Storage, Api, Coin, to_binary, QueryRequest, WasmQuery, QuerierWrapper, StdResult, StdError, Addr, WasmMsg, BankMsg, SubMsg, coin, Env};
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
 use cw20::{Cw20ExecuteMsg, BalanceResponse, Cw20QueryMsg};
-use osmo_bindings::{ SpotPriceResponse, PoolStateResponse };
+use membrane::types::TWAPPoolInfo;
+use osmo_bindings::{ OsmosisQuery, SpotPriceResponse, PoolStateResponse, OsmosisMsg, ArithmeticTwapToNowResponse };
 
 use membrane::{types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistribution, LiqAsset, UserInfo, PriceInfo, PositionUserInfo}, positions::CallbackMsg};
 use membrane::positions::ExecuteMsg;
@@ -23,7 +25,8 @@ pub const CREATE_DENOM_REPLY_ID: u64 = 4u64;
 pub const WITHDRAW_REPLY_ID: u64 = 5u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
-const SECONDS_PER_YEAR: u64 = 31536000u64;
+const SECONDS_PER_YEAR: u64 = 31_536_000u64;
+const MILLISECONDS_PER_DAY: i64 = 86_400_000i64;
 
 static PREFIX_PRICE: &[u8] = b"price";
 
@@ -99,20 +102,15 @@ pub fn deposit(
                                         amount: cAsset.clone().asset.amount + deposited_asset.clone().amount,
                                         info: cAsset.clone().asset.info,
                                     },
-                                    debt_total: cAsset.clone().debt_total,
-                                    max_borrow_LTV: cAsset.clone().max_borrow_LTV,
-                                    max_LTV: cAsset.clone().max_LTV,
+                                    ..cAsset.clone()
                                 };
 
                                 let mut temp_list: Vec<cAsset> = existing_position.clone().collateral_assets.into_iter().filter(|x| !x.asset.info.equal(&deposited_asset.clone().info)).collect::<Vec<cAsset>>();
                                 temp_list.push(new_cAsset);
 
                                 let temp_pos = Position {
-                                    position_id: existing_position.clone().position_id,
                                     collateral_assets: temp_list,
-                                    credit_amount: existing_position.clone().credit_amount,
-                                    basket_id: existing_position.clone().basket_id,
-                                    last_accrued: existing_position.clone().last_accrued,
+                                    ..existing_position.clone()
                                 };
 
                                 //Set new_assets for debt cap updates
@@ -148,7 +146,9 @@ pub fn deposit(
                                             asset: deposited_asset.clone(), 
                                             debt_total: Uint128::zero(),
                                             max_borrow_LTV:  new_cAsset.clone().max_borrow_LTV,
-                                            max_LTV:  new_cAsset.clone().max_LTV,                                            
+                                            max_LTV:  new_cAsset.clone().max_LTV,   
+                                            pool_info: new_cAsset.clone().pool_info,
+                                            pool_info_for_price: new_cAsset.clone().pool_info_for_price,                                         
                                         }
                                     );
 
@@ -161,7 +161,9 @@ pub fn deposit(
                                             ..deposited_asset }, 
                                         debt_total: Uint128::zero(),
                                         max_borrow_LTV:  new_cAsset.clone().max_borrow_LTV,
-                                        max_LTV:  new_cAsset.clone().max_LTV,                                            
+                                        max_LTV:  new_cAsset.clone().max_LTV,  
+                                        pool_info: new_cAsset.clone().pool_info,
+                                        pool_info_for_price: new_cAsset.clone().pool_info_for_price,                 
                                     } );
 
                                     //Add updated position to user positions
@@ -310,7 +312,7 @@ pub fn withdraw(
                         vec![
                             cAsset {
                                 asset: withdraw_asset.clone(),
-                                ..position_collateral
+                                ..position_collateral.clone()
                             }
                         ], 
                         false)?;
@@ -328,13 +330,13 @@ pub fn withdraw(
                     if leftover_amount != Uint128::new(0u128){
                         
                         let new_asset = Asset {
-                            info: position_collateral.asset.info,
                             amount: leftover_amount,
+                            ..position_collateral.clone().asset
                         };
     
                         let new_cAsset: cAsset = cAsset{
                             asset: new_asset,
-                            ..position_collateral
+                            ..position_collateral.clone()
                         };
 
                         updated_cAsset_list.push(new_cAsset);
@@ -1415,6 +1417,9 @@ pub fn create_basket(
     collateral_supply_caps: Option<Vec<Decimal>>,
     base_interest_rate: Option<Decimal>,
     desired_debt_cap_util: Option<Decimal>,
+    credit_pool_ids: Vec<u64>,
+    credit_asset_twap_price_source: TWAPPoolInfo,
+    liquidity_multiplier_for_debt_caps: Option<Decimal>,
     instantiate_msg: bool,
 ) -> Result<Response, ContractError>{
     let mut config: Config = CONFIG.load(deps.storage)?;
@@ -1449,6 +1454,7 @@ pub fn create_basket(
     let collateral_supply_caps = collateral_supply_caps.unwrap_or_else(|| vec![]);
     let base_interest_rate = base_interest_rate.unwrap_or_else(|| Decimal::percent(0));
     let desired_debt_cap_util = desired_debt_cap_util.unwrap_or_else(|| Decimal::percent(100));    
+    let liquidity_multiplier_for_debt_caps = liquidity_multiplier_for_debt_caps.unwrap_or_else(|| Decimal::one());    
 
     let new_basket: Basket = Basket {
         owner: valid_owner.clone(),
@@ -1459,8 +1465,9 @@ pub fn create_basket(
         credit_asset: credit_asset.clone(),
         credit_price,
         credit_interest,
-        debt_pool_ids: vec![],
-        debt_liquidity_multiplier_for_caps: Decimal::one(),
+        credit_pool_ids,
+        credit_asset_twap_price_source,
+        liquidity_multiplier_for_debt_caps,
         base_interest_rate,
         desired_debt_cap_util,
         pending_revenue: Uint128::zero(),
@@ -1534,6 +1541,7 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
     collateral_supply_caps: Option<Vec<Decimal>>,
     base_interest_rate: Option<Decimal>,
     desired_debt_cap_util: Option<Decimal>,
+    credit_asset_twap_price_source: Option<TWAPPoolInfo>,
 )->Result<Response, ContractError>{
 
     let config = CONFIG.load( deps.storage )?;
@@ -1586,10 +1594,10 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                         basket.liq_queue = new_queue.clone();
                     }
                     if pool_ids.is_some(){
-                        basket.debt_pool_ids = pool_ids.clone().unwrap();
+                        basket.credit_pool_ids = pool_ids.clone().unwrap();
                     }
                     if liquidity_multiplier.is_some(){
-                        basket.debt_liquidity_multiplier_for_caps = liquidity_multiplier.clone().unwrap();
+                        basket.liquidity_multiplier_for_debt_caps = liquidity_multiplier.clone().unwrap();
                     }
                     if collateral_supply_caps.is_some(){
                         basket.collateral_supply_caps = collateral_supply_caps.clone().unwrap();
@@ -2322,7 +2330,7 @@ pub fn get_asset_values(
     config: Config
 ) -> StdResult<(Vec<Decimal>, Vec<Decimal>)>
 {
-
+    
    //Getting proportions for position collateral to calculate avg LTV
     //Using the index in the for loop to parse through the assets Vec and collateral_assets Vec
     //, as they are now aligned due to the collateral check w/ the Config's data
@@ -2330,59 +2338,189 @@ pub fn get_asset_values(
     let mut cAsset_prices: Vec<Decimal> = vec![];
 
     if config.clone().osmosis_proxy.is_some(){
+        
+        for (i, cAsset) in assets.iter().enumerate() {
 
-        for (i, casset) in assets.iter().enumerate() {
+        //If an Osmosis LP
+        if cAsset.pool_info.is_some(){
 
-        let price_info: PriceInfo = match read_price( storage, &casset.asset.info ){
-            Ok( info ) => { info },
-            Err(_) => { 
-                //Set time to fail in the next check. We don't want the error to stop from querying though
-                PriceInfo {
-                    price: Decimal::zero(),
-                    last_time_updated: env.block.time.plus_seconds( config.oracle_time_limit + 1u64 ).seconds(),
-                } 
-            },
-        }; 
-        //let mut valid_price: bool = false;
-        let mut price: Decimal;
+            let pool_info = cAsset.clone().pool_info.unwrap();
+            let mut asset_prices = vec![];
 
-        //If last_time_updated hasn't hit the limit set by the config...
-        //..don't query and use the saved price.
-        //Else try to query new price.
-        let time_elapsed: Option<u64> = env.block.time.seconds().checked_sub(price_info.last_time_updated);
+            for pool_asset in pool_info.clone().asset_denoms{
 
-        //If its None then the subtraction was negative meaning the initial read_price() errored
-        if time_elapsed.is_some() && time_elapsed.unwrap() <= config.oracle_time_limit{
-            price = price_info.price;
-            //valid_price = true;
-        }else{
-
-            //TODO: REPLACE WITH TWAP WHEN RELEASED PLEEEEASSSE, DONT LET THIS BE OUR DOWNFALL
-            price = match querier.query::<SpotPriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-                msg: to_binary(&OsmoQueryMsg::SpotPrice {
-                    asset: casset.asset.info.to_string(),
-                })?,
-            })){
-                Ok( res ) => { res.price },
-                Err( err ) => { 
-                    return Err( err )
+                let price_info: PriceInfo = match read_price( storage, &pool_asset.0 ){
+                    Ok( info ) => { info },
+                    Err(_) => { 
+                        //Set time to fail in the next check. We don't want the error to stop from querying though
+                        PriceInfo {
+                            price: Decimal::zero(),
+                            last_time_updated: env.block.time.plus_seconds( config.oracle_time_limit + 1u64 ).seconds(),
+                        } 
+                    },
+                }; 
+                
+                let mut price: Decimal;
+        
+                //If last_time_updated hasn't hit the limit set by the config...
+                //..don't query and use the saved price.
+                //Else try to query new price.
+                let time_elapsed: Option<u64> = env.block.time.seconds().checked_sub(price_info.last_time_updated);
+        
+                //If its None then the subtraction was negative meaning the initial read_price() errored
+                if time_elapsed.is_some() && time_elapsed.unwrap() <= config.oracle_time_limit{
+                    price = price_info.price;
+                }else{
+                    let current_unix_time = match SystemTime::now().duration_since(UNIX_EPOCH){
+                        Ok(duration) =>  duration.as_millis() as i64,
+                        Err(_) => return Err( StdError::GenericErr { msg: String::from("SystemTime before UNIX EPOCH!")  } ),
+                    };
+                    //twap_timeframe = Days * MILLISECONDS_PER_DAY
+                    let twap_timeframe: i64 = (config.twap_timeframe as i64 * MILLISECONDS_PER_DAY);
+                    let start_time: i64 = current_unix_time - twap_timeframe;
+                            
+                    //Get Asset TWAP
+                    price = match querier.query::<ArithmeticTwapToNowResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                        contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+                        msg: to_binary(&OsmoQueryMsg::ArithmeticTwapToNow { 
+                                id: pool_info.pool_id, 
+                                quote_asset_denom: pool_asset.clone().1.quote_asset_denom, 
+                                base_asset_denom: pool_asset.clone().1.base_asset_denom, 
+                                start_time, 
+                            })?,
+                    })){
+                        Ok( res ) => { res.twap },
+                        Err( err ) => { 
+                            return Err( err )
+                        }
+                    };
+        
+                    store_price(
+                        storage, 
+                        &pool_asset.0, 
+                        &PriceInfo {
+                            price,
+                            last_time_updated: env.block.time.seconds(),    
+                        }
+                    )?;
                 }
+                
+                asset_prices.push( price );
+                
+            }
+
+            //Calculate share value
+            let cAsset_value = {
+                //Query share asset amount 
+                let share_asset_amounts = querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
+                    WasmQuery::Smart { 
+                        contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
+                        msg: to_binary(&OsmoQueryMsg::PoolState { 
+                            id: pool_info.pool_id 
+                        }
+                        )?}
+                    ))?
+                    .shares_value(cAsset.asset.amount);;
+                
+
+                //Calculate value of cAsset
+                let mut value = Decimal::zero();
+                for (i, price) in asset_prices.into_iter().enumerate(){
+
+                    //Assert we are pulling asset amount from the correct asset
+                    let asset_share = match share_asset_amounts.clone().into_iter().find(|coin| AssetInfo::NativeToken { denom: coin.denom.clone() } == pool_info.clone().asset_denoms[i].0){
+                        Some( coin ) => { coin },
+                        None => return Err( StdError::GenericErr { msg: format!("Invalid asset denom: {}", pool_info.clone().asset_denoms[i].0) } )
+                    };
+
+                    let asset_amount = Decimal::from_ratio( asset_share.amount, Uint128::new(1u128) );
+
+                    //Price * # of assets in LP shares
+                    value += decimal_multiplication(price, asset_amount);
+                }
+
+                value
             };
 
-            store_price(
-                storage, 
-                &casset.asset.info, 
-                &PriceInfo {
-                    price,
-                    last_time_updated: env.block.time.seconds(),    
-                }
-            )?;
+            
+            //Calculate LP price
+            let cAsset_price = {
+                let share_amount = Decimal::from_ratio( cAsset.asset.amount, Uint128::new(1u128) );
+
+                decimal_division( cAsset_value, share_amount)
+            };
+
+            //Push to price and value list
+            cAsset_prices.push(cAsset_price);
+            cAsset_values.push(cAsset_value); 
+
+        } else {
+
+            let price_info: PriceInfo = match read_price( storage, &cAsset.asset.info ){
+                Ok( info ) => { info },
+                Err(_) => { 
+                    //Set time to fail in the next check. We don't want the error to stop from querying though
+                    PriceInfo {
+                        price: Decimal::zero(),
+                        last_time_updated: env.block.time.plus_seconds( config.oracle_time_limit + 1u64 ).seconds(),
+                    } 
+                },
+            }; 
+            //let mut valid_price: bool = false;
+            let mut price: Decimal;
+    
+            //If last_time_updated hasn't hit the limit set by the config...
+            //..don't query and use the saved price.
+            //Else try to query new price.
+            let time_elapsed: Option<u64> = env.block.time.seconds().checked_sub(price_info.last_time_updated);
+    
+            //If its None then the subtraction was negative meaning the initial read_price() errored
+            if time_elapsed.is_some() && time_elapsed.unwrap() <= config.oracle_time_limit{
+                price = price_info.price;
+                //valid_price = true;
+            }else{
+
+                let current_unix_time = match SystemTime::now().duration_since(UNIX_EPOCH){
+                    Ok(duration) =>  duration.as_millis() as i64,
+                    Err(_) => return Err( StdError::GenericErr { msg: String::from("SystemTime before UNIX EPOCH!")  } ),
+                };
+                //twap_timeframe = Days * MILLISECONDS_PER_DAY
+                let twap_timeframe: i64 = (config.twap_timeframe as i64 * MILLISECONDS_PER_DAY);
+                let start_time: i64 = current_unix_time - twap_timeframe;
+                        
+                //Get Asset TWAP
+                price = match querier.query::<ArithmeticTwapToNowResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+                    msg: to_binary(&OsmoQueryMsg::ArithmeticTwapToNow { 
+                            id: cAsset.pool_info_for_price.pool_id, 
+                            quote_asset_denom: cAsset.clone().pool_info_for_price.quote_asset_denom, 
+                            base_asset_denom: cAsset.clone().pool_info_for_price.base_asset_denom, 
+                            start_time, 
+                        })?,
+                })){
+                    Ok( res ) => { res.twap },
+                    Err( err ) => { 
+                        return Err( err )
+                    }
+                };
+    
+                store_price(
+                    storage, 
+                    &cAsset.asset.info, 
+                    &PriceInfo {
+                        price,
+                        last_time_updated: env.block.time.seconds(),    
+                    }
+                )?;
+            }
+            
+            cAsset_prices.push(price);
+            let collateral_value = decimal_multiplication(Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128)), price);
+            cAsset_values.push(collateral_value); 
+
         }
+
         
-        cAsset_prices.push(price);
-        let collateral_value = decimal_multiplication(Decimal::from_ratio(casset.asset.amount, Uint128::new(1u128)), price);
-        cAsset_values.push(collateral_value); 
         }
     }
     
@@ -2442,7 +2580,9 @@ pub fn update_position_claims(
                 asset: Asset { info: liquidated_asset, amount: liquidated_amount }, 
                 debt_total: Uint128::zero(),
                 max_borrow_LTV: Decimal::zero(), 
-                max_LTV: Decimal::zero()
+                max_LTV: Decimal::zero(),
+                pool_info: None,
+                pool_info_for_price: TWAPPoolInfo { pool_id: 0u64, base_asset_denom: String::from("None"), quote_asset_denom: String::from("None") }
             }
     ];
 
@@ -2471,7 +2611,7 @@ pub fn update_position_claims(
     let cAsset_ratios = get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config.clone())?;
 
     //Get the debt cap 
-    let debt_cap = get_asset_liquidity( querier, config, basket.clone().debt_pool_ids, basket.clone().credit_asset.info )? * basket.clone().debt_liquidity_multiplier_for_caps;
+    let debt_cap = get_asset_liquidity( querier, config, basket.clone().credit_pool_ids, basket.clone().credit_asset.info )? * basket.clone().liquidity_multiplier_for_debt_caps;
 
     let mut per_asset_debt_caps = vec![];
 

@@ -20,6 +20,7 @@ pub struct Config {
     pub osmosis_proxy: Option<Addr>,
     pub debt_auction: Option<Addr>,
     pub liq_fee: Decimal, //Enter as percent, 0.02
+    pub twap_timeframe: u64, //in days
     pub oracle_time_limit: u64, //in seconds until oracle failure is accepted. Think of it as how many blocks you allow the oracle to fail for.
     //This needs to be large enough so that USDC positions are profitable to liquidate, 1-2% of debt value needs to be more than gas fees assuming ~98% LTV.
     pub debt_minimum: Uint128, //Debt minimum value per position. 

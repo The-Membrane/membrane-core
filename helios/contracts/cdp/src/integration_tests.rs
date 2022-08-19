@@ -9,7 +9,7 @@ mod tests {
     use membrane::liq_queue::{ LiquidatibleResponse as LQ_LiquidatibleResponse};
     use membrane::stability_pool::{ LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
     use membrane::osmosis_proxy::{ GetDenomResponse };
-    use membrane::types::{AssetInfo, Asset, cAsset, LiqAsset};
+    use membrane::types::{AssetInfo, Asset, cAsset, LiqAsset, TWAPPoolInfo};
 
     
     use osmo_bindings::{ SpotPriceResponse, PoolStateResponse };
@@ -1062,6 +1062,12 @@ mod tests {
                         debt_total: Uint128::zero(),
                         max_borrow_LTV: Decimal::percent(50),
                         max_LTV: Decimal::percent(70),
+                        pool_info: None,
+                        pool_info_for_price: TWAPPoolInfo { 
+                            pool_id: 0u64, 
+                            base_asset_denom: String::from("None"), 
+                            quote_asset_denom: String::from("None") 
+                        },
                         
                     }]),
                 credit_interest: Some(Decimal::percent(1)),
@@ -1077,6 +1083,14 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
+                twap_timeframe: 90u64,
+                credit_asset_twap_price_source: Some( TWAPPoolInfo { 
+                    pool_id: 0u64, 
+                    base_asset_denom: String::from("None"), 
+                    quote_asset_denom: String::from("None") 
+                } ),
+                credit_pool_ids: None,
+                liquidity_multiplier_for_debt_caps: None,
         };
 
         
@@ -1106,7 +1120,7 @@ mod tests {
         use super::*;
         use cosmwasm_std::BlockInfo;
         use cw20::Cw20ReceiveMsg;
-        use membrane::{positions::{ExecuteMsg, ConfigResponse, PropResponse, PositionResponse, BasketResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, PositionsResponse, Cw20HookMsg}, types::{UserInfo, InsolventPosition, PositionUserInfo}};
+        use membrane::{positions::{ExecuteMsg, ConfigResponse, PropResponse, PositionResponse, BasketResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, PositionsResponse, Cw20HookMsg}, types::{UserInfo, InsolventPosition, PositionUserInfo, TWAPPoolInfo}};
 
         #[test]
         fn withdrawal() {
@@ -1130,6 +1144,12 @@ mod tests {
                     debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
+                    pool_info: None,
+                    pool_info_for_price:  TWAPPoolInfo { 
+                        pool_id: 0u64, 
+                        base_asset_denom: String::from("None"), 
+                        quote_asset_denom: String::from("None") 
+                    },
                 } ), 
                 owner: None, 
                 credit_interest: None, 
@@ -1139,6 +1159,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: Some( Decimal::percent(10) ),
                 desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1272,6 +1293,12 @@ mod tests {
                     debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
+                    pool_info: None,
+                    pool_info_for_price:  TWAPPoolInfo { 
+                        pool_id: 0u64, 
+                        base_asset_denom: String::from("None"), 
+                        quote_asset_denom: String::from("None") 
+                    },
                 } ), 
                 owner: None, 
                 credit_interest: None, 
@@ -1281,6 +1308,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: Some( Decimal::percent(10) ),
                 desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1338,6 +1366,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1469,7 +1498,8 @@ mod tests {
                 pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: None,
                 base_interest_rate: Some( Decimal::percent(10) ),
-                desired_debt_cap_util: None, 
+                desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None, 
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1629,7 +1659,8 @@ mod tests {
                 pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None, 
+                desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None, 
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1796,6 +1827,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: Some( Decimal::percent(10) ),
                 desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1888,7 +1920,8 @@ mod tests {
                 pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None, 
+                desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None, 
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1993,6 +2026,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2084,6 +2118,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2167,6 +2202,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2257,6 +2293,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2354,6 +2391,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2453,6 +2491,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2551,6 +2590,12 @@ mod tests {
                     debt_total: Uint128::zero(),
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
+                    pool_info: None,
+                    pool_info_for_price:  TWAPPoolInfo { 
+                        pool_id: 0u64, 
+                        base_asset_denom: String::from("None"), 
+                        quote_asset_denom: String::from("None") 
+                    },
                 } ), 
                 owner: None, 
                 credit_interest: None, 
@@ -2560,6 +2605,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2678,6 +2724,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2769,6 +2816,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2876,6 +2924,12 @@ mod tests {
                         debt_total: Uint128::zero(),
                         max_borrow_LTV: Decimal::percent(40),
                         max_LTV: Decimal::percent(60),
+                        pool_info: None,
+                        pool_info_for_price:  TWAPPoolInfo { 
+                            pool_id: 0u64, 
+                            base_asset_denom: String::from("None"), 
+                            quote_asset_denom: String::from("None") 
+                        },
                         
                     }
                  ), 
@@ -2887,6 +2941,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2964,6 +3019,12 @@ mod tests {
                         debt_total: Uint128::zero(),
                         max_borrow_LTV: Decimal::percent(40),
                         max_LTV: Decimal::percent(60),
+                        pool_info: None,
+                        pool_info_for_price:  TWAPPoolInfo { 
+                            pool_id: 0u64, 
+                            base_asset_denom: String::from("None"), 
+                            quote_asset_denom: String::from("None") 
+                        },
                         
                     }
                  ), 
@@ -2975,6 +3036,7 @@ mod tests {
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3053,6 +3115,12 @@ mod tests {
                         debt_total: Uint128::zero(),
                         max_borrow_LTV: Decimal::percent(40),
                         max_LTV: Decimal::percent(60),
+                        pool_info: None,
+                        pool_info_for_price:  TWAPPoolInfo { 
+                            pool_id: 0u64, 
+                            base_asset_denom: String::from("None"), 
+                            quote_asset_denom: String::from("None") 
+                        },
                         
                     }
                  ), 
@@ -3064,6 +3132,7 @@ mod tests {
                 collateral_supply_caps: Some( vec![ Decimal::percent(99), Decimal::percent(100) ]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();

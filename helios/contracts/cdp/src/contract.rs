@@ -14,7 +14,7 @@ use osmo_bindings::{ SpotPriceResponse, OsmosisMsg, FullDenomResponse, OsmosisQu
 
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
 use membrane::positions::{ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, PositionResponse, PositionsResponse, BasketResponse, ConfigResponse, PropResponse, CallbackMsg};
-use membrane::types::{ AssetInfo, Asset, cAsset, Basket, Position, LiqAsset, SellWallDistribution, UserInfo };
+use membrane::types::{ AssetInfo, Asset, cAsset, Basket, Position, LiqAsset, SellWallDistribution, UserInfo, TWAPPoolInfo };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, GetDenomResponse };
 use membrane::debt_auction::{ ExecuteMsg as AuctionExecuteMsg };
 
@@ -55,6 +55,7 @@ pub fn instantiate(
         debt_auction: None,    
         oracle_time_limit: msg.oracle_time_limit,
         debt_minimum: msg.debt_minimum,
+        twap_timeframe: msg.twap_timeframe,
     };
     
     //Set optional config parameters
@@ -167,6 +168,9 @@ pub fn instantiate(
                 msg.collateral_supply_caps,
                 msg.base_interest_rate,
                 msg.desired_debt_cap_util,
+                msg.credit_pool_ids.unwrap_or_default(),
+                msg.credit_asset_twap_price_source.unwrap_or(return Err( ContractError::CustomError { val: String::from("No credit TWAP price source added when creating basket") } )),
+                msg.liquidity_multiplier_for_debt_caps,
                 true,
             )?;
             
@@ -192,8 +196,8 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig { owner, stability_pool, dex_router, osmosis_proxy, debt_auction, liq_fee_collector, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit } => {
-            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, liq_fee_collector, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit )
+        ExecuteMsg::UpdateConfig { owner, stability_pool, dex_router, osmosis_proxy, debt_auction, liq_fee_collector, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit , twap_timeframe} => {
+            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, liq_fee_collector, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit, twap_timeframe )
         },
         ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ assets, position_owner, position_id, basket_id} => {
@@ -228,8 +232,9 @@ pub fn execute(
             liq_repay(deps, env, info, credit_asset)
         }
         ExecuteMsg::EditAdmin { owner } => edit_contract_owner(deps, info, owner),
-        ExecuteMsg::EditBasket {basket_id,added_cAsset,owner,credit_interest, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util } => edit_basket(deps, info, basket_id, added_cAsset, owner, credit_interest, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util ),
-        ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, credit_interest, collateral_supply_caps, base_interest_rate, desired_debt_cap_util } => create_basket( deps, info, env, owner, collateral_types, credit_asset, credit_price, credit_interest, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, false ),
+        ExecuteMsg::EditcAsset { basket_id, asset, max_borrow_LTV, max_LTV, pool_info_for_price } => edit_cAsset(deps, info, basket_id, asset, max_borrow_LTV, max_LTV, pool_info_for_price),
+        ExecuteMsg::EditBasket { basket_id, added_cAsset, owner, credit_interest, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source } => edit_basket(deps, info, basket_id, added_cAsset, owner, credit_interest, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source ),
+        ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, credit_interest, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source, credit_pool_ids, liquidity_multiplier_for_debt_caps } => create_basket( deps, info, env, owner, collateral_types, credit_asset, credit_price, credit_interest, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_pool_ids, credit_asset_twap_price_source, liquidity_multiplier_for_debt_caps, false ),
         ExecuteMsg::Liquidate { basket_id, position_id, position_owner } => liquidate(deps.storage, deps.api, deps.querier, env, info, basket_id, position_id, position_owner),
         ExecuteMsg::MintRevenue { basket_id, send_to, repay_for, amount } => mint_revenue(deps, info, env, basket_id, send_to, repay_for, amount),
         ExecuteMsg::Callback( msg ) => {
@@ -240,6 +245,68 @@ pub fn execute(
             }
         },     
     }
+}
+
+fn edit_cAsset(
+    deps: DepsMut,
+    info: MessageInfo,
+    basket_id: Uint128,
+    asset: AssetInfo,
+    max_borrow_LTV: Option<Decimal>,
+    max_LTV: Option<Decimal>,
+    pool_info_for_price: Option<TWAPPoolInfo>,
+) -> Result<Response, ContractError>{
+    let config = CONFIG.load( deps.storage )?;
+
+    //Assert Authority
+    if info.sender != config.owner { return Err( ContractError::Unauthorized {  } ) }
+
+    let basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
+        Err(_) => { return Err(ContractError::NonExistentBasket {  })},
+        Ok( basket ) => { basket },
+    };
+
+    let mut attrs = vec![ 
+        attr("method", "edit_cAsset"),
+        attr("basket", basket_id.clone().to_string()) ];
+
+    match basket.clone().collateral_types.into_iter().find(|cAsset| cAsset.asset.info.equal(&asset)){
+
+        Some( mut asset ) => {
+            attrs.push( attr("asset", asset.clone().asset.info.to_string() ) );
+
+            match max_LTV{
+                Some( LTV ) => {
+                    
+                    asset.max_LTV = LTV.clone();
+                    attrs.push( attr("max_LTV", LTV.to_string() ) );
+                    
+                },
+                None => {},
+            }
+            match max_borrow_LTV{
+                Some( LTV ) => {
+                    if LTV < Decimal::percent(100) && LTV < asset.max_LTV {
+                        asset.max_borrow_LTV = LTV.clone();
+                        attrs.push( attr("max_borrow_LTV", LTV.to_string() ) );
+                    }
+                },
+                None => {},
+            }
+            match pool_info_for_price{
+                Some( pool_info ) => {
+                    
+                    asset.pool_info_for_price = pool_info.clone();
+                    attrs.push( attr("pool_info_for_price", pool_info.to_string() ) );
+                    
+                },
+                None => {},
+            }
+        },
+        None => { return Err( ContractError::CustomError { val: format!("Collateral type doesn't exist in basket {}", basket_id.clone().to_string()) } ) }
+    };
+
+    Ok( Response::new().add_attributes(attrs) )
 }
 
 fn update_config(
@@ -255,6 +322,7 @@ fn update_config(
     liq_fee: Option<Decimal>,
     debt_minimum: Option<Uint128>,
     oracle_time_limit: Option<u64>,
+    twap_timeframe: Option<u64>,
 ) -> Result<Response, ContractError>{
 
     let mut config = CONFIG.load( deps.storage )?;
@@ -344,6 +412,13 @@ fn update_config(
         },
         None => {},
     }
+    match twap_timeframe {
+        Some( twap_timeframe ) => { 
+            config.twap_timeframe = twap_timeframe.clone();
+            attrs.push( attr("new_oracle_time_limit", twap_timeframe.to_string()) );
+        },
+        None => {},
+    }
 
     //Save new Config
     CONFIG.save(deps.storage, &config)?;
@@ -375,7 +450,7 @@ fn check_for_bad_debt(
 
     let config: Config = CONFIG.load( deps.storage )?;
 
-    let basket: Basket= match BASKETS.load(deps.storage, basket_id.to_string()) {
+    let basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
         Err(_) => { return Err(ContractError::NonExistentBasket {  })},
         Ok( basket ) => { basket },
     };

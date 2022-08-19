@@ -966,4 +966,106 @@ mod tests {
         assert_eq!(resp.len().to_string(), String::from("2"));   
 
     }
+
+    #[test]
+    fn edit_cAsset() {
+
+        let mut deps     = mock_dependencies_with_balance(&coins(2, "token"));
+        
+        let msg = InstantiateMsg {
+                owner: Some("sender88".to_string()),
+                credit_asset: Some(Asset {
+                    info: AssetInfo::NativeToken { denom: "credit".to_string() },
+                    amount: Uint128::from(0u128),
+                }),
+                credit_price: Some(Decimal::one()),
+                collateral_types: Some(vec![
+                cAsset {
+                    asset:
+                        Asset {
+                            info: AssetInfo::NativeToken { denom: "debit".to_string() },
+                            amount: Uint128::from(0u128),
+                        }, 
+                    debt_total: Uint128::zero(),
+                    max_borrow_LTV: Decimal::percent(50),
+                    max_LTV: Decimal::percent(90),
+                    pool_info: None,
+                    pool_info_for_price:  TWAPPoolInfo { 
+                        pool_id: 0u64, 
+                        base_asset_denom: String::from("None"), 
+                        quote_asset_denom: String::from("None") 
+                    },
+                       } 
+                ]),
+                credit_interest: Some(Decimal::percent(1)),
+                liq_fee: Decimal::percent(1),
+                stability_pool: Some("stability_pool".to_string()),
+                dex_router: Some("router".to_string()),
+                liq_fee_collector: Some("fee_collector".to_string()),
+                interest_revenue_collector: None,
+                osmosis_proxy: Some("osmosis_proxy".to_string()),
+                debt_auction: Some( "debt_auction".to_string()),
+                oracle_time_limit: 60u64,
+                debt_minimum: Uint128::new(100u128),
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                twap_timeframe: 90u64,
+                credit_asset_twap_price_source: Some( TWAPPoolInfo { 
+                    pool_id: 0u64, 
+                    base_asset_denom: String::from("None"), 
+                    quote_asset_denom: String::from("None") 
+                } ),
+                credit_pool_ids: None,
+                liquidity_multiplier_for_debt_caps: None,
+        };
+
+        //Instantiating contract
+        let v_info = mock_info("sender88", &coins(1, "credit"));
+        let _res = instantiate(deps.as_mut(), mock_env(), v_info.clone(), msg.clone()).unwrap();
+        
+        //Invalid Basket
+        let edit_msg = ExecuteMsg::EditcAsset { 
+            basket_id: Uint128::new(0u128), 
+            asset: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+            max_borrow_LTV: None, 
+            max_LTV: None, 
+            pool_info_for_price: None, 
+        };
+
+        let info = mock_info("sender88", &[]);
+        let _err = execute(deps.as_mut(), mock_env(), info.clone(), edit_msg).unwrap_err();
+
+        //Invalid Asset
+        let edit_msg = ExecuteMsg::EditcAsset { 
+            basket_id: Uint128::new(1u128), 
+            asset: AssetInfo::NativeToken { denom: "not_debit".to_string() }, 
+            max_borrow_LTV: None, 
+            max_LTV: None, 
+            pool_info_for_price: None, 
+        };
+
+        let info = mock_info("sender88", &[]);
+        let _err = execute(deps.as_mut(), mock_env(), info.clone(), edit_msg).unwrap_err();
+
+        //Successfull edit
+        let edit_msg = ExecuteMsg::EditcAsset { 
+            basket_id: Uint128::new(1u128), 
+            asset: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+            max_borrow_LTV: Some( Decimal::percent(99) ), 
+            max_LTV: Some( Decimal::percent(100) ), 
+            pool_info_for_price: None, 
+        };
+
+        let info = mock_info("sender88", &[]);
+        let _res = execute(deps.as_mut(), mock_env(), info.clone(), edit_msg).unwrap();
+       
+        //Query Basket
+        let res = query( deps.as_ref(), mock_env(), QueryMsg::GetBasket { basket_id: Uint128::new(1u128) })
+        .unwrap();
+
+        let resp: BasketResponse = from_binary(&res).unwrap();
+        assert_eq!( resp.collateral_types[0].max_borrow_LTV,  Decimal::percent(99) );
+        assert_eq!( resp.collateral_types[0].max_LTV,  Decimal::percent(100) );
+    }
 }

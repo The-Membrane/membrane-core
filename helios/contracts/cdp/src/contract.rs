@@ -155,7 +155,8 @@ pub fn instantiate(
                 check = false;
             }
         }
-        if( check ) && msg.credit_asset.is_some(){
+        if( check ) && msg.credit_asset.is_some() && msg.credit_asset_twap_price_source.is_some(){
+            
             create_res = create_basket(
                 deps,
                 info,
@@ -169,7 +170,7 @@ pub fn instantiate(
                 msg.base_interest_rate,
                 msg.desired_debt_cap_util,
                 msg.credit_pool_ids.unwrap_or_default(),
-                msg.credit_asset_twap_price_source.unwrap_or(return Err( ContractError::CustomError { val: String::from("No credit TWAP price source added when creating basket") } )),
+                msg.credit_asset_twap_price_source.unwrap(),
                 msg.liquidity_multiplier_for_debt_caps,
                 true,
             )?;
@@ -261,7 +262,7 @@ fn edit_cAsset(
     //Assert Authority
     if info.sender != config.owner { return Err( ContractError::Unauthorized {  } ) }
 
-    let basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
+    let mut basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
         Err(_) => { return Err(ContractError::NonExistentBasket {  })},
         Ok( basket ) => { basket },
     };
@@ -269,6 +270,8 @@ fn edit_cAsset(
     let mut attrs = vec![ 
         attr("method", "edit_cAsset"),
         attr("basket", basket_id.clone().to_string()) ];
+
+    let mut new_asset: cAsset;
 
     match basket.clone().collateral_types.into_iter().find(|cAsset| cAsset.asset.info.equal(&asset)){
 
@@ -302,9 +305,19 @@ fn edit_cAsset(
                 },
                 None => {},
             }
+            new_asset = asset;
         },
         None => { return Err( ContractError::CustomError { val: format!("Collateral type doesn't exist in basket {}", basket_id.clone().to_string()) } ) }
     };
+    //Set and Save new basket
+    basket.collateral_types = basket.clone().collateral_types
+        .into_iter()
+        .filter(|asset| !asset.asset.info.equal(&new_asset.asset.info))
+        .collect::<Vec<cAsset>>();
+
+    basket.collateral_types.push( new_asset );
+
+    BASKETS.save( deps.storage, basket_id.to_string(), &basket )?;
 
     Ok( Response::new().add_attributes(attrs) )
 }

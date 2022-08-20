@@ -12,7 +12,7 @@ mod tests {
     use membrane::types::{AssetInfo, Asset, cAsset, LiqAsset, TWAPPoolInfo};
 
     
-    use osmo_bindings::{ SpotPriceResponse, PoolStateResponse };
+    use osmo_bindings::{ SpotPriceResponse, PoolStateResponse, ArithmeticTwapToNowResponse };
     use cosmwasm_std::{Addr, Coin, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr, StdError };
     use cw_multi_test::{App, AppBuilder, Contract, ContractWrapper, Executor, BankKeeper};
     use schemars::JsonSchema;
@@ -618,6 +618,12 @@ mod tests {
             creator_address: String,
             subdenom: String,
         },
+        ArithmeticTwapToNow {
+            id: u64,
+            quote_asset_denom: String,
+            base_asset_denom: String,
+            start_time: i64,
+        },
     }
 
     pub fn osmosis_proxy_contract()-> Box<dyn Contract<Empty>> {
@@ -665,6 +671,16 @@ mod tests {
                             })?
                         ),
                     Osmo_MockQueryMsg::PoolState { id } => 
+                    if id == 99u64 {
+                        Ok(
+                            to_binary(&PoolStateResponse {
+                                assets: vec![ coin( 100_000_000 , "base" ), coin( 100_000_000 , "quote" ) ],
+                                shares: coin( 100_000_000, "lp_denom" ),
+                            }
+
+                            )?
+                        )
+                    } else {
                         Ok(
                             to_binary(&PoolStateResponse {
                                 assets: vec![ coin( 49_999 , "credit_fulldenom" ) ],
@@ -672,7 +688,8 @@ mod tests {
                             }
 
                             )?
-                        ),
+                        )
+                    },
                     Osmo_MockQueryMsg::GetDenom { 
                         creator_address, 
                         subdenom 
@@ -682,6 +699,30 @@ mod tests {
                                 denom: String::from( "credit_fulldenom" ),
                             })?
                         )
+                    },
+                    Osmo_MockQueryMsg::ArithmeticTwapToNow { 
+                        id, 
+                        quote_asset_denom, 
+                        base_asset_denom, 
+                        start_time 
+                    } => {
+                        if base_asset_denom == String::from("base") {
+
+                            Ok(
+                                to_binary(&ArithmeticTwapToNowResponse {
+                                    twap: Decimal::percent(100),
+                                })?
+                            )
+
+                        } else {
+
+                            Ok(
+                                to_binary(&ArithmeticTwapToNowResponse {
+                                    twap: Decimal::percent(200),
+                                })?
+                            )
+
+                        }
                     }
                 }},
         );
@@ -729,15 +770,27 @@ mod tests {
                                 price: Decimal::one(),
                             })?
                         ),
-                    Osmo_MockQueryMsg::PoolState { id } => 
-                        Ok(
-                            to_binary(&PoolStateResponse {
-                                assets: vec![ coin( 5_000_000_000_000 , "credit_fulldenom" ) ],
-                                shares: coin( 0, "shares" ),
-                            }
-
-                            )?
-                        ),
+                    Osmo_MockQueryMsg::PoolState { id } => {
+                        if id == 99u64 {
+                            Ok(
+                                to_binary(&PoolStateResponse {
+                                    assets: vec![ coin( 100_000_000 , "base" ), coin( 100_000_000 , "quote" ) ],
+                                    shares: coin( 100_000_000, "lp_denom" ),
+                                }
+    
+                                )?
+                            )
+                        } else {
+                            Ok(
+                                to_binary(&PoolStateResponse {
+                                    assets: vec![ coin( 5_000_000_000_000 , "credit_fulldenom" ) ],
+                                    shares: coin( 0, "shares" ),
+                                }
+    
+                                )?
+                            )
+                        }
+                    },
                     Osmo_MockQueryMsg::GetDenom { 
                         creator_address, 
                         subdenom 
@@ -747,6 +800,30 @@ mod tests {
                                 denom: String::from( "credit_fulldenom" ),
                             })?
                         )
+                    },
+                    Osmo_MockQueryMsg::ArithmeticTwapToNow { 
+                        id, 
+                        quote_asset_denom, 
+                        base_asset_denom, 
+                        start_time 
+                    } => {
+                        if base_asset_denom == String::from("base") {
+
+                            Ok(
+                                to_binary(&ArithmeticTwapToNowResponse {
+                                    twap: Decimal::percent(100),
+                                })?
+                            )
+
+                        } else {
+
+                            Ok(
+                                to_binary(&ArithmeticTwapToNowResponse {
+                                    twap: Decimal::percent(200),
+                                })?
+                            )
+
+                        }
                     }
                 }},
         );
@@ -922,6 +999,8 @@ mod tests {
                 bank.init_balance(storage, &Addr::unchecked("little_bank"),  vec![coin(1_000, "debit")])
                 .unwrap(); 
                 bank.init_balance(storage, &Addr::unchecked("coin_God"), vec![coin(2_250_000_000_000, "credit_fulldenom")])
+                .unwrap();
+                bank.init_balance(storage, &Addr::unchecked("lp_tester"), vec![coin(100_000_000, "lp_denom")])
                 .unwrap();
 
                 router
@@ -1120,7 +1199,7 @@ mod tests {
         use super::*;
         use cosmwasm_std::BlockInfo;
         use cw20::Cw20ReceiveMsg;
-        use membrane::{positions::{ExecuteMsg, ConfigResponse, PropResponse, PositionResponse, BasketResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, PositionsResponse, Cw20HookMsg}, types::{UserInfo, InsolventPosition, PositionUserInfo, TWAPPoolInfo}};
+        use membrane::{positions::{ExecuteMsg, ConfigResponse, PropResponse, PositionResponse, BasketResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, PositionsResponse, Cw20HookMsg}, types::{UserInfo, InsolventPosition, PositionUserInfo, TWAPPoolInfo, PoolInfo}};
 
         #[test]
         fn withdrawal() {
@@ -3182,6 +3261,113 @@ mod tests {
                         ])
                     .unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
+           
+        }
+
+        #[test]
+        fn LP_oracle() {
+
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
+
+            let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
+            let sp_addr = res.stability_pool;
+            let router_addr = res.dex_router;
+            let fee_collector = res.liq_fee_collector;
+            
+            
+            //Add LP to the initial basket
+            let msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: Some( 
+                    cAsset {
+                        asset:
+                            Asset {
+                                info: AssetInfo::NativeToken { denom: "lp_denom".to_string() },
+                                amount: Uint128::zero(),
+                            }, 
+                        debt_total: Uint128::zero(),
+                        max_borrow_LTV: Decimal::percent(40),
+                        max_LTV: Decimal::percent(60),
+                        pool_info: Some( PoolInfo {
+                            pool_id: 99u64,
+                            asset_denoms: vec![(
+                                AssetInfo::NativeToken { denom: String::from("base") },
+                                TWAPPoolInfo { 
+                                    pool_id: 0u64, 
+                                    base_asset_denom: String::from("base"), 
+                                    quote_asset_denom: String::from("asset") 
+                                }), (
+                                    AssetInfo::NativeToken { denom: String::from("quote") },
+                                    TWAPPoolInfo { 
+                                        pool_id: 3u64, 
+                                        base_asset_denom: String::from("quote"), 
+                                        quote_asset_denom: String::from("asset") 
+                                    })
+                                ],
+                        } ),
+                        pool_info_for_price: TWAPPoolInfo { 
+                            pool_id: 0u64, 
+                            base_asset_denom: String::from("None"), 
+                            quote_asset_denom: String::from("None") 
+                        },
+                        
+                    }
+                 ), 
+                owner: None, 
+                credit_interest: None, 
+                liq_queue: Some( lq_contract.addr().to_string() ),
+                liquidity_multiplier: Some( Decimal::percent( 500 ) ),
+                pool_ids: Some( vec![ 1u64 ] ),
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Initial Deposit
+            let assets: Vec<AssetInfo> = vec![
+                AssetInfo::NativeToken { denom: "lp_denom".to_string() },
+            ];
+
+            let msg = ExecuteMsg::Deposit { 
+                assets,
+                position_owner: Some( "lp_tester".to_string() ),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg, 
+                    vec![
+                        Coin { 
+                            denom: "lp_denom".to_string(),
+                            amount: Uint128::from(100_000u128),
+                            },
+                        ])
+                    .unwrap();
+            app.execute(Addr::unchecked("lp_tester"), cosmos_msg).unwrap();
+
+           //The value of the position should be 800_000
+           //So at 40% borrow LTV I should be able to borrow 320_000
+           //We'll error at the edge first to confirm
+           let msg = ExecuteMsg::IncreaseDebt { 
+                basket_id: Uint128::from(1u128), 
+                position_id: Uint128::from(1u128), 
+                amount: Uint128::from(120_001u128), 
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("lp_tester"), cosmos_msg).unwrap_err();
+            
+            //Successful Increase
+            let msg = ExecuteMsg::IncreaseDebt { 
+                basket_id: Uint128::from(1u128), 
+                position_id: Uint128::from(1u128), 
+                amount: Uint128::from(120_000u128), 
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("lp_tester"), cosmos_msg).unwrap();
            
         }
     }

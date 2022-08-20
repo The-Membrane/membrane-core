@@ -1455,7 +1455,7 @@ pub fn create_basket(
                 let pool_info = asset.pool_info.clone().unwrap();
 
                 //Query share asset amount 
-                let pool_assets = match deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
+                let pool_state = match deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
                     WasmQuery::Smart { 
                         contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
                         msg: match to_binary(&OsmoQueryMsg::PoolState { 
@@ -1468,13 +1468,16 @@ pub fn create_basket(
                     )){
                         Ok( resp ) => resp, 
                         Err( err ) => return Err( ContractError::CustomError { val: err.to_string() } ),
-                    }
-                    .assets;
+                    };
+                let pool_assets = pool_state.assets;
+
+                //Set correct shares denom
+                new_assets[i].asset.info = AssetInfo::NativeToken { denom: pool_state.shares.denom };
                 
                 //Assert asset order of pool_assets in PoolInfo object    
                 for ( i, asset) in pool_assets.iter().enumerate(){
                     if asset.denom != pool_info.asset_denoms[i].0.to_string() {
-                        return Err( ContractError::CustomError { val: format!("cAsset #{}: PoolInfo.asset_denoms must be in the order of osmo-bindings::PoolStateResponse.assets {:?} ", i, pool_assets) } )
+                        return Err( ContractError::CustomError { val: format!("cAsset #{}: PoolInfo.asset_denoms must be in the order of osmo-bindings::PoolStateResponse.assets {:?} ", i+1, pool_assets) } )
                     }
                     //Assert NativeToken status
                     match pool_info.asset_denoms[i].clone().0 {
@@ -1622,7 +1625,7 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
             let pool_info = added_cAsset.clone().unwrap().pool_info.clone().unwrap();
 
             //Query share asset amount 
-            let pool_assets = match deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
+            let pool_state = match deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
                 WasmQuery::Smart { 
                     contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
                     msg: match to_binary(&OsmoQueryMsg::PoolState { 
@@ -1635,13 +1638,16 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                 )){
                     Ok( resp ) => resp, 
                     Err( err ) => return Err( ContractError::CustomError { val: err.to_string() } ),
-                }
-                .assets;
-            
+                };
+            let pool_assets = pool_state.assets;
+
+            //Set correct shares denom
+            new_cAsset.asset.info = AssetInfo::NativeToken { denom: pool_state.shares.denom };
+                        
             //Assert asset order of pool_assets in PoolInfo object    
             for ( i, asset) in pool_assets.iter().enumerate(){
                 if asset.denom != pool_info.asset_denoms[i].0.to_string() {
-                    return Err( ContractError::CustomError { val: format!("cAsset #{}: PoolInfo.asset_denoms must be in the order of osmo-bindings::PoolStateResponse.assets {:?} ", i, pool_assets) } )
+                    return Err( ContractError::CustomError { val: format!("cAsset #{}: PoolInfo.asset_denoms must be in the order of osmo-bindings::PoolStateResponse.assets {:?} ", i+1, pool_assets) } )
                 }
             }
 
@@ -2595,7 +2601,6 @@ pub fn get_asset_values(
                     ))?
                     .shares_value(cAsset.asset.amount);
                 
-
                 //Calculate value of cAsset
                 let mut value = Decimal::zero();
                 for (i, price) in asset_prices.into_iter().enumerate(){
@@ -2984,18 +2989,19 @@ pub fn update_position_claims(
  
             Some( mut basket ) => {
                  
-                for ( index, cAsset ) in collateral_assets.iter().enumerate(){
+                for (index, cAsset) in collateral_assets.iter().enumerate(){
  
                     basket.collateral_types = basket.clone().collateral_types
                          .into_iter()
-                         .map(| mut asset | {
+                         .enumerate()
+                         .map(| (i, mut asset) | {
                              //Add or subtract deposited amount to/from the correlated cAsset object
                              if asset.asset.info.equal(&cAsset.asset.info){
                                 if add_to_debt {               
                                     
                                     //Assert its not over the cap
                                     //IF the debt is adding to interest then we allow it to exceed the cap
-                                    if ( asset.debt_total + asset_debt[index] ) <= cAsset_caps[index] || interest_accrual{
+                                    if ( asset.debt_total + asset_debt[index] ) <= cAsset_caps[i] || interest_accrual{
                                         asset.debt_total += asset_debt[index];
                                     }else{
                                         over_cap = true;
@@ -3036,7 +3042,7 @@ pub fn update_position_claims(
                 assets += &format!("{}, ", asset);
         });
 
-        return Err( ContractError::CustomError { val: format!("This increase of debt sets [ {} ] assets above the protocol debt cap", assets) } )
+        return Err( ContractError::CustomError { val: format!("This increase of debt sets [ {:?} ] assets above the protocol debt cap", assets) } )
     }
  
      Ok(())

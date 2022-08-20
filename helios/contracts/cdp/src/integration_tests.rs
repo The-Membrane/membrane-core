@@ -2591,7 +2591,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
-                    pool_info_for_price:  TWAPPoolInfo { 
+                    pool_info_for_price: TWAPPoolInfo { 
                         pool_id: 0u64, 
                         base_asset_denom: String::from("None"), 
                         quote_asset_denom: String::from("None") 

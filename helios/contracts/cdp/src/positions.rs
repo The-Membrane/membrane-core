@@ -6,11 +6,11 @@ use cosmwasm_bignumber::Uint256;
 use cosmwasm_std::{MessageInfo, attr, Response, DepsMut, Uint128, CosmosMsg, Decimal, Storage, Api, Coin, to_binary, QueryRequest, WasmQuery, QuerierWrapper, StdResult, StdError, Addr, WasmMsg, BankMsg, SubMsg, coin, Env};
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
 use cw20::{Cw20ExecuteMsg, BalanceResponse, Cw20QueryMsg};
-use membrane::types::TWAPPoolInfo;
 use osmo_bindings::{ OsmosisQuery, SpotPriceResponse, PoolStateResponse, OsmosisMsg, ArithmeticTwapToNowResponse };
+use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
-use membrane::{types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistribution, LiqAsset, UserInfo, PriceInfo, PositionUserInfo}, positions::CallbackMsg};
-use membrane::positions::ExecuteMsg;
+use membrane::types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistribution, LiqAsset, UserInfo, PriceInfo, PositionUserInfo, TWAPPoolInfo};
+use membrane::positions::{ExecuteMsg, CallbackMsg};
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse };
 use membrane::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
@@ -1160,7 +1160,9 @@ pub fn liquidate(
 
             //Go straight to sell wall
             let ( sell_wall_msgs, collateral_distributions ) = sell_wall( 
+                env.clone(),
                 storage, 
+                querier,
                 target_position.clone().collateral_assets, 
                 cAsset_ratios.clone(), 
                 sell_wall_repayment_amount, 
@@ -1214,7 +1216,9 @@ pub fn liquidate(
 
                //Sell wall remaining
                let ( sell_wall_msgs, distributions ) = sell_wall( 
+                env.clone(),
                 storage, 
+                querier,
                 target_position.clone().collateral_assets, 
                 cAsset_ratios.clone(), 
                 sell_wall_repayment_amount, 
@@ -1319,7 +1323,9 @@ pub fn liquidate(
         //Sell wall credit_repay_amount
         //The other submessages were for the LQ and SP so we reassign the submessage variable
         let ( sell_wall_msgs, collateral_distributions ) = sell_wall( 
+            env.clone(),
             storage, 
+            querier,
             target_position.clone().collateral_assets, 
             cAsset_ratios.clone(), 
             credit_repay_amount, 
@@ -1431,25 +1437,54 @@ pub fn create_basket(
         return Err(ContractError::NotContractOwner {})
     }
 
-
-    let mut check = true;
+    let mut new_assets = collateral_types.clone();
     //Each cAsset has to initialize amount as 0
-    let new_cAssets: Vec<cAsset> = collateral_types
-        .into_iter()
-        .map(|mut asset| {
-            asset.asset.amount = Uint128::zero();
+    for (i, asset) in collateral_types.iter().enumerate(){
+        new_assets[i].asset.amount = Uint128::zero();
 
             if asset.max_borrow_LTV >= asset.max_LTV && asset.max_borrow_LTV >= Decimal::from_ratio( Uint128::new(100u128), Uint128::new(1u128)){
-                check = false;
+                return Err( ContractError::CustomError { val: "Max borrow LTV can't be greater or equal to max_LTV nor equal to 100".to_string() } )
+            }
+            //Make sure Token type addresses are valid
+            if let AssetInfo::Token { address } = asset.asset.info.clone() {
+                deps.api.addr_validate(&address.to_string() )?;
             }
 
-            asset
-        })
-        .collect::<Vec<cAsset>>();
+            //Query Pool State and Error if assets are out of order
+            if asset.pool_info.is_some() {
+                let pool_info = asset.pool_info.clone().unwrap();
 
-    if !check {
-        return Err( ContractError::CustomError { val: "Max borrow LTV can't be greater or equal to max_LTV nor equal to 100".to_string() } )
+                //Query share asset amount 
+                let pool_assets = match deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
+                    WasmQuery::Smart { 
+                        contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
+                        msg: match to_binary(&OsmoQueryMsg::PoolState { 
+                            id: pool_info.pool_id 
+                        }
+                        ){
+                            Ok( binary ) => { binary },
+                            Err( err ) => return Err( ContractError::CustomError { val: err.to_string() } )
+                        }}
+                    )){
+                        Ok( resp ) => resp, 
+                        Err( err ) => return Err( ContractError::CustomError { val: err.to_string() } ),
+                    }
+                    .assets;
+                
+                //Assert asset order of pool_assets in PoolInfo object    
+                for ( i, asset) in pool_assets.iter().enumerate(){
+                    if asset.denom != pool_info.asset_denoms[i].0.to_string() {
+                        return Err( ContractError::CustomError { val: format!("cAsset #{}: PoolInfo.asset_denoms must be in the order of osmo-bindings::PoolStateResponse.assets {:?} ", i, pool_assets) } )
+                    }
+                    //Assert NativeToken status
+                    match pool_info.asset_denoms[i].clone().0 {
+                        AssetInfo::NativeToken { denom: _ } => {},
+                        AssetInfo::Token { address: _ } => return Err( ContractError::CustomError { val: String::from("LPs must be NativeToken variants") } )
+                    }
+                }
+            }
     }
+
 
     let collateral_supply_caps = collateral_supply_caps.unwrap_or_else(|| vec![]);
     let base_interest_rate = base_interest_rate.unwrap_or_else(|| Decimal::percent(0));
@@ -1460,7 +1495,7 @@ pub fn create_basket(
         owner: valid_owner.clone(),
         basket_id: config.current_basket_id.clone(),
         current_position_id: Uint128::from(1u128),
-        collateral_types: new_cAssets,
+        collateral_types: new_assets,
         collateral_supply_caps,
         credit_asset: credit_asset.clone(),
         credit_price,
@@ -1557,6 +1592,77 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
         new_queue = Some(deps.api.addr_validate(&liq_queue.clone().unwrap())?);
     }
 
+    //Blank cAsset
+    //This never gets added unless its edited. Here due to uninitialized errors.
+    let mut new_cAsset = cAsset { 
+        asset: Asset { info: AssetInfo::NativeToken { denom: String::from("None") }, amount: Uint128::zero() }, 
+        debt_total: Uint128::zero(), 
+        max_borrow_LTV: Decimal::zero(), 
+        max_LTV: Decimal::zero(),
+        pool_info_for_price: TWAPPoolInfo { 
+            pool_id: 0u64, 
+            base_asset_denom: String::from("None"), 
+            quote_asset_denom: String::from("None") 
+        }, 
+        pool_info: None, 
+    };
+    
+    //cAsset check
+    if added_cAsset.is_some(){
+
+        let mut check = true;
+        //Each cAsset has to initialize amount as 0..
+        new_cAsset = added_cAsset.clone().unwrap();
+        new_cAsset.asset.amount = Uint128::zero();
+        new_cAsset.debt_total = Uint128::zero();
+
+        if added_cAsset.clone().unwrap().pool_info.is_some(){
+
+            //Query Pool State and Error if assets are out of order
+            let pool_info = added_cAsset.clone().unwrap().pool_info.clone().unwrap();
+
+            //Query share asset amount 
+            let pool_assets = match deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
+                WasmQuery::Smart { 
+                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
+                    msg: match to_binary(&OsmoQueryMsg::PoolState { 
+                        id: pool_info.pool_id 
+                    }
+                    ){
+                        Ok( binary ) => { binary },
+                        Err( err ) => return Err( ContractError::CustomError { val: err.to_string() } )
+                    }}
+                )){
+                    Ok( resp ) => resp, 
+                    Err( err ) => return Err( ContractError::CustomError { val: err.to_string() } ),
+                }
+                .assets;
+            
+            //Assert asset order of pool_assets in PoolInfo object    
+            for ( i, asset) in pool_assets.iter().enumerate(){
+                if asset.denom != pool_info.asset_denoms[i].0.to_string() {
+                    return Err( ContractError::CustomError { val: format!("cAsset #{}: PoolInfo.asset_denoms must be in the order of osmo-bindings::PoolStateResponse.assets {:?} ", i, pool_assets) } )
+                }
+            }
+
+        }
+
+        //..needs minimum viable LTV parameters
+        if new_cAsset.max_borrow_LTV >= new_cAsset.max_LTV || new_cAsset.max_borrow_LTV >= Decimal::from_ratio( Uint128::new(100u128), Uint128::new(1u128)){
+            check = false;
+        }       
+
+        if !check {
+            return Err( ContractError::CustomError { val: "Max borrow LTV can't be greater or equal to max_LTV nor equal to 100".to_string() } )
+        }
+        
+    }
+
+    
+    let mut attrs = vec![ 
+        attr("method", "edit_basket"),
+        attr("basket_id", basket_id),
+        ];
     BASKETS.update(deps.storage, basket_id.to_string(), |basket| -> Result<Basket, ContractError>   {
 
         match basket{
@@ -1566,47 +1672,44 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                     return Err(ContractError::Unauthorized {  })
                 }else{
                     if added_cAsset.is_some(){
-
-                        let mut check = true;
-                        //Each cAsset has to initialize amount as 0..
-                        let mut new_cAsset = added_cAsset.clone().unwrap();
-                        new_cAsset.asset.amount = Uint128::zero();
-                        new_cAsset.debt_total = Uint128::zero();
-
-                        //..needs minimum viable LTV parameters
-                        if new_cAsset.max_borrow_LTV >= new_cAsset.max_LTV || new_cAsset.max_borrow_LTV >= Decimal::from_ratio( Uint128::new(100u128), Uint128::new(1u128)){
-                            check = false;
-                        }       
-
-                        if !check {
-                            return Err( ContractError::CustomError { val: "Max borrow LTV can't be greater or equal to max_LTV nor equal to 100".to_string() } )
-                        }
-
-                        basket.collateral_types.push(added_cAsset.clone().unwrap());
+                        basket.collateral_types.push(new_cAsset.clone());
+                        attrs.push( attr("added_cAsset", new_cAsset.clone().asset.info.to_string()) );
                     }
                     if new_owner.is_some(){
                         basket.owner = new_owner.clone().unwrap();
+                        attrs.push( attr("new_owner", new_owner.clone().unwrap().to_string()) );
                     }
                     if credit_interest.is_some(){
                         basket.credit_interest = credit_interest.clone();
+                        attrs.push( attr("new_credit_interest", credit_interest.clone().unwrap().to_string()) );
                     }
                     if liq_queue.is_some(){
                         basket.liq_queue = new_queue.clone();
+                        attrs.push( attr("new_queue", new_queue.clone().unwrap().to_string()) );
                     }
                     if pool_ids.is_some(){
                         basket.credit_pool_ids = pool_ids.clone().unwrap();
+                        attrs.push( attr("new_pool_ids", String::from("Edited")) );
                     }
                     if liquidity_multiplier.is_some(){
                         basket.liquidity_multiplier_for_debt_caps = liquidity_multiplier.clone().unwrap();
+                        attrs.push( attr("new_liquidity_multiplier", liquidity_multiplier.clone().unwrap().to_string()) );
                     }
                     if collateral_supply_caps.is_some(){
                         basket.collateral_supply_caps = collateral_supply_caps.clone().unwrap();
+                        attrs.push( attr("new_collateral_supply_caps", String::from("Edited")) );
                     }
                     if base_interest_rate.is_some(){
                         basket.base_interest_rate = base_interest_rate.clone().unwrap();
+                        attrs.push( attr("new_base_interest_rate", base_interest_rate.clone().unwrap().to_string()) );                        
                     }
                     if desired_debt_cap_util.is_some(){
                         basket.desired_debt_cap_util = desired_debt_cap_util.clone().unwrap();
+                        attrs.push( attr("new_desired_debt_cap_util", desired_debt_cap_util.clone().unwrap().to_string()) );
+                    }
+                    if credit_asset_twap_price_source.is_some(){
+                        basket.credit_asset_twap_price_source = credit_asset_twap_price_source.clone().unwrap();
+                        attrs.push( attr("new_credit_asset_twap_price_source", credit_asset_twap_price_source.clone().unwrap().to_string()) );
                     }
                 }
 
@@ -1617,20 +1720,6 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
     })?;
 
 let res = Response::new();
-let mut attrs = vec![];
-
-if added_cAsset.is_some(){
-    attrs.push(("asset", added_cAsset.unwrap().asset.info.to_string()));
-}
-if new_owner.is_some(){
-    attrs.push(("owner", new_owner.unwrap().to_string()));
-}
-if credit_interest.is_some(){
-    attrs.push(("credit_interest rate", credit_interest.unwrap().to_string()));
-}
-if liq_queue.is_some(){
-    attrs.push(("liq_queue", liq_queue.unwrap()));
-}
 
 Ok(res.add_attributes(attrs))
 
@@ -1722,10 +1811,12 @@ pub fn sell_wall_using_ids(
         None => return Err( StdError::NotFound { kind: "Position".to_string() } )
     };
 
-    let cAsset_ratios  = get_cAsset_ratios( storage, env, querier, target_position.clone().collateral_assets, config )?;
+    let cAsset_ratios  = get_cAsset_ratios( storage, env.clone(), querier, target_position.clone().collateral_assets, config )?;
 
     match sell_wall(
+        env.clone(),
         storage, 
+        querier,
         target_position.clone().collateral_assets, 
         cAsset_ratios, 
         repay_amount, 
@@ -1743,7 +1834,9 @@ pub fn sell_wall_using_ids(
 }
 
 pub fn sell_wall(
+    env: Env,
     storage: &dyn Storage,
+    querier: QuerierWrapper,
     collateral_assets: Vec<cAsset>,
     cAsset_ratios: Vec<Decimal>,
     repay_amount: Decimal,
@@ -1764,64 +1857,144 @@ pub fn sell_wall(
         let collateral_repay_amount = decimal_multiplication(ratio, repay_amount);
         collateral_distribution.push( ( collateral_assets[index].clone().asset.info, collateral_repay_amount ) );
 
-        match collateral_assets[index].clone().asset.info{
-            AssetInfo::NativeToken { denom } => {
+        if collateral_assets[index].clone().pool_info.is_some(){
 
-                let router_msg = RouterExecuteMsg::SwapFromNative {
-                    to: credit_info.clone(),
-                    max_spread: None, //Max spread doesn't matter bc we want to sell the whole amount no matter what
-                    recipient: None,
-                    hook_msg: Some( 
-                        to_binary(
-                            &ExecuteMsg::Repay { 
-                                basket_id, 
-                                position_id, 
-                                position_owner: 
-                                Some( position_owner.clone() ) })? ),
-                    split: None,
-                };
+            let pool_info = collateral_assets[index].clone().pool_info.unwrap();
 
-                let payment = coin( (collateral_repay_amount*Uint128::new(1u128)).u128(), denom);
-        
-                let msg: CosmosMsg =  CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: config.clone().dex_router.unwrap().to_string(),
-                    msg: to_binary( &router_msg )?,
-                    funds: vec![payment],
-                });
+            //Split repay amount between collateral types
+            ////Query share asset amount 
+            let share_asset_amounts = querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
+                WasmQuery::Smart { 
+                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
+                    msg: to_binary(&OsmoQueryMsg::PoolState { 
+                        id: pool_info.pool_id 
+                    }
+                    )?}
+                ))?
+                .shares_value(collateral_assets[index].clone().asset.amount);
+            
+            ///Get pool asset ratios
+            let pool_total: Uint128 = share_asset_amounts.clone()
+                .into_iter()
+                .map(|coin| coin.amount )
+                .collect::<Vec<Uint128>>()
+                .iter()
+                .sum();
+            
+            let mut pool_asset_ratios = vec![];
 
-                messages.push( msg );
-            },
-            AssetInfo::Token { address } => {
+            for coin in share_asset_amounts.clone() {
+                pool_asset_ratios.push( decimal_division(Decimal::from_ratio(coin.amount, Uint128::new(1u128)), Decimal::from_ratio(pool_total, Uint128::new(1u128)) ) );
+            }
 
-                //////////////////////////
-                let router_hook_msg = RouterHookMsg::Swap { 
+            //Push LP Withdrawal Msg
+            let mut token_out_mins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
+            for token in share_asset_amounts {
+                token_out_mins.push( osmosis_std::types::cosmos::base::v1beta1::Coin {
+                    denom: token.denom,
+                    amount: token.amount.to_string(),
+                } );
+            }
+            
+
+            let msg: CosmosMsg = MsgExitPool {
+                        sender: env.contract.address.to_string(),
+                        pool_id: pool_info.pool_id,
+                        share_in_amount: collateral_assets[index].clone().asset.amount.to_string(),
+                        token_out_mins,
+                    }.into();
+            messages.push( msg );
+
+            //Push Router + Repay messages for each
+            for ( i, ( pool_asset, _TWAP_info) )in pool_info.asset_denoms.iter().enumerate(){
+
+                if let AssetInfo::NativeToken { denom } = pool_asset {
+                    let router_msg = RouterExecuteMsg::SwapFromNative {
                         to: credit_info.clone(),
-                        max_spread: None, 
-                        recipient: None, 
+                        max_spread: None, //Max spread doesn't matter bc we want to sell the whole amount no matter what
+                        recipient: None,
                         hook_msg: Some( 
                             to_binary(
                                 &ExecuteMsg::Repay { 
                                     basket_id, 
                                     position_id, 
                                     position_owner: 
-                                    Some( position_owner.clone() ) })? ), 
-                        split: None, 
-                };
+                                    Some( position_owner.clone() ) })? ),
+                        split: None,
+                    };
 
-                let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: address.to_string(),
-                    msg: to_binary(&Cw20ExecuteMsg::Send {
-                        amount: collateral_repay_amount * Uint128::new(1u128),
-                        contract:  config.clone().dex_router.unwrap().to_string(),
-                        msg: to_binary(&router_hook_msg)?,
-                    })?,
-                    funds: vec![],
-                });
+                    let asset_repay_amount = pool_asset_ratios[i] * collateral_repay_amount;
+                    let payment = coin( (asset_repay_amount*Uint128::new(1u128)).u128(), denom);
+            
+                    let msg: CosmosMsg =  CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: config.clone().dex_router.unwrap().to_string(),
+                        msg: to_binary( &router_msg )?,
+                        funds: vec![ payment ],
+                    });
 
-                messages.push( msg );
-            },
+                    messages.push( msg );
+                }
+            }
+
+        } else {
+            match collateral_assets[index].clone().asset.info{
+                AssetInfo::NativeToken { denom } => {
+
+                    let router_msg = RouterExecuteMsg::SwapFromNative {
+                        to: credit_info.clone(),
+                        max_spread: None, //Max spread doesn't matter bc we want to sell the whole amount no matter what
+                        recipient: None,
+                        hook_msg: Some( 
+                            to_binary(
+                                &ExecuteMsg::Repay { 
+                                    basket_id, 
+                                    position_id, 
+                                    position_owner: 
+                                    Some( position_owner.clone() ) })? ),
+                        split: None,
+                    };
+
+                    let payment = coin( (collateral_repay_amount*Uint128::new(1u128)).u128(), denom);
+            
+                    let msg: CosmosMsg =  CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: config.clone().dex_router.unwrap().to_string(),
+                        msg: to_binary( &router_msg )?,
+                        funds: vec![ payment ],
+                    });
+
+                    messages.push( msg );
+                },
+                AssetInfo::Token { address } => {
+
+                    //////////////////////////
+                    let router_hook_msg = RouterHookMsg::Swap { 
+                            to: credit_info.clone(),
+                            max_spread: None, 
+                            recipient: None, 
+                            hook_msg: Some( 
+                                to_binary(
+                                    &ExecuteMsg::Repay { 
+                                        basket_id, 
+                                        position_id, 
+                                        position_owner: 
+                                        Some( position_owner.clone() ) })? ), 
+                            split: None, 
+                    };
+
+                    let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: address.to_string(),
+                        msg: to_binary(&Cw20ExecuteMsg::Send {
+                            amount: collateral_repay_amount * Uint128::new(1u128),
+                            contract:  config.clone().dex_router.unwrap().to_string(),
+                            msg: to_binary(&router_hook_msg)?,
+                        })?,
+                        funds: vec![],
+                    });
+
+                    messages.push( msg );
+                },
+            }
         }
-
     }
 
     Ok( ( messages, collateral_distribution) ) 
@@ -2420,7 +2593,7 @@ pub fn get_asset_values(
                         }
                         )?}
                     ))?
-                    .shares_value(cAsset.asset.amount);;
+                    .shares_value(cAsset.asset.amount);
                 
 
                 //Calculate value of cAsset

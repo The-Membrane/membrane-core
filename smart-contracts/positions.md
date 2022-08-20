@@ -392,9 +392,36 @@ pub enum ExecuteMsg {
 
 \* = optional
 
+### `EditcAsset`
+
+Edit a basket's cAsset
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecuteMsg {
+    EditcAsset {
+        basket_id: Uint128,
+        asset: AssetInfo, 
+        //Editables
+        max_borrow_LTV: Option<Decimal>, //aka what u can borrow up to
+        max_LTV: Option<Decimal>, //ie liquidation point 
+    }
+}
+```
+
+| Key                     | Type      | Description              |
+| ----------------------- | --------- | ------------------------ |
+| basket\_id              | Uint128   | Basket to edit           |
+| asset                   | AssetInfo | Asset to edit            |
+| `*max_`_`borrow`_`_LTV` | Decimal   | Maximum borrowable LTV   |
+| `*max_LTV`              | Decimal   | Point of Liquidation LTV |
+
+&#x20;\* = optional
+
 ### `EditAdmin`
 
-Edit contract owner.
+Edit contract owner
 
 ```
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -402,7 +429,7 @@ Edit contract owner.
 pub enum ExecuteMsg {
     EditAdmin {
         owner: String,
-    },
+    }
 }
 ```
 

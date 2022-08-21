@@ -1030,7 +1030,6 @@ mod tests {
             asset: AssetInfo::NativeToken { denom: "debit".to_string() }, 
             max_borrow_LTV: None, 
             max_LTV: None, 
-            pool_info_for_price: None, 
         };
 
         let info = mock_info("sender88", &[]);
@@ -1041,8 +1040,7 @@ mod tests {
             basket_id: Uint128::new(1u128), 
             asset: AssetInfo::NativeToken { denom: "not_debit".to_string() }, 
             max_borrow_LTV: None, 
-            max_LTV: None, 
-            pool_info_for_price: None, 
+            max_LTV: None,  
         };
 
         let info = mock_info("sender88", &[]);
@@ -1054,7 +1052,6 @@ mod tests {
             asset: AssetInfo::NativeToken { denom: "debit".to_string() }, 
             max_borrow_LTV: Some( Decimal::percent(99) ), 
             max_LTV: Some( Decimal::percent(100) ), 
-            pool_info_for_price: None, 
         };
 
         let info = mock_info("sender88", &[]);

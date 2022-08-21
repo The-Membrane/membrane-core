@@ -122,8 +122,6 @@ pub enum ExecuteMsg {
         //Editables
         max_borrow_LTV: Option<Decimal>, //aka what u can borrow up to
         max_LTV: Option<Decimal>, //ie liquidation point 
-        //Osmosis Pool ID to pull TWAP from
-        pool_info_for_price: Option<TWAPPoolInfo>,
     }, 
     EditAdmin {
         owner: String,

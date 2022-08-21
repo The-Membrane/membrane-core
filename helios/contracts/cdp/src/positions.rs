@@ -1900,8 +1900,7 @@ pub fn sell_wall(
                     denom: token.denom,
                     amount: token.amount.to_string(),
                 } );
-            }
-            
+            }            
 
             let msg: CosmosMsg = MsgExitPool {
                         sender: env.contract.address.to_string(),
@@ -3046,14 +3045,14 @@ pub fn update_position_claims(
     }
  
      Ok(())
- }
+}
 
- fn get_target_position(
+fn get_target_position(
     storage: &dyn Storage,
     basket_id: Uint128,
     valid_position_owner: Addr,
     position_id: Uint128,
- )-> Result<Position, ContractError>{
+)-> Result<Position, ContractError>{
 
     let positions: Vec<Position> = match POSITIONS.load(storage, (basket_id.to_string(), valid_position_owner.clone())){
         Err(_) => {  return Err(ContractError::NoUserPositions {  }) },
@@ -3065,13 +3064,13 @@ pub fn update_position_claims(
         None => return Err(ContractError::NonExistentPosition {  }) 
     }
 
- }
+}
 
- fn create_denom(
+fn create_denom(
     config: Config,
     subdenom: String,
     basket_id: String,
- )-> StdResult<SubMsg>{
+)-> StdResult<SubMsg>{
     
     if config.osmosis_proxy.is_some(){
 
@@ -3090,13 +3089,13 @@ pub fn update_position_claims(
     }
     return Err( StdError::GenericErr { msg: "No osmosis proxy added to the config yet".to_string() } )
 
- }
+}
 
- fn accumulate_interest(
+fn accumulate_interest(
     debt: Uint128,
     rate: Decimal,
     time_elapsed: u64,
- ) -> StdResult<Uint128>{
+) -> StdResult<Uint128>{
 
     let applied_rate = rate.checked_mul(Decimal::from_ratio(
         Uint128::from(time_elapsed),
@@ -3106,14 +3105,14 @@ pub fn update_position_claims(
     let accrued_interest = debt * applied_rate;
 
     Ok( accrued_interest )
- }
+}
 
- fn get_interest_rates(
+fn get_interest_rates(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     basket: &mut Basket,
- ) -> StdResult<Vec<Decimal>> {
+) -> StdResult<Vec<Decimal>> {
 
     let mut rates = vec![];
 
@@ -3179,15 +3178,15 @@ pub fn update_position_claims(
 
     Ok( two_slope_pro_rata_rates )     
 
- }
+}
 
- fn get_position_avg_rate(
+fn get_position_avg_rate(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     basket: &mut Basket,
     position_assets: Vec<cAsset>,
- ) -> StdResult<Decimal>{
+) -> StdResult<Decimal>{
     let config = CONFIG.load( storage )?;
 
     let ratios = get_cAsset_ratios(storage, env.clone(), querier, position_assets.clone(), config)?;
@@ -3203,15 +3202,15 @@ pub fn update_position_claims(
     }
 
     Ok( avg_rate )
- }
+}
 
- fn accrue(
+fn accrue(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     position: &mut Position,
     basket: &mut Basket,
- ) -> StdResult<()>{
+) -> StdResult<()>{
 
     let config = CONFIG.load( storage )?;
 
@@ -3274,7 +3273,7 @@ pub fn update_position_claims(
     }
 
     Ok( () )
- }
+}
 
 pub fn mint_revenue(
     deps: DepsMut,

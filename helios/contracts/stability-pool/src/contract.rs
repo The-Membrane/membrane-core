@@ -101,7 +101,7 @@ pub fn execute(
             let valid_assets = validate_assets(deps.storage, assets.clone(), info.clone(), true)?;
             if valid_assets.len() == 0 { return Err( ContractError::CustomError { val: "No valid assets".to_string() } ) }
 
-            deposit( deps, info, user, valid_assets )
+            deposit( deps, env, info, user, valid_assets )
         },
         ExecuteMsg::Withdraw{ assets }=> withdraw( deps, info, assets ),
         ExecuteMsg::Liquidate { credit_asset } => liquidate( deps, info, credit_asset ),
@@ -192,6 +192,7 @@ pub fn receive_cw20(
 
 pub fn deposit(
     deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     position_owner: Option<String>,
     assets: Vec<Asset>,
@@ -205,7 +206,8 @@ pub fn deposit(
 
         let deposit = Deposit{
             user: valid_owner_addr.clone(),
-            amount: Decimal::new(asset.amount * Uint128::new(1000000000000000000u128)),
+            amount: Decimal::from_ratio(asset.amount, Uint128::new(1u128)),
+            deposit_time: env.block.time.seconds(),
         };
 
         
@@ -364,15 +366,16 @@ fn withdrawal_from_state(
             //Only edit user deposits
             if deposit_item.user == user{
                 //subtract from each deposit until there is none left to withdraw
-                if withdrawal_amount != Decimal::percent(0) && deposit_item.amount > withdrawal_amount{
+                if withdrawal_amount != Decimal::zero() && deposit_item.amount > withdrawal_amount{
 
                     deposit_item.amount -= withdrawal_amount;
+                    withdrawal_amount = Decimal::zero();
 
-                }else if withdrawal_amount != Decimal::percent(0) && deposit_item.amount <= withdrawal_amount{
+                }else if withdrawal_amount != Decimal::zero() && deposit_item.amount <= withdrawal_amount{
 
                     //If it's less than amount, 0 the deposit and substract it from the withdrawal amount
                     withdrawal_amount -= deposit_item.amount;
-                    deposit_item.amount = Decimal::percent(0);
+                    deposit_item.amount = Decimal::zero();
                     
                 }
             }
@@ -381,7 +384,7 @@ fn withdrawal_from_state(
             })
         .collect::<Vec<Deposit>>()
         .into_iter()
-        .filter( |deposit| deposit.amount != Decimal::percent(0))
+        .filter( |deposit| deposit.amount != Decimal::zero())
         .collect::<Vec<Deposit>>();
 
     pool.deposits = new_deposits;

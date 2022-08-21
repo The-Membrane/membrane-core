@@ -233,7 +233,7 @@ pub fn execute(
             liq_repay(deps, env, info, credit_asset)
         }
         ExecuteMsg::EditAdmin { owner } => edit_contract_owner(deps, info, owner),
-        ExecuteMsg::EditcAsset { basket_id, asset, max_borrow_LTV, max_LTV, pool_info_for_price } => edit_cAsset(deps, info, basket_id, asset, max_borrow_LTV, max_LTV, pool_info_for_price),
+        ExecuteMsg::EditcAsset { basket_id, asset, max_borrow_LTV, max_LTV } => edit_cAsset(deps, info, basket_id, asset, max_borrow_LTV, max_LTV),
         ExecuteMsg::EditBasket { basket_id, added_cAsset, owner, credit_interest, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source } => edit_basket(deps, info, basket_id, added_cAsset, owner, credit_interest, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source ),
         ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, credit_interest, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source, credit_pool_ids, liquidity_multiplier_for_debt_caps } => create_basket( deps, info, env, owner, collateral_types, credit_asset, credit_price, credit_interest, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_pool_ids, credit_asset_twap_price_source, liquidity_multiplier_for_debt_caps, false ),
         ExecuteMsg::Liquidate { basket_id, position_id, position_owner } => liquidate(deps.storage, deps.api, deps.querier, env, info, basket_id, position_id, position_owner),
@@ -255,7 +255,6 @@ fn edit_cAsset(
     asset: AssetInfo,
     max_borrow_LTV: Option<Decimal>,
     max_LTV: Option<Decimal>,
-    pool_info_for_price: Option<TWAPPoolInfo>,
 ) -> Result<Response, ContractError>{
     let config = CONFIG.load( deps.storage )?;
 
@@ -293,15 +292,6 @@ fn edit_cAsset(
                         asset.max_borrow_LTV = LTV.clone();
                         attrs.push( attr("max_borrow_LTV", LTV.to_string() ) );
                     }
-                },
-                None => {},
-            }
-            match pool_info_for_price{
-                Some( pool_info ) => {
-                    
-                    asset.pool_info_for_price = pool_info.clone();
-                    attrs.push( attr("pool_info_for_price", pool_info.to_string() ) );
-                    
                 },
                 None => {},
             }

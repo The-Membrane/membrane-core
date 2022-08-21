@@ -39,6 +39,7 @@ pub struct UserRatio {
 pub struct Deposit {
     pub user: Addr,
     pub amount: Decimal,
+    pub deposit_time: u64,
 }
 
 impl fmt::Display for Deposit {
@@ -154,6 +155,22 @@ pub struct PremiumSlot {
     pub residue_collateral: Decimal256,
     pub residue_bid: Decimal256,
 }
+
+///Staking////
+/// 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct StakeDeposit {
+    pub staker: Addr,
+    pub amount: Uint128,
+    pub deposit_time: u64,
+}
+
+impl fmt::Display for StakeDeposit {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {}", self.staker, self.amount)
+    }
+}
+
 
 ////////////////CDP///////////
 /// 

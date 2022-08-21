@@ -10,8 +10,6 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-//use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
-
 use crate::error::TokenFactoryError;
 use membrane::osmosis_proxy::{ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg};
 use crate::state::{State, STATE};

@@ -718,7 +718,7 @@ mod tests {
 
                             Ok(
                                 to_binary(&ArithmeticTwapToNowResponse {
-                                    twap: Decimal::percent(200),
+                                    twap: Decimal::percent(100),
                                 })?
                             )
 
@@ -819,7 +819,7 @@ mod tests {
 
                             Ok(
                                 to_binary(&ArithmeticTwapToNowResponse {
-                                    twap: Decimal::percent(200),
+                                    twap: Decimal::percent(100),
                                 })?
                             )
 
@@ -876,7 +876,7 @@ mod tests {
         Box::new(contract)
     }
 
-    //Mock Router Contract
+    //Mock Auction Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Auction_MockExecuteMsg {
@@ -912,6 +912,40 @@ mod tests {
             },
             |_, _, _, _: Auction_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
             |_, _, msg: Auction_MockQueryMsg| -> StdResult<Binary> { Ok( to_binary(&MockResponse {})? ) },
+        );
+        Box::new(contract)
+    }
+
+    //Mock Staking Contract
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Staking_MockExecuteMsg {
+        DepositFee {
+            fee_assets: Vec<Asset>,
+        }
+    }
+    
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub struct Staking_MockInstantiateMsg {}
+
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Staking_MockQueryMsg {}
+
+    pub fn staking_contract()-> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: Staking_MockExecuteMsg| -> StdResult<Response> {
+                match msg {
+                    Staking_MockExecuteMsg::DepositFee {
+                        fee_assets
+                     }  => {                        
+                        Ok(Response::default())
+                    },
+                }
+            },
+            |_, _, _, _: Staking_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
+            |_, _, msg: Staking_MockQueryMsg| -> StdResult<Binary> { Ok( to_binary(&MockResponse {})? ) },
         );
         Box::new(contract)
     }
@@ -960,24 +994,6 @@ mod tests {
         );
         Box::new(contract)
     }
-
-    // const NATIVE_DENOM: &str = "denom";
-
-    // fn mock_app() -> App {
-    //     AppBuilder::new().build(|router, _, storage| {
-    //         router
-    //             .bank
-    //             .init_balance(
-    //                 storage,
-    //                 &Addr::unchecked(USER),
-    //                 vec![Coin {
-    //                     denom: NATIVE_DENOM.to_string(),
-    //                     amount: Uint128::new(1),
-    //                 }],
-    //             )
-    //             .unwrap();
-    //     })
-    // }
 
     fn mock_app() -> App {
             AppBuilder::new().build(|router, _, storage| {
@@ -1120,6 +1136,20 @@ mod tests {
             )
             .unwrap();
 
+        //Instaniate Staking Contract
+        let staking_id = app.store_code(staking_contract());
+
+        let staking_contract_addr = app
+            .instantiate_contract(
+                staking_id,
+                Addr::unchecked(ADMIN),
+                &Staking_MockInstantiateMsg {},
+                &[],
+                "test",
+                None,
+            )
+            .unwrap();
+
         //Instantiate CDP contract
         let cdp_id = app.store_code(cdp_contract());
 
@@ -1153,7 +1183,7 @@ mod tests {
                 liq_fee: Decimal::percent(1),
                 stability_pool: Some( sp_contract_addr.to_string() ),
                 dex_router: Some( router_contract_addr.to_string() ),
-                liq_fee_collector: Some( "fee_collector".to_string()),
+                staking_contract: Some( staking_contract_addr.to_string() ),
                 interest_revenue_collector: Some( "fee_collector".to_string()),
                 osmosis_proxy: Some( osmosis_proxy_contract_addr.to_string() ),   
                 debt_auction: Some( auction_contract_addr.to_string() ),
@@ -1208,7 +1238,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
              
             //Edit Basket
@@ -1357,7 +1387,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
              
             //Edit Basket
@@ -1430,7 +1460,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
               
             //Edit Basket
@@ -1563,7 +1593,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
               
             //Edit Basket
@@ -1706,7 +1736,7 @@ mod tests {
              assert_eq!(app.wrap().query_all_balances(router_addr.clone()).unwrap(), vec![]);
 
              //Assert fees were sent.
-             assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 11, "debit")]);
+             assert_eq!(app.wrap().query_all_balances(staking_contract.clone()).unwrap(), vec![coin( 11, "debit")]);
              //The fee is 222
              assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"), coin( 100_222, "debit")]);
  
@@ -1724,7 +1754,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
               
             //Edit Basket
@@ -1891,7 +1921,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
               
             //Edit Basket
@@ -1986,7 +2016,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket { 
@@ -2090,7 +2120,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
 
             //Add liq-queue to the initial basket
@@ -2173,7 +2203,7 @@ mod tests {
             assert_eq!(app.wrap().query_all_balances(router_addr.clone()).unwrap(), vec![]);
 
             //Assert fees were sent.
-            assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 22, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(staking_contract.clone()).unwrap(), vec![coin( 22, "debit")]);
             assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"), coin( 444, "debit")]);
 
             //Assert collateral to be liquidated was sent 
@@ -2256,7 +2286,7 @@ mod tests {
             assert_eq!(app.wrap().query_all_balances(router_addr.clone()).unwrap(), vec![coin( 222, "debit")]);
 
             //Assert fees were sent.
-            assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 22, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(staking_contract.clone()).unwrap(), vec![coin( 22, "debit")]);
             assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"), coin( 444, "debit")]);
 
             //Assert collateral to be liquidated was sent 
@@ -2346,7 +2376,7 @@ mod tests {
             assert_eq!(app.wrap().query_all_balances(router_addr.clone()).unwrap(), vec![]);
 
             //Assert fees were sent. 
-            assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 22, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(staking_contract.clone()).unwrap(), vec![coin( 22, "debit")]);
             assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"),coin( 444, "debit")]);
 
             //Assert collateral to be liquidated was sent 
@@ -2433,7 +2463,7 @@ mod tests {
             assert_eq!(app.wrap().query_all_balances(router_addr.clone()).unwrap(), vec![coin( 2222, "debit")]);
 
             //Assert fees were sent.
-            assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 22, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(staking_contract.clone()).unwrap(), vec![coin( 22, "debit")]);
             assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"),coin( 444, "debit")]);
 
             //Assert neither module was sent any due to the Error
@@ -2455,7 +2485,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
 
             //Add liq-queue to the initial basket
@@ -2539,7 +2569,7 @@ mod tests {
             assert_eq!(app.wrap().query_all_balances(router_addr.clone()).unwrap(), vec![]);
 
             //Assert fees were sent.
-            assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 22_222_222_250, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(staking_contract.clone()).unwrap(), vec![coin( 22_222_222_250, "debit")]);
             assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"), coin( 444_444_545_000, "debit")]);
 
             //Assert collateral to be liquidated was sent 
@@ -2555,7 +2585,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
 
             //Add liq-queue to the initial basket
@@ -2638,7 +2668,7 @@ mod tests {
             assert_eq!(app.wrap().query_all_balances(router_addr.clone()).unwrap(), vec![]);
 
             //Assert fees were sent.
-            assert_eq!(app.wrap().query_all_balances(fee_collector.clone()).unwrap(), vec![coin( 9, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(staking_contract.clone()).unwrap(), vec![coin( 9, "debit")]);
             assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"), coin( 199, "debit")]);
 
             //Assert collateral to be liquidated was sent 
@@ -2654,7 +2684,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
             
             //Add liq-queue to the initial basket
@@ -2788,7 +2818,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
             
             //Add liq-queue to the initial basket
@@ -2880,7 +2910,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
             
             //Add liq-queue to the initial basket
@@ -2987,7 +3017,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
             
             //Add liq-queue to the initial basket
@@ -3082,7 +3112,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
             
             //Add liq-queue to the initial basket
@@ -3178,7 +3208,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
             
             //Add liq-queue to the initial basket
@@ -3272,7 +3302,7 @@ mod tests {
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
             let router_addr = res.dex_router;
-            let fee_collector = res.liq_fee_collector;
+            let staking_contract = res.staking_contract;
             
             
             //Add LP to the initial basket
@@ -3349,13 +3379,13 @@ mod tests {
                     .unwrap();
             app.execute(Addr::unchecked("lp_tester"), cosmos_msg).unwrap();
 
-           //The value of the position should be 800_000
-           //So at 40% borrow LTV I should be able to borrow 320_000
+           //The value of the position should be 200_000
+           //So at 40% borrow LTV I should be able to borrow 80_000
            //We'll error at the edge first to confirm
            let msg = ExecuteMsg::IncreaseDebt { 
                 basket_id: Uint128::from(1u128), 
                 position_id: Uint128::from(1u128), 
-                amount: Uint128::from(120_001u128), 
+                amount: Uint128::from(80_001u128), 
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("lp_tester"), cosmos_msg).unwrap_err();
@@ -3364,7 +3394,7 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt { 
                 basket_id: Uint128::from(1u128), 
                 position_id: Uint128::from(1u128), 
-                amount: Uint128::from(120_000u128), 
+                amount: Uint128::from(80_000u128), 
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("lp_tester"), cosmos_msg).unwrap();

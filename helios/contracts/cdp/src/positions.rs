@@ -812,7 +812,7 @@ pub fn increase_debt(
         //credit_value / asset_value > avg_LTV
                 
         if insolvency_check( deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, Decimal::from_ratio(total_credit, Uint128::new(1u128)), basket.credit_price.unwrap(), true, config.clone())?.0 { 
-            //panic!("{}", total_credit);
+            //panic!("{}", );
             return Err(ContractError::PositionInsolvent {  })
         }else{
                         
@@ -992,15 +992,14 @@ pub fn liquidate(
 
         let mut caller_coins: Vec<Coin> = vec![];
         let mut protocol_coins: Vec<Coin> = vec![];
-        let fee_assets: Vec<Asset> = vec![];
+        let mut fee_assets: Vec<Asset> = vec![];
         
         let repay_amount_per_asset = decimal_multiplication(credit_repay_amount, cAsset_ratios[num]);
         
         let collateral_price = cAsset_prices[num];
         let collateral_value = decimal_multiplication(repay_value, cAsset_ratios[num]);
         let mut collateral_amount = decimal_division(collateral_value, collateral_price);
-       
-        
+               
         //Subtract Caller fee from Position's claims
         let caller_fee_in_collateral_amount = decimal_multiplication(collateral_amount, caller_fee) * Uint128::new(1u128);
         update_position_claims(storage, querier, env.clone(), basket_id, position_id, valid_position_owner.clone(), cAsset.clone().asset.info, caller_fee_in_collateral_amount)?;
@@ -1008,7 +1007,6 @@ pub fn liquidate(
         //Subtract Protocol fee from Position's claims
         let protocol_fee_in_collateral_amount = decimal_multiplication(collateral_amount, config.clone().liq_fee) * Uint128::new(1u128);
         update_position_claims(storage, querier, env.clone(), basket_id, position_id, valid_position_owner.clone(), cAsset.clone().asset.info, protocol_fee_in_collateral_amount)?;
-
         
         //Subtract fees from leftover_position value
         //fee_value = total_fee_collateral_amount * collateral_price
@@ -1064,7 +1062,7 @@ pub fn liquidate(
                     amount: protocol_fee_in_collateral_amount,
                     ..cAsset.clone().asset
                 };
-                fee_assets.push( asset );
+                fee_assets.push( asset.clone() );
                 protocol_coins.push(asset_to_coin(asset)?);
                 
                 
@@ -1304,6 +1302,19 @@ pub fn liquidate(
         leftover_position_value = decimal_subtraction( leftover_position_value, paid_to_sp );
         
         }
+    } else { //In case SP isn't used, we need to set RepayPropagation
+        // Set repay values for reply msg
+        let repay_propagation = RepayPropagation {
+            liq_queue_leftovers: Decimal::zero(), 
+            stability_pool: Decimal::zero(),
+            sell_wall_distributions: vec![ ],
+            basket_id,
+            position_id,
+            position_owner: valid_position_owner.clone(),
+            positions_contract: env.clone().contract.address,
+        };
+
+        REPAY.save(storage, &repay_propagation)?;
     }
 
     //Add the Bad debt callback message as the last SubMsg
@@ -1378,6 +1389,11 @@ pub fn liquidate(
         )
 
     }else{
+        let mut repay_propagation: Option<String> = None;
+        match REPAY.load( storage ) {
+            Ok( repay ) => { repay_propagation = Some(format!("{:?}", repay)) },
+            Err(_) => {},
+        }
 
         Ok( 
             res
@@ -1386,7 +1402,7 @@ pub fn liquidate(
             .add_submessage( call_back )
             .add_attributes( vec![
                 attr("method", "liquidate"),
-                attr("propagation_info", format!("{:?}", REPAY.load( storage )?) )] 
+                attr("propagation_info", format!("{:?}", repay_propagation.unwrap_or_default()) )] 
             )
         )
     }
@@ -2385,10 +2401,8 @@ pub fn assert_basket_assets(
         update_basket_tally( storage, querier, env, &mut basket, collateral_assets.clone(), add_to_cAsset)?;
         BASKETS.save( storage, basket_id.to_string(), &basket)?;
     }
-
-
+    //Comment this out to pass contract_tests. Yes i know.
     
-
     Ok(collateral_assets)
 }
 

@@ -39,7 +39,7 @@ pub fn query_config(
                 current_basket_id: config.clone().current_basket_id,
                 stability_pool: config.clone().stability_pool.unwrap_or(Addr::unchecked("None")).into_string(),
                 dex_router: config.clone().dex_router.unwrap_or(Addr::unchecked("None")).into_string(),
-                liq_fee_collector: config.clone().liq_fee_collector.unwrap_or(Addr::unchecked("None")).into_string(),
+                staking_contract: config.clone().staking_contract.unwrap_or(Addr::unchecked("None")).into_string(),
                 interest_revenue_collector: config.clone().interest_revenue_collector.unwrap_or(Addr::unchecked("None")).into_string(),
                 osmosis_proxy: config.clone().osmosis_proxy.unwrap_or( Addr::unchecked("None")).into_string(),
                 debt_auction: config.clone().debt_auction.unwrap_or( Addr::unchecked("None")).into_string(),

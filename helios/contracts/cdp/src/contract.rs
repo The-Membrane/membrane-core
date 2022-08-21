@@ -209,7 +209,8 @@ pub fn execute(
             for asset in assets.clone(){
                 valid_assets.push( assert_sent_native_token_balance( asset, &info )? );
             }
-            let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, deps.querier, env.clone(), basket_id, valid_assets, true)?;
+            let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, deps.querier, env.clone(), basket_id, valid_assets, true)?;      
+    
             deposit(deps, env, info, position_owner, position_id, basket_id, cAssets)
         }
     ,
@@ -985,10 +986,12 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Resp
              //Subtract repaid amount from LQs repay responsibility. If it hits 0 then there were no LQ errors.
              if repay_amount != Uint128::zero(){
 
-                prop.liq_queue_leftovers = decimal_subtraction( prop.liq_queue_leftovers, Decimal::from_ratio(repay_amount, Uint128::new(1u128)));              
+                if !prop.liq_queue_leftovers.is_zero(){
+                    prop.liq_queue_leftovers = decimal_subtraction( prop.liq_queue_leftovers, Decimal::from_ratio(repay_amount, Uint128::new(1u128)));              
 
-                REPAY.save(deps.storage, &prop)?;
-                //SP reply handles LQ_leftovers 
+                    REPAY.save(deps.storage, &prop)?;
+                    //SP reply handles LQ_leftovers
+                }
 
                 update_position_claims(deps.storage, deps.querier, env, prop.basket_id, prop.position_id, prop.position_owner, token_info, send_amount)?;
             }

@@ -18,6 +18,7 @@ pub struct InstantiateMsg {
 //Contracts
     pub stability_pool: Option<String>,
     pub dex_router: Option<String>,
+    pub staking_contract: Option<String>,
     pub interest_revenue_collector: Option<String>,
     pub osmosis_proxy: Option<String>,
     pub debt_auction: Option<String>,
@@ -55,7 +56,8 @@ pub enum AssetInfo {
 | `liq_fee`                       | Decimal       | Fee that goes to the protocol during liquidations                  |
 | `*stability_pool`               | String        | Stability Pool Contract                                            |
 | `*dex_router`                   | String        | DEX Router Contract                                                |
-| `*fee_collector`                | String        | Address that is sent liq\_fees                                     |
+| `*interest_revenue_collector`   | String        | Address that is sent liq\_fees                                     |
+| `*staking_contract`             | String        | MBRN staking contract                                              |
 | `*osmosis_proxy`                | String        | Osmosis Proxy contract to use SDK modules                          |
 | `*debt_auction`                 | String        | Auction Contract that sells protocol tokens to repay debt          |
 | `*collateral_types`             | Vec\<cAsset>  | Accepted cAssets for an initial basket                             |

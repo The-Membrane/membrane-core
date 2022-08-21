@@ -84,7 +84,7 @@ pub enum ExecuteMsg {
         dex_router: Option<String>,
         osmosis_proxy: Option<String>,
         debt_auction: Option<String>,
-        liq_fee_collector: Option<String>,
+        staking_contract: Option<String>,
         interest_revenue_collector: Option<String>,
         liq_fee: Option<Decimal>,
         debt_minimum: Option<Uint128>,
@@ -93,17 +93,18 @@ pub enum ExecuteMsg {
 }
 ```
 
-| Key                             | Type    | Description                        |
-| ------------------------------- | ------- | ---------------------------------- |
-| `*owner`                        | String  | Owner of contract                  |
-| `*stability_pool`               | String  | Stability Pool contract            |
-| `*dex_router`                   | String  | Dex Router contract                |
-| `*osmosis_proxy`                | String  | Osmosis Proxy contract             |
-| `*debt_auction`                 | String  | Debt Auction contract              |
-| `*interest_`_`fee_`_`collector` | String  | CDP interest fee collector address |
-| _`*liq_fee`_                    | Decimal | Liquidation fee                    |
-| `*debt_minimum`                 | Uint128 | Debt minimum in terms of value     |
-| `*oracle_`_`time_`_`limit`      | u64     | Oracle expiration time limit       |
+| Key                                 | Type    | Description                        |
+| ----------------------------------- | ------- | ---------------------------------- |
+| `*owner`                            | String  | Owner of contract                  |
+| `*stability_pool`                   | String  | Stability Pool contract            |
+| `*dex_router`                       | String  | Dex Router contract                |
+| `*osmosis_proxy`                    | String  | Osmosis Proxy contract             |
+| `*debt_auction`                     | String  | Debt Auction contract              |
+| `*interest_revenue`_`_`_`collector` | String  | CDP interest fee collector address |
+| `*staking_contract`                 | String  | MBRN Staking contract              |
+| _`*liq_fee`_                        | Decimal | Liquidation fee                    |
+| `*debt_minimum`                     | Uint128 | Debt minimum in terms of value     |
+| `*oracle_`_`time_`_`limit`          | u64     | Oracle expiration time limit       |
 
 &#x20;\* = optional
 
@@ -525,6 +526,7 @@ pub struct ConfigResponse {
     pub dex_router: String, //Apollo's router, will need to change msg types if the router changes most likely.
     pub liq_fee_collector: String,
     pub interest_revenue_collector: String,
+    pub staking_contract: String,
     pub osmosis_proxy: String,
     pub debt_auction: String,
     pub liq_fee: Decimal, // 5 = 5%

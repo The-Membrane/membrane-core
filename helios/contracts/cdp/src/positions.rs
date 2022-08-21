@@ -15,6 +15,7 @@ use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as Rou
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse };
 use membrane::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
 use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg };
+use membrane::staking::{ ExecuteMsg as StakingExecuteMsg };
 
 use crate::{ContractError, state::{ RepayPropagation, REPAY, CONFIG, BASKETS, POSITIONS, Config, WithdrawPropagation, WITHDRAW}, math::{ decimal_multiplication, decimal_division, decimal_subtraction}, query::{query_stability_pool_fee, query_stability_pool_liquidatible }};
 
@@ -991,6 +992,7 @@ pub fn liquidate(
 
         let mut caller_coins: Vec<Coin> = vec![];
         let mut protocol_coins: Vec<Coin> = vec![];
+        let fee_assets: Vec<Asset> = vec![];
         
         let repay_amount_per_asset = decimal_multiplication(credit_repay_amount, cAsset_ratios[num]);
         
@@ -1032,9 +1034,15 @@ pub fn liquidate(
                 //Send Protocol Fee
                 let msg = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: address.to_string(),
-                    msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                        amount: protocol_fee_in_collateral_amount,
-                        recipient: config.clone().liq_fee_collector.unwrap().to_string(),
+                    msg: to_binary(&Cw20ExecuteMsg::Send { 
+                        contract: config.clone().staking_contract.unwrap().to_string(), 
+                        amount: protocol_fee_in_collateral_amount, 
+                        msg: to_binary(&StakingExecuteMsg::DepositFee {
+                            fee_assets: vec![Asset { 
+                                info: cAsset.clone().asset.info, 
+                                amount: protocol_fee_in_collateral_amount 
+                            }], 
+                        })?
                     })?,
                     funds: vec![],
                 });
@@ -1056,7 +1064,7 @@ pub fn liquidate(
                     amount: protocol_fee_in_collateral_amount,
                     ..cAsset.clone().asset
                 };
-    
+                fee_assets.push( asset );
                 protocol_coins.push(asset_to_coin(asset)?);
                 
                 
@@ -1069,10 +1077,13 @@ pub fn liquidate(
         });
         fee_messages.push( msg );
 
-        //Create Msg to send all native token liq fees for protocol
-        let msg = CosmosMsg::Bank(BankMsg::Send {
-            to_address: config.clone().liq_fee_collector.unwrap().to_string(),
-            amount: protocol_coins,
+        //Create Msg to send all native token liq fees for protocol to the staking contract
+        let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+            contract_addr: config.clone().staking_contract.unwrap().to_string(), 
+            msg: to_binary(&StakingExecuteMsg::DepositFee {
+                fee_assets, 
+            } )?,
+            funds: protocol_coins,
         });
         fee_messages.push( msg );
 

@@ -49,8 +49,8 @@ pub fn instantiate(
         current_basket_id: Uint128::from(1u128),
         stability_pool: None, 
         dex_router: None,
-        liq_fee_collector: None,
         interest_revenue_collector: None,
+        staking_contract: None,
         osmosis_proxy: None,
         debt_auction: None,    
         oracle_time_limit: msg.oracle_time_limit,
@@ -89,11 +89,11 @@ pub fn instantiate(
         },
         None => {},
     };
-    match msg.liq_fee_collector {
+    match msg.staking_contract {
         Some( address ) => {
             
             match deps.api.addr_validate( &address ){
-                Ok( addr ) => config.liq_fee_collector = Some( addr ),
+                Ok( addr ) => config.staking_contract = Some( addr ),
                 Err(_) => {},
             }
         },
@@ -197,8 +197,8 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig { owner, stability_pool, dex_router, osmosis_proxy, debt_auction, liq_fee_collector, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit , twap_timeframe} => {
-            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, liq_fee_collector, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit, twap_timeframe )
+        ExecuteMsg::UpdateConfig { owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit , twap_timeframe} => {
+            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit, twap_timeframe )
         },
         ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ assets, position_owner, position_id, basket_id} => {
@@ -320,7 +320,7 @@ fn update_config(
     dex_router: Option<String>,
     osmosis_proxy: Option<String>,
     debt_auction: Option<String>,
-    liq_fee_collector: Option<String>,
+    staking_contract: Option<String>,
     interest_revenue_collector: Option<String>,
     liq_fee: Option<Decimal>,
     debt_minimum: Option<Uint128>,
@@ -378,11 +378,11 @@ fn update_config(
         },
         None => {},
     }
-    match liq_fee_collector {
-        Some( liq_fee_collector ) => { 
-            let valid_addr = deps.api.addr_validate(&liq_fee_collector)?;
-            config.liq_fee_collector = Some( valid_addr.clone() );
-            attrs.push( attr("new_liq_fee_collector", valid_addr.to_string()) );
+    match staking_contract {
+        Some( staking_contract ) => { 
+            let valid_addr = deps.api.addr_validate(&staking_contract)?;
+            config.staking_contract = Some( valid_addr.clone() );
+            attrs.push( attr("new_staking_contract", valid_addr.to_string()) );
         },
         None => {},
     }
@@ -553,7 +553,11 @@ fn check_for_bad_debt(
             return Err( ContractError::CustomError { val: "Debt Auction contract not added to config".to_string() } )
         }
 
-        return Ok( Response::new().add_messages(messages) )
+        return Ok( Response::new().add_messages(messages)
+            .add_attributes(vec![
+                attr("method", "check_for_bad_debt"),
+                attr("bad_debt_amount", bad_debt_amount)
+            ]) )
     }
 
 }

@@ -19,7 +19,7 @@ pub struct InstantiateMsg {
     //Contracts
     pub stability_pool: Option<String>,
     pub dex_router: Option<String>,
-    pub liq_fee_collector: Option<String>,
+    pub staking_contract: Option<String>,
     pub interest_revenue_collector: Option<String>,
     pub osmosis_proxy: Option<String>,
     pub debt_auction: Option<String>,
@@ -47,7 +47,7 @@ pub enum ExecuteMsg {
         dex_router: Option<String>,
         osmosis_proxy: Option<String>,
         debt_auction: Option<String>,
-        liq_fee_collector: Option<String>,
+        staking_contract: Option<String>,
         interest_revenue_collector: Option<String>,
         liq_fee: Option<Decimal>,
         debt_minimum: Option<Uint128>,
@@ -240,8 +240,8 @@ pub struct ConfigResponse {
     pub current_basket_id: Uint128,
     pub stability_pool: String,
     pub dex_router: String, //Apollo's router, will need to change msg types if the router changes most likely.
-    pub liq_fee_collector: String,
     pub interest_revenue_collector: String,
+    pub staking_contract: String,
     pub osmosis_proxy: String,
     pub debt_auction: String,
     pub liq_fee: Decimal, // 5 = 5%

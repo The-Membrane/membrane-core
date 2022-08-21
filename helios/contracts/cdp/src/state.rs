@@ -15,8 +15,8 @@ pub struct Config {
     pub current_basket_id: Uint128,
     pub stability_pool: Option<Addr>,
     pub dex_router: Option<Addr>, //Apollo's router, will need to change msg types if the router changes most likely.
-    pub liq_fee_collector: Option<Addr>,
     pub interest_revenue_collector: Option<Addr>,
+    pub staking_contract: Option<Addr>,
     pub osmosis_proxy: Option<Addr>,
     pub debt_auction: Option<Addr>,
     pub liq_fee: Decimal, //Enter as percent, 0.02

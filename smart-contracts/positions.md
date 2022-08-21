@@ -18,7 +18,6 @@ pub struct InstantiateMsg {
 //Contracts
     pub stability_pool: Option<String>,
     pub dex_router: Option<String>,
-    pub liq_fee_collector: Option<String>,
     pub interest_revenue_collector: Option<String>,
     pub osmosis_proxy: Option<String>,
     pub debt_auction: Option<String>,
@@ -101,7 +100,6 @@ pub enum ExecuteMsg {
 | `*dex_router`                   | String  | Dex Router contract                |
 | `*osmosis_proxy`                | String  | Osmosis Proxy contract             |
 | `*debt_auction`                 | String  | Debt Auction contract              |
-| `*liq_`_`fee_`_`collector`      | String  | Liquidation fee collector address  |
 | `*interest_`_`fee_`_`collector` | String  | CDP interest fee collector address |
 | _`*liq_fee`_                    | Decimal | Liquidation fee                    |
 | `*debt_minimum`                 | Uint128 | Debt minimum in terms of value     |

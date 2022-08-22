@@ -172,6 +172,14 @@ impl fmt::Display for StakeDeposit {
 }
 
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct FeeEvent {
+    pub time_of_event: u64, 
+    pub fee: Asset,
+}
+
+
+
 ////////////////CDP///////////
 /// 
 /// 

@@ -56,7 +56,6 @@ pub enum ExecuteMsg {
     },
     Receive(Cw20ReceiveMsg),
     Deposit{
-        assets: Vec<AssetInfo>,
         basket_id: Uint128,
         position_id: Option<Uint128>, //If the user wants to create a new/separate position, no position id is passed         
         position_owner: Option<String>,

@@ -17,6 +17,7 @@ fn main() {
     export_schema(&schema_for!(QueryMsg), &out_dir);
     export_schema(&schema_for!(Cw20HookMsg), &out_dir);
     export_schema(&schema_for!(Config), &out_dir);
+    export_schema(&schema_for!(ConfigResponse), &out_dir);
     export_schema(&schema_for!(Propagation), &out_dir);
     export_schema(&schema_for!(LiquidatibleResponse), &out_dir);
     export_schema(&schema_for!(DepositResponse), &out_dir);

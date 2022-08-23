@@ -201,14 +201,18 @@ pub fn execute(
             update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit, twap_timeframe )
         },
         ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
-        ExecuteMsg::Deposit{ assets, position_owner, position_id, basket_id} => {
-            let mut valid_assets = vec![];
+        ExecuteMsg::Deposit{ position_owner, position_id, basket_id} => {
+            //Set asset from funds sent
+            let valid_assets = info.funds
+                .into_iter()
+                .map(|coin| 
+                    Asset{
+                        info: AssetInfo::NativeToken{ denom: coin.denom },
+                        amount: coin.amount,
+                    }
+                )
+                .collect::<Vec<Asset>>();
 
-            if assets.len() != info.funds.len() { return Err( ContractError::CustomError { val: String::from("Length discrepency between sent assets and AssetInfo List") } ) }
-            
-            for asset in assets.clone(){
-                valid_assets.push( assert_sent_native_token_balance( asset, &info )? );
-            }
             let cAssets: Vec<cAsset> = assert_basket_assets(deps.storage, deps.querier, env.clone(), basket_id, valid_assets, true)?;      
     
             deposit(deps, env, info, position_owner, position_id, basket_id, cAssets)
@@ -229,7 +233,7 @@ pub fn execute(
             let credit_asset = assert_sent_native_token_balance(basket.credit_asset.info, &info)?;
             repay(deps.storage, deps.querier, deps.api, env, info, basket_id, position_id, position_owner, credit_asset)
         },
-        ExecuteMsg::LiqRepay { credit_asset} => {
+        ExecuteMsg::LiqRepay { credit_asset } => {
             let credit_asset = assert_sent_native_token_balance(credit_asset.info, &info)?;
             liq_repay(deps, env, info, credit_asset)
         }

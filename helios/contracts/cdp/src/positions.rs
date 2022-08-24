@@ -1892,33 +1892,36 @@ pub fn sell_wall(
 
         if collateral_assets[index].clone().pool_info.is_some(){
 
-            let pool_info = collateral_assets[index].clone().pool_info.unwrap();
+            ///////These ratios are done wrong bc they use token amounts only
+            ///////Either way the assets also have different decimal places so the amounts aren't standardardized, will need to get ratios from the Oracle contract
 
-            //Split repay amount between collateral types
-            ////Query share asset amount 
-            let share_asset_amounts = querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
-                WasmQuery::Smart { 
-                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
-                    msg: to_binary(&OsmoQueryMsg::PoolState { 
-                        id: pool_info.pool_id 
-                    }
-                    )?}
-                ))?
-                .shares_value(collateral_assets[index].clone().asset.amount);
-            
-            ///Get pool asset ratios
-            let pool_total: Uint128 = share_asset_amounts.clone()
-                .into_iter()
-                .map(|coin| coin.amount )
-                .collect::<Vec<Uint128>>()
-                .iter()
-                .sum();
-            
-            let mut pool_asset_ratios = vec![];
+            // let pool_info = collateral_assets[index].clone().pool_info.unwrap();
 
-            for coin in share_asset_amounts.clone() {
-                pool_asset_ratios.push( decimal_division(Decimal::from_ratio(coin.amount, Uint128::new(1u128)), Decimal::from_ratio(pool_total, Uint128::new(1u128)) ) );
-            }
+            // //Split repay amount between collateral types
+            // ////Query share asset amount 
+            // let share_asset_amounts = querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
+            //     WasmQuery::Smart { 
+            //         contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
+            //         msg: to_binary(&OsmoQueryMsg::PoolState { 
+            //             id: pool_info.pool_id 
+            //         }
+            //         )?}
+            //     ))?
+            //     .shares_value(collateral_assets[index].clone().asset.amount);
+            
+            // ///Get pool asset ratios
+            // let pool_total: Uint128 = share_asset_amounts.clone()
+            //     .into_iter()
+            //     .map(|coin| coin.amount )
+            //     .collect::<Vec<Uint128>>()
+            //     .iter()
+            //     .sum();
+            
+            // let mut pool_asset_ratios = vec![];
+
+            // for coin in share_asset_amounts.clone() {
+            //     pool_asset_ratios.push( decimal_division(Decimal::from_ratio(coin.amount, Uint128::new(1u128)), Decimal::from_ratio(pool_total, Uint128::new(1u128)) ) );
+            // }
 
             //Push LP Withdrawal Msg
             let mut token_out_mins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];

@@ -17,7 +17,7 @@
 * [Positions](smart-contracts/positions.md)
 * [Stability Pool](smart-contracts/stability-pool.md)
 * [Liquidation Queue](smart-contracts/liquidation-queue.md)
-* [Builder's Vesting](smart-contracts/builders-vesting.md)
+* [Builder's Vesting](<smart-contracts/staking (1).md>)
 * [Staking](smart-contracts/staking.md)
 * [Gov](smart-contracts/gov.md)
 * [MBRN Auction](smart-contracts/mbrn-auction.md)

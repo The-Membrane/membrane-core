@@ -1003,7 +1003,7 @@ mod tests {
                 bank.init_balance(storage, &Addr::unchecked(USER), vec![coin(100_000, "debit"), coin(100_000, "2nddebit")])
                 .unwrap();
                 bank.init_balance(storage, &Addr::unchecked("contract1"), vec![coin(2225, "credit_fulldenom")])
-                .unwrap(); //contract0 = Stability Pool contract
+                .unwrap(); //contract1 = Stability Pool contract
                 bank.init_balance(storage, &Addr::unchecked("test"), vec![coin(50_000, "credit_fulldenom"), coin(100_000, "debit")])
                 .unwrap(); 
                 bank.init_balance(storage, &Addr::unchecked("sender"), vec![coin(50_001, "credit_fulldenom")])

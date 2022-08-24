@@ -21,7 +21,6 @@
 * [Gov](smart-contracts/gov.md)
 * [MBRN Auction](smart-contracts/mbrn-auction.md)
 * [Osmosis Proxy](smart-contracts/osmosis-proxy.md)
-* [MBRN](smart-contracts/mbrn.md)
 
 ## Technical Explanations
 

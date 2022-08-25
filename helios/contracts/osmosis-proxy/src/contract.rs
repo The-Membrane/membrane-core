@@ -31,7 +31,7 @@ pub fn instantiate(
     _msg: InstantiateMsg,
 ) -> Result<Response, TokenFactoryError> {
     let config = Config {
-        owner: info.sender.clone(),
+        owner: vec![ info.sender.clone() ],
     };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
@@ -68,11 +68,53 @@ pub fn execute(
             denom,
             max_supply
         } => edit_token_max( deps, info, denom, max_supply ),
+        ExecuteMsg::EditOwners {
+            owner,
+            add_owner,
+        } => edit_owners( deps, info, owner, add_owner ),
         
     }
 }
 
+fn edit_owners(
+    deps: DepsMut<OsmosisQuery>,
+    info: MessageInfo,
+    owner: String,
+    add_owner: bool,
+) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+    
+    let mut config = CONFIG.load( deps.storage )?;
 
+    if !validate_authority( config, info.clone() ) { return Err( TokenFactoryError::Unauthorized {  } ) }
+
+    //Edit Config
+    if add_owner {
+        config.owners.push( deps.api.addr_validate(&owner)? );
+
+        //Save Config
+        CONFIG.save( deps.storage, &config )?;
+
+    } else {
+        //Filter out owner
+        let config.owners = config.clone().owners
+            .into_iter()
+            .filter(|stored_owner| stored_owner != deps.api.addr_validate(&owner)? )
+            .collect::<Vec<Addr>>();
+
+        //Save Config
+        CONFIG.save( deps.storage, &config )?;
+    }
+}
+
+fn validate_authority(
+    config: Config,
+    info: MessageInfo,
+) -> bool {
+    match config.owners.into_iter().find(|owner| owner == info.sender ){
+        Some( _owner ) => true,
+        None => false,
+    }
+}
 
 pub fn create_denom( 
     deps: DepsMut<OsmosisQuery>,
@@ -84,7 +126,7 @@ pub fn create_denom(
 
     let config = CONFIG.load( deps.storage )?;
     //Assert Authority
-    if info.sender != config.owner { return Err( TokenFactoryError::Unauthorized {  } ) }
+    if !validate_authority( config, info.clone() ) { return Err( TokenFactoryError::Unauthorized {  } ) }
 
     if subdenom.eq("") {
         return Err(TokenFactoryError::InvalidSubdenom { subdenom });
@@ -112,7 +154,7 @@ pub fn change_admin(
     
     let config = CONFIG.load( deps.storage )?;
     //Assert Authority
-    if info.sender != config.owner { return Err( TokenFactoryError::Unauthorized {  } ) }
+    if !validate_authority( config, info.clone() ) { return Err( TokenFactoryError::Unauthorized {  } ) }
 
     deps.api.addr_validate(&new_admin_address)?;
 
@@ -141,7 +183,7 @@ fn edit_token_max(
 
     let config = CONFIG.load( deps.storage )?;
     //Assert Authority
-    if info.sender != config.owner { return Err( TokenFactoryError::Unauthorized {  } ) }
+    if !validate_authority( config, info.clone() ) { return Err( TokenFactoryError::Unauthorized {  } ) }
 
     //Update Token Max
     TOKENS.update( deps.storage, denom.clone(), | token_info | -> Result<TokenInfo, TokenFactoryError> {
@@ -176,7 +218,7 @@ pub fn mint_tokens(
 
     let config = CONFIG.load( deps.storage )?;
     //Assert Authority
-    if info.sender != config.owner { return Err( TokenFactoryError::Unauthorized {  } ) }
+    if !validate_authority( config, info.clone() ) { return Err( TokenFactoryError::Unauthorized {  } ) }
 
     deps.api.addr_validate(&mint_to_address)?;
 
@@ -223,7 +265,7 @@ pub fn burn_tokens(
 
     let config = CONFIG.load( deps.storage )?;
     //Assert Authority
-    if info.sender != config.owner { return Err( TokenFactoryError::Unauthorized {  } ) }
+    if !validate_authority( config, info.clone() ) { return Err( TokenFactoryError::Unauthorized {  } ) }
 
     if !burn_from_address.is_empty() {
         return Result::Err(TokenFactoryError::BurnFromAddressNotSupported {

@@ -34,6 +34,10 @@ pub enum ExecuteMsg {
         denom: String,
         max_supply: Uint128,
     },
+    EditOwners {
+        owner: String,
+        add_owner: bool, //Add or Remove
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

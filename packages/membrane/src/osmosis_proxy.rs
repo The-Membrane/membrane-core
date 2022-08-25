@@ -63,9 +63,15 @@ pub enum QueryMsg {
     GetTokenInfo {
         denom: String,
     },
+    Config { },
 }
 
 // We define a custom struct for each query response
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct ConfigResponse {
+    pub owners: Vec<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct GetDenomResponse {
     pub denom: String,

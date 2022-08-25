@@ -322,8 +322,27 @@ pub fn query(deps: Deps<OsmosisQuery>, _env: Env, msg: QueryMsg) -> StdResult<Bi
         },
         QueryMsg::GetTokenInfo { denom } => {
             to_binary( &get_token_info( deps, denom )? )
-        }
+        },
+        QueryMsg::Config { } => {
+            to_binary( &get_config( deps )? )
+        },
     }
+}
+
+fn get_config(
+    deps: Deps<OsmosisQuery>, 
+) -> StdResult<ConfigResponse> {
+
+    let config_owners: Vec<String> = CONFIG.load( deps.storage )?.owners
+        .into_iter()
+        .map(|owner| owner.to_string())
+        .collect::<Vec<String>>();
+
+    Ok( 
+        ConfigResponse {
+            owners: config_owners,
+        }
+    )
 }
 
 fn get_token_info(

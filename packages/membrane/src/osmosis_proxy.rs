@@ -14,6 +14,7 @@ pub enum ExecuteMsg {
     CreateDenom {
         subdenom: String,
         basket_id: String,
+        max_supply: Uint128,
     },
     ChangeAdmin {
         denom: String,
@@ -29,12 +30,10 @@ pub enum ExecuteMsg {
         amount: Uint128,
         burn_from_address: String,
     },
-    // ExitPool {
-    //     sender: String,
-    //     pool_id: u64,
-    //     share_in_amount: Uint128,
-    //     token_out_mins: Vec<Coin>,
-    // },
+    EditTokenMaxSupply {
+        denom: String,
+        max_supply: Uint128,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -57,6 +56,9 @@ pub enum QueryMsg {
         base_asset_denom: String,
         start_time: i64,
     },
+    GetTokenInfo {
+        denom: String,
+    },
 }
 
 // We define a custom struct for each query response
@@ -65,7 +67,9 @@ pub struct GetDenomResponse {
     pub denom: String,
 }
 
-// #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
-// pub struct ArithmeticTwapToNowResponse {
-//     pub twap: Decimal,
-// }
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct TokenInfoResponse {
+    pub denom: String,
+    pub current_supply: Uint128,
+    pub max_supply: Uint128,
+}

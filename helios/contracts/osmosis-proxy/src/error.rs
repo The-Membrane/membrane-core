@@ -23,4 +23,9 @@ pub enum TokenFactoryError {
 
     #[error("amount was zero, must be positive")]
     ZeroAmount {},
+
+    #[error("Custom Error val: {val:?}")]
+    CustomError { val: String },
 }
+
+

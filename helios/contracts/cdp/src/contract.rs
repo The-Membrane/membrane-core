@@ -716,8 +716,6 @@ fn handle_create_denom_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
         Err( err ) => {return Err( StdError::GenericErr { msg: err } )}
 
     }
-
-
     Ok( Response::new() ) 
 }
 

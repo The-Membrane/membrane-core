@@ -162,7 +162,8 @@ pub struct PremiumSlot {
 pub struct StakeDeposit {
     pub staker: Addr,
     pub amount: Uint128,
-    pub deposit_time: u64,
+    pub stake_time: u64,
+    pub unstake_start_time: Option<u64>,
 }
 
 impl fmt::Display for StakeDeposit {

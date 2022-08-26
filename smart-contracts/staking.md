@@ -14,7 +14,6 @@ pub struct InstantiateMsg {
     pub builders_contract: Option<String>,
     pub osmosis_proxy: Option<String>,    
     pub staking_rate: Option<Decimal>,
-    pub unstaking_period: Option<u64>,    
     pub mbrn_denom: String,
     pub dex_router: Option<String>,
     pub max_spread: Option<Decimal>,
@@ -28,7 +27,6 @@ pub struct InstantiateMsg {
 | `*builders_contract`  | String  | Builder's Vesting contract address            |
 | `*osmosis_proxy`      | String  | Osmosis Proxy contract address                |
 | `*staking_rate`       | Decimal | Desired staking rate, defaults to 10%         |
-| `*unstaking_period`   | u64     | Unstaking period in days, defaults to 3 days  |
 | `mbrn_denom`          | String  | MBRN full denom                               |
 | `*dex_router`         | String  | DEX Router contract address                   |
 | `*max_spread`         | Decimal | Max spread for asset routing, defaults to 10% |
@@ -69,8 +67,7 @@ pub enum ExecuteMsg {
         builders_contract: Option<String>,
         osmosis_proxy: Option<String>,
         mbrn_denom: Option<String>,  
-        staking_rate: Option<Decimal>,
-        unstaking_period: Option<u64>,            
+        staking_rate: Option<Decimal>,        
         dex_router: Option<String>,
         max_spread: Option<Decimal>,
     }
@@ -84,7 +81,6 @@ pub enum ExecuteMsg {
 | `*builders_contract`  | String  | Builder's Vesting contract address |
 | `*osmosis_proxy`      | String  | Osmosis Proxy contract address     |
 | `*staking_rate`       | Decimal | Desired staking rate               |
-| `*unstaking_period`   | u64     | Unstaking period in days           |
 | `*mbrn_denom`         | String  | MBRN full denom                    |
 | `*dex_router`         | String  | DEX Router contract address        |
 | `*max_spread`         | Decimal | Max spread for asset routing       |
@@ -202,7 +198,6 @@ pub struct ConfigResponse {
     pub builders_contract: String,
     pub osmosis_proxy: String,    
     pub staking_rate: String,
-    pub unstaking_period: String,    
     pub mbrn_denom: String,
     pub dex_router: String,
     pub max_spread: String, 

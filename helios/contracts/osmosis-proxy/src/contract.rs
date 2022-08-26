@@ -121,7 +121,7 @@ pub fn create_denom(
     info: MessageInfo, 
     subdenom: String, 
     basket_id: String, 
-    max_supply: Uint128
+    max_supply: Option<Uint128>,
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
 
     let config = CONFIG.load( deps.storage )?;
@@ -138,7 +138,7 @@ pub fn create_denom(
     let res = Response::new()
         .add_attribute("method", "create_denom")
         .add_attribute("sub_denom", subdenom)
-        .add_attribute("max_supply", max_supply)
+        .add_attribute("max_supply", max_supply.unwrap_or_else(|| Uint128::zero()))
         .add_attribute("basket_id", basket_id)
         .add_message(create_denom_msg);
 
@@ -355,7 +355,7 @@ fn get_token_info(
         TokenInfoResponse {
             denom,
             current_supply: token_info.current_supply,
-            max_supply: token_info.max_supply,
+            max_supply: token_info.max_supply.unwrap_or_else(|| Uint128::zero()),
         }
     )
 }
@@ -472,10 +472,17 @@ fn handle_create_denom_reply(deps: DepsMut<OsmosisQuery>, env: Env, msg: Reply) 
             let response: FullDenomResponse = OsmosisQuerier::new(&deps.querier)
                 .full_denom(String::from(env.contract.address), String::from(subdenom))?;
            
+            let max_supply = {
+                if Uint128::from_str( max_supply )?.is_zero(){
+                    None
+                } else { 
+                    Some( Uint128::from_str( max_supply )? ) 
+                }
+            };
             TOKENS.save( deps.storage, response.denom,
                 &TokenInfo {
                     current_supply: Uint128::zero(),
-                    max_supply: Uint128::from_str( max_supply )?,
+                    max_supply,
                 }
             )?;
                 

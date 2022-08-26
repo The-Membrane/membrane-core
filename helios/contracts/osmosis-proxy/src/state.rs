@@ -13,7 +13,7 @@ pub struct Config {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct TokenInfo {
     pub current_supply: Uint128,
-    pub max_supply: Uint128,
+    pub max_supply: Option<Uint128>,
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");

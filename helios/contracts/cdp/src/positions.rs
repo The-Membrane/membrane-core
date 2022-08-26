@@ -3277,7 +3277,8 @@ fn accrue(
         };
 
     //Accrue Interest to the Repayment Price
-    if basket.credit_interest.is_some() && !basket.credit_interest.unwrap().is_zero(){
+    if basket.credit_interest.is_some() {
+        if !basket.credit_interest.unwrap().is_zero(){
         
         //Calc Time-elapsed and update last_Accrued 
         let time_elasped = env.block.time.seconds() - basket.credit_last_accrued;
@@ -3298,7 +3299,7 @@ fn accrue(
         basket.credit_price = Some( new_price );
 
         //panic!("{}", applied_rate);
-    }
+    }}
 
     Ok( () )
 }

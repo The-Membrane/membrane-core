@@ -11,6 +11,10 @@ use crate::types::{ Asset, AssetPool, LiqAsset, cAsset, AssetInfo, Deposit, Posi
 pub struct InstantiateMsg {
     pub asset_pool: Option<AssetPool>,
     pub owner: Option<String>,
+    pub incentive_rate: Option<Decimal>,
+    pub desired_ratio_of_total_credit_supply: Option<Decimal>,
+    pub osmosis_proxy: String,
+    pub mbrn_denom: String,
     pub dex_router: Option<String>,
     pub max_spread: Option<Decimal>,
 }
@@ -20,6 +24,10 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     UpdateConfig {
         owner: Option<String>,
+        incentive_rate: Option<Decimal>,
+        desired_ratio_of_total_credit_supply: Option<Decimal>,
+        osmosis_proxy: Option<String>,
+        mbrn_denom: Option<String>,
         dex_router: Option<String>,
         max_spread: Option<Decimal>,
     },
@@ -31,7 +39,7 @@ pub enum ExecuteMsg {
     Withdraw { //Withdraw a list of accepted assets 
         assets: Vec<Asset>
     }, 
-    Claim { //Claim ALL liquidation revenue
+    Claim { //Claim ALL liquidation revenue && MBRN incentives
         claim_as_native: Option<String>, //Native FullDenom
         claim_as_cw20: Option<String>, //Contract Address
         deposit_to: Option<PositionUserInfo>, //Deposit to Position in CDP contract
@@ -87,6 +95,10 @@ pub enum QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct ConfigResponse {
     pub owner: String, 
+    pub incentive_rate: String,
+    pub desired_ratio_of_total_credit_supply: String,
+    pub osmosis_proxy: String,
+    pub mbrn_denom: String,
     pub dex_router: String,
     pub max_spread: String, 
 }

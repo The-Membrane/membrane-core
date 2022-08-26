@@ -1029,6 +1029,7 @@ dependencies = [
  "cw2",
  "cw20",
  "membrane",
+ "osmo-bindings",
  "schemars",
  "serde",
  "thiserror",

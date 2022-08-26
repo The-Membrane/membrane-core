@@ -14,7 +14,7 @@ pub enum ExecuteMsg {
     CreateDenom {
         subdenom: String,
         basket_id: String,
-        max_supply: Uint128,
+        max_supply: Option<Uint128>,
     },
     ChangeAdmin {
         denom: String,

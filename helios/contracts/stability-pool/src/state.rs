@@ -10,6 +10,12 @@ use cw_storage_plus::{Item, Map};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {
     pub owner: Addr, //Positions contract address
+    pub incentive_rate: Decimal,
+    //% of Supply desired in the SP. 
+    //Incentives decrease as it gets closer
+    pub desired_ratio_of_total_credit_supply: Decimal,
+    pub mbrn_denom: String,
+    pub osmosis_proxy: Addr,
     pub dex_router: Option<Addr>,
     pub max_spread: Option<Decimal>, //max_spread for the router, mainly claim_as swaps
 }

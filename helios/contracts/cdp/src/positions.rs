@@ -147,9 +147,7 @@ pub fn deposit(
                                             asset: deposited_asset.clone(), 
                                             debt_total: Uint128::zero(),
                                             max_borrow_LTV:  new_cAsset.clone().max_borrow_LTV,
-                                            max_LTV:  new_cAsset.clone().max_LTV,   
-                                            pool_info: new_cAsset.clone().pool_info,
-                                            pool_info_for_price: new_cAsset.clone().pool_info_for_price,                                         
+                                            max_LTV:  new_cAsset.clone().max_LTV,                                 
                                         }
                                     );
 
@@ -1035,12 +1033,7 @@ pub fn liquidate(
                     msg: to_binary(&Cw20ExecuteMsg::Send { 
                         contract: config.clone().staking_contract.unwrap().to_string(), 
                         amount: protocol_fee_in_collateral_amount, 
-                        msg: to_binary(&StakingExecuteMsg::DepositFee {
-                            fee_assets: vec![Asset { 
-                                info: cAsset.clone().asset.info, 
-                                amount: protocol_fee_in_collateral_amount 
-                            }], 
-                        })?
+                        msg: to_binary(&StakingExecuteMsg::DepositFee { })?
                     })?,
                     funds: vec![],
                 });
@@ -1078,9 +1071,7 @@ pub fn liquidate(
         //Create Msg to send all native token liq fees for protocol to the staking contract
         let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
             contract_addr: config.clone().staking_contract.unwrap().to_string(), 
-            msg: to_binary(&StakingExecuteMsg::DepositFee {
-                fee_assets, 
-            } )?,
+            msg: to_binary(&StakingExecuteMsg::DepositFee { } )?,
             funds: protocol_coins,
         });
         fee_messages.push( msg );
@@ -1446,7 +1437,6 @@ pub fn create_basket(
     collateral_types: Vec<cAsset>,
     credit_asset: Asset,
     credit_price: Option<Decimal>,
-    credit_interest: Option<Decimal>,
     collateral_supply_caps: Option<Vec<Decimal>>,
     base_interest_rate: Option<Decimal>,
     desired_debt_cap_util: Option<Decimal>,
@@ -1529,7 +1519,6 @@ pub fn create_basket(
         collateral_supply_caps,
         credit_asset: credit_asset.clone(),
         credit_price,
-        credit_interest,
         credit_pool_ids,
         credit_asset_twap_price_source,
         liquidity_multiplier_for_debt_caps,
@@ -1575,11 +1564,6 @@ pub fn create_basket(
         Some(x) => { x.to_string()},
         None => { "None".to_string() },
     };
-    
-    let interest = match credit_interest{
-        Some(x) => { x.to_string()},
-        None => { "None".to_string() },
-    };
 
 
     Ok(response.add_attributes(vec![
@@ -1589,7 +1573,6 @@ pub fn create_basket(
         attr("credit_asset", credit_asset.to_string() ),
         attr("credit_subdenom", subdenom),
         attr("credit_price", price),
-        attr("credit_interest", interest),
     ]).add_submessage(sub_msg))
 }
 
@@ -1599,7 +1582,6 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
     basket_id: Uint128,
     added_cAsset: Option<cAsset>,
     owner: Option<String>,
-    credit_interest: Option<Decimal>,
     liq_queue: Option<String>,
     pool_ids: Option<Vec<u64>>,
     liquidity_multiplier: Option<Decimal>,
@@ -1711,10 +1693,6 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                     if new_owner.is_some(){
                         basket.owner = new_owner.clone().unwrap();
                         attrs.push( attr("new_owner", new_owner.clone().unwrap().to_string()) );
-                    }
-                    if credit_interest.is_some(){
-                        basket.credit_interest = credit_interest.clone();
-                        attrs.push( attr("new_credit_interest", credit_interest.clone().unwrap().to_string()) );
                     }
                     if liq_queue.is_some(){
                         basket.liq_queue = new_queue.clone();
@@ -2534,8 +2512,7 @@ pub fn get_asset_values(
     querier: QuerierWrapper, 
     assets: Vec<cAsset>, 
     config: Config
-) -> StdResult<(Vec<Decimal>, Vec<Decimal>)>
-{
+) -> StdResult<(Vec<Decimal>, Vec<Decimal>)> {
     
    //Getting proportions for position collateral to calculate avg LTV
     //Using the index in the for loop to parse through the assets Vec and collateral_assets Vec
@@ -2786,8 +2763,6 @@ pub fn update_position_claims(
                 debt_total: Uint128::zero(),
                 max_borrow_LTV: Decimal::zero(), 
                 max_LTV: Decimal::zero(),
-                pool_info: None,
-                pool_info_for_price: TWAPPoolInfo { pool_id: 0u64, base_asset_denom: String::from("None"), quote_asset_denom: String::from("None") }
             }
     ];
 
@@ -3108,7 +3083,8 @@ fn create_denom(
                     &OsmoExecuteMsg::CreateDenom { 
                         subdenom,
                         basket_id,
-                     })?,
+                        max_supply:Some( Uint128::new(u128::MAX) ),
+                    })?,
             funds: vec![],
         });
         
@@ -3277,29 +3253,61 @@ fn accrue(
         };
 
     //Accrue Interest to the Repayment Price
-    if basket.credit_interest.is_some() {
-        if !basket.credit_interest.unwrap().is_zero(){
-        
-        //Calc Time-elapsed and update last_Accrued 
-        let time_elasped = env.block.time.seconds() - basket.credit_last_accrued;
-        if !time_elasped == 0u64 {panic!("{}", time_elapsed) }
+    //--
+    //Calc Time-elapsed and update last_Accrued 
+    let time_elasped = env.block.time.seconds() - basket.credit_last_accrued;
+    if !time_elasped == 0u64 {
         basket.credit_last_accrued = env.block.time.seconds();
 
-        //Calculate rate of change
-        let mut applied_rate = basket.credit_interest.unwrap().checked_mul(Decimal::from_ratio(
-            Uint128::from(time_elapsed),
-            Uint128::from(SECONDS_PER_YEAR),
-        ))?;
-        
-        //Add 1 to make the value 1.__
-        applied_rate += Decimal::one();
-    
-        let new_price = decimal_multiplication( basket.credit_price.unwrap(), applied_rate );
+        //Calculate new interest rate
+        let mut negative_rate: bool;
+        let credit_asset = cAsset {
+            asset: basket.clone().credit_asset,
+            debt_total: Uint128::zero(),
+            max_borrow_LTV: Decimal::zero(),
+            max_LTV, Decimal::zero(),
+        };
+        let credit_TWAP_price = get_asset_values( storage, env, querier, vec![ credit_asset ], config )?.1[0];
+        //We divide w/ the greater number first so the quotient is always 1.__
+        let price_difference = {
+            //If market price > than repayment price
+            if credit_TWAP_price > basket.clone().credit_price.unwrap() {
+                negative_rate = true;
+                decimal_subtraction( decimal_division( credit_TWAP_price, basket.clone().credit_price.unwrap() ), Decimal::one() )
 
-        basket.credit_price = Some( new_price );
+            } else if basket.clone().credit_price.unwrap() > credit_TWAP_price {
+                negative_rate = false;
+                decimal_subtraction( decimal_division( basket.clone().credit_price.unwrap(), credit_TWAP_price ), Decimal::one() )
+
+            } else { Decimal::zero() }
+        };
+        //Don't accrue interest if price is within the margin of error
+        if price_difference > config.clone().pid_margin_of_error{
+            //Calculate rate of change
+            let mut applied_rate = price_difference.checked_mul(Decimal::from_ratio(
+                Uint128::from(time_elapsed),
+                Uint128::from(SECONDS_PER_YEAR),
+            ))?;
+            
+            //If a positive rate we add 1, 
+            //If a negative rate we add 1 and subtract 2xprice difference
+            //---
+            //Add 1 to make the value 1.__
+            applied_rate += Decimal::one();
+            if negative_rate {
+                //Subtract 2x price difference to make it .9___
+                let double_difference = decimal_multiplication( price_difference, Decimal::from_ratio(Uint128::new(2u128), Uint128::new(1u128)) );
+                applied_rate = decimal_subtraction( applied_rate, double_difference );
+            }
+        
+            let new_price = decimal_multiplication( basket.credit_price.unwrap(), applied_rate );
+
+            basket.credit_price = Some( new_price );
+        }
+    }
 
         //panic!("{}", applied_rate);
-    }}
+    
 
     Ok( () )
 }

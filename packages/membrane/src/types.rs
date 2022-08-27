@@ -190,10 +190,10 @@ pub struct cAsset {
     pub debt_total: Uint128,
     pub max_borrow_LTV: Decimal, //aka what u can bprrpw up to
     pub max_LTV: Decimal, //ie liquidation point 
-    //Osmosis Pool Info to pull TWAP from
-    pub pool_info_for_price: TWAPPoolInfo,
-    //NOTE: AssetInfo denom for an Osmo LP is the shares_denom
-    pub pool_info: Option<PoolInfo>, //if its an Osmosis LP add PoolInfo. 
+    // //Osmosis Pool Info to pull TWAP from
+    // pub pool_info_for_price: TWAPPoolInfo,
+    // //NOTE: AssetInfo denom for an Osmo LP is the shares_denom
+    // pub pool_info: Option<PoolInfo>, //if its an Osmosis LP add PoolInfo. 
      }
 
  #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -233,7 +233,6 @@ pub struct Basket {
     pub collateral_supply_caps: Vec<Decimal>, //Order needs to correlate to collateral_types order
     pub credit_asset: Asset, //Depending on type of token we use for credit this.info will be an Addr or denom (Cw20 or Native token respectively)
     pub credit_price: Option<Decimal>, //This is credit_repayment_price, not market price
-    pub credit_interest: Option<Decimal>,
     pub credit_pool_ids: Vec<u64>, //For liquidity measuring
     pub credit_asset_twap_price_source: TWAPPoolInfo,
     pub liquidity_multiplier_for_debt_caps: Decimal, //Ex: 5 = debt cap at 5x liquidity.

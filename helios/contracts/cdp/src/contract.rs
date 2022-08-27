@@ -54,6 +54,7 @@ pub fn instantiate(
         osmosis_proxy: None,
         debt_auction: None,    
         oracle_time_limit: msg.oracle_time_limit,
+        pid_margin_of_error: Decimal::one(),
         debt_minimum: msg.debt_minimum,
         twap_timeframe: msg.twap_timeframe,
     };
@@ -165,7 +166,6 @@ pub fn instantiate(
                 collateral_types.clone(),
                 msg.credit_asset.unwrap(),
                 msg.credit_price,
-                msg.credit_interest,
                 msg.collateral_supply_caps,
                 msg.base_interest_rate,
                 msg.desired_debt_cap_util,
@@ -197,8 +197,8 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig { owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit , twap_timeframe} => {
-            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit, twap_timeframe )
+        ExecuteMsg::UpdateConfig { owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit , twap_timeframe, pid_margin_of_error} => {
+            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit, twap_timeframe, pid_margin_of_error )
         },
         ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ position_owner, position_id, basket_id} => {
@@ -239,8 +239,8 @@ pub fn execute(
         }
         ExecuteMsg::EditAdmin { owner } => edit_contract_owner(deps, info, owner),
         ExecuteMsg::EditcAsset { basket_id, asset, max_borrow_LTV, max_LTV } => edit_cAsset(deps, info, basket_id, asset, max_borrow_LTV, max_LTV),
-        ExecuteMsg::EditBasket { basket_id, added_cAsset, owner, credit_interest, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source } => edit_basket(deps, info, basket_id, added_cAsset, owner, credit_interest, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source ),
-        ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, credit_interest, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source, credit_pool_ids, liquidity_multiplier_for_debt_caps } => create_basket( deps, info, env, owner, collateral_types, credit_asset, credit_price, credit_interest, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_pool_ids, credit_asset_twap_price_source, liquidity_multiplier_for_debt_caps, false ),
+        ExecuteMsg::EditBasket { basket_id, added_cAsset, owner, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source } => edit_basket(deps, info, basket_id, added_cAsset, owner, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source ),
+        ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source, credit_pool_ids, liquidity_multiplier_for_debt_caps } => create_basket( deps, info, env, owner, collateral_types, credit_asset, credit_price, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_pool_ids, credit_asset_twap_price_source, liquidity_multiplier_for_debt_caps, false ),
         ExecuteMsg::Liquidate { basket_id, position_id, position_owner } => liquidate(deps.storage, deps.api, deps.querier, env, info, basket_id, position_id, position_owner),
         ExecuteMsg::MintRevenue { basket_id, send_to, repay_for, amount } => mint_revenue(deps, info, env, basket_id, send_to, repay_for, amount),
         ExecuteMsg::Callback( msg ) => {
@@ -330,7 +330,8 @@ fn update_config(
     liq_fee: Option<Decimal>,
     debt_minimum: Option<Uint128>,
     oracle_time_limit: Option<u64>,
-    twap_timeframe: Option<u64>,
+    twap_timeframe: Option<u64>,    
+    pid_margin_of_error: Option<Decimal>,
 ) -> Result<Response, ContractError>{
 
     let mut config = CONFIG.load( deps.storage )?;
@@ -423,7 +424,14 @@ fn update_config(
     match twap_timeframe {
         Some( twap_timeframe ) => { 
             config.twap_timeframe = twap_timeframe.clone();
-            attrs.push( attr("new_oracle_time_limit", twap_timeframe.to_string()) );
+            attrs.push( attr("new_twap_timeframe", twap_timeframe.to_string()) );
+        },
+        None => {},
+    }
+    match pid_margin_of_error {
+        Some( pid_margin_of_error ) => { 
+            config.pid_margin_of_error = pid_margin_of_error.clone();
+            attrs.push( attr("new_pid_margin_of_error", pid_margin_of_error.to_string()) );
         },
         None => {},
     }

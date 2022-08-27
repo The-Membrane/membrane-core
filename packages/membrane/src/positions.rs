@@ -28,7 +28,6 @@ pub struct InstantiateMsg {
     pub collateral_types: Option<Vec<cAsset>>,
     pub credit_asset: Option<Asset>,
     pub credit_price: Option<Decimal>,
-    pub credit_interest: Option<Decimal>,
     pub collateral_supply_caps: Option<Vec<Decimal>>,
     pub base_interest_rate: Option<Decimal>,
     pub desired_debt_cap_util: Option<Decimal>,
@@ -53,6 +52,7 @@ pub enum ExecuteMsg {
         debt_minimum: Option<Uint128>,
         oracle_time_limit: Option<u64>,
         twap_timeframe: Option<u64>,
+        pid_margin_of_error: Option<Decimal>,
     },
     Receive(Cw20ReceiveMsg),
     Deposit{
@@ -94,7 +94,6 @@ pub enum ExecuteMsg {
         collateral_types: Vec<cAsset>,
         credit_asset: Asset,
         credit_price: Option<Decimal>,
-        credit_interest: Option<Decimal>,
         collateral_supply_caps: Option<Vec<Decimal>>,
         base_interest_rate: Option<Decimal>,
         desired_debt_cap_util: Option<Decimal>,        
@@ -106,7 +105,6 @@ pub enum ExecuteMsg {
         basket_id: Uint128,
         added_cAsset: Option<cAsset>,
         owner: Option<String>,
-        credit_interest: Option<Decimal>,
         liq_queue: Option<String>,
         pool_ids: Option<Vec<u64>>,
         liquidity_multiplier: Option<Decimal>,
@@ -223,7 +221,6 @@ pub struct BasketResponse{
     pub collateral_supply_caps: Vec<Decimal>,
     pub credit_asset: Asset, 
     pub credit_price: String,
-    pub credit_interest: String,
     pub credit_pool_ids: Vec<u64>,
     pub credit_asset_twap_price_source: TWAPPoolInfo,
     pub liquidity_multiplier_for_debt_caps: Decimal, //Ex: 5 = debt cap at 5x liquidity.
@@ -247,6 +244,7 @@ pub struct ConfigResponse {
     pub oracle_time_limit: u64,
     pub debt_minimum: Uint128,
     pub twap_timeframe: u64,
+    pub pid_margin_of_error: Decimal,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

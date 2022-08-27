@@ -47,7 +47,7 @@ pub fn query_config(
                 oracle_time_limit: config.oracle_time_limit,
                 debt_minimum: config.debt_minimum,
                 twap_timeframe: config.twap_timeframe,
-                
+                pid_margin_of_error: config.pid_margin_of_error,
             })
         },
         Err( err ) => return Err( err ),
@@ -200,11 +200,7 @@ pub fn query_basket(
                 Some(x) => { x.to_string()},
                 None => { "None".to_string() },
             };
-                        
-            let credit_interest = match basket.credit_interest{
-                Some(x) => { x.to_string()},
-                None => { "None".to_string() },
-            };
+            
 
             BasketResponse {
                 owner: basket.owner.to_string(),
@@ -213,7 +209,6 @@ pub fn query_basket(
                 collateral_types: basket.collateral_types,
                 credit_asset: basket.credit_asset,
                 credit_price,
-                credit_interest,
                 credit_pool_ids: basket.credit_pool_ids,
                 credit_asset_twap_price_source: basket.credit_asset_twap_price_source,
                 liquidity_multiplier_for_debt_caps: basket.liquidity_multiplier_for_debt_caps,
@@ -261,11 +256,7 @@ pub fn query_baskets(
                 Some(x) => { x.to_string()},
                 None => { "None".to_string() },
             };
-                        
-            let credit_interest = match basket.credit_interest{
-                Some(x) => { x.to_string()},
-                None => { "None".to_string() },
-            };
+                
 
             Ok(BasketResponse {
                 owner: basket.owner.to_string(),
@@ -274,7 +265,6 @@ pub fn query_baskets(
                 collateral_types: basket.collateral_types,
                 credit_asset: basket.credit_asset,
                 credit_price,
-                credit_interest,
                 credit_pool_ids: basket.credit_pool_ids,
                 credit_asset_twap_price_source: basket.credit_asset_twap_price_source,
                 liquidity_multiplier_for_debt_caps: basket.liquidity_multiplier_for_debt_caps,

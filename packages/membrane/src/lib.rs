@@ -9,3 +9,4 @@ pub mod debt_auction;
 pub mod builder_vesting;
 pub mod math;
 pub mod staking;
+pub mod governance;

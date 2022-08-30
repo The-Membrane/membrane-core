@@ -7,12 +7,12 @@ use std::str::FromStr;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, Deps, DepsMut, Reply, Env, MessageInfo, Response, StdResult, Uint128, QueryRequest, attr, CosmosMsg, StdError, Coin, QuerierWrapper
+    to_binary, Binary, Deps, DepsMut, Reply, Env, MessageInfo, Response, StdResult, Uint128, QueryRequest, attr, CosmosMsg, StdError, Coin, QuerierWrapper, Addr
 };
 use cw2::set_contract_version;
 
 use crate::error::TokenFactoryError;
-use membrane::osmosis_proxy::{ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse };
+use membrane::osmosis_proxy::{ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse, ConfigResponse };
 use crate::state::{Config, CONFIG, TOKENS, TokenInfo};
 use osmo_bindings::{ OsmosisMsg, OsmosisQuerier, OsmosisQuery, PoolStateResponse, ArithmeticTwapToNowResponse, FullDenomResponse };
 
@@ -31,7 +31,7 @@ pub fn instantiate(
     _msg: InstantiateMsg,
 ) -> Result<Response, TokenFactoryError> {
     let config = Config {
-        owner: vec![ info.sender.clone() ],
+        owners: vec![ info.sender.clone() ],
     };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
@@ -85,7 +85,7 @@ fn edit_owners(
     
     let mut config = CONFIG.load( deps.storage )?;
 
-    if !validate_authority( config, info.clone() ) { return Err( TokenFactoryError::Unauthorized {  } ) }
+    if !validate_authority( config.clone(), info.clone() ) { return Err( TokenFactoryError::Unauthorized {  } ) }
 
     //Edit Config
     if add_owner {
@@ -95,22 +95,29 @@ fn edit_owners(
         CONFIG.save( deps.storage, &config )?;
 
     } else {
+        deps.api.addr_validate(&owner)?;
         //Filter out owner
-        let config.owners = config.clone().owners
+        config.owners = config.clone().owners
             .into_iter()
-            .filter(|stored_owner| stored_owner != deps.api.addr_validate(&owner)? )
+            .filter(|stored_owner| stored_owner.to_string() != owner )
             .collect::<Vec<Addr>>();
 
         //Save Config
         CONFIG.save( deps.storage, &config )?;
     }
+
+    Ok( Response::new().add_attributes(vec![
+        attr("method", "edit_owners"),
+        attr("add_owner", add_owner.to_string() ),
+        attr("owner", owner),
+    ]) )
 }
 
 fn validate_authority(
     config: Config,
     info: MessageInfo,
 ) -> bool {
-    match config.owners.into_iter().find(|owner| owner == info.sender ){
+    match config.owners.into_iter().find(|owner| owner.to_string() == info.sender.to_string() ){
         Some( _owner ) => true,
         None => false,
     }
@@ -190,7 +197,7 @@ fn edit_token_max(
         match token_info {
             Some( mut token_info ) => {
                 
-                token_info.max_supply = max_supply.clone();
+                token_info.max_supply = Some( max_supply.clone() );
 
                 Ok( token_info )
             },
@@ -234,8 +241,10 @@ pub fn mint_tokens(
             Some( mut token_info ) => {
                 token_info.current_supply += amount;
 
-                if token_info.current_supply > token_info.max_supply {
-                    return Err( TokenFactoryError::CustomError { val: String::from("This mint puts token supply over Max supply") } )
+                if token_info.clone().max_supply.is_some(){
+                    if token_info.current_supply > token_info.max_supply.unwrap() {
+                        return Err( TokenFactoryError::CustomError { val: String::from("This mint puts token supply over Max supply") } )
+                    }
                 }
 
                 Ok( token_info )

@@ -89,7 +89,7 @@ pub enum ExecuteMsg {
         liq_fee: Option<Decimal>,
         debt_minimum: Option<Uint128>,
         oracle_time_limit: Option<u64>,
-        pid_margin_of_error: Option<Decimal>,        
+        cpc_margin_of_error: Option<Decimal>,        
     }
 }
 ```
@@ -106,7 +106,7 @@ pub enum ExecuteMsg {
 | _`*liq_fee`_                  | Decimal | Liquidation fee                                                          |
 | `*debt_minimum`               | Uint128 | Debt minimum in terms of value                                           |
 | `*oracle_time_limit`          | u64     | Oracle expiration time limit                                             |
-| `*pid_margin_of_error`        | Decimal | Margin of Error before the credit interest is effected by the TWAP price |
+| `*cpc_margin_of_error`        | Decimal | Margin of Error before the credit interest is effected by the TWAP price |
 
 &#x20;\* = optional
 
@@ -530,7 +530,7 @@ pub struct ConfigResponse {
     pub liq_fee: Decimal, // 5 = 5%
     pub oracle_time_limit: u64,
     pub debt_minimum: Uint128,
-    pub pid_margin_of_error: Decimal,
+    pub cpc_margin_of_error: Decimal,
 }
 ```
 

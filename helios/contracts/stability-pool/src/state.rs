@@ -11,6 +11,7 @@ use cw_storage_plus::{Item, Map};
 pub struct Config {
     pub owner: Addr, //Positions contract address
     pub incentive_rate: Decimal,
+    pub max_incentives: Uint128,
     //% of Supply desired in the SP. 
     //Incentives decrease as it gets closer
     pub desired_ratio_of_total_credit_supply: Decimal,
@@ -29,7 +30,7 @@ pub struct Propagation {
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const ASSETS: Item<Vec<AssetPool>> = Item::new("assets"); //Acts as the asset WL and the sum of all deposits for said asset
 pub const PROP: Item<Propagation> = Item::new("propagation");
-
+pub const INCENTIVES: Item<Uint128> = Item::new("incentives_total");
 pub const USERS: Map<Addr, User> = Map::new("users"); //Used to map claims to users 
 
 

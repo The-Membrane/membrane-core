@@ -12,6 +12,7 @@ pub struct InstantiateMsg {
     pub asset_pool: Option<AssetPool>,
     pub owner: Option<String>,
     pub incentive_rate: Option<Decimal>,
+    pub max_incentives: Option<Uint128>,
     pub desired_ratio_of_total_credit_supply: Option<Decimal>,
     pub osmosis_proxy: String,
     pub mbrn_denom: String,
@@ -25,6 +26,7 @@ pub enum ExecuteMsg {
     UpdateConfig {
         owner: Option<String>,
         incentive_rate: Option<Decimal>,
+        max_incentives: Option<Uint128>,
         desired_ratio_of_total_credit_supply: Option<Decimal>,
         osmosis_proxy: Option<String>,
         mbrn_denom: Option<String>,
@@ -96,6 +98,7 @@ pub enum QueryMsg {
 pub struct ConfigResponse {
     pub owner: String, 
     pub incentive_rate: String,
+    pub max_incentives: String,
     pub desired_ratio_of_total_credit_supply: String,
     pub osmosis_proxy: String,
     pub mbrn_denom: String,

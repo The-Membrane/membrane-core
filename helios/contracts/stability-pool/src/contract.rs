@@ -15,7 +15,7 @@ use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg};
 
 use crate::error::ContractError;
 use crate::math::{decimal_division, decimal_subtraction, decimal_multiplication};
-use crate::state::{ ASSETS, CONFIG, Config, USERS, PROP, Propagation };
+use crate::state::{ ASSETS, CONFIG, Config, USERS, PROP, Propagation, INCENTIVES };
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:stability-pool";
@@ -39,6 +39,7 @@ pub fn instantiate(
         config = Config {
             owner: deps.api.addr_validate(&msg.owner.unwrap())?, 
             incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(0)),
+            max_incentives: msg.max_incentives.unwrap_or_else(|| Uint128::new(70_000_000_000_000)),
             desired_ratio_of_total_credit_supply: msg.desired_ratio_of_total_credit_supply.unwrap_or_else(|| Decimal::percent(0)),
             mbrn_denom: msg.mbrn_denom,
             osmosis_proxy: deps.api.addr_validate( &msg.osmosis_proxy )?,
@@ -49,6 +50,7 @@ pub fn instantiate(
         config = Config {
             owner: info.sender.clone(),
             incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(0)),
+            max_incentives: msg.max_incentives.unwrap_or_else(|| Uint128::new(70_000_000_000_000)),
             desired_ratio_of_total_credit_supply: msg.desired_ratio_of_total_credit_supply.unwrap_or_else(|| Decimal::percent(0)),
             mbrn_denom: msg.mbrn_denom,
             osmosis_proxy: deps.api.addr_validate( &msg.osmosis_proxy )?,
@@ -74,6 +76,9 @@ pub fn instantiate(
 
     //Initialize the propagation object
     PROP.save( deps.storage, &Propagation { repaid_amount: Uint128::zero() })?;
+
+    //Initialize Incentive Total
+    INCENTIVES.save( deps.storage, &Uint128::zero() )?;
     
     if msg.asset_pool.is_some() {
 
@@ -107,13 +112,14 @@ pub fn execute(
     match msg {
         ExecuteMsg::UpdateConfig { 
             owner, 
-            incentive_rate, 
+            incentive_rate,
+            max_incentives, 
             desired_ratio_of_total_credit_supply,
             mbrn_denom, 
             osmosis_proxy,
             dex_router, 
             max_spread 
-        } => update_config(deps, info, owner, incentive_rate, desired_ratio_of_total_credit_supply, mbrn_denom, osmosis_proxy, dex_router, max_spread),
+        } => update_config(deps, info, owner, incentive_rate, max_incentives, desired_ratio_of_total_credit_supply, mbrn_denom, osmosis_proxy, dex_router, max_spread),
         ExecuteMsg::Receive( msg ) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ user, assets } => {
             //Outputs asset objects w/ correct amounts
@@ -135,6 +141,7 @@ fn update_config(
     info: MessageInfo,
     owner: Option<String>,
     incentive_rate: Option<Decimal>,
+    max_incentives: Option<Uint128>,
     desired_ratio_of_total_credit_supply: Option<Decimal>,
     mbrn_denom: Option<String>,
     osmosis_proxy: Option<String>,
@@ -194,6 +201,13 @@ fn update_config(
         Some( incentive_rate ) => { 
             config.incentive_rate = incentive_rate.clone();
             attrs.push( attr("new_incentive_rate", incentive_rate.to_string()) );
+        },
+        None => {},
+    }
+    match max_incentives {
+        Some( max_incentives ) => { 
+            config.max_incentives = max_incentives.clone();
+            attrs.push( attr("new_max_incentives", max_incentives.to_string()) );
         },
         None => {},
     }
@@ -309,6 +323,7 @@ pub fn deposit(
 
 //Get incentive rate and return accrued amount
 fn accrue_incentives(
+    storage: &mut dyn Storage,
     querier: QuerierWrapper,
     config: Config,
     asset_pool: AssetPool,
@@ -341,7 +356,18 @@ fn accrue_incentives(
         rate = decimal_multiplication( config.clone().incentive_rate, rate_multiplier );
     }
 
-    Ok( accumulate_interest( stake, rate, time_elapsed )? )
+    let mut incentives = accumulate_interest( stake, rate, time_elapsed )?;
+
+    let mut total_incentives = INCENTIVES.load( storage )?;
+    //Assert that incentives aren't over max, set 0 if so.
+    if total_incentives + incentives > config.max_incentives {
+        incentives = Uint128::zero();
+    } else {
+        total_incentives += incentives;
+        INCENTIVES.save( storage, &total_incentives )?;
+    }
+
+    Ok( incentives )
 
 }
 
@@ -494,7 +520,7 @@ fn withdrawal_from_state(
                     //Calc incentives
                     let time_elapsed = env.block.time.seconds() - deposit_item.deposit_time;
                     if time_elapsed != 0u64{
-                        let accrued_incentives = match accrue_incentives( querier, config.clone(), pool.clone(), withdrawal_amount * Uint128::new(1u128), time_elapsed ){
+                        let accrued_incentives = match accrue_incentives( storage, querier, config.clone(), pool.clone(), withdrawal_amount * Uint128::new(1u128), time_elapsed ){
                             Ok( incentives ) => incentives,
                             Err( err ) => { 
                                 error = Some( err );
@@ -514,7 +540,7 @@ fn withdrawal_from_state(
                     //Calc incentives
                     let time_elapsed = env.block.time.seconds() - deposit_item.deposit_time;
                     if time_elapsed != 0u64{
-                        let accrued_incentives = match accrue_incentives( querier, config.clone(), pool.clone(), deposit_item.amount * Uint128::new(1u128), time_elapsed ){
+                        let accrued_incentives = match accrue_incentives( storage, querier, config.clone(), pool.clone(), deposit_item.amount * Uint128::new(1u128), time_elapsed ){
                             Ok( incentives ) => incentives,
                             Err( err ) => { 
                                 error = Some( err );
@@ -760,7 +786,7 @@ pub fn distribute_funds(
                     //Calc MBRN incentives
                     let time_elapsed = env.block.time.seconds() - deposit.deposit_time;
                     if time_elapsed != 0u64{
-                        let accrued_incentives = accrue_incentives( deps.querier, config.clone(), asset_pool.clone(), remaining_repayment * Uint128::new(1u128), time_elapsed )?;
+                        let accrued_incentives = accrue_incentives( deps.storage, deps.querier, config.clone(), asset_pool.clone(), remaining_repayment * Uint128::new(1u128), time_elapsed )?;
                     
                         //Add incentives to User Claims
                         USERS.update( deps.storage, deposit.user, |user_claims| -> Result<User, ContractError> {
@@ -787,7 +813,7 @@ pub fn distribute_funds(
                     //Calc MBRN incentives
                     let time_elapsed = env.block.time.seconds() - deposit.deposit_time;
                     if time_elapsed != 0u64{
-                        let accrued_incentives = accrue_incentives( deps.querier, config.clone(), asset_pool.clone(), deposit.amount * Uint128::new(1u128), time_elapsed )?;
+                        let accrued_incentives = accrue_incentives( deps.storage, deps.querier, config.clone(), asset_pool.clone(), deposit.amount * Uint128::new(1u128), time_elapsed )?;
                         
                         //Add incentives to User Claims
                         USERS.update( deps.storage, deposit.user, |user_claims| -> Result<User, ContractError> {
@@ -1797,6 +1823,7 @@ fn query_config(
         ConfigResponse {
             owner: config.owner.to_string(),
             incentive_rate: config.incentive_rate.to_string(),
+            max_incentives: config.max_incentives.to_string(),
             desired_ratio_of_total_credit_supply: config.desired_ratio_of_total_credit_supply.to_string(),
             mbrn_denom: config.mbrn_denom,
             osmosis_proxy: config.osmosis_proxy.to_string(),

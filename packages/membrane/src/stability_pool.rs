@@ -9,12 +9,13 @@ use crate::types::{ Asset, AssetPool, LiqAsset, cAsset, AssetInfo, Deposit, Posi
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
-    pub asset_pool: Option<AssetPool>,
     pub owner: Option<String>,
+    pub asset_pool: Option<AssetPool>,
     pub incentive_rate: Option<Decimal>,
     pub max_incentives: Option<Uint128>,
     pub desired_ratio_of_total_credit_supply: Option<Decimal>,
     pub osmosis_proxy: String,
+    pub positions_contract: String,
     pub mbrn_denom: String,
     pub dex_router: Option<String>,
     pub max_spread: Option<Decimal>,
@@ -29,6 +30,7 @@ pub enum ExecuteMsg {
         max_incentives: Option<Uint128>,
         desired_ratio_of_total_credit_supply: Option<Decimal>,
         osmosis_proxy: Option<String>,
+        positions_contract: Option<String>,
         mbrn_denom: Option<String>,
         dex_router: Option<String>,
         max_spread: Option<Decimal>,
@@ -101,6 +103,7 @@ pub struct ConfigResponse {
     pub max_incentives: String,
     pub desired_ratio_of_total_credit_supply: String,
     pub osmosis_proxy: String,
+    pub positions_contract: String,
     pub mbrn_denom: String,
     pub dex_router: String,
     pub max_spread: String, 

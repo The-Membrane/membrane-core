@@ -17,6 +17,7 @@ pub struct Config {
     pub desired_ratio_of_total_credit_supply: Decimal,
     pub mbrn_denom: String,
     pub osmosis_proxy: Addr,
+    pub positions_contract: Addr,
     pub dex_router: Option<Addr>,
     pub max_spread: Option<Decimal>, //max_spread for the router, mainly claim_as swaps
 }

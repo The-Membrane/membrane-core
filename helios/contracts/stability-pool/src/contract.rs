@@ -43,6 +43,7 @@ pub fn instantiate(
             desired_ratio_of_total_credit_supply: msg.desired_ratio_of_total_credit_supply.unwrap_or_else(|| Decimal::percent(0)),
             mbrn_denom: msg.mbrn_denom,
             osmosis_proxy: deps.api.addr_validate( &msg.osmosis_proxy )?,
+            positions_contract: deps.api.addr_validate( &msg.positions_contract )?,
             dex_router: None,
             max_spread: msg.max_spread,
         };
@@ -54,6 +55,7 @@ pub fn instantiate(
             desired_ratio_of_total_credit_supply: msg.desired_ratio_of_total_credit_supply.unwrap_or_else(|| Decimal::percent(0)),
             mbrn_denom: msg.mbrn_denom,
             osmosis_proxy: deps.api.addr_validate( &msg.osmosis_proxy )?,
+            positions_contract: deps.api.addr_validate( &msg.positions_contract )?,
             dex_router: None,  
             max_spread: msg.max_spread,
         };
@@ -117,9 +119,10 @@ pub fn execute(
             desired_ratio_of_total_credit_supply,
             mbrn_denom, 
             osmosis_proxy,
+            positions_contract,
             dex_router, 
             max_spread 
-        } => update_config(deps, info, owner, incentive_rate, max_incentives, desired_ratio_of_total_credit_supply, mbrn_denom, osmosis_proxy, dex_router, max_spread),
+        } => update_config(deps, info, owner, incentive_rate, max_incentives, desired_ratio_of_total_credit_supply, mbrn_denom, osmosis_proxy, positions_contract, dex_router, max_spread),
         ExecuteMsg::Receive( msg ) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ user, assets } => {
             //Outputs asset objects w/ correct amounts
@@ -145,6 +148,7 @@ fn update_config(
     desired_ratio_of_total_credit_supply: Option<Decimal>,
     mbrn_denom: Option<String>,
     osmosis_proxy: Option<String>,
+    positions_contract: Option<String>,
     dex_router: Option<String>,
     max_spread: Option<Decimal>,
 ) -> Result<Response, ContractError>{
@@ -177,8 +181,16 @@ fn update_config(
     match osmosis_proxy {
         Some( osmosis_proxy ) => { 
             let valid_addr = deps.api.addr_validate(&osmosis_proxy)?;
-            config.dex_router = Some( valid_addr.clone() );
+            config.osmosis_proxy = valid_addr.clone();
             attrs.push( attr("new_osmosis_proxy", valid_addr.to_string()) );
+        },
+        None => {},
+    }
+    match positions_contract {
+        Some( positions_contract ) => { 
+            let valid_addr = deps.api.addr_validate(&positions_contract)?;
+            config.positions_contract = valid_addr.clone();
+            attrs.push( attr("new_positions_contract", valid_addr.to_string()) );
         },
         None => {},
     }
@@ -611,7 +623,7 @@ pub fn liquidate(
 
     let config = CONFIG.load(deps.storage)?;
 
-    if info.sender.clone() != config.owner {
+    if info.sender.clone() != config.positions_contract {
         return Err(ContractError::Unauthorized {})
     }
     
@@ -660,7 +672,7 @@ pub fn liquidate(
     let coin: Coin = asset_to_coin( repay_asset.clone() )?;
 
     let message = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.owner.to_string(),
+            contract_addr: config.positions_contract.to_string(),
             msg: to_binary(&repay_msg)?,
             funds: vec![coin], 
     });
@@ -705,10 +717,10 @@ pub fn distribute_funds(
 
     let config = CONFIG.load(deps.storage)?;
 
-    //Can only be called by its owner
-    if info.sender != config.owner && cw20_sender.is_none(){
+    //Can only be called by the positions contract
+    if info.sender != config.positions_contract && cw20_sender.is_none(){
         return Err(ContractError::Unauthorized { })
-    } else if cw20_sender.is_some() && cw20_sender.clone().unwrap() != config.owner.to_string() {
+    } else if cw20_sender.is_some() && cw20_sender.clone().unwrap() != config.positions_contract.to_string() {
         return Err(ContractError::Unauthorized { })
     }
 
@@ -1513,7 +1525,7 @@ pub fn deposit_to_position(
     };
 
     let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.owner.to_string(), //Assumption that this is the Positions contract
+        contract_addr: config.positions_contract.to_string(), 
         msg: to_binary(&deposit_msg)?,
         funds: coins,
     });
@@ -1827,6 +1839,7 @@ fn query_config(
             desired_ratio_of_total_credit_supply: config.desired_ratio_of_total_credit_supply.to_string(),
             mbrn_denom: config.mbrn_denom,
             osmosis_proxy: config.osmosis_proxy.to_string(),
+            positions_contract: config.positions_contract.to_string(),
             dex_router: config.dex_router.unwrap_or(Addr::unchecked("None")).to_string(),
             max_spread: config.max_spread.unwrap().to_string(),
         }

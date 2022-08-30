@@ -32,14 +32,16 @@ To prevent bots from sniping loans, submitted bids are only activated after `wai
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
+    pub positions_contract: String,
     pub waiting_period: u64, //seconds
 }
 ```
 
-| Key              | Type   | Description                                    |
-| ---------------- | ------ | ---------------------------------------------- |
-| `*owner`         | String | Owner of the contract, defaults to info.sender |
-| `waiting_period` | u64    | Waiting period for bids (secs)                 |
+| Key                  | Type   | Description                                    |
+| -------------------- | ------ | ---------------------------------------------- |
+| `*owner`             | String | Owner of the contract, defaults to info.sender |
+| `positions_contract` | String | CDP contract                                   |
+| `waiting_period`     | u64    | Waiting period for bids (secs)                 |
 
 &#x20;\* = optional
 
@@ -231,15 +233,17 @@ Update Config
 pub enum ExecuteMsg {
     UpdateConfig{
         owner: Option<String>,
+        positions_contract: Option<String>,
         waiting_period: Option<u64>,
     }
 }
 ```
 
-| Key               | Type   | Description                   |
-| ----------------- | ------ | ----------------------------- |
-| `*owner`          | String | Owner of the contract         |
-| `*waiting_period` | u64    | Bid waiting period in seconds |
+| Key                   | Type   | Description                   |
+| --------------------- | ------ | ----------------------------- |
+| `*owner`              | String | Owner of the contract         |
+| `*positions_contract` | String | CDP contract                  |
+| `*waiting_period`     | u64    | Bid waiting period in seconds |
 
 &#x20;\* = optional
 
@@ -258,6 +262,7 @@ pub enum QueryMsg {
 
 pub struct ConfigResponse {
     pub owner: String, 
+    pub positions_contract: String,
     pub waiting_period: u64,
     pub added_assets: Vec<AssetInfo>,
 }

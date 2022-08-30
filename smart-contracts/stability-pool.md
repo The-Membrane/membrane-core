@@ -21,12 +21,13 @@ We want this phase of the mechanism to be reactive when low while not taking too
 ```
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
-    pub asset_pool: Option<AssetPool>,
     pub owner: Option<String>,
+    pub asset_pool: Option<AssetPool>,
     pub incentive_rate: Option<Decimal>,
     pub max_incentives: Option<Uint128>,
     pub desired_ratio_of_total_credit_supply: Option<Decimal>,
     pub osmosis_proxy: String,
+    pub positions_contract: String,
     pub mbrn_denom: String,
     pub dex_router: Option<String>,
     pub max_spread: Option<Decimal>,
@@ -57,6 +58,7 @@ pub struct Deposit {
 | `*max_incentives`                       | Uint128   | Maximum MBRN the Pool can mint for incentives     |
 | `*desired_ratio_of_total_credit_supply` | Decimal   | Desired ratio of credit (CDT) in the pool         |
 | `osmosis_proxy`                         | String    | Osmosis Proxy contract address                    |
+| `positions_contract`                    | String    | CDP contract                                      |
 | `mbrn_denom`                            | String    | MBRN denom                                        |
 | `*dex_router`                           | String    | DEX Router Contract                               |
 | `*max_spread`                           | Decimal   | Max spread for claim\_as() swaps, defaults to 10% |
@@ -79,6 +81,7 @@ pub enum ExecuteMsg {
         max_incentives: Option<Uint128>,
         desired_ratio_of_total_credit_supply: Option<Decimal>,
         osmosis_proxy: Option<String>,
+        positions_contract: Option<String>,
         mbrn_denom: Option<String>,
         dex_router: Option<String>,
         max_spread: Option<Decimal>,
@@ -92,8 +95,9 @@ pub enum ExecuteMsg {
 | `*incentive_rate`                       | Decimal  | Base MBRN incentive rate                      |
 | `*max_incentives`                       | UIint128 | Maximum MBRN the Pool can mint for incentives |
 | `*desired_ratio_of_total_credit_supply` | Decimal  | Desired ratio of credit (CDT) in the pool     |
-| `osmosis_proxy`                         | String   | Osmosis Proxy contract address                |
-| `mbrn_denom`                            | String   | MBRN denom                                    |
+| `*osmosis_proxy`                        | String   | Osmosis Proxy contract address                |
+| `*positions_contract`                   | String   | CDP contract                                  |
+| `*mbrn_denom`                           | String   | MBRN denom                                    |
 | `*dex_router`                           | String   | Dex Router contract                           |
 | `*max_spread`                           | Decimal  | Max spread for ClaimAs swaps                  |
 
@@ -311,6 +315,7 @@ pub struct ConfigResponse {
     pub max_incentives: String,
     pub desired_ratio_of_total_credit_supply: String,
     pub osmosis_proxy: String,
+    pub positions_contract: String,
     pub mbrn_denom: String,
     pub dex_router: String,
     pub max_spread: String, 

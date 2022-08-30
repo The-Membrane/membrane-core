@@ -13,13 +13,14 @@ use cosmwasm_bignumber::{Decimal256, Uint256};
 use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
 use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, SlotResponse, ClaimsResponse};
 use membrane::types::{ Asset, AssetInfo, LiqAsset, cAsset, BidInput, Bid, Queue, PremiumSlot };
+use membrane::math::{decimal_division, decimal_subtraction, decimal_multiplication};
+
 use cw20::{Cw20ExecuteMsg, Cw20QueryMsg};
 //use cw_multi_test::Contract;
 
 use crate::contract::{validate_position_owner, assert_sent_native_token_balance};
 //use crate::cw20::{Cw20ExecuteMsg, CW20QueryMsg};
 use crate::error::ContractError;
-use crate::math::{decimal_division, decimal_subtraction, decimal_multiplication};
 //use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, SlotResponse, ClaimsResponse};
 //use crate::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
 use crate::state::{ CONFIG, Config, QUEUES, EPOCH_SCALE_SUM};
@@ -308,8 +309,8 @@ pub fn execute_liquidation(
     
     let config: Config = CONFIG.load(deps.storage)?;
 
-    //Only Positions contract (owner) can execute
-    if info.sender != config.owner { 
+    //Only Positions contract can execute
+    if info.sender != config.positions_contract { 
         return Err(ContractError::Unauthorized {  });
     }
 
@@ -404,7 +405,7 @@ pub fn execute_liquidation(
     let coin: Coin = asset_to_coin( repay_asset )?;
 
     let message = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.owner.to_string(),
+            contract_addr: config.positions_contract.to_string(),
             msg: to_binary(&repay_msg)?,
             funds: vec![coin], 
     });

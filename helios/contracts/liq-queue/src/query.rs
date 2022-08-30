@@ -9,10 +9,11 @@ use cw2::set_contract_version;
 use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg, SlotResponse, ConfigResponse, BidResponse, ClaimsResponse, LiquidatibleResponse, QueueResponse};
 use membrane::types::{Asset, AssetInfo, LiqAsset, cAsset, UserRatio, BidInput, Bid, Queue, PremiumSlot};
 use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
+use membrane::math::{decimal_division, decimal_subtraction, decimal_multiplication};
+
 use cw20::{Cw20ExecuteMsg, Cw20QueryMsg};
 
 use crate::error::ContractError;
-use crate::math::{decimal_division, decimal_subtraction, decimal_multiplication};
 use crate::state::{ CONFIG, Config, QUEUES };
 //use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, SlotResponse, ConfigResponse, BidResponse, ClaimsResponse, LiquidatibleResponse, QueueResponse};
 //use crate::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
@@ -23,6 +24,7 @@ pub fn query_config(deps: Deps) -> StdResult<ConfigResponse> {
     let config = CONFIG.load(deps.storage)?;
     let resp = ConfigResponse {
         owner: config.owner.to_string(),
+        positions_contract: config.positions_contract.to_string(),
         waiting_period: config.waiting_period,
         added_assets: config.added_assets.unwrap_or_default(),
     };

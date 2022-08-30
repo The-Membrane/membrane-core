@@ -10,7 +10,8 @@ use cw_storage_plus::{Item, Map};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {
-    pub owner: Addr, //A singular positions contract address
+    pub owner: Addr, //Governance
+    pub positions_contract: Addr,
     pub added_assets: Option<Vec<AssetInfo>>,
     pub waiting_period: u64, //Wait period is at max doubled due to slot_total calculation
 }

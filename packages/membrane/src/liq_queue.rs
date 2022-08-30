@@ -12,6 +12,7 @@ use crate::types::{Asset, AssetInfo, BidInput, Bid, PremiumSlot};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
+    pub positions_contract: String,
     pub waiting_period: u64, //seconds
 }
 
@@ -55,6 +56,7 @@ pub enum ExecuteMsg {
     },
     UpdateConfig{
         owner: Option<String>,
+        positions_contract: Option<String>,
         waiting_period: Option<u64>,
     },
 }
@@ -126,6 +128,7 @@ pub struct SlotResponse {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct ConfigResponse {
     pub owner: String, 
+    pub positions_contract: String,
     pub waiting_period: u64,
     pub added_assets: Vec<AssetInfo>,
 }

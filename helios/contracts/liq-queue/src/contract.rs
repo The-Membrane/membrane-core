@@ -13,12 +13,11 @@ use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResp
 //use cw_multi_test::Contract;
 use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
 use membrane::types::{ Asset, AssetInfo, LiqAsset, cAsset,  UserRatio, BidInput, Bid, Queue, PremiumSlot, PositionUserInfo };
-
+use membrane::math::{decimal_division, decimal_subtraction, decimal_multiplication};
 
 
 use crate::bid::{submit_bid, retract_bid, execute_liquidation, claim_liquidations, store_queue};
 use crate::error::ContractError;
-use crate::math::{decimal_division, decimal_subtraction, decimal_multiplication};
 //use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, SlotResponse, ClaimsResponse, PositionUserInfo};
 use crate::query::{query_config, query_liquidatible, query_premium_slots, query_user_claims, query_premium_slot, query_bid, query_queue, query_queues, query_bids_by_user};
 //use crate::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
@@ -43,12 +42,14 @@ pub fn instantiate(
     if msg.owner.is_some(){
         config = Config {
             owner: deps.api.addr_validate(&msg.owner.unwrap())?,  
+            positions_contract: deps.api.addr_validate(&msg.positions_contract)?,  
             waiting_period: msg.waiting_period,
             added_assets: Some(vec![]),
         };
     }else{
         config = Config {
             owner: info.sender.clone(),  
+            positions_contract: deps.api.addr_validate(&msg.positions_contract)?,  
             waiting_period: msg.waiting_period,
             added_assets: Some(vec![]),
         };
@@ -96,7 +97,7 @@ pub fn execute(
         ExecuteMsg::ClaimLiquidations { bid_for, bid_ids } => claim_liquidations(deps, env, info, bid_for, bid_ids),
         ExecuteMsg::AddQueue { bid_for, bid_asset, max_premium, bid_threshold } => add_queue(deps, info, bid_for, bid_asset, max_premium, bid_threshold),
         ExecuteMsg::UpdateQueue { bid_for, max_premium, bid_threshold } => edit_queue(deps, info, bid_for, max_premium, bid_threshold ),
-        ExecuteMsg::UpdateConfig { owner, waiting_period } => update_config(deps, info, owner, waiting_period),
+        ExecuteMsg::UpdateConfig { owner, positions_contract, waiting_period } => update_config(deps, info, owner, positions_contract, waiting_period),
     }
 }//Functions assume Cw20 asset amounts are taken from Messageinfo
 
@@ -104,6 +105,7 @@ fn update_config(
     deps: DepsMut,
     info: MessageInfo,
     owner: Option<String>,
+    positions_contract: Option<String>,
     waiting_period: Option<u64>
 )-> Result<Response, ContractError>{
     
@@ -115,6 +117,9 @@ fn update_config(
 
     if owner.is_some(){
         config.owner = deps.api.addr_validate(&owner.unwrap())?;
+    }
+    if positions_contract.is_some(){
+        config.positions_contract = deps.api.addr_validate(&positions_contract.unwrap())?;
     }
     if waiting_period.is_some(){
         config.waiting_period = waiting_period.unwrap();

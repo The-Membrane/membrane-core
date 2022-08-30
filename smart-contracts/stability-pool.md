@@ -23,6 +23,11 @@ We want this phase of the mechanism to be reactive when low while not taking too
 pub struct InstantiateMsg {
     pub asset_pool: Option<AssetPool>,
     pub owner: Option<String>,
+    pub incentive_rate: Option<Decimal>,
+    pub max_incentives: Option<Uint128>,
+    pub desired_ratio_of_total_credit_supply: Option<Decimal>,
+    pub osmosis_proxy: String,
+    pub mbrn_denom: String,
     pub dex_router: Option<String>,
     pub max_spread: Option<Decimal>,
 }
@@ -44,12 +49,17 @@ pub struct Deposit {
 }
 ```
 
-| Key           | Type      | Description                                       |
-| ------------- | --------- | ------------------------------------------------- |
-| `*asset_pool` | AssetPool | Initial Asset Pool for the contract               |
-| `*owner`      | String    | Owner of the contract, defaults to info.sender    |
-| `*dex_router` | String    | DEX Router Contract                               |
-| `*max_spread` | Decimal   | Max spread for claim\_as() swaps, defaults to 10% |
+| Key                                     | Type      | Description                                       |
+| --------------------------------------- | --------- | ------------------------------------------------- |
+| `*asset_pool`                           | AssetPool | Initial Asset Pool for the contract               |
+| `*owner`                                | String    | Owner of the contract, defaults to info.sender    |
+| `*incentive_rate`                       | Decimal   | Base MBRN incentive rate                          |
+| `*max_incentives`                       | Uint128   | Maximum MBRN the Pool can mint for incentives     |
+| `*desired_ratio_of_total_credit_supply` | Decimal   | Desired ratio of credit (CDT) in the pool         |
+| `osmosis_proxy`                         | String    | Osmosis Proxy contract address                    |
+| `mbrn_denom`                            | String    | MBRN denom                                        |
+| `*dex_router`                           | String    | DEX Router Contract                               |
+| `*max_spread`                           | Decimal   | Max spread for claim\_as() swaps, defaults to 10% |
 
 \* = optional
 
@@ -65,17 +75,27 @@ Update Config if info.sender is config.owner
 pub enum ExecuteMsg {
     UpdateConfig {
         owner: Option<String>,
+        incentive_rate: Option<Decimal>,
+        max_incentives: Option<Uint128>,
+        desired_ratio_of_total_credit_supply: Option<Decimal>,
+        osmosis_proxy: Option<String>,
+        mbrn_denom: Option<String>,
         dex_router: Option<String>,
         max_spread: Option<Decimal>,
     }
 }
 ```
 
-| Key           | Type    | Description                      |
-| ------------- | ------- | -------------------------------- |
-| `*owner`      | String  | Address of Owner of the contract |
-| `*dex_router` | String  | Dex Router contract              |
-| `*max_spread` | Decimal | Max spread for ClaimAs swaps     |
+| Key                                     | Type     | Description                                   |
+| --------------------------------------- | -------- | --------------------------------------------- |
+| `*owner`                                | String   | Address of Owner of the contract              |
+| `*incentive_rate`                       | Decimal  | Base MBRN incentive rate                      |
+| `*max_incentives`                       | UIint128 | Maximum MBRN the Pool can mint for incentives |
+| `*desired_ratio_of_total_credit_supply` | Decimal  | Desired ratio of credit (CDT) in the pool     |
+| `osmosis_proxy`                         | String   | Osmosis Proxy contract address                |
+| `mbrn_denom`                            | String   | MBRN denom                                    |
+| `*dex_router`                           | String   | Dex Router contract                           |
+| `*max_spread`                           | Decimal  | Max spread for ClaimAs swaps                  |
 
 &#x20;\* = optional
 
@@ -287,6 +307,11 @@ pub enum QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct ConfigResponse {
     pub owner: String, 
+    pub incentive_rate: String,
+    pub max_incentives: String,
+    pub desired_ratio_of_total_credit_supply: String,
+    pub osmosis_proxy: String,
+    pub mbrn_denom: String,
     pub dex_router: String,
     pub max_spread: String, 
 }

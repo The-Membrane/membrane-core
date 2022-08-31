@@ -24,10 +24,11 @@ pub struct Config {
     pub oracle_time_limit: u64, //in seconds until oracle failure is accepted. Think of it as how many blocks you allow the oracle to fail for.
     //% difference btwn credit TWAP and repayment price before the interest changes
     //Set to 100 if you want to turn off the PID
-    pub pid_margin_of_error: Decimal, 
+    pub cpc_margin_of_error: Decimal, 
     //This needs to be large enough so that USDC positions are profitable to liquidate, 
     //1-2% of liquidated debt (max -> borrow_LTV) needs to be more than gas fees assuming ~98% LTV.
     pub debt_minimum: Uint128, //Debt minimum value per position. 
+    pub base_debt_cap_multiplier: Uint128, //Debt Minimum multiplier for base debt cap
     
 }
 

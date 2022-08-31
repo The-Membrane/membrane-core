@@ -1,8 +1,10 @@
 use cosmwasm_std::{Deps, StdResult, Uint128, Addr, StdError, Order, QuerierWrapper, Decimal, to_binary, QueryRequest, WasmQuery, Storage, Env, MessageInfo};
 use cw_storage_plus::Bound;
-use membrane::{positions::{PropResponse, ConfigResponse, PositionResponse, BasketResponse, PositionsResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse}, types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PriceInfo, PositionUserInfo, InsolventPosition, UserInfo}, stability_pool::PoolResponse};
-use membrane::stability_pool::{ QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse };
+use membrane::positions::{PropResponse, ConfigResponse, PositionResponse, BasketResponse, PositionsResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, InterestResponse};
+use membrane::types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PriceInfo, PositionUserInfo, InsolventPosition, UserInfo};
+use membrane::stability_pool::{ QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg };
+
 use osmo_bindings::SpotPriceResponse;
 
 use crate::{state::{CONFIG, POSITIONS, REPAY, BASKETS, Config}, positions::{read_price, get_asset_liquidity, validate_position_owner}, math::{decimal_multiplication, decimal_division, decimal_subtraction}, ContractError};
@@ -47,7 +49,7 @@ pub fn query_config(
                 oracle_time_limit: config.oracle_time_limit,
                 debt_minimum: config.debt_minimum,
                 twap_timeframe: config.twap_timeframe,
-                pid_margin_of_error: config.pid_margin_of_error,
+                cpc_margin_of_error: config.cpc_margin_of_error,
             })
         },
         Err( err ) => return Err( err ),
@@ -533,6 +535,64 @@ pub fn query_position_insolvency(
     
     Ok( res )
     
+}
+
+pub fn query_basket_credit_interest(
+    deps: Deps,
+    env: Env,
+    basket_id: Uint128,
+) -> StdResult<InterestResponse>{
+    
+    let config = CONFIG.load( deps.storage )?;
+
+    let basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
+
+    let time_elasped = env.block.time.seconds() - basket.credit_last_accrued;
+    let mut price_difference = Decimal::zero();
+    let mut negative_rate: bool = false;
+
+    if !time_elasped == 0u64 {
+        basket.credit_last_accrued = env.block.time.seconds();
+
+        //Calculate new interest rate
+        let credit_asset = cAsset {
+            asset: basket.clone().credit_asset,
+            debt_total: Uint128::zero(),
+            max_borrow_LTV: Decimal::zero(),
+            max_LTV, Decimal::zero(),
+        };
+        let credit_TWAP_price = get_asset_values_imut( deps.storage, env, deps.querier, vec![ credit_asset ], config )?.1[0];
+        //We divide w/ the greater number first so the quotient is always 1.__
+        price_difference = {
+            //If market price > than repayment price
+            if credit_TWAP_price > basket.clone().credit_price.unwrap() {
+                negative_rate = true;
+                decimal_subtraction( decimal_division( credit_TWAP_price, basket.clone().credit_price.unwrap() ), Decimal::one() )
+
+            } else if basket.clone().credit_price.unwrap() > credit_TWAP_price {
+                negative_rate = false;
+                decimal_subtraction( decimal_division( basket.clone().credit_price.unwrap(), credit_TWAP_price ), Decimal::one() )
+
+            } else { Decimal::zero() }
+        };
+
+        //Don't set interest if price is within the margin of error
+        if price_difference > config.clone().cpc_margin_of_error{
+
+            price_difference = decimal_subtraction(price_difference, config.clone().cpc_margin_of_error);
+                    
+        } else {
+            
+            price_difference = Decimal::zero();
+
+        }       
+        
+    }
+
+    Ok( InterestResponse {
+        credit_interest: price_difference,
+        negative_rate,
+    })
 }
 
 ////Helper/////

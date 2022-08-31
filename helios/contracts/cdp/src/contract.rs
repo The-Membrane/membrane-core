@@ -23,7 +23,7 @@ use membrane::debt_auction::{ ExecuteMsg as AuctionExecuteMsg };
 use crate::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 use crate::error::ContractError;
 use crate::positions::{create_basket, assert_basket_assets, assert_sent_native_token_balance, deposit, withdraw, increase_debt, repay, liq_repay, edit_contract_owner, liquidate, edit_basket, sell_wall_using_ids, SELL_WALL_REPLY_ID, STABILITY_POOL_REPLY_ID, LIQ_QUEUE_REPLY_ID, withdrawal_msg, update_position_claims, CREATE_DENOM_REPLY_ID, BAD_DEBT_REPLY_ID, mint_revenue, WITHDRAW_REPLY_ID, get_contract_balances};
-use crate::query::{query_stability_pool_liquidatible, query_config, query_position, query_user_positions, query_basket_positions, query_basket, query_baskets, query_prop, query_stability_pool_fee, query_basket_debt_caps, query_bad_debt, query_basket_insolvency, query_position_insolvency};
+use crate::query::{query_stability_pool_liquidatible, query_config, query_position, query_user_positions, query_basket_positions, query_basket, query_baskets, query_prop, query_stability_pool_fee, query_basket_debt_caps, query_bad_debt, query_basket_insolvency, query_position_insolvency, query_basket_credit_interest};
 //use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, AssetInfo, Cw20HookMsg, Asset, PositionResponse, PositionsResponse, BasketResponse, LiqModuleMsg};
 //use crate::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
 //use crate::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse, Cw20HookMsg as LQ_Cw20HookMsg};
@@ -54,8 +54,9 @@ pub fn instantiate(
         osmosis_proxy: None,
         debt_auction: None,    
         oracle_time_limit: msg.oracle_time_limit,
-        pid_margin_of_error: Decimal::one(),
+        cpc_margin_of_error: Decimal::one(),
         debt_minimum: msg.debt_minimum,
+        base_debt_cap_multiplier: Uint128::new(10u128),
         twap_timeframe: msg.twap_timeframe,
     };
     
@@ -197,8 +198,21 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig { owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit , twap_timeframe, pid_margin_of_error} => {
-            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, interest_revenue_collector, liq_fee, debt_minimum, oracle_time_limit, twap_timeframe, pid_margin_of_error )
+        ExecuteMsg::UpdateConfig { 
+            owner, 
+            stability_pool, 
+            dex_router, 
+            osmosis_proxy, 
+            debt_auction, 
+            staking_contract, 
+            interest_revenue_collector, 
+            liq_fee, 
+            debt_minimum, 
+            base_debt_cap_multiplier,
+            oracle_time_limit, 
+            twap_timeframe, 
+            cpc_margin_of_error} => {
+            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, interest_revenue_collector, liq_fee, debt_minimum, base_debt_cap_multiplier, oracle_time_limit, twap_timeframe, cpc_margin_of_error )
         },
         ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ position_owner, position_id, basket_id} => {
@@ -329,9 +343,10 @@ fn update_config(
     interest_revenue_collector: Option<String>,
     liq_fee: Option<Decimal>,
     debt_minimum: Option<Uint128>,
+    base_debt_cap_multiplier: Option<Uint128>,
     oracle_time_limit: Option<u64>,
     twap_timeframe: Option<u64>,    
-    pid_margin_of_error: Option<Decimal>,
+    cpc_margin_of_error: Option<Decimal>,
 ) -> Result<Response, ContractError>{
 
     let mut config = CONFIG.load( deps.storage )?;
@@ -414,6 +429,13 @@ fn update_config(
         },
         None => {},
     }
+    match base_debt_cap_multiplier {
+        Some( base_debt_cap_multiplier ) => { 
+            config.base_debt_cap_multiplier = base_debt_cap_multiplier.clone();
+            attrs.push( attr("new_base_debt_cap_multiplier", base_debt_cap_multiplier.to_string()) );
+        },
+        None => {},
+    }
     match oracle_time_limit {
         Some( oracle_time_limit ) => { 
             config.oracle_time_limit = oracle_time_limit.clone();
@@ -428,10 +450,10 @@ fn update_config(
         },
         None => {},
     }
-    match pid_margin_of_error {
-        Some( pid_margin_of_error ) => { 
-            config.pid_margin_of_error = pid_margin_of_error.clone();
-            attrs.push( attr("new_pid_margin_of_error", pid_margin_of_error.to_string()) );
+    match cpc_margin_of_error {
+        Some( cpc_margin_of_error ) => { 
+            config.cpc_margin_of_error = cpc_margin_of_error.clone();
+            attrs.push( attr("new_pid_margin_of_error", cpc_margin_of_error.to_string()) );
         },
         None => {},
     }
@@ -1113,6 +1135,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         },
         QueryMsg::GetPositionInsolvency { basket_id, position_id, position_owner } => {
             to_binary( &query_position_insolvency(deps, env, basket_id, position_id, position_owner)? )
-        }        
+        },
+        QueryMsg::GetBasketInterest { basket_id } => {
+            to_binary( &query_basket_credit_interest(deps, env, basket_id)? )
+        },
     }
 }

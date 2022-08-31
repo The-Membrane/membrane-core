@@ -16,8 +16,10 @@ use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, 
 use membrane::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
 use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg };
 use membrane::staking::{ ExecuteMsg as StakingExecuteMsg };
+use membrane::math::{ decimal_multiplication, decimal_division, decimal_subtraction};
 
-use crate::{ContractError, state::{ RepayPropagation, REPAY, CONFIG, BASKETS, POSITIONS, Config, WithdrawPropagation, WITHDRAW}, math::{ decimal_multiplication, decimal_division, decimal_subtraction}, query::{query_stability_pool_fee, query_stability_pool_liquidatible }};
+use crate::{ContractError, state::{ RepayPropagation, REPAY, CONFIG, BASKETS, POSITIONS, Config, WithdrawPropagation, WITHDRAW} }
+use crate::query::{query_stability_pool_fee, query_stability_pool_liquidatible };
 
 pub const LIQ_QUEUE_REPLY_ID: u64 = 1u64;
 pub const STABILITY_POOL_REPLY_ID: u64 = 2u64;
@@ -2791,15 +2793,23 @@ pub fn update_position_claims(
     let cAsset_ratios = get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config.clone())?;
 
     //Get the debt cap 
-    let debt_cap = get_asset_liquidity( querier, config, basket.clone().credit_pool_ids, basket.clone().credit_asset.info )? * basket.clone().liquidity_multiplier_for_debt_caps;
+    let mut debt_cap = get_asset_liquidity( querier, config, basket.clone().credit_pool_ids, basket.clone().credit_asset.info )? * basket.clone().liquidity_multiplier_for_debt_caps;
+
+    //If debt cap is less than the minimum, set it to the minimum
+    if debt_cap < ( config.base_debt_cap_multiplier * config.debt_minimum ){
+        debt_cap = ( config.base_debt_cap_multiplier * config.debt_minimum );
+    }
 
     let mut per_asset_debt_caps = vec![];
 
     for ( i, cAsset)  in cAsset_ratios.clone().into_iter().enumerate(){
+        //If supply cap is 0, then debt cap is 0
         if basket.clone().collateral_supply_caps != vec![] {
+
             if basket.clone().collateral_supply_caps[i].is_zero(){
                 per_asset_debt_caps.push( Uint128::zero() );
             }
+
         } else {
             per_asset_debt_caps.push( cAsset * debt_cap );
         }
@@ -3265,11 +3275,11 @@ fn accrue(
             asset: basket.clone().credit_asset,
             debt_total: Uint128::zero(),
             max_borrow_LTV: Decimal::zero(),
-            max_LTV, Decimal::zero(),
+            max_LTV: Decimal::zero(),
         };
         let credit_TWAP_price = get_asset_values( storage, env, querier, vec![ credit_asset ], config )?.1[0];
         //We divide w/ the greater number first so the quotient is always 1.__
-        let price_difference = {
+        let mut price_difference = {
             //If market price > than repayment price
             if credit_TWAP_price > basket.clone().credit_price.unwrap() {
                 negative_rate = true;
@@ -3282,7 +3292,9 @@ fn accrue(
             } else { Decimal::zero() }
         };
         //Don't accrue interest if price is within the margin of error
-        if price_difference > config.clone().pid_margin_of_error{
+        if price_difference > config.clone().cpc_margin_of_error{
+
+            price_difference = decimal_subtraction(price_difference, config.clone().cpc_margin_of_error);
             //Calculate rate of change
             let mut applied_rate = price_difference.checked_mul(Decimal::from_ratio(
                 Uint128::from(time_elapsed),

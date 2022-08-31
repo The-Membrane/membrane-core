@@ -50,9 +50,10 @@ pub enum ExecuteMsg {
         interest_revenue_collector: Option<String>,
         liq_fee: Option<Decimal>,
         debt_minimum: Option<Uint128>,
+        base_debt_cap_multiplier: Option<Uint128>,
         oracle_time_limit: Option<u64>,
         twap_timeframe: Option<u64>,
-        pid_margin_of_error: Option<Decimal>,
+        cpc_margin_of_error: Option<Decimal>,
     },
     Receive(Cw20ReceiveMsg),
     Deposit{
@@ -191,6 +192,9 @@ pub enum QueryMsg {
         position_id: Uint128,
         position_owner: String,
     },
+    GetBasketInterest {
+        basket_id: Uint128,
+    },
     //Used internally to test state propagation
     Propagation {},
 }
@@ -243,8 +247,9 @@ pub struct ConfigResponse {
     pub liq_fee: Decimal, // 5 = 5%
     pub oracle_time_limit: u64,
     pub debt_minimum: Uint128,
+    pub base_debt_cap_multiplier: Uint128,
     pub twap_timeframe: u64,
-    pub pid_margin_of_error: Decimal,
+    pub cpc_margin_of_error: Decimal,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -272,4 +277,10 @@ pub struct BadDebtResponse{
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InsolvencyResponse{
     pub insolvent_positions: Vec<InsolventPosition>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct InterestResponse{
+    pub credit_interest: Decimal,
+    pub negative_rate: bool,
 }

@@ -18,7 +18,7 @@ use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQue
 use membrane::staking::{ ExecuteMsg as StakingExecuteMsg };
 use membrane::math::{ decimal_multiplication, decimal_division, decimal_subtraction};
 
-use crate::{ContractError, state::{ RepayPropagation, REPAY, CONFIG, BASKETS, POSITIONS, Config, WithdrawPropagation, WITHDRAW} }
+use crate::{ContractError, state::{ RepayPropagation, REPAY, CONFIG, BASKETS, POSITIONS, Config, WithdrawPropagation, WITHDRAW} };
 use crate::query::{query_stability_pool_fee, query_stability_pool_liquidatible };
 
 pub const LIQ_QUEUE_REPLY_ID: u64 = 1u64;
@@ -2534,11 +2534,11 @@ pub fn get_asset_values(
 
             for pool_asset in pool_info.clone().asset_denoms{
 
-                let price_info: PriceInfo = match read_price( storage, &pool_asset.0 ){
+                let price_info: StoredPrice = match read_price( storage, &pool_asset.0 ){
                     Ok( info ) => { info },
                     Err(_) => { 
                         //Set time to fail in the next check. We don't want the error to stop from querying though
-                        PriceInfo {
+                        StoredPrice {
                             price: Decimal::zero(),
                             last_time_updated: env.block.time.plus_seconds( config.oracle_time_limit + 1u64 ).seconds(),
                         } 
@@ -2583,7 +2583,7 @@ pub fn get_asset_values(
                     store_price(
                         storage, 
                         &pool_asset.0, 
-                        &PriceInfo {
+                        &StoredPrice {
                             price,
                             last_time_updated: env.block.time.seconds(),    
                         }
@@ -2640,11 +2640,11 @@ pub fn get_asset_values(
 
         } else {
 
-            let price_info: PriceInfo = match read_price( storage, &cAsset.asset.info ){
+            let price_info: StoredPrice = match read_price( storage, &cAsset.asset.info ){
                 Ok( info ) => { info },
                 Err(_) => { 
                     //Set time to fail in the next check. We don't want the error to stop from querying though
-                    PriceInfo {
+                    StoredPrice {
                         price: Decimal::zero(),
                         last_time_updated: env.block.time.plus_seconds( config.oracle_time_limit + 1u64 ).seconds(),
                     } 
@@ -2691,7 +2691,7 @@ pub fn get_asset_values(
                 store_price(
                     storage, 
                     &cAsset.asset.info, 
-                    &PriceInfo {
+                    &StoredPrice {
                         price,
                         last_time_updated: env.block.time.seconds(),    
                     }

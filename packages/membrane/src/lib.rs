@@ -10,3 +10,4 @@ pub mod builder_vesting;
 pub mod math;
 pub mod staking;
 pub mod governance;
+pub mod oracle;

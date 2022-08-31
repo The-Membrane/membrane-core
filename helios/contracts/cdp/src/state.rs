@@ -28,7 +28,9 @@ pub struct Config {
     //This needs to be large enough so that USDC positions are profitable to liquidate, 
     //1-2% of liquidated debt (max -> borrow_LTV) needs to be more than gas fees assuming ~98% LTV.
     pub debt_minimum: Uint128, //Debt minimum value per position. 
-    pub base_debt_cap_multiplier: Uint128, //Debt Minimum multiplier for base debt cap
+    //Debt Minimum multiplier for base debt cap
+    //ie; How many users do we want at 0 credit liquidity?
+    pub base_debt_cap_multiplier: Uint128, 
     
 }
 

@@ -180,6 +180,44 @@ pub struct FeeEvent {
 }
 
 
+///////Oracle////////
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct AssetOracleInfo {
+    pub osmosis_pool_for_twap: TWAPPoolInfo,
+    pub decimals: Option<u64>, //Asset decimals (https://api-osmosis.imperator.co/tokens/v2/all)
+}
+
+impl fmt::Display for AssetOracleInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "osmosis_pool: {}, decimals: {:?}", self.osmosis_pool_for_twap, self.decimals)
+    }
+}
+
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct TWAPPoolInfo {
+    pub pool_id: u64,
+    pub base_asset_denom: String,
+    pub quote_asset_denom: String,
+ }
+
+impl fmt::Display for TWAPPoolInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "pool_id: {}, base_asset_denom: {}, quote_asset_denom: {}", self.pool_id, self.base_asset_denom, self.quote_asset_denom)
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct StoredPrice {
+    pub price: Decimal,
+    pub last_time_updated: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct PriceInfo {
+    pub source: String, //Chain name or Oracle Address 
+    pub price: Decimal,
+}
 
 ////////////////CDP///////////
 /// 
@@ -193,27 +231,15 @@ pub struct cAsset {
     // //Osmosis Pool Info to pull TWAP from
     // pub pool_info_for_price: TWAPPoolInfo,
     // //NOTE: AssetInfo denom for an Osmo LP is the shares_denom
-    // pub pool_info: Option<PoolInfo>, //if its an Osmosis LP add PoolInfo. 
+    pub pool_info: Option<PoolInfo>, //if its an Osmosis LP add PoolInfo. 
      }
 
  #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct PoolInfo {
     pub pool_id: u64,
-    pub asset_denoms: Vec<(AssetInfo, TWAPPoolInfo)>,
+    // pub asset_denoms: Vec<(AssetInfo, TWAPPoolInfo)>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct TWAPPoolInfo {
-    pub pool_id: u64,
-    pub base_asset_denom: String,
-    pub quote_asset_denom: String,
- }
-
- impl fmt::Display for TWAPPoolInfo {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "pool_id: {}, base_asset_denom: {}, quote_asset_denom: {}", self.pool_id, self.base_asset_denom, self.quote_asset_denom)
-    }
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Position {
@@ -262,11 +288,6 @@ impl fmt::Display for UserInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct PriceInfo {
-    pub price: Decimal,
-    pub last_time_updated: u64,
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InsolventPosition {

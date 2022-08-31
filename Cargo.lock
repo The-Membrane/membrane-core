@@ -565,9 +565,7 @@ dependencies = [
  "cw-multi-test",
  "cw-storage-plus",
  "cw2",
- "cw20",
  "membrane",
- "osmo-bindings",
  "osmosis-std",
  "schemars",
  "serde",
@@ -703,6 +701,27 @@ name = "opaque-debug"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
+
+[[package]]
+name = "oracle"
+version = "0.1.0"
+dependencies = [
+ "cosmwasm-bignumber",
+ "cosmwasm-schema",
+ "cosmwasm-std 1.0.0",
+ "cosmwasm-storage",
+ "cw-multi-test",
+ "cw-storage-plus",
+ "cw2",
+ "cw20",
+ "membrane",
+ "osmo-bindings",
+ "osmosis-std",
+ "schemars",
+ "serde",
+ "thiserror",
+ "wasm",
+]
 
 [[package]]
 name = "osmo-bindings"

@@ -88,6 +88,7 @@ pub enum ExecuteMsg {
         interest_revenue_collector: Option<String>,
         liq_fee: Option<Decimal>,
         debt_minimum: Option<Uint128>,
+        base_debt_cap_multiplier: Option<Uint128>,
         oracle_time_limit: Option<u64>,
         cpc_margin_of_error: Option<Decimal>,        
     }
@@ -105,6 +106,7 @@ pub enum ExecuteMsg {
 | `*staking_contract`           | String  | MBRN Staking contract                                                    |
 | _`*liq_fee`_                  | Decimal | Liquidation fee                                                          |
 | `*debt_minimum`               | Uint128 | Debt minimum in terms of value                                           |
+| `*base_debt_cap_multiplier`   | Uint128 | Debt Minimum Multiplier for a base debt cap                              |
 | `*oracle_time_limit`          | u64     | Oracle expiration time limit                                             |
 | `*cpc_margin_of_error`        | Decimal | Margin of Error before the credit interest is effected by the TWAP price |
 
@@ -530,6 +532,7 @@ pub struct ConfigResponse {
     pub liq_fee: Decimal, // 5 = 5%
     pub oracle_time_limit: u64,
     pub debt_minimum: Uint128,
+    base_debt_cap_multiplier: Uint128,
     pub cpc_margin_of_error: Decimal,
 }
 ```

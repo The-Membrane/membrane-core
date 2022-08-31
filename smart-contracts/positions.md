@@ -808,6 +808,30 @@ pub struct InsolvencyResponse{
 | `position_id`    | Uint128 | Position ID to query  |
 | `position_owner` | String  | Owner of the position |
 
+### `GetBasketInterest`
+
+Returns basket interest and its sign&#x20;
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMsg {
+    GetBasketInterest {
+        basket_id: Uint128,
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct InterestResponse{
+    pub credit_interest: Decimal,
+    pub negative_rate: bool,
+}
+```
+
+| Key         | Type    | Description       |
+| ----------- | ------- | ----------------- |
+| `basket_id` | Uint128 | Basket identifier |
+
 ### `Propagation`
 
 Returns `RepayPropagation.`Used internally to test state propagation.

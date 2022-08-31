@@ -1,6 +1,6 @@
 # Floating Redemption Price
 
-Membrane uses logic similar to a PID, pioneered by Reflexer Labs, which we call the **Credit Price Controller** to regulate the relative price movement of CDT. As the redemption price is floating, its "interest rate" or redemption rate will move inverse to market conditions. \
+Membrane uses a "Reflex-Index", pioneered by Reflexer Labs, to regulate the relative price movement of CDT. As the redemption price is floating, its "interest rate" or redemption rate will move inverse to market conditions. \
 \
 The presence of a positive or negative redemption rate incentivizes market participants to remove or contribute CDT to the circulating supply in order to regulate desired price action over the long run. \
 \
@@ -23,3 +23,13 @@ _Additional resources for understanding the reflex-index system:_
 
 [https://medium.com/reflexer-labs/stability-without-pegs-8c6a1cbc7fbd](https://medium.com/reflexer-labs/stability-without-pegs-8c6a1cbc7fbd)\
 [https://twitter.com/ameensol/status/1420048205127946246?s=20\&t=VVBsx8gveHSZr6hWhzIrNA](https://twitter.com/ameensol/status/1420048205127946246?s=20\&t=VVBsx8gveHSZr6hWhzIrNA)&#x20;
+
+### PID Controller
+
+The PID is what controls the redemption rate changes in the system. Due to its use of real-time data, it'll need to be called by an external participant. Initially this will be incentivized by **MBRN** in multiples of gas cost. In the future this will be fulfilled by cron job sequencers that are getting built around the ecosystem.
+
+\
+**Base rate:** Gas cost \
+**Market Rate:** Base \* X, where X is a 1% price difference\
+\
+The 1% delta acts as the minimum for redemption rate updates. There will also be a 2M liquidity minimum for rate updates to curb manipulation.

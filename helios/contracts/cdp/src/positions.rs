@@ -6,16 +6,18 @@ use cosmwasm_bignumber::Uint256;
 use cosmwasm_std::{MessageInfo, attr, Response, DepsMut, Uint128, CosmosMsg, Decimal, Storage, Api, Coin, to_binary, QueryRequest, WasmQuery, QuerierWrapper, StdResult, StdError, Addr, WasmMsg, BankMsg, SubMsg, coin, Env};
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
 use cw20::{Cw20ExecuteMsg, BalanceResponse, Cw20QueryMsg};
+use membrane::oracle::{PriceResponse, AssetResponse};
 use osmo_bindings::{ OsmosisQuery, SpotPriceResponse, PoolStateResponse, OsmosisMsg, ArithmeticTwapToNowResponse };
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
-use membrane::types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistribution, LiqAsset, UserInfo, PriceInfo, PositionUserInfo, TWAPPoolInfo};
+use membrane::types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistribution, LiqAsset, UserInfo, PriceInfo, PositionUserInfo, TWAPPoolInfo, StoredPrice, AssetOracleInfo};
 use membrane::positions::{ExecuteMsg, CallbackMsg};
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse };
 use membrane::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
 use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg };
 use membrane::staking::{ ExecuteMsg as StakingExecuteMsg };
+use membrane::oracle::{ QueryMsg as OracleQueryMsg, ExecuteMsg as OracleExecuteMsg };
 use membrane::math::{ decimal_multiplication, decimal_division, decimal_subtraction};
 
 use crate::{ContractError, state::{ RepayPropagation, REPAY, CONFIG, BASKETS, POSITIONS, Config, WithdrawPropagation, WITHDRAW} };
@@ -149,7 +151,8 @@ pub fn deposit(
                                             asset: deposited_asset.clone(), 
                                             debt_total: Uint128::zero(),
                                             max_borrow_LTV:  new_cAsset.clone().max_borrow_LTV,
-                                            max_LTV:  new_cAsset.clone().max_LTV,                                 
+                                            max_LTV:  new_cAsset.clone().max_LTV,     
+                                            pool_info: new_cAsset.clone().pool_info,                            
                                         }
                                     );
 
@@ -163,8 +166,7 @@ pub fn deposit(
                                         debt_total: Uint128::zero(),
                                         max_borrow_LTV:  new_cAsset.clone().max_borrow_LTV,
                                         max_LTV:  new_cAsset.clone().max_LTV,  
-                                        pool_info: new_cAsset.clone().pool_info,
-                                        pool_info_for_price: new_cAsset.clone().pool_info_for_price,                 
+                                        pool_info: new_cAsset.clone().pool_info,               
                                     } );
 
                                     //Add updated position to user positions
@@ -806,7 +808,7 @@ pub fn increase_debt(
     let message: CosmosMsg;
 
     //Can't take credit before there is a preset repayment price
-    if basket.credit_price.is_some(){
+    if basket.credit_price.is_some() && basket.oracle_set{
         
         //If resulting LTV makes the position insolvent, error. If not construct mint msg
         //credit_value / asset_value > avg_LTV
@@ -1443,68 +1445,85 @@ pub fn create_basket(
     base_interest_rate: Option<Decimal>,
     desired_debt_cap_util: Option<Decimal>,
     credit_pool_ids: Vec<u64>,
-    credit_asset_twap_price_source: TWAPPoolInfo,
     liquidity_multiplier_for_debt_caps: Option<Decimal>,
-    instantiate_msg: bool,
 ) -> Result<Response, ContractError>{
     let mut config: Config = CONFIG.load(deps.storage)?;
 
     let valid_owner: Addr = validate_position_owner(deps.api, info.clone(), owner)?;
 
     //Only contract owner can create new baskets. This will likely be governance.
-    if !instantiate_msg && info.sender != config.owner{
+    if info.sender != config.owner{
         return Err(ContractError::NotContractOwner {})
     }
 
     let mut new_assets = collateral_types.clone();
-    //Each cAsset has to initialize amount as 0
+
+        
+    //Minimum viable cAsset parameters
     for (i, asset) in collateral_types.iter().enumerate(){
+
         new_assets[i].asset.amount = Uint128::zero();
 
-            if asset.max_borrow_LTV >= asset.max_LTV && asset.max_borrow_LTV >= Decimal::from_ratio( Uint128::new(100u128), Uint128::new(1u128)){
-                return Err( ContractError::CustomError { val: "Max borrow LTV can't be greater or equal to max_LTV nor equal to 100".to_string() } )
-            }
-            //Make sure Token type addresses are valid
-            if let AssetInfo::Token { address } = asset.asset.info.clone() {
-                deps.api.addr_validate(&address.to_string() )?;
-            }
+        if asset.max_borrow_LTV >= asset.max_LTV && asset.max_borrow_LTV >= Decimal::from_ratio( Uint128::new(100u128), Uint128::new(1u128)){
+            return Err( ContractError::CustomError { val: "Max borrow LTV can't be greater or equal to max_LTV nor equal to 100".to_string() } )
+        }
+        //Make sure Token type addresses are valid
+        if let AssetInfo::Token { address } = asset.asset.info.clone() {
+            deps.api.addr_validate(&address.to_string() )?;
+        }
 
-            //Query Pool State and Error if assets are out of order
-            if asset.pool_info.is_some() {
-                let pool_info = asset.pool_info.clone().unwrap();
+        //Query Pool State and Error if LP assets are out of order
+        if asset.pool_info.is_some() {
+            let pool_info = asset.pool_info.clone().unwrap();
 
-                //Query share asset amount 
-                let pool_state = match deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
-                    WasmQuery::Smart { 
-                        contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
-                        msg: match to_binary(&OsmoQueryMsg::PoolState { 
-                            id: pool_info.pool_id 
-                        }
-                        ){
-                            Ok( binary ) => { binary },
-                            Err( err ) => return Err( ContractError::CustomError { val: err.to_string() } )
-                        }}
-                    )){
-                        Ok( resp ) => resp, 
-                        Err( err ) => return Err( ContractError::CustomError { val: err.to_string() } ),
-                    };
-                let pool_assets = pool_state.assets;
-
-                //Set correct shares denom
-                new_assets[i].asset.info = AssetInfo::NativeToken { denom: pool_state.shares.denom };
-                
-                //Assert asset order of pool_assets in PoolInfo object    
-                for ( i, asset) in pool_assets.iter().enumerate(){
-                    if asset.denom != pool_info.asset_denoms[i].0.to_string() {
-                        return Err( ContractError::CustomError { val: format!("cAsset #{}: PoolInfo.asset_denoms must be in the order of osmo-bindings::PoolStateResponse.assets {:?} ", i+1, pool_assets) } )
+            //Query share asset amount 
+            let pool_state = match deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
+                WasmQuery::Smart { 
+                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
+                    msg: match to_binary(&OsmoQueryMsg::PoolState { 
+                        id: pool_info.pool_id 
                     }
-                    //Assert NativeToken status
-                    match pool_info.asset_denoms[i].clone().0 {
-                        AssetInfo::NativeToken { denom: _ } => {},
-                        AssetInfo::Token { address: _ } => return Err( ContractError::CustomError { val: String::from("LPs must be NativeToken variants") } )
-                    }
+                    ){
+                        Ok( binary ) => { binary },
+                        Err( err ) => return Err( ContractError::CustomError { val: err.to_string() } )
+                    }}
+                )){
+                    Ok( resp ) => resp, 
+                    Err( err ) => return Err( ContractError::CustomError { val: err.to_string() } ),
+                };
+            let pool_assets = pool_state.assets;
+
+            //Set correct shares denom
+            new_assets[i].asset.info = AssetInfo::NativeToken { denom: pool_state.shares.denom };
+            
+            //Assert asset order of pool_assets in PoolInfo object    
+            for ( i, asset) in pool_assets.iter().enumerate(){
+                if asset.denom != pool_info.asset_infos[i].0.to_string() {
+                    return Err( ContractError::CustomError { val: format!("cAsset #{}: PoolInfo.asset_denoms must be in the order of osmo-bindings::PoolStateResponse.assets {:?} ", i+1, pool_assets) } )
+                }
+                //Assert NativeToken status
+                match pool_info.asset_infos[i].clone().0 {
+                    AssetInfo::NativeToken { denom: _ } => {},
+                    AssetInfo::Token { address: _ } => return Err( ContractError::CustomError { val: String::from("LPs must be NativeToken variants") } )
                 }
             }
+        }
+
+        //Asserting the Collateral Asset has an oracle
+        if config.clone().oracle_contract.is_some(){
+            //Query Asset Oracle
+            deps.querier.query::<AssetResponse>(&QueryRequest::Wasm(
+                WasmQuery::Smart { 
+                    contract_addr: config.clone().oracle_contract.unwrap().to_string(), 
+                    msg: to_binary( &OracleQueryMsg::Asset { asset_info: asset.asset.info } )? 
+            }))?;
+
+            //If it errors it means the oracle doesn't exist
+
+        } else {
+            return Err( ContractError::CustomError { val: String::from("Need to setup oracle contract before adding assets") } )
+        }
+
     }
 
 
@@ -1513,6 +1532,7 @@ pub fn create_basket(
     let desired_debt_cap_util = desired_debt_cap_util.unwrap_or_else(|| Decimal::percent(100));    
     let liquidity_multiplier_for_debt_caps = liquidity_multiplier_for_debt_caps.unwrap_or_else(|| Decimal::one());    
 
+    
     let new_basket: Basket = Basket {
         owner: valid_owner.clone(),
         basket_id: config.current_basket_id.clone(),
@@ -1522,13 +1542,13 @@ pub fn create_basket(
         credit_asset: credit_asset.clone(),
         credit_price,
         credit_pool_ids,
-        credit_asset_twap_price_source,
         liquidity_multiplier_for_debt_caps,
         base_interest_rate,
         desired_debt_cap_util,
         pending_revenue: Uint128::zero(),
         credit_last_accrued: env.block.time.seconds(),
         liq_queue: None,
+        oracle_set: false,
     };
 
     let mut subdenom: String;
@@ -1613,11 +1633,6 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
         debt_total: Uint128::zero(), 
         max_borrow_LTV: Decimal::zero(), 
         max_LTV: Decimal::zero(),
-        pool_info_for_price: TWAPPoolInfo { 
-            pool_id: 0u64, 
-            base_asset_denom: String::from("None"), 
-            quote_asset_denom: String::from("None") 
-        }, 
         pool_info: None, 
     };
     
@@ -1657,7 +1672,7 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                         
             //Assert asset order of pool_assets in PoolInfo object    
             for ( i, asset) in pool_assets.iter().enumerate(){
-                if asset.denom != pool_info.asset_denoms[i].0.to_string() {
+                if asset.denom != pool_info.asset_infos[i].0.to_string() {
                     return Err( ContractError::CustomError { val: format!("cAsset #{}: PoolInfo.asset_denoms must be in the order of osmo-bindings::PoolStateResponse.assets {:?} ", i+1, pool_assets) } )
                 }
             }
@@ -1672,20 +1687,55 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
         if !check {
             return Err( ContractError::CustomError { val: "Max borrow LTV can't be greater or equal to max_LTV nor equal to 100".to_string() } )
         }
+
+        //Asserting the Collateral Asset has an oracle
+        if config.clone().oracle_contract.is_some(){
+            //Query Asset Oracle
+            deps.querier.query::<AssetResponse>(&QueryRequest::Wasm(
+                WasmQuery::Smart { 
+                    contract_addr: config.clone().oracle_contract.unwrap().to_string(), 
+                    msg: to_binary( &OracleQueryMsg::Asset { asset_info: new_cAsset.asset.info } )? 
+            }))?;
+
+            //If it errors it means the oracle doesn't exist
+
+        } else {
+            return Err( ContractError::CustomError { val: String::from("Need to setup oracle contract before adding assets") } )
+        }
         
     }
+
+    let basket = BASKETS.load( deps.storage, basket_id.clone().to_string() )?;
+    //Send TWAP info to Oracle Contract
+    let mut oracle_set = false;
+    let mut message: Option<CosmosMsg> = None;
+    if let Some( credit_twap ) = credit_asset_twap_price_source {
+        if config.clone().oracle_contract.is_some(){
+            //Set the credit Oracle
+            message = Some( CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: config.clone().oracle_contract.unwrap().to_string(), 
+                msg: to_binary( &OracleExecuteMsg::AddAsset { 
+                    asset_info: basket.clone().credit_asset.info, 
+                    oracle_info: AssetOracleInfo { osmosis_pool_for_twap: credit_twap },
+                } )?, 
+                funds: vec![], 
+            }) );
+
+            oracle_set = true;
+        }
+    };
 
     
     let mut attrs = vec![ 
         attr("method", "edit_basket"),
         attr("basket_id", basket_id),
-        ];
+    ];
     BASKETS.update(deps.storage, basket_id.to_string(), |basket| -> Result<Basket, ContractError>   {
 
         match basket{
             Some( mut basket ) => {
 
-                if info.sender.clone() != config.owner && info.sender.clone() != config.owner{
+                if info.sender.clone() != config.owner && info.sender.clone() != basket.owner{
                     return Err(ContractError::Unauthorized {  })
                 }else{
                     if added_cAsset.is_some(){
@@ -1720,10 +1770,8 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                         basket.desired_debt_cap_util = desired_debt_cap_util.clone().unwrap();
                         attrs.push( attr("new_desired_debt_cap_util", desired_debt_cap_util.clone().unwrap().to_string()) );
                     }
-                    if credit_asset_twap_price_source.is_some(){
-                        basket.credit_asset_twap_price_source = credit_asset_twap_price_source.clone().unwrap();
-                        attrs.push( attr("new_credit_asset_twap_price_source", credit_asset_twap_price_source.clone().unwrap().to_string()) );
-                    }
+
+                    basket.oracle_set = oracle_set;
                 }
 
                 Ok( basket )
@@ -2493,18 +2541,75 @@ pub fn assert_sent_native_token_balance(
 pub fn store_price(
     storage: &mut dyn Storage,
     asset_token: &AssetInfo,
-    price: &PriceInfo,
+    price: &StoredPrice,
 ) -> StdResult<()> {
-    let mut price_bucket: Bucket<PriceInfo> = Bucket::new(storage, PREFIX_PRICE);
+    let mut price_bucket: Bucket<StoredPrice> = Bucket::new(storage, PREFIX_PRICE);
     price_bucket.save( &to_binary(asset_token)?, price)
 }
 
 pub fn read_price(
     storage: &dyn Storage,
     asset_token: &AssetInfo,
-) -> StdResult<PriceInfo> {
-    let price_bucket: ReadonlyBucket<PriceInfo> = ReadonlyBucket::new(storage, PREFIX_PRICE);
+) -> StdResult<StoredPrice> {
+    let price_bucket: ReadonlyBucket<StoredPrice> = ReadonlyBucket::new(storage, PREFIX_PRICE);
     price_bucket.load(&to_binary(asset_token)?)
+}
+
+fn query_price(
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    config: Config,
+    asset_info: AssetInfo,
+) -> StdResult<Decimal>{
+
+    //Query Price
+    let price = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.clone().oracle_contract.unwrap().to_string(),
+        msg: to_binary(&OracleQueryMsg::Price { 
+            asset_info, 
+            twap_timeframe: config.clone().twap_timeframe, 
+        } )?,
+    })){
+        Ok( res ) => { 
+            //Store new price
+            store_price(
+                storage, 
+                &asset_info, 
+                &StoredPrice {
+                    price: res.avg_price,
+                    last_time_updated: env.block.time.seconds(),    
+                }
+            )?;
+            //
+            res.avg_price
+         },
+        Err( _err ) => { 
+            //If the query errors, try and use a stored price
+            let stored_price: StoredPrice = match read_price( storage, &asset_info ){
+                Ok( info ) => { info },
+                Err(_) => { 
+                    //Set time to fail in the next check. We don't want the error to stop from querying though
+                    StoredPrice {
+                        price: Decimal::zero(),
+                        last_time_updated: env.block.time.plus_seconds( config.oracle_time_limit + 1u64 ).seconds(),
+                    } 
+                },
+            };
+
+            
+            let time_elapsed: Option<u64> = env.block.time.seconds().checked_sub(stored_price.last_time_updated);
+            //If its None then the subtraction was negative meaning the initial read_price() errored
+            if time_elapsed.is_some() && time_elapsed.unwrap() <= config.oracle_time_limit{
+                stored_price.price
+            } else {
+                return Err( StdError::GenericErr { msg: String::from("Oracle price invalid") } )
+            }
+        }
+    };
+
+    Ok( price )
+
 }
 
 //Get Asset values / query oracle
@@ -2522,7 +2627,7 @@ pub fn get_asset_values(
     let mut cAsset_values: Vec<Decimal> = vec![];
     let mut cAsset_prices: Vec<Decimal> = vec![];
 
-    if config.clone().osmosis_proxy.is_some(){
+    if config.clone().oracle_contract.is_some(){
         
         for (i, cAsset) in assets.iter().enumerate() {
 
@@ -2532,66 +2637,11 @@ pub fn get_asset_values(
             let pool_info = cAsset.clone().pool_info.unwrap();
             let mut asset_prices = vec![];
 
-            for pool_asset in pool_info.clone().asset_denoms{
+            for (pool_asset, asset_decimals) in pool_info.clone().asset_infos{
 
-                let price_info: StoredPrice = match read_price( storage, &pool_asset.0 ){
-                    Ok( info ) => { info },
-                    Err(_) => { 
-                        //Set time to fail in the next check. We don't want the error to stop from querying though
-                        StoredPrice {
-                            price: Decimal::zero(),
-                            last_time_updated: env.block.time.plus_seconds( config.oracle_time_limit + 1u64 ).seconds(),
-                        } 
-                    },
-                }; 
-                
-                let mut price: Decimal;
-        
-                //If last_time_updated hasn't hit the limit set by the config...
-                //..don't query and use the saved price.
-                //Else try to query new price.
-                let time_elapsed: Option<u64> = env.block.time.seconds().checked_sub(price_info.last_time_updated);
-        
-                //If its None then the subtraction was negative meaning the initial read_price() errored
-                if time_elapsed.is_some() && time_elapsed.unwrap() <= config.oracle_time_limit{
-                    price = price_info.price;
-                }else{
-                    let current_unix_time = match SystemTime::now().duration_since(UNIX_EPOCH){
-                        Ok(duration) =>  duration.as_millis() as i64,
-                        Err(_) => return Err( StdError::GenericErr { msg: String::from("SystemTime before UNIX EPOCH!")  } ),
-                    };
-                    //twap_timeframe = Days * MILLISECONDS_PER_DAY
-                    let twap_timeframe: i64 = (config.twap_timeframe as i64 * MILLISECONDS_PER_DAY);
-                    let start_time: i64 = current_unix_time - twap_timeframe;
-                            
-                    //Get Asset TWAP
-                    price = match querier.query::<ArithmeticTwapToNowResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                        contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-                        msg: to_binary(&OsmoQueryMsg::ArithmeticTwapToNow { 
-                                id: pool_info.pool_id, 
-                                quote_asset_denom: pool_asset.clone().1.quote_asset_denom, 
-                                base_asset_denom: pool_asset.clone().1.base_asset_denom, 
-                                start_time, 
-                            })?,
-                    })){
-                        Ok( res ) => { res.twap },
-                        Err( err ) => { 
-                            return Err( err )
-                        }
-                    };
-        
-                    store_price(
-                        storage, 
-                        &pool_asset.0, 
-                        &StoredPrice {
-                            price,
-                            last_time_updated: env.block.time.seconds(),    
-                        }
-                    )?;
-                }
-                
+                let price = query_price(storage, querier, env.clone(), config.clone(), pool_asset)?;
+                //Append price
                 asset_prices.push( price );
-                
             }
 
             //Calculate share value
@@ -2612,15 +2662,17 @@ pub fn get_asset_values(
                 for (i, price) in asset_prices.into_iter().enumerate(){
 
                     //Assert we are pulling asset amount from the correct asset
-                    let asset_share = match share_asset_amounts.clone().into_iter().find(|coin| AssetInfo::NativeToken { denom: coin.denom.clone() } == pool_info.clone().asset_denoms[i].0){
+                    let asset_share = match share_asset_amounts.clone().into_iter().find(|coin| AssetInfo::NativeToken { denom: coin.denom.clone() } == pool_info.clone().asset_infos[i].0){
                         Some( coin ) => { coin },
-                        None => return Err( StdError::GenericErr { msg: format!("Invalid asset denom: {}", pool_info.clone().asset_denoms[i].0) } )
+                        None => return Err( StdError::GenericErr { msg: format!("Invalid asset denom: {}", pool_info.clone().asset_infos[i].0) } )
                     };
-
-                    let asset_amount = Decimal::from_ratio( asset_share.amount, Uint128::new(1u128) );
+                    //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
+                    let exponent_difference = pool_info.clone().asset_infos[i].1 - (6u64);
+                    let asset_amount = asset_share.amount / Uint128::new( 10u64.pow(exponent_difference as u32) as u128 );
+                    let decimal_asset_amount = Decimal::from_ratio( asset_amount, Uint128::new(1u128) );
 
                     //Price * # of assets in LP shares
-                    value += decimal_multiplication(price, asset_amount);
+                    value += decimal_multiplication(price, decimal_asset_amount);
                 }
 
                 value
@@ -2640,63 +2692,7 @@ pub fn get_asset_values(
 
         } else {
 
-            let price_info: StoredPrice = match read_price( storage, &cAsset.asset.info ){
-                Ok( info ) => { info },
-                Err(_) => { 
-                    //Set time to fail in the next check. We don't want the error to stop from querying though
-                    StoredPrice {
-                        price: Decimal::zero(),
-                        last_time_updated: env.block.time.plus_seconds( config.oracle_time_limit + 1u64 ).seconds(),
-                    } 
-                },
-            }; 
-            //let mut valid_price: bool = false;
-            let mut price: Decimal;
-    
-            //If last_time_updated hasn't hit the limit set by the config...
-            //..don't query and use the saved price.
-            //Else try to query new price.
-            let time_elapsed: Option<u64> = env.block.time.seconds().checked_sub(price_info.last_time_updated);
-    
-            //If its None then the subtraction was negative meaning the initial read_price() errored
-            if time_elapsed.is_some() && time_elapsed.unwrap() <= config.oracle_time_limit{
-                price = price_info.price;
-                //valid_price = true;
-            }else{
-
-                let current_unix_time = match SystemTime::now().duration_since(UNIX_EPOCH){
-                    Ok(duration) =>  duration.as_millis() as i64,
-                    Err(_) => return Err( StdError::GenericErr { msg: String::from("SystemTime before UNIX EPOCH!")  } ),
-                };
-                //twap_timeframe = Days * MILLISECONDS_PER_DAY
-                let twap_timeframe: i64 = (config.twap_timeframe as i64 * MILLISECONDS_PER_DAY);
-                let start_time: i64 = current_unix_time - twap_timeframe;
-                        
-                //Get Asset TWAP
-                price = match querier.query::<ArithmeticTwapToNowResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-                    msg: to_binary(&OsmoQueryMsg::ArithmeticTwapToNow { 
-                            id: cAsset.pool_info_for_price.pool_id, 
-                            quote_asset_denom: cAsset.clone().pool_info_for_price.quote_asset_denom, 
-                            base_asset_denom: cAsset.clone().pool_info_for_price.base_asset_denom, 
-                            start_time, 
-                        })?,
-                })){
-                    Ok( res ) => { res.twap },
-                    Err( err ) => { 
-                        return Err( err )
-                    }
-                };
-    
-                store_price(
-                    storage, 
-                    &cAsset.asset.info, 
-                    &StoredPrice {
-                        price,
-                        last_time_updated: env.block.time.seconds(),    
-                    }
-                )?;
-            }
+           let price = query_price(storage, querier, env.clone(), config.clone(), cAsset.asset.info)?;
             
             cAsset_prices.push(price);
             let collateral_value = decimal_multiplication(Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128)), price);
@@ -2765,6 +2761,7 @@ pub fn update_position_claims(
                 debt_total: Uint128::zero(),
                 max_borrow_LTV: Decimal::zero(), 
                 max_LTV: Decimal::zero(),
+                pool_info: None,
             }
     ];
 
@@ -3266,7 +3263,7 @@ fn accrue(
     //--
     //Calc Time-elapsed and update last_Accrued 
     let time_elasped = env.block.time.seconds() - basket.credit_last_accrued;
-    if !time_elasped == 0u64 {
+    if !time_elasped == 0u64 && basket.oracle_set{
         basket.credit_last_accrued = env.block.time.seconds();
 
         //Calculate new interest rate
@@ -3276,6 +3273,7 @@ fn accrue(
             debt_total: Uint128::zero(),
             max_borrow_LTV: Decimal::zero(),
             max_LTV: Decimal::zero(),
+            pool_info: None,
         };
         let credit_TWAP_price = get_asset_values( storage, env, querier, vec![ credit_asset ], config )?.1[0];
         //We divide w/ the greater number first so the quotient is always 1.__

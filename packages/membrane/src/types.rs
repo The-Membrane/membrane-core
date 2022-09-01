@@ -184,12 +184,11 @@ pub struct FeeEvent {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct AssetOracleInfo {
     pub osmosis_pool_for_twap: TWAPPoolInfo,
-    pub decimals: Option<u64>, //Asset decimals (https://api-osmosis.imperator.co/tokens/v2/all)
 }
 
 impl fmt::Display for AssetOracleInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "osmosis_pool: {}, decimals: {:?}", self.osmosis_pool_for_twap, self.decimals)
+        write!(f, "osmosis_pool: {}", self.osmosis_pool_for_twap)
     }
 }
 
@@ -236,8 +235,9 @@ pub struct cAsset {
 
  #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct PoolInfo {
-    pub pool_id: u64,
-    // pub asset_denoms: Vec<(AssetInfo, TWAPPoolInfo)>,
+    pub pool_id: u64,    
+    //AssetInfo, Asset Decimal Places
+    pub asset_infos: Vec<(AssetInfo, u64)>,//Asset decimals (https://api-osmosis.imperator.co/tokens/v2/all)
 }
 
 
@@ -260,12 +260,12 @@ pub struct Basket {
     pub credit_asset: Asset, //Depending on type of token we use for credit this.info will be an Addr or denom (Cw20 or Native token respectively)
     pub credit_price: Option<Decimal>, //This is credit_repayment_price, not market price
     pub credit_pool_ids: Vec<u64>, //For liquidity measuring
-    pub credit_asset_twap_price_source: TWAPPoolInfo,
     pub liquidity_multiplier_for_debt_caps: Decimal, //Ex: 5 = debt cap at 5x liquidity.
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
     pub pending_revenue: Uint128,
     pub credit_last_accrued: u64,
+    pub oracle_set: bool, //If the credit oracle was set. Can't update repayment price without.
     //Contracts
     pub liq_queue: Option<Addr>, //Each basket holds its own liq_queue contract
 }

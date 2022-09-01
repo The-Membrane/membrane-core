@@ -51,6 +51,7 @@ pub fn instantiate(
         dex_router: None,
         interest_revenue_collector: None,
         staking_contract: None,
+        oracle_contract: None,
         osmosis_proxy: None,
         debt_auction: None,    
         oracle_time_limit: msg.oracle_time_limit,
@@ -101,6 +102,16 @@ pub fn instantiate(
         },
         None => {},
     };
+    match msg.oracle_contract {
+        Some( address ) => {
+            
+            match deps.api.addr_validate( &address ){
+                Ok( addr ) => config.oracle_contract = Some( addr ),
+                Err(_) => {},
+            }
+        },
+        None => {},
+    };
     match msg.interest_revenue_collector {
         Some( address ) => {
             
@@ -138,55 +149,11 @@ pub fn instantiate(
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let mut create_res = Response::new();
     let mut attrs = vec![];
-    let sender = &info.sender.clone().to_string();
+    attrs.push(attr("method", "instantiate"));
+    attrs.push(attr("owner", info.sender.to_string()));
 
-    attrs.push(("method", "instantiate"));
-    attrs.push(("owner", sender));
-    
-    //Create Basket
-    if msg.collateral_types.is_some() && msg.credit_asset.is_some(){
-
-        let mut check = true;
-        let collateral_types = msg.collateral_types.unwrap();
-
-        //cAsset checks
-        for cAsset in collateral_types.clone(){
-            if cAsset.max_borrow_LTV >= cAsset.max_LTV && cAsset.max_borrow_LTV >= Decimal::from_ratio( Uint128::new(100u128), Uint128::new(1u128)){
-                check = false;
-            }
-        }
-        if( check ) && msg.credit_asset.is_some() && msg.credit_asset_twap_price_source.is_some(){
-            
-            create_res = create_basket(
-                deps,
-                info,
-                env,
-                Some( config.owner.to_string() ),
-                collateral_types.clone(),
-                msg.credit_asset.unwrap(),
-                msg.credit_price,
-                msg.collateral_supply_caps,
-                msg.base_interest_rate,
-                msg.desired_debt_cap_util,
-                msg.credit_pool_ids.unwrap_or_default(),
-                msg.credit_asset_twap_price_source.unwrap(),
-                msg.liquidity_multiplier_for_debt_caps,
-                true,
-            )?;
-            
-            attrs.push(("basket_id", current_basket_id));
-        }else{
-            attrs.push(("basket_status", "Not created: cAsset.max_LTV can't be less than or equal to cAsset.max_borrow_LTV"));
-        }
-        
-    }else{
-        attrs.push(("basket_status", "Not created: Basket only created w/ collateral_types AND credit_asset filled"));
-    }
-
-    //response.add_attributes(attrs);
-    Ok(create_res.add_attributes(attrs))
+    Ok(Response::new().add_attributes(attrs))
 }
 
 
@@ -205,6 +172,7 @@ pub fn execute(
             osmosis_proxy, 
             debt_auction, 
             staking_contract, 
+            oracle_contract,
             interest_revenue_collector, 
             liq_fee, 
             debt_minimum, 
@@ -212,7 +180,7 @@ pub fn execute(
             oracle_time_limit, 
             twap_timeframe, 
             cpc_margin_of_error} => {
-            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, interest_revenue_collector, liq_fee, debt_minimum, base_debt_cap_multiplier, oracle_time_limit, twap_timeframe, cpc_margin_of_error )
+            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, oracle_contract, interest_revenue_collector, liq_fee, debt_minimum, base_debt_cap_multiplier, oracle_time_limit, twap_timeframe, cpc_margin_of_error )
         },
         ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ position_owner, position_id, basket_id} => {
@@ -254,7 +222,7 @@ pub fn execute(
         ExecuteMsg::EditAdmin { owner } => edit_contract_owner(deps, info, owner),
         ExecuteMsg::EditcAsset { basket_id, asset, max_borrow_LTV, max_LTV } => edit_cAsset(deps, info, basket_id, asset, max_borrow_LTV, max_LTV),
         ExecuteMsg::EditBasket { basket_id, added_cAsset, owner, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source } => edit_basket(deps, info, basket_id, added_cAsset, owner, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source ),
-        ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source, credit_pool_ids, liquidity_multiplier_for_debt_caps } => create_basket( deps, info, env, owner, collateral_types, credit_asset, credit_price, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_pool_ids, credit_asset_twap_price_source, liquidity_multiplier_for_debt_caps, false ),
+        ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_pool_ids, liquidity_multiplier_for_debt_caps } => create_basket( deps, info, env, owner, collateral_types, credit_asset, credit_price, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_pool_ids, liquidity_multiplier_for_debt_caps ),
         ExecuteMsg::Liquidate { basket_id, position_id, position_owner } => liquidate(deps.storage, deps.api, deps.querier, env, info, basket_id, position_id, position_owner),
         ExecuteMsg::MintRevenue { basket_id, send_to, repay_for, amount } => mint_revenue(deps, info, env, basket_id, send_to, repay_for, amount),
         ExecuteMsg::Callback( msg ) => {
@@ -340,6 +308,7 @@ fn update_config(
     osmosis_proxy: Option<String>,
     debt_auction: Option<String>,
     staking_contract: Option<String>,
+    oracle_contract: Option<String>,
     interest_revenue_collector: Option<String>,
     liq_fee: Option<Decimal>,
     debt_minimum: Option<Uint128>,
@@ -404,6 +373,14 @@ fn update_config(
             let valid_addr = deps.api.addr_validate(&staking_contract)?;
             config.staking_contract = Some( valid_addr.clone() );
             attrs.push( attr("new_staking_contract", valid_addr.to_string()) );
+        },
+        None => {},
+    }
+    match oracle_contract {
+        Some( oracle_contract ) => { 
+            let valid_addr = deps.api.addr_validate(&oracle_contract)?;
+            config.oracle_contract = Some( valid_addr.clone() );
+            attrs.push( attr("new_oracle_contract", valid_addr.to_string()) );
         },
         None => {},
     }

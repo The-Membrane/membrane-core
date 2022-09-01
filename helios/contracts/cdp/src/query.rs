@@ -1,11 +1,12 @@
 use cosmwasm_std::{Deps, StdResult, Uint128, Addr, StdError, Order, QuerierWrapper, Decimal, to_binary, QueryRequest, WasmQuery, Storage, Env, MessageInfo};
 use cw_storage_plus::Bound;
+use membrane::oracle::{ QueryMsg as OracleQueryMsg, PriceResponse };
 use membrane::positions::{PropResponse, ConfigResponse, PositionResponse, BasketResponse, PositionsResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, InterestResponse};
-use membrane::types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PriceInfo, PositionUserInfo, InsolventPosition, UserInfo};
+use membrane::types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PriceInfo, PositionUserInfo, InsolventPosition, UserInfo, StoredPrice};
 use membrane::stability_pool::{ QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg };
 
-use osmo_bindings::SpotPriceResponse;
+use osmo_bindings::{SpotPriceResponse, PoolStateResponse};
 
 use crate::{state::{CONFIG, POSITIONS, REPAY, BASKETS, Config}, positions::{read_price, get_asset_liquidity, validate_position_owner}, math::{decimal_multiplication, decimal_division, decimal_subtraction}, ContractError};
 
@@ -45,9 +46,11 @@ pub fn query_config(
                 interest_revenue_collector: config.clone().interest_revenue_collector.unwrap_or(Addr::unchecked("None")).into_string(),
                 osmosis_proxy: config.clone().osmosis_proxy.unwrap_or( Addr::unchecked("None")).into_string(),
                 debt_auction: config.clone().debt_auction.unwrap_or( Addr::unchecked("None")).into_string(),
+                oracle_contract: config.clone().oracle_contract.unwrap_or( Addr::unchecked("None")).into_string(),
                 liq_fee: config.clone().liq_fee,
                 oracle_time_limit: config.oracle_time_limit,
                 debt_minimum: config.debt_minimum,
+                base_debt_cap_multiplier: config.base_debt_cap_multiplier,
                 twap_timeframe: config.twap_timeframe,
                 cpc_margin_of_error: config.cpc_margin_of_error,
             })
@@ -212,7 +215,6 @@ pub fn query_basket(
                 credit_asset: basket.credit_asset,
                 credit_price,
                 credit_pool_ids: basket.credit_pool_ids,
-                credit_asset_twap_price_source: basket.credit_asset_twap_price_source,
                 liquidity_multiplier_for_debt_caps: basket.liquidity_multiplier_for_debt_caps,
                 liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
                 collateral_supply_caps: basket.collateral_supply_caps,
@@ -268,7 +270,6 @@ pub fn query_baskets(
                 credit_asset: basket.credit_asset,
                 credit_price,
                 credit_pool_ids: basket.credit_pool_ids,
-                credit_asset_twap_price_source: basket.credit_asset_twap_price_source,
                 liquidity_multiplier_for_debt_caps: basket.liquidity_multiplier_for_debt_caps,
                 liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
                 collateral_supply_caps: basket.collateral_supply_caps,
@@ -559,7 +560,8 @@ pub fn query_basket_credit_interest(
             asset: basket.clone().credit_asset,
             debt_total: Uint128::zero(),
             max_borrow_LTV: Decimal::zero(),
-            max_LTV, Decimal::zero(),
+            max_LTV: Decimal::zero(),
+            pool_info: None,
         };
         let credit_TWAP_price = get_asset_values_imut( deps.storage, env, deps.querier, vec![ credit_asset ], config )?.1[0];
         //We divide w/ the greater number first so the quotient is always 1.__
@@ -657,6 +659,54 @@ fn get_cAsset_ratios_imut(
     Ok( cAsset_ratios )
 }
 
+fn query_price_imut(
+    storage: &dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    config: Config,
+    asset_info: AssetInfo,
+) -> StdResult<Decimal>{
+
+    //Query Price
+    let price = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.clone().oracle_contract.unwrap().to_string(),
+        msg: to_binary(&OracleQueryMsg::Price { 
+            asset_info, 
+            twap_timeframe: config.clone().twap_timeframe, 
+        } )?,
+    })){
+        Ok( res ) => { 
+            //
+            res.avg_price
+         },
+        Err( _err ) => { 
+            //If the query errors, try and use a stored price
+            let stored_price: StoredPrice = match read_price( storage, &asset_info ){
+                Ok( info ) => { info },
+                Err(_) => { 
+                    //Set time to fail in the next check. We don't want the error to stop from querying though
+                    StoredPrice {
+                        price: Decimal::zero(),
+                        last_time_updated: env.block.time.plus_seconds( config.oracle_time_limit + 1u64 ).seconds(),
+                    } 
+                },
+            };
+
+            
+            let time_elapsed: Option<u64> = env.block.time.seconds().checked_sub(stored_price.last_time_updated);
+            //If its None then the subtraction was negative meaning the initial read_price() errored
+            if time_elapsed.is_some() && time_elapsed.unwrap() <= config.oracle_time_limit{
+                stored_price.price
+            } else {
+                return Err( StdError::GenericErr { msg: String::from("Oracle price invalid") } )
+            }
+        }
+    };
+
+    Ok( price )
+
+}
+
 
 //Get Asset values / query oracle
 pub fn get_asset_values_imut(
@@ -674,58 +724,82 @@ pub fn get_asset_values_imut(
     let mut cAsset_values: Vec<Decimal> = vec![];
     let mut cAsset_prices: Vec<Decimal> = vec![];
 
-    if config.clone().osmosis_proxy.is_some(){
-
-        for (i, casset) in assets.iter().enumerate() {
-
-        let price_info: PriceInfo = match read_price( storage, &casset.asset.info ){
-            Ok( info ) => { info },
-            Err(_) => { 
-                //Set time to fail in the next check. We don't want the error to stop from querying though
-                PriceInfo {
-                    price: Decimal::zero(),
-                    last_time_updated: env.block.time.plus_seconds( config.oracle_time_limit + 1u64 ).seconds(),
-                } 
-            },
-        }; 
-        let mut valid_price: bool = false;
-        let mut price: Decimal;
-
-        //If last_time_updated hasn't hit the limit set by the config...
-        //..don't query and use the saved price.
-        //Else try to query new price.
-        let time_elapsed: Option<u64> = env.block.time.seconds().checked_sub(price_info.last_time_updated);
-
-        //If its None then the subtraction was negative meaning the initial read_price() errored
-        if time_elapsed.is_some() && time_elapsed.unwrap() <= config.oracle_time_limit{
-            price = price_info.price;
-            valid_price = true;
-        }else{
-
-            //TODO: REPLACE WITH TWAP WHEN RELEASED PLEEEEASSSE, DONT LET THIS BE OUR DOWNFALL
-            price = match querier.query::<SpotPriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-                msg: to_binary(&OsmoQueryMsg::SpotPrice {
-                    asset: casset.asset.info.to_string(),
-                })?,
-            })){
-                Ok( res ) => { res.price },
-                Err( err ) => { 
-                    
-                    if valid_price{
-                        price_info.price
-                    }else{
-                        return Err( err )
-                    }
-                }
-            };
-        }
+    if config.clone().oracle_contract.is_some(){
         
-        cAsset_prices.push(price);
-        let collateral_value = decimal_multiplication(Decimal::from_ratio(casset.asset.amount, Uint128::new(1u128)), price);
-        cAsset_values.push(collateral_value); 
+        for (i, cAsset) in assets.iter().enumerate() {
+
+        //If an Osmosis LP
+        if cAsset.pool_info.is_some(){
+
+            let pool_info = cAsset.clone().pool_info.unwrap();
+            let mut asset_prices = vec![];
+
+            for (pool_asset, asset_decimals) in pool_info.clone().asset_infos{
+
+                let price = query_price_imut(storage, querier, env.clone(), config.clone(), pool_asset)?;
+                //Append price
+                asset_prices.push( price );
+            }
+
+            //Calculate share value
+            let cAsset_value = {
+                //Query share asset amount 
+                let share_asset_amounts = querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
+                    WasmQuery::Smart { 
+                        contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
+                        msg: to_binary(&OsmoQueryMsg::PoolState { 
+                            id: pool_info.pool_id 
+                        }
+                        )?}
+                    ))?
+                    .shares_value(cAsset.asset.amount);
+                
+                //Calculate value of cAsset
+                let mut value = Decimal::zero();
+                for (i, price) in asset_prices.into_iter().enumerate(){
+
+                    //Assert we are pulling asset amount from the correct asset
+                    let asset_share = match share_asset_amounts.clone().into_iter().find(|coin| AssetInfo::NativeToken { denom: coin.denom.clone() } == pool_info.clone().asset_infos[i].0){
+                        Some( coin ) => { coin },
+                        None => return Err( StdError::GenericErr { msg: format!("Invalid asset denom: {}", pool_info.clone().asset_infos[i].0) } )
+                    };
+                    //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
+                    let exponent_difference = pool_info.clone().asset_infos[i].1 - (6u64);
+                    let asset_amount = asset_share.amount / Uint128::new( 10u64.pow(exponent_difference as u32) as u128 );
+                    let decimal_asset_amount = Decimal::from_ratio( asset_amount, Uint128::new(1u128) );
+
+                    //Price * # of assets in LP shares
+                    value += decimal_multiplication(price, decimal_asset_amount);
+                }
+
+                value
+            };
+
+            
+            //Calculate LP price
+            let cAsset_price = {
+                let share_amount = Decimal::from_ratio( cAsset.asset.amount, Uint128::new(1u128) );
+
+                decimal_division( cAsset_value, share_amount)
+            };
+
+            //Push to price and value list
+            cAsset_prices.push(cAsset_price);
+            cAsset_values.push(cAsset_value); 
+
+        } else {
+
+           let price = query_price_imut(storage, querier, env.clone(), config.clone(), cAsset.asset.info)?;
+            
+            cAsset_prices.push(price);
+            let collateral_value = decimal_multiplication(Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128)), price);
+            cAsset_values.push(collateral_value); 
+
         }
-    }  
+
+        
+        }
+    }
     
     Ok((cAsset_values, cAsset_prices))
 }

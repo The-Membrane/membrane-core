@@ -16,25 +16,25 @@ pub struct InstantiateMsg {
     pub oracle_time_limit: u64, //in seconds until oracle failure is acceoted
     pub debt_minimum: Uint128, //Debt minimum value per position
     pub liq_fee: Decimal,
+    pub twap_timeframe: u64, //in days
     //Contracts
     pub stability_pool: Option<String>,
     pub dex_router: Option<String>,
     pub staking_contract: Option<String>,
+    pub oracle_contract: Option<String>,
     pub interest_revenue_collector: Option<String>,
     pub osmosis_proxy: Option<String>,
     pub debt_auction: Option<String>,
-    pub twap_timeframe: u64, //in days
-    // //For Basket creation
-    pub collateral_types: Option<Vec<cAsset>>,
-    pub credit_asset: Option<Asset>,
-    pub credit_price: Option<Decimal>,
-    pub collateral_supply_caps: Option<Vec<Decimal>>,
-    pub base_interest_rate: Option<Decimal>,
-    pub desired_debt_cap_util: Option<Decimal>,
-    pub credit_asset_twap_price_source: Option<TWAPPoolInfo>,
-    pub credit_pool_ids: Option<Vec<u64>>, 
-    pub liquidity_multiplier_for_debt_caps: Option<Decimal>,
-
+    // // //For Basket creation
+    // pub collateral_types: Option<Vec<cAsset>>,
+    // pub credit_asset: Option<Asset>,
+    // pub credit_price: Option<Decimal>,
+    // pub collateral_supply_caps: Option<Vec<Decimal>>,
+    // pub base_interest_rate: Option<Decimal>,
+    // pub desired_debt_cap_util: Option<Decimal>,
+    // pub credit_asset_twap_price_source: Option<TWAPPoolInfo>,
+    // pub credit_pool_ids: Option<Vec<u64>>, 
+    // pub liquidity_multiplier_for_debt_caps: Option<Decimal>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -47,6 +47,7 @@ pub enum ExecuteMsg {
         osmosis_proxy: Option<String>,
         debt_auction: Option<String>,
         staking_contract: Option<String>,
+        oracle_contract: Option<String>,
         interest_revenue_collector: Option<String>,
         liq_fee: Option<Decimal>,
         debt_minimum: Option<Uint128>,
@@ -93,13 +94,12 @@ pub enum ExecuteMsg {
     CreateBasket {
         owner: Option<String>,
         collateral_types: Vec<cAsset>,
-        credit_asset: Asset,
+        credit_asset: Asset, //Creates native denom for Asset
         credit_price: Option<Decimal>,
         collateral_supply_caps: Option<Vec<Decimal>>,
         base_interest_rate: Option<Decimal>,
         desired_debt_cap_util: Option<Decimal>,        
         credit_pool_ids: Vec<u64>, //For liquidity measuring
-        credit_asset_twap_price_source: TWAPPoolInfo,
         liquidity_multiplier_for_debt_caps: Option<Decimal>, //Ex: 5 = debt cap at 5x liquidity
     },
     EditBasket {
@@ -226,7 +226,6 @@ pub struct BasketResponse{
     pub credit_asset: Asset, 
     pub credit_price: String,
     pub credit_pool_ids: Vec<u64>,
-    pub credit_asset_twap_price_source: TWAPPoolInfo,
     pub liquidity_multiplier_for_debt_caps: Decimal, //Ex: 5 = debt cap at 5x liquidity.
     pub liq_queue: String,
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
@@ -244,6 +243,7 @@ pub struct ConfigResponse {
     pub staking_contract: String,
     pub osmosis_proxy: String,
     pub debt_auction: String,
+    pub oracle_contract: String,
     pub liq_fee: Decimal, // 5 = 5%
     pub oracle_time_limit: u64,
     pub debt_minimum: Uint128,

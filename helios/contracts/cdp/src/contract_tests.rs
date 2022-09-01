@@ -37,11 +37,6 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
-                    pool_info_for_price:  TWAPPoolInfo { 
-                        pool_id: 0u64, 
-                        base_asset_denom: String::from("None"), 
-                        quote_asset_denom: String::from("None") 
-                    },
                 },
                 cAsset {
                     asset:
@@ -53,14 +48,8 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(70),
                     pool_info: None,
-                    pool_info_for_price:  TWAPPoolInfo { 
-                        pool_id: 0u64, 
-                        base_asset_denom: String::from("None"), 
-                        quote_asset_denom: String::from("None") 
-                    },
                 }  
             ]),
-                credit_interest: Some(Decimal::percent(1)),
                 liq_fee: Decimal::percent(1),
                 stability_pool: Some("stability_pool".to_string()),
                 dex_router: Some("router".to_string()),
@@ -103,11 +92,6 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
-                    pool_info_for_price:  TWAPPoolInfo { 
-                        pool_id: 0u64, 
-                        base_asset_denom: String::from("None"), 
-                        quote_asset_denom: String::from("None") 
-                    },
                        } 
             ],
             credit_asset: Asset {
@@ -115,7 +99,6 @@ mod tests {
                 amount: Uint128::from(0u128),
             },
             credit_price: None,
-            credit_interest: Some(Decimal::percent(1)),
             collateral_supply_caps: None,
             base_interest_rate: None,
             desired_debt_cap_util: None,
@@ -136,7 +119,6 @@ mod tests {
 
         //Depositing into the basket that lacks a credit_price
         let deposit_msg = ExecuteMsg::Deposit {
-            assets, 
             position_owner: Some(v_info.clone().sender.to_string()),
             basket_id: Uint128::from(2u128),
             position_id: None,
@@ -159,7 +141,6 @@ mod tests {
         ];
 
         let error_exec_msg = ExecuteMsg::Deposit { 
-            assets,
             position_owner: msg.clone().owner,
             basket_id: Uint128::from(1u128),
             position_id: Some(Uint128::from(3u128)),
@@ -185,7 +166,6 @@ mod tests {
         let info = mock_info("sender88", &coins(666, "fake_debit"));
 
         let exec_msg = ExecuteMsg::Deposit { 
-            assets,
             position_owner: msg.clone().owner,
             basket_id: Uint128::from(1u128),
             position_id: None,
@@ -207,7 +187,6 @@ mod tests {
         ];
 
         let exec_msg = ExecuteMsg::Deposit { 
-            assets,
             position_owner: msg.clone().owner,
             basket_id: Uint128::from(1u128),
             position_id: None,
@@ -251,11 +230,6 @@ mod tests {
                 max_borrow_LTV: Decimal::percent(50),
                 max_LTV: Decimal::percent(90),
                 pool_info: None,
-                pool_info_for_price:  TWAPPoolInfo { 
-                    pool_id: 0u64, 
-                    base_asset_denom: String::from("None"), 
-                    quote_asset_denom: String::from("None") 
-                },
             },
             cAsset {
                 asset:
@@ -267,14 +241,8 @@ mod tests {
                 max_borrow_LTV: Decimal::percent(50),
                 max_LTV: Decimal::percent(70),
                 pool_info: None,
-                pool_info_for_price:  TWAPPoolInfo { 
-                    pool_id: 0u64, 
-                    base_asset_denom: String::from("None"), 
-                    quote_asset_denom: String::from("None") 
-                },
             }  
         ]),
-            credit_interest: Some(Decimal::percent(1)),
             liq_fee: Decimal::percent(1),
             stability_pool: Some("stability_pool".to_string()),
             dex_router: Some("router".to_string()),
@@ -356,7 +324,6 @@ mod tests {
                     },
                     } 
                 ]),
-                credit_interest: Some(Decimal::percent(1)),
                 liq_fee: Decimal::percent(1),
                 stability_pool: Some("stability_pool".to_string()),
                 dex_router: Some("router".to_string()),
@@ -413,7 +380,6 @@ mod tests {
         let info = mock_info("sender88", &coins(11, "debit"));
 
         let exec_msg = ExecuteMsg::Deposit { 
-            assets,
             position_owner: Some(info.clone().sender.to_string()),
             basket_id: Uint128::from(1u128),
             position_id: None,
@@ -516,7 +482,6 @@ mod tests {
                     },
                        } 
                 ]),
-                credit_interest: Some(Decimal::percent(1)),
                 liq_fee: Decimal::percent(1),
                 stability_pool: Some("stability_pool".to_string()),
                 dex_router: Some("router".to_string()),
@@ -584,7 +549,6 @@ mod tests {
                 amount: Uint128::from(0u128),
             },
             credit_price: None,
-            credit_interest: Some(Decimal::percent(1)),
             collateral_supply_caps: None,
             base_interest_rate: None,
             desired_debt_cap_util: None,
@@ -599,13 +563,9 @@ mod tests {
         let info = mock_info("owner", &coins(11, "debit"));
         let _res = execute(deps.as_mut(), mock_env(), info.clone(), create_basket_msg).unwrap();
 
-        let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-        ];
-
+       
         //Depositing into the basket that lacks a credit_price
-        let deposit_msg = ExecuteMsg::Deposit { 
-            assets,
+        let deposit_msg = ExecuteMsg::Deposit {
             position_owner: Some(info.clone().sender.to_string()),
             basket_id: Uint128::from(2u128),
             position_id: None,
@@ -621,12 +581,7 @@ mod tests {
         
        
          //Initial deposit
-        let assets: Vec<AssetInfo> = vec![
-            AssetInfo::NativeToken { denom: "debit".to_string() },
-        ];
-
         let exec_msg = ExecuteMsg::Deposit { 
-            assets,
             position_owner: None,
             basket_id: Uint128::from(1u128),
             position_id: None,
@@ -696,7 +651,6 @@ mod tests {
                     },
                        } 
                 ]),
-                credit_interest: Some(Decimal::percent(1)),
                 liq_fee: Decimal::percent(1),
                 stability_pool: Some("stability_pool".to_string()),
                 dex_router: Some("router".to_string()),
@@ -740,14 +694,9 @@ mod tests {
         }
         
         //Initial deposit
-        let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-        ];
-
         let info = mock_info("sender88", &coins(11, "debit"));
 
         let exec_msg = ExecuteMsg::Deposit { 
-            assets,
             position_owner: Some(info.clone().sender.to_string()),
             basket_id: Uint128::from(1u128),
             position_id: None,
@@ -851,7 +800,6 @@ mod tests {
                     },
                        } 
                 ]),
-                credit_interest: Some(Decimal::percent(1)),
                 liq_fee: Decimal::percent(1),
                 stability_pool: Some("stability_pool".to_string()),
                 dex_router: Some("router".to_string()),
@@ -908,7 +856,6 @@ mod tests {
                 amount: Uint128::from(0u128),
             },
             credit_price: Some( Decimal::percent(100) ),
-            credit_interest: Some(Decimal::percent(1)),
             collateral_supply_caps: None,
             base_interest_rate: None,
             desired_debt_cap_util: None,
@@ -924,12 +871,7 @@ mod tests {
         let _res = execute(deps.as_mut(), mock_env(), v_info.clone(), create_basket_msg).unwrap();
 
         //Initial deposit to Basket 1
-        let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-        ];
-        
         let exec_msg = ExecuteMsg::Deposit { 
-            assets,
             position_owner: Some( String::from("sender88") ),
             basket_id: Uint128::from(1u128),
             position_id: None,
@@ -937,13 +879,8 @@ mod tests {
         let info = mock_info("sender88", &coins(11, "debit"));
         let _res = execute(deps.as_mut(), mock_env(), info.clone(), exec_msg).unwrap();
 
-        //Initial deposit to Basket 2
-        let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-        ];
-        
+        //Initial deposit to Basket 2        
         let exec_msg = ExecuteMsg::Deposit { 
-            assets,
             position_owner: Some( String::from("sender88") ),
             basket_id: Uint128::from(2u128),
             position_id: None,
@@ -997,7 +934,6 @@ mod tests {
                     },
                        } 
                 ]),
-                credit_interest: Some(Decimal::percent(1)),
                 liq_fee: Decimal::percent(1),
                 stability_pool: Some("stability_pool".to_string()),
                 dex_router: Some("router".to_string()),

@@ -5,11 +5,12 @@ mod tests {
         
     use cosmwasm_bignumber::Uint256;
     use cw20::BalanceResponse;
+    use membrane::oracle::{PriceResponse, AssetResponse};
     use membrane::positions::{ InstantiateMsg, QueryMsg };
     use membrane::liq_queue::{ LiquidatibleResponse as LQ_LiquidatibleResponse};
     use membrane::stability_pool::{ LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
     use membrane::osmosis_proxy::{ GetDenomResponse };
-    use membrane::types::{AssetInfo, Asset, cAsset, LiqAsset, TWAPPoolInfo};
+    use membrane::types::{AssetInfo, Asset, cAsset, LiqAsset, TWAPPoolInfo, AssetOracleInfo};
 
     
     use osmo_bindings::{ SpotPriceResponse, PoolStateResponse, ArithmeticTwapToNowResponse };
@@ -950,6 +951,70 @@ mod tests {
         Box::new(contract)
     }
 
+    //Mock Oracle Contract
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Oracle_MockExecuteMsg {
+        AddAsset {
+            asset_info: AssetInfo,
+            oracle_info: AssetOracleInfo,
+        }
+    }
+    
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub struct Oracle_MockInstantiateMsg {}
+
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Oracle_MockQueryMsg {
+        Price {
+            asset_info: AssetInfo,
+        },
+        Asset {
+            asset_info: AssetInfo,
+        },
+    }
+
+    pub fn oracle_contract()-> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: Oracle_MockExecuteMsg| -> StdResult<Response> {
+                match msg {
+                    Oracle_MockExecuteMsg::AddAsset { 
+                        asset_info, 
+                        oracle_info, 
+                    }  => {
+                        
+                        Ok(Response::default())
+                    },
+                }
+            },
+            |_, _, _, _: Oracle_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
+            |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    Oracle_MockQueryMsg::Price { asset_info } => {
+                        Ok( to_binary(&PriceResponse { 
+                            prices: vec![],
+                            avg_price: Decimal::one(),
+                        })? )
+                    },
+                    Oracle_MockQueryMsg::Asset { asset_info } => {
+                        Ok( to_binary(&AssetResponse { 
+                            asset_info: AssetInfo::NativeToken { denom: String::from("denom") },
+                            oracle_info: AssetOracleInfo {
+                                osmosis_pool_for_twap: TWAPPoolInfo {
+                                    pool_id: 0u64,
+                                    base_asset_denom: String::from("denom"),
+                                    quote_asset_denom: String::from("denom"),
+                                },
+                            },
+                        })? )
+                    },
+                }  },
+        );
+        Box::new(contract)
+    }
+
     //Mock Cw20 Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
@@ -1150,56 +1215,37 @@ mod tests {
             )
             .unwrap();
 
+        //Instaniate Oracle Contract
+        let oracle_id = app.store_code(oracle_contract());
+
+        let oracle_contract_addr = app
+            .instantiate_contract(
+                oracle_id,
+                Addr::unchecked(ADMIN),
+                &Oracle_MockInstantiateMsg {},
+                &[],
+                "test",
+                None,
+            )
+            .unwrap();
+
         //Instantiate CDP contract
         let cdp_id = app.store_code(cdp_contract());
 
         let msg = 
             InstantiateMsg {
                 owner: Some(ADMIN.to_string()),
-                credit_asset: Some(Asset {
-                    info: AssetInfo::NativeToken { denom: "credit_fulldenom".to_string() },
-                    amount: Uint128::zero(),
-                }),
-                credit_price: Some(Decimal::one()),
-                collateral_types: Some(vec![
-                    cAsset {
-                        asset:
-                            Asset {
-                                info: AssetInfo::NativeToken { denom: "debit".to_string() },
-                                amount: Uint128::zero(),
-                            }, 
-                        debt_total: Uint128::zero(),
-                        max_borrow_LTV: Decimal::percent(50),
-                        max_LTV: Decimal::percent(70),
-                        pool_info: None,
-                        pool_info_for_price: TWAPPoolInfo { 
-                            pool_id: 0u64, 
-                            base_asset_denom: String::from("None"), 
-                            quote_asset_denom: String::from("None") 
-                        },
-                        
-                    }]),
-                credit_interest: Some(Decimal::percent(1)),
                 liq_fee: Decimal::percent(1),
                 stability_pool: Some( sp_contract_addr.to_string() ),
                 dex_router: Some( router_contract_addr.to_string() ),
                 staking_contract: Some( staking_contract_addr.to_string() ),
+                oracle_contract: Some( oracle_contract_addr.to_string() ),
                 interest_revenue_collector: Some( "fee_collector".to_string()),
                 osmosis_proxy: Some( osmosis_proxy_contract_addr.to_string() ),   
                 debt_auction: Some( auction_contract_addr.to_string() ),
                 oracle_time_limit: 60u64,
                 debt_minimum: Uint128::new(500u128),
-                collateral_supply_caps: None,
-                base_interest_rate: None,
-                desired_debt_cap_util: None,
                 twap_timeframe: 90u64,
-                credit_asset_twap_price_source: Some( TWAPPoolInfo { 
-                    pool_id: 0u64, 
-                    base_asset_denom: String::from("None"), 
-                    quote_asset_denom: String::from("None") 
-                } ),
-                credit_pool_ids: None,
-                liquidity_multiplier_for_debt_caps: None,
         };
 
         

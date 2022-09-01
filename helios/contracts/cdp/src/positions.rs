@@ -1906,7 +1906,7 @@ pub fn sell_wall(
     basket_id: Uint128,
     position_id: Uint128,
     position_owner: String,
-)-> Result<( Vec<CosmosMsg>,Vec<(AssetInfo,Decimal)> ), ContractError>{
+)-> Result<( Vec<CosmosMsg>, Vec<(AssetInfo,Decimal)> ), ContractError>{
     
     let config: Config = CONFIG.load(storage)?;
 
@@ -1920,36 +1920,45 @@ pub fn sell_wall(
 
         if collateral_assets[index].clone().pool_info.is_some(){
 
-            ///////These ratios are done wrong bc they use token amounts only
-            ///////Either way the assets also have different decimal places so the amounts aren't standardardized, will need to get ratios from the Oracle contract
+           
+            let pool_info = collateral_assets[index].clone().pool_info.unwrap();
 
-            // let pool_info = collateral_assets[index].clone().pool_info.unwrap();
-
-            // //Split repay amount between collateral types
-            // ////Query share asset amount 
-            // let share_asset_amounts = querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
-            //     WasmQuery::Smart { 
-            //         contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
-            //         msg: to_binary(&OsmoQueryMsg::PoolState { 
-            //             id: pool_info.pool_id 
-            //         }
-            //         )?}
-            //     ))?
-            //     .shares_value(collateral_assets[index].clone().asset.amount);
+            //Split repay amount between collateral types
+            ////Query share asset amount 
+            let share_asset_amounts = querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
+                WasmQuery::Smart { 
+                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
+                    msg: to_binary(&OsmoQueryMsg::PoolState { 
+                        id: pool_info.pool_id 
+                    }
+                    )?}
+                ))?
+                .shares_value(collateral_assets[index].clone().asset.amount);
             
-            // ///Get pool asset ratios
-            // let pool_total: Uint128 = share_asset_amounts.clone()
-            //     .into_iter()
-            //     .map(|coin| coin.amount )
-            //     .collect::<Vec<Uint128>>()
-            //     .iter()
-            //     .sum();
             
-            // let mut pool_asset_ratios = vec![];
 
-            // for coin in share_asset_amounts.clone() {
-            //     pool_asset_ratios.push( decimal_division(Decimal::from_ratio(coin.amount, Uint128::new(1u128)), Decimal::from_ratio(pool_total, Uint128::new(1u128)) ) );
-            // }
+            ///Get pool asset ratios
+            let pool_total: Uint128 = share_asset_amounts.clone()
+                .into_iter()
+                .enumerate()
+                .map(|( i,coin )| {
+                    //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
+                    let exponent_difference = pool_info.clone().asset_infos[i].1.checked_sub(6u64).unwrap();
+
+                    let asset_amount = coin.amount / Uint128::new( 10u64.pow(exponent_difference as u32) as u128 );
+
+                    asset_amount
+                    
+                } )
+                .collect::<Vec<Uint128>>()
+                .iter()
+                .sum();
+            
+            let mut pool_asset_ratios = vec![];
+
+            for coin in share_asset_amounts.clone() {
+                pool_asset_ratios.push( decimal_division(Decimal::from_ratio(coin.amount, Uint128::new(1u128)), Decimal::from_ratio(pool_total, Uint128::new(1u128)) ) );
+            }
 
             //Push LP Withdrawal Msg
             let mut token_out_mins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
@@ -1969,7 +1978,7 @@ pub fn sell_wall(
             messages.push( msg );
 
             //Push Router + Repay messages for each
-            for ( i, ( pool_asset, _TWAP_info) )in pool_info.asset_denoms.iter().enumerate(){
+            for ( i, ( pool_asset, _decimals ) )in pool_info.asset_infos.iter().enumerate(){
 
                 if let AssetInfo::NativeToken { denom } = pool_asset {
                     let router_msg = RouterExecuteMsg::SwapFromNative {
@@ -2667,7 +2676,7 @@ pub fn get_asset_values(
                         None => return Err( StdError::GenericErr { msg: format!("Invalid asset denom: {}", pool_info.clone().asset_infos[i].0) } )
                     };
                     //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
-                    let exponent_difference = pool_info.clone().asset_infos[i].1 - (6u64);
+                    let exponent_difference = pool_info.clone().asset_infos[i].1.checked_sub(6u64).unwrap();
                     let asset_amount = asset_share.amount / Uint128::new( 10u64.pow(exponent_difference as u32) as u128 );
                     let decimal_asset_amount = Decimal::from_ratio( asset_amount, Uint128::new(1u128) );
 

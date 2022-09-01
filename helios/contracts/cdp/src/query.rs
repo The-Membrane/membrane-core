@@ -553,7 +553,6 @@ pub fn query_basket_credit_interest(
     let mut negative_rate: bool = false;
 
     if !time_elasped == 0u64 {
-        basket.credit_last_accrued = env.block.time.seconds();
 
         //Calculate new interest rate
         let credit_asset = cAsset {
@@ -563,7 +562,7 @@ pub fn query_basket_credit_interest(
             max_LTV: Decimal::zero(),
             pool_info: None,
         };
-        let credit_TWAP_price = get_asset_values_imut( deps.storage, env, deps.querier, vec![ credit_asset ], config )?.1[0];
+        let credit_TWAP_price = get_asset_values_imut( deps.storage, env, deps.querier, vec![ credit_asset ], config.clone() )?.1[0];
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
             //If market price > than repayment price
@@ -671,7 +670,7 @@ fn query_price_imut(
     let price = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().oracle_contract.unwrap().to_string(),
         msg: to_binary(&OracleQueryMsg::Price { 
-            asset_info, 
+            asset_info: asset_info.clone(), 
             twap_timeframe: config.clone().twap_timeframe, 
         } )?,
     })){
@@ -789,7 +788,7 @@ pub fn get_asset_values_imut(
 
         } else {
 
-           let price = query_price_imut(storage, querier, env.clone(), config.clone(), cAsset.asset.info)?;
+           let price = query_price_imut(storage, querier, env.clone(), config.clone(), cAsset.clone().asset.info)?;
             
             cAsset_prices.push(price);
             let collateral_value = decimal_multiplication(Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128)), price);

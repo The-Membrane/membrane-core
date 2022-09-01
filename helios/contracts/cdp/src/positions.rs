@@ -807,7 +807,7 @@ pub fn increase_debt(
     
     let message: CosmosMsg;
 
-    //Can't take credit before there is a preset repayment price
+    //Can't take credit before there is a preset repayment price or the oracle is set
     if basket.credit_price.is_some() && basket.oracle_set{
         
         //If resulting LTV makes the position insolvent, error. If not construct mint msg
@@ -1515,7 +1515,7 @@ pub fn create_basket(
             deps.querier.query::<AssetResponse>(&QueryRequest::Wasm(
                 WasmQuery::Smart { 
                     contract_addr: config.clone().oracle_contract.unwrap().to_string(), 
-                    msg: to_binary( &OracleQueryMsg::Asset { asset_info: asset.asset.info } )? 
+                    msg: to_binary( &OracleQueryMsg::Asset { asset_info: asset.clone().asset.info } )? 
             }))?;
 
             //If it errors it means the oracle doesn't exist
@@ -1694,7 +1694,7 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
             deps.querier.query::<AssetResponse>(&QueryRequest::Wasm(
                 WasmQuery::Smart { 
                     contract_addr: config.clone().oracle_contract.unwrap().to_string(), 
-                    msg: to_binary( &OracleQueryMsg::Asset { asset_info: new_cAsset.asset.info } )? 
+                    msg: to_binary( &OracleQueryMsg::Asset { asset_info: new_cAsset.clone().asset.info } )? 
             }))?;
 
             //If it errors it means the oracle doesn't exist
@@ -1706,9 +1706,11 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
     }
 
     let basket = BASKETS.load( deps.storage, basket_id.clone().to_string() )?;
+
     //Send TWAP info to Oracle Contract
-    let mut oracle_set = false;
+    let mut oracle_set = basket.oracle_set;
     let mut message: Option<CosmosMsg> = None;
+
     if let Some( credit_twap ) = credit_asset_twap_price_source {
         if config.clone().oracle_contract.is_some(){
             //Set the credit Oracle
@@ -1782,7 +1784,12 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
 
 let res = Response::new();
 
-Ok(res.add_attributes(attrs))
+if message.is_some(){
+    Ok( res.add_attributes(attrs).add_message( message.unwrap() ) )
+} else {
+    Ok( res.add_attributes(attrs) )
+}
+
 
 }
 
@@ -2581,7 +2588,7 @@ fn query_price(
     let price = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().oracle_contract.unwrap().to_string(),
         msg: to_binary(&OracleQueryMsg::Price { 
-            asset_info, 
+            asset_info: asset_info.clone(), 
             twap_timeframe: config.clone().twap_timeframe, 
         } )?,
     })){
@@ -2706,7 +2713,7 @@ pub fn get_asset_values(
 
         } else {
 
-           let price = query_price(storage, querier, env.clone(), config.clone(), cAsset.asset.info)?;
+           let price = query_price(storage, querier, env.clone(), config.clone(), cAsset.clone().asset.info)?;
             
             cAsset_prices.push(price);
             let collateral_value = decimal_multiplication(Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128)), price);
@@ -2804,7 +2811,7 @@ pub fn update_position_claims(
     let cAsset_ratios = get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config.clone())?;
 
     //Get the debt cap 
-    let mut debt_cap = get_asset_liquidity( querier, config, basket.clone().credit_pool_ids, basket.clone().credit_asset.info )? * basket.clone().liquidity_multiplier_for_debt_caps;
+    let mut debt_cap = get_asset_liquidity( querier, config.clone(), basket.clone().credit_pool_ids, basket.clone().credit_asset.info )? * basket.clone().liquidity_multiplier_for_debt_caps;
 
     //If debt cap is less than the minimum, set it to the minimum
     if debt_cap < ( config.base_debt_cap_multiplier * config.debt_minimum ){
@@ -3121,6 +3128,7 @@ fn accumulate_interest(
     rate: Decimal,
     time_elapsed: u64,
 ) -> StdResult<Uint128>{
+    
 
     let applied_rate = rate.checked_mul(Decimal::from_ratio(
         Uint128::from(time_elapsed),
@@ -3262,7 +3270,7 @@ fn accrue(
         storage, 
         env.clone(), 
         querier, 
-        config, 
+        config.clone(), 
         basket.basket_id, 
         position.clone().collateral_assets, 
         accrued_interest * Uint128::new(1u128), 
@@ -3277,7 +3285,8 @@ fn accrue(
     //--
     //Calc Time-elapsed and update last_Accrued 
     let time_elasped = env.block.time.seconds() - basket.credit_last_accrued;
-    if !time_elasped == 0u64 && basket.oracle_set{
+
+    if !(time_elasped == 0u64) && basket.oracle_set{
         basket.credit_last_accrued = env.block.time.seconds();
 
         //Calculate new interest rate
@@ -3289,7 +3298,7 @@ fn accrue(
             max_LTV: Decimal::zero(),
             pool_info: None,
         };
-        let credit_TWAP_price = get_asset_values( storage, env, querier, vec![ credit_asset ], config )?.1[0];
+        let credit_TWAP_price = get_asset_values( storage, env, querier, vec![ credit_asset ], config.clone() )?.1[0];
         //We divide w/ the greater number first so the quotient is always 1.__
         let mut price_difference = {
             //If market price > than repayment price
@@ -3301,14 +3310,20 @@ fn accrue(
                 negative_rate = false;
                 decimal_subtraction( decimal_division( basket.clone().credit_price.unwrap(), credit_TWAP_price ), Decimal::one() )
 
-            } else { Decimal::zero() }
+            } else { 
+                negative_rate = false;
+                Decimal::zero() 
+            }
         };
+
         //Don't accrue interest if price is within the margin of error
         if price_difference > config.clone().cpc_margin_of_error{
 
             price_difference = decimal_subtraction(price_difference, config.clone().cpc_margin_of_error);
+            
             //Calculate rate of change
-            let mut applied_rate = price_difference.checked_mul(Decimal::from_ratio(
+            let mut applied_rate = Decimal::zero();
+            applied_rate += price_difference.checked_mul(Decimal::from_ratio(
                 Uint128::from(time_elapsed),
                 Uint128::from(SECONDS_PER_YEAR),
             ))?;

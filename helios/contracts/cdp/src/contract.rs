@@ -55,7 +55,7 @@ pub fn instantiate(
         osmosis_proxy: None,
         debt_auction: None,    
         oracle_time_limit: msg.oracle_time_limit,
-        cpc_margin_of_error: Decimal::one(),
+        cpc_margin_of_error: Decimal::percent(1),
         debt_minimum: msg.debt_minimum,
         base_debt_cap_multiplier: Uint128::new(10u128),
         twap_timeframe: msg.twap_timeframe,
@@ -185,7 +185,7 @@ pub fn execute(
         ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ position_owner, position_id, basket_id} => {
             //Set asset from funds sent
-            let valid_assets = info.funds
+            let valid_assets = info.clone().funds
                 .into_iter()
                 .map(|coin| 
                     Asset{

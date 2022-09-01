@@ -6,7 +6,7 @@ mod tests {
     use cosmwasm_bignumber::Uint256;
     use cw20::BalanceResponse;
     use membrane::oracle::{PriceResponse, AssetResponse};
-    use membrane::positions::{ InstantiateMsg, QueryMsg };
+    use membrane::positions::{ InstantiateMsg, QueryMsg, ExecuteMsg };
     use membrane::liq_queue::{ LiquidatibleResponse as LQ_LiquidatibleResponse};
     use membrane::stability_pool::{ LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
     use membrane::osmosis_proxy::{ GetDenomResponse };
@@ -921,9 +921,7 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Staking_MockExecuteMsg {
-        DepositFee {
-            fee_assets: Vec<Asset>,
-        }
+        DepositFee {}
     }
     
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
@@ -938,9 +936,7 @@ mod tests {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Staking_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
-                    Staking_MockExecuteMsg::DepositFee {
-                        fee_assets
-                     }  => {                        
+                    Staking_MockExecuteMsg::DepositFee {}  => {                        
                         Ok(Response::default())
                     },
                 }
@@ -993,10 +989,21 @@ mod tests {
             |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     Oracle_MockQueryMsg::Price { asset_info } => {
-                        Ok( to_binary(&PriceResponse { 
-                            prices: vec![],
-                            avg_price: Decimal::one(),
-                        })? )
+
+                        if asset_info.to_string() == String::from("credit_fulldenom"){
+                                
+                            Ok( to_binary(&PriceResponse { 
+                                prices: vec![],
+                                avg_price: Decimal::percent(98),
+                            })? )
+                        } else {
+                            Ok( to_binary(&PriceResponse { 
+                                prices: vec![],
+                                avg_price: Decimal::one(),
+                            })? )
+                        }
+                        
+                        
                     },
                     Oracle_MockQueryMsg::Asset { asset_info } => {
                         Ok( to_binary(&AssetResponse { 
@@ -1263,6 +1270,54 @@ mod tests {
 
         let cdp_contract = CDPContract(cdp_contract_addr);
 
+        let msg = ExecuteMsg::CreateBasket {
+            owner: Some("owner".to_string()),
+            collateral_types: vec![
+                cAsset {
+                    asset:
+                        Asset {
+                            info: AssetInfo::NativeToken { denom: "debit".to_string() },
+                            amount: Uint128::from(0u128),
+                        },
+                    debt_total: Uint128::zero(),
+                    max_borrow_LTV: Decimal::percent(50),
+                    max_LTV: Decimal::percent(70),
+                    pool_info: None,
+                       } 
+            ],
+            credit_asset: Asset {
+                info: AssetInfo::NativeToken { denom: "credit".to_string() },
+                amount: Uint128::from(0u128),
+            },
+            credit_price: Some( Decimal::percent(100) ),
+            collateral_supply_caps: None,
+            base_interest_rate: None,
+            desired_debt_cap_util: None,
+            credit_pool_ids: vec![],
+            liquidity_multiplier_for_debt_caps: None,
+        };
+        let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+        app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+        let msg = ExecuteMsg::EditBasket {
+            basket_id: Uint128::from(1u128), 
+            added_cAsset: None, 
+            owner: None,  
+            liq_queue: None,  
+            pool_ids: None,  
+            liquidity_multiplier: None,  
+            collateral_supply_caps: None,  
+            base_interest_rate: None,  
+            desired_debt_cap_util: None,  
+            credit_asset_twap_price_source: Some( 
+                TWAPPoolInfo {
+                    pool_id: 0u64,
+                    base_asset_denom: String::from("base"),
+                    quote_asset_denom: String::from("quote"),
+            } ) 
+        };
+        let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+        app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
         (app, cdp_contract, lq_contract, cw20_contract_addr)
     }
@@ -1300,14 +1355,8 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
-                    pool_info_for_price:  TWAPPoolInfo { 
-                        pool_id: 0u64, 
-                        base_asset_denom: String::from("None"), 
-                        quote_asset_denom: String::from("None") 
-                    },
                 } ), 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -1321,13 +1370,7 @@ mod tests {
 
             
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-                AssetInfo::NativeToken { denom: "2nddebit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( USER.to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -1449,14 +1492,8 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
-                    pool_info_for_price:  TWAPPoolInfo { 
-                        pool_id: 0u64, 
-                        base_asset_denom: String::from("None"), 
-                        quote_asset_denom: String::from("None") 
-                    },
                 } ), 
-                owner: None, 
-                credit_interest: None, 
+                owner: None,  
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -1514,7 +1551,6 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
                 added_cAsset: None, 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -1527,12 +1563,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
             
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "test".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -1647,7 +1678,6 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
                 added_cAsset: None, 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -1660,12 +1690,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
             
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "test".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -1767,8 +1792,8 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![ coin(499, "credit_fulldenom") ]).unwrap();
             app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg).unwrap();  
 
-            //Would normally liquidate and leave 98609 "debit"
-            // but w/ accrued interest its leaving 98589
+            //Would normally liquidate and leave 98587 "debit"
+            // but w/ accrued interest its leaving 98548
             let query_msg = QueryMsg::GetUserPositions { 
                 basket_id: None, 
                 user: String::from("test"), 
@@ -1776,19 +1801,19 @@ mod tests {
             };
             
             let res: Vec<PositionResponse> = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res[0].collateral_assets[0].asset.amount, Uint128::new(98589));
+            assert_eq!(res[0].collateral_assets[0].asset.amount, Uint128::new(98548));
 
              //Assert sell wall was sent Assets
              assert_eq!(app.wrap().query_all_balances(router_addr.clone()).unwrap(), vec![]);
 
              //Assert fees were sent.
              assert_eq!(app.wrap().query_all_balances(staking_contract.clone()).unwrap(), vec![coin( 11, "debit")]);
-             //The fee is 222
-             assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"), coin( 100_222, "debit")]);
+             //The fee is 227
+             assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"), coin( 100_227, "debit")]);
  
              
-             assert_eq!(app.wrap().query_all_balances(sp_addr.clone()).unwrap(), vec![coin( 1726 , "credit_fulldenom"), coin( 565, "debit")]);
-             assert_eq!(app.wrap().query_all_balances(lq_contract.addr()).unwrap(), vec![coin( 613, "debit")]);
+             assert_eq!(app.wrap().query_all_balances(sp_addr.clone()).unwrap(), vec![coin( 1726 , "credit_fulldenom"), coin( 577, "debit")]);
+             assert_eq!(app.wrap().query_all_balances(lq_contract.addr()).unwrap(), vec![coin( 637, "debit")]);
  
            
         }
@@ -1808,7 +1833,6 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
                 added_cAsset: None, 
                 owner: None, 
-                credit_interest: Some( Decimal::percent(10) ), 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -1821,12 +1845,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
             
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "test".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -1895,7 +1914,7 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
             };
             let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res.credit_price, String::from("1.2"));
+            assert_eq!(res.credit_price, String::from("1.020816326"));
 
             let query_msg = QueryMsg::GetPosition { 
                 position_id: Uint128::new(1u128), 
@@ -1947,8 +1966,8 @@ mod tests {
                 chain_id: app.block_info().chain_id } );
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Would normally liquidate and leave 99621 "debit"
-            // but w/ accrued interest its leaving 99542
+            //Would normally liquidate and leave 99863 "debit"
+            // but w/ accrued interest its leaving 99782
             let query_msg = QueryMsg::GetUserPositions { 
                 basket_id: None, 
                 user: String::from("test"), 
@@ -1956,7 +1975,7 @@ mod tests {
             };
             
             let res: Vec<PositionResponse> = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res[0].collateral_assets[0].asset.amount, Uint128::new(99542));
+            assert_eq!(res[0].collateral_assets[0].asset.amount, Uint128::new(99782));
            
         }
 
@@ -1975,7 +1994,6 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
                 added_cAsset: None, 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -1988,12 +2006,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
             
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "test".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -2069,7 +2082,6 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
                 added_cAsset: None, 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -2082,12 +2094,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "test".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -2174,7 +2181,6 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
                 added_cAsset: None, 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -2187,12 +2193,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( USER.to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -2266,7 +2267,6 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
                 added_cAsset: None, 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -2279,12 +2279,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( USER.to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -2350,7 +2345,6 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
                 added_cAsset: None, 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -2363,12 +2357,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( USER.to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -2441,7 +2430,6 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
                 added_cAsset: None, 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -2455,12 +2443,7 @@ mod tests {
             
 
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( USER.to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -2539,7 +2522,6 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
                 added_cAsset: None, 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -2552,12 +2534,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "bigger_bank".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -2639,7 +2616,6 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
                 added_cAsset: None, 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -2652,12 +2628,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( USER.to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -2746,14 +2717,8 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
-                    pool_info_for_price: TWAPPoolInfo { 
-                        pool_id: 0u64, 
-                        base_asset_denom: String::from("None"), 
-                        quote_asset_denom: String::from("None") 
-                    },
                 } ), 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -2766,12 +2731,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "big_bank".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -2807,12 +2767,7 @@ mod tests {
             app.execute(Addr::unchecked("big_bank"), cosmos_msg).unwrap();
 
             //2nd Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "double_debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "big_bank".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: Some( Uint128::from(1u128) ),
@@ -2872,7 +2827,6 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
                 added_cAsset: None, 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -2885,12 +2839,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Deposit #1
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "big_bank".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -2908,12 +2857,7 @@ mod tests {
             app.execute(Addr::unchecked("big_bank"), cosmos_msg).unwrap();
 
             //Deposit #2
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "little_bank".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -2964,7 +2908,6 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
                 added_cAsset: None, 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -2977,12 +2920,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Deposit #1
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "big_bank".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -3000,12 +2938,7 @@ mod tests {
             app.execute(Addr::unchecked("big_bank"), cosmos_msg).unwrap();
 
             //Deposit #2
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "little_bank".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -3080,16 +3013,9 @@ mod tests {
                         max_borrow_LTV: Decimal::percent(40),
                         max_LTV: Decimal::percent(60),
                         pool_info: None,
-                        pool_info_for_price:  TWAPPoolInfo { 
-                            pool_id: 0u64, 
-                            base_asset_denom: String::from("None"), 
-                            quote_asset_denom: String::from("None") 
-                        },
-                        
                     }
                  ), 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -3102,13 +3028,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-                AssetInfo::NativeToken { denom: "double_debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "big_bank".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -3175,16 +3095,10 @@ mod tests {
                         max_borrow_LTV: Decimal::percent(40),
                         max_LTV: Decimal::percent(60),
                         pool_info: None,
-                        pool_info_for_price:  TWAPPoolInfo { 
-                            pool_id: 0u64, 
-                            base_asset_denom: String::from("None"), 
-                            quote_asset_denom: String::from("None") 
-                        },
                         
                     }
                  ), 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -3197,13 +3111,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-                AssetInfo::NativeToken { denom: "double_debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "bigger_bank".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -3271,16 +3179,9 @@ mod tests {
                         max_borrow_LTV: Decimal::percent(40),
                         max_LTV: Decimal::percent(60),
                         pool_info: None,
-                        pool_info_for_price:  TWAPPoolInfo { 
-                            pool_id: 0u64, 
-                            base_asset_denom: String::from("None"), 
-                            quote_asset_denom: String::from("None") 
-                        },
-                        
                     }
                  ), 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -3293,12 +3194,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "bigger_bank".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -3316,12 +3212,7 @@ mod tests {
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap_err();
 
              //Initial Deposit
-             let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "double_debit".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "bigger_bank".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,
@@ -3366,31 +3257,15 @@ mod tests {
                         max_LTV: Decimal::percent(60),
                         pool_info: Some( PoolInfo {
                             pool_id: 99u64,
-                            asset_denoms: vec![(
-                                AssetInfo::NativeToken { denom: String::from("base") },
-                                TWAPPoolInfo { 
-                                    pool_id: 0u64, 
-                                    base_asset_denom: String::from("base"), 
-                                    quote_asset_denom: String::from("asset") 
-                                }), (
-                                    AssetInfo::NativeToken { denom: String::from("quote") },
-                                    TWAPPoolInfo { 
-                                        pool_id: 3u64, 
-                                        base_asset_denom: String::from("quote"), 
-                                        quote_asset_denom: String::from("asset") 
-                                    })
+                            asset_infos: vec![
+                                ( AssetInfo::NativeToken { denom: String::from("base") }, 6u64 ), 
+                                ( AssetInfo::NativeToken { denom: String::from("quote") }, 6u64 ),
                                 ],
                         } ),
-                        pool_info_for_price: TWAPPoolInfo { 
-                            pool_id: 0u64, 
-                            base_asset_denom: String::from("None"), 
-                            quote_asset_denom: String::from("None") 
-                        },
                         
                     }
                  ), 
                 owner: None, 
-                credit_interest: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
@@ -3403,12 +3278,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit
-            let assets: Vec<AssetInfo> = vec![
-                AssetInfo::NativeToken { denom: "lp_denom".to_string() },
-            ];
-
             let msg = ExecuteMsg::Deposit { 
-                assets,
                 position_owner: Some( "lp_tester".to_string() ),
                 basket_id: Uint128::from(1u128),
                 position_id: None,

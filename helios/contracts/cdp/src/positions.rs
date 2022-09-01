@@ -1938,7 +1938,9 @@ pub fn sell_wall(
             
 
             ///Get pool asset ratios
-            let pool_total: Uint128 = share_asset_amounts.clone()
+            /// 
+            //Standardize Asset amounts
+            let standardized_amounts: Vec<Uint128> = share_asset_amounts.clone()
                 .into_iter()
                 .enumerate()
                 .map(|( i,coin )| {
@@ -1950,14 +1952,17 @@ pub fn sell_wall(
                     asset_amount
                     
                 } )
-                .collect::<Vec<Uint128>>()
-                .iter()
-                .sum();
+                .collect::<Vec<Uint128>>();
             
             let mut pool_asset_ratios = vec![];
 
-            for coin in share_asset_amounts.clone() {
-                pool_asset_ratios.push( decimal_division(Decimal::from_ratio(coin.amount, Uint128::new(1u128)), Decimal::from_ratio(pool_total, Uint128::new(1u128)) ) );
+            //Calc pool total
+            let pool_total: Uint128 = standardized_amounts.clone()
+                .iter()
+                .sum();
+
+            for amount in standardized_amounts.clone() {
+                pool_asset_ratios.push( decimal_division(Decimal::from_ratio(amount, Uint128::new(1u128)), Decimal::from_ratio(pool_total, Uint128::new(1u128)) ) );
             }
 
             //Push LP Withdrawal Msg

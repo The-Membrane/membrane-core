@@ -443,7 +443,7 @@ pub enum QueryMsg {
 Returns Uint128
 ```
 
-|               |        |                                               |
+| Key           | Type   | Description                                   |
 | ------------- | ------ | --------------------------------------------- |
 | `user`        | String | User's voting power to query                  |
 | `proposal_id` | u64    | Proposal's unique id                          |

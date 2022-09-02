@@ -95,7 +95,7 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         collateral_types: Vec<cAsset>,
         credit_asset: Asset, //Creates native denom for Asset
-        credit_price: Option<Decimal>,
+        credit_price: Decimal,
         collateral_supply_caps: Option<Vec<Decimal>>,
         base_interest_rate: Option<Decimal>,
         desired_debt_cap_util: Option<Decimal>,        

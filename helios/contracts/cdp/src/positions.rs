@@ -59,8 +59,6 @@ pub fn deposit(
         Ok( basket ) => { basket },
     };
 
-    //This has to error bc users can't withdraw without a price set. Don't want to trap users.
-    if basket.credit_price.is_none(){ return Err(ContractError::NoRepaymentPrice {  }) }
 
     let mut new_position: Position;
     let mut credit_amount = Uint128::zero();
@@ -348,49 +346,45 @@ pub fn withdraw(
                                     
                     
                     //If resulting LTV makes the position insolvent, error. If not construct withdrawal_msg
-                    if basket.credit_price.is_some(){
-                        //This is taking max_borrow_LTV so users can't max borrow and then withdraw to get a higher initial LTV
-                        if insolvency_check(deps.storage, env.clone(), deps.querier, updated_cAsset_list.clone(), Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)), basket.credit_price.unwrap(), true, config.clone())?.0{ 
-                            return Err(ContractError::PositionInsolvent {  })
-                        }else{
-                            
-                            POSITIONS.update(deps.storage, (basket_id.to_string(), info.sender.clone()), |positions: Option<Vec<Position>>| -> Result<Vec<Position>, ContractError>{
-
-                                match positions {
-                                    
-                                    //Find the position we are withdrawing from to update
-                                    Some(position_list) =>  
-                                        match position_list.clone().into_iter().find(|x| x.position_id == position_id) {
-                                            Some(position) => {
-
-                                                let mut updated_positions: Vec<Position> = position_list
-                                                .into_iter()
-                                                .filter(|x| x.position_id != position_id)
-                                                .collect::<Vec<Position>>();
-
-                                                //Leave finding LTVs for solvency checks bc it uses deps. Can't be used inside of an update function
-                                                // let new_avg_LTV = get_avg_LTV(deps.querier, updated_cAsset_list)?;
-
-                                                //For debt cap updates
-                                                new_assets = updated_cAsset_list.clone();
-                                                credit_amount = position.clone().credit_amount;
-
-                                                updated_positions.push(
-                                                    Position{
-                                                        collateral_assets: updated_cAsset_list.clone(),
-                                                        ..position
-                                                });
-                                                Ok( updated_positions )
-                                            },
-                                            None => return Err(ContractError::NonExistentPosition {  })
-                                        },
-                                    
-                                        None => return Err(ContractError::NoUserPositions {  }),
-                                    }
-                            })?;
-                        }
+                    //This is taking max_borrow_LTV so users can't max borrow and then withdraw to get a higher initial LTV
+                    if insolvency_check(deps.storage, env.clone(), deps.querier, updated_cAsset_list.clone(), Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)), basket.credit_price, true, config.clone())?.0{ 
+                        return Err(ContractError::PositionInsolvent {  })
                     }else{
-                        return Err(ContractError::NoRepaymentPrice {  })
+                        
+                        POSITIONS.update(deps.storage, (basket_id.to_string(), info.sender.clone()), |positions: Option<Vec<Position>>| -> Result<Vec<Position>, ContractError>{
+
+                            match positions {
+                                
+                                //Find the position we are withdrawing from to update
+                                Some(position_list) =>  
+                                    match position_list.clone().into_iter().find(|x| x.position_id == position_id) {
+                                        Some(position) => {
+
+                                            let mut updated_positions: Vec<Position> = position_list
+                                            .into_iter()
+                                            .filter(|x| x.position_id != position_id)
+                                            .collect::<Vec<Position>>();
+
+                                            //Leave finding LTVs for solvency checks bc it uses deps. Can't be used inside of an update function
+                                            // let new_avg_LTV = get_avg_LTV(deps.querier, updated_cAsset_list)?;
+
+                                            //For debt cap updates
+                                            new_assets = updated_cAsset_list.clone();
+                                            credit_amount = position.clone().credit_amount;
+
+                                            updated_positions.push(
+                                                Position{
+                                                    collateral_assets: updated_cAsset_list.clone(),
+                                                    ..position
+                                            });
+                                            Ok( updated_positions )
+                                        },
+                                        None => return Err(ContractError::NonExistentPosition {  })
+                                    },
+                                
+                                    None => return Err(ContractError::NoUserPositions {  }),
+                                }
+                        })?;
                     }
                     
                     //This is here (instead of outside the loop) in case there are multiple withdrawal messages created.
@@ -505,9 +499,6 @@ pub fn repay(
         Ok( basket ) => { basket },
     };
         
-    if basket.credit_price.is_none(){
-        return Err(ContractError::NoRepaymentPrice {  })
-    }
 
     let valid_owner_addr = validate_position_owner(api, info.clone(), position_owner)?;
     let mut target_position = get_target_position(storage, basket_id, valid_owner_addr.clone(), position_id)?;
@@ -562,7 +553,7 @@ pub fn repay(
                             target_position.credit_amount -= credit_asset.amount;
                             
                             //Position's resulting debt can't be below minimum without being fully repaid
-                            if target_position.credit_amount * basket.clone().credit_price.unwrap() < config.debt_minimum && !target_position.credit_amount.is_zero(){
+                            if target_position.credit_amount * basket.clone().credit_price < config.debt_minimum && !target_position.credit_amount.is_zero(){
                                 return Err( ContractError::BelowMinimumDebt{})
                             }
 
@@ -665,7 +656,7 @@ pub fn liq_repay(
     let cAsset_ratios = get_cAsset_ratios(deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, config.clone())?;
     let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices) = get_avg_LTV(deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, config.clone())?;
 
-    let repay_value = decimal_multiplication(Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128)), basket.credit_price.unwrap());
+    let repay_value = decimal_multiplication(Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128)), basket.credit_price);
 
     let mut messages = vec![];
     let mut coins: Vec<Coin> = vec![];
@@ -800,20 +791,20 @@ pub fn increase_debt(
     let total_credit = target_position.credit_amount + amount;
 
     //Test for minimum debt requirements
-    if decimal_multiplication( Decimal::from_ratio(total_credit, Uint128::new(1u128)), basket.credit_price.unwrap() )
+    if decimal_multiplication( Decimal::from_ratio(total_credit, Uint128::new(1u128)), basket.credit_price )
      < Decimal::from_ratio(config.debt_minimum, Uint128::new(1u128)){
         return Err( ContractError::BelowMinimumDebt { })
     }
     
     let message: CosmosMsg;
 
-    //Can't take credit before there is a preset repayment price or the oracle is set
-    if basket.credit_price.is_some() && basket.oracle_set{
+    //Can't take credit before an oracle is set
+    if basket.oracle_set{
         
         //If resulting LTV makes the position insolvent, error. If not construct mint msg
         //credit_value / asset_value > avg_LTV
                 
-        if insolvency_check( deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, Decimal::from_ratio(total_credit, Uint128::new(1u128)), basket.credit_price.unwrap(), true, config.clone())?.0 { 
+        if insolvency_check( deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, Decimal::from_ratio(total_credit, Uint128::new(1u128)), basket.credit_price, true, config.clone())?.0 { 
             //panic!("{}", );
             return Err(ContractError::PositionInsolvent {  })
         }else{
@@ -915,7 +906,7 @@ pub fn liquidate(
     BASKETS.save( storage, basket_id.to_string(), &basket )?;
 
     //Check position health comparative to max_LTV
-    let (insolvent, current_LTV, _available_fee) = insolvency_check( storage, env.clone(), querier, target_position.clone().collateral_assets, Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)), basket.credit_price.unwrap(), false, config.clone())?;
+    let (insolvent, current_LTV, _available_fee) = insolvency_check( storage, env.clone(), querier, target_position.clone().collateral_assets, Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)), basket.credit_price, false, config.clone())?;
     //TODO: Delete
     let insolvent = true;
     let current_LTV = Decimal::percent(90);
@@ -930,7 +921,7 @@ pub fn liquidate(
     
     
     // max_borrow_LTV/ current_LTV, * current_loan_value, current_loan_value - __ = value of loan amount  
-    let loan_value = decimal_multiplication(basket.credit_price.unwrap(), Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)));
+    let loan_value = decimal_multiplication(basket.credit_price, Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)));
         
     //repay value = the % of the loan insolvent. Insolvent is anything between current and max borrow LTV.
     //IE, repay what to get the position down to borrow LTV
@@ -949,7 +940,7 @@ pub fn liquidate(
         }
     }
 
-    let credit_repay_amount = match decimal_division(repay_value, basket.clone().credit_price.unwrap()){
+    let credit_repay_amount = match decimal_division(repay_value, basket.clone().credit_price){
         
         //Repay amount has to be above 0, or there is nothing to liquidate and there was a mistake prior
         x if x <= Decimal::new(Uint128::zero()) => {
@@ -1096,7 +1087,7 @@ pub fn liquidate(
                         collateral_price,
                         collateral_amount: Uint256::from( (collateral_amount * Uint128::new(1u128)).u128() ),
                         credit_info: basket.clone().credit_asset.info,
-                        credit_price: basket.clone().credit_price.unwrap(),
+                        credit_price: basket.clone().credit_price,
                 })?,
             }))?;
 
@@ -1118,7 +1109,7 @@ pub fn liquidate(
             //Call Liq Queue::Liquidate for the asset 
             let liq_msg = 
                 LQ_ExecuteMsg::Liquidate {
-                    credit_price: basket.credit_price.unwrap(),
+                    credit_price: basket.credit_price,
                     collateral_price,
                     collateral_amount: Uint256::from( queue_asset_amount_paid.u128() ),
                     bid_for: cAsset.clone().asset.info,
@@ -1155,7 +1146,7 @@ pub fn liquidate(
         // !( leftover_position_value >= leftover_repay_value * sp_fee)
         
         //Bc the LQ has already repaid some
-        let leftover_repayment_value = decimal_multiplication( liq_queue_leftover_credit_repayment, basket.clone().credit_price.unwrap() );
+        let leftover_repayment_value = decimal_multiplication( liq_queue_leftover_credit_repayment, basket.clone().credit_price );
         
         //SP liq_fee Guarantee check
         if !( leftover_position_value >= decimal_multiplication( leftover_repayment_value, (Decimal::one() + sp_liq_fee ) )){
@@ -1293,7 +1284,7 @@ pub fn liquidate(
 
         //Set and subtract the value of what was paid to the Stability Pool
         //(sp_repay_amount * credit_price) * (1+sp_liq_fee)
-        let paid_to_sp = decimal_multiplication( decimal_multiplication( sp_repay_amount, basket.credit_price.unwrap() ), (Decimal::one() + sp_liq_fee));
+        let paid_to_sp = decimal_multiplication( decimal_multiplication( sp_repay_amount, basket.credit_price ), (Decimal::one() + sp_liq_fee));
         leftover_position_value = decimal_subtraction( leftover_position_value, paid_to_sp );
         
         }
@@ -1335,7 +1326,7 @@ pub fn liquidate(
     //If the SP hasn't repaid everything the liq_queue hasn't AND the value of the position is <= the value that was leftover to be repaid...
     //..sell wall everything from the start, don't go through either module. 
     //If we don't we are guaranteeing increased bad debt by selling collateral for a discount.
-    if !( leftover_repayment ).is_zero() && leftover_position_value <= decimal_multiplication( leftover_repayment, basket.clone().credit_price.unwrap() ) {
+    if !( leftover_repayment ).is_zero() && leftover_position_value <= decimal_multiplication( leftover_repayment, basket.clone().credit_price ) {
 
         //Sell wall credit_repay_amount
         //The other submessages were for the LQ and SP so we reassign the submessage variable
@@ -1440,7 +1431,7 @@ pub fn create_basket(
     owner: Option<String>,
     collateral_types: Vec<cAsset>,
     credit_asset: Asset,
-    credit_price: Option<Decimal>,
+    credit_price: Decimal,
     collateral_supply_caps: Option<Vec<Decimal>>,
     base_interest_rate: Option<Decimal>,
     desired_debt_cap_util: Option<Decimal>,
@@ -1582,19 +1573,13 @@ pub fn create_basket(
     //Response Building
     let response = Response::new();
 
-    let price = match credit_price{
-        Some(x) => { x.to_string()},
-        None => { "None".to_string() },
-    };
-
-
     Ok(response.add_attributes(vec![
         attr("method", "create_basket"),
         attr("basket_id", config.current_basket_id.to_string()),
         attr("position_owner", valid_owner.to_string()),
         attr("credit_asset", credit_asset.to_string() ),
         attr("credit_subdenom", subdenom),
-        attr("credit_price", price),
+        attr("credit_price", credit_price.to_string()),
     ]).add_submessage(sub_msg))
 }
 
@@ -3302,13 +3287,13 @@ fn accrue(
         //We divide w/ the greater number first so the quotient is always 1.__
         let mut price_difference = {
             //If market price > than repayment price
-            if credit_TWAP_price > basket.clone().credit_price.unwrap() {
+            if credit_TWAP_price > basket.clone().credit_price {
                 negative_rate = true;
-                decimal_subtraction( decimal_division( credit_TWAP_price, basket.clone().credit_price.unwrap() ), Decimal::one() )
+                decimal_subtraction( decimal_division( credit_TWAP_price, basket.clone().credit_price ), Decimal::one() )
 
-            } else if basket.clone().credit_price.unwrap() > credit_TWAP_price {
+            } else if basket.clone().credit_price > credit_TWAP_price {
                 negative_rate = false;
-                decimal_subtraction( decimal_division( basket.clone().credit_price.unwrap(), credit_TWAP_price ), Decimal::one() )
+                decimal_subtraction( decimal_division( basket.clone().credit_price, credit_TWAP_price ), Decimal::one() )
 
             } else { 
                 negative_rate = false;
@@ -3339,9 +3324,9 @@ fn accrue(
                 applied_rate = decimal_subtraction( applied_rate, double_difference );
             }
         
-            let new_price = decimal_multiplication( basket.credit_price.unwrap(), applied_rate );
+            let new_price = decimal_multiplication( basket.credit_price, applied_rate );
 
-            basket.credit_price = Some( new_price );
+            basket.credit_price = new_price;
         }
     }
 

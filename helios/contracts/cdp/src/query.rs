@@ -201,11 +201,7 @@ pub fn query_basket(
     let basket_res = match BASKETS.load(deps.storage, basket_id.to_string()){
         Ok( basket ) => {
 
-            let credit_price = match basket.credit_price{
-                Some(x) => { x.to_string()},
-                None => { "None".to_string() },
-            };
-            
+          
 
             BasketResponse {
                 owner: basket.owner.to_string(),
@@ -213,7 +209,7 @@ pub fn query_basket(
                 current_position_id: basket.current_position_id.to_string(),
                 collateral_types: basket.collateral_types,
                 credit_asset: basket.credit_asset,
-                credit_price,
+                credit_price: basket.credit_price.to_string(),
                 credit_pool_ids: basket.credit_pool_ids,
                 liquidity_multiplier_for_debt_caps: basket.liquidity_multiplier_for_debt_caps,
                 liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
@@ -256,11 +252,7 @@ pub fn query_baskets(
         .map(|item| {
             let (k, basket) = item?;
 
-            let credit_price = match basket.credit_price{
-                Some(x) => { x.to_string()},
-                None => { "None".to_string() },
-            };
-                
+                            
 
             Ok(BasketResponse {
                 owner: basket.owner.to_string(),
@@ -268,7 +260,7 @@ pub fn query_baskets(
                 current_position_id: basket.current_position_id.to_string(),
                 collateral_types: basket.collateral_types,
                 credit_asset: basket.credit_asset,
-                credit_price,
+                credit_price: basket.credit_price.to_string(),
                 credit_pool_ids: basket.credit_pool_ids,
                 liquidity_multiplier_for_debt_caps: basket.liquidity_multiplier_for_debt_caps,
                 liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
@@ -465,7 +457,7 @@ pub fn query_basket_insolvency(
             
             for position in positions{
 
-                let ( insolvent, current_LTV, available_fee ) = match insolvency_check_imut(deps.storage, env.clone(), deps.querier, position.collateral_assets, Decimal::from_ratio(position.credit_amount, Uint128::new(1u128)), basket.clone().credit_price.unwrap(), false, config.clone()){
+                let ( insolvent, current_LTV, available_fee ) = match insolvency_check_imut(deps.storage, env.clone(), deps.querier, position.collateral_assets, Decimal::from_ratio(position.credit_amount, Uint128::new(1u128)), basket.clone().credit_price, false, config.clone()){
                     Ok( ( insolvent, current_LTV, available_fee ) ) => ( insolvent, current_LTV, available_fee ),
                     Err( err ) => {
                                                 error = Some( err );
@@ -520,7 +512,7 @@ pub fn query_position_insolvency(
     ///
     let mut res = InsolvencyResponse { insolvent_positions: vec![] };
       
-    let ( insolvent, current_LTV, available_fee ) = insolvency_check_imut(deps.storage, env.clone(), deps.querier, target_position.collateral_assets, Decimal::from_ratio( target_position.credit_amount, Uint128::new(1u128)), basket.clone().credit_price.unwrap(), false, config.clone())?;
+    let ( insolvent, current_LTV, available_fee ) = insolvency_check_imut(deps.storage, env.clone(), deps.querier, target_position.collateral_assets, Decimal::from_ratio( target_position.credit_amount, Uint128::new(1u128)), basket.clone().credit_price, false, config.clone())?;
                 
     //Since its a Singular position we'll output whether insolvent or not
     res.insolvent_positions.push( InsolventPosition {
@@ -566,13 +558,13 @@ pub fn query_basket_credit_interest(
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
             //If market price > than repayment price
-            if credit_TWAP_price > basket.clone().credit_price.unwrap() {
+            if credit_TWAP_price > basket.clone().credit_price {
                 negative_rate = true;
-                decimal_subtraction( decimal_division( credit_TWAP_price, basket.clone().credit_price.unwrap() ), Decimal::one() )
+                decimal_subtraction( decimal_division( credit_TWAP_price, basket.clone().credit_price ), Decimal::one() )
 
-            } else if basket.clone().credit_price.unwrap() > credit_TWAP_price {
+            } else if basket.clone().credit_price > credit_TWAP_price {
                 negative_rate = false;
-                decimal_subtraction( decimal_division( basket.clone().credit_price.unwrap(), credit_TWAP_price ), Decimal::one() )
+                decimal_subtraction( decimal_division( basket.clone().credit_price, credit_TWAP_price ), Decimal::one() )
 
             } else { Decimal::zero() }
         };

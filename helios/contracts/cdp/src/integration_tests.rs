@@ -1090,6 +1090,8 @@ mod tests {
                 .unwrap();
                 bank.init_balance(storage, &Addr::unchecked("lp_tester"), vec![coin(100_000_000, "lp_denom")])
                 .unwrap();
+                bank.init_balance(storage, &Addr::unchecked("faker"), vec![coin(666, "fake_debit")])
+                .unwrap();
 
                 router
                     .bank = bank;
@@ -1289,7 +1291,7 @@ mod tests {
                 info: AssetInfo::NativeToken { denom: "credit".to_string() },
                 amount: Uint128::from(0u128),
             },
-            credit_price: Some( Decimal::percent(100) ),
+            credit_price: Decimal::percent(100),
             collateral_supply_caps: None,
             base_interest_rate: None,
             desired_debt_cap_util: None,
@@ -1328,7 +1330,7 @@ mod tests {
     mod cdp {
         
         use super::*;
-        use cosmwasm_std::BlockInfo;
+        use cosmwasm_std::{BlockInfo, coins};
         use cw20::Cw20ReceiveMsg;
         use membrane::{positions::{ExecuteMsg, ConfigResponse, PropResponse, PositionResponse, BasketResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, PositionsResponse, Cw20HookMsg}, types::{UserInfo, InsolventPosition, PositionUserInfo, TWAPPoolInfo, PoolInfo}};
 
@@ -3316,6 +3318,581 @@ mod tests {
             app.execute(Addr::unchecked("lp_tester"), cosmos_msg).unwrap();
            
         }
+
+        ///Contract Test Migration
+         #[test]
+        fn cw20_deposit(){
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
+
+           
+            //Add Basket
+            let create_basket_msg = ExecuteMsg::CreateBasket {
+                owner: Some("owner".to_string()),
+                collateral_types: vec![
+                    cAsset {
+                        asset:
+                            Asset {
+                                info: AssetInfo::Token { address: cw20_addr.clone() },
+                                amount: Uint128::from(0u128),
+                            },
+                        debt_total: Uint128::zero(),
+                        max_borrow_LTV: Decimal::percent(50),
+                        max_LTV: Decimal::percent(90),
+                        pool_info: None,
+                        } 
+                ],
+                credit_asset: Asset {
+                    info: AssetInfo::NativeToken { denom: "credit".to_string() },
+                    amount: Uint128::from(0u128),
+                },
+                credit_price: Decimal::percent(100),
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_pool_ids: vec![],
+                liquidity_multiplier_for_debt_caps: None,
+            };
+            let cosmos_msg = cdp_contract.call(create_basket_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Deposit
+            let exec_msg = ExecuteMsg::Receive( Cw20ReceiveMsg {
+                sender: String::from("sender88"),
+                amount: Uint128::new(1),
+                msg: to_binary(&Cw20HookMsg::Deposit{
+                        position_owner: Some( "owner".to_string() ),
+                        basket_id: Uint128::from(2u128),
+                        position_id: None,       
+                }).unwrap(),
+            });
+            let cosmos_msg = cdp_contract.call(exec_msg, vec![]).unwrap();
+            let res = app.execute(cw20_addr, cosmos_msg).unwrap();
+
+            let response = res.events
+                .into_iter()
+                .find(|e| e.attributes
+                    .iter()
+                    .any(|attr| attr.key == "basket_id")
+                )
+                .ok_or_else(|| panic!("unable to find cw20_deposit event"))
+                .unwrap();
+            
+            assert_eq!(
+                response.attributes[1..],
+                vec![
+                attr("method", "deposit"),
+                attr("basket_id", "2"),
+                attr("position_owner","owner"),
+                attr("position_id", "1"),
+                attr("assets", "1 contract0"),
+                ]
+            );
+            
+        }
+
+            
+        #[test]
+        fn misc_query() {
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
+            
+            
+            //Edit Admin
+            let msg = ExecuteMsg::EditAdmin { owner: String::from("owner") };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 2ndary basket
+            let create_basket_msg = ExecuteMsg::CreateBasket {
+                owner: Some("owner".to_string()),
+                collateral_types: vec![
+                    cAsset {
+                        asset:
+                            Asset {
+                                info: AssetInfo::NativeToken { denom: "debit".to_string() },
+                                amount: Uint128::from(0u128),
+                            },
+                        debt_total: Uint128::zero(),
+                        max_borrow_LTV: Decimal::percent(50),
+                        max_LTV: Decimal::percent(90),
+                        pool_info: None,
+                        } 
+                ],
+                credit_asset: Asset {
+                    info: AssetInfo::NativeToken { denom: "credit".to_string() },
+                    amount: Uint128::from(0u128),
+                },
+                credit_price: Decimal::percent(100),
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_pool_ids: vec![],
+                liquidity_multiplier_for_debt_caps: None,
+            };
+            let cosmos_msg = cdp_contract.call(create_basket_msg, vec![]).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap();
+
+            //Initial deposit to Basket 1
+            let exec_msg = ExecuteMsg::Deposit { 
+                position_owner: Some( String::from("sender88") ),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            app.send_tokens(Addr::unchecked("little_bank"), Addr::unchecked( "sender88" ), &vec![coin( 22, "debit")] ).unwrap();
+            let cosmos_msg = cdp_contract.call(exec_msg, vec![ coin(11, "debit") ]).unwrap();
+            let res = app.execute(Addr::unchecked("sender88"), cosmos_msg).unwrap();
+
+            //Initial deposit to Basket 2        
+            let exec_msg = ExecuteMsg::Deposit { 
+                position_owner: Some( String::from("sender88") ),
+                basket_id: Uint128::from(2u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract.call(exec_msg, vec![ coin(11, "debit") ]).unwrap();
+            let res = app.execute(Addr::unchecked("sender88"), cosmos_msg).unwrap();
+
+                    
+            //Query AllBaskets
+            let msg = QueryMsg::GetAllBaskets { 
+                start_after: None,
+                limit: None,
+            };
+            let resp: Vec<BasketResponse> = app.wrap().query_wasm_smart(cdp_contract.addr(),&msg.clone() ).unwrap();
+
+            assert_eq!( resp[0].basket_id, String::from(Uint128::from(1u128)) );
+            assert_eq!( resp[1].basket_id, String::from(Uint128::from(2u128)) );
+            assert_eq!(resp.len().to_string(), String::from("2"));   
+
+        }
+
+        #[test]
+        fn edit_cAsset() {
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
+            
+            //Add Basket
+            let create_basket_msg = ExecuteMsg::CreateBasket {
+                owner: Some("owner".to_string()),
+                collateral_types: vec![
+                    cAsset {
+                        asset:
+                            Asset {
+                                info: AssetInfo::NativeToken { denom: "debit".to_string() },
+                                amount: Uint128::from(0u128),
+                            },
+                        debt_total: Uint128::zero(),
+                        max_borrow_LTV: Decimal::percent(50),
+                        max_LTV: Decimal::percent(90),
+                        pool_info: None,
+                        } 
+                ],
+                credit_asset: Asset {
+                    info: AssetInfo::NativeToken { denom: "credit".to_string() },
+                    amount: Uint128::from(0u128),
+                },
+                credit_price:  Decimal::percent(100),
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_pool_ids: vec![],
+                liquidity_multiplier_for_debt_caps: None,
+            };
+            let cosmos_msg = cdp_contract.call(create_basket_msg, vec![]).unwrap();
+            let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            
+            //Invalid Basket
+            let edit_msg = ExecuteMsg::EditcAsset { 
+                basket_id: Uint128::new(0u128), 
+                asset: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                max_borrow_LTV: None, 
+                max_LTV: None, 
+            };
+            let cosmos_msg = cdp_contract.call(edit_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap_err();
+
+            //Invalid Asset
+            let edit_msg = ExecuteMsg::EditcAsset { 
+                basket_id: Uint128::new(1u128), 
+                asset: AssetInfo::NativeToken { denom: "not_debit".to_string() }, 
+                max_borrow_LTV: None, 
+                max_LTV: None,  
+            };
+            let cosmos_msg = cdp_contract.call(edit_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap_err();
+
+            //Successfull edit
+            let edit_msg = ExecuteMsg::EditcAsset { 
+                basket_id: Uint128::new(1u128), 
+                asset: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                max_borrow_LTV: Some( Decimal::percent(99) ), 
+                max_LTV: Some( Decimal::percent(100) ), 
+            };
+            let cosmos_msg = cdp_contract.call(edit_msg, vec![]).unwrap();
+            let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+        
+            //Query Basket
+            let resp: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),
+            &QueryMsg::GetBasket { basket_id: Uint128::new(1u128) } 
+            ).unwrap();
+
+            assert_eq!( resp.collateral_types[0].max_borrow_LTV,  Decimal::percent(99) );
+            assert_eq!( resp.collateral_types[0].max_LTV,  Decimal::percent(100) );
+        }
+
+        #[test]
+        fn open_position_deposit(){           
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
+
+            
+            let edit_basket_msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: Some( cAsset {
+                    asset:
+                        Asset {
+                            info: AssetInfo::NativeToken { denom: "2nddebit".to_string() },
+                            amount: Uint128::from(0u128),
+                        },
+                    debt_total: Uint128::zero(),
+                    max_borrow_LTV: Decimal::percent(50),
+                    max_LTV: Decimal::percent(70),
+                    pool_info: None,
+                       }  ), 
+                owner: None, 
+                liq_queue: None, 
+                pool_ids: None, 
+                liquidity_multiplier: None, 
+                collateral_supply_caps: None, 
+                base_interest_rate: None, 
+                desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None, 
+            };
+            let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+          
+
+            //Testing Position creation
+
+            //Invalid id test
+            let error_exec_msg = ExecuteMsg::Deposit { 
+                position_owner: None,
+                basket_id: Uint128::from(1u128),
+                position_id: Some(Uint128::from(3u128)),
+            };
+
+            //Fail due to a non-existent position
+            //First msg deposits since no positions were initially found, meaning the _id never got tested
+            app.send_tokens(Addr::unchecked("little_bank"), Addr::unchecked( "owner" ), &vec![coin( 22, "debit")] ).unwrap();
+            let cosmos_msg = cdp_contract.call(error_exec_msg, vec![ coin(11, "debit") ]).unwrap();
+            app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap_err();
+
+
+            //Fail for invalid collateral
+            let exec_msg = ExecuteMsg::Deposit { 
+                position_owner: None,
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+
+            //fail due to invalid collateral
+            let cosmos_msg = cdp_contract.call(exec_msg, vec![ coin(666, "fake_debit") ]).unwrap();
+            app.execute(Addr::unchecked("faker"), cosmos_msg).unwrap_err(); 
+
+            //Successful attempt
+            let exec_msg = ExecuteMsg::Deposit { 
+                position_owner: None,
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            app.send_tokens(Addr::unchecked(USER), Addr::unchecked( "owner" ), &vec![coin( 11, "2nddebit")] ).unwrap();
+            let cosmos_msg = cdp_contract.call(exec_msg, vec![ coin(11, "debit"), coin(11, "2nddebit") ]).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap();
+
+            let response = res.events
+                .into_iter()
+                .find(|e| e.attributes
+                    .iter()
+                    .any(|attr| attr.key == "basket_id")
+                )
+                .ok_or_else(|| panic!("unable to find deposit event"))
+                .unwrap();
+
+            assert_eq!(
+                response.attributes[1..],
+                vec![
+                attr("method", "deposit"),
+                attr("basket_id", "1"),
+                attr("position_owner","owner"),
+                attr("position_id", "2"),
+                attr("assets", "11 debit"),
+                attr("assets", "11 2nddebit"),
+                ]
+            );
+
+        }
+
+        #[test]
+        fn repay(){
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
+
+
+            //Add Basket
+            let create_basket_msg = ExecuteMsg::CreateBasket {
+                owner: Some("owner".to_string()),
+                collateral_types: vec![
+                    cAsset {
+                        asset:
+                            Asset {
+                                info: AssetInfo::NativeToken { denom: "debit".to_string() },
+                                amount: Uint128::from(0u128),
+                            },
+                        debt_total: Uint128::zero(),
+                        max_borrow_LTV: Decimal::percent(50),
+                        max_LTV: Decimal::percent(90),
+                        pool_info: None,
+                        } 
+                ],
+                credit_asset: Asset {
+                    info: AssetInfo::NativeToken { denom: "credit".to_string() },
+                    amount: Uint128::from(0u128),
+                },
+                credit_price: Decimal::percent(100),
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_pool_ids: vec![],
+                liquidity_multiplier_for_debt_caps: None,
+            };
+            let cosmos_msg = cdp_contract.call(create_basket_msg, vec![  ]).unwrap();
+            let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+
+            //NoUserPositions Error
+            let repay_msg = ExecuteMsg::Repay { 
+                basket_id: Uint128::from(1u128), 
+                position_id: Uint128::from(1u128), 
+                position_owner:  None, 
+            };
+            let cosmos_msg = cdp_contract.call(repay_msg, vec![  ]).unwrap();
+            let res = app.execute(Addr::unchecked("sender88"), cosmos_msg).unwrap_err();
+            
+            //Initial deposit
+            let exec_msg = ExecuteMsg::Deposit { 
+                position_owner: None,
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract.call(exec_msg, coins(11, "debit")).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Invalid Collateral Error
+            let repay_msg = ExecuteMsg::Repay { 
+                basket_id: Uint128::from(1u128), 
+                position_id: Uint128::from(1u128), 
+                position_owner:  Some(USER.to_string()), 
+            };
+            let cosmos_msg = cdp_contract.call(repay_msg, vec![ coin(666, "fake_debit") ]).unwrap();
+            let res = app.execute(Addr::unchecked("faker"), cosmos_msg).unwrap_err();
+
+            //NonExistent Basket Error
+            let repay_msg = ExecuteMsg::Repay { 
+                basket_id: Uint128::from(3u128), 
+                position_id: Uint128::from(1u128), 
+                position_owner: Some(USER.to_string()), 
+            };
+            let cosmos_msg = cdp_contract.call(repay_msg, vec![ coin(111, "credit_fulldenom") ]).unwrap();
+            let res = app.execute(Addr::unchecked("coin_God"), cosmos_msg).unwrap_err();
+
+            
+            //NonExistent Position Error
+            let repay_msg = ExecuteMsg::Repay { 
+                basket_id: Uint128::from(1u128), 
+                position_id: Uint128::from(3u128), 
+                position_owner: Some(USER.to_string()), 
+            };
+            let cosmos_msg = cdp_contract.call(repay_msg, vec![ coin(111, "credit_fulldenom") ]).unwrap();
+            let res = app.execute(Addr::unchecked("coin_God"), cosmos_msg).unwrap_err();
+            
+        }
+
+        #[test]
+        fn increase_debt() {
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
+
+            //Add Basket
+            let create_basket_msg = ExecuteMsg::CreateBasket {
+                owner: Some("owner".to_string()),
+                collateral_types: vec![
+                    cAsset {
+                        asset:
+                            Asset {
+                                info: AssetInfo::NativeToken { denom: "debit".to_string() },
+                                amount: Uint128::from(0u128),
+                            },
+                        debt_total: Uint128::zero(),
+                        max_borrow_LTV: Decimal::percent(50),
+                        max_LTV: Decimal::percent(90),
+                        pool_info: None,
+                        } 
+                ],
+                credit_asset: Asset {
+                    info: AssetInfo::NativeToken { denom: "credit".to_string() },
+                    amount: Uint128::from(0u128),
+                },
+                credit_price: Decimal::percent(100),
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_pool_ids: vec![],
+                liquidity_multiplier_for_debt_caps: None,
+            };
+            let cosmos_msg = cdp_contract.call(create_basket_msg, vec![  ]).unwrap();
+            let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //NoUserPositions Error
+            let increase_debt_msg = ExecuteMsg::IncreaseDebt{
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                amount: Uint128::from(1u128),
+            };
+            let cosmos_msg = cdp_contract.call(increase_debt_msg, vec![  ]).unwrap();
+            let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap_err();
+            
+        
+            //Initial deposit
+            let exec_msg = ExecuteMsg::Deposit { 
+                position_owner: None,
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract.call(exec_msg, vec![ coin(11, "debit") ]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //NonExistentPosition Error
+            let increase_debt_msg = ExecuteMsg::IncreaseDebt{
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(3u128),
+                amount: Uint128::from(1u128),
+            };
+            let cosmos_msg = cdp_contract.call(increase_debt_msg, vec![  ]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //NonExistentBasket Error
+            let increase_debt_msg = ExecuteMsg::IncreaseDebt{
+                basket_id: Uint128::from(3u128),
+                position_id: Uint128::from(1u128),
+                amount: Uint128::from(1u128),
+            };
+            let cosmos_msg = cdp_contract.call(increase_debt_msg, vec![  ]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+        }
+        
+        #[test]
+        fn withdrawal_errors(){
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
+
+            //Add Basket
+            let create_basket_msg = ExecuteMsg::CreateBasket {
+                owner: Some("owner".to_string()),
+                collateral_types: vec![
+                    cAsset {
+                        asset:
+                            Asset {
+                                info: AssetInfo::NativeToken { denom: "debit".to_string() },
+                                amount: Uint128::from(0u128),
+                            },
+                        debt_total: Uint128::zero(),
+                        max_borrow_LTV: Decimal::percent(50),
+                        max_LTV: Decimal::percent(90),
+                        pool_info: None,
+                        } 
+                ],
+                credit_asset: Asset {
+                    info: AssetInfo::NativeToken { denom: "credit".to_string() },
+                    amount: Uint128::from(0u128),
+                },
+                credit_price: Decimal::percent(100),
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_pool_ids: vec![],
+                liquidity_multiplier_for_debt_caps: None,
+            };
+            let cosmos_msg = cdp_contract.call(create_basket_msg, vec![  ]).unwrap();
+            let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            let valid_assets: Vec<Asset> = vec![
+                Asset {
+                    info: AssetInfo::NativeToken { denom: "debit".to_string() },
+                    amount: Uint128::from(5u128),
+                }
+            ];
+
+            //User has no positions in the basket error
+            let withdrawal_msg = ExecuteMsg::Withdraw {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                assets: valid_assets.clone(), 
+            };
+            let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![  ]).unwrap();
+            let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap_err();
+
+            //Initial Deposit
+            let exec_msg = ExecuteMsg::Deposit { 
+                position_owner: None,
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract.call(exec_msg, coins(11, "debit")).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+
+            //Non-existent position error but user still has positions in the basket
+            let withdrawal_msg = ExecuteMsg::Withdraw {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(3u128),
+                assets: vec![ Asset {
+                    info: AssetInfo::NativeToken { denom: "debit".to_string() },
+                    amount: Uint128::zero(),
+                }], 
+            };
+            let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![] ).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //Invalid collateral fail
+            let assets: Vec<Asset> = vec![
+                Asset {
+                    info: AssetInfo::NativeToken { denom: "notdebit".to_string() },
+                    amount: Uint128::from(10u128),
+                }
+            ];
+
+            let withdrawal_msg = ExecuteMsg::Withdraw {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                assets: assets.clone(), 
+            };
+            let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![] ).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            
+            //Withdrawing too much error
+            let assets: Vec<Asset> = vec![
+                Asset {
+                    info: AssetInfo::NativeToken { denom: "debit".to_string() },
+                    amount: Uint128::from(333333333u128),
+                }
+            ];
+
+            let withdrawal_msg = ExecuteMsg::Withdraw {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                assets,
+            };
+            let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![] ).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            
+        }
+
     }
 
 }

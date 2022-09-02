@@ -13,27 +13,22 @@ The contract also contains the logic for initiating liquidations of CDPs and the
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub oracle_time_limit: u64, //in seconds until oracle failure is acceoted
-    pub debt_minimum: Uint128, //Debt minimum value per position
+    pub debt_minimum: Decimal, //Debt minimum value per position
     pub liq_fee: Decimal,
-    pub twap_timeframe: u64, //in days
-    //Contracts
+//Contracts
     pub stability_pool: Option<String>,
     pub dex_router: Option<String>,
     pub staking_contract: Option<String>,
-    pub oracle_contract: Option<String>,
     pub interest_revenue_collector: Option<String>,
     pub osmosis_proxy: Option<String>,
     pub debt_auction: Option<String>,
-    // //For Basket creation
+//Basket Creation
     pub collateral_types: Option<Vec<cAsset>>,
     pub credit_asset: Option<Asset>,
     pub credit_price: Option<Decimal>,
     pub collateral_supply_caps: Option<Vec<Decimal>>,
     pub base_interest_rate: Option<Decimal>,
     pub desired_debt_cap_util: Option<Decimal>,
-    pub credit_asset_twap_price_source: Option<TWAPPoolInfo>,
-    pub credit_pool_ids: Option<Vec<u64>>, 
-    pub liquidity_multiplier_for_debt_caps: Option<Decimal>,
 }
 
 
@@ -58,12 +53,10 @@ pub enum AssetInfo {
 | `oracle-time-limit`             | u64           | Limit in seconds that the oracle has before the values are invalid |
 | `debt_minimum`                  | Decimal       | Minimum value in debt per position                                 |
 | `liq_fee`                       | Decimal       | Fee that goes to the protocol during liquidations                  |
-| `twap_timeframe`                | u64           | TWAP length in days                                                |
 | `*stability_pool`               | String        | Stability Pool Contract                                            |
 | `*dex_router`                   | String        | DEX Router Contract                                                |
 | `*interest_revenue_collector`   | String        | Address that is sent liq\_fees                                     |
 | `*staking_contract`             | String        | MBRN staking contract                                              |
-| `*oracle_contract`              | String        | Oracle contract                                                    |
 | `*osmosis_proxy`                | String        | Osmosis Proxy contract to use SDK modules                          |
 | `*debt_auction`                 | String        | Auction Contract that sells protocol tokens to repay debt          |
 | `*collateral_types`             | Vec\<cAsset>  | Accepted cAssets for an initial basket                             |
@@ -92,14 +85,11 @@ pub enum ExecuteMsg {
         osmosis_proxy: Option<String>,
         debt_auction: Option<String>,
         staking_contract: Option<String>,
-        oracle_contract: Option<String>,
         interest_revenue_collector: Option<String>,
         liq_fee: Option<Decimal>,
         debt_minimum: Option<Uint128>,
-        base_debt_cap_multiplier: Option<Uint128>,
         oracle_time_limit: Option<u64>,
-        twap_timeframe: Option<u64>,
-        cpc_margin_of_error: Option<Decimal>,        
+        pid_margin_of_error: Option<Decimal>,        
     }
 }
 ```
@@ -113,13 +103,10 @@ pub enum ExecuteMsg {
 | `*debt_auction`               | String  | Debt Auction contract                                                    |
 | `*interest_revenue_collector` | String  | CDP interest fee collector address                                       |
 | `*staking_contract`           | String  | MBRN Staking contract                                                    |
-| `*oracle_contract`            | String  | Oracle contract                                                          |
 | _`*liq_fee`_                  | Decimal | Liquidation fee                                                          |
 | `*debt_minimum`               | Uint128 | Debt minimum in terms of value                                           |
-| `*base_debt_cap_multiplier`   | Uint128 | Debt Minimum Multiplier for a base debt cap                              |
 | `*oracle_time_limit`          | u64     | Oracle expiration time limit                                             |
-| `*twap_timeframe`             | u64     | TWAP length in days                                                      |
-| `*cpc_margin_of_error`        | Decimal | Margin of Error before the credit interest is effected by the TWAP price |
+| `*pid_margin_of_error`        | Decimal | Margin of Error before the credit interest is effected by the TWAP price |
 
 &#x20;\* = optional
 
@@ -538,15 +525,12 @@ pub struct ConfigResponse {
     pub liq_fee_collector: String,
     pub interest_revenue_collector: String,
     pub staking_contract: String,
-    pub oracle_contract: String,
     pub osmosis_proxy: String,
     pub debt_auction: String,
     pub liq_fee: Decimal, // 5 = 5%
     pub oracle_time_limit: u64,
     pub debt_minimum: Uint128,
-    pub base_debt_cap_multiplier: Uint128,
-    pub twap_timeframe: u64,
-    pub cpc_margin_of_error: Decimal,
+    pub pid_margin_of_error: Decimal,
 }
 ```
 
@@ -823,30 +807,6 @@ pub struct InsolvencyResponse{
 | `basket_id`      | Uint128 | Basket ID to query    |
 | `position_id`    | Uint128 | Position ID to query  |
 | `position_owner` | String  | Owner of the position |
-
-### `GetBasketInterest`
-
-Returns basket interest and its sign&#x20;
-
-```
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum QueryMsg {
-    GetBasketInterest {
-        basket_id: Uint128,
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct InterestResponse{
-    pub credit_interest: Decimal,
-    pub negative_rate: bool,
-}
-```
-
-| Key         | Type    | Description       |
-| ----------- | ------- | ----------------- |
-| `basket_id` | Uint128 | Basket identifier |
 
 ### `Propagation`
 

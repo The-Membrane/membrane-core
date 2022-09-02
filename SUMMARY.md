@@ -20,6 +20,7 @@
 * [Builder's Vesting](<smart-contracts/staking (1).md>)
 * [Staking](smart-contracts/staking.md)
 * [Gov](smart-contracts/gov.md)
+* [Oracle](smart-contracts/oracle.md)
 * [MBRN Auction](smart-contracts/mbrn-auction.md)
 * [Osmosis Proxy](smart-contracts/osmosis-proxy.md)
 

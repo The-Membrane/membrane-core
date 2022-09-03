@@ -224,7 +224,6 @@ pub struct PriceInfo {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct cAsset {
     pub asset: Asset, //amount is 0 when adding to basket_contract config or initiator
-    pub debt_total: Uint128,
     pub max_borrow_LTV: Decimal, //aka what u can bprrpw up to
     pub max_LTV: Decimal, //ie liquidation point 
     // //Osmosis Pool Info to pull TWAP from
@@ -237,7 +236,14 @@ pub struct cAsset {
 pub struct PoolInfo {
     pub pool_id: u64,    
     //AssetInfo, Asset Decimal Places
-    pub asset_infos: Vec<(AssetInfo, u64)>,//Asset decimals (https://api-osmosis.imperator.co/tokens/v2/all)
+    pub asset_infos: Vec<LPAssetInfo>,//Asset decimals (https://api-osmosis.imperator.co/tokens/v2/all)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct LPAssetInfo {
+    pub info: AssetInfo,
+    pub decimals: u64,    
+    pub ratio: Decimal,
 }
 
 
@@ -256,7 +262,7 @@ pub struct Basket {
     pub basket_id: Uint128,
     pub current_position_id: Uint128,
     pub collateral_types: Vec<cAsset>, 
-    pub collateral_supply_caps: Vec<Decimal>, //Order needs to correlate to collateral_types order
+    pub collateral_supply_caps: Vec<SupplyCap>, //Order needs to correlate to collateral_types order
     pub credit_asset: Asset, //Depending on type of token we use for credit this.info will be an Addr or denom (Cw20 or Native token respectively)
     pub credit_price: Decimal, //This is credit_repayment_price, not market price
     pub credit_pool_ids: Vec<u64>, //For liquidity measuring
@@ -268,6 +274,15 @@ pub struct Basket {
     pub oracle_set: bool, //If the credit oracle was set. Can't update repayment price without.
     //Contracts
     pub liq_queue: Option<Addr>, //Each basket holds its own liq_queue contract
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct SupplyCap {
+    pub asset_info: AssetInfo,
+    pub current_supply: Uint128,
+    pub debt_total: Uint128,
+    pub supply_cap_ratio: Decimal,
+    pub lp: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

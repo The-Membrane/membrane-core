@@ -2,7 +2,7 @@ use cosmwasm_std::{Deps, StdResult, Uint128, Addr, StdError, Order, QuerierWrapp
 use cw_storage_plus::Bound;
 use membrane::oracle::{ QueryMsg as OracleQueryMsg, PriceResponse };
 use membrane::positions::{PropResponse, ConfigResponse, PositionResponse, BasketResponse, PositionsResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, InterestResponse};
-use membrane::types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PriceInfo, PositionUserInfo, InsolventPosition, UserInfo, StoredPrice};
+use membrane::types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PriceInfo, PositionUserInfo, InsolventPosition, UserInfo, StoredPrice, Asset};
 use membrane::stability_pool::{ QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg };
 
@@ -358,8 +358,21 @@ pub fn query_basket_debt_caps(
 
     let basket: Basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
 
+    let temp_cAssets: Vec<cAsset> = basket.clone().collateral_supply_caps
+    .into_iter()
+    .filter(|cap| !cap.lp )
+    .map(|cap| {
+        cAsset {
+            asset: Asset { info: cap.asset_info, amount: cap.current_supply },
+            max_borrow_LTV: Decimal::zero(),
+            max_LTV: Decimal::zero(),
+            pool_info: None,
+        }
+    })
+    .collect::<Vec<cAsset>>();
+
     //Get the Basket's asset ratios
-    let cAsset_ratios = get_cAsset_ratios_imut( deps.storage, env, deps.querier, basket.clone().collateral_types, config.clone())?;
+    let cAsset_ratios = get_cAsset_ratios_imut( deps.storage, env, deps.querier, temp_cAssets, config.clone())?;
 
     //Get the debt cap 
     let debt_cap = get_asset_liquidity( 
@@ -372,13 +385,13 @@ pub fn query_basket_debt_caps(
     let mut asset_caps = vec![];
  
     for cAsset in cAsset_ratios{
-         asset_caps.push( cAsset * debt_cap );
+        asset_caps.push( cAsset * debt_cap );
     }                       
  
     let mut res = String::from("");
     //Append caps and asset_infos
-    for ( index, asset ) in basket.collateral_types.iter().enumerate(){
-        res += &format!("{}: {}/{}, ", asset.asset.info, basket.collateral_types[index].debt_total, asset_caps[index]);
+    for ( index, cap ) in basket.collateral_supply_caps.iter().enumerate(){
+        res += &format!("{}: {}/{}, ", cap.asset_info, cap.debt_total, asset_caps[index]);
     }
      
     Ok( DebtCapResponse { caps: res } )
@@ -550,7 +563,6 @@ pub fn query_basket_credit_interest(
         //Calculate new interest rate
         let credit_asset = cAsset {
             asset: basket.clone().credit_asset,
-            debt_total: Uint128::zero(),
             max_borrow_LTV: Decimal::zero(),
             max_LTV: Decimal::zero(),
             pool_info: None,
@@ -726,9 +738,9 @@ pub fn get_asset_values_imut(
             let pool_info = cAsset.clone().pool_info.unwrap();
             let mut asset_prices = vec![];
 
-            for (pool_asset, asset_decimals) in pool_info.clone().asset_infos{
+            for (pool_asset) in pool_info.clone().asset_infos{
 
-                let price = query_price_imut(storage, querier, env.clone(), config.clone(), pool_asset)?;
+                let price = query_price_imut(storage, querier, env.clone(), config.clone(), pool_asset.info)?;
                 //Append price
                 asset_prices.push( price );
             }
@@ -751,12 +763,12 @@ pub fn get_asset_values_imut(
                 for (i, price) in asset_prices.into_iter().enumerate(){
 
                     //Assert we are pulling asset amount from the correct asset
-                    let asset_share = match share_asset_amounts.clone().into_iter().find(|coin| AssetInfo::NativeToken { denom: coin.denom.clone() } == pool_info.clone().asset_infos[i].0){
+                    let asset_share = match share_asset_amounts.clone().into_iter().find(|coin| AssetInfo::NativeToken { denom: coin.denom.clone() } == pool_info.clone().asset_infos[i].info){
                         Some( coin ) => { coin },
-                        None => return Err( StdError::GenericErr { msg: format!("Invalid asset denom: {}", pool_info.clone().asset_infos[i].0) } )
+                        None => return Err( StdError::GenericErr { msg: format!("Invalid asset denom: {}", pool_info.clone().asset_infos[i].info) } )
                     };
                     //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
-                    let exponent_difference = pool_info.clone().asset_infos[i].1 - (6u64);
+                    let exponent_difference = pool_info.clone().asset_infos[i].decimals - (6u64);
                     let asset_amount = asset_share.amount / Uint128::new( 10u64.pow(exponent_difference as u32) as u128 );
                     let decimal_asset_amount = Decimal::from_ratio( asset_amount, Uint128::new(1u128) );
 

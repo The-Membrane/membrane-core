@@ -4,7 +4,7 @@ use cosmwasm_std::{Addr, Uint128, Coin, Binary, Decimal};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{ Asset, cAsset, Position, LiqAsset, SellWallDistribution, AssetInfo, UserInfo, PositionUserInfo, InsolventPosition, TWAPPoolInfo, PoolInfo };
+use crate::types::{ Asset, cAsset, Position, LiqAsset, SellWallDistribution, AssetInfo, UserInfo, PositionUserInfo, InsolventPosition, TWAPPoolInfo, PoolInfo, SupplyCap };
 
 use cw20::Cw20ReceiveMsg;
 
@@ -97,7 +97,6 @@ pub enum ExecuteMsg {
         collateral_types: Vec<cAsset>,
         credit_asset: Asset, //Creates native denom for Asset
         credit_price: Decimal,
-        collateral_supply_caps: Option<Vec<Decimal>>,
         base_interest_rate: Option<Decimal>,
         desired_debt_cap_util: Option<Decimal>,        
         credit_pool_ids: Vec<u64>, //For liquidity measuring
@@ -110,7 +109,7 @@ pub enum ExecuteMsg {
         liq_queue: Option<String>,
         pool_ids: Option<Vec<u64>>,
         liquidity_multiplier: Option<Decimal>,
-        collateral_supply_caps: Option<Vec<Decimal>>,
+        collateral_supply_caps: Option<Vec<SupplyCap>>,
         base_interest_rate: Option<Decimal>,
         desired_debt_cap_util: Option<Decimal>,
         credit_asset_twap_price_source: Option<TWAPPoolInfo>,        
@@ -223,7 +222,7 @@ pub struct BasketResponse{
     pub basket_id: String,
     pub current_position_id: String,
     pub collateral_types: Vec<cAsset>, 
-    pub collateral_supply_caps: Vec<Decimal>,
+    pub collateral_supply_caps: Vec<SupplyCap>,
     pub credit_asset: Asset, 
     pub credit_price: String,
     pub credit_pool_ids: Vec<u64>,

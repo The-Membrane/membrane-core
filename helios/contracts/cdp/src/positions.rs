@@ -3132,6 +3132,8 @@ fn get_interest_rates(
     basket: &mut Basket,
 ) -> StdResult<Vec<Decimal>> {
 
+    let config = CONFIG.load( storage )?;
+
     let mut rates = vec![];
 
     for asset in basket.clone().collateral_types{
@@ -3178,6 +3180,8 @@ fn get_interest_rates(
             //1% = 1
             let percent_over_desired = decimal_multiplication( decimal_subtraction( debt_proportions[i], basket.desired_debt_cap_util), Decimal::percent(100_00) );
             let multiplier = percent_over_desired + Decimal::one();
+            //Change rate of (rate) increase w/ the configuration multiplier 
+            let multiplier = multiplier * config.rate_slope_multiplier;
 
             //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
             //// rate = 3.6%

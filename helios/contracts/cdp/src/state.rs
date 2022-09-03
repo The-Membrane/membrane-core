@@ -32,6 +32,8 @@ pub struct Config {
     //Debt Minimum multiplier for base debt cap
     //ie; How many users do we want at 0 credit liquidity?
     pub base_debt_cap_multiplier: Uint128, 
+    //Interest rate 2nd Slope multiplier
+    pub rate_slope_multiplier: Decimal,
     
 }
 

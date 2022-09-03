@@ -56,6 +56,7 @@ pub fn instantiate(
         debt_auction: None,    
         oracle_time_limit: msg.oracle_time_limit,
         cpc_margin_of_error: Decimal::percent(1),
+        rate_slope_multiplier: Decimal::one(),
         debt_minimum: msg.debt_minimum,
         base_debt_cap_multiplier: Uint128::new(10u128),
         twap_timeframe: msg.twap_timeframe,
@@ -179,8 +180,9 @@ pub fn execute(
             base_debt_cap_multiplier,
             oracle_time_limit, 
             twap_timeframe, 
-            cpc_margin_of_error} => {
-            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, oracle_contract, interest_revenue_collector, liq_fee, debt_minimum, base_debt_cap_multiplier, oracle_time_limit, twap_timeframe, cpc_margin_of_error )
+            cpc_margin_of_error,
+            rate_slope_multiplier} => {
+            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, oracle_contract, interest_revenue_collector, liq_fee, debt_minimum, base_debt_cap_multiplier, oracle_time_limit, twap_timeframe, cpc_margin_of_error, rate_slope_multiplier )
         },
         ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ position_owner, position_id, basket_id} => {
@@ -316,6 +318,7 @@ fn update_config(
     oracle_time_limit: Option<u64>,
     twap_timeframe: Option<u64>,    
     cpc_margin_of_error: Option<Decimal>,
+    rate_slope_multiplier: Option<Decimal>,
 ) -> Result<Response, ContractError>{
 
     let mut config = CONFIG.load( deps.storage )?;
@@ -430,7 +433,14 @@ fn update_config(
     match cpc_margin_of_error {
         Some( cpc_margin_of_error ) => { 
             config.cpc_margin_of_error = cpc_margin_of_error.clone();
-            attrs.push( attr("new_pid_margin_of_error", cpc_margin_of_error.to_string()) );
+            attrs.push( attr("new_cpc_margin_of_error", cpc_margin_of_error.to_string()) );
+        },
+        None => {},
+    }
+    match rate_slope_multiplier {
+        Some( rate_slope_multiplier ) => { 
+            config.rate_slope_multiplier = rate_slope_multiplier.clone();
+            attrs.push( attr("new_rate_slope_multiplier", rate_slope_multiplier.to_string()) );
         },
         None => {},
     }

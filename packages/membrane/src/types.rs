@@ -198,7 +198,7 @@ pub struct TWAPPoolInfo {
     pub pool_id: u64,
     pub base_asset_denom: String,
     pub quote_asset_denom: String,
- }
+}
 
 impl fmt::Display for TWAPPoolInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

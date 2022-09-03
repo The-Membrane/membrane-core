@@ -53,6 +53,7 @@ pub fn query_config(
                 base_debt_cap_multiplier: config.base_debt_cap_multiplier,
                 twap_timeframe: config.twap_timeframe,
                 cpc_margin_of_error: config.cpc_margin_of_error,
+                rate_slope_multiplier: config.rate_slope_multiplier,
             })
         },
         Err( err ) => return Err( err ),

@@ -55,6 +55,7 @@ pub enum ExecuteMsg {
         oracle_time_limit: Option<u64>,
         twap_timeframe: Option<u64>,
         cpc_margin_of_error: Option<Decimal>,
+        rate_slope_multiplier: Option<Decimal>,
     },
     Receive(Cw20ReceiveMsg),
     Deposit{
@@ -250,6 +251,7 @@ pub struct ConfigResponse {
     pub base_debt_cap_multiplier: Uint128,
     pub twap_timeframe: u64,
     pub cpc_margin_of_error: Decimal,
+    pub rate_slope_multiplier: Decimal,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

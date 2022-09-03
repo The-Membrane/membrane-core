@@ -358,21 +358,83 @@ pub fn query_basket_debt_caps(
 
     let basket: Basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
 
+    //Map supply caps to cAssets to get new ratios
+    //The functions only need Asset 
     let temp_cAssets: Vec<cAsset> = basket.clone().collateral_supply_caps
-    .into_iter()
-    .filter(|cap| !cap.lp )
-    .map(|cap| {
-        cAsset {
-            asset: Asset { info: cap.asset_info, amount: cap.current_supply },
-            max_borrow_LTV: Decimal::zero(),
-            max_LTV: Decimal::zero(),
-            pool_info: None,
-        }
-    })
-    .collect::<Vec<cAsset>>();
-
+        .into_iter()
+        .map(|cap| {
+            if cap.lp { //We skip LPs bc we don't want to double count their assets
+                cAsset {
+                    asset: Asset { info: cap.asset_info, amount: Uint128::zero() },
+                    max_borrow_LTV: Decimal::zero(),
+                    max_LTV: Decimal::zero(),
+                    pool_info: None,
+                }
+            } else {
+                cAsset {
+                    asset: Asset { info: cap.asset_info, amount: cap.current_supply },
+                    max_borrow_LTV: Decimal::zero(),
+                    max_LTV: Decimal::zero(),
+                    pool_info: None,
+                }
+            }
+        })
+        .collect::<Vec<cAsset>>();            
+    
     //Get the Basket's asset ratios
-    let cAsset_ratios = get_cAsset_ratios_imut( deps.storage, env, deps.querier, temp_cAssets, config.clone())?;
+    let mut cAsset_ratios = get_cAsset_ratios_imut( deps.storage, env, deps.querier, temp_cAssets.clone(), config.clone())?;
+
+    //Add LP assets' ratios to the LP's supply cap ratios 
+    for (index, cap ) in basket.clone().collateral_supply_caps.into_iter().enumerate() {
+
+        //If an LP
+        if cap.lp {
+
+            //Find the LP's cAsset and get its pool_assets
+            if let Some(lp_cAsset) = temp_cAssets.clone().into_iter().find(|asset| asset.asset.info.equal(&cap.asset_info)) {
+
+                if let Some(basket_lp_cAsset) = basket.clone().collateral_types.into_iter().find(|asset| asset.asset.info.equal(&cap.asset_info)) {
+                    
+                    //Find the pool_asset's ratio of its corresponding cAsset
+                    let pool_info = basket_lp_cAsset.pool_info.unwrap();
+                    for ( pa_index, pool_asset ) in pool_info.clone().asset_infos.into_iter().enumerate() {
+
+                        
+                        if let Some(( i, pool_asset_cAsset )) = temp_cAssets.clone().into_iter().enumerate().find(|( _x, asset )| asset.asset.info.equal(&pool_asset.info)) {
+
+                            //Query share asset amount 
+                            let share_asset_amounts = deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
+                                WasmQuery::Smart { 
+                                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
+                                    msg: to_binary(&OsmoQueryMsg::PoolState { 
+                                        id: pool_info.pool_id,
+                                    }
+                                    )?}
+                                ))?
+                                    .shares_value(basket_lp_cAsset.asset.amount);
+
+                            let asset_amount = share_asset_amounts[pa_index].amount;
+
+                            if !pool_asset_cAsset.asset.amount.is_zero(){
+                                let ratio = decimal_division( Decimal::from_ratio(asset_amount, Uint128::new(1u128)), Decimal::from_ratio(pool_asset_cAsset.asset.amount, Uint128::new(1u128)) );
+                                
+                                //Find amount of cap in %
+                                let cap_amount = decimal_multiplication( ratio, cAsset_ratios[i] );
+                                
+                                //Add the ratio of the cap to the lp's 
+                                cAsset_ratios[index] += cap_amount;
+                            }
+
+                        }
+
+                    }
+                }
+                
+            }
+
+        }
+
+    }
 
     //Get the debt cap 
     let debt_cap = get_asset_liquidity( 
@@ -620,46 +682,7 @@ fn get_cAsset_ratios_imut(
         cAsset_ratios.push(cAsset/total_value) ;
     }
 
-    //Error correction for ratios so we end up w/ least amount undistributed funds
-    let ratio_total: Option<Decimal> = Some(cAsset_ratios.iter().sum());
-
-    if ratio_total.unwrap() != Decimal::percent(100){
-        let mut new_ratios: Vec<Decimal> = vec![];
-        
-        match ratio_total{
-            Some( total ) if total > Decimal::percent(100) => {
-
-                    let margin_of_error = total - Decimal::percent(100);
-
-                    let num_users = Decimal::new(Uint128::from( cAsset_ratios.len() as u128 ));
-
-                    let error_correction = decimal_division( margin_of_error, num_users );
-
-                    new_ratios = cAsset_ratios.into_iter()
-                    .map(|ratio| 
-                        decimal_subtraction( ratio, error_correction )
-                    ).collect::<Vec<Decimal>>();
-                    
-            },
-            Some( total ) if total < Decimal::percent(100) => {
-
-                let margin_of_error = Decimal::percent(100) - total;
-
-                let num_users = Decimal::new(Uint128::from( cAsset_ratios.len() as u128 ));
-
-                let error_correction = decimal_division( margin_of_error, num_users );
-
-                new_ratios = cAsset_ratios.into_iter()
-                        .map(|ratio| 
-                            ratio + error_correction
-                        ).collect::<Vec<Decimal>>();
-            },
-            None => { return Err(StdError::GenericErr { msg: "Input amounts were null".to_string() }) },
-            Some(_) => { /*Unreachable due to if statement*/ },
-        }
-        return Ok( new_ratios )
-    }
-
+   
     Ok( cAsset_ratios )
 }
 

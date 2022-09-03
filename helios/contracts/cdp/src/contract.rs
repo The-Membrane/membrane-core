@@ -22,7 +22,7 @@ use membrane::debt_auction::{ ExecuteMsg as AuctionExecuteMsg };
 //use crate::liq_queue::LiquidatibleResponse;
 use crate::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 use crate::error::ContractError;
-use crate::positions::{create_basket, assert_basket_assets, assert_sent_native_token_balance, deposit, withdraw, increase_debt, repay, liq_repay, edit_contract_owner, liquidate, edit_basket, sell_wall_using_ids, SELL_WALL_REPLY_ID, STABILITY_POOL_REPLY_ID, LIQ_QUEUE_REPLY_ID, withdrawal_msg, update_position_claims, CREATE_DENOM_REPLY_ID, BAD_DEBT_REPLY_ID, mint_revenue, WITHDRAW_REPLY_ID, get_contract_balances};
+use crate::positions::{create_basket, assert_basket_assets, assert_sent_native_token_balance, deposit, withdraw, increase_debt, repay, liq_repay, edit_contract_owner, liquidate, edit_basket, sell_wall_using_ids, SELL_WALL_REPLY_ID, STABILITY_POOL_REPLY_ID, LIQ_QUEUE_REPLY_ID, withdrawal_msg, update_position_claims, CREATE_DENOM_REPLY_ID, BAD_DEBT_REPLY_ID, mint_revenue, WITHDRAW_REPLY_ID, get_contract_balances, get_target_position};
 use crate::query::{query_stability_pool_liquidatible, query_config, query_position, query_user_positions, query_basket_positions, query_basket, query_baskets, query_prop, query_stability_pool_fee, query_basket_debt_caps, query_bad_debt, query_basket_insolvency, query_position_insolvency, query_basket_credit_interest};
 //use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, AssetInfo, Cw20HookMsg, Asset, PositionResponse, PositionsResponse, BasketResponse, LiqModuleMsg};
 //use crate::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
@@ -647,14 +647,30 @@ fn handle_withdraw_reply(
             let position_amount: Uint128 = withdraw_prop.positions_prev_collateral[0].amount;
             let withdraw_amount: Uint128 = withdraw_prop.withdraw_amounts[0];
 
-            let current_asset_balance = match get_contract_balances( deps.querier, env, vec![ asset_info ] ){
+            let current_asset_balance = match get_contract_balances( deps.querier, env, vec![ asset_info.clone() ] ){
                 Ok( balances ) => { balances[0] },
                 Err( err ) => return Err( StdError::GenericErr { msg: err.to_string() })
             };
 
             //If balance differnce is more than what they tried to withdraw or position amount, error
             if withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > position_amount || withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > withdraw_amount {
-                return Err( StdError::GenericErr { msg: String::from("Invalid withdrawal, possible bug found") } )
+                return Err( StdError::GenericErr { msg: format!("Conditional 1: Invalid withdrawal, possible bug found by {}", withdraw_prop.position_info.position_owner.clone().unwrap()) } )
+            }
+
+            let user_position = match get_target_position( 
+                deps.storage, 
+                withdraw_prop.position_info.basket_id, 
+                deps.api.addr_validate(&withdraw_prop.position_info.position_owner.clone().unwrap())?, 
+                withdraw_prop.position_info.position_id.unwrap()){
+                    Ok( position ) => position,
+                    Err( err ) => return Err( StdError::GenericErr { msg: err.to_string() } )
+                };
+
+            //Assert the withdrawal was correctly saved to state
+            if let Some(cAsset) = user_position.collateral_assets.into_iter().find(|cAsset| cAsset.asset.info.equal(&asset_info)) {
+                if cAsset.asset.amount != ( position_amount - withdraw_amount ){
+                    return Err( StdError::GenericErr { msg: format!("Conditional 2: Invalid withdrawal, possible bug found by {}", withdraw_prop.position_info.position_owner.unwrap()) } )
+                }
             }
             
             //Remove the first entry from each field

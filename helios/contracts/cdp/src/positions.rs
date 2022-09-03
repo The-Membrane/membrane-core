@@ -453,6 +453,11 @@ pub fn withdraw(
         positions_prev_collateral: prop_assets,
         withdraw_amounts,
         contracts_prev_collateral_amount: get_contract_balances(deps.querier, env, prop_assets_info)?,
+        position_info: PositionUserInfo { 
+            basket_id, 
+            position_id: Some( position_id ), 
+            position_owner: Some( info.clone().sender.to_string() ),
+        },
     };
     WITHDRAW.save( deps.storage, &withdrawal_prop )?;
 
@@ -3344,7 +3349,7 @@ pub fn update_position_claims(
      Ok(())
 }
 
-fn get_target_position(
+pub fn get_target_position(
     storage: &dyn Storage,
     basket_id: Uint128,
     valid_position_owner: Addr,

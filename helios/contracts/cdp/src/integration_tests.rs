@@ -1359,7 +1359,21 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    },  
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "2nddebit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: Some( Decimal::percent(10) ),
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
@@ -1389,6 +1403,14 @@ mod tests {
                         ])
                     .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Assert asset tally is working
+            let query_msg = QueryMsg::GetBasket { 
+                basket_id: Uint128::new(1u128), 
+            };
+            let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            assert_eq!(res.collateral_supply_caps[0].current_supply, Uint128::new(100000));
+            assert_eq!(res.collateral_supply_caps[1].current_supply, Uint128::new(100000));
 
             //Query BasketPositions
             let msg = QueryMsg::GetBasketPositions { 
@@ -1461,8 +1483,8 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
             };
             let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res.collateral_types[0].asset.amount, Uint128::new(10000));
-            assert_eq!(res.collateral_types[1].asset.amount, Uint128::new(10000));
+            assert_eq!(res.collateral_supply_caps[0].current_supply, Uint128::new(10000));
+            assert_eq!(res.collateral_supply_caps[1].current_supply, Uint128::new(10000));
             //Assert Denom change
             assert_eq!( res.credit_asset.info.to_string(), "credit_fulldenom".to_string() );          
 
@@ -1495,7 +1517,21 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    },  
+                    SupplyCap { 
+                        asset_info: AssetInfo::Token { address: cw20_addr.clone() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: Some( Decimal::percent(10) ),
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
@@ -1552,7 +1588,14 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
                 credit_asset_twap_price_source: None,
@@ -1942,7 +1985,14 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None, 
@@ -2103,7 +2153,14 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: Some( Decimal::percent(10) ),
                 desired_debt_cap_util: None, 
                 credit_asset_twap_price_source: None,
@@ -2191,7 +2248,14 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps:  Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None, 
@@ -2290,7 +2354,14 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps:  Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
                 credit_asset_twap_price_source: None,
@@ -2376,7 +2447,14 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps:  Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
                 credit_asset_twap_price_source: None,
@@ -2454,7 +2532,14 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps:  Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
                 credit_asset_twap_price_source: None,
@@ -2539,7 +2624,14 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps:  Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
                 credit_asset_twap_price_source: None,
@@ -2610,7 +2702,7 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
             };
             let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res.collateral_types[0].asset.amount, Uint128::new(97312));
+            assert_eq!(res.collateral_supply_caps[0].current_supply, Uint128::new(97312));
         }
 
         #[test]
@@ -2631,7 +2723,14 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps:  Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
                 credit_asset_twap_price_source: None,
@@ -2725,7 +2824,14 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps:  Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
                 credit_asset_twap_price_source: None,
@@ -3036,7 +3142,14 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps:  Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
                 credit_asset_twap_price_source: None,
@@ -3117,7 +3230,14 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps:  Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
                 credit_asset_twap_price_source: None,
@@ -3224,7 +3344,21 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps:  Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    },
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "double_debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
                 credit_asset_twap_price_source: None,
@@ -3306,7 +3440,21 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    },
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "double_debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
                 credit_asset_twap_price_source: None,
@@ -3666,7 +3814,35 @@ mod tests {
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
                 pool_ids: Some( vec![ 1u64 ] ),
-                collateral_supply_caps: None,
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    },  
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "base".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    },
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "quote".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    },
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "lp_denom".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    } ]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None, 
                 credit_asset_twap_price_source: None,
@@ -3714,7 +3890,7 @@ mod tests {
            
         }
 
-        ///Contract Test Migration
+        ///contract_test Migration
          #[test]
         fn cw20_deposit(){
             let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
@@ -3746,6 +3922,29 @@ mod tests {
                 liquidity_multiplier_for_debt_caps: None,
             };
             let cosmos_msg = cdp_contract.call(create_basket_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Edit Basket
+            let msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(2u128), 
+                added_cAsset: None, 
+                owner: None, 
+                liq_queue: None, 
+                pool_ids: None,  
+                liquidity_multiplier: None,  
+                collateral_supply_caps: Some( vec![
+                    SupplyCap { 
+                        asset_info: AssetInfo::Token { address: cw20_addr.clone() },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                }] ),  
+                base_interest_rate: None,  
+                desired_debt_cap_util: None,  
+                credit_asset_twap_price_source: None,  
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Deposit
@@ -3792,7 +3991,7 @@ mod tests {
             //Edit Admin
             let msg = ExecuteMsg::EditAdmin { owner: String::from("owner") };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Add 2ndary basket
             let create_basket_msg = ExecuteMsg::CreateBasket {
@@ -3820,7 +4019,53 @@ mod tests {
                 liquidity_multiplier_for_debt_caps: None,
             };
             let cosmos_msg = cdp_contract.call(create_basket_msg, vec![]).unwrap();
-            let res = app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap();
+            app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap();
+
+            //Edit Basket 2
+            let msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(2u128), 
+                added_cAsset: None, 
+                owner: None, 
+                liq_queue: None, 
+                pool_ids: None,  
+                liquidity_multiplier: None,  
+                collateral_supply_caps: Some( vec![
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                }] ),  
+                base_interest_rate: None,  
+                desired_debt_cap_util: None,  
+                credit_asset_twap_price_source: None,  
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap();
+
+            //Edit Basket 1
+            let msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: None, 
+                owner: None, 
+                liq_queue: None, 
+                pool_ids: None,  
+                liquidity_multiplier: None,  
+                collateral_supply_caps: Some( vec![
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                }] ),  
+                base_interest_rate: None,  
+                desired_debt_cap_util: None,  
+                credit_asset_twap_price_source: None,  
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap();
 
             //Initial deposit to Basket 1
             let exec_msg = ExecuteMsg::Deposit { 
@@ -3948,7 +4193,21 @@ mod tests {
                 liq_queue: None, 
                 pool_ids: None, 
                 liquidity_multiplier: None, 
-                collateral_supply_caps: None, 
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    },
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "2nddebit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]), 
                 base_interest_rate: None, 
                 desired_debt_cap_util: None, 
                 credit_asset_twap_price_source: None, 
@@ -4022,34 +4281,27 @@ mod tests {
         fn repay(){
             let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
 
-
-            //Add Basket
-            let create_basket_msg = ExecuteMsg::CreateBasket {
-                owner: Some("owner".to_string()),
-                collateral_types: vec![
-                    cAsset {
-                        asset:
-                            Asset {
-                                info: AssetInfo::NativeToken { denom: "debit".to_string() },
-                                amount: Uint128::from(0u128),
-                            },
-                        max_borrow_LTV: Decimal::percent(50),
-                        max_LTV: Decimal::percent(90),
-                        pool_info: None,
-                        } 
-                ],
-                credit_asset: Asset {
-                    info: AssetInfo::NativeToken { denom: "credit".to_string() },
-                    amount: Uint128::from(0u128),
-                },
-                credit_price: Decimal::percent(100),
-                base_interest_rate: None,
-                desired_debt_cap_util: None,
-                credit_pool_ids: vec![],
-                liquidity_multiplier_for_debt_caps: None,
+            let edit_basket_msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: None, 
+                owner: None, 
+                liq_queue: None, 
+                pool_ids: None, 
+                liquidity_multiplier: None, 
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]), 
+                base_interest_rate: None, 
+                desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None, 
             };
-            let cosmos_msg = cdp_contract.call(create_basket_msg, vec![  ]).unwrap();
-            let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
 
             //NoUserPositions Error
@@ -4104,33 +4356,27 @@ mod tests {
         fn increase_debt() {
             let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
 
-            //Add Basket
-            let create_basket_msg = ExecuteMsg::CreateBasket {
-                owner: Some("owner".to_string()),
-                collateral_types: vec![
-                    cAsset {
-                        asset:
-                            Asset {
-                                info: AssetInfo::NativeToken { denom: "debit".to_string() },
-                                amount: Uint128::from(0u128),
-                            },
-                        max_borrow_LTV: Decimal::percent(50),
-                        max_LTV: Decimal::percent(90),
-                        pool_info: None,
-                        } 
-                ],
-                credit_asset: Asset {
-                    info: AssetInfo::NativeToken { denom: "credit".to_string() },
-                    amount: Uint128::from(0u128),
-                },
-                credit_price: Decimal::percent(100),
-                base_interest_rate: None,
-                desired_debt_cap_util: None,
-                credit_pool_ids: vec![],
-                liquidity_multiplier_for_debt_caps: None,
+            let edit_basket_msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: None, 
+                owner: None, 
+                liq_queue: None, 
+                pool_ids: None, 
+                liquidity_multiplier: None, 
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]), 
+                base_interest_rate: None, 
+                desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None, 
             };
-            let cosmos_msg = cdp_contract.call(create_basket_msg, vec![  ]).unwrap();
-            let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //NoUserPositions Error
             let increase_debt_msg = ExecuteMsg::IncreaseDebt{
@@ -4175,33 +4421,27 @@ mod tests {
         fn withdrawal_errors(){
             let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
 
-            //Add Basket
-            let create_basket_msg = ExecuteMsg::CreateBasket {
-                owner: Some("owner".to_string()),
-                collateral_types: vec![
-                    cAsset {
-                        asset:
-                            Asset {
-                                info: AssetInfo::NativeToken { denom: "debit".to_string() },
-                                amount: Uint128::from(0u128),
-                            },
-                        max_borrow_LTV: Decimal::percent(50),
-                        max_LTV: Decimal::percent(90),
-                        pool_info: None,
-                        } 
-                ],
-                credit_asset: Asset {
-                    info: AssetInfo::NativeToken { denom: "credit".to_string() },
-                    amount: Uint128::from(0u128),
-                },
-                credit_price: Decimal::percent(100),
-                base_interest_rate: None,
-                desired_debt_cap_util: None,
-                credit_pool_ids: vec![],
-                liquidity_multiplier_for_debt_caps: None,
+            let edit_basket_msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: None, 
+                owner: None, 
+                liq_queue: None, 
+                pool_ids: None, 
+                liquidity_multiplier: None, 
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]), 
+                base_interest_rate: None, 
+                desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None, 
             };
-            let cosmos_msg = cdp_contract.call(create_basket_msg, vec![  ]).unwrap();
-            let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             let valid_assets: Vec<Asset> = vec![
                 Asset {

@@ -344,7 +344,7 @@ pub fn withdraw(
                     
                     //If resulting LTV makes the position insolvent, error. If not construct withdrawal_msg
                     //This is taking max_borrow_LTV so users can't max borrow and then withdraw to get a higher initial LTV
-                    if insolvency_check(deps.storage, env.clone(), deps.querier, updated_cAsset_list.clone(), Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)), basket.credit_price, true, config.clone())?.0{ 
+                    if insolvency_check(deps.storage, env.clone(), deps.querier, basket.clone(), updated_cAsset_list.clone(), Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)), basket.credit_price, true, config.clone())?.0{ 
                         return Err(ContractError::PositionInsolvent {  })
                     }else{
                         
@@ -654,9 +654,9 @@ pub fn liq_repay(
         Err( e ) => { return Err( e )  }
     };
 
-    
-    let cAsset_ratios = get_cAsset_ratios(deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, config.clone())?;
-    let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices) = get_avg_LTV(deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, config.clone())?;
+    let collateral_assets = get_LP_pool_cAssets( deps.querier, config.clone(), basket.clone(), target_position.clone().collateral_assets)?;
+    let cAsset_ratios = get_cAsset_ratios(deps.storage, env.clone(), deps.querier, collateral_assets.clone(), config.clone())?;
+    let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices) = get_avg_LTV(deps.storage, env.clone(), deps.querier, config.clone(), basket.clone(), collateral_assets.clone())?;
 
     let repay_value = decimal_multiplication(Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128)), basket.credit_price);
 
@@ -680,12 +680,12 @@ pub fn liq_repay(
     let sp_liq_fee = resp.liq_premium;
 
     //Calculate distribution of assets to send from the repaid position    
-    for (num, cAsset) in target_position.clone().collateral_assets.into_iter().enumerate(){
+    for (num, cAsset) in collateral_assets.clone().into_iter().enumerate(){
         //Builds msgs to the sender (liq contract)
 
-        let collateral_value = decimal_multiplication(repay_value, cAsset_ratios[num]);
-        let collateral_amount = decimal_division(collateral_value, cAsset_prices[num]);
-        let collateral_w_fee = (decimal_multiplication(collateral_amount, sp_liq_fee) + collateral_amount) * Uint128::new(1u128);
+        let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num]);
+        let collateral_repay_amount = decimal_division(collateral_repay_value, cAsset_prices[num]);
+        let collateral_w_fee = (decimal_multiplication(collateral_repay_amount, sp_liq_fee) + collateral_repay_amount) * Uint128::new(1u128);
 
         let repay_amount_per_asset = credit_asset.amount * cAsset_ratios[num];
         
@@ -806,7 +806,7 @@ pub fn increase_debt(
         //If resulting LTV makes the position insolvent, error. If not construct mint msg
         //credit_value / asset_value > avg_LTV
                 
-        if insolvency_check( deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, Decimal::from_ratio(total_credit, Uint128::new(1u128)), basket.credit_price, true, config.clone())?.0 { 
+        if insolvency_check( deps.storage, env.clone(), deps.querier, basket.clone(), target_position.clone().collateral_assets, Decimal::from_ratio(total_credit, Uint128::new(1u128)), basket.credit_price, true, config.clone())?.0 { 
             //panic!("{}", );
             return Err(ContractError::PositionInsolvent {  })
         }else{
@@ -908,7 +908,7 @@ pub fn liquidate(
     BASKETS.save( storage, basket_id.to_string(), &basket )?;
 
     //Check position health comparative to max_LTV
-    let (insolvent, current_LTV, _available_fee) = insolvency_check( storage, env.clone(), querier, target_position.clone().collateral_assets, Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)), basket.credit_price, false, config.clone())?;
+    let (insolvent, current_LTV, _available_fee) = insolvency_check( storage, env.clone(), querier, basket.clone(), target_position.clone().collateral_assets, Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)), basket.credit_price, false, config.clone())?;
     //TODO: Delete
     let insolvent = true;
     let current_LTV = Decimal::percent(90);
@@ -919,7 +919,7 @@ pub fn liquidate(
     //Send liquidation amounts and info to the modules
     //1) We need to calculate how much needs to be liquidated (down to max_borrow_LTV): 
     
-    let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices) = get_avg_LTV( storage, env.clone(), querier, target_position.clone().collateral_assets, config.clone())?;
+    let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices) = get_avg_LTV( storage, env.clone(), querier, config.clone(), basket.clone(), target_position.clone().collateral_assets)?;
     
     
     // max_borrow_LTV/ current_LTV, * current_loan_value, current_loan_value - __ = value of loan amount  
@@ -963,13 +963,60 @@ pub fn liquidate(
     let mut res = Response::new();
     let mut submessages = vec![];
     let mut fee_messages: Vec<CosmosMsg> = vec![];
+    let mut lp_withdraw_messages: Vec<CosmosMsg> = vec![];
     
+    //Pre-LP Split ratios
     let cAsset_ratios = get_cAsset_ratios( storage, env.clone(), querier, target_position.clone().collateral_assets, config.clone() )?;
+
+    //Withdraw the necessary amount of LP shares
+    //Ensures liquidations are on the pooled assets and not the LP share itself for more efficient queue capital 
+    for ( i, cAsset ) in target_position.clone().collateral_assets.into_iter().enumerate(){
+
+        if cAsset.clone().pool_info.is_some(){
+            let pool_info = cAsset.clone().pool_info.unwrap();
+
+            ////Calculate amount of asset to liquidate
+            // Amount to liquidate = cAsset_ratio * % of position insolvent * cAsset amount
+            let lp_liquidate_amount = decimal_multiplication(cAsset_ratios[i], decimal_division(avg_borrow_LTV, current_LTV)) * cAsset.asset.amount;
+
+            //Query share asset amount 
+            let share_asset_amounts = querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
+                WasmQuery::Smart { 
+                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
+                    msg: to_binary(&OsmoQueryMsg::PoolState { 
+                        id: pool_info.pool_id 
+                    }
+                    )?}
+                ))?
+                    .shares_value(lp_liquidate_amount);
+
+            //Push LP Withdrawal Msg
+            let mut token_out_mins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
+            for token in share_asset_amounts {
+                token_out_mins.push( osmosis_std::types::cosmos::base::v1beta1::Coin {
+                    denom: token.denom,
+                    amount: token.amount.to_string(),
+                } );
+            }            
+
+            let msg: CosmosMsg = MsgExitPool {
+                        sender: env.contract.address.to_string(),
+                        pool_id: pool_info.pool_id,
+                        share_in_amount: lp_liquidate_amount.to_string(),
+                        token_out_mins,
+                    }.into();
+            lp_withdraw_messages.push( msg );
+        }        
+    }
+
+    //Post-LP Split ratios
+    let collateral_assets = get_LP_pool_cAssets(querier, config.clone(), basket.clone(), target_position.clone().collateral_assets)?;
+    let cAsset_ratios = get_cAsset_ratios( storage, env.clone(), querier, collateral_assets.clone(), config.clone() )?;
 
     //Dynamic fee that goes to the caller (info.sender): current_LTV - max_LTV
     let caller_fee = decimal_subtraction(current_LTV, avg_max_LTV);
 
-    let total_fees = caller_fee + config.clone().liq_fee;
+    //let total_fees = caller_fee + config.clone().liq_fee;
     
     //Track total leftover repayment after the liq_queue
     let mut liq_queue_leftover_credit_repayment: Decimal = credit_repay_amount;
@@ -983,24 +1030,26 @@ pub fn liquidate(
     //1) Calcs repay amount per asset
     //2) Calcs collateral amount to be liquidated per asset (Fees not included yet)
     //2 will happen again in the reply. This instance is to pay the function caller
-    for (num, cAsset) in  target_position.clone().collateral_assets.iter().enumerate(){
+    //
+    for (num, cAsset) in collateral_assets.clone().iter().enumerate(){
 
         let mut caller_coins: Vec<Coin> = vec![];
         let mut protocol_coins: Vec<Coin> = vec![];
         let mut fee_assets: Vec<Asset> = vec![];
         
-        let repay_amount_per_asset = decimal_multiplication(credit_repay_amount, cAsset_ratios[num]);
+        //let repay_amount_per_asset = decimal_multiplication(credit_repay_amount, cAsset_ratios[num]);
         
         let collateral_price = cAsset_prices[num];
-        let collateral_value = decimal_multiplication(repay_value, cAsset_ratios[num]);
-        let mut collateral_amount = decimal_division(collateral_value, collateral_price);
+        let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num]);
+        let mut collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price);
+        
                
         //Subtract Caller fee from Position's claims
-        let caller_fee_in_collateral_amount = decimal_multiplication(collateral_amount, caller_fee) * Uint128::new(1u128);
+        let caller_fee_in_collateral_amount = decimal_multiplication(collateral_repay_amount, caller_fee) * Uint128::new(1u128);
         update_position_claims(storage, querier, env.clone(), basket_id, position_id, valid_position_owner.clone(), cAsset.clone().asset.info, caller_fee_in_collateral_amount)?;
 
         //Subtract Protocol fee from Position's claims
-        let protocol_fee_in_collateral_amount = decimal_multiplication(collateral_amount, config.clone().liq_fee) * Uint128::new(1u128);
+        let protocol_fee_in_collateral_amount = decimal_multiplication(collateral_repay_amount, config.clone().liq_fee) * Uint128::new(1u128);
         update_position_claims(storage, querier, env.clone(), basket_id, position_id, valid_position_owner.clone(), cAsset.clone().asset.info, protocol_fee_in_collateral_amount)?;
         
         //Subtract fees from leftover_position value
@@ -1074,8 +1123,8 @@ pub fn liquidate(
         fee_messages.push( msg );
 
                 
-        //Set collateral_amount to the amount minus the fees
-        // collateral_amount = decimal_subtraction(  collateral_amount, Decimal::from_ratio( (caller_fee_in_collateral_amount + protocol_fee_in_collateral_amount), Uint128::new(1u128) ) );
+        //Set collateral_repay_amount to the amount minus the fees
+        // collateral_repay_amount = decimal_subtraction(  collateral_repay_amount, Decimal::from_ratio( (caller_fee_in_collateral_amount + protocol_fee_in_collateral_amount), Uint128::new(1u128) ) );
 
         
          /////////////LiqQueue calls//////
@@ -1087,7 +1136,7 @@ pub fn liquidate(
                     &LQ_QueryMsg::CheckLiquidatible {
                         bid_for: cAsset.clone().asset.info,
                         collateral_price,
-                        collateral_amount: Uint256::from( (collateral_amount * Uint128::new(1u128)).u128() ),
+                        collateral_amount: Uint256::from( (collateral_repay_amount * Uint128::new(1u128)).u128() ),
                         credit_info: basket.clone().credit_asset.info,
                         credit_price: basket.clone().credit_price,
                 })?,
@@ -1095,7 +1144,7 @@ pub fn liquidate(
 
             //Calculate how much collateral we are sending to the liq_queue to liquidate
             let leftover: Uint128 = Uint128::from_str( &res.leftover_collateral )?;
-            let queue_asset_amount_paid: Uint128 = (collateral_amount * Uint128::new(1u128)) - leftover;
+            let queue_asset_amount_paid: Uint128 = (collateral_repay_amount * Uint128::new(1u128)) - leftover;
             
             //Keep track of remaining position value
             //value_paid_to_queue = queue_asset_amount_paid * collateral_price
@@ -1160,7 +1209,7 @@ pub fn liquidate(
                 env.clone(),
                 storage, 
                 querier,
-                target_position.clone().collateral_assets, 
+                collateral_assets.clone(),
                 cAsset_ratios.clone(), 
                 sell_wall_repayment_amount, 
                 basket.clone().credit_asset.info,
@@ -1216,7 +1265,7 @@ pub fn liquidate(
                 env.clone(),
                 storage, 
                 querier,
-                target_position.clone().collateral_assets, 
+                collateral_assets.clone(), 
                 cAsset_ratios.clone(), 
                 sell_wall_repayment_amount, 
                 basket.clone().credit_asset.info ,
@@ -1336,7 +1385,7 @@ pub fn liquidate(
             env.clone(),
             storage, 
             querier,
-            target_position.clone().collateral_assets, 
+            collateral_assets.clone(), 
             cAsset_ratios.clone(), 
             credit_repay_amount, 
             basket.clone().credit_asset.info,
@@ -1367,7 +1416,8 @@ pub fn liquidate(
         REPAY.save(storage, &repay_propagation)?;
 
         Ok (       
-            res.add_messages( fee_messages )
+            res.add_messages( lp_withdraw_messages )
+            .add_messages( fee_messages )
             .add_submessages(submessages)
             .add_submessage( call_back )
             .add_attributes( vec![
@@ -1384,7 +1434,7 @@ pub fn liquidate(
         }
 
         Ok( 
-            res
+            res.add_messages( lp_withdraw_messages )
             .add_messages( fee_messages )
             .add_submessages( submessages )
             .add_submessage( call_back )
@@ -1913,14 +1963,14 @@ pub fn sell_wall_using_ids(
         Some( position ) => position,
         None => return Err( StdError::NotFound { kind: "Position".to_string() } )
     };
-
-    let cAsset_ratios  = get_cAsset_ratios( storage, env.clone(), querier, target_position.clone().collateral_assets, config )?;
+    let collateral_assets = get_LP_pool_cAssets(querier, config.clone(), basket.clone(), target_position.clone().collateral_assets)?;
+    let cAsset_ratios  = get_cAsset_ratios( storage, env.clone(), querier, collateral_assets.clone(), config )?;
 
     match sell_wall(
         env.clone(),
         storage, 
         querier,
-        target_position.clone().collateral_assets, 
+        collateral_assets.clone(),
         cAsset_ratios, 
         repay_amount, 
     basket.clone().credit_asset.info,
@@ -1959,161 +2009,65 @@ pub fn sell_wall(
 
         let collateral_repay_amount = decimal_multiplication(ratio, repay_amount);
         collateral_distribution.push( ( collateral_assets[index].clone().asset.info, collateral_repay_amount ) );
-
-        if collateral_assets[index].clone().pool_info.is_some(){
-
-           
-            let pool_info = collateral_assets[index].clone().pool_info.unwrap();
-
-            //Split repay amount between collateral types
-            ////Query share asset amount 
-            let share_asset_amounts = querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
-                WasmQuery::Smart { 
-                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
-                    msg: to_binary(&OsmoQueryMsg::PoolState { 
-                        id: pool_info.pool_id 
-                    }
-                    )?}
-                ))?
-                .shares_value(collateral_assets[index].clone().asset.amount);
             
-            
+        match collateral_assets[index].clone().asset.info{
+            AssetInfo::NativeToken { denom } => {
 
-            ///Get pool asset ratios
-            /// 
-            //Standardize Asset amounts
-            let standardized_amounts: Vec<Uint128> = share_asset_amounts.clone()
-                .into_iter()
-                .enumerate()
-                .map(|( i,coin )| {
-                    //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
-                    let exponent_difference = pool_info.clone().asset_infos[i].decimals.checked_sub(6u64).unwrap();
+                let router_msg = RouterExecuteMsg::SwapFromNative {
+                    to: credit_info.clone(),
+                    max_spread: None, //Max spread doesn't matter bc we want to sell the whole amount no matter what
+                    recipient: None,
+                    hook_msg: Some( 
+                        to_binary(
+                            &ExecuteMsg::Repay { 
+                                basket_id, 
+                                position_id, 
+                                position_owner: 
+                                Some( position_owner.clone() ) })? ),
+                    split: None,
+                };
 
-                    let asset_amount = coin.amount / Uint128::new( 10u64.pow(exponent_difference as u32) as u128 );
+                let payment = coin( (collateral_repay_amount*Uint128::new(1u128)).u128(), denom);
+        
+                let msg: CosmosMsg =  CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: config.clone().dex_router.unwrap().to_string(),
+                    msg: to_binary( &router_msg )?,
+                    funds: vec![ payment ],
+                });
 
-                    asset_amount
-                    
-                } )
-                .collect::<Vec<Uint128>>();
-            
-            let mut pool_asset_ratios = vec![];
+                messages.push( msg );
+            },
+            AssetInfo::Token { address } => {
 
-            //Calc pool total
-            let pool_total: Uint128 = standardized_amounts.clone()
-                .iter()
-                .sum();
-
-            for amount in standardized_amounts.clone() {
-                pool_asset_ratios.push( decimal_division(Decimal::from_ratio(amount, Uint128::new(1u128)), Decimal::from_ratio(pool_total, Uint128::new(1u128)) ) );
-            }
-
-            //Push LP Withdrawal Msg
-            let mut token_out_mins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
-            for token in share_asset_amounts {
-                token_out_mins.push( osmosis_std::types::cosmos::base::v1beta1::Coin {
-                    denom: token.denom,
-                    amount: token.amount.to_string(),
-                } );
-            }            
-
-            let msg: CosmosMsg = MsgExitPool {
-                        sender: env.contract.address.to_string(),
-                        pool_id: pool_info.pool_id,
-                        share_in_amount: collateral_assets[index].clone().asset.amount.to_string(),
-                        token_out_mins,
-                    }.into();
-            messages.push( msg );
-
-            //Push Router + Repay messages for each
-            for ( i, pool_asset )in pool_info.asset_infos.iter().enumerate(){
-
-                if let AssetInfo::NativeToken { denom } = pool_asset.clone().info {
-                    let router_msg = RouterExecuteMsg::SwapFromNative {
+                //////////////////////////
+                let router_hook_msg = RouterHookMsg::Swap { 
                         to: credit_info.clone(),
-                        max_spread: None, //Max spread doesn't matter bc we want to sell the whole amount no matter what
-                        recipient: None,
+                        max_spread: None, 
+                        recipient: None, 
                         hook_msg: Some( 
                             to_binary(
                                 &ExecuteMsg::Repay { 
                                     basket_id, 
                                     position_id, 
                                     position_owner: 
-                                    Some( position_owner.clone() ) })? ),
-                        split: None,
-                    };
+                                    Some( position_owner.clone() ) })? ), 
+                        split: None, 
+                };
 
-                    let asset_repay_amount = pool_asset_ratios[i] * collateral_repay_amount;
-                    let payment = coin( (asset_repay_amount*Uint128::new(1u128)).u128(), denom);
-            
-                    let msg: CosmosMsg =  CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: config.clone().dex_router.unwrap().to_string(),
-                        msg: to_binary( &router_msg )?,
-                        funds: vec![ payment ],
-                    });
+                let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: address.to_string(),
+                    msg: to_binary(&Cw20ExecuteMsg::Send {
+                        amount: collateral_repay_amount * Uint128::new(1u128),
+                        contract:  config.clone().dex_router.unwrap().to_string(),
+                        msg: to_binary(&router_hook_msg)?,
+                    })?,
+                    funds: vec![],
+                });
 
-                    messages.push( msg );
-                }
-            }
-
-        } else {
-            match collateral_assets[index].clone().asset.info{
-                AssetInfo::NativeToken { denom } => {
-
-                    let router_msg = RouterExecuteMsg::SwapFromNative {
-                        to: credit_info.clone(),
-                        max_spread: None, //Max spread doesn't matter bc we want to sell the whole amount no matter what
-                        recipient: None,
-                        hook_msg: Some( 
-                            to_binary(
-                                &ExecuteMsg::Repay { 
-                                    basket_id, 
-                                    position_id, 
-                                    position_owner: 
-                                    Some( position_owner.clone() ) })? ),
-                        split: None,
-                    };
-
-                    let payment = coin( (collateral_repay_amount*Uint128::new(1u128)).u128(), denom);
-            
-                    let msg: CosmosMsg =  CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: config.clone().dex_router.unwrap().to_string(),
-                        msg: to_binary( &router_msg )?,
-                        funds: vec![ payment ],
-                    });
-
-                    messages.push( msg );
-                },
-                AssetInfo::Token { address } => {
-
-                    //////////////////////////
-                    let router_hook_msg = RouterHookMsg::Swap { 
-                            to: credit_info.clone(),
-                            max_spread: None, 
-                            recipient: None, 
-                            hook_msg: Some( 
-                                to_binary(
-                                    &ExecuteMsg::Repay { 
-                                        basket_id, 
-                                        position_id, 
-                                        position_owner: 
-                                        Some( position_owner.clone() ) })? ), 
-                            split: None, 
-                    };
-
-                    let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: address.to_string(),
-                        msg: to_binary(&Cw20ExecuteMsg::Send {
-                            amount: collateral_repay_amount * Uint128::new(1u128),
-                            contract:  config.clone().dex_router.unwrap().to_string(),
-                            msg: to_binary(&router_hook_msg)?,
-                        })?,
-                        funds: vec![],
-                    });
-
-                    messages.push( msg );
-                },
-            }
+                messages.push( msg );
+            },
         }
+        
     }
 
     Ok( ( messages, collateral_distribution) ) 
@@ -2249,14 +2203,16 @@ pub fn get_avg_LTV(
     storage: &mut dyn Storage,
     env: Env,
     querier: QuerierWrapper, 
-    collateral_assets: Vec<cAsset>,
     config: Config,
+    basket: Basket,
+    collateral_assets: Vec<cAsset>,
 )-> StdResult<(Decimal, Decimal, Decimal, Vec<Decimal>)>{
+
+    let collateral_assets = get_LP_pool_cAssets( querier, config.clone(), basket, collateral_assets )?;
 
     let (cAsset_values, cAsset_prices) = get_asset_values(storage, env, querier, collateral_assets.clone(), config)?;
 
-    //panic!("{}", cAsset_values.len());
-
+   
     let total_value: Decimal = cAsset_values.iter().sum();
     
     //getting each cAsset's % of total value
@@ -2289,7 +2245,6 @@ pub fn get_avg_LTV(
     for (i, _cAsset) in collateral_assets.clone().iter().enumerate(){
         avg_max_LTV += decimal_multiplication(cAsset_ratios[i], collateral_assets[i].max_LTV);
     }
-    
 
     Ok((avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices))
 }
@@ -2324,26 +2279,21 @@ pub fn insolvency_check( //Returns true if insolvent, current_LTV and available 
     storage: &mut dyn Storage,
     env: Env,
     querier: QuerierWrapper,
+    basket: Basket, 
     collateral_assets: Vec<cAsset>,
     credit_amount: Decimal,
     credit_price: Decimal,
     max_borrow: bool, //Toggle for either over max_borrow or over max_LTV (liquidatable), ie taking the minimum collateral ratio into account.
     config: Config,
-) -> StdResult<(bool, Decimal, Uint128)>{
+) -> StdResult<(bool, Decimal, Uint128)>{ //insolvent, current_LTV, available_fee
 
     //No assets but still has debt
     if collateral_assets.len() == 0 && !credit_amount.is_zero(){
         return Ok( (true, Decimal::percent(100), Uint128::zero()) )
     }
     
-    let avg_LTVs: (Decimal, Decimal, Decimal, Vec<Decimal>) = get_avg_LTV(storage, env, querier, collateral_assets, config)?;
+    let avg_LTVs: (Decimal, Decimal, Decimal, Vec<Decimal>) = get_avg_LTV(storage, env, querier, config, basket, collateral_assets)?;
     
-    //TODO: Change, this is solely for testing. This would liquidate anyone anytime oracles failed.
-    //Returns insolvent if oracle's failed
-    // if avg_LTVs == (Decimal::percent(0), Decimal::percent(50), Decimal::percent(100_000_000), vec![Decimal::one()]){
-    //      return Ok((true, Decimal::percent(90), Uint128::zero())) 
-    //     }
-
     let asset_values: Decimal = avg_LTVs.2; //pulls total_asset_value
     
     let mut check: bool;
@@ -2955,19 +2905,21 @@ pub fn update_position_claims(
     let mut per_asset_debt_caps = vec![];
 
     for ( i, cAsset)  in cAsset_ratios.clone().into_iter().enumerate(){
-        // If supply cap is 0, then debt cap is 0
-        if basket.clone().collateral_supply_caps != vec![] {
 
-            if basket.clone().collateral_supply_caps[i].supply_cap_ratio.is_zero(){
-                per_asset_debt_caps.push(  Uint128::zero()  );
+        if !basket.clone().collateral_supply_caps[i].lp{
+            // If supply cap is 0, then debt cap is 0
+            if basket.clone().collateral_supply_caps != vec![] {
+
+                if basket.clone().collateral_supply_caps[i].supply_cap_ratio.is_zero(){
+                    per_asset_debt_caps.push(  Uint128::zero()  );
+                } else {
+                    per_asset_debt_caps.push( cAsset * debt_cap );
+                }
+
             } else {
                 per_asset_debt_caps.push( cAsset * debt_cap );
             }
-
-        } else {
-            per_asset_debt_caps.push( cAsset * debt_cap );
         }
-        
     }                
 
     //Save these to the basket when returned. For queries.
@@ -3037,77 +2989,8 @@ pub fn update_position_claims(
         Ok( basket ) => { basket },
     };
 
-
-    let mut new_old_assets = vec![];
-    let mut new_new_assets = vec![];
-
-
-    //Add LP's Assets as cAssets
-    //Remove LP share token
-    for cAsset in old_assets.clone() {
-
-        if cAsset.pool_info.is_some(){
-            let pool_info = cAsset.pool_info.unwrap();
-
-            //Query share asset amount 
-            let share_asset_amounts = querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
-                WasmQuery::Smart { 
-                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
-                    msg: to_binary(&OsmoQueryMsg::PoolState { 
-                        id: pool_info.pool_id,
-                    }
-                    )?}
-                ))?
-                    .shares_value(cAsset.asset.amount);
-
-            for pool_coin in share_asset_amounts {
-                new_old_assets.push(
-                    cAsset { 
-                        asset: Asset { info: AssetInfo::NativeToken { denom: pool_coin.denom }, amount: pool_coin.amount }, 
-                        max_borrow_LTV: Decimal::zero(), 
-                        max_LTV: Decimal::zero(), 
-                        pool_info: None, 
-                    }
-                );
-            }
-        } else {
-            new_old_assets.push( cAsset );
-        }
-    }
-
-    //Add LP's Assets as cAssets
-    //Remove LP share token
-    for cAsset in new_assets.clone() {
-
-        if cAsset.pool_info.is_some(){
-            let pool_info = cAsset.pool_info.unwrap();
-
-            //Query share asset amount 
-            let share_asset_amounts = querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
-                WasmQuery::Smart { 
-                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
-                    msg: to_binary(&OsmoQueryMsg::PoolState { 
-                        id: pool_info.pool_id,
-                    }
-                    )?}
-                ))?
-                    .shares_value(cAsset.asset.amount);
-
-            for pool_coin in share_asset_amounts {
-                new_new_assets.push(
-                    cAsset { 
-                        asset: Asset { info: AssetInfo::NativeToken { denom: pool_coin.denom }, amount: pool_coin.amount }, 
-                        max_borrow_LTV: Decimal::zero(), 
-                        max_LTV: Decimal::zero(), 
-                        pool_info: None, 
-                    }
-                );
-            }
-        } else {
-            new_new_assets.push( cAsset );
-        }
-    }
-
+    let mut new_old_assets = get_LP_pool_cAssets( querier, config.clone(), basket.clone(), old_assets )?;
+    let mut new_new_assets = get_LP_pool_cAssets( querier, config.clone(), basket.clone(), new_assets )?;
 
     //Note: Vec lengths need to match 
     let old_ratios = get_cAsset_ratios(storage, env.clone(), querier, new_old_assets.clone(), config.clone())?;
@@ -3218,6 +3101,7 @@ pub fn update_position_claims(
         Ok( basket ) => { basket },
     };
 
+    let collateral_assets = get_LP_pool_cAssets(querier, config.clone(), basket.clone(), collateral_assets)?;
         
     let cAsset_ratios = get_cAsset_ratios(storage, env.clone(), querier, collateral_assets.clone(), config)?;
 
@@ -3248,87 +3132,44 @@ pub fn update_position_claims(
                 for (index, cAsset) in collateral_assets.iter().enumerate(){
  
                     basket.collateral_supply_caps = basket.clone().collateral_supply_caps
-                         .into_iter()
-                         .enumerate()
-                         .filter(|cap| !cap.1.lp ) //We don't take LP supply caps when calculating debt
-                         .map(| (i, mut cap) | {
+                        .into_iter()
+                        .enumerate()
+                        .filter(|cap| !cap.1.lp ) //We don't take LP supply caps when calculating debt
+                        .map(| (i, mut cap) | {
                             
-                                //If its an LP we add to each pair's debt total
-                                //The share token won't accrue a debt total
-                                //Assumption is stable ratios
-                                if cAsset.clone().pool_info.is_some() {
+                            //Add or subtract deposited amount to/from the correlated cAsset object
+                            if cap.asset_info.equal(&cAsset.asset.info){
+                                if add_to_debt {               
+                                    
+                                    //Assert its not over the cap
+                                    //IF the debt is adding to interest then we allow it to exceed the cap
+                                    if ( cap.debt_total + asset_debt[index] ) <= cAsset_caps[i] || interest_accrual{
+                                        cap.debt_total += asset_debt[index];
+                                    }else{
+                                        over_cap = true;
+                                        assets_over_cap.push( cap.asset_info.to_string() );
+                                    }
 
-                                    let pool_info = cAsset.clone().pool_info.unwrap();
-                                    for asset in pool_info.asset_infos {
+                                }else{
 
-                                        let debt = asset_debt[index] * asset.ratio;
-
-                                        if cap.asset_info.equal(&asset.info){
-                                            if add_to_debt {               
-                                                
-                                                //Assert its not over the cap
-                                                //IF the debt is adding to interest then we allow it to exceed the cap
-                                                if ( cap.debt_total + debt ) <= cAsset_caps[i] || interest_accrual{
-                                                    cap.debt_total += debt;
-                                                }else{
-                                                    over_cap = true;
-                                                    assets_over_cap.push( cap.asset_info.to_string() );
-                                                }
-    
-                                            }else{
-    
-                                                match cap.debt_total.checked_sub( debt ){
-                                                    Ok( difference ) => {
-                                                        cap.debt_total = difference;
-                                                    },
-                                                    Err(_) => {
-                                                        //Don't subtract bc it'll end up being an invalid repayment error anyway
-                                                        //Can't return an Error here without inferring the map return type
-                                                    }
-                                                };
-                                            } 
-                                            
+                                    match cap.debt_total.checked_sub( asset_debt[index] ){
+                                        Ok( difference ) => {
+                                            cap.debt_total = difference;
+                                        },
+                                        Err(_) => {
+                                            //Don't subtract bc it'll end up being an invalid repayment error anyway
+                                            //Can't return an Error here without inferring the map return type
                                         }
-
-                                    }
-
-                                } else {
-
-                                    //Add or subtract deposited amount to/from the correlated cAsset object
-                                    if cap.asset_info.equal(&cAsset.asset.info){
-                                        if add_to_debt {               
-                                            
-                                            //Assert its not over the cap
-                                            //IF the debt is adding to interest then we allow it to exceed the cap
-                                            if ( cap.debt_total + asset_debt[index] ) <= cAsset_caps[i] || interest_accrual{
-                                                cap.debt_total += asset_debt[index];
-                                            }else{
-                                                over_cap = true;
-                                                assets_over_cap.push( cap.asset_info.to_string() );
-                                            }
-
-                                        }else{
-
-                                            match cap.debt_total.checked_sub( asset_debt[index] ){
-                                                Ok( difference ) => {
-                                                    cap.debt_total = difference;
-                                                },
-                                                Err(_) => {
-                                                    //Don't subtract bc it'll end up being an invalid repayment error anyway
-                                                    //Can't return an Error here without inferring the map return type
-                                                }
-                                            };
-                                        } 
-                                        
-                                    }
-
-                                }
+                                    };
+                                } 
+                                
+                            }                               
                                                          
                             cap
                         }).collect::<Vec<SupplyCap>>();
                 }
- 
-                 Ok( basket )
+                
+                Ok( basket )
             },
              //None should be unreachable 
              None => { return Err( ContractError::NonExistentBasket {  } )},
@@ -3443,7 +3284,12 @@ fn get_interest_rates(
         Ok( caps ) => { caps },
         Err( err ) => { return Err( StdError::GenericErr { msg: err.to_string() } ) }
     };
-    for (i, cap) in basket.collateral_supply_caps.iter().enumerate(){
+    for (i, cap) in basket.collateral_supply_caps.clone()
+        .into_iter()
+        .filter(|cap| !cap.lp)
+        .collect::<Vec<SupplyCap>>()
+        .iter()
+        .enumerate(){
         
         //If there is 0 of an Asset then it's cap is 0 but its proportion is 100%
         if debt_caps[i].is_zero(){
@@ -3453,7 +3299,7 @@ fn get_interest_rates(
         }
         
     }
-
+    //if !debt_proportions[1].is_zero() {panic!("{:?}", debt_proportions)};
     //Gets pro-rata rate and uses multiplier if above desired utilization
     let mut two_slope_pro_rata_rates = vec![];
     for (i, _rate) in rates.iter().enumerate(){
@@ -3491,14 +3337,13 @@ fn get_interest_rates(
 
 }
 
-fn get_position_avg_rate(
-    storage: &mut dyn Storage,
+//If cAssets include an LP, remove the LP share denom and add its paired assets
+fn get_LP_pool_cAssets(
     querier: QuerierWrapper,
-    env: Env,
-    basket: &mut Basket,
+    config: Config,
+    basket: Basket,
     position_assets: Vec<cAsset>,
-) -> StdResult<Decimal>{
-    let config = CONFIG.load( storage )?;
+) -> StdResult<Vec<cAsset>>{
 
     let mut new_assets = vec![];
 
@@ -3521,47 +3366,57 @@ fn get_position_avg_rate(
                     .shares_value(cAsset.asset.amount);
 
             for pool_coin in share_asset_amounts {
-                new_assets.push(
-                    cAsset { 
-                        asset: Asset { info: AssetInfo::NativeToken { denom: pool_coin.denom }, amount: pool_coin.amount }, 
-                        max_borrow_LTV: Decimal::zero(), 
-                        max_LTV: Decimal::zero(), 
-                        pool_info: None, 
-                    }
-                );
+
+                let info = AssetInfo::NativeToken { denom: pool_coin.denom };
+                //Find the coin in the basket
+                if let Some(cAsset) = basket.clone().collateral_types.into_iter().find(|cAsset| cAsset.asset.info.equal(&info)){
+                    //Push to list
+                    new_assets.push(
+                        cAsset { 
+                            asset: Asset { info, amount: pool_coin.amount }, 
+                            ..cAsset
+                        }
+                    );
+                } //No reason to error bc LPs can't be added if their assets aren't added first
+                
             }
         } else {
             new_assets.push( cAsset );
         }
     }
 
+    Ok( new_assets )
+
+}
+
+fn get_position_avg_rate(
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    basket: &mut Basket,
+    position_assets: Vec<cAsset>,
+) -> StdResult<Decimal>{
+    let config = CONFIG.load( storage )?;
+
+    let new_assets = get_LP_pool_cAssets( querier, config.clone(), basket.clone(), position_assets )?;
+
     let ratios = get_cAsset_ratios(storage, env.clone(), querier, new_assets.clone(), config)?;
-
+    
     let interest_rates = get_interest_rates( storage, querier, env, basket )?;
-
+    
+    // if !interest_rates[1].1.is_zero() {panic!("{:?}, {:?}", interest_rates, ratios)};
 
     let mut avg_rate = Decimal::zero();
 
     for (i, cAsset) in new_assets.clone().iter().enumerate(){
         
         //Match asset and rate
-        if cAsset.asset.info.equal( &interest_rates[i].0 ) {
-            avg_rate += decimal_multiplication(ratios[i], interest_rates[i].1);
-        }
-
-        //An LP will never match the above statement
-        if cAsset.clone().pool_info.is_some() {
-            let pool_info = cAsset.clone().pool_info.unwrap();
-
-            //Assumption is stable pool ratios
-            for asset in pool_info.asset_infos {
-                if asset.info.equal( &interest_rates[i].0 ) {
-                    //Multiply the asset rate by its ratio in the LP 
-                    avg_rate += decimal_multiplication( decimal_multiplication(ratios[i], interest_rates[i].1), asset.ratio);
-                }
-            }
-        }
+        if let Some(rate) = interest_rates.clone().into_iter().find(|rate| rate.0.equal(&cAsset.asset.info) ){
+            avg_rate += decimal_multiplication(ratios[i], rate.1);
+        }        
     }
+
+    //if !interest_rates[1].1.is_zero() {panic!("{:?}", avg_rate)};
 
     Ok( avg_rate )
 }
@@ -3580,6 +3435,8 @@ fn accrue(
     let time_elapsed = env.block.time.seconds() - position.last_accrued;
     //Update last accrued time
     position.last_accrued = env.block.time.seconds();
+
+    
 
     //Calc avg_rate for the position
     let avg_rate = get_position_avg_rate( storage, querier, env.clone(), basket, position.clone().collateral_assets )?;

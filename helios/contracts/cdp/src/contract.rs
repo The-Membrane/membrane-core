@@ -12,8 +12,9 @@ use cw_storage_plus::Bound;
 use cosmwasm_bignumber::{ Uint256, Decimal256 };
 use osmo_bindings::{ SpotPriceResponse, OsmosisMsg, FullDenomResponse, OsmosisQuery };
 
-use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
-use membrane::positions::{ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, PositionResponse, PositionsResponse, BasketResponse, ConfigResponse, PropResponse, CallbackMsg};
+use membrane::stability_pool::{ ExecuteMsg as SP_ExecuteMsg };
+use membrane::liq_queue::{ ExecuteMsg as LQ_ExecuteMsg };
+use membrane::positions::{ ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, PositionResponse, PositionsResponse, BasketResponse, ConfigResponse, PropResponse, CallbackMsg };
 use membrane::types::{ AssetInfo, Asset, cAsset, Basket, Position, LiqAsset, SellWallDistribution, UserInfo, TWAPPoolInfo };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, GetDenomResponse };
 use membrane::debt_auction::{ ExecuteMsg as AuctionExecuteMsg };
@@ -224,7 +225,7 @@ pub fn execute(
         ExecuteMsg::EditAdmin { owner } => edit_contract_owner(deps, info, owner),
         ExecuteMsg::EditcAsset { basket_id, asset, max_borrow_LTV, max_LTV } => edit_cAsset(deps, info, basket_id, asset, max_borrow_LTV, max_LTV),
         ExecuteMsg::EditBasket { basket_id, added_cAsset, owner, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source } => edit_basket(deps, info, basket_id, added_cAsset, owner, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source ),
-        ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, base_interest_rate, desired_debt_cap_util, credit_pool_ids, liquidity_multiplier_for_debt_caps } => create_basket( deps, info, env, owner, collateral_types, credit_asset, credit_price, base_interest_rate, desired_debt_cap_util, credit_pool_ids, liquidity_multiplier_for_debt_caps ),
+        ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, base_interest_rate, desired_debt_cap_util, credit_pool_ids, liquidity_multiplier_for_debt_caps, liq_queue } => create_basket( deps, info, env, owner, collateral_types, credit_asset, credit_price, base_interest_rate, desired_debt_cap_util, credit_pool_ids, liquidity_multiplier_for_debt_caps, liq_queue ),
         ExecuteMsg::Liquidate { basket_id, position_id, position_owner } => liquidate(deps.storage, deps.api, deps.querier, env, info, basket_id, position_id, position_owner),
         ExecuteMsg::MintRevenue { basket_id, send_to, repay_for, amount } => mint_revenue(deps, info, env, basket_id, send_to, repay_for, amount),
         ExecuteMsg::Callback( msg ) => {
@@ -260,29 +261,44 @@ fn edit_cAsset(
         attr("basket", basket_id.clone().to_string()) ];
 
     let mut new_asset: cAsset;
+    let mut msgs : Vec<CosmosMsg> = vec![];
 
     match basket.clone().collateral_types.into_iter().find(|cAsset| cAsset.asset.info.equal(&asset)){
 
         Some( mut asset ) => {
             attrs.push( attr("asset", asset.clone().asset.info.to_string() ) );
 
-            match max_LTV{
-                Some( LTV ) => {
-                    
-                    asset.max_LTV = LTV.clone();
-                    attrs.push( attr("max_LTV", LTV.to_string() ) );
-                    
-                },
-                None => {},
+            if let Some(LTV) = max_LTV {
+                asset.max_LTV = LTV.clone();
+
+                //Edit the asset's liq_queue max_premium
+                //Create Liquidation Queue for its assets
+                if basket.clone().liq_queue.is_some(){
+                    //Gets Liquidation Queue max premium.
+                    //The premium has to be at most 5% less than the difference between max_LTV and 100% 
+                    //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
+                    let max_premium = Uint128::new(95u128) - LTV.atomics();
+
+                    msgs.push(CosmosMsg::Wasm(WasmMsg::Execute { 
+                        contract_addr: basket.clone().liq_queue.unwrap().into_string(),
+                        msg: to_binary(&LQ_ExecuteMsg::AddQueue { 
+                            bid_for: asset.clone().asset.info, 
+                            bid_asset: basket.clone().credit_asset.info, 
+                            max_premium, 
+                            bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
+                        })?, 
+                        funds: vec![],
+                    }));
+                }   
+
+                attrs.push( attr("max_LTV", LTV.to_string() ) );
             }
-            match max_borrow_LTV{
-                Some( LTV ) => {
-                    if LTV < Decimal::percent(100) && LTV < asset.max_LTV {
-                        asset.max_borrow_LTV = LTV.clone();
-                        attrs.push( attr("max_borrow_LTV", LTV.to_string() ) );
-                    }
-                },
-                None => {},
+
+            if let Some(LTV) = max_borrow_LTV {
+                if LTV < Decimal::percent(100) && LTV < asset.max_LTV {
+                    asset.max_borrow_LTV = LTV.clone();
+                    attrs.push( attr("max_borrow_LTV", LTV.to_string() ) );
+                }
             }
             new_asset = asset;
         },
@@ -298,7 +314,7 @@ fn edit_cAsset(
 
     BASKETS.save( deps.storage, basket_id.to_string(), &basket )?;
 
-    Ok( Response::new().add_attributes(attrs) )
+    Ok( Response::new().add_attributes(attrs).add_messages(msgs) )
 }
 
 fn update_config(

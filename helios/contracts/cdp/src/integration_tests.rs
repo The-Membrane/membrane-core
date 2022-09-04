@@ -46,7 +46,13 @@ mod tests {
             basket_id: Uint128,
             position_id: Uint128,
             position_owner: String, 
-        }
+        }, 
+        AddQueue{    
+            bid_for: AssetInfo,
+            bid_asset: AssetInfo,
+            max_premium: Uint128,
+            bid_threshold: Uint256,
+        },
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
@@ -111,7 +117,15 @@ mod tests {
                                 ]))
                             }
                         }
-                    }
+                    }, 
+                    LQ_MockExecuteMsg::AddQueue { 
+                        bid_for, 
+                        bid_asset, 
+                        max_premium, 
+                        bid_threshold 
+                    } => {
+                        Ok( Response::new() )
+                    },
                 }
             },
             |_, _, _, _: LQ_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -180,7 +194,15 @@ mod tests {
                                 ]))
                             }
                         }
-                    }
+                    },
+                    LQ_MockExecuteMsg::AddQueue { 
+                        bid_for, 
+                        bid_asset, 
+                        max_premium, 
+                        bid_threshold 
+                    } => {
+                        Ok( Response::new() )
+                    },
                 }
             },
             |_, _, _, _: LQ_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -219,7 +241,15 @@ mod tests {
                         position_owner,
                     } => {
                         Err( StdError::GenericErr { msg: "no siree".to_string() })
-                    }
+                    },
+                    LQ_MockExecuteMsg::AddQueue { 
+                        bid_for, 
+                        bid_asset, 
+                        max_premium, 
+                        bid_threshold 
+                    } => {
+                        Ok( Response::new() )
+                    },
                 }
             },
             |_, _, _, _: LQ_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -283,7 +313,15 @@ mod tests {
                                 ]))
                             }
                         }
-                    }
+                    },
+                    LQ_MockExecuteMsg::AddQueue { 
+                        bid_for, 
+                        bid_asset, 
+                        max_premium, 
+                        bid_threshold 
+                    } => {
+                        Ok( Response::new() )
+                    },
                 }
             },
             |_, _, _, _: LQ_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -1295,6 +1333,7 @@ mod tests {
             desired_debt_cap_util: None,
             credit_pool_ids: vec![],
             liquidity_multiplier_for_debt_caps: None,
+            liq_queue: None,
         };
         let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
         app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3920,6 +3959,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_pool_ids: vec![],
                 liquidity_multiplier_for_debt_caps: None,
+                liq_queue: None,
             };
             let cosmos_msg = cdp_contract.call(create_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4017,6 +4057,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_pool_ids: vec![],
                 liquidity_multiplier_for_debt_caps: None,
+                liq_queue: None,
             };
             let cosmos_msg = cdp_contract.call(create_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap();
@@ -4128,6 +4169,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_pool_ids: vec![],
                 liquidity_multiplier_for_debt_caps: None,
+                liq_queue: None,
             };
             let cosmos_msg = cdp_contract.call(create_basket_msg, vec![]).unwrap();
             let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();

@@ -101,6 +101,7 @@ pub enum ExecuteMsg {
         desired_debt_cap_util: Option<Decimal>,        
         credit_pool_ids: Vec<u64>, //For liquidity measuring
         liquidity_multiplier_for_debt_caps: Option<Decimal>, //Ex: 5 = debt cap at 5x liquidity
+        liq_queue: Option<String>,
     },
     EditBasket {
         basket_id: Uint128,

@@ -1488,6 +1488,7 @@ pub fn create_basket(
     desired_debt_cap_util: Option<Decimal>,
     credit_pool_ids: Vec<u64>,
     liquidity_multiplier_for_debt_caps: Option<Decimal>,
+    liq_queue: Option<String>,
 ) -> Result<Response, ContractError>{
     let mut config: Config = CONFIG.load(deps.storage)?;
 
@@ -1501,6 +1502,14 @@ pub fn create_basket(
     let mut new_assets = collateral_types.clone();
     let mut collateral_supply_caps = vec![];
 
+    let mut msgs: Vec<CosmosMsg> = vec![];
+
+    
+    let mut new_liq_queue: Option<Addr> = None;
+    if liq_queue.is_some(){ 
+        new_liq_queue = Some( deps.api.addr_validate(&liq_queue.clone().unwrap())? );
+    }
+    
         
     //Minimum viable cAsset parameters
     for (i, asset) in collateral_types.iter().enumerate(){
@@ -1534,6 +1543,26 @@ pub fn create_basket(
             } else {
                 return Err( ContractError::CustomError { val: String::from("Need to setup oracle contract before adding assets") } )
             }
+
+            //Create Liquidation Queue for basket assets
+            if new_liq_queue.clone().is_some(){               
+
+                //Gets Liquidation Queue max premium.
+                //The premium has to be at most 5% less than the difference between max_LTV and 100% 
+                //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
+                let max_premium = Uint128::new(95u128) - asset.max_LTV.atomics();
+
+                msgs.push(CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: new_liq_queue.clone().unwrap().to_string(),
+                    msg: to_binary(&LQ_ExecuteMsg::AddQueue { 
+                        bid_for: asset.clone().asset.info, 
+                        bid_asset: credit_asset.clone().info, 
+                        max_premium, 
+                        bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
+                    })?, 
+                    funds: vec![],
+                }));
+            }     
 
         }
         
@@ -1573,7 +1602,7 @@ pub fn create_basket(
         desired_debt_cap_util,
         pending_revenue: Uint128::zero(),
         credit_last_accrued: env.block.time.seconds(),
-        liq_queue: None,
+        liq_queue: new_liq_queue,
         oracle_set: false,
     };
 
@@ -1615,6 +1644,7 @@ pub fn create_basket(
         attr("credit_asset", credit_asset.to_string() ),
         attr("credit_subdenom", subdenom),
         attr("credit_price", credit_price.to_string()),
+        attr("liq_queue", liq_queue.unwrap_or_else(|| String::from("None")))
     ]).add_submessage(sub_msg))
 }
 
@@ -1655,6 +1685,8 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
         max_LTV: Decimal::zero(),
         pool_info: None, 
     };
+
+    let mut msgs: Vec<CosmosMsg> = vec![];
     
     
     let mut basket = BASKETS.load( deps.storage, basket_id.clone().to_string() )?;
@@ -1665,6 +1697,12 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
         //Each cAsset has to initialize amount as 0..
         new_cAsset = added_cAsset.clone().unwrap();
         new_cAsset.asset.amount = Uint128::zero();
+        
+        //No duplicates
+        if let Some(duplicate) = basket.clone().collateral_types.into_iter().find(|cAsset| cAsset.asset.info.equal(&new_cAsset.asset.info)){
+            return Err( ContractError::CustomError { val: format!("Attempting to add duplicate asset: {}", new_cAsset.asset.info) } )
+        }
+
 
         if added_cAsset.clone().unwrap().pool_info.is_some(){
 
@@ -1726,11 +1764,46 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                 } else {
                     return Err( ContractError::CustomError { val: String::from("Need to setup oracle contract before adding assets") } )
                 }
-
                 
                 //Asserting that its pool assets are already added as collateral types
                 if let None = basket.clone().collateral_types.into_iter().find(|cAsset| cAsset.asset.info.equal(&AssetInfo::NativeToken { denom: asset.clone().denom } ) ) {
                     return Err( ContractError::CustomError { val: format!("Need to add all pool assets before adding the LP. Errored on {}", asset.denom) } )
+                }
+
+                //Create Liquidation Queue for its assets
+                if basket.clone().liq_queue.is_some(){
+                    //Gets Liquidation Queue max premium.
+                    //The premium has to be at most 5% less than the difference between max_LTV and 100% 
+                    //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
+                    let max_premium = Uint128::new(95u128) - new_cAsset.max_LTV * Uint128::new(100u128);
+                    
+                    msgs.push(CosmosMsg::Wasm(WasmMsg::Execute { 
+                        contract_addr: basket.clone().liq_queue.unwrap().into_string(),
+                        msg: to_binary(&LQ_ExecuteMsg::AddQueue { 
+                            bid_for: new_cAsset.clone().asset.info, 
+                            bid_asset: basket.clone().credit_asset.info, 
+                            max_premium, 
+                            bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
+                        })?, 
+                        funds: vec![],
+                    }));
+                } else if new_queue.clone().is_some() {                    
+                    //Gets Liquidation Queue max premium.
+                    //The premium has to be at most 5% less than the difference between max_LTV and 100% 
+                    //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
+                    let max_premium = Uint128::new(95u128) - new_cAsset.max_LTV * Uint128::new(100u128);
+                    
+                    msgs.push(CosmosMsg::Wasm(WasmMsg::Execute { 
+                        contract_addr: new_queue.clone().unwrap().into_string(),
+                        msg: to_binary(&LQ_ExecuteMsg::AddQueue { 
+                            bid_for: new_cAsset.clone().asset.info, 
+                            bid_asset: basket.clone().credit_asset.info, 
+                            max_premium, 
+                            bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
+                        })?, 
+                        funds: vec![],
+                    }));
+
                 }
 
             }
@@ -1750,6 +1823,42 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
 
             } else {
                 return Err( ContractError::CustomError { val: String::from("Need to setup oracle contract before adding assets") } )
+            }
+
+            //Create Liquidation Queue for its assets
+            if basket.clone().liq_queue.is_some(){
+                //Gets Liquidation Queue max premium.
+                //The premium has to be at most 5% less than the difference between max_LTV and 100% 
+                //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
+                let max_premium = Uint128::new(95u128) - new_cAsset.max_LTV * Uint128::new(100u128);
+
+                msgs.push(CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: basket.clone().liq_queue.unwrap().into_string(),
+                    msg: to_binary(&LQ_ExecuteMsg::AddQueue { 
+                        bid_for: new_cAsset.clone().asset.info, 
+                        bid_asset: basket.clone().credit_asset.info, 
+                        max_premium, 
+                        bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
+                    })?, 
+                    funds: vec![],
+                }));
+            } else if new_queue.clone().is_some() {                    
+                //Gets Liquidation Queue max premium.
+                //The premium has to be at most 5% less than the difference between max_LTV and 100% 
+                //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
+                let max_premium = Uint128::new(95u128) - new_cAsset.max_LTV * Uint128::new(100u128);
+                
+                msgs.push(CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: new_queue.clone().unwrap().into_string(),
+                    msg: to_binary(&LQ_ExecuteMsg::AddQueue { 
+                        bid_for: new_cAsset.clone().asset.info, 
+                        bid_asset: basket.clone().credit_asset.info, 
+                        max_premium, 
+                        bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
+                    })?, 
+                    funds: vec![],
+                }));
+
             }
 
         }
@@ -1785,12 +1894,11 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
 
     //Send credit_asset TWAP info to Oracle Contract
     let mut oracle_set = basket.oracle_set;
-    let mut message: Option<CosmosMsg> = None;
 
     if let Some( credit_twap ) = credit_asset_twap_price_source {
         if config.clone().oracle_contract.is_some(){
             //Set the credit Oracle
-            message = Some( CosmosMsg::Wasm(WasmMsg::Execute { 
+            msgs.push( CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: config.clone().oracle_contract.unwrap().to_string(), 
                 msg: to_binary( &OracleExecuteMsg::AddAsset { 
                     asset_info: basket.clone().credit_asset.info, 
@@ -1867,16 +1975,12 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
         }
     })?;
 
-    let res = Response::new();
-
-    if message.is_some(){
-        Ok( res.add_attributes(attrs).add_message( message.unwrap() ) )
-    } else {
-        Ok( res.add_attributes(attrs) )
-    }
-
+    
+    Ok( Response::new().add_attributes(attrs).add_messages(msgs) )
+    
     
 }
+
 
 pub fn edit_contract_owner(
     deps: DepsMut,

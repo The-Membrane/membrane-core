@@ -60,5 +60,6 @@ pub struct WithdrawPropagation {
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const POSITIONS: Map<(String, Addr), Vec<Position>> = Map::new("positions"); //basket_id, owner
 pub const BASKETS: Map<String, Basket> = Map::new("baskets");
+
 pub const REPAY: Item<RepayPropagation> = Item::new("repay_propagation");
 pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");

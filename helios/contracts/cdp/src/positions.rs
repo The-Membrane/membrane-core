@@ -3,7 +3,7 @@ use std::{str::FromStr, convert::TryInto};
 use std::time::{ SystemTime, UNIX_EPOCH };
 
 use cosmwasm_bignumber::Uint256;
-use cosmwasm_std::{MessageInfo, attr, Response, DepsMut, Uint128, CosmosMsg, Decimal, Storage, Api, Coin, to_binary, QueryRequest, WasmQuery, QuerierWrapper, StdResult, StdError, Addr, WasmMsg, BankMsg, SubMsg, coin, Env};
+use cosmwasm_std::{MessageInfo, attr, Response, DepsMut, Uint128, CosmosMsg, Decimal, Storage, Api, Coin, to_binary, QueryRequest, WasmQuery, QuerierWrapper, StdResult, StdError, Addr, WasmMsg, BankMsg, SubMsg, coin, Env, Order};
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
 use cw20::{Cw20ExecuteMsg, BalanceResponse, Cw20QueryMsg};
 use membrane::oracle::{PriceResponse, AssetResponse};
@@ -1586,7 +1586,6 @@ pub fn create_basket(
     let base_interest_rate = base_interest_rate.unwrap_or_else(|| Decimal::percent(0));
     let desired_debt_cap_util = desired_debt_cap_util.unwrap_or_else(|| Decimal::percent(100));    
     let liquidity_multiplier_for_debt_caps = liquidity_multiplier_for_debt_caps.unwrap_or_else(|| Decimal::one());    
-
     
     let new_basket: Basket = Basket {
         owner: valid_owner.clone(),
@@ -1662,7 +1661,7 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
     base_interest_rate: Option<Decimal>,
     desired_debt_cap_util: Option<Decimal>,
     credit_asset_twap_price_source: Option<TWAPPoolInfo>,
-)->Result<Response, ContractError>{
+) -> Result<Response, ContractError>{
 
     let config = CONFIG.load( deps.storage )?;
     
@@ -1974,7 +1973,6 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
             None => return Err(ContractError::NonExistentBasket { })
         }
     })?;
-
     
     Ok( Response::new().add_attributes(attrs).add_messages(msgs) )
     

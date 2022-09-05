@@ -251,9 +251,7 @@ pub fn query_baskets(
         .range(deps.storage, start, None, Order::Ascending)
         .take(limit)
         .map(|item| {
-            let (k, basket) = item?;
-
-                            
+            let (k, basket) = item?;                            
 
             Ok(BasketResponse {
                 owner: basket.owner.to_string(),

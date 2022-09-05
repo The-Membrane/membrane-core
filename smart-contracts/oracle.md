@@ -134,6 +134,7 @@ pub enum QueryMsg {
     Price {
         asset_info: AssetInfo,
         twap_timeframe: u64, 
+        basket_id: Option<Uint128>,
     }
 }
 
@@ -143,10 +144,13 @@ pub struct PriceResponse {
 }
 ```
 
-| Key              | Type      | Description                              |
-| ---------------- | --------- | ---------------------------------------- |
-| `asset_info`     | AssetInfo | Asset info                               |
-| `twap_timeframe` | u64       | TWAP timeframe (in days) for TWAP prices |
+| Key              | Type      | Description                                     |
+| ---------------- | --------- | ----------------------------------------------- |
+| `asset_info`     | AssetInfo | Asset info                                      |
+| `twap_timeframe` | u64       | TWAP timeframe (in days) for TWAP prices        |
+| `*basket_id`     | Uint128   | Basket\_id to select oracle quote asset for CDT |
+
+&#x20;\* = optional
 
 ### `Prices`
 

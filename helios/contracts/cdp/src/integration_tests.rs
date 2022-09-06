@@ -1055,18 +1055,86 @@ mod tests {
                                     prices: vec![],
                                     avg_price: Decimal::percent(500),
                                 })? )
+                        
+                            } else if asset_info.to_string() == String::from("credit_fulldenom"){
+                                    
+                                Ok( to_binary(&PriceResponse { 
+                                    prices: vec![],
+                                    avg_price: Decimal::percent(98),
+                                })? )
                             } else {
                                 Ok( to_binary(&PriceResponse { 
                                     prices: vec![],
                                     avg_price: Decimal::one(),
                                 })? )
                             }
-                        } else if asset_info.to_string() == String::from("credit_fulldenom"){
-                                
+                        } else {
                             Ok( to_binary(&PriceResponse { 
                                 prices: vec![],
-                                avg_price: Decimal::percent(98),
+                                avg_price: Decimal::one(),
                             })? )
+                        }
+                        
+                        
+                    },
+                    Oracle_MockQueryMsg::Asset { asset_info } => {
+                        Ok( to_binary(&AssetResponse { 
+                            asset_info: AssetInfo::NativeToken { denom: String::from("denom") },
+                            oracle_info: AssetOracleInfo {
+                                osmosis_pool_for_twap: TWAPPoolInfo {
+                                    pool_id: 0u64,
+                                    base_asset_denom: String::from("denom"),
+                                    quote_asset_denom: String::from("denom"),
+                                },
+                            },
+                        })? )
+                    },
+                }  },
+        );
+        Box::new(contract)
+    }
+
+    pub fn oracle_contract_negative_rates()-> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: Oracle_MockExecuteMsg| -> StdResult<Response> {
+                match msg {
+                    Oracle_MockExecuteMsg::AddAsset { 
+                        asset_info, 
+                        oracle_info, 
+                    }  => {
+                        
+                        Ok(Response::default())
+                    },
+                }
+            },
+            |_, _, _, _: Oracle_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
+            |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    Oracle_MockQueryMsg::Price { 
+                        asset_info,
+                        twap_timeframe,
+                        basket_id 
+                    } => {
+
+                        if basket_id.is_some(){
+                            if basket_id.unwrap() == Uint128::new(2u128){              
+                                Ok( to_binary(&PriceResponse { 
+                                    prices: vec![],
+                                    avg_price: Decimal::percent(500),
+                                })? )
+                        
+                            } else if asset_info.to_string() == String::from("credit_fulldenom"){
+                                    
+                                Ok( to_binary(&PriceResponse { 
+                                    prices: vec![],
+                                    avg_price: Decimal::percent(102),
+                                })? )
+                            } else {
+                                Ok( to_binary(&PriceResponse { 
+                                    prices: vec![],
+                                    avg_price: Decimal::one(),
+                                })? )
+                            }
                         } else {
                             Ok( to_binary(&PriceResponse { 
                                 prices: vec![],
@@ -1296,7 +1364,12 @@ mod tests {
             .unwrap();
 
         //Instaniate Oracle Contract
-        let oracle_id = app.store_code(oracle_contract());
+        let mut oracle_id: u64;
+        if liq_minimum {
+            oracle_id = app.store_code(oracle_contract());
+        } else {
+            oracle_id = app.store_code(oracle_contract_negative_rates());            
+        }
 
         let oracle_contract_addr = app
             .instantiate_contract(
@@ -2125,12 +2198,12 @@ mod tests {
             
             app.set_block( BlockInfo { 
                 height: app.block_info().height, 
-                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
+                time: app.block_info().time.plus_seconds(31536000u64), 
                 chain_id: app.block_info().chain_id } );
             app.execute(Addr::unchecked("test"), cosmos_msg).unwrap_err();
 
                             
-            //Successful repayment of the full position
+            //Successful repayment up to the new minimum debt
             //With only repayment price increases, the amount being repaid doesn't change..
             //..but the amount that results in minimum debt errors decreases
             let msg = ExecuteMsg::Repay { 
@@ -2138,7 +2211,7 @@ mod tests {
                 position_id: Uint128::from(1u128),
                 position_owner: None,
             };
-            let cosmos_msg = cdp_contract.call(msg, vec![coin(49_501, "credit_fulldenom")]).unwrap();
+            let cosmos_msg = cdp_contract.call(msg, vec![coin(48_039, "credit_fulldenom")]).unwrap();
             app.set_block( BlockInfo { 
                 height: app.block_info().height, 
                 time: app.block_info().time.plus_seconds(31536000u64), //Added a year
@@ -2158,36 +2231,27 @@ mod tests {
                 position_owner:  "test".to_string(),  
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res.credit_amount, String::from("498"));
+            assert_eq!(res.credit_amount, String::from("1960"));
 
 
              //Insolvent withdrawal at that brings position to previous debt minimum
-             ////This wouldn't insolvent if there wasn't an increased repayment price
-             /// 498 backed by 996: 50% borrow LTV so would've been solvent at $1 credit
+             ////This wouldn't be insolvent if there wasn't an increased repayment price
+             /// 1960 backed by 3920: 50% borrow LTV so would've been solvent at $1 credit
              let msg = ExecuteMsg::Withdraw {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 assets: vec![Asset { 
                     info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
-                    amount: Uint128::from(99_004u128)
+                    amount: Uint128::from(96_080u128)
                 }],
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.set_block( BlockInfo { 
                 height: app.block_info().height, 
-                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
+                time: app.block_info().time.plus_seconds(31536000u64), 
                 chain_id: app.block_info().chain_id } );
             app.execute(Addr::unchecked("test"), cosmos_msg).unwrap_err();
 
-
-            //Successful Increase just so the liquidation works
-            let msg = ExecuteMsg::IncreaseDebt{
-                basket_id: Uint128::from(1u128),
-                position_id: Uint128::from(1u128),
-                amount: Uint128::from(2u128),
-            };
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
 
             //Call liquidate on CDP contract
             let msg = ExecuteMsg::Liquidate { 
@@ -2202,8 +2266,8 @@ mod tests {
                 chain_id: app.block_info().chain_id } );
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Would normally liquidate and leave 99863 "debit"
-            // but w/ accrued interest its leaving 99782
+            //Would normally liquidate and leave 98003 "debit"
+            // but w/ accrued interest its leaving 97926
             let query_msg = QueryMsg::GetUserPositions { 
                 basket_id: None, 
                 user: String::from("test"), 
@@ -2211,7 +2275,119 @@ mod tests {
             };
             
             let res: Vec<PositionResponse> = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res[0].collateral_assets[0].asset.amount, Uint128::new(99782));
+            assert_eq!(res[0].collateral_assets[0].asset.amount, Uint128::new(97926));
+
+            //////////////NEGATIVE RATES///////
+            /// 
+            /// ///////
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
+            
+            //Edit Basket
+            let msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: None, 
+                owner: None, 
+                liq_queue: Some( lq_contract.addr().to_string() ),
+                liquidity_multiplier: Some( Decimal::percent( 500 ) ),
+                pool_ids: Some( vec![ 1u64 ] ),
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None, 
+                negative_rates: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            
+            //Initial Deposit
+            let msg = ExecuteMsg::Deposit { 
+                position_owner: Some( "test".to_string() ),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg, 
+                    vec![
+                        Coin { 
+                            denom: "debit".to_string(),
+                            amount: Uint128::from(100_000u128),
+                            } 
+                        ])
+                    .unwrap();
+            app.set_block( BlockInfo { 
+                height: app.block_info().height, 
+                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
+                chain_id: app.block_info().chain_id } );
+            app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
+
+            //Successful Increase
+            let msg = ExecuteMsg::IncreaseDebt{
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                amount: Uint128::from(49_999u128),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
+            //Send credit
+            app.send_tokens(Addr::unchecked("sender"), Addr::unchecked("test"), &[ coin(49_999, "credit_fulldenom") ]).unwrap();
+            
+            ///Expected to pass due to a lower repayment price
+            /// //otherwise this would be insolvent
+            let msg = ExecuteMsg::IncreaseDebt{
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                amount: Uint128::from(2u128),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            
+            app.set_block( BlockInfo { 
+                height: app.block_info().height, 
+                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
+                chain_id: app.block_info().chain_id } );
+            app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
+
+                            
+            //Successful repayment up to the new minimum debt
+            //With repayment price decreases, the amount being repaid doesn't change..
+            //..but the amount that results in minimum debt errors increases from 2000 
+            let msg = ExecuteMsg::Repay { 
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                position_owner: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![coin(47_999, "credit_fulldenom")]).unwrap();
+            app.set_block( BlockInfo { 
+                height: app.block_info().height, 
+                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
+                chain_id: app.block_info().chain_id } );
+            let err = app.execute(Addr::unchecked("test"), cosmos_msg).unwrap_err();
+            assert_eq!( err.root_cause().to_string(), String::from("Position's debt is below minimum") );
+
+            //Assert Increased credit price is saved correctly
+            //After 3 years
+            let query_msg = QueryMsg::GetBasket { 
+                basket_id: Uint128::new(1u128), 
+            };
+            let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            assert_eq!(res.credit_price, String::from("0.9699"));
+
+            let query_msg = QueryMsg::GetPosition { 
+                position_id: Uint128::new(1u128), 
+                basket_id: Uint128::new(1u128), 
+                position_owner:  "test".to_string(),  
+            };
+            let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            assert_eq!(res.credit_amount, String::from("50001"));
+
+
            
         }
 
@@ -2927,6 +3103,28 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
+            //Lower debt minimum
+            let msg = ExecuteMsg::UpdateConfig { 
+                owner: None, 
+                stability_pool: None,  
+                dex_router: None,  
+                osmosis_proxy: None,  
+                debt_auction: None,  
+                staking_contract: None,  
+                oracle_contract: None,  
+                interest_revenue_collector: None,  
+                liq_fee: None,  
+                debt_minimum: Some( Uint128::new(500u128) ),  
+                base_debt_cap_multiplier: None,  
+                oracle_time_limit: None,  
+                twap_timeframe: None,  
+                cpc_margin_of_error: None,  
+                rate_slope_multiplier: None, 
+            } ;
+                
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
             //Initial Deposit
             let msg = ExecuteMsg::Deposit { 
                 position_owner: Some( USER.to_string() ),
@@ -2945,8 +3143,11 @@ mod tests {
                     .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Increase Debt
-            let msg = ExecuteMsg::IncreaseDebt{
+            //Increase Debt to a point where a liquidations:
+            //1. Liquidates less than the debt_minimum
+            //2. Brings the position below the minimum debt
+            //..Which then results in a full liquidation
+            let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 amount: Uint128::from(999u128),

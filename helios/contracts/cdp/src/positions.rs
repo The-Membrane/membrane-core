@@ -935,7 +935,7 @@ pub fn liquidate(
     //Assert repay_value is above the minimum, if not repay at least the minimum
     //Repay the full loan if the resulting is going to be less than the minimum.
     let decimal_debt_minimum = Decimal::from_ratio(config.debt_minimum, Uint128::new(1u128));
-    if repay_value < decimal_debt_minimum{
+    if repay_value < decimal_debt_minimum {
         //If setting the repay value to the minimum leaves at least the minimum in the position...
         //..then partially liquidate
         if loan_value - decimal_debt_minimum >= decimal_debt_minimum{
@@ -1970,6 +1970,11 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                         basket.negative_rates = toggle.clone();
                         attrs.push( attr("new_negative_rates", toggle.to_string()) );
                     }
+                    //Set basket specific multiplier
+                    if let Some(multiplier) = liquidity_multiplier {
+                        basket.liquidity_multiplier = multiplier.clone();
+                        attrs.push( attr("new_liquidity_multiplier", multiplier.to_string()) );
+                    }
 
                     basket.oracle_set = oracle_set;
                 }
@@ -1981,8 +1986,21 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
     })?;
 
     //Set asset specific multiplier
-    if let Some(multiplier) = liquidity_multiplier {
-        CREDIT_MULTI.save(deps.storage, basket.credit_asset.info.to_string(), &multiplier)?;
+    if let Some(_multiplier) = liquidity_multiplier {
+
+        let mut credit_asset_multiplier = Decimal::zero();
+        //Uint128 to int
+        let range: i32 = config.current_basket_id.to_string().parse().unwrap();
+
+        for basket_id in 1..range{
+            let stored_basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
+
+            //Add if same credit asset
+            if stored_basket.credit_asset.info.equal( &basket.credit_asset.info ) {
+                credit_asset_multiplier += stored_basket.liquidity_multiplier;
+            }            
+        }        
+        CREDIT_MULTI.save(deps.storage, basket.credit_asset.info.to_string(), &credit_asset_multiplier)?;
     }
 
     
@@ -3012,7 +3030,7 @@ fn get_basket_debt_caps(
 
     //Get credit_asset's liquidity_multiplier
     let credit_asset_multiplier = get_credit_asset_multiplier( storage, querier, env.clone(), config.clone(), basket.clone() )?;
-
+   
     //Get the base debt cap 
     let mut debt_cap = get_asset_liquidity( querier, config.clone(), basket.clone().credit_pool_ids, basket.clone().credit_asset.info )? 
         * credit_asset_multiplier;
@@ -3055,7 +3073,7 @@ fn get_credit_asset_multiplier(
 ) -> StdResult<Decimal>{
 
     //Find Baskets with similar credit_asset
-    let mut baskets: Vec<Basket> = vec![ basket.clone() ];
+    let mut baskets: Vec<Basket> = vec![  ];
 
     //Has to be done ugly due to an immutable borrow
     //Uint128 to int
@@ -3127,7 +3145,6 @@ fn get_credit_asset_multiplier(
             
         }
     }
-        
     //Find Basket parameter's ratio of total collateral
     let basket_tvl_ratio: Decimal = basket_collateral_ratios.clone()
         .into_iter()
@@ -3145,8 +3162,10 @@ fn get_credit_asset_multiplier(
     //Get credit_asset's liquidity multiplier
     let credit_asset_liquidity_multiplier = CREDIT_MULTI.load( storage, basket.clone().credit_asset.info.to_string() )?;
 
-    //Return Minimum between (ratio * credit_asset's multiplier) and basket's liquidity_multiplier
-    Ok( min( decimal_multiplication( basket_tvl_ratio, credit_asset_liquidity_multiplier ), basket.liquidity_multiplier ) )
+    //Get Minimum between (ratio * credit_asset's multiplier) and basket's liquidity_multiplier
+    let multiplier = min( decimal_multiplication( basket_tvl_ratio, credit_asset_liquidity_multiplier ), basket.liquidity_multiplier );
+    
+    Ok( multiplier )
  }
 
  pub fn get_asset_liquidity(
@@ -3399,14 +3418,9 @@ fn get_credit_asset_multiplier(
     })?;
 
      //Error if over the asset cap
-     if over_cap{
-        let mut assets = String::from("");
-
-        assets_over_cap.into_iter().map(|asset| {
-                assets += &format!("{}, ", asset);
-        });
-
-        return Err( ContractError::CustomError { val: format!("This increase of debt sets [ {:?} ] assets above the protocol debt cap", assets) } )
+     if over_cap {
+        
+        return Err( ContractError::CustomError { val: format!("This increase of debt sets [ {:?} ] assets above the protocol debt cap", assets_over_cap) } )
     }
  
      Ok(())
@@ -3556,7 +3570,7 @@ fn get_interest_rates(
     //For every % above the desired, it adds a multiple
     //Ex: Desired = 90%, proportion = 91%, interest = 2%. New rate = 4%.
     //Acts as two_slope rate
-
+    
     Ok( two_slope_pro_rata_rates )     
 
 }
@@ -3726,7 +3740,7 @@ fn accrue(
         };
 
         //Don't accrue interest if price is within the margin of error
-        if price_difference > config.clone().cpc_margin_of_error{
+        if price_difference > config.clone().cpc_margin_of_error {
 
             price_difference = decimal_subtraction(price_difference, config.clone().cpc_margin_of_error);
             
@@ -3743,10 +3757,11 @@ fn accrue(
             //Add 1 to make the value 1.__
             applied_rate += Decimal::one();
             if negative_rate {
-                //Subtract 2x price difference to make it .9___
-                let double_difference = decimal_multiplication( price_difference, Decimal::from_ratio(Uint128::new(2u128), Uint128::new(1u128)) );
-                applied_rate = decimal_subtraction( applied_rate, double_difference );
+                
+                //Subtract price difference to make it .9___
+                applied_rate = decimal_subtraction( Decimal::one(), price_difference );                
             }
+            //if negative_rate && applied_rate != Decimal::one() {panic!("{}", applied_rate)};
         
             let mut new_price = basket.credit_price;
             //Negative repayment interest needs to be enabled by the basket

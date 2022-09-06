@@ -216,6 +216,7 @@ pub fn query_basket(
                 liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
                 collateral_supply_caps: basket.collateral_supply_caps,
                 base_interest_rate: basket.base_interest_rate,
+                liquidity_multiplier: basket.liquidity_multiplier,
                 desired_debt_cap_util: basket.desired_debt_cap_util,
                 pending_revenue: basket.pending_revenue,
             }
@@ -264,6 +265,7 @@ pub fn query_baskets(
                 liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
                 collateral_supply_caps: basket.collateral_supply_caps,
                 base_interest_rate: basket.base_interest_rate,
+                liquidity_multiplier: basket.liquidity_multiplier,
                 desired_debt_cap_util: basket.desired_debt_cap_util,
                 pending_revenue: basket.pending_revenue,
                 

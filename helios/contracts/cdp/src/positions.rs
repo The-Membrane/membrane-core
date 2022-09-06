@@ -1588,7 +1588,7 @@ pub fn create_basket(
 
     let base_interest_rate = base_interest_rate.unwrap_or_else(|| Decimal::percent(0));
     let desired_debt_cap_util = desired_debt_cap_util.unwrap_or_else(|| Decimal::percent(100));    
-    let liquidity_multiplier_for_debt_caps = liquidity_multiplier_for_debt_caps.unwrap_or_else(|| Decimal::one());    
+    let liquidity_multiplier = liquidity_multiplier_for_debt_caps.unwrap_or_else(|| Decimal::one());    
     
     
     let new_basket: Basket = Basket {
@@ -1601,6 +1601,7 @@ pub fn create_basket(
         credit_price,
         credit_pool_ids,
         base_interest_rate,
+        liquidity_multiplier,
         desired_debt_cap_util,
         pending_revenue: Uint128::zero(),
         credit_last_accrued: env.block.time.seconds(),
@@ -1613,7 +1614,7 @@ pub fn create_basket(
 
     if let AssetInfo::NativeToken { denom } = credit_asset.clone().info {
         //Create credit as native token using a tokenfactory proxy
-        sub_msg = create_denom( config.clone(), String::from(denom.clone()), new_basket.basket_id.to_string(), Some( liquidity_multiplier_for_debt_caps ) )?;
+        sub_msg = create_denom( config.clone(), String::from(denom.clone()), new_basket.basket_id.to_string(), Some( liquidity_multiplier ) )?;
 
         subdenom = denom;
     }else{
@@ -3138,8 +3139,8 @@ fn get_credit_asset_multiplier(
     //Get credit_asset's liquidity multiplier
     let credit_asset_liquidity_multiplier = CREDIT_MULTI.load( storage, basket.clone().credit_asset.info.to_string() )?;
 
-    //Return ratio * credit_asset's multiplier
-    Ok( decimal_multiplication( basket_tvl_ratio, credit_asset_liquidity_multiplier ) )
+    //Return Minimum between (ratio * credit_asset's multiplier) and basket's liquidity_multiplier
+    Ok( min( decimal_multiplication( basket_tvl_ratio, credit_asset_liquidity_multiplier ), basket.liquidity_multiplier ) )
  }
 
  pub fn get_asset_liquidity(

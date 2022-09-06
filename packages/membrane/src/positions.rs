@@ -237,6 +237,7 @@ pub struct BasketResponse{
     pub credit_pool_ids: Vec<u64>,
     pub liq_queue: String,
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
+    pub liquidity_multiplier: Decimal,
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
     pub pending_revenue: Uint128,
 }

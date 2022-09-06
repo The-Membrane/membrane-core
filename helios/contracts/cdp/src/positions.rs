@@ -3124,7 +3124,7 @@ fn get_credit_asset_multiplier(
 
     }
 
-    //Get collateral_ratios 
+    //Get total_collateral_value
     let temp_cAssets: Vec<cAsset> = collateral_totals.clone()
         .into_iter() 
         .map(|asset| {
@@ -3138,37 +3138,56 @@ fn get_credit_asset_multiplier(
         })
         .collect::<Vec<cAsset>>();
 
-    let total_collateral_ratios = get_cAsset_ratios(storage, env.clone(), querier, temp_cAssets, config.clone())?;
-
-    //Find Basket parameter's ratio of each collateral
-    let mut basket_collateral_ratios: Vec<Decimal> = vec![];
-    for ( i, collateral ) in basket.clone().collateral_supply_caps.into_iter().enumerate() {
-        if !collateral.lp{
-            //Push collateral_ratio
-            if collateral_totals[i].amount.is_zero() {
-                basket_collateral_ratios.push( Decimal::zero() );
-            } else {
-                basket_collateral_ratios.push( decimal_division(
-                    Decimal::from_ratio(collateral.current_supply, Uint128::new(1u128)),
-                    Decimal::from_ratio(collateral_totals[i].amount, Uint128::new(1u128))
-                ) );
-            }
-            
-        }
-    }
-    //Find Basket parameter's ratio of total collateral
-    let basket_tvl_ratio: Decimal = basket_collateral_ratios.clone()
-        .into_iter()
-        .enumerate()
-        .map(|( i, basket_ratio )| {
-            
-            //Multiply the two lists of ratios
-            decimal_multiplication( basket_ratio, total_collateral_ratios[i] )
-
-        })
-        .collect::<Vec<Decimal>>()
+    let total_collateral_value: Decimal = get_asset_values(storage, env.clone(), querier, temp_cAssets, config.clone(), None)?
+        .0
         .into_iter()
         .sum();
+
+    //Get basket_collateral_value 
+    let temp_cAssets: Vec<cAsset> = basket.clone().collateral_supply_caps
+        .into_iter() 
+        .map(|cap| {
+            cAsset {
+                asset: Asset { info: cap.asset_info, amount: cap.current_supply },
+                max_borrow_LTV: Decimal::zero(),
+                max_LTV: Decimal::zero(),
+                pool_info: None,
+            }
+                        
+        })
+        .collect::<Vec<cAsset>>();
+
+    let basket_collateral_value: Decimal = get_asset_values(storage, env.clone(), querier, temp_cAssets, config.clone(), None)?
+        .0
+        .into_iter()
+        .sum();
+    // let total_collateral_ratios = get_cAsset_ratios(storage, env.clone(), querier, temp_cAssets, config.clone())?;
+
+    // //Find Basket parameter's ratio of each collateral
+    // let mut basket_collateral_ratios: Vec<Decimal> = vec![];
+    // for ( i, collateral ) in basket.clone().collateral_supply_caps.into_iter().enumerate() {
+    //     if !collateral.lp{
+    //         //Push collateral_ratio
+    //         if collateral_totals[i].amount.is_zero() {
+    //             basket_collateral_ratios.push( Decimal::zero() );
+    //         } else {
+    //             basket_collateral_ratios.push( decimal_division(
+    //                 Decimal::from_ratio(collateral.current_supply, Uint128::new(1u128)),
+    //                 Decimal::from_ratio(collateral_totals[i].amount, Uint128::new(1u128))
+    //             ) );
+    //         }
+            
+    //     }
+    // }
+
+    //Find Basket parameter's ratio of total collateral
+    let basket_tvl_ratio: Decimal = {
+       if !basket_collateral_value.is_zero() {
+        decimal_division(total_collateral_value, basket_collateral_value)
+       } else {
+        Decimal::zero()
+       }
+    };
 
     //Get credit_asset's liquidity multiplier
     let credit_asset_liquidity_multiplier = CREDIT_MULTI.load( storage, basket.clone().credit_asset.info.to_string() )?;

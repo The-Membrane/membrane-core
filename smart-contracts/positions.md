@@ -677,6 +677,7 @@ pub struct BasketResponse{
     pub debt_pool_ids: Vec<u64>,
     pub liq_queue: String,
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
+    pub liquidity_multiplier: Decimal,
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
     pub pending_revenue: Uint128, 
 }
@@ -712,6 +713,7 @@ pub struct BasketResponse{
     pub debt_liquidity_multiplier_for_caps: Decimal, //Ex: 5 = debt cap at 5x liquidity.
     pub liq_queue: String,
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
+    pub liquidity_multiplier: Decimal,
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
     pub pending_revenue: Uint128, 
 }

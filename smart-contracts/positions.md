@@ -410,6 +410,24 @@ pub struct TWAPPoolInfo {
 
 \* = optional
 
+### `CloneBasket`
+
+Clone an existing basket
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecuteMsg {
+    CloneBasket {
+        basket_id: Uint128,
+    }
+}
+```
+
+| Key         | Type    | Description        |
+| ----------- | ------- | ------------------ |
+| `basket_id` | Uint128 | Basket identifier  |
+
 ### `EditcAsset`
 
 Edit a basket's cAsset

@@ -4657,6 +4657,36 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
+             //Add supply caps
+             let edit_basket_msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(2u128), 
+                added_cAsset: None, 
+                owner: None, 
+                liq_queue: None, 
+                pool_ids: Some( vec![ 1u64 ] ),
+                liquidity_multiplier: None, 
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    },
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "2nddebit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]), 
+                base_interest_rate: None, 
+                desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None, 
+            };
+            let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
             //Query that it was saved correctly, price as well            
             let query_msg = QueryMsg::GetBasket {
                 basket_id: Uint128::new(2u128), 
@@ -4670,7 +4700,7 @@ mod tests {
                 basket_id: Uint128::from(2u128),
                 position_id: None,
             };
-            let cosmos_msg = cdp_contract.call(exec_msg, coins(200, "debit")).unwrap();
+            let cosmos_msg = cdp_contract.call(exec_msg, vec![coin(100, "debit"), coin(100, "2nddebit")]).unwrap();
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Query Basket Debt Caps
@@ -4679,10 +4709,11 @@ mod tests {
                 basket_id: Uint128::new(2u128), 
             };
             let res: DebtCapResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res.caps, String::from("debit: 0/47392, 2nddebit: 0/0, ") );
+            assert_eq!(res.caps, String::from("debit: 0/23696, 2nddebit: 0/23696, ") );
 
             //Query Basket Debt Caps
             //Has less than minimum, ~2000, so gets 20000
+            //Has no 2nddebit collateral so gets no cap
             let query_msg = QueryMsg::GetBasketDebtCaps {
                 basket_id: Uint128::new(1u128), 
             };

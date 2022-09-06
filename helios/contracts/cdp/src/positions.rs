@@ -3880,6 +3880,7 @@ pub fn clone_basket(
         .map(|cap| {
             SupplyCap {
                 current_supply: Uint128::zero(),
+                supply_cap_ratio: Decimal::zero(),
                 ..cap
             }
         })

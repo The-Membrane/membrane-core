@@ -272,6 +272,7 @@ pub struct Basket {
     pub pending_revenue: Uint128,
     pub credit_last_accrued: u64,
     pub oracle_set: bool, //If the credit oracle was set. Can't update repayment price without.
+    pub negative_rates: bool, //Allow negative repayment interest or not
     //Contracts
     pub liq_queue: Option<Addr>, //Each basket holds its own liq_queue contract
 }

@@ -113,7 +113,8 @@ pub enum ExecuteMsg {
         collateral_supply_caps: Option<Vec<SupplyCap>>,
         base_interest_rate: Option<Decimal>,
         desired_debt_cap_util: Option<Decimal>,
-        credit_asset_twap_price_source: Option<TWAPPoolInfo>,        
+        credit_asset_twap_price_source: Option<TWAPPoolInfo>,   
+        negative_rates: Option<bool>, //Allow negative repayment interest or not     
     },
     //Clone basket. Reset supply_caps. Sets repayment price to new oracle price.
     //When using this to add a new UoA:
@@ -240,6 +241,7 @@ pub struct BasketResponse{
     pub liquidity_multiplier: Decimal,
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
     pub pending_revenue: Uint128,
+    pub negative_rates: bool, //Allow negative repayment interest or not
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

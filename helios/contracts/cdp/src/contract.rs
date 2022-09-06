@@ -219,7 +219,7 @@ pub fn execute(
         }
         ExecuteMsg::EditAdmin { owner } => edit_contract_owner(deps, info, owner),
         ExecuteMsg::EditcAsset { basket_id, asset, max_borrow_LTV, max_LTV } => edit_cAsset(deps, info, basket_id, asset, max_borrow_LTV, max_LTV),
-        ExecuteMsg::EditBasket { basket_id, added_cAsset, owner, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source } => edit_basket(deps, info, basket_id, added_cAsset, owner, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source ),
+        ExecuteMsg::EditBasket { basket_id, added_cAsset, owner, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source, negative_rates } => edit_basket(deps, info, basket_id, added_cAsset, owner, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source, negative_rates ),
         ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, base_interest_rate, desired_debt_cap_util, credit_pool_ids, liquidity_multiplier_for_debt_caps, liq_queue } => create_basket( deps, info, env, owner, collateral_types, credit_asset, credit_price, base_interest_rate, desired_debt_cap_util, credit_pool_ids, liquidity_multiplier_for_debt_caps, liq_queue ),
         ExecuteMsg::CloneBasket { basket_id } => clone_basket(deps, basket_id),
         ExecuteMsg::Liquidate { basket_id, position_id, position_owner } => liquidate(deps.storage, deps.api, deps.querier, env, info, basket_id, position_id, position_owner),

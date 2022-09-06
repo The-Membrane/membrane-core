@@ -1606,6 +1606,7 @@ pub fn create_basket(
         pending_revenue: Uint128::zero(),
         credit_last_accrued: env.block.time.seconds(),
         liq_queue: new_liq_queue,
+        negative_rates: true,
         oracle_set: false,
     };
 
@@ -1665,6 +1666,7 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
     base_interest_rate: Option<Decimal>,
     desired_debt_cap_util: Option<Decimal>,
     credit_asset_twap_price_source: Option<TWAPPoolInfo>,
+    negative_rates: Option<bool>,
 ) -> Result<Response, ContractError>{
 
     let config = CONFIG.load( deps.storage )?;
@@ -1963,6 +1965,10 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                     if desired_debt_cap_util.is_some(){
                         basket.desired_debt_cap_util = desired_debt_cap_util.clone().unwrap();
                         attrs.push( attr("new_desired_debt_cap_util", desired_debt_cap_util.clone().unwrap().to_string()) );
+                    }
+                    if let Some(toggle) = negative_rates{
+                        basket.negative_rates = toggle.clone();
+                        attrs.push( attr("new_negative_rates", toggle.to_string()) );
                     }
 
                     basket.oracle_set = oracle_set;
@@ -3742,7 +3748,13 @@ fn accrue(
                 applied_rate = decimal_subtraction( applied_rate, double_difference );
             }
         
-            let new_price = decimal_multiplication( basket.credit_price, applied_rate );
+            let mut new_price = basket.credit_price;
+            //Negative repayment interest needs to be enabled by the basket
+            if negative_rate && basket.negative_rates {
+                new_price = decimal_multiplication( basket.credit_price, applied_rate );
+            } else if !negative_rate {
+                new_price = decimal_multiplication( basket.credit_price, applied_rate );
+            }            
 
             basket.credit_price = new_price;
         }

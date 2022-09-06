@@ -219,6 +219,7 @@ pub fn query_basket(
                 liquidity_multiplier: basket.liquidity_multiplier,
                 desired_debt_cap_util: basket.desired_debt_cap_util,
                 pending_revenue: basket.pending_revenue,
+                negative_rates: basket.negative_rates,
             }
         },
         Err(_) => { return Err(StdError::generic_err("Invalid basket_id")) },
@@ -268,7 +269,7 @@ pub fn query_baskets(
                 liquidity_multiplier: basket.liquidity_multiplier,
                 desired_debt_cap_util: basket.desired_debt_cap_util,
                 pending_revenue: basket.pending_revenue,
-                
+                negative_rates: basket.negative_rates,                
             })
             
         })

@@ -975,8 +975,7 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Resp
     match msg.result.into_result(){
          Ok(result)  => {
             //1) Parse potential repaid_amount and substract from running total
-            //2) Send collateral to the Queue
-            
+            //2) Send collateral to the Queue            
 
             let liq_event = result
                 .events
@@ -1045,14 +1044,16 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Resp
 
                 if !prop.liq_queue_leftovers.is_zero(){
                     prop.liq_queue_leftovers = decimal_subtraction( prop.liq_queue_leftovers, Decimal::from_ratio(repay_amount, Uint128::new(1u128)));              
-
-                    REPAY.save(deps.storage, &prop)?;
+                    
                     //SP reply handles LQ_leftovers
                 }
 
-                update_position_claims(deps.storage, deps.querier, env, prop.basket_id, prop.position_id, prop.position_owner, token_info, send_amount)?;
+                update_position_claims(deps.storage, deps.querier, env, prop.basket_id, prop.clone().position_id, prop.clone().position_owner, token_info, send_amount)?;
             }
-
+            //Remove Asset
+            prop.per_asset_repayment.remove(0);
+            REPAY.save(deps.storage, &prop)?;
+            
             
             //TODO: Add detail
             Ok(Response::new().add_message(msg))
@@ -1063,7 +1064,48 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Resp
         Err( string ) => {
             //If error, do nothing
             //The SP reply will handle the sell wall
-            Ok( Response::new().add_attribute( "error", string) )
+
+            let mut submessages: Vec<SubMsg> = vec![];
+            let mut repay_amount = Decimal::zero();
+
+            let mut prop: RepayPropagation = REPAY.load(deps.storage)?;
+
+            //If SP wasn't called, meaning LQ leftovers can't be handled there, sell wall this asset's leftovers
+            //Replies are FIFO so we remove from front
+            if prop.stability_pool == Decimal::zero() {
+
+                //Sell wall asset's repayment amount
+                let ( sell_wall_msgs, collateral_distributions ) = sell_wall_using_ids( 
+                    deps.storage,
+                    env,
+                    deps.querier, 
+                    prop.clone().basket_id,
+                    prop.clone().position_id,
+                    prop.clone().position_owner,
+                    prop.clone().per_asset_repayment[0],
+                    )?;
+                
+                repay_amount = prop.clone().per_asset_repayment[0];
+
+                //Save new distributions from this liquidations
+                prop.sell_wall_distributions = add_distributions(prop.sell_wall_distributions, SellWallDistribution {distributions: collateral_distributions} );
+
+                submessages.extend( sell_wall_msgs.
+                    into_iter()
+                    .map(|msg| {
+                        //If this succeeds, we update the positions collateral claims
+                        //If this fails, do nothing. Try again isn't a useful alternative.
+                        SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
+                    }).collect::<Vec<SubMsg>>() );
+
+            }
+
+            prop.per_asset_repayment.remove(0);
+            REPAY.save(deps.storage, &prop)?;
+
+            Ok( Response::new().add_submessages(submessages)
+                .add_attribute( "error", string)
+                .add_attribute( "sent_to_sell_wall",repay_amount.to_string() ) )
         }        
     }        
 }
@@ -1079,7 +1121,7 @@ fn handle_sell_wall_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Resp
             let mut res = Response::new();
             let mut attrs = vec![];
 
-            //We use the distribution at the end of the list bc new ones were appended, and msgs are fulfilled depth first.
+            //We use the distribution at the end of the list bc new ones were appended in the SP or LQ replies, and msgs are fulfilled depth first.
             match repay_propagation.sell_wall_distributions.pop(){
                 Some( distribution ) => {
 

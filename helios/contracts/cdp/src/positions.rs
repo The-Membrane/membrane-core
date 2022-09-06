@@ -1023,6 +1023,9 @@ pub fn liquidate(
     
     //Track total leftover repayment after the liq_queue
     let mut liq_queue_leftover_credit_repayment: Decimal = credit_repay_amount;
+    
+    //Track repay_amount_per_asset
+    let mut per_asset_repayment: Vec<Decimal> = vec![];
 
 
     let mut total_credit_repaid: Uint256 = Uint256::zero();
@@ -1040,7 +1043,7 @@ pub fn liquidate(
         let mut protocol_coins: Vec<Coin> = vec![];
         let mut fee_assets: Vec<Asset> = vec![];
         
-        //let repay_amount_per_asset = decimal_multiplication(credit_repay_amount, cAsset_ratios[num]);
+        let repay_amount_per_asset = decimal_multiplication(credit_repay_amount, cAsset_ratios[num]);
         
         let collateral_price = cAsset_prices[num];
         let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num]);
@@ -1132,6 +1135,9 @@ pub fn liquidate(
         
          /////////////LiqQueue calls//////
         if basket.clone().liq_queue.is_some(){
+
+            //Push
+            per_asset_repayment.push( repay_amount_per_asset );
 
             let res: LQ_LiquidatibleResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: basket.clone().liq_queue.unwrap().to_string(),
@@ -1234,6 +1240,7 @@ pub fn liquidate(
 
             // Set repay values for reply msg
             let repay_propagation = RepayPropagation {
+                per_asset_repayment,
                 liq_queue_leftovers, 
                 stability_pool: Decimal::zero(),
                 sell_wall_distributions: vec![ SellWallDistribution {distributions: collateral_distributions} ],
@@ -1296,6 +1303,7 @@ pub fn liquidate(
             
             // Set repay values for reply msg
             let repay_propagation = RepayPropagation {
+                per_asset_repayment,
                 liq_queue_leftovers, 
                 stability_pool: sp_repay_amount,
                 sell_wall_distributions: vec![ SellWallDistribution {distributions: collateral_distributions} ],
@@ -1345,6 +1353,7 @@ pub fn liquidate(
     } else { //In case SP isn't used, we need to set RepayPropagation
         // Set repay values for reply msg
         let repay_propagation = RepayPropagation {
+            per_asset_repayment,
             liq_queue_leftovers: Decimal::zero(), 
             stability_pool: Decimal::zero(),
             sell_wall_distributions: vec![ ],
@@ -1407,6 +1416,7 @@ pub fn liquidate(
 
         // Set repay values for reply msg
         let repay_propagation = RepayPropagation {
+            per_asset_repayment: vec![],
             liq_queue_leftovers: Decimal::zero(), 
             stability_pool: Decimal::zero(),
             sell_wall_distributions: vec![ SellWallDistribution {distributions: collateral_distributions} ],

@@ -39,8 +39,9 @@ pub struct Config {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct RepayPropagation {
-    pub liq_queue_leftovers: Decimal,
-    pub stability_pool: Decimal,
+    pub per_asset_repayment: Vec<Decimal>,
+    pub liq_queue_leftovers: Decimal, //List of repayments
+    pub stability_pool: Decimal, //Value of repayment
     pub sell_wall_distributions: Vec<SellWallDistribution>,
     pub positions_contract: Addr,
     //So the sell wall knows who to repay to

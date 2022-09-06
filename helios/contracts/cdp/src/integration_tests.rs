@@ -620,6 +620,57 @@ mod tests {
         Box::new(contract)
     }
 
+    pub fn stability_pool_contract_high_premium()-> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: SP_MockExecuteMsg| -> StdResult<Response> {
+                match msg {
+                    SP_MockExecuteMsg::Liquidate {
+                        credit_asset
+                    } => {
+                                                
+                        Ok(Response::new()
+                            .add_attribute("method", "liquidate")
+                            .add_attribute("leftover_repayment", "0"))
+                    }
+                    SP_MockExecuteMsg::Distribute { 
+                        distribution_assets,
+                        distribution_asset_ratios, 
+                        credit_asset, 
+                        distribute_for } => {
+                        
+                       
+                        Ok(Response::new()
+                            .add_attribute("method", "distribute")
+                            .add_attribute("credit_asset", "cdl"))
+                    },
+                }
+            },
+            |_, _, _, _: SP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
+            |_, _, msg: SP_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    SP_MockQueryMsg::CheckLiquidatible { 
+                        asset,
+                    } => Ok(
+                        to_binary(
+                            &SP_LiquidatibleResponse {
+                                leftover: Decimal::zero(),
+                            })?),
+                    SP_MockQueryMsg::AssetPool { asset_info 
+                    } => Ok(
+                        to_binary(&PoolResponse {
+                            credit_asset: Asset {
+                                info: AssetInfo::NativeToken { denom: "cdl".to_string() },
+                                amount: Uint128::zero(),
+                            },
+                            liq_premium: Decimal::percent(3400),
+                            deposits: vec![],
+                        })?),
+                }
+            },
+        );
+        Box::new(contract)
+    }
+
 
     //Mock Osmo Proxy Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
@@ -1256,9 +1307,11 @@ mod tests {
         let mut sp_id: u64;
         if sp_error{
             sp_id = app.store_code(stability_pool_contract_errors());
-        }else if liq_minimum{
+        } else if liq_minimum && !lq_error{
             sp_id = app.store_code(stability_pool_contract_minimumliq());
-        }else if bignums{
+        } else if liq_minimum && lq_error{
+            sp_id = app.store_code(stability_pool_contract_high_premium());
+        } else if bignums{
             sp_id = app.store_code(stability_pool_contract_bignums());
         } else {
             sp_id = app.store_code(stability_pool_contract());
@@ -1293,7 +1346,7 @@ mod tests {
         let mut lq_id: u64;
         if lq_error{
             lq_id = app.store_code(liq_queue_contract_errors());
-        }else if liq_minimum{
+        }else if liq_minimum && !lq_error{
             lq_id = app.store_code(liq_queue_contract_minimumliq());
         }else if bignums{
             lq_id = app.store_code(liq_queue_contract_bignums());
@@ -1365,7 +1418,7 @@ mod tests {
 
         //Instaniate Oracle Contract
         let mut oracle_id: u64;
-        if liq_minimum {
+        if liq_minimum && !lq_error{
             oracle_id = app.store_code(oracle_contract());
         } else {
             oracle_id = app.store_code(oracle_contract_negative_rates());            
@@ -2872,7 +2925,7 @@ mod tests {
             assert_eq!(app.wrap().query_all_balances(lq_contract.addr()).unwrap(), vec![]);
             
 
-            //////All Errors/////
+            //////Both Errors/////
             /// 
                 
             let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( true, true, false, false);
@@ -2965,6 +3018,94 @@ mod tests {
             };
             let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res.collateral_supply_caps[0].current_supply, Uint128::new(97312));
+
+            //////LQ Errors///
+            /// and SP doesn't run due to premium
+            
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, true, true, false);
+
+            //Add liq-queue to the initial basket
+            let msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: None, 
+                owner: None, 
+                liq_queue: Some( lq_contract.addr().to_string() ),
+                liquidity_multiplier: Some( Decimal::percent( 500 ) ),
+                pool_ids: Some( vec![ 1u64 ] ),
+                collateral_supply_caps:  Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
+                base_interest_rate: None,
+                desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Initial Deposit
+            let msg = ExecuteMsg::Deposit { 
+                position_owner: Some( USER.to_string() ),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg, 
+                    vec![
+                        Coin { 
+                            denom: "debit".to_string(),
+                            amount: Uint128::from(10_000u128),
+                            } 
+                        ])
+                    .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //app.wrap().query_wasm_smart(cdp_contract.addr(),QueryMsg:: )
+
+            //Increase Debt
+            let msg = ExecuteMsg::IncreaseDebt{
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                amount: Uint128::from(5_000u128),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Call liquidate on CDP contract
+            let msg = ExecuteMsg::Liquidate { 
+                    basket_id: Uint128::new(1u128), 
+                    position_id: Uint128::new(1u128), 
+                    position_owner: USER.to_string(), 
+                };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            
+            let query_msg = QueryMsg::GetPosition { 
+                position_id: Uint128::new(1u128), 
+                basket_id: Uint128::new(1u128), 
+                position_owner:  USER.to_string(),  
+            };
+            let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(7090));
+
+            //Assert sell wall was sent all assets. Initial allocation + LQ_errors
+            assert_eq!(app.wrap().query_all_balances(router_addr.clone()).unwrap(), vec![ coin( 2444, "debit") ]);
+
+            //Assert fees were sent. 
+            assert_eq!(app.wrap().query_all_balances(staking_contract.clone()).unwrap(), vec![coin( 22, "debit")]);
+            //444 debit was the fee
+            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"),coin( 90444, "debit")]);
+
+            //Assert SP wasn't sent any due to a high premium
+            assert_eq!(app.wrap().query_all_balances(sp_addr.clone()).unwrap(), vec![coin( 2225 , "credit_fulldenom")]);
+            //Assert LQ wasn't sent any due to the Error
+            assert_eq!(app.wrap().query_all_balances(lq_contract.addr()).unwrap(), vec![]);
         }
 
         #[test]

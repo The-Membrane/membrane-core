@@ -23,12 +23,9 @@ use membrane::debt_auction::{ ExecuteMsg as AuctionExecuteMsg };
 //use crate::liq_queue::LiquidatibleResponse;
 use crate::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 use crate::error::ContractError;
-use crate::positions::{create_basket, assert_basket_assets, assert_sent_native_token_balance, deposit, withdraw, increase_debt, repay, liq_repay, edit_contract_owner, liquidate, edit_basket, sell_wall_using_ids, SELL_WALL_REPLY_ID, STABILITY_POOL_REPLY_ID, LIQ_QUEUE_REPLY_ID, withdrawal_msg, update_position_claims, CREATE_DENOM_REPLY_ID, BAD_DEBT_REPLY_ID, mint_revenue, WITHDRAW_REPLY_ID, get_contract_balances, get_target_position};
+use crate::positions::{create_basket, assert_basket_assets, assert_sent_native_token_balance, deposit, withdraw, increase_debt, repay, liq_repay, edit_contract_owner, liquidate, edit_basket, sell_wall_using_ids, SELL_WALL_REPLY_ID, STABILITY_POOL_REPLY_ID, LIQ_QUEUE_REPLY_ID, withdrawal_msg, update_position_claims, CREATE_DENOM_REPLY_ID, BAD_DEBT_REPLY_ID, mint_revenue, WITHDRAW_REPLY_ID, get_contract_balances, get_target_position, clone_basket};
 use crate::query::{query_stability_pool_liquidatible, query_config, query_position, query_user_positions, query_basket_positions, query_basket, query_baskets, query_prop, query_stability_pool_fee, query_basket_debt_caps, query_bad_debt, query_basket_insolvency, query_position_insolvency, query_basket_credit_interest};
-//use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, AssetInfo, Cw20HookMsg, Asset, PositionResponse, PositionsResponse, BasketResponse, LiqModuleMsg};
-//use crate::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
-//use crate::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse, Cw20HookMsg as LQ_Cw20HookMsg};
-use crate::state::{ Config, CONFIG, POSITIONS, BASKETS, RepayPropagation, REPAY, WITHDRAW };
+use crate::state::{ Config, CONFIG, POSITIONS, BASKETS, RepayPropagation, REPAY, WITHDRAW, CREDIT_MULTI };
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cdp";
@@ -145,8 +142,6 @@ pub fn instantiate(
         None => {},
     };
 
-    let current_basket_id = &config.current_basket_id.clone().to_string();
-
     CONFIG.save(deps.storage, &config)?;
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
@@ -226,6 +221,7 @@ pub fn execute(
         ExecuteMsg::EditcAsset { basket_id, asset, max_borrow_LTV, max_LTV } => edit_cAsset(deps, info, basket_id, asset, max_borrow_LTV, max_LTV),
         ExecuteMsg::EditBasket { basket_id, added_cAsset, owner, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source } => edit_basket(deps, info, basket_id, added_cAsset, owner, liq_queue, pool_ids, liquidity_multiplier, collateral_supply_caps, base_interest_rate, desired_debt_cap_util, credit_asset_twap_price_source ),
         ExecuteMsg::CreateBasket { owner, collateral_types, credit_asset, credit_price, base_interest_rate, desired_debt_cap_util, credit_pool_ids, liquidity_multiplier_for_debt_caps, liq_queue } => create_basket( deps, info, env, owner, collateral_types, credit_asset, credit_price, base_interest_rate, desired_debt_cap_util, credit_pool_ids, liquidity_multiplier_for_debt_caps, liq_queue ),
+        ExecuteMsg::CloneBasket { basket_id } => clone_basket(deps, basket_id),
         ExecuteMsg::Liquidate { basket_id, position_id, position_owner } => liquidate(deps.storage, deps.api, deps.querier, env, info, basket_id, position_id, position_owner),
         ExecuteMsg::MintRevenue { basket_id, send_to, repay_for, amount } => mint_revenue(deps, info, env, basket_id, send_to, repay_for, amount),
         ExecuteMsg::Callback( msg ) => {
@@ -735,6 +731,13 @@ fn handle_create_denom_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
                 .unwrap()
                 .value;
 
+            let liquidity_multiplier: Decimal = instantiate_event.attributes
+                .iter()
+                .find(|attr| attr.key == "liquidity_multiplier")
+                .unwrap()
+                .value
+                .parse().unwrap();
+
             let config: Config = CONFIG.load( deps.storage )?;
 
             //Query fulldenom to save to basket 
@@ -751,7 +754,7 @@ fn handle_create_denom_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
                     Some( mut basket ) => {
                         
                         basket.credit_asset = Asset {
-                            info: AssetInfo::NativeToken { denom: res.denom },
+                            info: AssetInfo::NativeToken { denom: res.clone().denom },
                             ..basket.credit_asset
                         };
 
@@ -760,6 +763,9 @@ fn handle_create_denom_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
                     None => {return Err( StdError::GenericErr { msg: "Non-existent basket".to_string() } )},
                 }
             })?;
+
+            //Save liquidity_multiplier to credit_asset
+            CREDIT_MULTI.save( deps.storage, res.denom, &liquidity_multiplier )?;
                 
         },//We only reply on success 
         Err( err ) => {return Err( StdError::GenericErr { msg: err } )}

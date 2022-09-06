@@ -8,6 +8,7 @@ use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg };
 
 use osmo_bindings::{SpotPriceResponse, PoolStateResponse};
 
+use crate::state::CREDIT_MULTI;
 use crate::{state::{CONFIG, POSITIONS, REPAY, BASKETS, Config}, positions::{read_price, get_asset_liquidity, validate_position_owner}, math::{decimal_multiplication, decimal_division, decimal_subtraction}, ContractError};
 
 
@@ -212,7 +213,6 @@ pub fn query_basket(
                 credit_asset: basket.credit_asset,
                 credit_price: basket.credit_price.to_string(),
                 credit_pool_ids: basket.credit_pool_ids,
-                liquidity_multiplier_for_debt_caps: basket.liquidity_multiplier_for_debt_caps,
                 liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
                 collateral_supply_caps: basket.collateral_supply_caps,
                 base_interest_rate: basket.base_interest_rate,
@@ -261,7 +261,6 @@ pub fn query_baskets(
                 credit_asset: basket.credit_asset,
                 credit_price: basket.credit_price.to_string(),
                 credit_pool_ids: basket.credit_pool_ids,
-                liquidity_multiplier_for_debt_caps: basket.liquidity_multiplier_for_debt_caps,
                 liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
                 collateral_supply_caps: basket.collateral_supply_caps,
                 base_interest_rate: basket.base_interest_rate,
@@ -356,6 +355,7 @@ pub fn query_basket_debt_caps(
 
     let basket: Basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
 
+
     //Map supply caps to cAssets to get new ratios
     //The functions only need Asset 
     let temp_cAssets: Vec<cAsset> = basket.clone().collateral_supply_caps
@@ -380,7 +380,7 @@ pub fn query_basket_debt_caps(
         .collect::<Vec<cAsset>>();            
     
     //Get the Basket's asset ratios
-    let mut cAsset_ratios = get_cAsset_ratios_imut( deps.storage, env, deps.querier, temp_cAssets.clone(), config.clone())?;
+    let mut cAsset_ratios = get_cAsset_ratios_imut( deps.storage, env.clone(), deps.querier, temp_cAssets.clone(), config.clone())?;
 
     //Add LP assets' ratios to the LP's supply cap ratios 
     for (index, cap ) in basket.clone().collateral_supply_caps.into_iter().enumerate() {
@@ -434,13 +434,21 @@ pub fn query_basket_debt_caps(
 
     }
 
+    //Get credit_asset's liquidity_multiplier
+    let credit_asset_multiplier = get_credit_asset_multiplier_imut( deps.storage, deps.querier, env.clone(), config.clone(), basket.clone() )?;
+
     //Get the debt cap 
-    let debt_cap = get_asset_liquidity( 
+    let mut debt_cap = get_asset_liquidity( 
         deps.querier, 
-        config, 
+        config.clone(), 
         basket.credit_pool_ids, 
         basket.credit_asset.info 
-        )? * basket.liquidity_multiplier_for_debt_caps;
+        )? * credit_asset_multiplier;
+
+    //If debt cap is less than the minimum, set it to the minimum
+    if debt_cap < ( config.base_debt_cap_multiplier * config.debt_minimum ){
+        debt_cap = ( config.base_debt_cap_multiplier * config.debt_minimum );
+    }
  
     let mut asset_caps = vec![];
  
@@ -456,6 +464,110 @@ pub fn query_basket_debt_caps(
      
     Ok( DebtCapResponse { caps: res } )
 }
+
+fn get_credit_asset_multiplier_imut(
+    storage: &dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    config: Config,
+    basket: Basket,
+) -> StdResult<Decimal>{
+
+    //Find Baskets with similar credit_asset
+    let mut baskets: Vec<Basket> = vec![  ];
+
+    //Has to be done ugly due to an immutable borrow
+    //Uint128 to int
+    let range: i32 = config.current_basket_id.to_string().parse().unwrap();
+
+    for basket_id in 1..range{
+        let stored_basket = BASKETS.load( storage, basket_id.to_string())?;
+
+        if stored_basket.credit_asset.info.equal( &basket.credit_asset.info ){
+            baskets.push( stored_basket );
+        }
+    }
+
+    //Calc collateral_type totals
+    let mut collateral_totals: Vec<Asset> = vec![];
+
+    for basket in baskets {
+
+        //Find collateral's corresponding total in list
+        for collateral in basket.collateral_supply_caps {
+
+            if !collateral.lp{
+                if let Some(( index, _total)) = collateral_totals.clone().into_iter().enumerate().find(|( i, asset )| asset.info.equal(&collateral.asset_info)){
+                    //Add to collateral total
+                    collateral_totals[ index ].amount += collateral.current_supply;
+                } else {
+                    //Add collateral type to list
+                    collateral_totals.push( 
+                        Asset { 
+                            info: collateral.asset_info, 
+                            amount: collateral.current_supply, 
+                        }
+                    );
+                }
+            }
+        }
+
+    }
+
+    //Get collateral_ratios 
+    let temp_cAssets: Vec<cAsset> = collateral_totals.clone()
+        .into_iter() 
+        .map(|asset| {
+            cAsset{
+                asset,
+                max_borrow_LTV: Decimal::zero(),
+                max_LTV: Decimal::zero(),
+                pool_info: None,
+            }
+                        
+        })
+        .collect::<Vec<cAsset>>();
+    let total_collateral_ratios = get_cAsset_ratios_imut(storage, env, querier, temp_cAssets, config)?;
+
+    //Find Basket parameter's ratio of each collateral
+    let mut basket_collateral_ratios: Vec<Decimal> = vec![];
+    for ( i, collateral ) in basket.clone().collateral_supply_caps.into_iter().enumerate() {
+        if !collateral.lp{
+            //Push collateral_ratio
+            if collateral_totals[i].amount.is_zero() {
+                basket_collateral_ratios.push( Decimal::zero() );
+            } else {
+                
+                basket_collateral_ratios.push( decimal_division(
+                    Decimal::from_ratio(collateral.current_supply, Uint128::new(1u128)),
+                    Decimal::from_ratio(collateral_totals[i].amount, Uint128::new(1u128))
+                ) );
+            }
+        }
+    }
+        
+    //Find Basket parameter's ratio of total collateral
+    let basket_tvl_ratio: Decimal = basket_collateral_ratios.clone()
+        .into_iter()
+        .enumerate()
+        .map(|( i, basket_ratio )| {
+            
+            //Multiply the two lists of ratios
+            decimal_multiplication( basket_ratio, total_collateral_ratios[i] )
+
+        })
+        .collect::<Vec<Decimal>>()
+        .into_iter()
+        .sum();
+
+
+    //Get credit_asset's liquidity multiplier
+    let credit_asset_liquidity_multiplier = CREDIT_MULTI.load( storage, basket.clone().credit_asset.info.to_string() )?;
+
+    
+    //Return ratio * credit_asset's multiplier
+    Ok( decimal_multiplication( basket_tvl_ratio, credit_asset_liquidity_multiplier ) )
+ }
 
 
 pub fn query_bad_debt(
@@ -627,6 +739,7 @@ pub fn query_basket_credit_interest(
             max_LTV: Decimal::zero(),
             pool_info: None,
         };
+        
         let credit_TWAP_price = get_asset_values_imut( deps.storage, env, deps.querier, vec![ credit_asset ], config.clone() )?.1[0];
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
@@ -641,6 +754,7 @@ pub fn query_basket_credit_interest(
 
             } else { Decimal::zero() }
         };
+
 
         //Don't set interest if price is within the margin of error
         if price_difference > config.clone().cpc_margin_of_error{
@@ -677,7 +791,12 @@ fn get_cAsset_ratios_imut(
     //getting each cAsset's % of total value
     let mut cAsset_ratios: Vec<Decimal> = vec![];
     for cAsset in cAsset_values{
-        cAsset_ratios.push(cAsset/total_value) ;
+        if total_value.is_zero(){
+            cAsset_ratios.push( Decimal::zero() ) ;
+        } else {
+            cAsset_ratios.push( decimal_division(cAsset, total_value) ) ;
+        }
+        
     }
 
    
@@ -690,6 +809,7 @@ fn query_price_imut(
     env: Env,
     config: Config,
     asset_info: AssetInfo,
+    basket_id: Option<Uint128>,
 ) -> StdResult<Decimal>{
 
     //Query Price
@@ -698,11 +818,13 @@ fn query_price_imut(
         msg: to_binary(&OracleQueryMsg::Price { 
             asset_info: asset_info.clone(), 
             twap_timeframe: config.clone().twap_timeframe, 
+            basket_id,
         } )?,
     })){
         Ok( res ) => { 
             //
             res.avg_price
+            
          },
         Err( _err ) => { 
             //If the query errors, try and use a stored price
@@ -742,7 +864,6 @@ pub fn get_asset_values_imut(
     config: Config
 ) -> StdResult<(Vec<Decimal>, Vec<Decimal>)>
 {
-
    //Getting proportions for position collateral to calculate avg LTV
     //Using the index in the for loop to parse through the assets Vec and collateral_assets Vec
     //, as they are now aligned due to the collateral check w/ the Config's data
@@ -761,7 +882,7 @@ pub fn get_asset_values_imut(
 
             for (pool_asset) in pool_info.clone().asset_infos{
 
-                let price = query_price_imut(storage, querier, env.clone(), config.clone(), pool_asset.info)?;
+                let price = query_price_imut(storage, querier, env.clone(), config.clone(), pool_asset.info, None)?;
                 //Append price
                 asset_prices.push( price );
             }
@@ -814,7 +935,7 @@ pub fn get_asset_values_imut(
 
         } else {
 
-           let price = query_price_imut(storage, querier, env.clone(), config.clone(), cAsset.clone().asset.info)?;
+           let price = query_price_imut(storage, querier, env.clone(), config.clone(), cAsset.clone().asset.info, None)?;
             
             cAsset_prices.push(price);
             let collateral_value = decimal_multiplication(Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128)), price);

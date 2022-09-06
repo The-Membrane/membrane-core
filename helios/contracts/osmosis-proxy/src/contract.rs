@@ -7,7 +7,7 @@ use std::str::FromStr;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, Deps, DepsMut, Reply, Env, MessageInfo, Response, StdResult, Uint128, QueryRequest, attr, CosmosMsg, StdError, Coin, QuerierWrapper, Addr
+    to_binary, Binary, Deps, DepsMut, Reply, Env, MessageInfo, Response, StdResult, Uint128, QueryRequest, attr, CosmosMsg, StdError, Coin, QuerierWrapper, Addr, Decimal
 };
 use cw2::set_contract_version;
 
@@ -49,7 +49,7 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
     match msg {
-        ExecuteMsg::CreateDenom { subdenom, basket_id, max_supply } => create_denom( deps, info, subdenom, basket_id, max_supply ),
+        ExecuteMsg::CreateDenom { subdenom, basket_id, max_supply, liquidity_multiplier } => create_denom( deps, info, subdenom, basket_id, max_supply, liquidity_multiplier ),
         ExecuteMsg::ChangeAdmin {
             denom,
             new_admin_address,
@@ -129,6 +129,7 @@ pub fn create_denom(
     subdenom: String, 
     basket_id: String, 
     max_supply: Option<Uint128>,
+    liquidity_multiplier: Option<Decimal>,
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
 
     let config = CONFIG.load( deps.storage )?;
@@ -147,6 +148,7 @@ pub fn create_denom(
         .add_attribute("sub_denom", subdenom)
         .add_attribute("max_supply", max_supply.unwrap_or_else(|| Uint128::zero()))
         .add_attribute("basket_id", basket_id)
+        .add_attribute("liquidity_multiplier", liquidity_multiplier.unwrap_or_else(|| Decimal::zero()).to_string())
         .add_message(create_denom_msg);
 
     Ok(res)

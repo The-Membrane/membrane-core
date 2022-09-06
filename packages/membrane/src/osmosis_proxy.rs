@@ -15,6 +15,7 @@ pub enum ExecuteMsg {
         subdenom: String,
         basket_id: String,
         max_supply: Option<Uint128>,
+        liquidity_multiplier: Option<Decimal>,
     },
     ChangeAdmin {
         denom: String,

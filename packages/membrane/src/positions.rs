@@ -115,6 +115,14 @@ pub enum ExecuteMsg {
         desired_debt_cap_util: Option<Decimal>,
         credit_asset_twap_price_source: Option<TWAPPoolInfo>,        
     },
+    //Clone basket. Reset supply_caps. Sets repayment price to new oracle price.
+    //When using this to add a new UoA:
+    // Add logic to change oracle quote asset in Oracle contract
+    //
+    //Note: Edit pool_ids if desired
+    CloneBasket {
+        basket_id: Uint128,
+    },
     EditcAsset {
         basket_id: Uint128,
         asset: AssetInfo, 
@@ -227,7 +235,6 @@ pub struct BasketResponse{
     pub credit_asset: Asset, 
     pub credit_price: String,
     pub credit_pool_ids: Vec<u64>,
-    pub liquidity_multiplier_for_debt_caps: Decimal, //Ex: 5 = debt cap at 5x liquidity.
     pub liq_queue: String,
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90

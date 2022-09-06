@@ -637,6 +637,9 @@ mod tests {
         },
         CreateDenom {
             subdenom: String,
+            basket_id: String,
+            max_supply: Option<Uint128>,
+            liquidity_multiplier: Option<Decimal>,
         },
     }
 
@@ -688,12 +691,18 @@ mod tests {
                         Ok(Response::new())
                     },
                     Osmo_MockExecuteMsg::CreateDenom { 
-                        subdenom
+                        subdenom,
+                        basket_id,
+                        max_supply,
+                        liquidity_multiplier,
                     } => {
 
                         Ok(Response::new().add_attributes(vec![
                             attr("basket_id", "1"),
-                            attr("subdenom", "credit_fulldenom")]
+                            attr("subdenom", "credit_fulldenom"),
+                            attr("max_supply", max_supply.unwrap_or_else(|| Uint128::zero()).to_string()),
+                            attr("liquidity_multiplier", liquidity_multiplier.unwrap_or_else(|| Decimal::zero()).to_string()),
+                            ]
                         ))
                     }
                 }
@@ -788,12 +797,18 @@ mod tests {
                         Ok(Response::new())
                     },
                     Osmo_MockExecuteMsg::CreateDenom { 
-                        subdenom
+                        subdenom,
+                        basket_id,
+                        max_supply,
+                        liquidity_multiplier,
                     } => {
 
                         Ok(Response::new().add_attributes(vec![
                             attr("basket_id", "1"),
-                            attr("subdenom", "credit_fulldenom")]
+                            attr("subdenom", "credit_fulldenom"),
+                            attr("max_supply", max_supply.unwrap_or_else(|| Uint128::zero()).to_string()),
+                            attr("liquidity_multiplier", liquidity_multiplier.unwrap_or_else(|| Decimal::zero()).to_string()),
+                            ]
                         ))
                     }
                 }
@@ -1004,6 +1019,8 @@ mod tests {
     pub enum Oracle_MockQueryMsg {
         Price {
             asset_info: AssetInfo,
+            twap_timeframe: u64,
+            basket_id: Option<Uint128>,
         },
         Asset {
             asset_info: AssetInfo,
@@ -1026,9 +1043,25 @@ mod tests {
             |_, _, _, _: Oracle_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
             |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Oracle_MockQueryMsg::Price { asset_info } => {
+                    Oracle_MockQueryMsg::Price { 
+                        asset_info,
+                        twap_timeframe,
+                        basket_id 
+                    } => {
 
-                        if asset_info.to_string() == String::from("credit_fulldenom"){
+                        if basket_id.is_some(){
+                            if basket_id.unwrap() == Uint128::new(2u128){              
+                                Ok( to_binary(&PriceResponse { 
+                                    prices: vec![],
+                                    avg_price: Decimal::percent(500),
+                                })? )
+                            } else {
+                                Ok( to_binary(&PriceResponse { 
+                                    prices: vec![],
+                                    avg_price: Decimal::one(),
+                                })? )
+                            }
+                        } else if asset_info.to_string() == String::from("credit_fulldenom"){
                                 
                             Ok( to_binary(&PriceResponse { 
                                 prices: vec![],
@@ -1291,7 +1324,7 @@ mod tests {
                 osmosis_proxy: Some( osmosis_proxy_contract_addr.to_string() ),   
                 debt_auction: Some( auction_contract_addr.to_string() ),
                 oracle_time_limit: 60u64,
-                debt_minimum: Uint128::new(500u128),
+                debt_minimum: Uint128::new(2000u128),
                 twap_timeframe: 90u64,
         };
 
@@ -4557,6 +4590,106 @@ mod tests {
             
         }
 
+
+        #[test]
+        fn clone_basket__contract_credit_limit(){           
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
+
+            //Add a second asset
+            let edit_basket_msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: Some( cAsset {
+                    asset:
+                        Asset {
+                            info: AssetInfo::NativeToken { denom: "2nddebit".to_string() },
+                            amount: Uint128::from(0u128),
+                        },
+                    max_borrow_LTV: Decimal::percent(50),
+                    max_LTV: Decimal::percent(70),
+                    pool_info: None,
+                       }  ), 
+                owner: None, 
+                liq_queue: None, 
+                pool_ids: Some( vec![ 1u64 ] ),
+                liquidity_multiplier: None, 
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    },
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "2nddebit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]), 
+                base_interest_rate: None, 
+                desired_debt_cap_util: None, 
+                credit_asset_twap_price_source: None, 
+            };
+            let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            
+            //Initial Deposit
+            let exec_msg = ExecuteMsg::Deposit { 
+                position_owner: None,
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract.call(exec_msg, coins(11, "debit")).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Query debt cap
+            //Query Basket Debt Caps
+            let query_msg = QueryMsg::GetBasketDebtCaps {
+                basket_id: Uint128::new(1u128), 
+            };
+            let res: DebtCapResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            assert_eq!(res.caps, String::from("debit: 0/49999, 2nddebit: 0/0, ") );
+
+            //Clone Basket
+            let msg = ExecuteMsg::CloneBasket { basket_id: Uint128::new(1u128) };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Query that it was saved correctly, price as well            
+            let query_msg = QueryMsg::GetBasket {
+                basket_id: Uint128::new(2u128), 
+            };
+            let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            assert_eq!(res.credit_price, String::from("5") );
+
+            //Initial Deposit to basket 2
+            let exec_msg = ExecuteMsg::Deposit { 
+                position_owner: None,
+                basket_id: Uint128::from(2u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract.call(exec_msg, coins(200, "debit")).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Query Basket Debt Caps
+            //Basket 2 has over 90% of the cap
+            let query_msg = QueryMsg::GetBasketDebtCaps {
+                basket_id: Uint128::new(2u128), 
+            };
+            let res: DebtCapResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            assert_eq!(res.caps, String::from("debit: 0/47392, 2nddebit: 0/0, ") );
+
+            //Query Basket Debt Caps
+            //Has less than minimum, ~2000, so gets 20000
+            let query_msg = QueryMsg::GetBasketDebtCaps {
+                basket_id: Uint128::new(1u128), 
+            };
+            let res: DebtCapResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            assert_eq!(res.caps, String::from("debit: 0/20000, 2nddebit: 0/0, ") );
+        
+        }
     }
 
 }

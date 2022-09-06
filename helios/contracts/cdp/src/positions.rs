@@ -1,4 +1,6 @@
 
+use std::cmp::min;
+use std::vec;
 use std::{str::FromStr, convert::TryInto};
 use std::time::{ SystemTime, UNIX_EPOCH };
 
@@ -20,6 +22,7 @@ use membrane::staking::{ ExecuteMsg as StakingExecuteMsg };
 use membrane::oracle::{ QueryMsg as OracleQueryMsg, ExecuteMsg as OracleExecuteMsg };
 use membrane::math::{ decimal_multiplication, decimal_division, decimal_subtraction};
 
+use crate::state::{ CREDIT_MULTI };
 use crate::{ContractError, state::{ RepayPropagation, REPAY, CONFIG, BASKETS, POSITIONS, Config, WithdrawPropagation, WITHDRAW} };
 use crate::query::{query_stability_pool_fee, query_stability_pool_liquidatible };
 
@@ -1587,6 +1590,7 @@ pub fn create_basket(
     let desired_debt_cap_util = desired_debt_cap_util.unwrap_or_else(|| Decimal::percent(100));    
     let liquidity_multiplier_for_debt_caps = liquidity_multiplier_for_debt_caps.unwrap_or_else(|| Decimal::one());    
     
+    
     let new_basket: Basket = Basket {
         owner: valid_owner.clone(),
         basket_id: config.current_basket_id.clone(),
@@ -1596,7 +1600,6 @@ pub fn create_basket(
         credit_asset: credit_asset.clone(),
         credit_price,
         credit_pool_ids,
-        liquidity_multiplier_for_debt_caps,
         base_interest_rate,
         desired_debt_cap_util,
         pending_revenue: Uint128::zero(),
@@ -1610,7 +1613,7 @@ pub fn create_basket(
 
     if let AssetInfo::NativeToken { denom } = credit_asset.clone().info {
         //Create credit as native token using a tokenfactory proxy
-        sub_msg = create_denom( config.clone(), String::from(denom.clone()), new_basket.basket_id.to_string() )?;
+        sub_msg = create_denom( config.clone(), String::from(denom.clone()), new_basket.basket_id.to_string(), Some( liquidity_multiplier_for_debt_caps ) )?;
 
         subdenom = denom;
     }else{
@@ -1643,7 +1646,7 @@ pub fn create_basket(
         attr("credit_asset", credit_asset.to_string() ),
         attr("credit_subdenom", subdenom),
         attr("credit_price", credit_price.to_string()),
-        attr("liq_queue", liq_queue.unwrap_or_else(|| String::from("None")))
+        attr("liq_queue", liq_queue.unwrap_or_else(|| String::from("None"))),
     ]).add_submessage(sub_msg))
 }
 
@@ -1940,10 +1943,6 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                         basket.credit_pool_ids = pool_ids.clone().unwrap();
                         attrs.push( attr("new_pool_ids", String::from("Edited")) );
                     }
-                    if liquidity_multiplier.is_some(){
-                        basket.liquidity_multiplier_for_debt_caps = liquidity_multiplier.clone().unwrap();
-                        attrs.push( attr("new_liquidity_multiplier", liquidity_multiplier.clone().unwrap().to_string()) );
-                    }
                     if collateral_supply_caps.is_some(){
  
                         //Set new caps
@@ -1973,6 +1972,12 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
             None => return Err(ContractError::NonExistentBasket { })
         }
     })?;
+
+    //Set asset specific multiplier
+    if let Some(multiplier) = liquidity_multiplier {
+        CREDIT_MULTI.save(deps.storage, basket.credit_asset.info.to_string(), &multiplier)?;
+    }
+
     
     Ok( Response::new().add_attributes(attrs).add_messages(msgs) )
     
@@ -2312,7 +2317,7 @@ pub fn get_avg_LTV(
 
     let collateral_assets = get_LP_pool_cAssets( querier, config.clone(), basket, collateral_assets )?;
 
-    let (cAsset_values, cAsset_prices) = get_asset_values(storage, env, querier, collateral_assets.clone(), config)?;
+    let (cAsset_values, cAsset_prices) = get_asset_values(storage, env, querier, collateral_assets.clone(), config, None)?;
 
    
     let total_value: Decimal = cAsset_values.iter().sum();
@@ -2359,7 +2364,7 @@ pub fn get_cAsset_ratios(
     config: Config,
 ) -> StdResult<Vec<Decimal>>{
 
-    let (cAsset_values, cAsset_prices) = get_asset_values(storage, env, querier, collateral_assets.clone(), config)?;
+    let (cAsset_values, cAsset_prices) = get_asset_values(storage, env, querier, collateral_assets.clone(), config, None)?;
 
     let total_value: Decimal = cAsset_values.iter().sum();
 
@@ -2740,6 +2745,7 @@ fn query_price(
     env: Env,
     config: Config,
     asset_info: AssetInfo,
+    basket_id: Option<Uint128>,
 ) -> StdResult<Decimal>{
 
     //Query Price
@@ -2747,7 +2753,8 @@ fn query_price(
         contract_addr: config.clone().oracle_contract.unwrap().to_string(),
         msg: to_binary(&OracleQueryMsg::Price { 
             asset_info: asset_info.clone(), 
-            twap_timeframe: config.clone().twap_timeframe, 
+            twap_timeframe: config.clone().twap_timeframe,
+            basket_id, 
         } )?,
     })){
         Ok( res ) => { 
@@ -2797,7 +2804,8 @@ pub fn get_asset_values(
     env: Env, 
     querier: QuerierWrapper, 
     assets: Vec<cAsset>, 
-    config: Config
+    config: Config,
+    basket_id: Option<Uint128>,
 ) -> StdResult<(Vec<Decimal>, Vec<Decimal>)> {
     
    //Getting proportions for position collateral to calculate avg LTV
@@ -2818,7 +2826,7 @@ pub fn get_asset_values(
 
             for (pool_asset) in pool_info.clone().asset_infos{
 
-                let price = query_price(storage, querier, env.clone(), config.clone(), pool_asset.info)?;
+                let price = query_price(storage, querier, env.clone(), config.clone(), pool_asset.info, basket_id)?;
                 //Append price
                 asset_prices.push( price );
             }
@@ -2874,7 +2882,7 @@ pub fn get_asset_values(
 
         } else {
 
-           let price = query_price(storage, querier, env.clone(), config.clone(), cAsset.clone().asset.info)?;
+           let price = query_price(storage, querier, env.clone(), config.clone(), cAsset.clone().asset.info, basket_id)?;
             
             cAsset_prices.push(price);
             let collateral_value = decimal_multiplication(Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128)), price);
@@ -2957,13 +2965,13 @@ pub fn update_position_claims(
     Ok(())
 }
 
- fn get_basket_debt_caps(
+fn get_basket_debt_caps(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     //These are Basket specific fields
     basket: Basket,
- )-> Result<Vec<Uint128>, ContractError>{
+)-> Result<Vec<Uint128>, ContractError>{
 
     let config: Config = CONFIG.load( storage )?;
 
@@ -2993,11 +3001,14 @@ pub fn update_position_claims(
         .collect::<Vec<cAsset>>();
 
     //Get the Basket's asset ratios
-    let cAsset_ratios = get_cAsset_ratios(storage, env, querier, temp_cAssets.clone(), config.clone())?;
+    let cAsset_ratios = get_cAsset_ratios(storage, env.clone(), querier, temp_cAssets.clone(), config.clone())?;
 
+    //Get credit_asset's liquidity_multiplier
+    let credit_asset_multiplier = get_credit_asset_multiplier( storage, querier, env.clone(), config.clone(), basket.clone() )?;
 
     //Get the base debt cap 
-    let mut debt_cap = get_asset_liquidity( querier, config.clone(), basket.clone().credit_pool_ids, basket.clone().credit_asset.info )? * basket.clone().liquidity_multiplier_for_debt_caps;
+    let mut debt_cap = get_asset_liquidity( querier, config.clone(), basket.clone().credit_pool_ids, basket.clone().credit_asset.info )? 
+        * credit_asset_multiplier;
 
     //If debt cap is less than the minimum, set it to the minimum
     if debt_cap < ( config.base_debt_cap_multiplier * config.debt_minimum ){
@@ -3024,8 +3035,111 @@ pub fn update_position_claims(
         }
     }                
 
-    //Save these to the basket when returned. For queries.
+    
     Ok( per_asset_debt_caps )
+}
+
+fn get_credit_asset_multiplier(
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    config: Config,
+    basket: Basket,
+) -> StdResult<Decimal>{
+
+    //Find Baskets with similar credit_asset
+    let mut baskets: Vec<Basket> = vec![ basket.clone() ];
+
+    //Has to be done ugly due to an immutable borrow
+    //Uint128 to int
+    let range: i32 = config.current_basket_id.to_string().parse().unwrap();
+
+    for basket_id in 1..range{
+        let stored_basket = BASKETS.load( storage, basket_id.to_string())?;
+
+        if stored_basket.credit_asset.info.equal( &basket.credit_asset.info ){
+            baskets.push( stored_basket );
+        }
+    }
+
+    //Calc collateral_type totals
+    let mut collateral_totals: Vec<Asset> = vec![];
+
+    for basket in baskets {
+
+        //Find collateral's corresponding total in list
+        for collateral in basket.collateral_supply_caps {
+
+            if !collateral.lp{
+                if let Some(( index, _total)) = collateral_totals.clone().into_iter().enumerate().find(|( i, asset )| asset.info.equal(&collateral.asset_info)){
+                    //Add to collateral total
+                    collateral_totals[ index ].amount += collateral.current_supply;
+                } else {
+                    //Add collateral type to list
+                    collateral_totals.push( 
+                        Asset { 
+                            info: collateral.asset_info, 
+                            amount: collateral.current_supply, 
+                        }
+                    );
+                }
+            }
+        }
+
+    }
+
+    //Get collateral_ratios 
+    let temp_cAssets: Vec<cAsset> = collateral_totals.clone()
+        .into_iter() 
+        .map(|asset| {
+            cAsset{
+                asset,
+                max_borrow_LTV: Decimal::zero(),
+                max_LTV: Decimal::zero(),
+                pool_info: None,
+            }
+                        
+        })
+        .collect::<Vec<cAsset>>();
+
+    let total_collateral_ratios = get_cAsset_ratios(storage, env.clone(), querier, temp_cAssets, config.clone())?;
+
+    //Find Basket parameter's ratio of each collateral
+    let mut basket_collateral_ratios: Vec<Decimal> = vec![];
+    for ( i, collateral ) in basket.clone().collateral_supply_caps.into_iter().enumerate() {
+        if !collateral.lp{
+            //Push collateral_ratio
+            if collateral_totals[i].amount.is_zero() {
+                basket_collateral_ratios.push( Decimal::zero() );
+            } else {
+                basket_collateral_ratios.push( decimal_division(
+                    Decimal::from_ratio(collateral.current_supply, Uint128::new(1u128)),
+                    Decimal::from_ratio(collateral_totals[i].amount, Uint128::new(1u128))
+                ) );
+            }
+            
+        }
+    }
+        
+    //Find Basket parameter's ratio of total collateral
+    let basket_tvl_ratio: Decimal = basket_collateral_ratios.clone()
+        .into_iter()
+        .enumerate()
+        .map(|( i, basket_ratio )| {
+            
+            //Multiply the two lists of ratios
+            decimal_multiplication( basket_ratio, total_collateral_ratios[i] )
+
+        })
+        .collect::<Vec<Decimal>>()
+        .into_iter()
+        .sum();
+
+    //Get credit_asset's liquidity multiplier
+    let credit_asset_liquidity_multiplier = CREDIT_MULTI.load( storage, basket.clone().credit_asset.info.to_string() )?;
+
+    //Return ratio * credit_asset's multiplier
+    Ok( decimal_multiplication( basket_tvl_ratio, credit_asset_liquidity_multiplier ) )
  }
 
  pub fn get_asset_liquidity(
@@ -3065,7 +3179,6 @@ pub fn update_position_claims(
             total_pooled += pooled_amount;
 
         }
-
         
     }else{
         return Err( StdError::GenericErr { msg: "No proxy contract setup".to_string() })
@@ -3315,6 +3428,7 @@ fn create_denom(
     config: Config,
     subdenom: String,
     basket_id: String,
+    liquidity_multiplier: Option<Decimal>,
 )-> StdResult<SubMsg>{
     
     if config.osmosis_proxy.is_some(){
@@ -3326,6 +3440,7 @@ fn create_denom(
                         subdenom,
                         basket_id,
                         max_supply:Some( Uint128::new(u128::MAX) ),
+                        liquidity_multiplier,
                     })?,
             funds: vec![],
         });
@@ -3585,7 +3700,7 @@ fn accrue(
             max_LTV: Decimal::zero(),
             pool_info: None,
         };
-        let credit_TWAP_price = get_asset_values( storage, env, querier, vec![ credit_asset ], config.clone() )?.1[0];
+        let credit_TWAP_price = get_asset_values( storage, env, querier, vec![ credit_asset ], config.clone(), Some( basket.clone().basket_id ) )?.1[0];
         //We divide w/ the greater number first so the quotient is always 1.__
         let mut price_difference = {
             //If market price > than repayment price
@@ -3736,5 +3851,59 @@ pub fn mint_revenue(
         attr("repay_for", repay_attr),
         attr("send_to", send_to.unwrap_or( String::from("None") )),
     ]) )
+
+}
+
+pub fn clone_basket(
+    deps: DepsMut,
+    basket_id: Uint128,
+) -> Result<Response, ContractError>{
+    
+    let mut config = CONFIG.load( deps.storage )?;
+    //Load basket to clone from
+    let base_basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
+
+    //Get new credit price using the Oracle's newly upgraded logic
+    let credit_price: Decimal = deps.querier.query::<PriceResponse>(&QueryRequest::Wasm(
+        WasmQuery::Smart { 
+            contract_addr: config.clone().oracle_contract.unwrap().to_string(), 
+            msg: to_binary( &OracleQueryMsg::Price {
+                asset_info: base_basket.clone().credit_asset.info,
+                twap_timeframe: config.clone().twap_timeframe,
+                basket_id: Some(  config.clone().current_basket_id ),
+            })?, 
+        }))?
+        .avg_price;
+
+    let new_supply_caps = base_basket.clone().collateral_supply_caps
+        .into_iter()
+        .map(|cap| {
+            SupplyCap {
+                current_supply: Uint128::zero(),
+                ..cap
+            }
+        })
+        .collect::<Vec<SupplyCap>>();
+
+    let new_basket = Basket {
+        basket_id: config.clone().current_basket_id,
+        credit_price,
+        collateral_supply_caps: new_supply_caps,
+        ..base_basket.clone()
+    };
+
+    //Save Config
+    config.current_basket_id += Uint128::new(1u128);
+    CONFIG.save( deps.storage, &config.clone() )?;
+
+    //Save new Basket
+    BASKETS.save( deps.storage, new_basket.clone().basket_id.to_string(), &new_basket )?;
+
+    Ok( Response::new().add_attributes(vec![
+        attr("method", "clone_basket"),
+        attr("cloned_basket_id", base_basket.basket_id),
+        attr("new_basket_id", config.current_basket_id),
+        attr("new_price", credit_price.to_string()),
+    ]))
 
 }

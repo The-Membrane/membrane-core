@@ -374,7 +374,8 @@ pub enum ExecuteMsg {
         collateral_supply_caps: Option<Vec<SupplyCap>>,
         base_interest_rate: Option<Decimal>,
         desired_debt_cap_util: Option<Decimal>,
-        credit_asset_twap_price_source: Option<TWAPPoolInfo>,      
+        credit_asset_twap_price_source: Option<TWAPPoolInfo>,    
+        negative_rates: Option<bool>,
     }
 }
 
@@ -405,6 +406,7 @@ pub struct TWAPPoolInfo {
 | `*base_interest_rate`             | Decimal         | Base interest rate for collateral types                   |
 | `*desired_debt_cap_util`          | Decimal         | % cap before slope 2 begins in the interest rate equation |
 | `*credit_asset_twap_price_source` | TWAPPoolInfo    | Oracle information to store for credit price queries      |
+| `*negative_rates`                 | bool            | Toggle to allow negative repayment interest               |
 
 \* = optional
 
@@ -680,6 +682,7 @@ pub struct BasketResponse{
     pub liquidity_multiplier: Decimal,
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
     pub pending_revenue: Uint128, 
+    pub negative_rates: bool,
 }
 ```
 
@@ -716,6 +719,7 @@ pub struct BasketResponse{
     pub liquidity_multiplier: Decimal,
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
     pub pending_revenue: Uint128, 
+    pub negative_rates: bool,
 }
 ```
 

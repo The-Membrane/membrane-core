@@ -234,7 +234,7 @@ pub struct BasketResponse{
     pub collateral_types: Vec<cAsset>, 
     pub collateral_supply_caps: Vec<SupplyCap>,
     pub credit_asset: Asset, 
-    pub credit_price: String,
+    pub credit_price: Decimal,
     pub credit_pool_ids: Vec<u64>,
     pub liq_queue: String,
     pub base_interest_rate: Decimal, //Enter as percent, 0.02

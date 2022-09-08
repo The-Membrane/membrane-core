@@ -6,7 +6,7 @@ use cw_storage_plus::{Item, Map};
 
 //use crate::msg::{AssetInfo, Asset};
 
-use membrane::types::{Asset, AssetInfo, Basket, Position, SellWallDistribution, PositionUserInfo};
+use membrane::types::{Asset, Basket, Position, SellWallDistribution, UserInfo};
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -55,7 +55,7 @@ pub struct WithdrawPropagation {
     pub positions_prev_collateral: Vec<Asset>, //Amount of collateral in the position before the withdrawal
     pub withdraw_amounts: Vec<Uint128>,
     pub contracts_prev_collateral_amount: Vec<Uint128>,
-    pub position_info: PositionUserInfo,
+    pub position_info: UserInfo,
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");

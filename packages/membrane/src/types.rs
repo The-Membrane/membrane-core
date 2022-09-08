@@ -341,6 +341,14 @@ pub struct Allocation {
     pub vesting_period: VestingPeriod,  //In days
 }
 
+/////Debt Auction
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct RepayPosition {  
+    pub repayment: Uint128,
+    pub position_info: UserInfo,
+}
+
 
 //////////Possibly switching to cw-asset//////
 

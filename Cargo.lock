@@ -360,6 +360,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "debt_auction"
+version = "0.1.0"
+dependencies = [
+ "cosmwasm-bignumber",
+ "cosmwasm-schema",
+ "cosmwasm-std 1.0.0",
+ "cosmwasm-storage",
+ "cw-multi-test",
+ "cw-storage-plus",
+ "cw2",
+ "cw20",
+ "membrane",
+ "osmo-bindings",
+ "osmosis-std",
+ "schemars",
+ "serde",
+ "thiserror",
+ "wasm",
+]
+
+[[package]]
 name = "der"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -3502,8 +3502,8 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap_err();
 
-             ///Successful increase on the cap
-             let msg = ExecuteMsg::IncreaseDebt{
+            ///Successful increase on the cap
+            let msg = ExecuteMsg::IncreaseDebt{
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 amount: Uint128::from(249_995u128),

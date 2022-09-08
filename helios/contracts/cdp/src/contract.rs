@@ -572,10 +572,13 @@ fn check_for_bad_debt(
         //Send bad debt amount to the auction contract if greater than 0
         if config.debt_auction.is_some() && !bad_debt_amount.is_zero(){
             let auction_msg = AuctionExecuteMsg::StartAuction {
-                    basket_id, 
-                    position_id, 
-                    position_owner: position_owner.to_string(), 
+                    repayment_position_info: UserInfo { 
+                        basket_id, 
+                        position_id, 
+                        position_owner: position_owner.to_string(), 
+                    },
                     debt_amount: bad_debt_amount,
+                    swap_with_asset: basket.clone().credit_asset.info,
                 };
 
             messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
@@ -666,14 +669,14 @@ fn handle_withdraw_reply(
 
             //If balance differnce is more than what they tried to withdraw or position amount, error
             if withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > position_amount || withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > withdraw_amount {
-                return Err( StdError::GenericErr { msg: format!("Conditional 1: Invalid withdrawal, possible bug found by {}", withdraw_prop.position_info.position_owner.clone().unwrap()) } )
+                return Err( StdError::GenericErr { msg: format!("Conditional 1: Invalid withdrawal, possible bug found by {}", withdraw_prop.position_info.position_owner.clone()) } )
             }
 
             let user_position = match get_target_position( 
                 deps.storage, 
                 withdraw_prop.position_info.basket_id, 
-                deps.api.addr_validate(&withdraw_prop.position_info.position_owner.clone().unwrap())?, 
-                withdraw_prop.position_info.position_id.unwrap()){
+                deps.api.addr_validate(&withdraw_prop.position_info.position_owner.clone())?, 
+                withdraw_prop.position_info.position_id){
                     Ok( position ) => position,
                     Err( err ) => return Err( StdError::GenericErr { msg: err.to_string() } )
                 };
@@ -681,7 +684,7 @@ fn handle_withdraw_reply(
             //Assert the withdrawal was correctly saved to state
             if let Some(cAsset) = user_position.collateral_assets.into_iter().find(|cAsset| cAsset.asset.info.equal(&asset_info)) {
                 if cAsset.asset.amount != ( position_amount - withdraw_amount ){
-                    return Err( StdError::GenericErr { msg: format!("Conditional 2: Invalid withdrawal, possible bug found by {}", withdraw_prop.position_info.position_owner.unwrap()) } )
+                    return Err( StdError::GenericErr { msg: format!("Conditional 2: Invalid withdrawal, possible bug found by {}", withdraw_prop.position_info.position_owner) } )
                 }
             }
             

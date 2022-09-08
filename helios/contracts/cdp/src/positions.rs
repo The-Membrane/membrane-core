@@ -456,10 +456,10 @@ pub fn withdraw(
         positions_prev_collateral: prop_assets,
         withdraw_amounts,
         contracts_prev_collateral_amount: get_contract_balances(deps.querier, env, prop_assets_info)?,
-        position_info: PositionUserInfo { 
+        position_info: UserInfo { 
             basket_id, 
-            position_id: Some( position_id ), 
-            position_owner: Some( info.clone().sender.to_string() ),
+            position_id: position_id, 
+            position_owner: info.clone().sender.to_string(),
         },
     };
     WITHDRAW.save( deps.storage, &withdrawal_prop )?;
@@ -3161,25 +3161,7 @@ fn get_credit_asset_multiplier(
         .0
         .into_iter()
         .sum();
-    // let total_collateral_ratios = get_cAsset_ratios(storage, env.clone(), querier, temp_cAssets, config.clone())?;
-
-    // //Find Basket parameter's ratio of each collateral
-    // let mut basket_collateral_ratios: Vec<Decimal> = vec![];
-    // for ( i, collateral ) in basket.clone().collateral_supply_caps.into_iter().enumerate() {
-    //     if !collateral.lp{
-    //         //Push collateral_ratio
-    //         if collateral_totals[i].amount.is_zero() {
-    //             basket_collateral_ratios.push( Decimal::zero() );
-    //         } else {
-    //             basket_collateral_ratios.push( decimal_division(
-    //                 Decimal::from_ratio(collateral.current_supply, Uint128::new(1u128)),
-    //                 Decimal::from_ratio(collateral_totals[i].amount, Uint128::new(1u128))
-    //             ) );
-    //         }
-            
-    //     }
-    // }
-
+   
     //Find Basket parameter's ratio of total collateral
     let basket_tvl_ratio: Decimal = {
        if !basket_collateral_value.is_zero() {

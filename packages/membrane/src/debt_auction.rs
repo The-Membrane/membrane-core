@@ -46,11 +46,17 @@ pub enum ExecuteMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
-    OngoingAuction {
-        swap_asset: AssetInfo,
+    OngoingAuctions {
+        debt_asset: Option<AssetInfo>,
+        limit: Option<u64>,
+        start_without: Option<AssetInfo>,
+    },
+    ValidDebtAssets {
+        debt_asset: Option<AssetInfo>,
+        limit: Option<u64>,
+        start_without: Option<AssetInfo>,
     },
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct AuctionResponse {

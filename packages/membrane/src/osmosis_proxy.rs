@@ -35,9 +35,10 @@ pub enum ExecuteMsg {
         denom: String,
         max_supply: Uint128,
     },
-    EditOwners {
-        owner: String,
+    UpdateConfig {
+        owner: Option<String>,
         add_owner: bool, //Add or Remove
+        debt_auction: Option<String>,
     },
 }
 
@@ -48,8 +49,6 @@ pub enum QueryMsg {
         creator_address: String,
         subdenom: String,
     },
-    //This will be replaced by TWAP but is here for testing
-    SpotPrice { asset: String },
     /// For a given pool ID, list all tokens traded on it with current liquidity (spot).
     /// As well as the total number of LP shares and their denom
     PoolState { id: u64 },

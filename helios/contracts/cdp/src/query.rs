@@ -238,14 +238,16 @@ pub fn query_baskets(
 
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
 
-    let start: Option<Bound<String>> = if let Some(_start) = start_after { match BASKETS.load(deps.storage, start_after.unwrap().to_string()){
-        Ok(_x) => {
-            Some(Bound::exclusive(start_after.unwrap().to_string()))
-        },
-        Err(_) => {
-            None
-        },
-    }}else {
+    let start: Option<Bound<String>> = if let Some(_start) = start_after { 
+        match BASKETS.load(deps.storage, start_after.unwrap().to_string()){
+            Ok(_x) => {
+                Some(Bound::exclusive(start_after.unwrap().to_string()))
+            },
+            Err(_) => {
+                None
+            },
+        }
+    }else {
         None
     };
 

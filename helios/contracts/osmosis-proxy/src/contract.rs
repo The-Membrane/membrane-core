@@ -32,6 +32,7 @@ pub fn instantiate(
 ) -> Result<Response, TokenFactoryError> {
     let config = Config {
         owners: vec![ info.sender.clone() ],
+        debt_auction: None,
     };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
@@ -68,58 +69,77 @@ pub fn execute(
             denom,
             max_supply
         } => edit_token_max( deps, info, denom, max_supply ),
-        ExecuteMsg::EditOwners {
+        ExecuteMsg::UpdateConfig {
             owner,
             add_owner,
-        } => edit_owners( deps, info, owner, add_owner ),
+            debt_auction,
+        } => update_config( deps, info, owner, debt_auction, add_owner ),
         
     }
 }
 
-fn edit_owners(
+fn update_config(
     deps: DepsMut<OsmosisQuery>,
     info: MessageInfo,
-    owner: String,
+    owner: Option<String>,
+    debt_auction: Option<String>,
     add_owner: bool,
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
     
     let mut config = CONFIG.load( deps.storage )?;
 
+    let mut attrs = vec![
+        attr("method", "edit_owners"),
+        attr("add_owner", add_owner.to_string()) ];
+
     if !validate_authority( config.clone(), info.clone() ) { return Err( TokenFactoryError::Unauthorized {  } ) }
 
-    //Edit Config
-    if add_owner {
-        config.owners.push( deps.api.addr_validate(&owner)? );
-
-        //Save Config
-        CONFIG.save( deps.storage, &config )?;
-
-    } else {
-        deps.api.addr_validate(&owner)?;
-        //Filter out owner
-        config.owners = config.clone().owners
-            .into_iter()
-            .filter(|stored_owner| stored_owner.to_string() != owner )
-            .collect::<Vec<Addr>>();
-
-        //Save Config
-        CONFIG.save( deps.storage, &config )?;
+    //Edit Owner
+    if let Some( owner ) = owner {
+        if add_owner {
+            config.owners.push( deps.api.addr_validate(&owner)? );                
+    
+        } else {
+            deps.api.addr_validate(&owner)?;
+            //Filter out owner
+            config.owners = config.clone().owners
+                .into_iter()
+                .filter(|stored_owner| stored_owner.to_string() != owner )
+                .collect::<Vec<Addr>>();
+    
+        }
+        attrs.push( attr("owner", owner) );
     }
 
-    Ok( Response::new().add_attributes(vec![
-        attr("method", "edit_owners"),
-        attr("add_owner", add_owner.to_string() ),
-        attr("owner", owner),
-    ]) )
+    //Edit Debt Auction
+    if let Some( debt_auction ) = debt_auction {
+        config.debt_auction = Some( deps.api.addr_validate(&debt_auction)? );
+    }
+
+    //Save Config
+    CONFIG.save( deps.storage, &config )?;
+
+    Ok( Response::new().add_attributes( attrs ) )
 }
 
 fn validate_authority(
     config: Config,
     info: MessageInfo,
 ) -> bool {
+    //Owners or Debt Auction have contract authority 
     match config.owners.into_iter().find(|owner| owner.to_string() == info.sender.to_string() ){
         Some( _owner ) => true,
-        None => false,
+        None => {
+            if let Some( debt_auction ) = config.debt_auction {
+                if info.sender == debt_auction {
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        },
     }
 }
 
@@ -227,7 +247,7 @@ pub fn mint_tokens(
 
     let config = CONFIG.load( deps.storage )?;
     //Assert Authority
-    if !validate_authority( config, info.clone() ) { return Err( TokenFactoryError::Unauthorized {  } ) }
+    if !validate_authority( config.clone(), info.clone() ) { return Err( TokenFactoryError::Unauthorized {  } ) }
 
     deps.api.addr_validate(&mint_to_address)?;
 
@@ -237,6 +257,14 @@ pub fn mint_tokens(
 
     validate_denom(deps.querier, denom.clone())?;
 
+    //Debt Auction can mint over max supply
+    let mut over_max = false;
+    if let Some( debt_auction ) = config.debt_auction{
+        if info.sender == debt_auction{
+            over_max = true;
+        }  
+    };
+
     //Update Token Supply
     TOKENS.update( deps.storage, denom.clone(), | token_info | -> Result<TokenInfo, TokenFactoryError> {
         match token_info {
@@ -244,7 +272,7 @@ pub fn mint_tokens(
                 token_info.current_supply += amount;
 
                 if token_info.clone().max_supply.is_some(){
-                    if token_info.current_supply > token_info.max_supply.unwrap() {
+                    if token_info.current_supply > token_info.max_supply.unwrap() && !over_max{
                         return Err( TokenFactoryError::CustomError { val: String::from("This mint puts token supply over Max supply") } )
                     }
                 }
@@ -319,7 +347,6 @@ pub fn query(deps: Deps<OsmosisQuery>, _env: Env, msg: QueryMsg) -> StdResult<Bi
             creator_address,
             subdenom,
         } => to_binary(&get_denom(deps, creator_address, subdenom)),
-        QueryMsg::SpotPrice { asset } => todo!(),
         QueryMsg::PoolState { id } => {
             to_binary(&get_pool_state(deps, id)?)
         },
@@ -335,26 +362,12 @@ pub fn query(deps: Deps<OsmosisQuery>, _env: Env, msg: QueryMsg) -> StdResult<Bi
             to_binary( &get_token_info( deps, denom )? )
         },
         QueryMsg::Config { } => {
-            to_binary( &get_config( deps )? )
+            to_binary( &CONFIG.load( deps.storage )? )
         },
     }
 }
 
-fn get_config(
-    deps: Deps<OsmosisQuery>, 
-) -> StdResult<ConfigResponse> {
 
-    let config_owners: Vec<String> = CONFIG.load( deps.storage )?.owners
-        .into_iter()
-        .map(|owner| owner.to_string())
-        .collect::<Vec<String>>();
-
-    Ok( 
-        ConfigResponse {
-            owners: config_owners,
-        }
-    )
-}
 
 fn get_token_info(
     deps: Deps<OsmosisQuery>, 
@@ -508,7 +521,7 @@ fn handle_create_denom_reply(deps: DepsMut<OsmosisQuery>, env: Env, msg: Reply) 
 mod tests {
     use super::*;
     use cosmwasm_std::testing::{
-        mock_env, mock_info, MockApi, MockQuerier, MockStorage, MOCK_CONTRACT_ADDR, 
+        mock_env, mock_info, MockApi, MockQuerier, MockStorage, MOCK_CONTRACT_ADDR, mock_dependencies
     };
     use cosmwasm_std::{
         coins, from_binary, Attribute, ContractResult, CosmosMsg, OwnedDeps, Querier, StdError,
@@ -517,7 +530,28 @@ mod tests {
 
     const DENOM_NAME: &str = "mydenom";
     const DENOM_PREFIX: &str = "factory";
-  
+
+
+//   #[test]
+//   fn max_supply(){
+
+//     let mut deps = mock_dependencies();
+    
+//     let msg = InstantiateMsg { };
+
+//     let info = mock_info("addr0000", &[]);
+//     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+
+//     let msg = ExecuteMsg::CreateDenom { 
+//         subdenom: String::from(DENOM_NAME), 
+//         basket_id: String::from("1"), 
+//         max_supply: Some( Uint128::zero() ), 
+//         liquidity_multiplier: None,
+//     };
+//     let res = execute(deps.as_mut(), mock_env(), info, msg.clone() ).unwrap();
+//     assert_eq!(res.attributes, vec![]);
+
+//   }
 }
 
 // fn exit_pool(

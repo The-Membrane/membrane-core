@@ -700,6 +700,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "liquidity_check"
+version = "0.1.0"
+dependencies = [
+ "cosmwasm-bignumber",
+ "cosmwasm-schema",
+ "cosmwasm-std 1.0.0",
+ "cosmwasm-storage",
+ "cw-multi-test",
+ "cw-storage-plus",
+ "cw2",
+ "cw20",
+ "membrane",
+ "osmo-bindings",
+ "osmosis-std",
+ "schemars",
+ "serde",
+ "thiserror",
+ "wasm",
+]
+
+[[package]]
 name = "membrane"
 version = "0.1.0"
 dependencies = [

@@ -11,3 +11,4 @@ pub mod math;
 pub mod staking;
 pub mod governance;
 pub mod oracle;
+pub mod liquidity_check;

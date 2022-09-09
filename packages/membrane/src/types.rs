@@ -349,6 +349,13 @@ pub struct RepayPosition {
     pub position_info: UserInfo,
 }
 
+/////////Liquidity Check
+/// 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct LiquidityInfo {  
+    pub asset: AssetInfo,
+    pub pool_ids: Vec<u64>,
+}
 
 //////////Possibly switching to cw-asset//////
 

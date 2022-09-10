@@ -24,8 +24,8 @@ pub struct InstantiateMsg {
     pub interest_revenue_collector: Option<String>,
     pub osmosis_proxy: Option<String>,
     pub debt_auction: Option<String>,
+    pub liquidity_contract: Option<String>,
 }
-
 
 pub struct Asset{
     pub info: AssetInfo,
@@ -56,6 +56,7 @@ pub enum AssetInfo {
 | `*oracle_contract`            | String  | Oracle contract                                                    |
 | `*osmosis_proxy`              | String  | Osmosis Proxy contract to use SDK modules                          |
 | `*debt_auction`               | String  | Auction Contract that sells protocol tokens to repay debt          |
+| `*liquidity_contract`         | String  | Liquidity Check contract address                                   |
 
 \* = optional
 
@@ -77,6 +78,7 @@ pub enum ExecuteMsg {
         debt_auction: Option<String>,
         staking_contract: Option<String>,
         oracle_contract: Option<String>,
+        liquidity_contract: Option<String>,
         interest_revenue_collector: Option<String>,
         liq_fee: Option<Decimal>,
         debt_minimum: Option<Uint128>,
@@ -99,6 +101,7 @@ pub enum ExecuteMsg {
 | `*interest_revenue_collector` | String  | CDP interest fee collector address                                       |
 | `*staking_contract`           | String  | MBRN Staking contract                                                    |
 | `*oracle_contract`            | String  | Oracle contract                                                          |
+| `*liquidity_contract`         | String  | Liquidity Check contract                                                 |
 | _`*liq_fee`_                  | Decimal | Liquidation fee                                                          |
 | `*debt_minimum`               | Uint128 | Debt minimum in terms of value                                           |
 | `*base_debt_cap_multiplier`   | Uint128 | Debt Minimum Multiplier for a base debt cap                              |

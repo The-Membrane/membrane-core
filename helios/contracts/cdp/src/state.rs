@@ -22,7 +22,7 @@ pub struct Config {
     pub oracle_contract: Option<Addr>,
     pub liquidity_contract: Option<Addr>,
     pub liq_fee: Decimal, //Enter as percent, 0.02
-    pub twap_timeframe: u64, //in days
+    pub twap_timeframe: u64, //in minutes
     pub oracle_time_limit: u64, //in seconds until oracle failure is accepted. Think of it as how many blocks you allow the oracle to fail for.
     //% difference btwn credit TWAP and repayment price before the interest changes
     //Set to 100 if you want to turn off the PID

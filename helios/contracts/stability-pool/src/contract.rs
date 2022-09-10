@@ -7,7 +7,7 @@ use cosmwasm_std::entry_point;
 use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Storage, Addr, Api, Uint128, CosmosMsg, BankMsg, WasmMsg, Coin, Decimal, BankQuery, BalanceResponse, QueryRequest, WasmQuery, QuerierWrapper, attr, from_binary};
 use cw2::set_contract_version;
 use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
-use membrane::stability_pool::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, DepositResponse, ClaimsResponse, PoolResponse, Cw20HookMsg, ConfigResponse };
+use membrane::stability_pool::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, DepositResponse, ClaimsResponse, PoolResponse, Cw20HookMsg };
 use membrane::apollo_router::{ ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterCw20HookMsg };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, ExecuteMsg as OsmoExecuteMsg, TokenInfoResponse };
 use membrane::types::{ Asset, AssetInfo, LiqAsset, AssetPool, Deposit, cAsset, UserRatio, User, PositionUserInfo };
@@ -21,7 +21,9 @@ use crate::state::{ ASSETS, CONFIG, Config, USERS, PROP, Propagation, INCENTIVES
 const CONTRACT_NAME: &str = "crates.io:stability-pool";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+//Timeframe constants
 const SECONDS_PER_YEAR: u64 = 31_536_000u64;
+const SECONDS_PER_DAY: u64 = 86_400u64;
 
 //FIFO Stability Pool
 
@@ -41,6 +43,7 @@ pub fn instantiate(
             incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(0)),
             max_incentives: msg.max_incentives.unwrap_or_else(|| Uint128::new(70_000_000_000_000)),
             desired_ratio_of_total_credit_supply: msg.desired_ratio_of_total_credit_supply.unwrap_or_else(|| Decimal::percent(0)),
+            unstaking_period: 1u64,
             mbrn_denom: msg.mbrn_denom,
             osmosis_proxy: deps.api.addr_validate( &msg.osmosis_proxy )?,
             positions_contract: deps.api.addr_validate( &msg.positions_contract )?,
@@ -53,6 +56,7 @@ pub fn instantiate(
             incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(0)),
             max_incentives: msg.max_incentives.unwrap_or_else(|| Uint128::new(70_000_000_000_000)),
             desired_ratio_of_total_credit_supply: msg.desired_ratio_of_total_credit_supply.unwrap_or_else(|| Decimal::percent(0)),
+            unstaking_period: 1u64,
             mbrn_denom: msg.mbrn_denom,
             osmosis_proxy: deps.api.addr_validate( &msg.osmosis_proxy )?,
             positions_contract: deps.api.addr_validate( &msg.positions_contract )?,
@@ -117,12 +121,13 @@ pub fn execute(
             incentive_rate,
             max_incentives, 
             desired_ratio_of_total_credit_supply,
+            unstaking_period,
             mbrn_denom, 
             osmosis_proxy,
             positions_contract,
             dex_router, 
             max_spread 
-        } => update_config(deps, info, owner, incentive_rate, max_incentives, desired_ratio_of_total_credit_supply, mbrn_denom, osmosis_proxy, positions_contract, dex_router, max_spread),
+        } => update_config(deps, info, owner, incentive_rate, max_incentives, desired_ratio_of_total_credit_supply, unstaking_period, mbrn_denom, osmosis_proxy, positions_contract, dex_router, max_spread),
         ExecuteMsg::Receive( msg ) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ user, assets } => {
             //Outputs asset objects w/ correct amounts
@@ -146,6 +151,7 @@ fn update_config(
     incentive_rate: Option<Decimal>,
     max_incentives: Option<Uint128>,
     desired_ratio_of_total_credit_supply: Option<Decimal>,
+    unstaking_period: Option<u64>,
     mbrn_denom: Option<String>,
     osmosis_proxy: Option<String>,
     positions_contract: Option<String>,
@@ -163,72 +169,49 @@ fn update_config(
     ];
 
     //Match Optionals
-    match owner {
-        Some( owner ) => { 
+    if let Some( owner ) = owner { 
             let valid_addr = deps.api.addr_validate(&owner)?;
             config.owner = valid_addr.clone();
             attrs.push( attr("new_owner", valid_addr.to_string()) );
-        },
-        None => {},
     }
-    match mbrn_denom {
-        Some( mbrn_denom ) => { 
+    if let Some( mbrn_denom ) = mbrn_denom { 
             config.mbrn_denom = mbrn_denom.clone() ;
             attrs.push( attr("new_mbrn_denom", mbrn_denom.to_string()) );
-        },
-        None => {},
     }
-    match osmosis_proxy {
-        Some( osmosis_proxy ) => { 
+    if let Some( osmosis_proxy ) = osmosis_proxy { 
             let valid_addr = deps.api.addr_validate(&osmosis_proxy)?;
             config.osmosis_proxy = valid_addr.clone();
             attrs.push( attr("new_osmosis_proxy", valid_addr.to_string()) );
-        },
-        None => {},
     }
-    match positions_contract {
-        Some( positions_contract ) => { 
+    if let Some( positions_contract ) = positions_contract { 
             let valid_addr = deps.api.addr_validate(&positions_contract)?;
             config.positions_contract = valid_addr.clone();
             attrs.push( attr("new_positions_contract", valid_addr.to_string()) );
-        },
-        None => {},
     }
-    match dex_router {
-        Some( dex_router ) => { 
+    if let Some( dex_router ) = dex_router { 
             let valid_addr = deps.api.addr_validate(&dex_router)?;
             config.dex_router = Some( valid_addr.clone() );
             attrs.push( attr("new_dex_router", valid_addr.to_string()) );
-        },
-        None => {},
     }
-    match max_spread {
-        Some( max_spread ) => { 
+    if let Some( max_spread ) = max_spread { 
             config.max_spread = Some( max_spread.clone() );
             attrs.push( attr("new_max_spread", max_spread.to_string()) );
-        },
-        None => {},
     }
-    match incentive_rate {
-        Some( incentive_rate ) => { 
+    if let Some( incentive_rate ) = incentive_rate { 
             config.incentive_rate = incentive_rate.clone();
             attrs.push( attr("new_incentive_rate", incentive_rate.to_string()) );
-        },
-        None => {},
     }
-    match max_incentives {
-        Some( max_incentives ) => { 
+    if let Some( max_incentives ) = max_incentives { 
             config.max_incentives = max_incentives.clone();
             attrs.push( attr("new_max_incentives", max_incentives.to_string()) );
-        },
-        None => {},
     }
-    match desired_ratio_of_total_credit_supply {
-        Some( desired_ratio_of_total_credit_supply ) => { 
+    if let Some( desired_ratio_of_total_credit_supply ) = desired_ratio_of_total_credit_supply{ 
             config.desired_ratio_of_total_credit_supply = desired_ratio_of_total_credit_supply.clone();
             attrs.push( attr("new_desired_ratio_of_total_credit_supply", desired_ratio_of_total_credit_supply.to_string()) );
-        },
-        None => {},
+    }
+    if let Some( new_unstaking_period ) = unstaking_period {
+        config.unstaking_period = new_unstaking_period.clone();
+        attrs.push( attr("new_unstaking_period", new_unstaking_period.to_string()) );
     }
     
     //Save new Config
@@ -286,6 +269,7 @@ pub fn deposit(
             user: valid_owner_addr.clone(),
             amount: Decimal::from_ratio(asset.amount, Uint128::new(1u128)),
             deposit_time: env.block.time.seconds(),
+            unstake_time: None,
         };
 
         
@@ -400,6 +384,7 @@ fn accumulate_interest(
     Ok( accrued_interest )
 }
 
+//Withdraw / Unstake
 pub fn withdraw(
     deps: DepsMut,
     env: Env,
@@ -411,6 +396,10 @@ pub fn withdraw(
 
     let mut message: CosmosMsg;
     let mut msgs = vec![];       
+    let mut attrs = vec![
+        attr("method", "withdraw"),
+        attr("position_owner", info.clone().sender.to_string()),
+    ];
 
     //Each Asset
     for asset in assets.clone(){
@@ -422,8 +411,7 @@ pub fn withdraw(
         match asset_pools.clone().into_iter().find(|mut x| x.credit_asset.info.equal(&asset.info)){
             
             //Some Asset
-            Some( pool ) => {
-                
+            Some( pool ) => {                
                 
                 //This forces withdrawals to be done by the info.sender 
                 //so no need to check if the withdrawal is done by the position owner
@@ -446,7 +434,7 @@ pub fn withdraw(
                 } else{
 
                     //Go thru each deposit and withdraw request from state
-                    let mut new_pool = withdrawal_from_state(
+                    let ( withdrawable, mut new_pool) = withdrawal_from_state(
                         deps.storage,
                         deps.querier,
                         env.clone(),
@@ -454,23 +442,34 @@ pub fn withdraw(
                         info.clone().sender, 
                         Decimal::from_ratio(asset.amount, Uint128::new(1u128)), 
                         pool)?;
-
-                    
-                    //Subtract from total pool
-                    new_pool.credit_asset.amount -= asset.amount;
+                   
                     
                     let mut temp_pools: Vec<AssetPool> = asset_pools.clone()
                         .into_iter()
                         .filter(|pool| !pool.credit_asset.info.equal(&asset.info))
                         .collect::<Vec<AssetPool>>();
-                    temp_pools.push(new_pool);
+                    temp_pools.push(new_pool.clone());
 
                     //Update pool
                     ASSETS.save(deps.storage, &temp_pools)?;
 
-                    //This is here in case there are multiple withdrawal messages created.
-                    message = withdrawal_msg(asset, info.sender.clone())?;
-                    msgs.push(message);
+                    //If there is a withdrwable amount
+                    if !withdrawable.is_zero() {
+                        let withdrawable_asset = Asset {
+                            amount: withdrawable,
+                            ..asset
+                        };
+
+                        attrs.push( attr("withdrawn_asset", withdrawable_asset.to_string() ) );
+
+                        //This is here in case there are multiple withdrawal messages created.
+                        message = withdrawal_msg (
+                            withdrawable_asset, 
+                            info.sender.clone()
+                        )?;
+                        msgs.push(message);
+
+                    }
 
                 }
 
@@ -482,24 +481,9 @@ pub fn withdraw(
         
     }
 
-         
-    //Response builder
-    let response = Response::new();
-    let mut attrs = vec![];
-
-    attrs.push(("method", "withdraw"));
-
-    let i = &info.sender.to_string();
-    attrs.push(("position_owner", i));
-
+        
     
-    let assets_as_string: Vec<String> = assets.iter().map(|x| x.to_string()).collect();
-    
-    for i in 0..assets.clone().len(){
-        attrs.push(("withdrawn_assets", &assets_as_string[i]));    
-    }
-    
-    Ok( response.add_attributes(attrs).add_messages(msgs) )
+    Ok( Response::new().add_attributes(attrs).add_messages(msgs) )
 }
 
 fn withdrawal_from_state(
@@ -510,61 +494,100 @@ fn withdrawal_from_state(
     user: Addr,
     mut withdrawal_amount: Decimal,
     mut pool: AssetPool,
-) -> Result<AssetPool, ContractError>{
+) -> Result<(Uint128,AssetPool), ContractError>{
 
     let mut mbrn_incentives = Uint128::zero();
 
     let mut error: Option<StdError> = None;
     let mut is_user = false;
+    let mut withdrawable = false;
+    let mut withdrawable_amount = Uint128::zero();
 
     let new_deposits: Vec<Deposit> = pool.clone().deposits
         .into_iter()
         .map( |mut deposit_item| {
             
             //Only edit user deposits
-            if deposit_item.user == user{
+            if deposit_item.user == user {
                 is_user = true;
-                //subtract from each deposit until there is none left to withdraw
-                if withdrawal_amount != Decimal::zero() && deposit_item.amount > withdrawal_amount{
+                
+                /////Check if deposit is withdrawable
+                //If deposit has been "unstaked" ie previously withdrawn, assert the unstaking period has passed before withdrawing
+                if deposit_item.unstake_time.is_some() {
+                    //If time_elapsed is >= unstaking period
+                    if env.block.time.seconds() - deposit_item.unstake_time.unwrap() >= ( config.unstaking_period * SECONDS_PER_DAY ) {
+                        withdrawable = true;
+                    } 
+                    //If unstaking period hasn't passed do nothing
+                    
+                } else {
+                    //Set unstaking time and don't withdraw anything
+                    deposit_item.unstake_time = Some( env.block.time.seconds() );
+                }
 
-                    deposit_item.amount -= withdrawal_amount;
+                //Subtract from each deposit until there is none left to withdraw
+                        
+                //If not withdrawable we only edit withdraw amount to make sure the deposits...
+                //..that would get parsed through in a valid withdrawal get their unstaking_time set/checked           
+                if withdrawal_amount != Decimal::zero() && deposit_item.amount > withdrawal_amount {
 
-                    //Calc incentives
-                    let time_elapsed = env.block.time.seconds() - deposit_item.deposit_time;
-                    if time_elapsed != 0u64{
-                        let accrued_incentives = match accrue_incentives( storage, querier, config.clone(), pool.clone(), withdrawal_amount * Uint128::new(1u128), time_elapsed ){
-                            Ok( incentives ) => incentives,
-                            Err( err ) => { 
-                                error = Some( err );
-                                Uint128::zero()
-                            },
-                        };
-                        mbrn_incentives += accrued_incentives;
-                    }                    
+                                        
+                    if withdrawable {
+                        //Add to withdrawable
+                        withdrawable_amount += withdrawal_amount * Uint128::new(1u128);
 
+                        //Subtract from deposit.amount
+                        deposit_item.amount -= withdrawal_amount;
+
+                        //Calc incentives
+                        let time_elapsed = deposit_item.unstake_time.unwrap() - deposit_item.deposit_time;
+                        if time_elapsed != 0u64{
+                            let accrued_incentives = match accrue_incentives( storage, querier, config.clone(), pool.clone(), withdrawal_amount * Uint128::new(1u128), time_elapsed ){
+                                Ok( incentives ) => incentives,
+                                Err( err ) => { 
+                                    error = Some( err );
+                                    Uint128::zero()
+                                },
+                            };
+                            mbrn_incentives += accrued_incentives;
+                        }
+                    } 
+                    //////
                     withdrawal_amount = Decimal::zero();
+                    //////
 
-                } else if withdrawal_amount != Decimal::zero() && deposit_item.amount <= withdrawal_amount{
+
+                } else if withdrawal_amount != Decimal::zero() && deposit_item.amount <= withdrawal_amount {
 
                     //If it's less than amount, 0 the deposit and substract it from the withdrawal amount
                     withdrawal_amount -= deposit_item.amount;
+                    //////
+                    
+                    
+                    if withdrawable {
+                        //Add to withdrawable_amount
+                        withdrawable_amount += deposit_item.amount * Uint128::new(1u128);
 
-                    //Calc incentives
-                    let time_elapsed = env.block.time.seconds() - deposit_item.deposit_time;
-                    if time_elapsed != 0u64{
-                        let accrued_incentives = match accrue_incentives( storage, querier, config.clone(), pool.clone(), deposit_item.amount * Uint128::new(1u128), time_elapsed ){
-                            Ok( incentives ) => incentives,
-                            Err( err ) => { 
-                                error = Some( err );
-                                Uint128::zero()
-                            },
-                        };
-                        mbrn_incentives += accrued_incentives;
-                    }                 
+                        //Calc incentives
+                        let time_elapsed = deposit_item.unstake_time.unwrap() - deposit_item.deposit_time;
+                        if time_elapsed != 0u64{
+                            let accrued_incentives = match accrue_incentives( storage, querier, config.clone(), pool.clone(), deposit_item.amount * Uint128::new(1u128), time_elapsed ){
+                                Ok( incentives ) => incentives,
+                                Err( err ) => { 
+                                    error = Some( err );
+                                    Uint128::zero()
+                                },
+                            };
+                            mbrn_incentives += accrued_incentives;
+                        }                 
 
-                    deposit_item.amount = Decimal::zero();
+                        deposit_item.amount = Decimal::zero();
+                    }
                     
                 }
+
+                withdrawable = false;
+                
             }
             deposit_item
 
@@ -574,46 +597,56 @@ fn withdrawal_from_state(
         .filter( |deposit| deposit.amount != Decimal::zero())
         .collect::<Vec<Deposit>>();
 
+    //Set new deposits
     pool.deposits = new_deposits;
+
+    //Subtract withdrawable from total pool amount
+    pool.credit_asset.amount -= withdrawable_amount;
 
     if error.is_some(){
         return Err( ContractError::CustomError { val: error.unwrap().to_string() } )
     }
 
-    //Add incentives to User Claims
-    USERS.update( storage, user, |user_claims| -> Result<User, ContractError> {
-        match user_claims {
-            Some( mut user ) => {
-                user.claimable_assets.push( 
-                    Asset {
-                        info: AssetInfo::NativeToken{ denom: config.clone().mbrn_denom },
-                        amount: mbrn_incentives,
-                });
-                Ok( user )
-            },
-            None => {
-                if is_user {
-                    Ok(
-                        User {
-                            claimable_assets: vec![ Asset {
-                                info: AssetInfo::NativeToken{ denom: config.clone().mbrn_denom },
-                                amount: mbrn_incentives,
-                        } ]
-                        }
-                    )
-                } else {
-                    return Err( ContractError::CustomError { val: String::from("Invalid user") } )
+    //If there are incentives
+    if !mbrn_incentives.is_zero(){
+
+         //Add incentives to User Claims
+        USERS.update( storage, user, |user_claims| -> Result<User, ContractError> {
+            match user_claims {
+                Some( mut user ) => {
+                    user.claimable_assets.push( 
+                        Asset {
+                            info: AssetInfo::NativeToken{ denom: config.clone().mbrn_denom },
+                            amount: mbrn_incentives,
+                    });
+                    Ok( user )
+                },
+                None => {
+                    if is_user {
+                        Ok(
+                            User {
+                                claimable_assets: vec![ Asset {
+                                    info: AssetInfo::NativeToken{ denom: config.clone().mbrn_denom },
+                                    amount: mbrn_incentives,
+                            } ]
+                            }
+                        )
+                    } else {
+                        return Err( ContractError::CustomError { val: String::from("Invalid user") } )
+                    }
                 }
             }
-        }
-    })?;
+        })?;
 
-    Ok( pool )
+    }
+   
+
+    Ok( ( withdrawable_amount, pool ) )
 }
 
  /*
-    - send repayments for an external contract
-    - External contract sends back a distribute msg
+    - send repayments for the Positions contract
+    - Positions contract sends back a distribute msg
     */
 pub fn liquidate(
     deps: DepsMut,
@@ -1817,7 +1850,7 @@ pub fn validate_position_owner(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Config {  } => to_binary( &query_config( deps )? ),
+        QueryMsg::Config {  } => to_binary( &CONFIG.load( deps.storage )? ),
         QueryMsg::CheckLiquidatible { asset } => to_binary(&query_liquidatible(deps, asset)?),
         QueryMsg::AssetDeposits { user, asset_info } => to_binary(&query_deposits(deps, user, asset_info)?),
         QueryMsg::UserClaims{ user } => to_binary(&query_user_claims( deps, user )?),
@@ -1825,26 +1858,6 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-fn query_config(
-    deps: Deps
-) -> StdResult<ConfigResponse>{
-    
-    let config = CONFIG.load( deps.storage )?;
-
-    Ok(
-        ConfigResponse {
-            owner: config.owner.to_string(),
-            incentive_rate: config.incentive_rate.to_string(),
-            max_incentives: config.max_incentives.to_string(),
-            desired_ratio_of_total_credit_supply: config.desired_ratio_of_total_credit_supply.to_string(),
-            mbrn_denom: config.mbrn_denom,
-            osmosis_proxy: config.osmosis_proxy.to_string(),
-            positions_contract: config.positions_contract.to_string(),
-            dex_router: config.dex_router.unwrap_or(Addr::unchecked("None")).to_string(),
-            max_spread: config.max_spread.unwrap().to_string(),
-        }
-    )
-}
 
 pub fn query_pool(
     deps: Deps,

@@ -40,6 +40,7 @@ pub struct Deposit {
     pub user: Addr,
     pub amount: Decimal,
     pub deposit_time: u64,
+    pub unstake_time: Option<u64>,
 }
 
 impl fmt::Display for Deposit {

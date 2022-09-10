@@ -15,6 +15,7 @@ pub struct Config {
     //% of Supply desired in the SP. 
     //Incentives decrease as it gets closer
     pub desired_ratio_of_total_credit_supply: Decimal,
+    pub unstaking_period: u64, // in days
     pub mbrn_denom: String,
     pub osmosis_proxy: Addr,
     pub positions_contract: Addr,

@@ -3,7 +3,7 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use membrane::stability_pool::{ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, LiquidatibleResponse, DepositResponse, ClaimsResponse, PoolResponse, ConfigResponse};
+use membrane::stability_pool::{ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, LiquidatibleResponse, DepositResponse, ClaimsResponse, PoolResponse};
 use stability_pool::state::{Config, Propagation};
 
 fn main() {
@@ -17,7 +17,6 @@ fn main() {
     export_schema(&schema_for!(QueryMsg), &out_dir);
     export_schema(&schema_for!(Cw20HookMsg), &out_dir);
     export_schema(&schema_for!(Config), &out_dir);
-    export_schema(&schema_for!(ConfigResponse), &out_dir);
     export_schema(&schema_for!(Propagation), &out_dir);
     export_schema(&schema_for!(LiquidatibleResponse), &out_dir);
     export_schema(&schema_for!(DepositResponse), &out_dir);

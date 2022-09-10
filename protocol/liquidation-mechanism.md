@@ -1,12 +1,19 @@
+---
+description: >-
+  TLDR: Membrane's liquidation mechanism has 3 layers designed to have the least
+  effect on collateral's market price while democratizing the access to the
+  discounted assets that come from liquidations.
+---
+
 # Liquidation Mechanism
 
-There are 3 main steps to the liquidation mechanism: **Liquidation Queue**, **Stability Pool (SP)** and the **Sell Wall.**\
+There are 3 layers to the liquidation mechanism: **Liquidation Queue**, **Stability Pool (SP)** and the **Sell Wall.**\
 ****\
 ****The **Queue** allows users to bid on specific collateral assets at a range of premium rates.&#x20;
 
 The **SP** acts as a backstop for the entire CDP system, its funds being used to liquidate for any collateral at a set premium.
 
-Then as a final measure, any collateral positions that can't get liquidated by the first 2 steps will be sold on the market to avoid the protocol accruing bad debt. In the case it does, there will be MBRN auctions to cover it, similar to MakerDAO's Debt Auctions.\
+Then as a final measure, any collateral positions that can't get liquidated by the first 2 steps will be sold on the market to avoid the protocol accruing bad debt. In the case it does, pending revenue is used or there will be MBRN auctions to cover it, similar to MakerDAO's Debt Auctions.\
 \
 _In the case of errors repaying from the liquidation contracts, the error will trigger the collateral to go through the sell wall to ensure all liquidations can be executed by 1 external call of the initial liquidation function._
 
@@ -18,7 +25,7 @@ Additional Sources:&#x20;
 
 ### Bot Fees
 
-Smart contracts aren't autonomous so they need to be called by an external source. These calls will be incentivized by a liquidation fee determined by free market mechanics. The further the target position is insolvent the larger the fee will be to the caller.
+Smart contracts aren't autonomous so they need to be called by an external source. These calls will be incentivized by a liquidation fee determined by free market mechanics. The more the target position is insolvent the larger the fee will be to the caller.
 
 _Ex: If a position's liquidation point is 80% LTV and the position gets to 81%, the caller's fee would be 1% of the liquidated collateral._
 
@@ -31,3 +38,4 @@ Additional Sources:&#x20;
 
 1\)[ ](https://docs.euler.finance/developers/architecture#front-running-protection)[https://docs.euler.finance/developers/architecture#front-running-protection](https://docs.euler.finance/developers/architecture#front-running-protection)\
 2\) [https://twitter.com/euler\_mab/status/1537091423748517889](https://twitter.com/euler\_mab/status/1537091423748517889)
+

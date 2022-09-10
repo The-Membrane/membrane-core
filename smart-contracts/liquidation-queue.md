@@ -34,14 +34,16 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub positions_contract: String,
     pub waiting_period: u64, //seconds
+    pub basket_id: Uint128,
 }
 ```
 
-| Key                  | Type   | Description                                    |
-| -------------------- | ------ | ---------------------------------------------- |
-| `*owner`             | String | Owner of the contract, defaults to info.sender |
-| `positions_contract` | String | CDP contract                                   |
-| `waiting_period`     | u64    | Waiting period for bids (secs)                 |
+| Key                  | Type    | Description                                    |
+| -------------------- | ------- | ---------------------------------------------- |
+| `*owner`             | String  | Owner of the contract, defaults to info.sender |
+| `positions_contract` | String  | CDP contract                                   |
+| `waiting_period`     | u64     | Waiting period for bids (secs)                 |
+| `basket_id`          | Uint128 | Basket ID for contract's bid\_asset            |
 
 &#x20;\* = optional
 
@@ -235,15 +237,17 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         positions_contract: Option<String>,
         waiting_period: Option<u64>,
+        basket_id: Option<Uint128>,
     }
 }
 ```
 
-| Key                   | Type   | Description                   |
-| --------------------- | ------ | ----------------------------- |
-| `*owner`              | String | Owner of the contract         |
-| `*positions_contract` | String | CDP contract                  |
-| `*waiting_period`     | u64    | Bid waiting period in seconds |
+| Key                   | Type    | Description                         |
+| --------------------- | ------- | ----------------------------------- |
+| `*owner`              | String  | Owner of the contract               |
+| `*positions_contract` | String  | CDP contract                        |
+| `*waiting_period`     | u64     | Bid waiting period in seconds       |
+| `*basket_id`          | Uint128 | Basket ID for contract's bid\_asset |
 
 &#x20;\* = optional
 

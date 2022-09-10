@@ -1,10 +1,13 @@
 # Positions
 
 The Positions contract implements the logic for Collateralized Debt Positions (CDPs), through which users can receive debt tokens against their deposited collateral.\
-\
-Collateral parameters are held in the cAsset object, which also holds the address needed for its oracle in the Oracle Contract.
+
 
 The contract also contains the logic for initiating liquidations of CDPs and the sell wall but external debt repayment logic goes through the **Queue** and **Stability Pool** contracts.
+
+
+
+**Note: **_**Deposits** take data directly from the message to ensure correctness. **Withdrawals** are checked for validity (in the SubMsg reply) before state is permanently changed. **Supply caps** don't affect withdrawals, in otherwords, they only restrict deposits._&#x20;
 
 ## InstantiateMsg
 

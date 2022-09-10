@@ -12,7 +12,7 @@ When a position is liquidated, the pool repays its debt in exchange for assets s
 \
 Due to how the liquidation model calculates liquidations, there will always be something for the SP to liquidate, meaning its advantageous for the first bidder at every liquidation and not just the one's the Liq Queue can't fulfill.\
 \
-Pro-rata distributions, like the Liq Queue and Liquity's SP are better than FIFO at attracting large capital, but FIFO has direct incentives for competitive replenishes which is better for a pool that isn't prioritized but needs quick refills in a situation its primarily used.\
+Pro-rata distributions, like the Liq Queue and Liquity's SP are better than FIFO at attracting large capital, but FIFO has direct incentives for competitive replenishes which is better for a pool that isn't prioritized but needs quick refills if the situation calls for it.\
 \
 We want this phase of the mechanism to be reactive when low while not taking too much potential capital from the Liq Queue which will likely liquidate collateral for lower premiums a majority of the time, which is better for the users.
 
@@ -21,8 +21,14 @@ We want this phase of the mechanism to be reactive when low while not taking too
 ```
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
-    pub asset_pool: Option<AssetPool>,
     pub owner: Option<String>,
+    pub asset_pool: Option<AssetPool>,
+    pub incentive_rate: Option<Decimal>,
+    pub max_incentives: Option<Uint128>,
+    pub desired_ratio_of_total_credit_supply: Option<Decimal>,
+    pub osmosis_proxy: String,
+    pub positions_contract: String,
+    pub mbrn_denom: String,
     pub dex_router: Option<String>,
     pub max_spread: Option<Decimal>,
 }
@@ -41,15 +47,23 @@ pub struct Asset{
 pub struct Deposit {
     pub user: Addr,
     pub amount: Decimal,
+    pub deposit_time: u64,
+    pub unstake_time: Option<u64>,
 }
 ```
 
-| Key           | Type      | Description                                       |
-| ------------- | --------- | ------------------------------------------------- |
-| `*asset_pool` | AssetPool | Initial Asset Pool for the contract               |
-| `*owner`      | String    | Owner of the contract, defaults to info.sender    |
-| `*dex_router` | String    | DEX Router Contract                               |
-| `*max_spread` | Decimal   | Max spread for claim\_as() swaps, defaults to 10% |
+| Key                                     | Type      | Description                                       |
+| --------------------------------------- | --------- | ------------------------------------------------- |
+| `*asset_pool`                           | AssetPool | Initial Asset Pool for the contract               |
+| `*owner`                                | String    | Owner of the contract, defaults to info.sender    |
+| `*incentive_rate`                       | Decimal   | Base MBRN incentive rate                          |
+| `*max_incentives`                       | Uint128   | Maximum MBRN the Pool can mint for incentives     |
+| `*desired_ratio_of_total_credit_supply` | Decimal   | Desired ratio of credit (CDT) in the pool         |
+| `osmosis_proxy`                         | String    | Osmosis Proxy contract address                    |
+| `positions_contract`                    | String    | CDP contract                                      |
+| `mbrn_denom`                            | String    | MBRN denom                                        |
+| `*dex_router`                           | String    | DEX Router Contract                               |
+| `*max_spread`                           | Decimal   | Max spread for claim\_as() swaps, defaults to 10% |
 
 \* = optional
 
@@ -65,17 +79,31 @@ Update Config if info.sender is config.owner
 pub enum ExecuteMsg {
     UpdateConfig {
         owner: Option<String>,
+        incentive_rate: Option<Decimal>,
+        max_incentives: Option<Uint128>,
+        desired_ratio_of_total_credit_supply: Option<Decimal>,
+        unstaking_period: Option<u64>,
+        osmosis_proxy: Option<String>,
+        positions_contract: Option<String>,
+        mbrn_denom: Option<String>,
         dex_router: Option<String>,
         max_spread: Option<Decimal>,
     }
 }
 ```
 
-| Key           | Type    | Description                      |
-| ------------- | ------- | -------------------------------- |
-| `*owner`      | String  | Address of Owner of the contract |
-| `*dex_router` | String  | Dex Router contract              |
-| `*max_spread` | Decimal | Max spread for ClaimAs swaps     |
+| Key                                     | Type     | Description                                   |
+| --------------------------------------- | -------- | --------------------------------------------- |
+| `*owner`                                | String   | Address of Owner of the contract              |
+| `*incentive_rate`                       | Decimal  | Base MBRN incentive rate                      |
+| `*max_incentives`                       | UIint128 | Maximum MBRN the Pool can mint for incentives |
+| `*desired_ratio_of_total_credit_supply` | Decimal  | Desired ratio of credit (CDT) in the pool     |
+| `*unstaking_period`                     | u64      | Unstaking period in days                      |
+| `*osmosis_proxy`                        | String   | Osmosis Proxy contract address                |
+| `*positions_contract`                   | String   | CDP contract                                  |
+| `*mbrn_denom`                           | String   | MBRN denom                                    |
+| `*dex_router`                           | String   | Dex Router contract                           |
+| `*max_spread`                           | Decimal  | Max spread for ClaimAs swaps                  |
 
 &#x20;\* = optional
 
@@ -285,10 +313,19 @@ pub enum QueryMsg {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct ConfigResponse {
-    pub owner: String, 
-    pub dex_router: String,
-    pub max_spread: String, 
+pub struct Config {
+    pub owner: Addr, //Positions contract address
+    pub incentive_rate: Decimal,
+    pub max_incentives: Uint128,
+    //% of Supply desired in the SP. 
+    //Incentives decrease as it gets closer
+    pub desired_ratio_of_total_credit_supply: Decimal,
+    pub unstaking_period: u64, // in days
+    pub mbrn_denom: String,
+    pub osmosis_proxy: Addr,
+    pub positions_contract: Addr,
+    pub dex_router: Option<Addr>,
+    pub max_spread: Option<Decimal>, //max_spread for the router, mainly claim_as swaps
 }
 ```
 

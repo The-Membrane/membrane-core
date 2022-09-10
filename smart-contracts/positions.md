@@ -694,7 +694,6 @@ pub struct BasketResponse{
     pub collateral_supply_caps: Vec<SupplyCap>,
     pub credit_asset: Asset, 
     pub credit_price: String,
-    pub debt_pool_ids: Vec<u64>,
     pub liq_queue: String,
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
     pub liquidity_multiplier: Decimal,
@@ -730,7 +729,6 @@ pub struct BasketResponse{
     pub collateral_supply_caps: Vec<SupplyCap>,
     pub credit_asset: Asset, 
     pub credit_price: String,
-    pub debt_pool_ids: Vec<u64>,
     pub debt_liquidity_multiplier_for_caps: Decimal, //Ex: 5 = debt cap at 5x liquidity.
     pub liq_queue: String,
     pub base_interest_rate: Decimal, //Enter as percent, 0.02

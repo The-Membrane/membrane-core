@@ -35,7 +35,9 @@ pub const WITHDRAW_REPLY_ID: u64 = 5u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 const SECONDS_PER_YEAR: u64 = 31_536_000u64;
+const MINUTES_PER_DAY: u64 = 1_440u64;
 const MILLISECONDS_PER_DAY: i64 = 86_400_000i64;
+
 
 static PREFIX_PRICE: &[u8] = b"price";
 
@@ -2823,12 +2825,26 @@ fn query_price(
     basket_id: Option<Uint128>,
 ) -> StdResult<Decimal>{
 
+    //Set timeframe
+    let mut twap_timeframe: u64 = config.collateral_twap_timeframe;
+
+    if let Some( basket_id ) = basket_id {
+        let basket = BASKETS.load( storage, basket_id.to_string() )?;
+        //if AssetInfo is the basket.credit_asset
+        if asset_info.equal(&basket.credit_asset.info) {
+            //Convert credit timeframe from days to minutes
+            twap_timeframe = config.credit_twap_timeframe * MINUTES_PER_DAY;
+        }        
+    }
+
+    if asset_info.to_string() == String::from("credit_fulldenom"){ panic!("{}", twap_timeframe) }
+
     //Query Price
     let price = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().oracle_contract.unwrap().to_string(),
         msg: to_binary(&OracleQueryMsg::Price { 
             asset_info: asset_info.clone(), 
-            twap_timeframe: config.clone().twap_timeframe,
+            twap_timeframe,
             basket_id, 
         } )?,
     })){
@@ -3932,7 +3948,7 @@ pub fn clone_basket(
             contract_addr: config.clone().oracle_contract.unwrap().to_string(), 
             msg: to_binary( &OracleQueryMsg::Price {
                 asset_info: base_basket.clone().credit_asset.info,
-                twap_timeframe: config.clone().twap_timeframe,
+                twap_timeframe: config.clone().credit_twap_timeframe,
                 basket_id: Some(  config.clone().current_basket_id ),
             })?, 
         }))?

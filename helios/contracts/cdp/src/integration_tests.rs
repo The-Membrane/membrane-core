@@ -1556,7 +1556,8 @@ mod tests {
                 liquidity_contract: Some( liquidity_contract_addr.to_string() ),
                 oracle_time_limit: 60u64,
                 debt_minimum: Uint128::new(2000u128),
-                twap_timeframe: 90u64,
+                collateral_twap_timeframe: 60u64,
+                credit_twap_timeframe: 90u64,
         };
 
         
@@ -3363,7 +3364,8 @@ mod tests {
                 debt_minimum: Some( Uint128::new(500u128) ),  
                 base_debt_cap_multiplier: None,  
                 oracle_time_limit: None,  
-                twap_timeframe: None,  
+                collateral_twap_timeframe: None,  
+                credit_twap_timeframe: None,  
                 cpc_margin_of_error: None,  
                 rate_slope_multiplier: None, 
                 liquidity_contract: None,

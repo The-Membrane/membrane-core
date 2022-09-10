@@ -16,7 +16,8 @@ pub struct InstantiateMsg {
     pub oracle_time_limit: u64, //in seconds until oracle failure is acceoted
     pub debt_minimum: Uint128, //Debt minimum value per position
     pub liq_fee: Decimal,
-    pub twap_timeframe: u64, //in days
+    pub collateral_twap_timeframe: u64, //in minutes
+    pub credit_twap_timeframe: u64, //in days
     //Contracts
     pub stability_pool: Option<String>,
     pub dex_router: Option<String>,
@@ -55,7 +56,8 @@ pub enum ExecuteMsg {
         debt_minimum: Option<Uint128>,
         base_debt_cap_multiplier: Option<Uint128>,
         oracle_time_limit: Option<u64>,
-        twap_timeframe: Option<u64>,
+        credit_twap_timeframe: Option<u64>,
+        collateral_twap_timeframe: Option<u64>,
         cpc_margin_of_error: Option<Decimal>,
         rate_slope_multiplier: Option<Decimal>,
     },
@@ -261,7 +263,8 @@ pub struct ConfigResponse {
     pub oracle_time_limit: u64,
     pub debt_minimum: Uint128,
     pub base_debt_cap_multiplier: Uint128,
-    pub twap_timeframe: u64,
+    pub collateral_twap_timeframe: u64,
+    pub credit_twap_timeframe: u64,
     pub cpc_margin_of_error: Decimal,
     pub rate_slope_multiplier: Decimal,
 }

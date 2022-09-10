@@ -11,7 +11,7 @@ use osmo_bindings::{SpotPriceResponse, PoolStateResponse};
 use crate::state::CREDIT_MULTI;
 use crate::{state::{CONFIG, POSITIONS, REPAY, BASKETS, Config}, positions::{read_price, get_asset_liquidity, validate_position_owner}, math::{decimal_multiplication, decimal_division, decimal_subtraction}, ContractError};
 
-
+const MINUTES_PER_DAY: u64 = 1_440u64;
 const MAX_LIMIT: u32 = 31;
 
 pub fn query_prop(
@@ -53,7 +53,8 @@ pub fn query_config(
                 oracle_time_limit: config.oracle_time_limit,
                 debt_minimum: config.debt_minimum,
                 base_debt_cap_multiplier: config.base_debt_cap_multiplier,
-                twap_timeframe: config.twap_timeframe,
+                collateral_twap_timeframe: config.collateral_twap_timeframe,
+                credit_twap_timeframe: config.credit_twap_timeframe,
                 cpc_margin_of_error: config.cpc_margin_of_error,
                 rate_slope_multiplier: config.rate_slope_multiplier,
             })
@@ -815,12 +816,24 @@ fn query_price_imut(
     basket_id: Option<Uint128>,
 ) -> StdResult<Decimal>{
 
+    //Set timeframe
+    let mut twap_timeframe: u64 = config.collateral_twap_timeframe;
+
+    if let Some( basket_id ) = basket_id {
+        let basket = BASKETS.load( storage, basket_id.to_string() )?;
+        //if AssetInfo is the basket.credit_asset
+        if asset_info.equal(&basket.credit_asset.info) {
+            //Convert credit timeframe from days to minutes
+            twap_timeframe = config.credit_twap_timeframe * MINUTES_PER_DAY;
+        }        
+    }
+
     //Query Price
     let price = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().oracle_contract.unwrap().to_string(),
         msg: to_binary(&OracleQueryMsg::Price { 
             asset_info: asset_info.clone(), 
-            twap_timeframe: config.clone().twap_timeframe, 
+            twap_timeframe, 
             basket_id,
         } )?,
     })){

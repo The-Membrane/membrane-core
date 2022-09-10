@@ -58,7 +58,8 @@ pub fn instantiate(
         rate_slope_multiplier: Decimal::one(),
         debt_minimum: msg.debt_minimum,
         base_debt_cap_multiplier: Uint128::new(10u128),
-        twap_timeframe: msg.twap_timeframe,
+        collateral_twap_timeframe: msg.collateral_twap_timeframe,
+        credit_twap_timeframe: msg.credit_twap_timeframe,
     };
     
     //Set optional config parameters
@@ -183,10 +184,11 @@ pub fn execute(
             debt_minimum, 
             base_debt_cap_multiplier,
             oracle_time_limit, 
-            twap_timeframe, 
+            collateral_twap_timeframe, 
+            credit_twap_timeframe,
             cpc_margin_of_error,
             rate_slope_multiplier} => {
-            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, oracle_contract, liquidity_contract, interest_revenue_collector, liq_fee, debt_minimum, base_debt_cap_multiplier, oracle_time_limit, twap_timeframe, cpc_margin_of_error, rate_slope_multiplier )
+            update_config( deps, info, owner, stability_pool, dex_router, osmosis_proxy, debt_auction, staking_contract, oracle_contract, liquidity_contract, interest_revenue_collector, liq_fee, debt_minimum, base_debt_cap_multiplier, oracle_time_limit, collateral_twap_timeframe, credit_twap_timeframe, cpc_margin_of_error, rate_slope_multiplier )
         },
         ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit{ position_owner, position_id, basket_id} => {
@@ -337,7 +339,8 @@ fn update_config(
     debt_minimum: Option<Uint128>,
     base_debt_cap_multiplier: Option<Uint128>,
     oracle_time_limit: Option<u64>,
-    twap_timeframe: Option<u64>,    
+    collateral_twap_timeframe: Option<u64>,    
+    credit_twap_timeframe: Option<u64>,
     cpc_margin_of_error: Option<Decimal>,
     rate_slope_multiplier: Option<Decimal>,
 ) -> Result<Response, ContractError>{
@@ -452,10 +455,17 @@ fn update_config(
         },
         None => {},
     }
-    match twap_timeframe {
-        Some( twap_timeframe ) => { 
-            config.twap_timeframe = twap_timeframe.clone();
-            attrs.push( attr("new_twap_timeframe", twap_timeframe.to_string()) );
+    match collateral_twap_timeframe {
+        Some( collateral_twap_timeframe ) => { 
+            config.collateral_twap_timeframe = collateral_twap_timeframe.clone();
+            attrs.push( attr("new_collateral_twap_timeframe", collateral_twap_timeframe.to_string()) );
+        },
+        None => {},
+    }
+    match credit_twap_timeframe {
+        Some( credit_twap_timeframe ) => { 
+            config.credit_twap_timeframe = credit_twap_timeframe.clone();
+            attrs.push( attr("new_credit_twap_timeframe", credit_twap_timeframe.to_string()) );
         },
         None => {},
     }

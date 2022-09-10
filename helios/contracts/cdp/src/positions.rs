@@ -12,7 +12,7 @@ use membrane::oracle::{PriceResponse, AssetResponse};
 use osmo_bindings::{ OsmosisQuery, SpotPriceResponse, PoolStateResponse, OsmosisMsg, ArithmeticTwapToNowResponse };
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
-use membrane::types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistribution, LiqAsset, UserInfo, PriceInfo, PositionUserInfo, TWAPPoolInfo, StoredPrice, AssetOracleInfo, SupplyCap};
+use membrane::types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistribution, LiqAsset, UserInfo, PriceInfo, PositionUserInfo, TWAPPoolInfo, StoredPrice, AssetOracleInfo, SupplyCap, LiquidityInfo};
 use membrane::positions::{ExecuteMsg, CallbackMsg};
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse };
@@ -20,6 +20,7 @@ use membrane::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_Que
 use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg };
 use membrane::staking::{ ExecuteMsg as StakingExecuteMsg };
 use membrane::oracle::{ QueryMsg as OracleQueryMsg, ExecuteMsg as OracleExecuteMsg };
+use membrane::liquidity_check::{ QueryMsg as LiquidityQueryMsg, ExecuteMsg as LiquidityExecuteMsg };
 use membrane::math::{ decimal_multiplication, decimal_division, decimal_subtraction};
 
 use crate::state::{ CREDIT_MULTI };
@@ -1610,7 +1611,6 @@ pub fn create_basket(
         collateral_supply_caps,
         credit_asset: credit_asset.clone(),
         credit_price,
-        credit_pool_ids,
         base_interest_rate,
         liquidity_multiplier,
         desired_debt_cap_util,
@@ -1621,6 +1621,7 @@ pub fn create_basket(
         oracle_set: false,
     };
 
+    //CreateDenom Msg
     let mut subdenom: String;
     let sub_msg: SubMsg;
 
@@ -1632,8 +1633,26 @@ pub fn create_basket(
     }else{
         return Err( ContractError::CustomError { val: "Can't create a basket without creating a native token denom".to_string() } )
     }
-   
 
+    //Add asset to liquidity check contract
+    //Liquidity AddAsset Msg
+    let mut msgs = vec![];
+    if let Some( liquidity_contract ) = config.clone().liquidity_contract {
+        msgs.push(
+            CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: liquidity_contract.to_string(), 
+                msg: to_binary(&LiquidityExecuteMsg::AddAsset { 
+                    asset: LiquidityInfo {
+                        asset: new_basket.clone().credit_asset.info,
+                        pool_ids: credit_pool_ids,
+                    },
+                })?, 
+                funds: vec![ ],
+            })
+        );
+    }   
+   
+    //Save Basket
     BASKETS.update(deps.storage, new_basket.basket_id.to_string(), |basket| -> Result<Basket, ContractError>{
         match basket{
             Some( _basket ) => {
@@ -1660,7 +1679,8 @@ pub fn create_basket(
         attr("credit_subdenom", subdenom),
         attr("credit_price", credit_price.to_string()),
         attr("liq_queue", liq_queue.unwrap_or_else(|| String::from("None"))),
-    ]).add_submessage(sub_msg))
+    ]).add_submessage(sub_msg)
+        .add_messages(msgs))
 }
 
 
@@ -1932,6 +1952,28 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
         attr("method", "edit_basket"),
         attr("basket_id", basket_id),
     ];
+
+    //Create EditAsset for Liquidity contract
+    if let Some(pool_ids) = pool_ids {
+
+        attrs.push( attr("new_pool_ids", format!("{:?}", pool_ids.clone())) );
+         
+        if let Some( liquidity_contract ) = config.clone().liquidity_contract {
+            msgs.push(
+                CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: liquidity_contract.to_string(), 
+                    msg: to_binary(&LiquidityExecuteMsg::EditAsset { 
+                        asset: LiquidityInfo {
+                            asset: basket.clone().credit_asset.info, 
+                            pool_ids,
+                        },
+                    })?, 
+                    funds: vec![ ],
+                })
+            );
+        }  
+    }
+
     //Update Basket
     BASKETS.update(deps.storage, basket_id.to_string(), |basket| -> Result<Basket, ContractError>   {
 
@@ -1953,10 +1995,7 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                         basket.liq_queue = new_queue.clone();
                         attrs.push( attr("new_queue", new_queue.clone().unwrap().to_string()) );
                     }
-                    if pool_ids.is_some(){
-                        basket.credit_pool_ids = pool_ids.clone().unwrap();
-                        attrs.push( attr("new_pool_ids", String::from("Edited")) );
-                    }
+                    
                     if collateral_supply_caps.is_some(){
  
                         //Set new caps
@@ -3043,7 +3082,7 @@ fn get_basket_debt_caps(
     let credit_asset_multiplier = get_credit_asset_multiplier( storage, querier, env.clone(), config.clone(), basket.clone() )?;
    
     //Get the base debt cap 
-    let mut debt_cap = get_asset_liquidity( querier, config.clone(), basket.clone().credit_pool_ids, basket.clone().credit_asset.info )? 
+    let mut debt_cap = get_asset_liquidity( querier, config.clone(), basket.clone().credit_asset.info )? 
         * credit_asset_multiplier;
 
     //If debt cap is less than the minimum, set it to the minimum
@@ -3183,46 +3222,30 @@ fn get_credit_asset_multiplier(
  pub fn get_asset_liquidity(
     querier: QuerierWrapper,
     config: Config,
-    pool_ids: Vec<u64>,
     asset_info: AssetInfo,
  )-> StdResult<Uint128>{
 
     //Assumption that credit is a native token
     let mut denom = String::from("");
-    if let AssetInfo::NativeToken { denom: denomination } = asset_info{
+    if let AssetInfo::NativeToken { denom: denomination } = asset_info.clone(){
         denom = denomination
     };
 
     let mut total_pooled = Uint128::zero();
 
-    if config.clone().osmosis_proxy.is_some(){
+    if config.clone().liquidity_contract.is_some(){
 
-        for id in pool_ids{
-
-            let res: PoolStateResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-                msg: to_binary(&OsmoQueryMsg::PoolState {   
-                    id,
-                })?,
-            }))?;
-
-
-            let pooled_amount = res.assets
-                                .into_iter()
-                                .filter(|coin| {
-                                coin.denom == denom
-                                }).collect::<Vec<Coin>>()
-                                [0].amount;
-
-            total_pooled += pooled_amount;
-
-        }
         
+        let total_pooled: Uint128 = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.clone().liquidity_contract.unwrap().to_string(),
+            msg: to_binary(&LiquidityQueryMsg::Liquidity { asset: asset_info })?,
+        }))?;
+
+        Ok( total_pooled )        
+
     }else{
         return Err( StdError::GenericErr { msg: "No proxy contract setup".to_string() })
-    }
-
-   Ok( total_pooled )
+    }   
 
  }
 

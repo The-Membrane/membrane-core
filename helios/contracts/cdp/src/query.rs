@@ -48,6 +48,7 @@ pub fn query_config(
                 osmosis_proxy: config.clone().osmosis_proxy.unwrap_or( Addr::unchecked("None")).into_string(),
                 debt_auction: config.clone().debt_auction.unwrap_or( Addr::unchecked("None")).into_string(),
                 oracle_contract: config.clone().oracle_contract.unwrap_or( Addr::unchecked("None")).into_string(),
+                liquidity_contract: config.clone().liquidity_contract.unwrap_or( Addr::unchecked("None")).into_string(),
                 liq_fee: config.clone().liq_fee,
                 oracle_time_limit: config.oracle_time_limit,
                 debt_minimum: config.debt_minimum,
@@ -212,7 +213,6 @@ pub fn query_basket(
                 collateral_types: basket.collateral_types,
                 credit_asset: basket.credit_asset,
                 credit_price: basket.credit_price,
-                credit_pool_ids: basket.credit_pool_ids,
                 liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
                 collateral_supply_caps: basket.collateral_supply_caps,
                 base_interest_rate: basket.base_interest_rate,
@@ -264,7 +264,6 @@ pub fn query_baskets(
                 collateral_types: basket.collateral_types,
                 credit_asset: basket.credit_asset,
                 credit_price: basket.credit_price,
-                credit_pool_ids: basket.credit_pool_ids,
                 liq_queue: basket.liq_queue.unwrap_or(Addr::unchecked("None")).to_string(),
                 collateral_supply_caps: basket.collateral_supply_caps,
                 base_interest_rate: basket.base_interest_rate,
@@ -446,7 +445,6 @@ pub fn query_basket_debt_caps(
     let mut debt_cap = get_asset_liquidity( 
         deps.querier, 
         config.clone(), 
-        basket.credit_pool_ids, 
         basket.credit_asset.info 
         )? * credit_asset_multiplier;
 

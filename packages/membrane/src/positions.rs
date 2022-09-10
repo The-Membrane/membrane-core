@@ -25,6 +25,7 @@ pub struct InstantiateMsg {
     pub interest_revenue_collector: Option<String>,
     pub osmosis_proxy: Option<String>,
     pub debt_auction: Option<String>,
+    pub liquidity_contract: Option<String>,
     // // //For Basket creation
     // pub collateral_types: Option<Vec<cAsset>>,
     // pub credit_asset: Option<Asset>,
@@ -48,6 +49,7 @@ pub enum ExecuteMsg {
         debt_auction: Option<String>,
         staking_contract: Option<String>,
         oracle_contract: Option<String>,
+        liquidity_contract: Option<String>,
         interest_revenue_collector: Option<String>,
         liq_fee: Option<Decimal>,
         debt_minimum: Option<Uint128>,
@@ -108,7 +110,7 @@ pub enum ExecuteMsg {
         added_cAsset: Option<cAsset>,
         owner: Option<String>,
         liq_queue: Option<String>,
-        pool_ids: Option<Vec<u64>>,
+        credit_pool_ids: Option<Vec<u64>>, //For liquidity measuring
         liquidity_multiplier: Option<Decimal>,
         collateral_supply_caps: Option<Vec<SupplyCap>>,
         base_interest_rate: Option<Decimal>,
@@ -235,7 +237,6 @@ pub struct BasketResponse{
     pub collateral_supply_caps: Vec<SupplyCap>,
     pub credit_asset: Asset, 
     pub credit_price: Decimal,
-    pub credit_pool_ids: Vec<u64>,
     pub liq_queue: String,
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
     pub liquidity_multiplier: Decimal,
@@ -255,6 +256,7 @@ pub struct ConfigResponse {
     pub osmosis_proxy: String,
     pub debt_auction: String,
     pub oracle_contract: String,
+    pub liquidity_contract: String,
     pub liq_fee: Decimal, // 5 = 5%
     pub oracle_time_limit: u64,
     pub debt_minimum: Uint128,

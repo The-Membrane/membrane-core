@@ -10,7 +10,7 @@ mod tests {
     use membrane::liq_queue::{ LiquidatibleResponse as LQ_LiquidatibleResponse};
     use membrane::stability_pool::{ LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
     use membrane::osmosis_proxy::{ GetDenomResponse };
-    use membrane::types::{AssetInfo, Asset, cAsset, LiqAsset, TWAPPoolInfo, AssetOracleInfo};
+    use membrane::types::{AssetInfo, Asset, cAsset, LiqAsset, TWAPPoolInfo, AssetOracleInfo, LiquidityInfo};
 
     
     use osmo_bindings::{ SpotPriceResponse, PoolStateResponse, ArithmeticTwapToNowResponse };
@@ -1257,6 +1257,90 @@ mod tests {
         Box::new(contract)
     }
 
+    //Mock Liquidity Contract
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Liquidity_MockExecuteMsg {
+        AddAsset {
+            asset: LiquidityInfo,
+        },
+        EditAsset {
+            asset: LiquidityInfo,
+        },
+    }
+    
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub struct Liquidity_MockInstantiateMsg {}
+
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Liquidity_MockQueryMsg {
+        Liquidity {
+            asset: AssetInfo,
+        },
+    }
+
+    pub fn liquidity_contract()-> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: Liquidity_MockExecuteMsg| -> StdResult<Response> {
+                match msg {
+                    Liquidity_MockExecuteMsg::AddAsset { 
+                        asset, 
+                    }  => {
+                        
+                        Ok(Response::default())
+                    },
+                    Liquidity_MockExecuteMsg::EditAsset { 
+                        asset, 
+                    }  => {
+                        
+                        Ok(Response::default())
+                    },
+                }
+            },
+            |_, _, _, _: Liquidity_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
+            |_, _, msg: Liquidity_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    
+                    Liquidity_MockQueryMsg::Liquidity { asset } => {
+                        Ok( to_binary(&Uint128::new(49999u128))? )
+                    },
+                }  },
+        );
+        Box::new(contract)
+    }
+
+    pub fn liquidity_contract_bignums()-> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: Liquidity_MockExecuteMsg| -> StdResult<Response> {
+                match msg {
+                    Liquidity_MockExecuteMsg::AddAsset { 
+                        asset, 
+                    }  => {
+                        
+                        Ok(Response::default())
+                    },
+                    Liquidity_MockExecuteMsg::EditAsset { 
+                        asset, 
+                    }  => {
+                        
+                        Ok(Response::default())
+                    },
+                }
+            },
+            |_, _, _, _: Liquidity_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
+            |_, _, msg: Liquidity_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    
+                    Liquidity_MockQueryMsg::Liquidity { asset } => {
+                        Ok( to_binary(&Uint128::new(5_000_000_000_000u128))? )
+                    },
+                }  },
+        );
+        Box::new(contract)
+    }
+
     fn mock_app() -> App {
             AppBuilder::new().build(|router, _, storage| {
                                     
@@ -1435,6 +1519,26 @@ mod tests {
             )
             .unwrap();
 
+        //Instaniate Liquidity Contract
+        let mut liq_id: u64;
+        if bignums {
+            liq_id = app.store_code(liquidity_contract_bignums());      
+        } else {
+            liq_id = app.store_code(liquidity_contract());      
+        }
+        
+
+        let liquidity_contract_addr = app
+            .instantiate_contract(
+                liq_id,
+                Addr::unchecked(ADMIN),
+                &Liquidity_MockInstantiateMsg {},
+                &[],
+                "test",
+                None,
+            )
+            .unwrap();
+
         //Instantiate CDP contract
         let cdp_id = app.store_code(cdp_contract());
 
@@ -1449,6 +1553,7 @@ mod tests {
                 interest_revenue_collector: Some( "fee_collector".to_string()),
                 osmosis_proxy: Some( osmosis_proxy_contract_addr.to_string() ),   
                 debt_auction: Some( auction_contract_addr.to_string() ),
+                liquidity_contract: Some( liquidity_contract_addr.to_string() ),
                 oracle_time_limit: 60u64,
                 debt_minimum: Uint128::new(2000u128),
                 twap_timeframe: 90u64,
@@ -1502,7 +1607,6 @@ mod tests {
             added_cAsset: None, 
             owner: None,  
             liq_queue: None,  
-            pool_ids: None,  
             liquidity_multiplier: None,  
             collateral_supply_caps: None,  
             base_interest_rate: None,  
@@ -1514,6 +1618,7 @@ mod tests {
                     quote_asset_denom: String::from("quote"),
             } ),
             negative_rates: None,
+            credit_pool_ids: None,
         };
         let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
         app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1557,7 +1662,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -1716,7 +1821,7 @@ mod tests {
                 owner: None,  
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -1788,7 +1893,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -1934,7 +2039,7 @@ mod tests {
                 ), 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None,  
+                credit_pool_ids: None,  
                 liquidity_multiplier: None,  
                 collateral_supply_caps: None,  
                 base_interest_rate: None,  
@@ -1963,7 +2068,7 @@ mod tests {
                 ), 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None,  
+                credit_pool_ids: None,  
                 liquidity_multiplier: None,  
                 collateral_supply_caps: None,  
                 base_interest_rate: None,  
@@ -2007,7 +2112,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -2189,7 +2294,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -2276,7 +2381,7 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
             };
             let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res.credit_price, String::from("1.020816326"));
+            assert_eq!(res.credit_price.to_string(), String::from("1.020816326"));
 
             let query_msg = QueryMsg::GetPosition { 
                 position_id: Uint128::new(1u128), 
@@ -2342,7 +2447,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -2430,7 +2535,7 @@ mod tests {
                 basket_id: Uint128::new(1u128), 
             };
             let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res.credit_price, String::from("0.9699"));
+            assert_eq!(res.credit_price.to_string(), String::from("0.9699"));
 
             let query_msg = QueryMsg::GetPosition { 
                 position_id: Uint128::new(1u128), 
@@ -2461,7 +2566,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -2557,7 +2662,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps:  Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -2664,7 +2769,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps:  Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -2758,7 +2863,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps:  Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -2844,7 +2949,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps:  Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -2937,7 +3042,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps:  Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -3031,7 +3136,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps:  Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -3125,7 +3230,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps:  Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -3227,7 +3332,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps:  Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -3261,6 +3366,7 @@ mod tests {
                 twap_timeframe: None,  
                 cpc_margin_of_error: None,  
                 rate_slope_multiplier: None, 
+                liquidity_contract: None,
             } ;
                 
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -3364,7 +3470,7 @@ mod tests {
                 ), 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None,  
+                credit_pool_ids: None,  
                 liquidity_multiplier: None,  
                 collateral_supply_caps: None,  
                 base_interest_rate: None,  
@@ -3393,7 +3499,7 @@ mod tests {
                 ), 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None,  
+                credit_pool_ids: None,  
                 liquidity_multiplier: None,  
                 collateral_supply_caps: None,  
                 base_interest_rate: None,  
@@ -3437,7 +3543,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -3574,7 +3680,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps:  Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -3663,7 +3769,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps:  Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -3778,7 +3884,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps:  Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -3875,7 +3981,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -3971,7 +4077,7 @@ mod tests {
                 ), 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None,  
+                credit_pool_ids: None,  
                 liquidity_multiplier: None,  
                 collateral_supply_caps: None,  
                 base_interest_rate: None,  
@@ -4000,7 +4106,7 @@ mod tests {
                 ), 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None,  
+                credit_pool_ids: None,  
                 liquidity_multiplier: None,  
                 collateral_supply_caps: None,  
                 base_interest_rate: None,  
@@ -4044,7 +4150,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -4182,7 +4288,7 @@ mod tests {
                 ), 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None,  
+                credit_pool_ids: None,  
                 liquidity_multiplier: None,  
                 collateral_supply_caps: None,  
                 base_interest_rate: None,  
@@ -4211,7 +4317,7 @@ mod tests {
                 ), 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None,  
+                credit_pool_ids: None,  
                 liquidity_multiplier: None,  
                 collateral_supply_caps: None,  
                 base_interest_rate: None,  
@@ -4255,7 +4361,7 @@ mod tests {
                 owner: None, 
                 liq_queue: Some( lq_contract.addr().to_string() ),
                 liquidity_multiplier: Some( Decimal::percent( 500 ) ),
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
                         asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
@@ -4374,7 +4480,7 @@ mod tests {
                 added_cAsset: None, 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None,  
+                credit_pool_ids: None,  
                 liquidity_multiplier: None,  
                 collateral_supply_caps: Some( vec![
                     SupplyCap { 
@@ -4473,7 +4579,7 @@ mod tests {
                 added_cAsset: None, 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None,  
+                credit_pool_ids: None,  
                 liquidity_multiplier: None,  
                 collateral_supply_caps: Some( vec![
                     SupplyCap { 
@@ -4497,7 +4603,7 @@ mod tests {
                 added_cAsset: None, 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None,  
+                credit_pool_ids: None,  
                 liquidity_multiplier: None,  
                 collateral_supply_caps: Some( vec![
                     SupplyCap { 
@@ -4640,7 +4746,7 @@ mod tests {
                        }  ), 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None, 
+                credit_pool_ids: None, 
                 liquidity_multiplier: None, 
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
@@ -4736,7 +4842,7 @@ mod tests {
                 added_cAsset: None, 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None, 
+                credit_pool_ids: None, 
                 liquidity_multiplier: None, 
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
@@ -4812,7 +4918,7 @@ mod tests {
                 added_cAsset: None, 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None, 
+                credit_pool_ids: None, 
                 liquidity_multiplier: None, 
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
@@ -4878,7 +4984,7 @@ mod tests {
                 added_cAsset: None, 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: None, 
+                credit_pool_ids: None, 
                 liquidity_multiplier: None, 
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
@@ -4988,7 +5094,7 @@ mod tests {
                        }  ), 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 liquidity_multiplier: None, 
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
@@ -5042,7 +5148,7 @@ mod tests {
                 added_cAsset: None, 
                 owner: None, 
                 liq_queue: None, 
-                pool_ids: Some( vec![ 1u64 ] ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
                 liquidity_multiplier: None, 
                 collateral_supply_caps: Some( vec![ 
                     SupplyCap { 
@@ -5072,7 +5178,7 @@ mod tests {
                 basket_id: Uint128::new(2u128), 
             };
             let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res.credit_price, String::from("5") );
+            assert_eq!(res.credit_price.to_string(), String::from("5") );
 
             //Initial Deposit to basket 2
             let exec_msg = ExecuteMsg::Deposit { 

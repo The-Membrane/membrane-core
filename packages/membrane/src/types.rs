@@ -266,7 +266,6 @@ pub struct Basket {
     pub collateral_supply_caps: Vec<SupplyCap>, //Order needs to correlate to collateral_types order
     pub credit_asset: Asset, //Depending on type of token we use for credit this.info will be an Addr or denom (Cw20 or Native token respectively)
     pub credit_price: Decimal, //This is credit_repayment_price, not market price
-    pub credit_pool_ids: Vec<u64>, //For liquidity measuring
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
     pub liquidity_multiplier: Decimal, //liquidity_multiplier for debt caps
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90

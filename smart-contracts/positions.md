@@ -15,7 +15,7 @@ pub struct InstantiateMsg {
     pub oracle_time_limit: u64, //in seconds until oracle failure is acceoted
     pub debt_minimum: Uint128, //Debt minimum value per position
     pub liq_fee: Decimal,
-    pub twap_timeframe: u64, //in days
+    pub twap_timeframe: u64, //in minutes
     //Contracts
     pub stability_pool: Option<String>,
     pub dex_router: Option<String>,
@@ -48,7 +48,7 @@ pub enum AssetInfo {
 | `oracle-time-limit`           | u64     | Limit in seconds that the oracle has before the values are invalid |
 | `debt_minimum`                | Decimal | Minimum value in debt per position                                 |
 | `liq_fee`                     | Decimal | Fee that goes to the protocol during liquidations                  |
-| `twap_timeframe`              | u64     | TWAP length in days                                                |
+| `twap_timeframe`              | u64     | TWAP length in minutes                                             |
 | `*stability_pool`             | String  | Stability Pool Contract                                            |
 | `*dex_router`                 | String  | DEX Router Contract                                                |
 | `*interest_revenue_collector` | String  | Address that is sent liq\_fees                                     |
@@ -106,7 +106,7 @@ pub enum ExecuteMsg {
 | `*debt_minimum`               | Uint128 | Debt minimum in terms of value                                           |
 | `*base_debt_cap_multiplier`   | Uint128 | Debt Minimum Multiplier for a base debt cap                              |
 | `*oracle_time_limit`          | u64     | Oracle expiration time limit                                             |
-| `*twap_timeframe`             | u64     | TWAP length in days                                                      |
+| `*twap_timeframe`             | u64     | TWAP length in minutes                                                   |
 | `*cpc_margin_of_error`        | Decimal | Margin of Error before the credit interest is effected by the TWAP price |
 | `*rate_slope_multiplier`      | Decimal | Multiplier for the 2nd slope in the interest rate formula                |
 

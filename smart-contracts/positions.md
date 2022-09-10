@@ -15,7 +15,8 @@ pub struct InstantiateMsg {
     pub oracle_time_limit: u64, //in seconds until oracle failure is acceoted
     pub debt_minimum: Uint128, //Debt minimum value per position
     pub liq_fee: Decimal,
-    pub twap_timeframe: u64, //in minutes
+    pub collateral_twap_timeframe: u64, //in minutes
+    pub credit_twap_timeframe: u64, //in days
     //Contracts
     pub stability_pool: Option<String>,
     pub dex_router: Option<String>,
@@ -48,7 +49,8 @@ pub enum AssetInfo {
 | `oracle-time-limit`           | u64     | Limit in seconds that the oracle has before the values are invalid |
 | `debt_minimum`                | Decimal | Minimum value in debt per position                                 |
 | `liq_fee`                     | Decimal | Fee that goes to the protocol during liquidations                  |
-| `twap_timeframe`              | u64     | TWAP length in minutes                                             |
+| `collateral_twap_timeframe`   | u64     | TWAP length in minutes                                             |
+| `credit_twap_timeframe`       | u64     | TWAP length in days                                                |
 | `*stability_pool`             | String  | Stability Pool Contract                                            |
 | `*dex_router`                 | String  | DEX Router Contract                                                |
 | `*interest_revenue_collector` | String  | Address that is sent liq\_fees                                     |
@@ -83,8 +85,9 @@ pub enum ExecuteMsg {
         liq_fee: Option<Decimal>,
         debt_minimum: Option<Uint128>,
         base_debt_cap_multiplier: Option<Uint128>,
-        oracle_time_limit: Option<u64>,
-        twap_timeframe: Option<u64>,
+        oracle_time_limit: Option<u64>, //in seconds
+        collateral_twap_timeframe: Option<u64>, //in minutes
+        credit_twap_timeframe: Option<u64>, //in days
         cpc_margin_of_error: Option<Decimal>,     
         rate_slope_multiplier: Option<Decimal>,   
     }
@@ -105,8 +108,9 @@ pub enum ExecuteMsg {
 | _`*liq_fee`_                  | Decimal | Liquidation fee                                                          |
 | `*debt_minimum`               | Uint128 | Debt minimum in terms of value                                           |
 | `*base_debt_cap_multiplier`   | Uint128 | Debt Minimum Multiplier for a base debt cap                              |
-| `*oracle_time_limit`          | u64     | Oracle expiration time limit                                             |
-| `*twap_timeframe`             | u64     | TWAP length in minutes                                                   |
+| `*oracle_time_limit`          | u64     | Oracle expiration time limit in seconds                                  |
+| `*collateral_twap_timeframe`  | u64     | TWAP length in minutes                                                   |
+| `*credit_twap_timeframe`      | u64     | TWAP length in days                                                      |
 | `*cpc_margin_of_error`        | Decimal | Margin of Error before the credit interest is effected by the TWAP price |
 | `*rate_slope_multiplier`      | Decimal | Multiplier for the 2nd slope in the interest rate formula                |
 
@@ -574,7 +578,8 @@ pub struct ConfigResponse {
     pub oracle_time_limit: u64,
     pub debt_minimum: Uint128,
     pub base_debt_cap_multiplier: Uint128,
-    pub twap_timeframe: u64,
+    pub collateral_twap_timeframe: u64,
+    pub credit_twap_timeframe: u64,
     pub cpc_margin_of_error: Decimal,
     pub rate_slope_multiplier: Decimal,
 }

@@ -2826,7 +2826,7 @@ fn query_price(
         let basket = BASKETS.load( storage, basket_id.to_string() )?;
         //if AssetInfo is the basket.credit_asset
         if asset_info.equal(&basket.credit_asset.info) {
-            //Convert credit timeframe from days to minutes
+            
             twap_timeframe = config.credit_twap_timeframe;
         }        
     }

@@ -17,7 +17,7 @@ pub struct InstantiateMsg {
     pub debt_minimum: Uint128, //Debt minimum value per position
     pub liq_fee: Decimal,
     pub collateral_twap_timeframe: u64, //in minutes
-    pub credit_twap_timeframe: u64, //in days
+    pub credit_twap_timeframe: u64, //in minutes
     //Contracts
     pub stability_pool: Option<String>,
     pub dex_router: Option<String>,

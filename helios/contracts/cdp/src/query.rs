@@ -11,7 +11,6 @@ use osmo_bindings::{SpotPriceResponse, PoolStateResponse};
 use crate::state::CREDIT_MULTI;
 use crate::{state::{CONFIG, POSITIONS, REPAY, BASKETS, Config}, positions::{read_price, get_asset_liquidity, validate_position_owner}, math::{decimal_multiplication, decimal_division, decimal_subtraction}, ContractError};
 
-const MINUTES_PER_DAY: u64 = 1_440u64;
 const MAX_LIMIT: u32 = 31;
 
 pub fn query_prop(
@@ -823,8 +822,8 @@ fn query_price_imut(
         let basket = BASKETS.load( storage, basket_id.to_string() )?;
         //if AssetInfo is the basket.credit_asset
         if asset_info.equal(&basket.credit_asset.info) {
-            //Convert credit timeframe from days to minutes
-            twap_timeframe = config.credit_twap_timeframe * MINUTES_PER_DAY;
+            
+            twap_timeframe = config.credit_twap_timeframe;
         }        
     }
 

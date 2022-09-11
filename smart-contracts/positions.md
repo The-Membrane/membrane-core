@@ -5,9 +5,9 @@ The Positions contract implements the logic for Collateralized Debt Positions (C
 
 The contract also contains the logic for initiating liquidations of CDPs and the sell wall but external debt repayment logic goes through the **Queue** and **Stability Pool** contracts.
 
+**Notes: **_**Deposits** take asset data directly from the message to ensure correctness. **Withdrawals** are checked for validity (in the SubMsg reply) before state is permanently changed. **Supply caps** don't affect withdrawals, in otherwords, they only restrict deposits._&#x20;
 
-
-**Note: **_**Deposits** take data directly from the message to ensure correctness. **Withdrawals** are checked for validity (in the SubMsg reply) before state is permanently changed. **Supply caps** don't affect withdrawals, in otherwords, they only restrict deposits._&#x20;
+Liquidation queue premiums are automatically changed to the range between 100% and 5% above max LTV of an asset to ensure liquidations run smoothly, otherwise the LQ liquidations would get skipped due to liquidation fulfillment logic and the bidders would be unknowingly missing opportunities.
 
 ## InstantiateMsg
 

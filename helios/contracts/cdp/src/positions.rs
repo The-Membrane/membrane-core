@@ -2831,8 +2831,6 @@ fn query_price(
         }        
     }
 
-    if asset_info.to_string() == String::from("credit_fulldenom"){ panic!("{}", twap_timeframe) }
-
     //Query Price
     let price = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().oracle_contract.unwrap().to_string(),

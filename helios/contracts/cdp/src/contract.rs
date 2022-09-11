@@ -24,7 +24,7 @@ use membrane::debt_auction::{ ExecuteMsg as AuctionExecuteMsg };
 use crate::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 use crate::error::ContractError;
 use crate::positions::{create_basket, assert_basket_assets, assert_sent_native_token_balance, deposit, withdraw, increase_debt, repay, liq_repay, edit_contract_owner, liquidate, edit_basket, sell_wall_using_ids, SELL_WALL_REPLY_ID, STABILITY_POOL_REPLY_ID, LIQ_QUEUE_REPLY_ID, withdrawal_msg, update_position_claims, CREATE_DENOM_REPLY_ID, BAD_DEBT_REPLY_ID, mint_revenue, WITHDRAW_REPLY_ID, get_contract_balances, get_target_position, clone_basket};
-use crate::query::{query_stability_pool_liquidatible, query_config, query_position, query_user_positions, query_basket_positions, query_basket, query_baskets, query_prop, query_stability_pool_fee, query_basket_debt_caps, query_bad_debt, query_basket_insolvency, query_position_insolvency, query_basket_credit_interest};
+use crate::query::{ query_collateral_rates, query_stability_pool_liquidatible, query_config, query_position, query_user_positions, query_basket_positions, query_basket, query_baskets, query_prop, query_stability_pool_fee, query_basket_debt_caps, query_bad_debt, query_basket_insolvency, query_position_insolvency, query_basket_credit_interest};
 use crate::state::{ Config, CONFIG, POSITIONS, BASKETS, RepayPropagation, REPAY, WITHDRAW, CREDIT_MULTI };
 
 // version info for migration info
@@ -1236,6 +1236,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         },
         QueryMsg::GetBasketInterest { basket_id } => {
             to_binary( &query_basket_credit_interest(deps, env, basket_id)? )
+        },
+        QueryMsg::GetCollateralInterest { basket_id } => {
+            to_binary( &query_collateral_rates( deps, env, basket_id )? )
         },
     }
 }

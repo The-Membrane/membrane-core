@@ -5,7 +5,7 @@ use cosmwasm_std::{Deps, StdResult, Uint128, Addr, StdError, Order, QuerierWrapp
 use cw_storage_plus::Bound;
 
 use membrane::oracle::{ QueryMsg as OracleQueryMsg, PriceResponse };
-use membrane::positions::{PropResponse, ConfigResponse, PositionResponse, BasketResponse, PositionsResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, InterestResponse};
+use membrane::positions::{PropResponse, ConfigResponse, PositionResponse, BasketResponse, PositionsResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, InterestResponse, CollateralInterestResponse};
 use membrane::types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PriceInfo, PositionUserInfo, InsolventPosition, UserInfo, StoredPrice, Asset, SupplyCap};
 use membrane::stability_pool::{ QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg };
@@ -629,7 +629,7 @@ pub fn query_basket_insolvency(
 
     let config: Config = CONFIG.load( deps.storage )?;
 
-    let basket: Basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
+    let mut basket: Basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
     
     let mut res = InsolvencyResponse { insolvent_positions: vec![] };
     let mut error: Option<StdError> = None;
@@ -650,7 +650,12 @@ pub fn query_basket_insolvency(
         .map(|item| {
             let (addr, positions) = item.unwrap();
             
-            for position in positions{
+            for mut position in positions{
+
+                match accrue_imut( deps.storage, deps.querier, env.clone(), &mut position, &mut basket ){
+                    Ok( () ) => {},                    
+                    Err( err ) => error = Some( err ), 
+                };
 
                 let ( insolvent, current_LTV, available_fee ) = match insolvency_check_imut(deps.storage, env.clone(), deps.querier, position.collateral_assets, Decimal::from_ratio(position.credit_amount, Uint128::new(1u128)), basket.clone().credit_price, false, config.clone()){
                     Ok( ( insolvent, current_LTV, available_fee ) ) => ( insolvent, current_LTV, available_fee ),
@@ -725,6 +730,22 @@ pub fn query_position_insolvency(
     
     Ok( res )
     
+}
+
+pub fn query_collateral_rates(
+    deps: Deps,
+    env: Env,
+    basket_id: Uint128,
+) -> StdResult<CollateralInterestResponse>{
+
+    let mut basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
+
+    let rates = get_interest_rates_imut( deps.storage, deps.querier, env, &mut basket)?;
+
+    Ok( CollateralInterestResponse {
+        rates,
+    })
+
 }
 
 fn accrue_imut(

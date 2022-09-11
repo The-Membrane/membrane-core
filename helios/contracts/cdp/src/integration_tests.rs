@@ -49,7 +49,11 @@ mod tests {
         }, 
         AddQueue{    
             bid_for: AssetInfo,
-            bid_asset: AssetInfo,
+            max_premium: Uint128,
+            bid_threshold: Uint256,
+        },
+        EditQueue{    
+            bid_for: AssetInfo,
             max_premium: Uint128,
             bid_threshold: Uint256,
         },
@@ -120,7 +124,13 @@ mod tests {
                     }, 
                     LQ_MockExecuteMsg::AddQueue { 
                         bid_for, 
-                        bid_asset, 
+                        max_premium, 
+                        bid_threshold 
+                    } => {
+                        Ok( Response::new() )
+                    },
+                    LQ_MockExecuteMsg::EditQueue { 
+                        bid_for, 
                         max_premium, 
                         bid_threshold 
                     } => {
@@ -197,7 +207,13 @@ mod tests {
                     },
                     LQ_MockExecuteMsg::AddQueue { 
                         bid_for, 
-                        bid_asset, 
+                        max_premium, 
+                        bid_threshold 
+                    } => {
+                        Ok( Response::new() )
+                    },
+                    LQ_MockExecuteMsg::EditQueue { 
+                        bid_for, 
                         max_premium, 
                         bid_threshold 
                     } => {
@@ -244,7 +260,13 @@ mod tests {
                     },
                     LQ_MockExecuteMsg::AddQueue { 
                         bid_for, 
-                        bid_asset, 
+                        max_premium, 
+                        bid_threshold 
+                    } => {
+                        Ok( Response::new() )
+                    },
+                    LQ_MockExecuteMsg::EditQueue { 
+                        bid_for, 
                         max_premium, 
                         bid_threshold 
                     } => {
@@ -316,7 +338,13 @@ mod tests {
                     },
                     LQ_MockExecuteMsg::AddQueue { 
                         bid_for, 
-                        bid_asset, 
+                        max_premium, 
+                        bid_threshold 
+                    } => {
+                        Ok( Response::new() )
+                    },
+                    LQ_MockExecuteMsg::EditQueue { 
+                        bid_for, 
                         max_premium, 
                         bid_threshold 
                     } => {
@@ -1635,7 +1663,7 @@ mod tests {
         use super::*;
         use cosmwasm_std::{BlockInfo, coins};
         use cw20::Cw20ReceiveMsg;
-        use membrane::{positions::{ExecuteMsg, ConfigResponse, PropResponse, PositionResponse, BasketResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, PositionsResponse, Cw20HookMsg}, types::{UserInfo, InsolventPosition, PositionUserInfo, TWAPPoolInfo, PoolInfo, SupplyCap, LPAssetInfo}};
+        use membrane::{positions::{ExecuteMsg, ConfigResponse, PropResponse, PositionResponse, BasketResponse, DebtCapResponse, CollateralInterestResponse, BadDebtResponse, InsolvencyResponse, PositionsResponse, Cw20HookMsg}, types::{UserInfo, InsolventPosition, PositionUserInfo, TWAPPoolInfo, PoolInfo, SupplyCap, LPAssetInfo}};
 
         #[test]
         fn withdrawal() {
@@ -2228,6 +2256,14 @@ mod tests {
                 time: app.block_info().time.plus_seconds(31536000u64), //Added a year
                 chain_id: app.block_info().chain_id } );
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap_err();
+
+            //Query Rates
+            let query_msg = QueryMsg::GetCollateralInterest {
+                basket_id: Uint128::new(1u128)
+            };
+            let res: CollateralInterestResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            assert_eq!( format!("{:?}", res.rates), String::from("[(NativeToken { denom: \"debit\" }, Decimal(Uint128(142857142000000000))), (NativeToken { denom: \"base\" }, Decimal(Uint128(665349000000000))), (NativeToken { denom: \"quote\" }, Decimal(Uint128(499011000000000)))]"));
+                       
 
             //Call liquidate on CDP contract
             let msg = ExecuteMsg::Liquidate { 

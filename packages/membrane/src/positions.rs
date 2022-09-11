@@ -209,6 +209,9 @@ pub enum QueryMsg {
     GetBasketInterest {
         basket_id: Uint128,
     },
+    GetCollateralInterest {
+        basket_id: Uint128,
+    },
     //Used internally to test state propagation
     Propagation {},
 }
@@ -300,4 +303,9 @@ pub struct InsolvencyResponse{
 pub struct InterestResponse{
     pub credit_interest: Decimal,
     pub negative_rate: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct CollateralInterestResponse{
+    pub rates: Vec<(AssetInfo, Decimal)>,    
 }

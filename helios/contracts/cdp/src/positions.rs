@@ -34,7 +34,7 @@ pub const CREATE_DENOM_REPLY_ID: u64 = 4u64;
 pub const WITHDRAW_REPLY_ID: u64 = 5u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
-const SECONDS_PER_YEAR: u64 = 31_536_000u64;
+pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
 const MILLISECONDS_PER_DAY: i64 = 86_400_000i64;
 
 
@@ -3518,7 +3518,7 @@ fn create_denom(
 
 }
 
-fn accumulate_interest(
+pub fn accumulate_interest(
     debt: Uint128,
     rate: Decimal,
     time_elapsed: u64,
@@ -3621,7 +3621,7 @@ fn get_interest_rates(
 }
 
 //If cAssets include an LP, remove the LP share denom and add its paired assets
-fn get_LP_pool_cAssets(
+pub fn get_LP_pool_cAssets(
     querier: QuerierWrapper,
     config: Config,
     basket: Basket,

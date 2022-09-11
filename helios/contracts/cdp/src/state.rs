@@ -21,7 +21,7 @@ pub struct Config {
     pub debt_auction: Option<Addr>,
     pub oracle_contract: Option<Addr>,
     pub liquidity_contract: Option<Addr>,
-    pub liq_fee: Decimal, //Enter as percent, 0.02
+    pub liq_fee: Decimal, //Enter as percent, 0.01
     pub collateral_twap_timeframe: u64, //in minutes
     pub credit_twap_timeframe: u64, //in minutes
     pub oracle_time_limit: u64, //in seconds until oracle failure is accepted. Think of it as how many blocks you allow the oracle to fail for.

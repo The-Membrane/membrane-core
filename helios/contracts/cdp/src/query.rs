@@ -1,15 +1,21 @@
+use std::cmp::min;
+
 use cosmwasm_std::{Deps, StdResult, Uint128, Addr, StdError, Order, QuerierWrapper, Decimal, to_binary, QueryRequest, WasmQuery, Storage, Env, MessageInfo};
+
 use cw_storage_plus::Bound;
+
 use membrane::oracle::{ QueryMsg as OracleQueryMsg, PriceResponse };
 use membrane::positions::{PropResponse, ConfigResponse, PositionResponse, BasketResponse, PositionsResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, InterestResponse};
-use membrane::types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PriceInfo, PositionUserInfo, InsolventPosition, UserInfo, StoredPrice, Asset};
+use membrane::types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PriceInfo, PositionUserInfo, InsolventPosition, UserInfo, StoredPrice, Asset, SupplyCap};
 use membrane::stability_pool::{ QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg };
+
+use crate::positions::{ accumulate_interest, get_LP_pool_cAssets, get_asset_liquidity, SECONDS_PER_YEAR };
 
 use osmo_bindings::{SpotPriceResponse, PoolStateResponse};
 
 use crate::state::CREDIT_MULTI;
-use crate::{state::{CONFIG, POSITIONS, REPAY, BASKETS, Config}, positions::{read_price, get_asset_liquidity, validate_position_owner}, math::{decimal_multiplication, decimal_division, decimal_subtraction}, ContractError};
+use crate::{state::{CONFIG, POSITIONS, REPAY, BASKETS, Config}, positions::{read_price, validate_position_owner}, math::{decimal_multiplication, decimal_division, decimal_subtraction}, ContractError};
 
 const MAX_LIMIT: u32 = 31;
 
@@ -689,14 +695,16 @@ pub fn query_position_insolvency(
 
     let valid_owner_addr = deps.api.addr_validate( &position_owner)?;
 
-    let basket: Basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
+    let mut basket: Basket = BASKETS.load( deps.storage, basket_id.to_string() )?;
     
     let positions: Vec<Position> = POSITIONS.load( deps.storage, (basket_id.to_string(), valid_owner_addr))?;
 
-    let target_position = match positions.into_iter().find(|x| x.position_id == position_id){
+    let mut target_position = match positions.into_iter().find(|x| x.position_id == position_id){
         Some( position ) => position,
         None => return Err( StdError::NotFound { kind: "Position".to_string() } )
     };
+
+    accrue_imut( deps.storage, deps.querier, env.clone(), &mut target_position, &mut basket )?;
 
     ///
     let mut res = InsolvencyResponse { insolvent_positions: vec![] };
@@ -718,6 +726,319 @@ pub fn query_position_insolvency(
     Ok( res )
     
 }
+
+fn accrue_imut(
+    storage: &dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    position: &mut Position,
+    basket: &mut Basket,
+) -> StdResult<()>{
+
+    let config = CONFIG.load( storage )?;
+
+    //Calc time-elapsed
+    let time_elapsed = env.block.time.seconds() - position.last_accrued;
+    //Update last accrued time
+    position.last_accrued = env.block.time.seconds();
+
+    
+
+    //Calc avg_rate for the position
+    let avg_rate = get_position_avg_rate_imut( storage, querier, env.clone(), basket, position.clone().collateral_assets )?;
+    
+    //Calc accrued interested
+    let accrued_interest = accumulate_interest(position.credit_amount, avg_rate, time_elapsed)?;
+
+    //Add accrued interest to the position's debt
+    position.credit_amount += accrued_interest * Uint128::new(1u128);
+
+    //Add accrued interest to the basket's pending revenue
+    //Okay with rounding down here since the position's credit will round down as well
+    // basket.pending_revenue += accrued_interest * Uint128::new(1u128);
+
+    //Add accrued interest to the basket's debt cap
+    // match update_basket_debt(
+    //     storage, 
+    //     env.clone(), 
+    //     querier, 
+    //     config.clone(), 
+    //     basket.basket_id, 
+    //     position.clone().collateral_assets, 
+    //     accrued_interest * Uint128::new(1u128), 
+    //     true, 
+    //     true){
+
+    //         Ok( _ok ) => {},
+    //         Err( err ) => { return Err( StdError::GenericErr { msg: err.to_string() } ) }
+    //     };
+
+    //Accrue Interest to the Repayment Price
+    //--
+    //Calc Time-elapsed and update last_Accrued 
+    let time_elasped = env.block.time.seconds() - basket.credit_last_accrued;
+
+    if !(time_elasped == 0u64) && basket.oracle_set{
+        basket.credit_last_accrued = env.block.time.seconds();
+
+        //Calculate new interest rate
+        let mut negative_rate: bool;
+        let credit_asset = cAsset {
+            asset: basket.clone().credit_asset,
+            max_borrow_LTV: Decimal::zero(),
+            max_LTV: Decimal::zero(),
+            pool_info: None,
+        };
+        let credit_TWAP_price = get_asset_values_imut( storage, env, querier, vec![ credit_asset ], config.clone(), Some( basket.clone().basket_id ) )?.1[0];
+        //We divide w/ the greater number first so the quotient is always 1.__
+        let mut price_difference = {
+            //If market price > than repayment price
+            if credit_TWAP_price > basket.clone().credit_price {
+                negative_rate = true;
+                decimal_subtraction( decimal_division( credit_TWAP_price, basket.clone().credit_price ), Decimal::one() )
+
+            } else if basket.clone().credit_price > credit_TWAP_price {
+                negative_rate = false;
+                decimal_subtraction( decimal_division( basket.clone().credit_price, credit_TWAP_price ), Decimal::one() )
+
+            } else { 
+                negative_rate = false;
+                Decimal::zero() 
+            }
+        };
+
+        //Don't accrue interest if price is within the margin of error
+        if price_difference > config.clone().cpc_margin_of_error {
+
+            price_difference = decimal_subtraction(price_difference, config.clone().cpc_margin_of_error);
+            
+            //Calculate rate of change
+            let mut applied_rate = Decimal::zero();
+            applied_rate += price_difference.checked_mul(Decimal::from_ratio(
+                Uint128::from(time_elapsed),
+                Uint128::from(SECONDS_PER_YEAR),
+            ))?;
+            
+            //If a positive rate we add 1, 
+            //If a negative rate we add 1 and subtract 2xprice difference
+            //---
+            //Add 1 to make the value 1.__
+            applied_rate += Decimal::one();
+            if negative_rate {
+                
+                //Subtract price difference to make it .9___
+                applied_rate = decimal_subtraction( Decimal::one(), price_difference );                
+            }
+            //if negative_rate && applied_rate != Decimal::one() {panic!("{}", applied_rate)};
+        
+            let mut new_price = basket.credit_price;
+            //Negative repayment interest needs to be enabled by the basket
+            if negative_rate && basket.negative_rates {
+                new_price = decimal_multiplication( basket.credit_price, applied_rate );
+            } else if !negative_rate {
+                new_price = decimal_multiplication( basket.credit_price, applied_rate );
+            }            
+
+            basket.credit_price = new_price;
+        }
+    }
+    
+
+    Ok( () )
+}
+
+fn get_position_avg_rate_imut(
+    storage: &dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    basket: &mut Basket,
+    position_assets: Vec<cAsset>,
+) -> StdResult<Decimal>{
+    let config = CONFIG.load( storage )?;
+
+    let new_assets = get_LP_pool_cAssets( querier, config.clone(), basket.clone(), position_assets )?;
+
+    let ratios = get_cAsset_ratios_imut(storage, env.clone(), querier, new_assets.clone(), config)?;
+    
+    let interest_rates = get_interest_rates_imut( storage, querier, env, basket )?;
+    
+    // if !interest_rates[1].1.is_zero() {panic!("{:?}, {:?}", interest_rates, ratios)};
+
+    let mut avg_rate = Decimal::zero();
+
+    for (i, cAsset) in new_assets.clone().iter().enumerate(){
+        
+        //Match asset and rate
+        if let Some(rate) = interest_rates.clone().into_iter().find(|rate| rate.0.equal(&cAsset.asset.info) ){
+            avg_rate += decimal_multiplication(ratios[i], rate.1);
+        }        
+    }
+
+    //if !interest_rates[1].1.is_zero() {panic!("{:?}", avg_rate)};
+
+    Ok( avg_rate )
+}
+
+fn get_interest_rates_imut(
+    storage: &dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    basket: &mut Basket,
+) -> StdResult<Vec<(AssetInfo, Decimal)>> {
+
+    let config = CONFIG.load( storage )?;
+
+    let mut rates = vec![];
+
+    for asset in basket.clone().collateral_types{
+        //We don't get individual rates for LPs
+        if asset.pool_info.is_none(){
+            //Base_Rate * max collateral_ratio
+            //ex: 2% * 110% = 2.2%
+            //Higher rates for riskier assets
+
+            //base * (1/max_LTV)
+            rates.push( decimal_multiplication( basket.clone().base_interest_rate, decimal_division( Decimal::one(), asset.max_LTV ) ));
+        } 
+    }
+
+    //panic!("{:?}", rates);
+
+    //Get proportion of debt caps filled
+    let mut debt_proportions = vec![];
+    let debt_caps = match get_basket_debt_caps_imut( storage, querier, env, basket.clone()){
+
+        Ok( caps ) => { caps },
+        Err( err ) => { return Err( StdError::GenericErr { msg: err.to_string() } ) }
+    };
+    for (i, cap) in basket.collateral_supply_caps.clone()
+        .into_iter()
+        .filter(|cap| !cap.lp)
+        .collect::<Vec<SupplyCap>>()
+        .iter()
+        .enumerate(){
+        
+        //If there is 0 of an Asset then it's cap is 0 but its proportion is 100%
+        if debt_caps[i].is_zero(){
+            debt_proportions.push( Decimal::percent(100) );
+        } else {
+            debt_proportions.push( Decimal::from_ratio(cap.debt_total, debt_caps[i]) );
+        }
+        
+    }
+    //if !debt_proportions[1].is_zero() {panic!("{:?}", debt_proportions)};
+    //Gets pro-rata rate and uses multiplier if above desired utilization
+    let mut two_slope_pro_rata_rates = vec![];
+    for (i, _rate) in rates.iter().enumerate(){
+        //If debt_proportion is above desired utilization, the rates start multiplying
+        //For every % above the desired, it adds a multiple
+        //Ex: Desired = 90%, proportion = 91%, interest = 2%. New rate = 4%.
+        //Acts as two_slope rate
+
+        //Slope 2
+        if debt_proportions[i] > basket.desired_debt_cap_util{
+            //Ex: 91% > 90%
+            ////0.01 * 100 = 1
+            //1% = 1
+            let percent_over_desired = decimal_multiplication( decimal_subtraction( debt_proportions[i], basket.desired_debt_cap_util), Decimal::percent(100_00) );
+            let multiplier = percent_over_desired + Decimal::one();
+            //Change rate of (rate) increase w/ the configuration multiplier 
+            let multiplier = multiplier * config.rate_slope_multiplier;
+
+            //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
+            //// rate = 3.6%
+            two_slope_pro_rata_rates.push( ( basket.collateral_supply_caps[i].clone().asset_info, decimal_multiplication( decimal_multiplication( rates[i], debt_proportions[i] ), multiplier ) ) );
+        } else {
+        //Slope 1
+            two_slope_pro_rata_rates.push( ( basket.collateral_supply_caps[i].clone().asset_info, decimal_multiplication( rates[i], debt_proportions[i] ) ) );
+        }
+        
+    }
+
+    //If debt_proportion is above desired utilization, the rates start multiplying
+    //For every % above the desired, it adds a multiple
+    //Ex: Desired = 90%, proportion = 91%, interest = 2%. New rate = 4%.
+    //Acts as two_slope rate
+    
+    Ok( two_slope_pro_rata_rates )     
+
+}
+
+fn get_basket_debt_caps_imut(
+    storage: &dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    //These are Basket specific fields
+    basket: Basket,
+)-> Result<Vec<Uint128>, ContractError>{
+
+    let config: Config = CONFIG.load( storage )?;
+
+    //Map supply caps to cAssets to get new ratios
+    //The functions need Asset and Pool Info to calc value
+    //Bc our LPs are aggregated w/ their paired assets, we don't need Pool Info
+    let temp_cAssets: Vec<cAsset> = basket.clone().collateral_supply_caps
+        .into_iter() 
+        .map(|cap| {
+            if cap.lp {//We skip LPs bc we don't want to double count their assets
+                cAsset {
+                    asset: Asset { info: cap.asset_info, amount: Uint128::zero() },
+                    max_borrow_LTV: Decimal::zero(),
+                    max_LTV: Decimal::zero(),
+                    pool_info: None,
+                }
+            } else {
+                cAsset {
+                    asset: Asset { info: cap.asset_info, amount: cap.current_supply },
+                    max_borrow_LTV: Decimal::zero(),
+                    max_LTV: Decimal::zero(),
+                    pool_info: None,
+                }
+            }
+            
+        })
+        .collect::<Vec<cAsset>>();
+
+    //Get the Basket's asset ratios
+    let cAsset_ratios = get_cAsset_ratios_imut(storage, env.clone(), querier, temp_cAssets.clone(), config.clone())?;
+
+    //Get credit_asset's liquidity_multiplier
+    let credit_asset_multiplier = get_credit_asset_multiplier_imut( storage, querier, env.clone(), config.clone(), basket.clone() )?;
+   
+    //Get the base debt cap 
+    let mut debt_cap = get_asset_liquidity( querier, config.clone(), basket.clone().credit_asset.info )? 
+        * credit_asset_multiplier;
+
+    //If debt cap is less than the minimum, set it to the minimum
+    if debt_cap < ( config.base_debt_cap_multiplier * config.debt_minimum ){
+        debt_cap = ( config.base_debt_cap_multiplier * config.debt_minimum );
+    }
+
+    let mut per_asset_debt_caps = vec![];
+
+    for ( i, cAsset)  in cAsset_ratios.clone().into_iter().enumerate(){
+
+        if !basket.clone().collateral_supply_caps[i].lp{
+            // If supply cap is 0, then debt cap is 0
+            if basket.clone().collateral_supply_caps != vec![] {
+
+                if basket.clone().collateral_supply_caps[i].supply_cap_ratio.is_zero(){
+                    per_asset_debt_caps.push(  Uint128::zero()  );
+                } else {
+                    per_asset_debt_caps.push( cAsset * debt_cap );
+                }
+
+            } else {
+                per_asset_debt_caps.push( cAsset * debt_cap );
+            }
+        }
+    }                
+
+    
+    Ok( per_asset_debt_caps )
+}
+
+
 
 pub fn query_basket_credit_interest(
     deps: Deps,
@@ -743,7 +1064,7 @@ pub fn query_basket_credit_interest(
             pool_info: None,
         };
         
-        let credit_TWAP_price = get_asset_values_imut( deps.storage, env, deps.querier, vec![ credit_asset ], config.clone() )?.1[0];
+        let credit_TWAP_price = get_asset_values_imut( deps.storage, env, deps.querier, vec![ credit_asset ], config.clone(), Some( basket_id ))?.1[0];
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
             //If market price > than repayment price
@@ -787,7 +1108,7 @@ fn get_cAsset_ratios_imut(
     collateral_assets: Vec<cAsset>,
     config: Config,
 ) -> StdResult<Vec<Decimal>>{
-    let (cAsset_values, cAsset_prices) = get_asset_values_imut(storage, env, querier, collateral_assets.clone(), config)?;
+    let (cAsset_values, cAsset_prices) = get_asset_values_imut( storage, env, querier, collateral_assets.clone(), config, None )?;
 
     let total_value: Decimal = cAsset_values.iter().sum();
 
@@ -876,7 +1197,8 @@ pub fn get_asset_values_imut(
     env: Env, 
     querier: QuerierWrapper, 
     assets: Vec<cAsset>, 
-    config: Config
+    config: Config,
+    basket_id: Option<Uint128>,
 ) -> StdResult<(Vec<Decimal>, Vec<Decimal>)>
 {
    //Getting proportions for position collateral to calculate avg LTV
@@ -897,7 +1219,7 @@ pub fn get_asset_values_imut(
 
             for (pool_asset) in pool_info.clone().asset_infos{
 
-                let price = query_price_imut(storage, querier, env.clone(), config.clone(), pool_asset.info, None)?;
+                let price = query_price_imut(storage, querier, env.clone(), config.clone(), pool_asset.info, basket_id)?;
                 //Append price
                 asset_prices.push( price );
             }
@@ -973,7 +1295,7 @@ fn get_avg_LTV_imut(
     config: Config,
 )-> StdResult<(Decimal, Decimal, Decimal, Vec<Decimal>)>{
 
-    let (cAsset_values, cAsset_prices) = get_asset_values_imut(storage, env, querier, collateral_assets.clone(), config)?;
+    let (cAsset_values, cAsset_prices) = get_asset_values_imut(storage, env, querier, collateral_assets.clone(), config, None)?;
 
     //panic!("{}", cAsset_values.len());
 

@@ -878,7 +878,7 @@ pub struct InsolvencyResponse{
 
 ### `GetBasketInterest`
 
-Returns basket interest and its sign&#x20;
+Returns basket's credit interest and its sign&#x20;
 
 ```
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

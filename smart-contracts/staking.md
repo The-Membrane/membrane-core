@@ -4,7 +4,7 @@ description: MBRN Staking contract
 
 # Staking
 
-**Notes:** Rewards are earned in the unstaking period as its mainly added to restrict sales prompted by an activated Debt Auction.
+**Notes:** Rewards are earned in the unstaking period but have no voting power, as its mainly added to restrict sales prompted by an activated Debt Auction.
 
 ## InstantiateMsg
 

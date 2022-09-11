@@ -10,7 +10,7 @@ The Stability Pool (SP) is the second line of defense in Positions contract liqu
 \
 When a position is liquidated, the pool repays its debt in exchange for assets sent by the Positions contract for successful repayments. In contrast to Liquity's pro rata model, this SP is **F**irst In **F**irst **O**ut when it comes to rewarding liquidations to pool liquidity providers.\
 \
-Due to how the liquidation model calculates liquidations, there will always be something for the SP to liquidate, meaning its advantageous for the first bidder at every liquidation and not just the one's the Liq Queue can't fulfill.\
+Due to how the liquidation model calculates liquidations, there will always be something for the SP to liquidate, meaning its advantageous for the first bidder at every liquidation and not just the one's the Liq Queue can't fulfill. This has the added benefit of filtering through spam deposits before large liquidatiosn.\
 \
 Pro-rata distributions, like the Liq Queue and Liquity's SP are better than FIFO at attracting large capital, but FIFO has direct incentives for competitive replenishes which is better for a pool that isn't prioritized but needs quick refills if the situation calls for it.\
 \

@@ -14,6 +14,7 @@ pub struct Config {
     pub positions_contract: Addr,
     pub added_assets: Option<Vec<AssetInfo>>,
     pub waiting_period: u64, //Wait period is at max doubled due to slot_total calculation
+    pub basket_id: Uint128,
 }
 
 // #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

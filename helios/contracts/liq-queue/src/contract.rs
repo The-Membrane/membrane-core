@@ -11,7 +11,7 @@ use cw2::set_contract_version;
 use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg};
 use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, SlotResponse, ClaimsResponse };
 //use cw_multi_test::Contract;
-use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
+use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, Cw20HookMsg as CDP_Cw20HookMsg, BasketResponse};
 use membrane::types::{ Asset, AssetInfo, LiqAsset, cAsset,  UserRatio, BidInput, Bid, Queue, PremiumSlot, PositionUserInfo };
 use membrane::math::{decimal_division, decimal_subtraction, decimal_multiplication};
 
@@ -45,6 +45,7 @@ pub fn instantiate(
             positions_contract: deps.api.addr_validate(&msg.positions_contract)?,  
             waiting_period: msg.waiting_period,
             added_assets: Some(vec![]),
+            basket_id: msg.basket_id,
         };
     }else{
         config = Config {
@@ -52,6 +53,7 @@ pub fn instantiate(
             positions_contract: deps.api.addr_validate(&msg.positions_contract)?,  
             waiting_period: msg.waiting_period,
             added_assets: Some(vec![]),
+            basket_id: msg.basket_id,
         };
     }
 
@@ -95,9 +97,9 @@ pub fn execute(
                 execute_liquidation(deps, env, info, collateral_amount, bid_for, collateral_price, credit_price, bid_with, basket_id, position_id, position_owner)
             },
         ExecuteMsg::ClaimLiquidations { bid_for, bid_ids } => claim_liquidations(deps, env, info, bid_for, bid_ids),
-        ExecuteMsg::AddQueue { bid_for, bid_asset, max_premium, bid_threshold } => add_queue(deps, info, bid_for, bid_asset, max_premium, bid_threshold),
+        ExecuteMsg::AddQueue { bid_for, bid_asset, max_premium, bid_threshold } => add_queue(deps, info, bid_for, max_premium, bid_threshold),
         ExecuteMsg::UpdateQueue { bid_for, max_premium, bid_threshold } => edit_queue(deps, info, bid_for, max_premium, bid_threshold ),
-        ExecuteMsg::UpdateConfig { owner, positions_contract, waiting_period } => update_config(deps, info, owner, positions_contract, waiting_period),
+        ExecuteMsg::UpdateConfig { owner, positions_contract, waiting_period, basket_id } => update_config(deps, info, owner, positions_contract, waiting_period, basket_id),
     }
 }//Functions assume Cw20 asset amounts are taken from Messageinfo
 
@@ -106,7 +108,8 @@ fn update_config(
     info: MessageInfo,
     owner: Option<String>,
     positions_contract: Option<String>,
-    waiting_period: Option<u64>
+    waiting_period: Option<u64>,
+    basket_id: Option<Uint128>,
 )-> Result<Response, ContractError>{
     
     let mut config = CONFIG.load(deps.storage)?;
@@ -124,6 +127,9 @@ fn update_config(
     if waiting_period.is_some(){
         config.waiting_period = waiting_period.unwrap();
     }
+    if let Some( id ) = basket_id {
+        config.basket_id = id;
+    }
 
     CONFIG.save( deps.storage, &config)?;
 
@@ -131,6 +137,7 @@ fn update_config(
         attr("method", "update_config"),
         attr("owner", config.owner.to_string()),
         attr("waiting_period", config.waiting_period.to_string()),
+        attr("basket_id", config.basket_id.to_string()),
     ]))
 }
 
@@ -169,14 +176,19 @@ fn add_queue(
     deps: DepsMut,
     info: MessageInfo,
     bid_for: AssetInfo,
-    bid_asset: AssetInfo, //This should always be the same credit_asset but will leave open for mutability
     max_premium: Uint128, //A slot for each premium is created when queue is created
     bid_threshold: Uint256,
 )-> Result<Response, ContractError>{
-
-    //TODO: Error foranything not whitelisted in the Positions contract
+  
 
     let mut config = CONFIG.load(deps.storage)?;
+
+    let bid_asset = deps.querier.query::<BasketResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+        contract_addr: config.clone().positions_contract.to_string(), 
+        msg: to_binary(&CDP_QueryMsg::GetBasket { basket_id: config.clone().basket_id })?,
+    }))?
+    .credit_asset
+    .info;
 
     if info.sender != config.owner{
         return Err(ContractError::Unauthorized {  })

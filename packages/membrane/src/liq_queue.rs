@@ -14,6 +14,7 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub positions_contract: String,
     pub waiting_period: u64, //seconds
+    pub basket_id: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -45,7 +46,6 @@ pub enum ExecuteMsg {
     },
     AddQueue{    
         bid_for: AssetInfo,
-        bid_asset: AssetInfo, //This should always be the same credit_asset but will leave open for flexibility
         max_premium: Uint128, //A slot for each premium is created when queue is created
         bid_threshold: Uint256, //Minimum bid amount. Unlocks waiting bids if total_bids is less than.
     },
@@ -58,6 +58,7 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         positions_contract: Option<String>,
         waiting_period: Option<u64>,
+        basket_id: Option<Uint128>,
     },
 }
 

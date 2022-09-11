@@ -287,11 +287,10 @@ fn edit_cAsset(
 
                     msgs.push(CosmosMsg::Wasm(WasmMsg::Execute { 
                         contract_addr: basket.clone().liq_queue.unwrap().into_string(),
-                        msg: to_binary(&LQ_ExecuteMsg::AddQueue { 
+                        msg: to_binary(&LQ_ExecuteMsg::UpdateQueue { 
                             bid_for: asset.clone().asset.info, 
-                            bid_asset: basket.clone().credit_asset.info, 
-                            max_premium, 
-                            bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
+                            max_premium: Some( max_premium ),
+                            bid_threshold: None, 
                         })?, 
                         funds: vec![],
                     }));

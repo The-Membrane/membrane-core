@@ -1573,7 +1573,6 @@ pub fn create_basket(
                     contract_addr: new_liq_queue.clone().unwrap().to_string(),
                     msg: to_binary(&LQ_ExecuteMsg::AddQueue { 
                         bid_for: asset.clone().asset.info, 
-                        bid_asset: credit_asset.clone().info, 
                         max_premium, 
                         bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
                     })?, 
@@ -1819,7 +1818,6 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                         contract_addr: basket.clone().liq_queue.unwrap().into_string(),
                         msg: to_binary(&LQ_ExecuteMsg::AddQueue { 
                             bid_for: new_cAsset.clone().asset.info, 
-                            bid_asset: basket.clone().credit_asset.info, 
                             max_premium, 
                             bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
                         })?, 
@@ -1835,7 +1833,6 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                         contract_addr: new_queue.clone().unwrap().into_string(),
                         msg: to_binary(&LQ_ExecuteMsg::AddQueue { 
                             bid_for: new_cAsset.clone().asset.info, 
-                            bid_asset: basket.clone().credit_asset.info, 
                             max_premium, 
                             bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
                         })?, 
@@ -1874,7 +1871,6 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                     contract_addr: basket.clone().liq_queue.unwrap().into_string(),
                     msg: to_binary(&LQ_ExecuteMsg::AddQueue { 
                         bid_for: new_cAsset.clone().asset.info, 
-                        bid_asset: basket.clone().credit_asset.info, 
                         max_premium, 
                         bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
                     })?, 
@@ -1890,7 +1886,6 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                     contract_addr: new_queue.clone().unwrap().into_string(),
                     msg: to_binary(&LQ_ExecuteMsg::AddQueue { 
                         bid_for: new_cAsset.clone().asset.info, 
-                        bid_asset: basket.clone().credit_asset.info, 
                         max_premium, 
                         bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
                     })?, 

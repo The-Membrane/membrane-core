@@ -35,7 +35,6 @@ pub const WITHDRAW_REPLY_ID: u64 = 5u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 const SECONDS_PER_YEAR: u64 = 31_536_000u64;
-const MINUTES_PER_DAY: u64 = 1_440u64;
 const MILLISECONDS_PER_DAY: i64 = 86_400_000i64;
 
 
@@ -2828,7 +2827,7 @@ fn query_price(
         //if AssetInfo is the basket.credit_asset
         if asset_info.equal(&basket.credit_asset.info) {
             //Convert credit timeframe from days to minutes
-            twap_timeframe = config.credit_twap_timeframe * MINUTES_PER_DAY;
+            twap_timeframe = config.credit_twap_timeframe;
         }        
     }
 

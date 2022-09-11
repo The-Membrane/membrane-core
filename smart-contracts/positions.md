@@ -5,9 +5,15 @@ The Positions contract implements the logic for Collateralized Debt Positions (C
 
 The contract also contains the logic for initiating liquidations of CDPs and the sell wall but external debt repayment logic goes through the **Queue** and **Stability Pool** contracts.
 
+Liquidation queue premiums are automatically changed to the range between 100% and 5% above max LTV of an asset to ensure liquidations run smoothly, otherwise the LQ liquidations would get skipped due to liquidation fulfillment logic and the bidders would be unknowingly missing opportunities.
 
+**Notes:**&#x20;
 
-**Note: **_**Deposits** take data directly from the message to ensure correctness. **Withdrawals** are checked for validity (in the SubMsg reply) before state is permanently changed. **Supply caps** don't affect withdrawals, in otherwords, they only restrict deposits._&#x20;
+* _****_[_**Deposits**_](positions.md#deposit) _take asset data directly from the message to ensure correctness. ****_&#x20;
+* _****_[_**Withdrawals** _ ](positions.md#withdraw)_are checked for validity (in the SubMsg reply) before state is permanently changed._&#x20;
+* _****_[_**Supply caps**_](positions.md#editbasket) _don't affect withdrawals, in otherwords, they only restrict deposits. Can be set to 0 to set the collateral's debt\_cap to 0 which locks mints and spikes interest rates._
+* _Adding collateral assets adds a queue for them in Liq Queue contract and a price feed for them in the Oracle contract_
+* _LP share supply caps are based on its ratio without double counting its assets, though its debt is counted towards its pool assets' caps._
 
 ## InstantiateMsg
 
@@ -19,7 +25,7 @@ pub struct InstantiateMsg {
     pub debt_minimum: Uint128, //Debt minimum value per position
     pub liq_fee: Decimal,
     pub collateral_twap_timeframe: u64, //in minutes
-    pub credit_twap_timeframe: u64, //in days
+    pub credit_twap_timeframe: u64, //in minutes
     //Contracts
     pub stability_pool: Option<String>,
     pub dex_router: Option<String>,
@@ -53,7 +59,7 @@ pub enum AssetInfo {
 | `debt_minimum`                | Decimal | Minimum value in debt per position                                 |
 | `liq_fee`                     | Decimal | Fee that goes to the protocol during liquidations                  |
 | `collateral_twap_timeframe`   | u64     | TWAP length in minutes                                             |
-| `credit_twap_timeframe`       | u64     | TWAP length in days                                                |
+| `credit_twap_timeframe`       | u64     | TWAP length in minutes                                             |
 | `*stability_pool`             | String  | Stability Pool Contract                                            |
 | `*dex_router`                 | String  | DEX Router Contract                                                |
 | `*interest_revenue_collector` | String  | Address that is sent liq\_fees                                     |
@@ -90,7 +96,7 @@ pub enum ExecuteMsg {
         base_debt_cap_multiplier: Option<Uint128>,
         oracle_time_limit: Option<u64>, //in seconds
         collateral_twap_timeframe: Option<u64>, //in minutes
-        credit_twap_timeframe: Option<u64>, //in days
+        credit_twap_timeframe: Option<u64>, //in minutes
         cpc_margin_of_error: Option<Decimal>,     
         rate_slope_multiplier: Option<Decimal>,   
     }
@@ -113,7 +119,7 @@ pub enum ExecuteMsg {
 | `*base_debt_cap_multiplier`   | Uint128 | Debt Minimum Multiplier for a base debt cap                              |
 | `*oracle_time_limit`          | u64     | Oracle expiration time limit in seconds                                  |
 | `*collateral_twap_timeframe`  | u64     | TWAP length in minutes                                                   |
-| `*credit_twap_timeframe`      | u64     | TWAP length in days                                                      |
+| `*credit_twap_timeframe`      | u64     | TWAP length in minutes                                                   |
 | `*cpc_margin_of_error`        | Decimal | Margin of Error before the credit interest is effected by the TWAP price |
 | `*rate_slope_multiplier`      | Decimal | Multiplier for the 2nd slope in the interest rate formula                |
 

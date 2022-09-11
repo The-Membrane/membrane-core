@@ -900,6 +900,28 @@ pub struct InterestResponse{
 | ----------- | ------- | ----------------- |
 | `basket_id` | Uint128 | Basket identifier |
 
+### `GetCollateralInterest`
+
+Get collateral interest rates from a Basket
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMsg {
+    GetCollateralInterest {
+        basket_id: Uint128,
+    }
+}
+
+pub struct CollateralInterestResponse{
+    pub rates: Vec<(AssetInfo, Decimal)>,    
+}
+```
+
+| Key         | Type    | Description       |
+| ----------- | ------- | ----------------- |
+| `basket_id` | Uint218 | Basket identifier |
+
 ### `Propagation`
 
 Returns `RepayPropagation.`Used internally to test state propagation.

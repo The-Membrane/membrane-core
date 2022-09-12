@@ -184,12 +184,14 @@ pub struct FeeEvent {
 ///////Oracle////////
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct AssetOracleInfo {
-    pub osmosis_pool_for_twap: TWAPPoolInfo,
+    pub basket_id: Uint128,
+    pub osmosis_pools_for_twap: Vec<TWAPPoolInfo>,
+    pub static_price: Option<Decimal>,
 }
 
 impl fmt::Display for AssetOracleInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "osmosis_pool: {}", self.osmosis_pool_for_twap)
+        write!(f, "osmosis_pool: {:?}", self.osmosis_pools_for_twap)
     }
 }
 

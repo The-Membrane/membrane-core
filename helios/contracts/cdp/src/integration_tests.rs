@@ -777,7 +777,7 @@ mod tests {
                     } => {
 
                         Ok(Response::new().add_attributes(vec![
-                            attr("basket_id", "1"),
+                            attr("basket_id", basket_id),
                             attr("subdenom", "credit_fulldenom"),
                             attr("max_supply", max_supply.unwrap_or_else(|| Uint128::zero()).to_string()),
                             attr("liquidity_multiplier", liquidity_multiplier.unwrap_or_else(|| Decimal::zero()).to_string()),
@@ -2237,8 +2237,8 @@ mod tests {
                 position_owner:  "bigger_bank".to_string(),  
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            ///999 leftover + 5833 debt 
-            assert_eq!(res.credit_amount, String::from("6832"));
+            ///999 leftover + 5894 debt 
+            assert_eq!(res.credit_amount, String::from("6893"));
 
              //Insolvent withdrawal error
              ////This should be solvent if there wasn't accrued interest
@@ -2262,7 +2262,8 @@ mod tests {
                 basket_id: Uint128::new(1u128)
             };
             let res: CollateralInterestResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!( format!("{:?}", res.rates), String::from("[(NativeToken { denom: \"debit\" }, Decimal(Uint128(142857142000000000))), (NativeToken { denom: \"base\" }, Decimal(Uint128(665349000000000))), (NativeToken { denom: \"quote\" }, Decimal(Uint128(499011000000000)))]"));
+            assert_eq!( format!("{:?}", res.rates), 
+                String::from("[(NativeToken { denom: \"debit\" }, Decimal(Uint128(142915450000000000))), (NativeToken { denom: \"base\" }, Decimal(Uint128(665620000000000))), (NativeToken { denom: \"quote\" }, Decimal(Uint128(499214000000000)))]"));
                        
 
             //Call liquidate on CDP contract
@@ -2364,10 +2365,6 @@ mod tests {
                             } 
                         ])
                     .unwrap();
-            app.set_block( BlockInfo { 
-                height: app.block_info().height, 
-                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
-                chain_id: app.block_info().chain_id } );
             app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
 
             //Successful Increase
@@ -2665,7 +2662,7 @@ mod tests {
             let query_msg = QueryMsg::GetBasket { basket_id: Uint128::new(1u128) };   
             let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             ///1428 revenue 
-            assert_eq!(res.pending_revenue.to_string(), String::from("1428"));
+            assert_eq!(res.pending_revenue.to_string(), String::from("1443"));
 
             //Successful Mint
             let msg = ExecuteMsg::MintRevenue { 
@@ -4863,7 +4860,7 @@ mod tests {
                 attr("method", "deposit"),
                 attr("basket_id", "1"),
                 attr("position_owner","owner"),
-                attr("position_id", "2"),
+                attr("position_id", "1"),
                 attr("assets", "11 debit"),
                 attr("assets", "11 2nddebit"),
                 ]

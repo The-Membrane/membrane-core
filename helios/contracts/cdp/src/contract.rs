@@ -761,6 +761,7 @@ fn handle_create_denom_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
                 .find(|attr| attr.key == "basket_id")
                 .unwrap()
                 .value;
+            
 
             let liquidity_multiplier: Decimal = instantiate_event.attributes
                 .iter()

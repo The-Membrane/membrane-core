@@ -59,11 +59,10 @@ pub fn deposit(
 
     let valid_owner_addr = validate_position_owner(deps.api, info, position_owner)?;
 
-    let basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
+    let mut basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
         Err(_) => { return Err(ContractError::NonExistentBasket {  })},
         Ok( basket ) => { basket },
     };
-
 
     let mut new_position: Position;
     let mut credit_amount = Uint128::zero();
@@ -157,6 +156,7 @@ pub fn deposit(
                                             pool_info: new_cAsset.clone().pool_info,                            
                                         }
                                     );
+                                    
 
                                     //Set new_assets for debt cap updates
                                     new_assets = p.clone().collateral_assets;
@@ -180,8 +180,13 @@ pub fn deposit(
                             }
                         }
                     }
+                    //Accrue, mainly for repayment price
+                    accrue( deps.storage, deps.querier, env.clone(), &mut position.clone().unwrap(), &mut basket)?;
+                    //Save Basket
+                    BASKETS.save( deps.storage, basket_id.clone().to_string(), &basket )?;
+
                     if !credit_amount.is_zero(){
-                        update_debt_per_asset_in_position( deps.storage, env, deps.querier, config, basket_id, old_assets, new_assets, Decimal::from_ratio(credit_amount, Uint128::new(1u128)))?;
+                        update_debt_per_asset_in_position( deps.storage, env.clone(), deps.querier, config, basket_id, old_assets, new_assets, Decimal::from_ratio(credit_amount, Uint128::new(1u128)))?;
                     }
                 }else{
                     //If position_ID is passed but no position is found. In case its a mistake, don't want to add a new position.
@@ -190,7 +195,12 @@ pub fn deposit(
 
             }else{
                 //If user doesn't pass an ID, we create a new position
-                new_position = create_position(deps.storage, cAssets.clone(), basket_id, env)?;              
+                new_position = create_position(deps.storage, cAssets.clone(), basket_id, env.clone())?;    
+                
+                //Accrue, mainly for repayment price                                    
+                accrue( deps.storage, deps.querier, env.clone(), &mut new_position, &mut basket)?;
+                //Save Basket. This only doesn't overwrite the save in update_debt_per_asset_in_position() bc they are certain to never happen at the same time
+                BASKETS.save( deps.storage, basket_id.clone().to_string(), &basket )?;
                 
                 //For response
                 new_position_id = new_position.clone().position_id;
@@ -215,8 +225,13 @@ pub fn deposit(
         // If Err() meaning no positions loaded, new Vec<Position> is created 
         Err(_) => {
 
-            new_position = create_position(deps.storage, cAssets.clone(), basket_id, env)?;
-                
+            new_position = create_position(deps.storage, cAssets.clone(), basket_id, env.clone())?;           
+
+            //Accrue, mainly for repayment price                                    
+            accrue( deps.storage, deps.querier, env.clone(), &mut new_position, &mut basket)?;
+            //Save Basket. This only doesn't overwrite the save in update_debt_per_asset_in_position() bc they are certain to never happen at the same time
+            BASKETS.save( deps.storage, basket_id.clone().to_string(), &basket )?;
+                            
             //For response
             new_position_id = new_position.clone().position_id;
             
@@ -224,6 +239,8 @@ pub fn deposit(
             POSITIONS.save(deps.storage, (basket_id.to_string(), valid_owner_addr.clone()), &vec![ new_position ] )?;
         }
     };
+
+                
 
     //Response build
     let response = Response::new();
@@ -3085,9 +3102,10 @@ fn get_basket_debt_caps(
 
     //Get the Basket's asset ratios
     let cAsset_ratios = get_cAsset_ratios(storage, env.clone(), querier, temp_cAssets.clone(), config.clone())?;
-
+    
     //Get credit_asset's liquidity_multiplier
     let credit_asset_multiplier = get_credit_asset_multiplier( storage, querier, env.clone(), config.clone(), basket.clone() )?;
+
    
     //Get the base debt cap 
     let mut debt_cap = get_asset_liquidity( querier, config.clone(), basket.clone().credit_asset.info )? 
@@ -3185,6 +3203,7 @@ fn get_credit_asset_multiplier(
         })
         .collect::<Vec<cAsset>>();
 
+    
     let total_collateral_value: Decimal = get_asset_values(storage, env.clone(), querier, temp_cAssets, config.clone(), None)?
         .0
         .into_iter()
@@ -3555,7 +3574,6 @@ fn get_interest_rates(
             rates.push( decimal_multiplication( basket.clone().base_interest_rate, decimal_division( Decimal::one(), asset.max_LTV ) ));
         } 
     }
-
     //panic!("{:?}", rates);
 
     //Get proportion of debt caps filled
@@ -3565,6 +3583,7 @@ fn get_interest_rates(
         Ok( caps ) => { caps },
         Err( err ) => { return Err( StdError::GenericErr { msg: err.to_string() } ) }
     };
+
     for (i, cap) in basket.collateral_supply_caps.clone()
         .into_iter()
         .filter(|cap| !cap.lp)
@@ -3580,6 +3599,9 @@ fn get_interest_rates(
         }
         
     }
+
+    
+    
     //if !debt_proportions[1].is_zero() {panic!("{:?}", debt_proportions)};
     //Gets pro-rata rate and uses multiplier if above desired utilization
     let mut two_slope_pro_rata_rates = vec![];
@@ -3682,7 +3704,7 @@ fn get_position_avg_rate(
     let new_assets = get_LP_pool_cAssets( querier, config.clone(), basket.clone(), position_assets )?;
 
     let ratios = get_cAsset_ratios(storage, env.clone(), querier, new_assets.clone(), config)?;
-    
+        
     let interest_rates = get_interest_rates( storage, querier, env, basket )?;
     
     // if !interest_rates[1].1.is_zero() {panic!("{:?}, {:?}", interest_rates, ratios)};
@@ -3712,19 +3734,109 @@ fn accrue(
 
     let config = CONFIG.load( storage )?;
 
-    //Calc time-elapsed
-    let time_elapsed = env.block.time.seconds() - position.last_accrued;
-    //Update last accrued time
-    position.last_accrued = env.block.time.seconds();
+    //Accrue Interest to the Repayment Price
+    //--
+    //Calc Time-elapsed and update last_Accrued 
+    let time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
+        
+    let mut negative_rate: bool = false;
+    let mut price_difference: Decimal = Decimal::zero();
 
-    
+
+    if !(time_elapsed == 0u64) && basket.oracle_set {
+        basket.credit_last_accrued = env.block.time.seconds();
+
+        //Calculate new interest rate
+        let credit_asset = cAsset {
+            asset: basket.clone().credit_asset,
+            max_borrow_LTV: Decimal::zero(),
+            max_LTV: Decimal::zero(),
+            pool_info: None,
+        };
+        
+        let credit_TWAP_price = get_asset_values( storage, env.clone(), querier, vec![ credit_asset ], config.clone(), Some( basket.clone().basket_id ) )?.1[0];
+        
+        //We divide w/ the greater number first so the quotient is always 1.__
+        price_difference = {
+            //If market price > than repayment price
+            if credit_TWAP_price > basket.clone().credit_price {
+                negative_rate = true;
+                decimal_subtraction( decimal_division( credit_TWAP_price, basket.clone().credit_price ), Decimal::one() )
+
+            } else if basket.clone().credit_price > credit_TWAP_price {
+                negative_rate = false;
+                decimal_subtraction( decimal_division( basket.clone().credit_price, credit_TWAP_price ), Decimal::one() )
+
+            } else { 
+                negative_rate = false;
+                Decimal::zero() 
+            }
+        };
+
+        // /
+
+        //Don't accrue interest if price is within the margin of error
+        if price_difference > config.clone().cpc_margin_of_error {
+
+            price_difference = decimal_subtraction(price_difference, config.clone().cpc_margin_of_error);
+            
+            //Calculate rate of change
+            let mut applied_rate = Decimal::zero();
+            applied_rate = price_difference.checked_mul(Decimal::from_ratio(
+                Uint128::from(time_elapsed),
+                Uint128::from(SECONDS_PER_YEAR),
+            ))?;
+            
+            //If a positive rate we add 1, 
+            //If a negative rate we subtract the applied_rate from 1
+            //---
+            if negative_rate {
+                
+                //Subtract applied_rate to make it .9___
+                applied_rate = decimal_subtraction( Decimal::one(), applied_rate );                
+            } else {
+                
+                //Add 1 to make the value 1.__
+                applied_rate += Decimal::one();
+            }            
+        
+            let mut new_price = basket.credit_price;
+            //Negative repayment interest needs to be enabled by the basket
+            if negative_rate && basket.negative_rates {
+                new_price = decimal_multiplication( basket.credit_price, applied_rate );
+            } else if !negative_rate {
+                new_price = decimal_multiplication( basket.credit_price, applied_rate );
+            }            
+
+            basket.credit_price = new_price;
+        } else {
+            price_difference = Decimal::zero();
+        }
+    }
+        
+
+    //Accrue interest to the debt
+    //Calc time-elapsed
+    let time_elapsed = env.clone().block.time.seconds() - position.last_accrued;
+    //Update last accrued time
+    position.last_accrued = env.clone().block.time.seconds();
+   
 
     //Calc avg_rate for the position
-    let avg_rate = get_position_avg_rate( storage, querier, env.clone(), basket, position.clone().collateral_assets )?;
+    let mut avg_rate = get_position_avg_rate( storage, querier, env.clone(), basket, position.clone().collateral_assets )?;
+    
+    
+    //Accrue a years worth of repayment rate to interest rates
+    //These aren't saved so it won't compound
+    if negative_rate {
+        avg_rate = decimal_multiplication( avg_rate, decimal_subtraction(Decimal::one(), price_difference) );
+    } else {
+        avg_rate = decimal_multiplication( avg_rate, (Decimal::one() + price_difference) );
+    }
     
     //Calc accrued interested
     let accrued_interest = accumulate_interest(position.credit_amount, avg_rate, time_elapsed)?;
-
+   
     //Add accrued interest to the position's debt
     position.credit_amount += accrued_interest * Uint128::new(1u128);
 
@@ -3748,77 +3860,6 @@ fn accrue(
             Err( err ) => { return Err( StdError::GenericErr { msg: err.to_string() } ) }
         };
 
-    //Accrue Interest to the Repayment Price
-    //--
-    //Calc Time-elapsed and update last_Accrued 
-    let time_elasped = env.block.time.seconds() - basket.credit_last_accrued;
-
-    if !(time_elasped == 0u64) && basket.oracle_set{
-        basket.credit_last_accrued = env.block.time.seconds();
-
-        //Calculate new interest rate
-        let mut negative_rate: bool;
-        let credit_asset = cAsset {
-            asset: basket.clone().credit_asset,
-            max_borrow_LTV: Decimal::zero(),
-            max_LTV: Decimal::zero(),
-            pool_info: None,
-        };
-        let credit_TWAP_price = get_asset_values( storage, env, querier, vec![ credit_asset ], config.clone(), Some( basket.clone().basket_id ) )?.1[0];
-        //We divide w/ the greater number first so the quotient is always 1.__
-        let mut price_difference = {
-            //If market price > than repayment price
-            if credit_TWAP_price > basket.clone().credit_price {
-                negative_rate = true;
-                decimal_subtraction( decimal_division( credit_TWAP_price, basket.clone().credit_price ), Decimal::one() )
-
-            } else if basket.clone().credit_price > credit_TWAP_price {
-                negative_rate = false;
-                decimal_subtraction( decimal_division( basket.clone().credit_price, credit_TWAP_price ), Decimal::one() )
-
-            } else { 
-                negative_rate = false;
-                Decimal::zero() 
-            }
-        };
-
-        //Don't accrue interest if price is within the margin of error
-        if price_difference > config.clone().cpc_margin_of_error {
-
-            price_difference = decimal_subtraction(price_difference, config.clone().cpc_margin_of_error);
-            
-            //Calculate rate of change
-            let mut applied_rate = Decimal::zero();
-            applied_rate += price_difference.checked_mul(Decimal::from_ratio(
-                Uint128::from(time_elapsed),
-                Uint128::from(SECONDS_PER_YEAR),
-            ))?;
-            
-            //If a positive rate we add 1, 
-            //If a negative rate we add 1 and subtract 2xprice difference
-            //---
-            //Add 1 to make the value 1.__
-            applied_rate += Decimal::one();
-            if negative_rate {
-                
-                //Subtract price difference to make it .9___
-                applied_rate = decimal_subtraction( Decimal::one(), price_difference );                
-            }
-            //if negative_rate && applied_rate != Decimal::one() {panic!("{}", applied_rate)};
-        
-            let mut new_price = basket.credit_price;
-            //Negative repayment interest needs to be enabled by the basket
-            if negative_rate && basket.negative_rates {
-                new_price = decimal_multiplication( basket.credit_price, applied_rate );
-            } else if !negative_rate {
-                new_price = decimal_multiplication( basket.credit_price, applied_rate );
-            }            
-
-            basket.credit_price = new_price;
-        }
-    }
-
-        //panic!("{}", applied_rate);
     
 
     Ok( () )

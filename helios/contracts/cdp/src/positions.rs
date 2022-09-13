@@ -17,7 +17,7 @@ use membrane::positions::{ExecuteMsg, CallbackMsg};
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse };
 use membrane::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
-use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg };
+use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg, TokenInfoResponse };
 use membrane::staking::{ ExecuteMsg as StakingExecuteMsg };
 use membrane::oracle::{ QueryMsg as OracleQueryMsg, ExecuteMsg as OracleExecuteMsg };
 use membrane::liquidity_check::{ QueryMsg as LiquidityQueryMsg, ExecuteMsg as LiquidityExecuteMsg };
@@ -1867,7 +1867,9 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
                 deps.querier.query::<AssetResponse>(&QueryRequest::Wasm(
                     WasmQuery::Smart { 
                         contract_addr: config.clone().oracle_contract.unwrap().to_string(), 
-                        msg: to_binary( &OracleQueryMsg::Asset { asset_info: new_cAsset.clone().asset.info } )? 
+                        msg: to_binary( &OracleQueryMsg::Asset { 
+                            asset_info: new_cAsset.clone().asset.info 
+                        } )? 
                 }))?;
 
                 //If it errors it means the oracle doesn't exist
@@ -1946,12 +1948,18 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
 
     if let Some( credit_twap ) = credit_asset_twap_price_source {
         if config.clone().oracle_contract.is_some(){
-            //Set the credit Oracle
+
+            //Set the credit Oracle. Using EditAsset updates or adds.
             msgs.push( CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: config.clone().oracle_contract.unwrap().to_string(), 
-                msg: to_binary( &OracleExecuteMsg::AddAsset { 
+                msg: to_binary( &OracleExecuteMsg::EditAsset { 
                     asset_info: basket.clone().credit_asset.info, 
-                    oracle_info: AssetOracleInfo { osmosis_pool_for_twap: credit_twap },
+                    oracle_info: Some( AssetOracleInfo { 
+                        basket_id: basket.clone().basket_id,
+                        osmosis_pools_for_twap: vec![ credit_twap ],
+                        static_price: None,
+                    } ),
+                    remove: false,
                 } )?, 
                 funds: vec![], 
             }) );
@@ -1966,7 +1974,7 @@ pub fn edit_basket(//Can't edit basket id, current_position_id or credit_asset. 
         attr("basket_id", basket_id),
     ];
 
-    //Create EditAsset for Liquidity contract
+    //Create EditAssetMsg for Liquidity contract
     if let Some(pool_ids) = pool_ids {
 
         attrs.push( attr("new_pool_ids", format!("{:?}", pool_ids.clone())) );
@@ -3737,10 +3745,40 @@ fn accrue(
     //Accrue Interest to the Repayment Price
     //--
     //Calc Time-elapsed and update last_Accrued 
-    let time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
+    let mut time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
         
     let mut negative_rate: bool = false;
     let mut price_difference: Decimal = Decimal::zero();
+
+    ////Controller barriers to reduce risk of manipulation
+    //Liquidity above 2M
+    //At least 3% of total supply as liquidity
+    let liquidity = get_asset_liquidity( querier, config.clone(), basket.clone().credit_asset.info )?;
+    //Now get % of supply
+    if config.clone().osmosis_proxy.is_some(){
+
+        let current_supply = querier.query::<TokenInfoResponse>(&QueryRequest::Wasm((WasmQuery::Smart { 
+            contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
+            msg: to_binary(&OsmoQueryMsg::GetTokenInfo { 
+                denom: basket.clone().credit_asset.info.to_string(), 
+            })?, 
+        })))?
+        .current_supply;
+
+        let liquidity_ratio = decimal_division(
+            Decimal::from_ratio(liquidity, Uint128::new(1u128)), 
+            Decimal::from_ratio(current_supply, Uint128::new(1u128)));
+        if liquidity_ratio < Decimal::percent(3){
+             //Set time_elapsed to 0 to skip accrual
+            time_elapsed = 0u64;
+        }
+
+    }
+    if liquidity < Uint128::new(2_000_000_000_000u128){
+        //Set time_elapsed to 0 to skip accrual
+        time_elapsed = 0u64;
+    }
+    
 
 
     if !(time_elapsed == 0u64) && basket.oracle_set {
@@ -3824,7 +3862,6 @@ fn accrue(
 
     //Calc avg_rate for the position
     let mut avg_rate = get_position_avg_rate( storage, querier, env.clone(), basket, position.clone().collateral_assets )?;
-    
     
     //Accrue a years worth of repayment rate to interest rates
     //These aren't saved so it won't compound

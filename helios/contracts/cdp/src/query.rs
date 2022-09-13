@@ -8,7 +8,7 @@ use membrane::oracle::{ QueryMsg as OracleQueryMsg, PriceResponse };
 use membrane::positions::{PropResponse, ConfigResponse, PositionResponse, BasketResponse, PositionsResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, InterestResponse, CollateralInterestResponse};
 use membrane::types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PriceInfo, PositionUserInfo, InsolventPosition, UserInfo, StoredPrice, Asset, SupplyCap};
 use membrane::stability_pool::{ QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
-use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg };
+use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, TokenInfoResponse };
 
 use crate::positions::{ accumulate_interest, get_LP_pool_cAssets, get_asset_liquidity, SECONDS_PER_YEAR };
 
@@ -851,10 +851,40 @@ fn accrue_imut(
     //Accrue Interest to the Repayment Price
     //--
     //Calc Time-elapsed and update last_Accrued 
-    let time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
+    let mut time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
     
     let mut negative_rate: bool = false;
     let mut price_difference: Decimal = Decimal::zero();
+
+    ////Controller barriers to reduce risk of manipulation
+    //Liquidity above 2M
+    //At least 3% of total supply as liquidity
+    let liquidity = get_asset_liquidity( querier, config.clone(), basket.clone().credit_asset.info )?;
+    //Now get % of supply
+    if config.clone().osmosis_proxy.is_some(){
+
+        let current_supply = querier.query::<TokenInfoResponse>(&QueryRequest::Wasm((WasmQuery::Smart { 
+            contract_addr: config.clone().osmosis_proxy.unwrap().to_string(), 
+            msg: to_binary(&OsmoQueryMsg::GetTokenInfo { 
+                denom: basket.clone().credit_asset.info.to_string(), 
+            })?, 
+        })))?
+        .current_supply;
+
+        let liquidity_ratio = decimal_division(
+            Decimal::from_ratio(liquidity, Uint128::new(1u128)), 
+            Decimal::from_ratio(current_supply, Uint128::new(1u128)));
+        if liquidity_ratio < Decimal::percent(3){
+             //Set time_elapsed to 0 to skip accrual
+            time_elapsed = 0u64;
+        }
+
+    }
+    if liquidity < Uint128::new(2_000_000_000_000u128){
+        //Set time_elapsed to 0 to skip accrual
+        time_elapsed = 0u64;
+    }
+
 
     if !(time_elapsed == 0u64) && basket.oracle_set{
         basket.credit_last_accrued = env.block.time.seconds();

@@ -9,7 +9,7 @@ mod tests {
     use membrane::positions::{ InstantiateMsg, QueryMsg, ExecuteMsg };
     use membrane::liq_queue::{ LiquidatibleResponse as LQ_LiquidatibleResponse};
     use membrane::stability_pool::{ LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
-    use membrane::osmosis_proxy::{ GetDenomResponse };
+    use membrane::osmosis_proxy::{ GetDenomResponse, TokenInfoResponse };
     use membrane::types::{AssetInfo, Asset, cAsset, LiqAsset, TWAPPoolInfo, AssetOracleInfo, LiquidityInfo};
 
     
@@ -745,6 +745,9 @@ mod tests {
             base_asset_denom: String,
             start_time: i64,
         },
+        GetTokenInfo {
+            denom: String,
+        },
     }
 
     pub fn osmosis_proxy_contract()-> Box<dyn Contract<Empty>> {
@@ -850,7 +853,18 @@ mod tests {
                             )
 
                         }
-                    }
+                    },
+                    Osmo_MockQueryMsg::GetTokenInfo {
+                        denom
+                    } => {
+                        Ok(
+                            to_binary(&TokenInfoResponse {
+                                denom,
+                                current_supply: Uint128::new(200_000u128),
+                                max_supply: Uint128::new(1_000_000_000_000_000u128),
+                            })?
+                        )
+                    },
                 }},
         );
         Box::new(contract)
@@ -957,7 +971,18 @@ mod tests {
                             )
 
                         }
-                    }
+                    },
+                    Osmo_MockQueryMsg::GetTokenInfo {
+                        denom
+                    } => {
+                        Ok(
+                            to_binary(&TokenInfoResponse {
+                                denom,
+                                current_supply: Uint128::new(200_000u128),
+                                max_supply: Uint128::new(1_000_000_000_000_000u128),
+                            })?
+                        )
+                    },
                 }},
         );
         Box::new(contract)
@@ -1086,6 +1111,11 @@ mod tests {
         AddAsset {
             asset_info: AssetInfo,
             oracle_info: AssetOracleInfo,
+        },
+        EditAsset {
+            asset_info: AssetInfo,
+            oracle_info: Option<AssetOracleInfo>,
+            remove: bool,
         }
     }
     
@@ -1113,6 +1143,14 @@ mod tests {
                     Oracle_MockExecuteMsg::AddAsset { 
                         asset_info, 
                         oracle_info, 
+                    }  => {
+                        
+                        Ok(Response::default())
+                    },
+                    Oracle_MockExecuteMsg::EditAsset { 
+                        asset_info, 
+                        oracle_info, 
+                        remove,
                     }  => {
                         
                         Ok(Response::default())
@@ -1159,13 +1197,15 @@ mod tests {
                     Oracle_MockQueryMsg::Asset { asset_info } => {
                         Ok( to_binary(&AssetResponse { 
                             asset_info: AssetInfo::NativeToken { denom: String::from("denom") },
-                            oracle_info: AssetOracleInfo {
-                                osmosis_pool_for_twap: TWAPPoolInfo {
+                            oracle_info: vec![ AssetOracleInfo {
+                                basket_id: Uint128::new(1u128),
+                                osmosis_pools_for_twap: vec![ TWAPPoolInfo {
                                     pool_id: 0u64,
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
-                                },
-                            },
+                                }],
+                                static_price: None,
+                            }],
                         })? )
                     },
                 }  },
@@ -1180,6 +1220,14 @@ mod tests {
                     Oracle_MockExecuteMsg::AddAsset { 
                         asset_info, 
                         oracle_info, 
+                    }  => {
+                        
+                        Ok(Response::default())
+                    },
+                    Oracle_MockExecuteMsg::EditAsset { 
+                        asset_info, 
+                        oracle_info, 
+                        remove,
                     }  => {
                         
                         Ok(Response::default())
@@ -1226,13 +1274,15 @@ mod tests {
                     Oracle_MockQueryMsg::Asset { asset_info } => {
                         Ok( to_binary(&AssetResponse { 
                             asset_info: AssetInfo::NativeToken { denom: String::from("denom") },
-                            oracle_info: AssetOracleInfo {
-                                osmosis_pool_for_twap: TWAPPoolInfo {
+                            oracle_info: vec![ AssetOracleInfo {
+                                basket_id: Uint128::new(1u128),
+                                osmosis_pools_for_twap: vec![ TWAPPoolInfo {
                                     pool_id: 0u64,
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
-                                },
-                            },
+                                }],
+                                static_price: None,
+                            }],
                         })? )
                     },
                 }  },
@@ -2237,8 +2287,8 @@ mod tests {
                 position_owner:  "bigger_bank".to_string(),  
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            ///999 leftover + 5894 debt 
-            assert_eq!(res.credit_amount, String::from("6893"));
+            ///999 leftover + 5833 debt 
+            assert_eq!(res.credit_amount, String::from("6832"));
 
              //Insolvent withdrawal error
              ////This should be solvent if there wasn't accrued interest
@@ -2317,7 +2367,7 @@ mod tests {
 
         #[test]
         fn accrue_credit_repayment_price() {
-            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, true, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, true, true);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
             let sp_addr = res.stability_pool;
@@ -2472,7 +2522,7 @@ mod tests {
             //////////////NEGATIVE RATES///////
             /// 
             /// ///////
-            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, true);
             
             //Edit Basket
             let msg = ExecuteMsg::EditBasket { 
@@ -2662,7 +2712,7 @@ mod tests {
             let query_msg = QueryMsg::GetBasket { basket_id: Uint128::new(1u128) };   
             let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             ///1428 revenue 
-            assert_eq!(res.pending_revenue.to_string(), String::from("1443"));
+            assert_eq!(res.pending_revenue.to_string(), String::from("1428"));
 
             //Successful Mint
             let msg = ExecuteMsg::MintRevenue { 

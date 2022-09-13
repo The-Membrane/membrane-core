@@ -217,7 +217,7 @@ pub struct StoredPrice {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct PriceInfo {
-    pub source: String, //Chain name or Oracle Address 
+    pub source: String, //Chain name, Oracle Address or static
     pub price: Decimal,
 }
 

@@ -1960,6 +1960,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call( withdrawal_msg, vec![] ).unwrap();
             app.execute(Addr::unchecked("sender88"), cosmos_msg).unwrap();
 
+
         }
 
         #[test]
@@ -2320,7 +2321,7 @@ mod tests {
             };
             let res: CollateralInterestResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!( format!("{:?}", res.rates), 
-                String::from("[(NativeToken { denom: \"debit\" }, Decimal(Uint128(142915450000000000))), (NativeToken { denom: \"base\" }, Decimal(Uint128(665620000000000))), (NativeToken { denom: \"quote\" }, Decimal(Uint128(499214000000000)))]"));
+                String::from("[(NativeToken { denom: \"debit\" }, Decimal(Uint128(142857142000000000))), (NativeToken { denom: \"base\" }, Decimal(Uint128(665349000000000))), (NativeToken { denom: \"quote\" }, Decimal(Uint128(499011000000000)))]"));
                        
 
             //Call liquidate on CDP contract

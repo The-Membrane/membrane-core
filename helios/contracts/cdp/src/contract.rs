@@ -672,7 +672,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, env, msg),
         SELL_WALL_REPLY_ID => handle_sell_wall_reply(deps, msg, env),
         CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, msg),
-        WITHDRAW_REPLY_ID => handle_withdraw_reply( deps, env, msg),
+        WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok( Response::new() ),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
@@ -686,47 +686,57 @@ fn handle_withdraw_reply(
     match msg.result.into_result(){
         Ok( _result ) => {
             let mut withdraw_prop = WITHDRAW.load( deps.storage )?;  
+
             
-            let asset_info: AssetInfo = withdraw_prop.positions_prev_collateral[0].clone().info;
-            let position_amount: Uint128 = withdraw_prop.positions_prev_collateral[0].amount;
-            let withdraw_amount: Uint128 = withdraw_prop.withdraw_amounts[0];
+            //Assert valid withdrawal for each asset this reply is 
+            for i in 0..withdraw_prop.reply_order[0]{                                    
+            
+                let asset_info: AssetInfo = withdraw_prop.positions_prev_collateral[0].clone().info;
+                let position_amount: Uint128 = withdraw_prop.positions_prev_collateral[0].amount;
+                let withdraw_amount: Uint128 = withdraw_prop.withdraw_amounts[0];
 
-            let current_asset_balance = match get_contract_balances( deps.querier, env, vec![ asset_info.clone() ] ){
-                Ok( balances ) => { balances[0] },
-                Err( err ) => return Err( StdError::GenericErr { msg: err.to_string() })
-            };
-
-            //If balance differnce is more than what they tried to withdraw or position amount, error
-            if withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > position_amount || withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > withdraw_amount {
-                return Err( StdError::GenericErr { msg: format!("Conditional 1: Invalid withdrawal, possible bug found by {}", withdraw_prop.position_info.position_owner.clone()) } )
-            }
-
-            let user_position = match get_target_position( 
-                deps.storage, 
-                withdraw_prop.position_info.basket_id, 
-                deps.api.addr_validate(&withdraw_prop.position_info.position_owner.clone())?, 
-                withdraw_prop.position_info.position_id){
-                    Ok( position ) => position,
-                    Err( err ) => return Err( StdError::GenericErr { msg: err.to_string() } )
+                let current_asset_balance = match get_contract_balances( deps.querier, env.clone(), vec![ asset_info.clone() ] ){
+                    Ok( balances ) => { balances[0] },
+                    Err( err ) => return Err( StdError::GenericErr { msg: err.to_string() })
                 };
 
-            //Assert the withdrawal was correctly saved to state
-            if let Some(cAsset) = user_position.collateral_assets.into_iter().find(|cAsset| cAsset.asset.info.equal(&asset_info)) {
-                if cAsset.asset.amount != ( position_amount - withdraw_amount ){
-                    return Err( StdError::GenericErr { msg: format!("Conditional 2: Invalid withdrawal, possible bug found by {}", withdraw_prop.position_info.position_owner) } )
+                //If balance differnce is more than what they tried to withdraw or position amount, error
+                if withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > position_amount || withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > withdraw_amount {
+                    return Err( StdError::GenericErr { msg: format!("Conditional 1: Invalid withdrawal, possible bug found by {}", withdraw_prop.position_info.position_owner.clone()) } )
                 }
+
+                let user_position = match get_target_position( 
+                    deps.storage, 
+                    withdraw_prop.position_info.basket_id, 
+                    deps.api.addr_validate(&withdraw_prop.position_info.position_owner.clone())?, 
+                    withdraw_prop.position_info.position_id,
+                    ){
+                        Ok( position ) => position,
+                        Err( err ) => return Err( StdError::GenericErr { msg: err.to_string() } )
+                    };
+
+                //Assert the withdrawal was correctly saved to state
+                if let Some(cAsset) = user_position.collateral_assets.into_iter().find(|cAsset| cAsset.asset.info.equal(&asset_info)) {
+                    if cAsset.asset.amount != ( position_amount - withdraw_amount ){
+                        panic!("{}, {}, {}", cAsset.asset.amount,  position_amount, withdraw_amount);
+                        return Err( StdError::GenericErr { msg: format!("Conditional 2: Invalid withdrawal, possible bug found by {}", withdraw_prop.position_info.position_owner) } )
+                    }
+                }
+                
+                //Remove the first entry from each field
+                withdraw_prop.positions_prev_collateral.remove(0);
+                withdraw_prop.withdraw_amounts.remove(0);
+                withdraw_prop.contracts_prev_collateral_amount.remove(0);
             }
-            
-            //Remove the first entry from each field
-            withdraw_prop.positions_prev_collateral.remove(0);
-            withdraw_prop.withdraw_amounts.remove(0);
-            withdraw_prop.contracts_prev_collateral_amount.remove(0);
+
+            //Remove used reply_order entry
+            withdraw_prop.reply_order.remove(0);
 
             //Save new prop
             WITHDRAW.save( deps.storage, &withdraw_prop )?;
 
             //We can go by first entries for these fields bc the replies will come in FIFO in terms of assets sent
-            //This only works bc we send native tokens one at a time
+            //The reply_order numbers are used to loop the logic on the list of native assets whenever it arrives while still allowing Cw20s to work in the reply
 
         },//We only reply on success 
         Err( err ) => {return Err( StdError::GenericErr { msg: err } )}

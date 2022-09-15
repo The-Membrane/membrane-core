@@ -283,28 +283,33 @@ pub fn withdraw(
         Ok( basket ) => { basket },
     };
            
-    let mut message: CosmosMsg;
     let mut msgs = vec![];
     let response = Response::new();
-       
+      
+    
 
     //For debt cap updates
     let old_assets = get_target_position( deps.storage, basket_id, info.sender.clone(), position_id)?.collateral_assets;
-    let mut new_assets = vec![];
+    let mut new_assets: Vec<cAsset> = vec![];
+    let mut tally_update_list: Vec<cAsset> = vec![];
     let mut credit_amount = Uint128::zero();
     
     //Set withdrawal prop variables
     let mut prop_assets = vec![];
-
+    let mut reply_order: Vec<usize> = vec![];
+    let mut withdraw_assets: Vec<Asset> = vec![];
     
+    //For Withdraw Msg
+    let mut withdraw_coins: Vec<Coin> = vec![];
+
     //Each cAsset
     //We reload at every loop to account for edited state data
     //Otherwise users could siphon funds they don't own w/ duplicate cAssets. 
     //Could fix the problem at the duplicate assets but I like operating on the most up to date state.
     for cAsset in cAssets.clone(){
         
-        let withdraw_asset = cAsset.asset;
-
+        let withdraw_asset = cAsset.asset;  
+        
         //This forces withdrawals to be done by the info.sender 
         //so no need to check if the withdrawal is done by the position owner
         let mut target_position = get_target_position( deps.storage, basket_id, info.sender.clone(), position_id)?;
@@ -315,28 +320,21 @@ pub fn withdraw(
         //If the cAsset is found in the position, attempt withdrawal 
         match target_position.clone().collateral_assets.into_iter().find(|x| x.asset.info.equal(&withdraw_asset.info)){
             //Some cAsset
-            Some( position_collateral ) => {
-
-                //Withdraw Prop
-                prop_assets.push( position_collateral.clone().asset );
+            Some( position_collateral ) => {                
 
                 //Cant withdraw more than the positions amount
                 if withdraw_asset.amount > position_collateral.asset.amount{
                     return Err(ContractError::InvalidWithdrawal {  })
                 }else{
-                    //Now that its a valid withdrawal and debt has accrued, we can update basket tallies
-                    update_basket_tally( 
-                        deps.storage, 
-                        deps.querier,
-                        env.clone(),
-                        &mut basket, 
-                        vec![
-                            cAsset {
-                                asset: withdraw_asset.clone(),
-                                ..position_collateral.clone()
-                            }
-                        ], 
-                        false)?;
+                    //Now that its a valid withdrawal and debt has accrued, we can add to tally_update_list
+                    tally_update_list.push( 
+                        cAsset {
+                            asset: withdraw_asset.clone(),
+                            ..position_collateral.clone()
+                    } );
+
+                    //Withdraw Prop: Push the initial asset
+                    prop_assets.push( position_collateral.clone().asset );
 
                     //Update cAsset data to account for the withdrawal
                     let leftover_amount = position_collateral.asset.amount - withdraw_asset.amount;
@@ -405,10 +403,26 @@ pub fn withdraw(
                                 }
                         })?;
                     }
-                    
-                    //This is here (instead of outside the loop) in case there are multiple withdrawal messages created.
-                    message = withdrawal_msg(withdraw_asset, info.sender.clone())?;
-                    msgs.push( SubMsg::reply_on_success(message, WITHDRAW_REPLY_ID) );
+                    //Push withdraw asset to list for withdraw prop
+                    withdraw_assets.push( withdraw_asset.clone() );
+
+                    //Create send msgs
+                    match withdraw_asset.clone().info {
+                        AssetInfo::Token { address: _ } => {
+                            //Create separate withdraw msg
+                            let message = withdrawal_msg(withdraw_asset, info.sender.clone())?;
+                            msgs.push( SubMsg::reply_on_success(message, WITHDRAW_REPLY_ID) );
+
+                            //Signal 1 asset reply
+                            reply_order.push( 1u64 as usize);
+                            
+                        },
+                        AssetInfo::NativeToken { denom: _ } => {
+                            //Push to withdraw_coins
+                            withdraw_coins.push( asset_to_coin( withdraw_asset )? );
+                        },
+                    }
+                                                            
                 }
                 
             },
@@ -416,6 +430,30 @@ pub fn withdraw(
         };
         
     }
+    
+
+    //Push aggregated native coin withdrawal
+    if withdraw_coins != vec![]{
+
+        //Signal withdraw_coin length reply
+        reply_order.push( withdraw_coins.len() as usize );
+
+        let message = CosmosMsg::Bank(BankMsg::Send {
+            to_address: info.sender.clone().to_string(),
+            amount: withdraw_coins,
+        });
+        msgs.push( SubMsg::reply_on_success(message, WITHDRAW_REPLY_ID) );
+    
+    }
+    
+    //We update after all withdrawals to improve UX by smoothing debt_cap restrictions
+    update_basket_tally( 
+        deps.storage, 
+        deps.querier,
+        env.clone(),
+        &mut basket, 
+        tally_update_list, 
+        false)?;
     
     //Save updated repayment price and asset tallies
     BASKETS.save( deps.storage, basket_id.to_string(), &basket )?;
@@ -467,10 +505,12 @@ pub fn withdraw(
         .into_iter()
         .map(|asset| asset.info )
         .collect::<Vec<AssetInfo>>();
-    let withdraw_amounts: Vec<Uint128> = cAssets.clone()
+        
+    let withdraw_amounts: Vec<Uint128> = withdraw_assets.clone()
         .into_iter()
-        .map(|asset| asset.asset.amount )
+        .map(|asset| asset.amount )
         .collect::<Vec<Uint128>>();
+
     let withdrawal_prop = WithdrawPropagation {
         positions_prev_collateral: prop_assets,
         withdraw_amounts,
@@ -480,6 +520,7 @@ pub fn withdraw(
             position_id: position_id, 
             position_owner: info.clone().sender.to_string(),
         },
+        reply_order,
     };
     WITHDRAW.save( deps.storage, &withdrawal_prop )?;
 

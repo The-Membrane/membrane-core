@@ -58,6 +58,7 @@ pub struct WithdrawPropagation {
     pub withdraw_amounts: Vec<Uint128>,
     pub contracts_prev_collateral_amount: Vec<Uint128>,
     pub position_info: UserInfo,
+    pub reply_order: Vec<usize>,
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");

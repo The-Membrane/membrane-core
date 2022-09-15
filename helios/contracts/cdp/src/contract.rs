@@ -224,9 +224,16 @@ pub fn execute(
             let credit_asset = assert_sent_native_token_balance(basket.credit_asset.info, &info)?;
             repay(deps.storage, deps.querier, deps.api, env, info, basket_id, position_id, position_owner, credit_asset)
         },
-        ExecuteMsg::LiqRepay { credit_asset } => {
-            let credit_asset = assert_sent_native_token_balance(credit_asset.info, &info)?;
-            liq_repay(deps, env, info, credit_asset)
+        ExecuteMsg::LiqRepay {  } => {
+            if info.clone().funds.len() != 0 as usize{
+                let credit_asset = Asset { 
+                    info: AssetInfo::NativeToken { denom: info.clone().funds[0].clone().denom  },
+                    amount: info.clone().funds[0].amount, 
+                };
+                liq_repay(deps, env, info, credit_asset)
+            } else {
+                return Err( ContractError::InvalidCredit { } )
+            }
         }
         ExecuteMsg::EditAdmin { owner } => edit_contract_owner(deps, info, owner),
         ExecuteMsg::EditcAsset { basket_id, asset, max_borrow_LTV, max_LTV } => edit_cAsset(deps, info, basket_id, asset, max_borrow_LTV, max_LTV),

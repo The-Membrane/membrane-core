@@ -82,9 +82,7 @@ pub enum ExecuteMsg {
         position_id: Uint128,
         position_owner: Option<String>, //If not the sender
     },
-    LiqRepay {
-        credit_asset: Asset,
-    },
+    LiqRepay { },
     Liquidate {  
         basket_id: Uint128,
         position_id: Uint128,

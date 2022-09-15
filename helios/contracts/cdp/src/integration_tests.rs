@@ -2338,12 +2338,7 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Successful LiqRepay
-            let msg = ExecuteMsg::LiqRepay { 
-                credit_asset: Asset {
-                    info: AssetInfo::NativeToken { denom: "credit_fulldenom".to_string() },
-                    amount: Uint128::new(499),
-                }
-            };
+            let msg = ExecuteMsg::LiqRepay { };
             let cosmos_msg = cdp_contract.call(msg, vec![ coin(499, "credit_fulldenom") ]).unwrap();
             app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg).unwrap();  
 
@@ -2863,8 +2858,6 @@ mod tests {
                     .unwrap();
             app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
 
-             /////Liq Repay///
-            /// 
             /// //Successful Increase
             let msg = ExecuteMsg::IncreaseDebt{
                 basket_id: Uint128::from(1u128),
@@ -2884,12 +2877,7 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
             
             //Unauthorized
-            let msg = ExecuteMsg::LiqRepay { 
-                credit_asset: Asset {
-                    info: AssetInfo::NativeToken { denom: "credit_fulldenom".to_string() },
-                    amount: Uint128::new(50_000),
-                }
-            };
+            let msg = ExecuteMsg::LiqRepay { };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("test"), cosmos_msg).unwrap_err();            
 
@@ -2898,14 +2886,32 @@ mod tests {
             app.send_tokens(Addr::unchecked("sender"), Addr::unchecked(sp_addr.clone()), &[ coin(50_000, "credit_fulldenom") ]).unwrap();
 
             //Successful LiqRepay
-            let msg = ExecuteMsg::LiqRepay { 
-                credit_asset: Asset {
-                    info: AssetInfo::NativeToken { denom: "credit_fulldenom".to_string() },
-                    amount: Uint128::new(20222),
-                }
-            };
+            let msg = ExecuteMsg::LiqRepay {  };
             let cosmos_msg = cdp_contract.call(msg, vec![ coin(50_000, "credit_fulldenom") ]).unwrap();
-            app.execute(Addr::unchecked(sp_addr), cosmos_msg).unwrap();  
+            let res = app.execute(Addr::unchecked(sp_addr), cosmos_msg).unwrap();  
+
+            //Assert messages
+            let response = res.events
+                .into_iter()
+                .find(|e| e.attributes
+                    .iter()
+                    .any(|attr| attr.value == "liq_repay")
+                )
+                .ok_or_else(|| panic!("unable to find LIQ_REPAY event"))
+                .unwrap();
+            
+            assert_eq!(
+                response.attributes[1..],
+                vec![                        
+                    attr("method", "repay"),
+                    attr("basket_id","1"),
+                    attr("position_id","1"),
+                    attr("loan_amount","0"),                    
+                    attr("method", "liq_repay"),
+                    attr("distribution_assets", String::from("[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(55000) }]")),
+                    attr("distribute_for", "50000"),
+                ]
+            );
             
             let query_msg = QueryMsg::GetPosition { 
                 position_id: Uint128::new(1u128), 
@@ -2989,11 +2995,7 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
             
             //Call LiqRepay to mimic a successfull SP Liquidate call
-            let msg = ExecuteMsg::LiqRepay { 
-                credit_asset: Asset { 
-                    info: AssetInfo::NativeToken { denom: "credit_fulldenom".to_string() },
-                    amount: Uint128::new(222),
-                    } };
+            let msg = ExecuteMsg::LiqRepay { };
 
             let cosmos_msg = cdp_contract.call(msg, vec![coin( 222, "credit_fulldenom")]).unwrap();
             app.execute( Addr::unchecked(sp_addr.clone()), cosmos_msg).unwrap();
@@ -3171,11 +3173,7 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Call LiqRepay to mimic a successfull SP Liquidate call by both the initial SP and then LQ reply
-            let msg = ExecuteMsg::LiqRepay { 
-                credit_asset: Asset { 
-                    info: AssetInfo::NativeToken { denom: "credit_fulldenom".to_string() },
-                    amount: Uint128::new(2225),
-                    } };
+            let msg = ExecuteMsg::LiqRepay { };
 
             let cosmos_msg = cdp_contract.call(msg, vec![coin( 2225, "credit_fulldenom")]).unwrap();
             app.execute( Addr::unchecked(sp_addr.clone()), cosmos_msg).unwrap();
@@ -3450,11 +3448,7 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
             
             //Call LiqRepay to mimic a successfull SP Liquidate call
-            let msg = ExecuteMsg::LiqRepay { 
-                credit_asset: Asset { 
-                    info: AssetInfo::NativeToken { denom: "credit_fulldenom".to_string() },
-                    amount: Uint128::new(222_222_222_222),
-                    } };
+            let msg = ExecuteMsg::LiqRepay { };
             
             app.send_tokens(Addr::unchecked("coin_God"), Addr::unchecked(sp_addr.clone()), &vec![coin( 222_222_222_222, "credit_fulldenom")] ).unwrap();
             let cosmos_msg = cdp_contract.call(msg, vec![coin( 222_222_222_222, "credit_fulldenom")]).unwrap();
@@ -3579,11 +3573,7 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
             
             //Call LiqRepay to mimic a successfull SP Liquidate call
-            let msg = ExecuteMsg::LiqRepay { 
-                credit_asset: Asset { 
-                    info: AssetInfo::NativeToken { denom: "credit_fulldenom".to_string() },
-                    amount: Uint128::new(499),
-                    } };
+            let msg = ExecuteMsg::LiqRepay { };
 
             let cosmos_msg = cdp_contract.call(msg, vec![coin( 499, "credit_fulldenom")]).unwrap();
             app.execute( Addr::unchecked(sp_addr.clone()), cosmos_msg).unwrap();

@@ -698,9 +698,7 @@ pub fn liquidate(
 
     
     //Repay for the user
-    let repay_msg = CDP_ExecuteMsg::LiqRepay { 
-        credit_asset: repay_asset.clone(),
-    };
+    let repay_msg = CDP_ExecuteMsg::LiqRepay { };
 
     let coin: Coin = asset_to_coin( repay_asset.clone() )?;
 

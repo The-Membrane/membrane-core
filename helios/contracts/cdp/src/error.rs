@@ -12,6 +12,9 @@ pub enum ContractError {
 
     #[error("Invalid Collateral")]
     InvalidCollateral {},
+    
+    #[error("Invalid Repayment Asset")]
+    InvalidCredit {},
 
     #[error("Position is solvent and shouldn't be liquidated")]
     PositionSolvent {},

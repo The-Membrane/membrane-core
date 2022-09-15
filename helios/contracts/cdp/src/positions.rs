@@ -458,6 +458,7 @@ pub fn withdraw(
     //Save updated repayment price and asset tallies
     BASKETS.save( deps.storage, basket_id.to_string(), &basket )?;
 
+    //Update debt distribution for position assets
     if !credit_amount.is_zero(){
         //Make sure lists are equal and add blank assets if not
         if old_assets.len() != new_assets.len(){
@@ -585,7 +586,7 @@ pub fn repay(
             if let AssetInfo::Token { address } = basket.clone().credit_asset.info{
 
                 if submitted_address != address || info.sender.clone() != address {
-                    return Err(ContractError::InvalidCollateral {  })
+                    return Err(ContractError::InvalidCredit {  })
                 }
             };
             
@@ -595,7 +596,7 @@ pub fn repay(
             if let AssetInfo::NativeToken { denom } = basket.clone().credit_asset.info{
 
                 if submitted_denom != denom {
-                    return Err(ContractError::InvalidCollateral {  })
+                    return Err(ContractError::InvalidCredit {  })
                 }
 
             };    
@@ -620,7 +621,7 @@ pub fn repay(
                             //Position's resulting debt can't be below minimum without being fully repaid
                             if target_position.credit_amount * basket.clone().credit_price < config.debt_minimum && !target_position.credit_amount.is_zero(){
                                 //Router contract is allowed to.
-                                //We rather $1 of bad debt than $2000 and bd comes from router slippage
+                                //We rather $1 of bad debt than $2000 and bad debt comes from router slippage
                                 if let Some( router ) = config.clone().dex_router {
                                     if info.sender != router{
                                         return Err( ContractError::BelowMinimumDebt{})
@@ -670,7 +671,7 @@ pub fn repay(
     //Subtract paid debt from debt-per-asset tallies
     update_basket_debt( storage, env, querier, config, basket_id, target_position.collateral_assets, credit_asset.amount, false, false )?;
     
-    //This is a sae unwrap bc the code paths to errors if it is uninitialized
+    //This is a safe unwrap bc the code errors if it is uninitialized
     Ok( response.add_message( burn_msg.unwrap() ).add_attributes(vec![
         attr("method", "repay".to_string() ),
         attr("basket_id", basket_id.to_string() ),
@@ -813,10 +814,10 @@ pub fn liq_repay(
     
     //Adds Native token distribution msg to messages
     let distribution_msg = SP_ExecuteMsg::Distribute { 
-        distribution_assets, 
+        distribution_assets: distribution_assets.clone(), 
         distribution_asset_ratios: cAsset_ratios, //The distributions are based off cAsset_ratios so they shouldn't change
         credit_asset: credit_asset.info,
-        distribute_for: native_repayment,
+        distribute_for: native_repayment.clone(),
     };
     //Build the Execute msg w/ the full list of native tokens
     let msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -827,7 +828,11 @@ pub fn liq_repay(
     
     messages.push(msg);   
 
-    Ok( res.add_messages(messages).add_attribute("method", "liq_repay") )
+    Ok( res.add_messages(messages)
+        .add_attribute("method", "liq_repay") 
+        .add_attribute("distribution_assets", format!("{:?}", distribution_assets) ) 
+        .add_attribute("distribute_for", native_repayment.clone()) 
+    )
 }
 
 pub fn increase_debt(

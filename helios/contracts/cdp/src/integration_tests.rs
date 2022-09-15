@@ -3,7 +3,6 @@ mod tests {
     
     use crate::helpers::{ LQContract, CDPContract };
         
-    use cosmwasm_bignumber::Uint256;
     use cw20::BalanceResponse;
     use membrane::oracle::{PriceResponse, AssetResponse};
     use membrane::positions::{ InstantiateMsg, QueryMsg, ExecuteMsg };
@@ -11,7 +10,7 @@ mod tests {
     use membrane::stability_pool::{ LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
     use membrane::osmosis_proxy::{ GetDenomResponse, TokenInfoResponse };
     use membrane::types::{AssetInfo, Asset, cAsset, LiqAsset, TWAPPoolInfo, AssetOracleInfo, LiquidityInfo};
-
+    use membrane::math::Uint256;
     
     use osmo_bindings::{ SpotPriceResponse, PoolStateResponse, ArithmeticTwapToNowResponse };
     use cosmwasm_std::{Addr, Coin, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr, StdError };
@@ -1263,6 +1262,12 @@ mod tests {
                                     avg_price: Decimal::one(),
                                 })? )
                             }
+                        } else if asset_info.to_string() == String::from("credit_fulldenom"){
+                                    
+                            Ok( to_binary(&PriceResponse { 
+                                prices: vec![],
+                                avg_price: Decimal::percent(102),
+                            })? )
                         } else {
                             Ok( to_binary(&PriceResponse { 
                                 prices: vec![],
@@ -1714,7 +1719,8 @@ mod tests {
         use super::*;
         use cosmwasm_std::{BlockInfo, coins};
         use cw20::Cw20ReceiveMsg;
-        use membrane::{positions::{ExecuteMsg, ConfigResponse, PropResponse, PositionResponse, BasketResponse, DebtCapResponse, CollateralInterestResponse, BadDebtResponse, InsolvencyResponse, PositionsResponse, Cw20HookMsg}, types::{UserInfo, InsolventPosition, PositionUserInfo, TWAPPoolInfo, PoolInfo, SupplyCap, LPAssetInfo}};
+        use membrane::positions::{ExecuteMsg, ConfigResponse, PropResponse, PositionResponse, BasketResponse, DebtCapResponse, CollateralInterestResponse, BadDebtResponse, InsolvencyResponse, PositionsResponse, Cw20HookMsg};
+        use membrane::types::{UserInfo, InsolventPosition, PositionUserInfo, TWAPPoolInfo, PoolInfo, SupplyCap, LPAssetInfo};
 
         #[test]
         fn withdrawal() {
@@ -2429,6 +2435,7 @@ mod tests {
             //Send credit
             app.send_tokens(Addr::unchecked("sender"), Addr::unchecked("test"), &[ coin(49_999, "credit_fulldenom") ]).unwrap();
             
+
             //Insolvent position error
             ///Expected to Error due to a greater repayment price
             /// //otherwise this would be solvent and a valid increase
@@ -2519,6 +2526,8 @@ mod tests {
             
             let res: Vec<PositionResponse> = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res[0].collateral_assets[0].asset.amount, Uint128::new(97926));
+
+           
 
             //////////////NEGATIVE RATES///////
             /// 
@@ -2632,6 +2641,77 @@ mod tests {
 
 
            
+        }
+
+        #[test]
+        fn accrue_repayment_rate_to_interest_rate(){
+            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, true);
+            
+            //Edit Basket
+            let msg = ExecuteMsg::EditBasket { 
+                basket_id: Uint128::new(1u128), 
+                added_cAsset: None, 
+                owner: None, 
+                liq_queue: Some( lq_contract.addr().to_string() ),
+                liquidity_multiplier: Some( Decimal::percent( 500 ) ),
+                credit_pool_ids: Some( vec![ 1u64 ] ),
+                collateral_supply_caps: Some( vec![ 
+                    SupplyCap { 
+                        asset_info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(), 
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false, 
+                    }]),
+                base_interest_rate: Some( Decimal::percent(10) ),
+                desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None, 
+                negative_rates: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Initial Deposit
+            let msg = ExecuteMsg::Deposit { 
+                position_owner: None,
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg, 
+                    vec![
+                        Coin { 
+                            denom: "debit".to_string(),
+                            amount: Uint128::from(100_000_000_000u128),
+                            } 
+                        ])
+                    .unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
+
+            //Successful Increase
+            let msg = ExecuteMsg::IncreaseDebt{
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                amount: Uint128::from(50_000_000_000u128),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
+            
+            //Assert interest rates decreased from the negative redemption rate
+            //Base rate is 285714000000000
+            //Accrued rate is 282856000000000
+            let query_msg = QueryMsg::GetCollateralInterest { 
+                basket_id: Uint128::new(1u128), 
+            };
+            app.set_block( BlockInfo { 
+                height: app.block_info().height, 
+                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
+                chain_id: app.block_info().chain_id } );
+            let res: CollateralInterestResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
+            assert_eq!( format!("{:?}", res.rates), 
+                String::from("[(NativeToken { denom: \"debit\" }, Decimal(Uint128(282856000000000)))]"));
+
         }
 
         #[test]

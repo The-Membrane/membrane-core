@@ -767,6 +767,8 @@ pub fn query_collateral_rates(
 
     let rates = get_interest_rates_imut( deps.storage, deps.querier, env.clone(), &mut basket)?;
 
+    // panic!("{:?}", rates);
+
     let config = CONFIG.load( deps.storage )?;
 
     //Get repayment price - market price difference
@@ -1054,6 +1056,7 @@ fn get_interest_rates_imut(
             rates.push( decimal_multiplication( basket.clone().base_interest_rate, decimal_division( Decimal::one(), asset.max_LTV ) ));
         } 
     }
+    //if !basket.clone().base_interest_rate.is_zero() {panic!("{:?}", rates)};
 
     //panic!("{:?}", rates);
 
@@ -1107,11 +1110,6 @@ fn get_interest_rates_imut(
         }
         
     }
-
-    //If debt_proportion is above desired utilization, the rates start multiplying
-    //For every % above the desired, it adds a multiple
-    //Ex: Desired = 90%, proportion = 91%, interest = 2%. New rate = 4%.
-    //Acts as two_slope rate
     
     Ok( two_slope_pro_rata_rates )     
 

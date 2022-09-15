@@ -1024,7 +1024,8 @@ mod tests {
                         hook_msg, 
                         split } => {
                         
-                        Ok(Response::default())
+                        //Assert hook
+                        Ok( Response::default() )
                     },
                 }
             },

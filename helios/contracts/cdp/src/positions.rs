@@ -578,7 +578,13 @@ pub fn repay(
                             
                             //Position's resulting debt can't be below minimum without being fully repaid
                             if target_position.credit_amount * basket.clone().credit_price < config.debt_minimum && !target_position.credit_amount.is_zero(){
-                                return Err( ContractError::BelowMinimumDebt{})
+                                //Router contract is allowed to.
+                                //We rather $1 of bad debt than $2000 and bd comes from router slippage
+                                if let Some( router ) = config.clone().dex_router {
+                                    if info.sender != router{
+                                        return Err( ContractError::BelowMinimumDebt{})
+                                    }   
+                                }                                                             
                             }
 
                             //Burn repayment

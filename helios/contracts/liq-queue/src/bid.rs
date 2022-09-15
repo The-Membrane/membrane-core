@@ -9,11 +9,10 @@ use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response,
 use cosmwasm_storage::{ReadonlyBucket, Bucket};
 use cw2::set_contract_version;
 use bigint::U256;
-use cosmwasm_bignumber::{Decimal256, Uint256};
 use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
 use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, SlotResponse, ClaimsResponse};
 use membrane::types::{ Asset, AssetInfo, LiqAsset, cAsset, BidInput, Bid, Queue, PremiumSlot };
-use membrane::math::{decimal_division, decimal_subtraction, decimal_multiplication};
+use membrane::math::{ Decimal256, Uint256, decimal_division, decimal_subtraction, decimal_multiplication};
 
 use cw20::{Cw20ExecuteMsg, Cw20QueryMsg};
 //use cw_multi_test::Contract;

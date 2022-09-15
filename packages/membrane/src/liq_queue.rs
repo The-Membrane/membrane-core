@@ -1,10 +1,11 @@
-use cosmwasm_bignumber::{Uint256, Decimal256};
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, Uint128, Decimal};
 use cw20::Cw20ReceiveMsg;
 
+use crate::math::{Uint256, Decimal256};
 use crate::types::{Asset, AssetInfo, BidInput, Bid, PremiumSlot};
 
 

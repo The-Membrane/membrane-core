@@ -1,6 +1,6 @@
 use core::fmt;
 
-use cosmwasm_bignumber::{Uint256, Decimal256};
+
 use membrane::types::{ AssetInfo, Asset, Queue };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

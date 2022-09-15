@@ -1,6 +1,7 @@
 use core::fmt;
 
-use cosmwasm_bignumber::{Decimal256, Uint256};
+use crate::math::{Decimal256, Uint256};
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 

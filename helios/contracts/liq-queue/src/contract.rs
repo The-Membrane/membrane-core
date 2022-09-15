@@ -2,7 +2,7 @@ use std::env;
 use std::error::Error;
 use std::ops::Index;
 
-use cosmwasm_bignumber::{Uint256, Decimal256};
+
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Storage, Addr, Api, Uint128, CosmosMsg, BankMsg, WasmMsg, Coin, Decimal, BankQuery, BalanceResponse, QueryRequest, WasmQuery, QuerierWrapper, attr, CanonicalAddr};
@@ -13,7 +13,7 @@ use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResp
 //use cw_multi_test::Contract;
 use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, Cw20HookMsg as CDP_Cw20HookMsg, BasketResponse};
 use membrane::types::{ Asset, AssetInfo, LiqAsset, cAsset,  UserRatio, BidInput, Bid, Queue, PremiumSlot, PositionUserInfo };
-use membrane::math::{decimal_division, decimal_subtraction, decimal_multiplication};
+use membrane::math::{ Uint256, Decimal256, decimal_division, decimal_subtraction, decimal_multiplication};
 
 
 use crate::bid::{submit_bid, retract_bid, execute_liquidation, claim_liquidations, store_queue};
@@ -97,7 +97,7 @@ pub fn execute(
                 execute_liquidation(deps, env, info, collateral_amount, bid_for, collateral_price, credit_price, bid_with, basket_id, position_id, position_owner)
             },
         ExecuteMsg::ClaimLiquidations { bid_for, bid_ids } => claim_liquidations(deps, env, info, bid_for, bid_ids),
-        ExecuteMsg::AddQueue { bid_for, bid_asset, max_premium, bid_threshold } => add_queue(deps, info, bid_for, max_premium, bid_threshold),
+        ExecuteMsg::AddQueue { bid_for, max_premium, bid_threshold } => add_queue(deps, info, bid_for, max_premium, bid_threshold),
         ExecuteMsg::UpdateQueue { bid_for, max_premium, bid_threshold } => edit_queue(deps, info, bid_for, max_premium, bid_threshold ),
         ExecuteMsg::UpdateConfig { owner, positions_contract, waiting_period, basket_id } => update_config(deps, info, owner, positions_contract, waiting_period, basket_id),
     }

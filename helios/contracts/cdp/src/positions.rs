@@ -4,7 +4,7 @@ use std::vec;
 use std::{str::FromStr, convert::TryInto};
 use std::time::{ SystemTime, UNIX_EPOCH };
 
-use cosmwasm_bignumber::Uint256;
+
 use cosmwasm_std::{MessageInfo, attr, Response, DepsMut, Uint128, CosmosMsg, Decimal, Storage, Api, Coin, to_binary, QueryRequest, WasmQuery, QuerierWrapper, StdResult, StdError, Addr, WasmMsg, BankMsg, SubMsg, coin, Env, Order};
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
 use cw20::{Cw20ExecuteMsg, BalanceResponse, Cw20QueryMsg};
@@ -21,7 +21,7 @@ use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQue
 use membrane::staking::{ ExecuteMsg as StakingExecuteMsg };
 use membrane::oracle::{ QueryMsg as OracleQueryMsg, ExecuteMsg as OracleExecuteMsg };
 use membrane::liquidity_check::{ QueryMsg as LiquidityQueryMsg, ExecuteMsg as LiquidityExecuteMsg };
-use membrane::math::{ decimal_multiplication, decimal_division, decimal_subtraction};
+use membrane::math::{ Uint256, decimal_multiplication, decimal_division, decimal_subtraction};
 
 use crate::state::{ CREDIT_MULTI };
 use crate::{ContractError, state::{ RepayPropagation, REPAY, CONFIG, BASKETS, POSITIONS, Config, WithdrawPropagation, WITHDRAW} };

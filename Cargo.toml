@@ -1,5 +1,8 @@
 [workspace]
-members = ["packages/*", "helios/contracts/*"]
+members = ["helios/contracts/*", "packages/*"]
+
+exclude = ["my_scripts", "artifacts"]
+
 
 [profile.release]
 codegen-units = 1

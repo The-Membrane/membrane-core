@@ -9,15 +9,16 @@ use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response,
 use cw2::set_contract_version;
 use cw20::{Cw20ReceiveMsg, Cw20ExecuteMsg};
 use cw_storage_plus::Bound;
-use cosmwasm_bignumber::{ Uint256, Decimal256 };
 use osmo_bindings::{ SpotPriceResponse, OsmosisMsg, FullDenomResponse, OsmosisQuery };
 
+use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, GetDenomResponse };
+use membrane::debt_auction::{ ExecuteMsg as AuctionExecuteMsg };
 use membrane::stability_pool::{ ExecuteMsg as SP_ExecuteMsg };
 use membrane::liq_queue::{ ExecuteMsg as LQ_ExecuteMsg };
 use membrane::positions::{ ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, PositionResponse, PositionsResponse, BasketResponse, ConfigResponse, PropResponse, CallbackMsg };
+use membrane::math::{ Uint256, Decimal256 };
 use membrane::types::{ AssetInfo, Asset, cAsset, Basket, Position, LiqAsset, SellWallDistribution, UserInfo, TWAPPoolInfo };
-use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, GetDenomResponse };
-use membrane::debt_auction::{ ExecuteMsg as AuctionExecuteMsg };
+
 
 
 //use crate::liq_queue::LiquidatibleResponse;

@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use cosmwasm_bignumber::{Uint256, Decimal256};
+
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Storage, Addr, Api, Uint128, CosmosMsg, BankMsg, WasmMsg, Coin, Decimal, BankQuery, BalanceResponse, QueryRequest, WasmQuery, QuerierWrapper, attr, CanonicalAddr};
@@ -9,7 +9,7 @@ use cw2::set_contract_version;
 use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg, SlotResponse, ConfigResponse, BidResponse, ClaimsResponse, LiquidatibleResponse, QueueResponse};
 use membrane::types::{Asset, AssetInfo, LiqAsset, cAsset, UserRatio, BidInput, Bid, Queue, PremiumSlot};
 use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
-use membrane::math::{decimal_division, decimal_subtraction, decimal_multiplication};
+use membrane::math::{ Decimal256, Uint256, decimal_division, decimal_subtraction, decimal_multiplication};
 
 use cw20::{Cw20ExecuteMsg, Cw20QueryMsg};
 

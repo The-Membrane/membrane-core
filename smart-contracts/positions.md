@@ -255,32 +255,15 @@ pub enum ExecuteMsg {
 
 ### `LiqRepay`
 
-Repay function for the liquidation contracts the CDP uses ([Queue ](liquidation-queue.md)and [Stability Pool](stability-pool.md)). Used to repay insolvent positions and distribute liquidated funds to said contracts.
+Repay function for [Stability Pool](stability-pool.md) liquidations. Used to repay insolvent positions and distribute liquidated funds.
 
 ```
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    LiqRepay {
-        credit_asset: Asset,
-        collateral_asset: Option<Asset>,
-        fee_ratios: Option<Vec<RepayFee>>, 
-    },
-}
-
-pub struct RepayFee {
-    pub fee: Decimal,
-    pub ratio: Decimal,
+    LiqRepay { }
 }
 ```
-
-| Key                 | Type           | Description                                                                                         |
-| ------------------- | -------------- | --------------------------------------------------------------------------------------------------- |
-| `credit_asset`      | Asset          | Asset object for repayment info                                                                     |
-| `*collateral_asset` | Asset          | Collateral asset to specify for distribution, used by the [Liquidation Queue](liquidation-queue.md) |
-| `*fee_ratios`       | Vec\<RepayFee> | List of fee ratios used by the [Liquidation Queue](liquidation-queue.md)                            |
-
-\* = optional
 
 ### `Liquidate`
 

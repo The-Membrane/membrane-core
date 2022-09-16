@@ -14,6 +14,7 @@ Liquidation queue premiums are automatically changed to the range between 100% a
 * _****_[_**Supply caps**_](positions.md#editbasket) _don't affect withdrawals, in otherwords, they only restrict deposits. Can be set to 0 to set the collateral's debt\_cap to 0 which locks mints and spikes interest rates._
 * _Adding collateral assets adds a queue for them in Liq Queue contract and a price feed for them in the Oracle contract_
 * _LP share supply caps are based on its ratio without double counting its assets, though its debt is counted towards its pool assets' caps._
+* _Each credit\_asset has a contract level liquidity multiplier calculated as the sum of all multipliers of basket's with the same credit\_asset_&#x20;
 
 ## InstantiateMsg
 

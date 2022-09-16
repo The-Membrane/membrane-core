@@ -1667,6 +1667,7 @@ pub fn create_basket(
 
     }
 
+    //Set Basket fields
     let base_interest_rate = base_interest_rate.unwrap_or_else(|| Decimal::percent(0));
     let desired_debt_cap_util = desired_debt_cap_util.unwrap_or_else(|| Decimal::percent(100));    
     let liquidity_multiplier = liquidity_multiplier_for_debt_caps.unwrap_or_else(|| Decimal::one());    

@@ -25,10 +25,15 @@ pub enum ExecuteMsg {
     //Callable by the owner (MBRN Governance) or Positions contract
     StartAuction {
         repayment_position_info: UserInfo,
-        debt_asset: Asset,
+        debt_asset: Asset, //Asset being bought by MBRN
     },
     //Swap for MBRN w/ any open auction's swap_from_asset
     SwapForMBRN { },
+    //Edit amount for existing auction
+    //Mostly for potential mistakes 
+    EditAuction {
+        debt_asset: Asset, //Auction and recapitalization amount to remove 
+    },
     UpdateConfig {
         owner: Option<String>,
         oracle_contract: Option<String>,

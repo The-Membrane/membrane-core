@@ -2295,8 +2295,8 @@ mod tests {
                 position_owner:  "bigger_bank".to_string(),  
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            ///999 leftover + 5833 debt 
-            assert_eq!(res.credit_amount, String::from("6832"));
+            ///999 leftover + 7291 debt 
+            assert_eq!(res.credit_amount, String::from("8290"));
 
              //Insolvent withdrawal error
              ////This should be solvent if there wasn't accrued interest
@@ -2321,7 +2321,7 @@ mod tests {
             };
             let res: CollateralInterestResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!( format!("{:?}", res.rates), 
-                String::from("[(NativeToken { denom: \"debit\" }, Decimal(Uint128(142857142000000000))), (NativeToken { denom: \"base\" }, Decimal(Uint128(665349000000000))), (NativeToken { denom: \"quote\" }, Decimal(Uint128(499011000000000)))]"));
+                String::from("[(NativeToken { denom: \"debit\" }, Decimal(Uint128(142857142000000000))), (NativeToken { denom: \"base\" }, Decimal(Uint128(83333333000000000))), (NativeToken { denom: \"quote\" }, Decimal(Uint128(62500000000000000)))]"));
                        
 
             //Call liquidate on CDP contract
@@ -2706,7 +2706,7 @@ mod tests {
                 chain_id: app.block_info().chain_id } );
             let res: CollateralInterestResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!( format!("{:?}", res.rates), 
-                String::from("[(NativeToken { denom: \"debit\" }, Decimal(Uint128(282856000000000)))]"));
+                String::from("[(NativeToken { denom: \"debit\" }, Decimal(Uint128(141428570000000000)))]"));
 
         }
 
@@ -2788,8 +2788,8 @@ mod tests {
 
             let query_msg = QueryMsg::GetBasket { basket_id: Uint128::new(1u128) };   
             let res: BasketResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            ///1428 revenue 
-            assert_eq!(res.pending_revenue.to_string(), String::from("1428"));
+            ///7142 revenue 
+            assert_eq!(res.pending_revenue.to_string(), String::from("7142"));
 
             //Successful Mint
             let msg = ExecuteMsg::MintRevenue { 
@@ -4413,7 +4413,22 @@ mod tests {
             let res: DebtCapResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
             assert_eq!(res.caps, String::from("debit: 0/83331, base: 0/83331, quote: 0/83331, lp_denom: 0/0, ") );
 
-
+            //Successful Withdraw uneffected by caps
+            let msg = ExecuteMsg::Withdraw { 
+                basket_id: Uint128::new(1u128),
+                position_id: Uint128::new(1u128),
+                assets: vec![ 
+                    Asset {
+                        info: AssetInfo::NativeToken { denom: "lp_denom".to_string() },
+                        amount: Uint128::from(10_000_000_000_000u128),
+                } ],
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg, 
+                    vec![])
+                    .unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
            
         }
 

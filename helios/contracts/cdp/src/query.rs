@@ -1060,14 +1060,41 @@ fn get_interest_rates_imut(
 
     //panic!("{:?}", rates);
 
-    //Get proportion of debt caps filled
+    //Get proportion of debt && supply caps filled
     let mut debt_proportions = vec![];
-    let debt_caps = match get_basket_debt_caps_imut( storage, querier, env, basket.clone()){
+    let mut supply_proportions = vec![];
+
+    let debt_caps = match get_basket_debt_caps_imut( storage, querier, env.clone(), basket.clone()){
 
         Ok( caps ) => { caps },
         Err( err ) => { return Err( StdError::GenericErr { msg: err.to_string() } ) }
     };
-    for (i, cap) in basket.collateral_supply_caps.clone()
+
+    //To include LP assets (but not share tokens) in the ratio calculation 
+    let caps_to_cAssets = basket.collateral_supply_caps.clone()
+    .into_iter()
+    .map(|cap| cAsset{
+         asset: Asset { 
+             amount: cap.current_supply,
+             info: cap.asset_info,
+         },
+         max_borrow_LTV: Decimal::zero(),
+         max_LTV: Decimal::zero(),
+         pool_info: None,
+    } )
+    .collect::<Vec<cAsset>>();
+
+    let no_lp_basket: Vec<cAsset> = get_LP_pool_cAssets( querier, config.clone(), basket.clone(), caps_to_cAssets )?;
+
+    //Get basket cAsset ratios 
+    let basket_ratios: Vec<Decimal> = get_cAsset_ratios_imut( storage, env.clone(), querier, no_lp_basket, config.clone() )?;
+
+    let no_lp_caps = basket.collateral_supply_caps.clone()
+        .into_iter()
+        .filter(|cap| !cap.lp)
+        .collect::<Vec<SupplyCap>>();
+
+    for (i, cap) in no_lp_caps.clone()
         .into_iter()
         .filter(|cap| !cap.lp)
         .collect::<Vec<SupplyCap>>()
@@ -1075,10 +1102,13 @@ fn get_interest_rates_imut(
         .enumerate(){
         
         //If there is 0 of an Asset then it's cap is 0 but its proportion is 100%
-        if debt_caps[i].is_zero(){
+        if debt_caps[i].is_zero() || cap.supply_cap_ratio.is_zero(){
+
             debt_proportions.push( Decimal::percent(100) );
+            supply_proportions.push( Decimal::percent(100) );
         } else {
             debt_proportions.push( Decimal::from_ratio(cap.debt_total, debt_caps[i]) );
+            supply_proportions.push( decimal_division( basket_ratios[i], cap.supply_cap_ratio ) )
         }
         
     }
@@ -1086,27 +1116,48 @@ fn get_interest_rates_imut(
     //Gets pro-rata rate and uses multiplier if above desired utilization
     let mut two_slope_pro_rata_rates = vec![];
     for (i, _rate) in rates.iter().enumerate(){
-        //If debt_proportion is above desired utilization, the rates start multiplying
+        //If proportions are is above desired utilization, the rates start multiplying
         //For every % above the desired, it adds a multiple
         //Ex: Desired = 90%, proportion = 91%, interest = 2%. New rate = 4%.
         //Acts as two_slope rate
 
-        //Slope 2
-        if debt_proportions[i] > basket.desired_debt_cap_util{
-            //Ex: 91% > 90%
-            ////0.01 * 100 = 1
-            //1% = 1
-            let percent_over_desired = decimal_multiplication( decimal_subtraction( debt_proportions[i], basket.desired_debt_cap_util), Decimal::percent(100_00) );
-            let multiplier = percent_over_desired + Decimal::one();
-            //Change rate of (rate) increase w/ the configuration multiplier 
-            let multiplier = multiplier * config.rate_slope_multiplier;
+        //The highest proportion is chosen between debt_cap and supply_cap of the asset
+        if debt_proportions[i] > supply_proportions[i] {
+            //Slope 2
+            if debt_proportions[i] > basket.desired_debt_cap_util{
+                //Ex: 91% > 90%
+                ////0.01 * 100 = 1
+                //1% = 1
+                let percent_over_desired = decimal_multiplication( decimal_subtraction( debt_proportions[i], basket.desired_debt_cap_util), Decimal::percent(100_00) );
+                let multiplier = percent_over_desired + Decimal::one();
+                //Change rate of (rate) increase w/ the configuration multiplier 
+                let multiplier = multiplier * config.rate_slope_multiplier;
 
-            //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
-            //// rate = 3.6%
-            two_slope_pro_rata_rates.push( ( basket.collateral_supply_caps[i].clone().asset_info, decimal_multiplication( decimal_multiplication( rates[i], debt_proportions[i] ), multiplier ) ) );
+                //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
+                //// rate = 3.6%
+                two_slope_pro_rata_rates.push( ( no_lp_caps[i].clone().asset_info, decimal_multiplication( decimal_multiplication( rates[i], debt_proportions[i] ), multiplier ) ) );
+            } else {
+                //Slope 1
+                two_slope_pro_rata_rates.push( ( no_lp_caps[i].clone().asset_info, decimal_multiplication( rates[i], debt_proportions[i] ) ) );
+            }
         } else {
-        //Slope 1
-            two_slope_pro_rata_rates.push( ( basket.collateral_supply_caps[i].clone().asset_info, decimal_multiplication( rates[i], debt_proportions[i] ) ) );
+            //Slope 2
+            if supply_proportions[i] > Decimal::one(){
+                //Ex: 91% > 90%
+                ////0.01 * 100 = 1
+                //1% = 1
+                let percent_over_desired = decimal_multiplication( decimal_subtraction( supply_proportions[i], Decimal::one()), Decimal::percent(100_00) );
+                let multiplier = percent_over_desired + Decimal::one();
+                //Change rate of (rate) increase w/ the configuration multiplier 
+                let multiplier = multiplier * config.rate_slope_multiplier;
+
+                //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
+                //// rate = 3.6%
+                two_slope_pro_rata_rates.push( ( no_lp_caps[i].clone().asset_info, decimal_multiplication( decimal_multiplication( rates[i], supply_proportions[i] ), multiplier ) ) );
+            } else {
+                //Slope 1
+                two_slope_pro_rata_rates.push( ( no_lp_caps[i].clone().asset_info, decimal_multiplication( rates[i], supply_proportions[i] ) ) );
+            }
         }
         
     }

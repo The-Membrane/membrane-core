@@ -1004,7 +1004,7 @@ pub fn liquidate(
     let mut repay_value = loan_value - decimal_multiplication(decimal_division(avg_borrow_LTV, current_LTV), loan_value);
 
     //Assert repay_value is above the minimum, if not repay at least the minimum
-    //Repay the full loan if the resulting is going to be less than the minimum.
+    //Repay the full loan if the resulting leftover credit amount is less than the minimum.
     let decimal_debt_minimum = Decimal::from_ratio(config.debt_minimum, Uint128::new(1u128));
     if repay_value < decimal_debt_minimum {
         //If setting the repay value to the minimum leaves at least the minimum in the position...
@@ -1031,8 +1031,9 @@ pub fn liquidate(
     
     
      
-    // Don't send any funds here, only send user_ids and repayment amounts.
-    // We want to act on the reply status but since that means our state won't revert, assets we send won't come back.
+    // Don't send any funds here, only send UserInfo and repayment amounts.
+    // We want to act on the reply status but since SubMsg state won't revert if we catch the error,
+    // assets we send prematurely won't come back.
      
     let mut res = Response::new();
     let mut submessages = vec![];
@@ -1042,10 +1043,11 @@ pub fn liquidate(
     //Pre-LP Split ratios
     let cAsset_ratios = get_cAsset_ratios( storage, env.clone(), querier, target_position.clone().collateral_assets, config.clone() )?;
 
-    //Withdraw the necessary amount of LP shares
-    //Ensures liquidations are on the pooled assets and not the LP share itself for more efficient queue capital 
+    
     for ( i, cAsset ) in target_position.clone().collateral_assets.into_iter().enumerate(){
 
+        //Withdraw the necessary amount of LP shares
+        //Ensures liquidations are on the pooled assets and not the LP share itself for more efficient queue capital 
         if cAsset.clone().pool_info.is_some(){
             let pool_info = cAsset.clone().pool_info.unwrap();
 
@@ -1134,7 +1136,7 @@ pub fn liquidate(
         let fee_value = decimal_multiplication( Decimal::from_ratio( caller_fee_in_collateral_amount + protocol_fee_in_collateral_amount,Uint128::new(1u128)), collateral_price );
         leftover_position_value = decimal_subtraction( leftover_position_value, fee_value );
 
-        //Create msgs to caller as well as to liq_queue if Some()
+        //Create msgs to caller as well as to liq_queue if.is_some()
         match cAsset.clone().asset.info {
             AssetInfo::Token { address } => {
                 
@@ -1191,18 +1193,15 @@ pub fn liquidate(
         });
         fee_messages.push( msg );
 
-        //Create Msg to send all native token liq fees for protocol to the staking contract
+        //Create Msg to send all native token liq fees for MBRN to the staking contract
         let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
             contract_addr: config.clone().staking_contract.unwrap().to_string(), 
             msg: to_binary(&StakingExecuteMsg::DepositFee { } )?,
             funds: protocol_coins,
         });
-        fee_messages.push( msg );
-
-                
-        //Set collateral_repay_amount to the amount minus the fees
-        // collateral_repay_amount = decimal_subtraction(  collateral_repay_amount, Decimal::from_ratio( (caller_fee_in_collateral_amount + protocol_fee_in_collateral_amount), Uint128::new(1u128) ) );
-
+        fee_messages.push( msg );               
+        
+        
         
          /////////////LiqQueue calls//////
         if basket.clone().liq_queue.is_some(){
@@ -1303,11 +1302,12 @@ pub fn liquidate(
                 into_iter()
                 .map(|msg| {
                     //If this succeeds, we update the positions collateral claims
-                    //If this fails, do nothing. Try again isn't a useful alternative.
+                    //If this fails, error. Try again isn't a useful alternative.
                     SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
                 }).collect::<Vec<SubMsg>>() );
 
-            //Leftover's starts as the total LQ is supposed to pay, and is subtracted by every successful LQ reply
+            //Leftover's starts as the total LQ is supposed to pay, 
+            //and is subtracted by every successful LQ reply
             let liq_queue_leftovers = decimal_subtraction(credit_repay_amount, liq_queue_leftover_credit_repayment);
 
             // Set repay values for reply msg
@@ -1361,7 +1361,7 @@ pub fn liquidate(
                 into_iter()
                 .map(|msg| {
                     //If this succeeds, we update the positions collateral claims
-                    //If this fails, do nothing. Try again isn't a useful alternative.
+                    //If this fails, error. Try again isn't a useful alternative.
                     SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
                 }).collect::<Vec<SubMsg>>() );
 
@@ -2810,10 +2810,11 @@ fn update_basket_tally(
 
 
     //Assert new ratios aren't above Collateral Supply Caps. If so, error.
+    //Only for deposits
     for (i, ratio) in new_basket_ratios.into_iter().enumerate(){
         if basket.collateral_supply_caps != vec![]{
             
-            if ratio > basket.collateral_supply_caps[i].supply_cap_ratio{
+            if ratio > basket.collateral_supply_caps[i].supply_cap_ratio && add_to_cAsset{
                 //panic!("{}, {}, {}", basket.collateral_supply_caps[i].asset_info, ratio, basket.collateral_supply_caps[i].supply_cap_ratio);
                 return Err( ContractError::CustomError { val: format!("Supply cap ratio for {} is over the limit ({} > {})", basket.collateral_supply_caps[i].asset_info, ratio,  basket.collateral_supply_caps[i].supply_cap_ratio ) } )
             }
@@ -3636,26 +3637,55 @@ fn get_interest_rates(
     }
     //panic!("{:?}", rates);
 
-    //Get proportion of debt caps filled
+    //Get proportion of debt && supply caps filled
     let mut debt_proportions = vec![];
-    let debt_caps = match get_basket_debt_caps( storage, querier, env, basket.clone()){
+    let mut supply_proportions = vec![];
+    
+    let debt_caps = match get_basket_debt_caps( storage, querier, env.clone(), basket.clone()){
 
         Ok( caps ) => { caps },
         Err( err ) => { return Err( StdError::GenericErr { msg: err.to_string() } ) }
     };
+    
+    //To include LP assets (but not share tokens) in the ratio calculation 
+    let caps_to_cAssets = basket.collateral_supply_caps.clone()
+        .into_iter()
+        .map(|cap| cAsset{
+            asset: Asset { 
+                amount: cap.current_supply,
+                info: cap.asset_info,
+            },
+            max_borrow_LTV: Decimal::zero(),
+            max_LTV: Decimal::zero(),
+            pool_info: None,
+        } )
+        .collect::<Vec<cAsset>>();
 
-    for (i, cap) in basket.collateral_supply_caps.clone()
+
+    let no_lp_basket: Vec<cAsset> = get_LP_pool_cAssets( querier, config.clone(), basket.clone(), caps_to_cAssets )?;
+
+    //Get basket cAsset ratios 
+    let basket_ratios: Vec<Decimal> = get_cAsset_ratios( storage, env.clone(), querier, no_lp_basket, config.clone() )?;
+    
+    
+    let no_lp_caps = basket.collateral_supply_caps.clone()
         .into_iter()
         .filter(|cap| !cap.lp)
-        .collect::<Vec<SupplyCap>>()
+        .collect::<Vec<SupplyCap>>();
+    
+    for (i, cap) in no_lp_caps.clone()
         .iter()
         .enumerate(){
         
         //If there is 0 of an Asset then it's cap is 0 but its proportion is 100%
-        if debt_caps[i].is_zero(){
+        if debt_caps[i].is_zero() || cap.supply_cap_ratio.is_zero(){
+
             debt_proportions.push( Decimal::percent(100) );
+            supply_proportions.push( Decimal::percent(100) );
         } else {
+            //Push the debt_ratio and supply_ratio
             debt_proportions.push( Decimal::from_ratio(cap.debt_total, debt_caps[i]) );
+            supply_proportions.push( decimal_division( basket_ratios[i], cap.supply_cap_ratio ) )
         }
         
     }
@@ -3666,35 +3696,55 @@ fn get_interest_rates(
     //Gets pro-rata rate and uses multiplier if above desired utilization
     let mut two_slope_pro_rata_rates = vec![];
     for (i, _rate) in rates.iter().enumerate(){
-        //If debt_proportion is above desired utilization, the rates start multiplying
+        //If proportions are above desired utilization, the rates start multiplying
         //For every % above the desired, it adds a multiple
         //Ex: Desired = 90%, proportion = 91%, interest = 2%. New rate = 4%.
         //Acts as two_slope rate
 
-        //Slope 2
-        if debt_proportions[i] > basket.desired_debt_cap_util{
-            //Ex: 91% > 90%
-            ////0.01 * 100 = 1
-            //1% = 1
-            let percent_over_desired = decimal_multiplication( decimal_subtraction( debt_proportions[i], basket.desired_debt_cap_util), Decimal::percent(100_00) );
-            let multiplier = percent_over_desired + Decimal::one();
-            //Change rate of (rate) increase w/ the configuration multiplier 
-            let multiplier = multiplier * config.rate_slope_multiplier;
+        //The highest proportion is chosen between debt_cap and supply_cap of the asset
+        if debt_proportions[i] > supply_proportions[i] {
+            
+            //Slope 2
+            if debt_proportions[i] > basket.desired_debt_cap_util{
+                //Ex: 91% > 90%
+                ////0.01 * 100 = 1
+                //1% = 1
+                let percent_over_desired = decimal_multiplication( decimal_subtraction( debt_proportions[i], basket.desired_debt_cap_util), Decimal::percent(100_00) );
+                let multiplier = percent_over_desired + Decimal::one();
+                //Change rate of (rate) increase w/ the configuration multiplier 
+                let multiplier = multiplier * config.rate_slope_multiplier;
 
-            //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
-            //// rate = 3.6%
-            two_slope_pro_rata_rates.push( ( basket.collateral_supply_caps[i].clone().asset_info, decimal_multiplication( decimal_multiplication( rates[i], debt_proportions[i] ), multiplier ) ) );
+                //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
+                //// rate = 3.6%
+                two_slope_pro_rata_rates.push( ( no_lp_caps[i].clone().asset_info, decimal_multiplication( decimal_multiplication( rates[i], debt_proportions[i] ), multiplier ) ) );
+            } else {
+                //Slope 1
+                two_slope_pro_rata_rates.push( ( no_lp_caps[i].clone().asset_info, decimal_multiplication( rates[i], debt_proportions[i] ) ) );
+            }
         } else {
-        //Slope 1
-            two_slope_pro_rata_rates.push( ( basket.collateral_supply_caps[i].clone().asset_info, decimal_multiplication( rates[i], debt_proportions[i] ) ) );
+            
+            //Slope 2
+            if supply_proportions[i] > Decimal::one(){
+                //Ex: 91% > 90%
+                ////0.01 * 100 = 1
+                //1% = 1
+                let percent_over_desired = decimal_multiplication( decimal_subtraction( supply_proportions[i], Decimal::one()), Decimal::percent(100_00) );
+                let multiplier = percent_over_desired + Decimal::one();
+                //Change rate of (rate) increase w/ the configuration multiplier 
+                let multiplier = multiplier * config.rate_slope_multiplier;
+
+                //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
+                //// rate = 3.6%
+                two_slope_pro_rata_rates.push( ( no_lp_caps[i].clone().asset_info, decimal_multiplication( decimal_multiplication( rates[i], supply_proportions[i] ), multiplier ) ) );
+            } else {
+                //Slope 1
+                two_slope_pro_rata_rates.push( ( no_lp_caps[i].clone().asset_info, decimal_multiplication( rates[i], supply_proportions[i] ) ) );
+            }
         }
+       
         
     }
-
-    //If debt_proportion is above desired utilization, the rates start multiplying
-    //For every % above the desired, it adds a multiple
-    //Ex: Desired = 90%, proportion = 91%, interest = 2%. New rate = 4%.
-    //Acts as two_slope rate
+    
     
     Ok( two_slope_pro_rata_rates )     
 
@@ -3708,7 +3758,10 @@ pub fn get_LP_pool_cAssets(
     position_assets: Vec<cAsset>,
 ) -> StdResult<Vec<cAsset>>{
 
-    let mut new_assets = vec![];
+    let mut new_assets = position_assets.clone()
+        .into_iter()
+        .filter(|asset| asset.pool_info.is_none())
+        .collect::<Vec<cAsset>>();
 
     //Add LP's Assets as cAssets
     //Remove LP share token
@@ -3732,20 +3785,27 @@ pub fn get_LP_pool_cAssets(
 
                 let info = AssetInfo::NativeToken { denom: pool_coin.denom };
                 //Find the coin in the basket
-                if let Some(cAsset) = basket.clone().collateral_types.into_iter().find(|cAsset| cAsset.asset.info.equal(&info)){
-                    //Push to list
-                    new_assets.push(
-                        cAsset { 
-                            asset: Asset { info, amount: pool_coin.amount }, 
-                            ..cAsset
-                        }
-                    );
-                } //No reason to error bc LPs can't be added if their assets aren't added first
+                if let Some( basket_cAsset) = basket.clone().collateral_types.into_iter().find(|cAsset| cAsset.asset.info.equal(&info)){
+                    //Check if its already in the position asset list
+                    if let Some( (i, cAsset) ) = new_assets.clone().into_iter().enumerate().find(|( index, cAsset)| cAsset.asset.info.equal(&basket_cAsset.clone().asset.info)){
+                        //Add to assets
+                        new_assets[i].asset.amount += pool_coin.amount;
+    
+                    } else {
+                        //Push to list
+                        new_assets.push( cAsset {
+                            asset: Asset { 
+                                amount: pool_coin.amount, 
+                                info,
+                            },
+                            ..basket_cAsset
+                        } )
+                    }
+                }
+                //No reason to error bc LPs can't be added if their assets aren't added first
                 
             }
-        } else {
-            new_assets.push( cAsset );
-        }
+        } 
     }
 
     Ok( new_assets )
@@ -3827,7 +3887,7 @@ fn accrue(
 
     }
     if liquidity < Uint128::new(2_000_000_000_000u128){
-        //Set time_elapsed to 0 to skip accrual
+        //Set time_elapsed to 0 to skip repayment accrual
         time_elapsed = 0u64;
     }
     
@@ -3905,7 +3965,7 @@ fn accrue(
     }
         
 
-    //Accrue interest to the debt
+    /////Accrue interest to the debt
     //Calc time-elapsed
     let time_elapsed = env.clone().block.time.seconds() - position.last_accrued;
     //Update last accrued time

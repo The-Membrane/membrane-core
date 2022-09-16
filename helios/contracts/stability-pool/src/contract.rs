@@ -682,10 +682,10 @@ pub fn liquidate(
     };
     let mut leftover = Decimal::zero();
 
-    if liq_amount > Decimal::new(asset_pool.credit_asset.amount * Uint128::new(1000000000000000000u128)){
+    if liq_amount > Decimal::from_ratio(asset_pool.credit_asset.amount, Uint128::new(1u128)){
         //If greater then repay what's possible 
         repay_asset.amount = asset_pool.credit_asset.amount;
-        leftover = liq_amount - Decimal::new(asset_pool.credit_asset.amount * Uint128::new(1000000000000000000u128));
+        leftover = liq_amount - Decimal::from_ratio(asset_pool.credit_asset.amount, Uint128::new(1u128));
 
     }else{ //Pay what's being asked
         repay_asset.amount = liq_amount * Uint128::new(1u128); // * 1
@@ -812,7 +812,7 @@ pub fn distribute_funds(
                 //If greater, only add what's necessary and edit the deposit
                 if  (current_repay_total + deposit.amount) > repaid_amount_decimal{
                     
-                    //Subtract what's left to add
+                    //Subtract to calc what's left to repay
                     let remaining_repayment = repaid_amount_decimal - current_repay_total;
 
                     deposit.amount -= remaining_repayment;
@@ -1121,7 +1121,7 @@ pub fn distribute_funds(
 }
 
 //Sends available claims to info.sender
-//If asset is passed, the claims will be sent as said asset
+//If claim_as is passed, the claims will be sent as said asset
 pub fn claim(
     deps: DepsMut,
     info: MessageInfo,
@@ -1183,8 +1183,28 @@ fn user_claims_msgs(
             let msgs = deposit_to_position(storage, user.claimable_assets, deposit_to.unwrap(), info.clone().sender)?;
             messages.extend(msgs);
         }else{
+             
+            //List of coins to send
+            let mut native_claims = vec![];
+
+            //Aggregate native token sends
             for asset in user.clone().claimable_assets{
-                messages.push( withdrawal_msg(asset, info.clone().sender)? );
+                match asset.clone().info {
+                    AssetInfo::Token { address: _ } => {
+                        messages.push( withdrawal_msg(asset, info.clone().sender)? );
+                    },
+                    AssetInfo::NativeToken { denom: _ } => {
+                        native_claims.push( asset_to_coin( asset )? );
+                    },
+                }  
+            }
+
+            if native_claims != vec![] {
+                let msg = CosmosMsg::Bank(BankMsg::Send {
+                    to_address: info.clone().sender.to_string(),
+                    amount: native_claims,
+                });
+                messages.push( msg );
             }
         }
     }else if dex_router.is_some(){//Router usage

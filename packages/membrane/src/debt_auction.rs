@@ -21,7 +21,7 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    //Start or add to existing auction
+    //Start or add to ongoing auction
     //Callable by the owner (MBRN Governance) or Positions contract
     StartAuction {
         repayment_position_info: UserInfo,
@@ -29,10 +29,10 @@ pub enum ExecuteMsg {
     },
     //Swap for MBRN w/ any open auction's swap_from_asset
     SwapForMBRN { },
-    //Edit amount for existing auction
+    //Remove ongoing auction
     //Mostly for potential mistakes 
-    EditAuction {
-        debt_asset: Asset, //Auction and recapitalization amount to remove 
+    RemoveAuction {
+        debt_asset: AssetInfo,
     },
     UpdateConfig {
         owner: Option<String>,

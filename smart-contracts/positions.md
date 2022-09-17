@@ -920,7 +920,8 @@ pub enum QueryMsg {
 pub struct PropResponse {
     pub liq_queue_leftovers: Decimal,
     pub stability_pool: Decimal,
-    pub sell_wall_distributions: Vec<SellWallDistribution>,
+    pub sell_wall_distributions: Vec<SellWallDistribution>,    
+    pub user_repay_amount: Decimal,
     pub positions_contract: String,
     //So the sell wall knows who to repay to
     pub position_id: Uint128,

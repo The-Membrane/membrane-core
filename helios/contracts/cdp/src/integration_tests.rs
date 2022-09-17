@@ -96,7 +96,7 @@ mod tests {
                                 return Ok(Response::new().add_attributes(vec![
                                     attr("action", "execute_bid"),
                                     attr("denom", bid_with.to_string()),
-                                    attr("repay_amount", Uint128::new(2_000u128).to_string()),
+                                    attr("repay_amount", collateral_amount.to_string()),
                                     attr("collateral_token", bid_for.to_string()),
                                     attr("collateral_info", "token"),
                                     attr("collateral_amount", collateral_amount),
@@ -113,7 +113,7 @@ mod tests {
                                 return Ok(Response::new().add_attributes(vec![
                                     attr("action", "execute_bid"),
                                     attr("denom", bid_with.to_string()),
-                                    attr("repay_amount", Uint128::new(2_000u128).to_string()),
+                                    attr("repay_amount", collateral_amount.to_string()),
                                     attr("collateral_token", bid_for.to_string()),
                                     attr("collateral_info", "native_token"),
                                     attr("collateral_amount", collateral_amount),
@@ -150,7 +150,7 @@ mod tests {
                         to_binary(
                             &LQ_LiquidatibleResponse {
                                 leftover_collateral: "222".to_string(),
-                                total_credit_repaid: "2000".to_string(),
+                                total_credit_repaid: (collateral_amount - Uint256::from(222u128) ).to_string(),
                             })?),
                 }
             },
@@ -179,7 +179,7 @@ mod tests {
                                 return Ok(Response::new().add_attributes(vec![
                                     attr("action", "execute_bid"),
                                     attr("denom", bid_with.to_string()),
-                                    attr("repay_amount", Uint128::new(2_000_000_000_000u128).to_string()),
+                                    attr("repay_amount", collateral_amount.to_string()),
                                     attr("collateral_token", bid_for.to_string()),
                                     attr("collateral_info", "token"),
                                     attr("collateral_amount", collateral_amount),
@@ -196,7 +196,7 @@ mod tests {
                                 return Ok(Response::new().add_attributes(vec![
                                     attr("action", "execute_bid"),
                                     attr("denom", bid_with.to_string()),
-                                    attr("repay_amount", Uint128::new(2_000_000_000_000u128).to_string()),
+                                    attr("repay_amount", collateral_amount.to_string()),
                                     attr("collateral_token", bid_for.to_string()),
                                     attr("collateral_info", "native_token"),
                                     attr("collateral_amount", collateral_amount),
@@ -233,7 +233,7 @@ mod tests {
                         to_binary(
                             &LQ_LiquidatibleResponse {
                                 leftover_collateral: "222222222225".to_string(),
-                                total_credit_repaid: "2000000000000".to_string(),
+                                total_credit_repaid: (collateral_amount - Uint256::from(222222222225u128)).to_string(),
                             })?),
                 }
             },
@@ -286,7 +286,7 @@ mod tests {
                         to_binary(
                             &LQ_LiquidatibleResponse {
                                 leftover_collateral: "222".to_string(),
-                                total_credit_repaid: "2000".to_string(),
+                                total_credit_repaid: (collateral_amount -  Uint256::from(222u128)).to_string(),
                             })?),
                 }
             },
@@ -315,7 +315,7 @@ mod tests {
                                 return Ok(Response::new().add_attributes(vec![
                                     attr("action", "execute_bid"),
                                     attr("denom", bid_with.to_string()),
-                                    attr("repay_amount", Uint128::new(500u128).to_string()),
+                                    attr("repay_amount", collateral_amount.to_string()),
                                     attr("collateral_token", bid_for.to_string()),
                                     attr("collateral_info", "token"),
                                     attr("collateral_amount", collateral_amount),
@@ -327,7 +327,7 @@ mod tests {
                                 return Ok(Response::new().add_attributes(vec![
                                     attr("action", "execute_bid"),
                                     attr("denom", bid_with.to_string()),
-                                    attr("repay_amount", Uint128::new(500u128).to_string()),
+                                    attr("repay_amount", collateral_amount.to_string()),
                                     attr("collateral_token", bid_for.to_string()),
                                     attr("collateral_info", "native_token"),
                                     attr("collateral_amount", collateral_amount),
@@ -364,7 +364,7 @@ mod tests {
                         to_binary(
                             &LQ_LiquidatibleResponse {
                                 leftover_collateral: "499".to_string(),
-                                total_credit_repaid: "500".to_string(),
+                                total_credit_repaid: ( collateral_amount - Uint256::from(499u128)).to_string(),
                             })?),
                 }
             },
@@ -418,7 +418,7 @@ mod tests {
                     SP_MockExecuteMsg::Liquidate {
                         credit_asset
                     } => {
-                        if credit_asset.to_string() != "222.222225 credit_fulldenom".to_string() && credit_asset.to_string() != "2000 credit_fulldenom".to_string() && credit_asset.to_string() != "22222.22225 credit_fulldenom".to_string() && credit_asset.to_string() != "20222.22225 credit_fulldenom".to_string(){
+                        if credit_asset.to_string() != "222.222225 credit_fulldenom".to_string() && credit_asset.to_string() != "222.22225 credit_fulldenom".to_string() && credit_asset.to_string() != "2000 credit_fulldenom".to_string() && credit_asset.to_string() != "22222.22225 credit_fulldenom".to_string() && credit_asset.to_string() != "20222.22225 credit_fulldenom".to_string() && credit_asset.to_string() != "22000 credit_fulldenom".to_string(){
                             panic!("{}", credit_asset.to_string());
                         }
                         
@@ -3160,10 +3160,11 @@ mod tests {
                 position_owner:  USER.to_string(),  
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97534));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97312));
 
             //Assert sell wall was sent assets
-            assert_eq!(app.wrap().query_all_balances(router_addr.clone()).unwrap(), vec![coin( 222, "debit")]);
+            //SW increases from 222 to 444 bc the user's repayment failed as well
+            assert_eq!(app.wrap().query_all_balances(router_addr.clone()).unwrap(), vec![coin( 444, "debit")]);
 
             //Assert fees were sent.
             assert_eq!(app.wrap().query_all_balances(staking_contract.clone()).unwrap(), vec![coin( 22, "debit")]);

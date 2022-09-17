@@ -508,6 +508,7 @@ fn withdrawal_from_state(
     let mut is_user = false;
     let mut withdrawable = false;
     let mut withdrawable_amount = Uint128::zero();
+    let initial_withdrawal = withdrawal_amount.clone();
 
     let new_deposits: Vec<Deposit> = pool.clone().deposits
         .into_iter()
@@ -531,6 +532,11 @@ fn withdrawal_from_state(
                         //Set unstaking time and don't withdraw anything
                         deposit_item.unstake_time = Some( env.block.time.seconds() );
                     }
+                } else { //Allow regular withdraws if from Reply fn
+                    //Makes sure no incentives are accrued
+                    deposit_item.unstake_time = Some( deposit_item.deposit_time );
+                    //Withdraws from state
+                    withdrawable = true;
                 }
 
                 //Subtract from each deposit until there is none left to withdraw
@@ -608,8 +614,14 @@ fn withdrawal_from_state(
     //Set new deposits
     pool.deposits = new_deposits;
 
-    //Subtract withdrawable from total pool amount
-    pool.credit_asset.amount -= withdrawable_amount;
+    //If the msg is from the Repay fn, we subtract initial_withdrawal from the total pool amount
+    // if skip_unstaking { 
+    //     pool.credit_asset.amount -= initial_withdrawal * Uint128::new(1u128);
+    // } else {
+        //Subtract withdrawable from total pool amount
+        pool.credit_asset.amount -= withdrawable_amount;
+    // }
+    
 
     if error.is_some(){
         return Err( ContractError::CustomError { val: error.unwrap().to_string() } )
@@ -1135,8 +1147,11 @@ fn repay(
     user_info: UserInfo,
     repayment: Asset,
 ) -> Result<Response, ContractError>{
-
+    
     let config = CONFIG.load( deps.storage )?;
+
+    //Assert Authority
+    if info.sender != config.positions_contract { return Err( ContractError::Unauthorized { } ) }
     
     let mut msgs = vec![];       
     let mut attrs = vec![
@@ -1150,11 +1165,11 @@ fn repay(
 
         let position_owner = deps.api.addr_validate(&user_info.clone().position_owner)?;
 
-        //This forces withdrawals to be done by the position_owner
+        //This forces repayments to be done by the position_owner
         //so no need to check if the withdrawal is done by the position owner
         let user_deposits: Vec<Deposit> = pool.clone().deposits
             .into_iter()
-            .filter(|deposit| deposit.user == info.sender)
+            .filter(|deposit| deposit.user == position_owner)
             .collect::<Vec<Deposit>>();
 
         let total_user_deposits: Decimal = user_deposits
@@ -1165,11 +1180,12 @@ fn repay(
             .sum();
 
         
-        //Cant withdraw more than the total deposit amount
+        //Cant repay more than the total deposit amount
         if total_user_deposits < Decimal::from_ratio(repayment.amount , Uint128::new(1u128)){
             return Err(ContractError::InvalidWithdrawal {  })
+        } else if total_user_deposits.is_zero(){
+            return Err(ContractError::InvalidWithdrawal {  })
         } else {
-
             //Go thru each deposit and withdraw request from state
             let ( _withdrawable, new_pool) = withdrawal_from_state(
                 deps.storage,

@@ -1203,6 +1203,7 @@ pub fn liquidate(
         update_position_claims(storage, querier, env.clone(), basket_id, position_id, valid_position_owner.clone(), cAsset.clone().asset.info, protocol_fee_in_collateral_amount)?;
         
         //After fees are calculated, set collateral_repay_amount to the amount minus anything the user paid from the SP
+        //Has to be after or user_repayment would disincentivize liquidations which would force a non-trivial debt minimum
         let collateral_repay_value = decimal_multiplication(repay_amount_per_asset, basket.clone().credit_price);
         let mut collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price);
 

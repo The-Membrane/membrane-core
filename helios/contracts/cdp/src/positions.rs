@@ -1180,7 +1180,7 @@ pub fn liquidate(
     //1) Calcs repay amount per asset
     //2) Calcs collateral amount to be liquidated per asset (Fees not included yet)
     //2 will happen again in the reply. This instance is to pay the function caller
-    //
+    
     for (num, cAsset) in collateral_assets.clone().iter().enumerate(){
 
         let mut caller_coins: Vec<Coin> = vec![];
@@ -1202,6 +1202,10 @@ pub fn liquidate(
         let protocol_fee_in_collateral_amount = decimal_multiplication(collateral_repay_amount, config.clone().liq_fee) * Uint128::new(1u128);
         update_position_claims(storage, querier, env.clone(), basket_id, position_id, valid_position_owner.clone(), cAsset.clone().asset.info, protocol_fee_in_collateral_amount)?;
         
+        //After fees are calculated, set collateral_repay_amount to the amount minus anything the user paid from the SP
+        let collateral_repay_value = decimal_multiplication(repay_amount_per_asset, basket.clone().credit_price);
+        let mut collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price);
+
         //Subtract fees from leftover_position value
         //fee_value = total_fee_collateral_amount * collateral_price
         let fee_value = decimal_multiplication( Decimal::from_ratio( caller_fee_in_collateral_amount + protocol_fee_in_collateral_amount,Uint128::new(1u128)), collateral_price );

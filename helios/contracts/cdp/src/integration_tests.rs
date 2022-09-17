@@ -105,7 +105,7 @@ mod tests {
                             
                             AssetInfo::NativeToken { denom: _ } => {
                                 
-                                if collateral_amount.to_string() != String::from("2000") && collateral_amount.to_string() != String::from("22000") && collateral_amount.to_string() != String::from("4222"){
+                                if collateral_amount.to_string() != String::from("2000") && collateral_amount.to_string() != String::from("22000") && collateral_amount.to_string() != String::from("4222") && collateral_amount.to_string() != String::from("1778"){
                                     panic!("{}", collateral_amount.to_string());
                                 }
 
@@ -3160,7 +3160,7 @@ mod tests {
                 position_owner:  USER.to_string(),  
             };
             let res: PositionResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97312));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97534));
 
             //Assert sell wall was sent assets
             assert_eq!(app.wrap().query_all_balances(router_addr.clone()).unwrap(), vec![coin( 222, "debit")]);
@@ -3170,7 +3170,7 @@ mod tests {
             assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 100000, "2nddebit"), coin( 444, "debit")]);
 
             //Assert collateral to be liquidated was sent 
-            assert_eq!(app.wrap().query_all_balances(lq_contract.addr()).unwrap(), vec![coin( 2000, "debit")]);
+            assert_eq!(app.wrap().query_all_balances(lq_contract.addr()).unwrap(), vec![coin( 1778, "debit")]);
             //Assert SP wasn't sent any due to the Error
             assert_eq!(app.wrap().query_all_balances(sp_addr.clone()).unwrap(), vec![coin( 2225 , "credit_fulldenom")]);
             

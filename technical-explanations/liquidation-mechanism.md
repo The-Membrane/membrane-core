@@ -24,6 +24,7 @@ On success, i.e. bad debt is true, the contract repays the position w/ protocol 
 
 * Fetch target\_position
 * Assert Insolvency
+* Check if the user has funds in the SP to repay and repay what's possible
 * Calc + add message for per asset fees (caller + protocol)
 
 Sift remaining collateral amount through LQ
@@ -43,6 +44,13 @@ Whatever credit isn't liquidated gets sent to the SP
 * Reassign `RepayPropagation` fields
 
 #### Reply Function Walkthrough
+
+_User Funds from SP:_
+
+* On error, send repayment responsibilities to the SP if used
+* If SP wasn't used, sell wall&#x20;
+
+
 
 _Liquidation Queue:_
 

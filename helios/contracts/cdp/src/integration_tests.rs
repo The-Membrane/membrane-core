@@ -7,9 +7,9 @@ mod tests {
     use membrane::oracle::{PriceResponse, AssetResponse};
     use membrane::positions::{ InstantiateMsg, QueryMsg, ExecuteMsg };
     use membrane::liq_queue::{ LiquidatibleResponse as LQ_LiquidatibleResponse};
-    use membrane::stability_pool::{ LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
+    use membrane::stability_pool::{ LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, DepositResponse };
     use membrane::osmosis_proxy::{ GetDenomResponse, TokenInfoResponse };
-    use membrane::types::{AssetInfo, Asset, cAsset, LiqAsset, TWAPPoolInfo, AssetOracleInfo, LiquidityInfo};
+    use membrane::types::{AssetInfo, Asset, cAsset, LiqAsset, TWAPPoolInfo, AssetOracleInfo, LiquidityInfo, UserInfo, Deposit};
     use membrane::math::Uint256;
     
     use osmo_bindings::{ SpotPriceResponse, PoolStateResponse, ArithmeticTwapToNowResponse };
@@ -386,6 +386,10 @@ mod tests {
             credit_asset: AssetInfo,
             distribute_for: Uint128,
         },
+        Repay {
+            user_info: UserInfo,
+            repayment: Asset,
+        },
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
@@ -400,6 +404,10 @@ mod tests {
         },
         AssetPool {
             asset_info: AssetInfo 
+        },
+        AssetDeposits {
+            user: String, 
+            asset_info: AssetInfo,
         },
     }
 
@@ -447,6 +455,12 @@ mod tests {
                             .add_attribute("method", "distribute")
                             .add_attribute("credit_asset", "cdl"))
                     },
+                    SP_MockExecuteMsg::Repay {
+                        user_info,
+                        repayment,
+                    } => {
+                        Ok( Response::new() )
+                    }
                 }
             },
             |_, _, _, _: SP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -469,11 +483,21 @@ mod tests {
                             liq_premium: Decimal::percent(10),
                             deposits: vec![],
                         })?),
+                    SP_MockQueryMsg::AssetDeposits { 
+                        user,
+                        asset_info,
+                    } => Ok(
+                        to_binary(&DepositResponse {
+                            asset: asset_info,
+                            deposits: vec![],
+                        })?),
                 }
             },
         );
         Box::new(contract)
     }
+
+   
 
     pub fn stability_pool_contract_bignums()-> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
@@ -496,29 +520,17 @@ mod tests {
                         credit_asset, 
                         distribute_for } => {
                         
-                        // if distribution_assets != vec![
-                        //                 Asset { 
-                        //                     info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
-                        //                     amount: Uint128::new(244) 
-                        //                 }]
-                        //     && distribution_assets != vec![
-                        //         Asset { 
-                        //             info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
-                        //             amount: Uint128::new(2447) 
-                        //         }]
-                        //     &&
-                        //     distribution_assets != vec![
-                        //         Asset { 
-                        //             info: AssetInfo::NativeToken { denom: "debit".to_string() }, 
-                        //             amount: Uint128::new(55000) 
-                        //         }]{
-                        //                     assert_ne!(distribution_assets, distribution_assets);
-                        //                 }
-
+                      
                         Ok(Response::new()
                             .add_attribute("method", "distribute")
                             .add_attribute("credit_asset", "cdl"))
                     },
+                    SP_MockExecuteMsg::Repay {
+                        user_info,
+                        repayment,
+                    } => {
+                        Ok( Response::new() )
+                    }
                 }
             },
             |_, _, _, _: SP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -539,6 +551,14 @@ mod tests {
                                 amount: Uint128::zero(),
                             },
                             liq_premium: Decimal::percent(10),
+                            deposits: vec![],
+                        })?),
+                    SP_MockQueryMsg::AssetDeposits { 
+                        user,
+                        asset_info,
+                    } => Ok(
+                        to_binary(&DepositResponse {
+                            asset: asset_info,
                             deposits: vec![],
                         })?),
                 }
@@ -568,6 +588,12 @@ mod tests {
                             .add_attribute("method", "distribute")
                             .add_attribute("credit_asset", "cdl"))
                     },
+                    SP_MockExecuteMsg::Repay {
+                        user_info,
+                        repayment,
+                    } => {
+                        Err( StdError::GenericErr { msg: String::from("erroar") } )
+                    },
                 }
             },
             |_, _, _, _: SP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -589,6 +615,21 @@ mod tests {
                             },
                             liq_premium: Decimal::percent(10),
                             deposits: vec![],
+                        })?),
+                    SP_MockQueryMsg::AssetDeposits { 
+                        user,
+                        asset_info,
+                    } => Ok(
+                        to_binary(&DepositResponse {
+                            asset: asset_info,
+                            deposits: vec![
+                                Deposit {                                    
+                                    user: Addr::unchecked(USER),
+                                    amount: Decimal::percent(222_00),
+                                    deposit_time: 0u64,
+                                    unstake_time: None,
+                                },
+                            ],
                         })?),
                 }
             },
@@ -619,6 +660,12 @@ mod tests {
                             .add_attribute("method", "distribute")
                             .add_attribute("credit_asset", "cdl"))
                     },
+                    SP_MockExecuteMsg::Repay {
+                        user_info,
+                        repayment,
+                    } => {
+                        Ok( Response::new() )
+                    },
                 }
             },
             |_, _, _, _: SP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -639,6 +686,14 @@ mod tests {
                                 amount: Uint128::zero(),
                             },
                             liq_premium: Decimal::percent(10),
+                            deposits: vec![],
+                        })?),
+                    SP_MockQueryMsg::AssetDeposits { 
+                        user,
+                        asset_info,
+                    } => Ok(
+                        to_binary(&DepositResponse {
+                            asset: asset_info,
                             deposits: vec![],
                         })?),
                 }
@@ -670,6 +725,12 @@ mod tests {
                             .add_attribute("method", "distribute")
                             .add_attribute("credit_asset", "cdl"))
                     },
+                    SP_MockExecuteMsg::Repay {
+                        user_info,
+                        repayment,
+                    } => {
+                        Ok( Response::new() )
+                    },
                 }
             },
             |_, _, _, _: SP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -690,6 +751,14 @@ mod tests {
                                 amount: Uint128::zero(),
                             },
                             liq_premium: Decimal::percent(3400),
+                            deposits: vec![],
+                        })?),
+                    SP_MockQueryMsg::AssetDeposits { 
+                        user,
+                        asset_info,
+                    } => Ok(
+                        to_binary(&DepositResponse {
+                            asset: asset_info,
                             deposits: vec![],
                         })?),
                 }
@@ -1473,7 +1542,7 @@ mod tests {
         
         //Instanitate SP
         let mut sp_id: u64;
-        if sp_error{
+        if sp_error {
             sp_id = app.store_code(stability_pool_contract_errors());
         } else if liq_minimum && !lq_error{
             sp_id = app.store_code(stability_pool_contract_minimumliq());

@@ -45,6 +45,7 @@ pub struct RepayPropagation {
     pub liq_queue_leftovers: Decimal, //List of repayments
     pub stability_pool: Decimal, //Value of repayment
     pub sell_wall_distributions: Vec<SellWallDistribution>,
+    pub user_repay_amount: Decimal,
     pub positions_contract: Addr,
     //So the sell wall knows who to repay to
     pub position_id: Uint128,

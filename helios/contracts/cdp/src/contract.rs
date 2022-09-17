@@ -24,7 +24,7 @@ use membrane::types::{ AssetInfo, Asset, cAsset, Basket, Position, LiqAsset, Sel
 //use crate::liq_queue::LiquidatibleResponse;
 use crate::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 use crate::error::ContractError;
-use crate::positions::{create_basket, assert_basket_assets, assert_sent_native_token_balance, deposit, withdraw, increase_debt, repay, liq_repay, edit_contract_owner, liquidate, edit_basket, sell_wall_using_ids, SELL_WALL_REPLY_ID, STABILITY_POOL_REPLY_ID, LIQ_QUEUE_REPLY_ID, withdrawal_msg, update_position_claims, CREATE_DENOM_REPLY_ID, BAD_DEBT_REPLY_ID, mint_revenue, WITHDRAW_REPLY_ID, get_contract_balances, get_target_position, clone_basket};
+use crate::positions::{create_basket, assert_basket_assets, assert_sent_native_token_balance, deposit, withdraw, increase_debt, repay, liq_repay, edit_contract_owner, liquidate, edit_basket, sell_wall_using_ids, SELL_WALL_REPLY_ID, SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID, LIQ_QUEUE_REPLY_ID, withdrawal_msg, update_position_claims, CREATE_DENOM_REPLY_ID, BAD_DEBT_REPLY_ID, mint_revenue, WITHDRAW_REPLY_ID, get_contract_balances, get_target_position, clone_basket};
 use crate::query::{ query_collateral_rates, query_stability_pool_liquidatible, query_config, query_position, query_user_positions, query_basket_positions, query_basket, query_baskets, query_prop, query_stability_pool_fee, query_basket_debt_caps, query_bad_debt, query_basket_insolvency, query_position_insolvency, query_basket_credit_interest};
 use crate::state::{ Config, CONFIG, POSITIONS, BASKETS, RepayPropagation, REPAY, WITHDRAW, CREDIT_MULTI };
 
@@ -680,15 +680,80 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         SELL_WALL_REPLY_ID => handle_sell_wall_reply(deps, msg, env),
         CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, msg),
         WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
+        SP_REPAY_REPLY_ID => handle_sp_repay_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok( Response::new() ),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 }
 
+fn handle_sp_repay_reply(
+    deps: DepsMut,
+    env: Env,
+    msg: Reply,
+) -> StdResult<Response>{
+
+    match msg.result.into_result(){
+        Ok(result)  => {
+           //Its reply on error only
+           Ok( Response::new() )          
+           
+       },
+       //////EDIT/////////////
+       Err( string ) => {
+           //If error, do nothing if the SP was used
+           //The SP reply will handle the sell wall
+
+           let mut submessages: Vec<SubMsg> = vec![];
+           let mut repay_amount = Decimal::zero();
+
+           let mut prop: RepayPropagation = REPAY.load(deps.storage)?;
+
+           //If SP wasn't called, meaning User's SP funds can't be handled there, sell wall the leftovers
+           if prop.stability_pool == Decimal::zero() {
+
+               //Sell wall asset's repayment amount
+               let ( sell_wall_msgs, collateral_distributions ) = sell_wall_using_ids( 
+                   deps.storage,
+                   env,
+                   deps.querier, 
+                   prop.clone().basket_id,
+                   prop.clone().position_id,
+                   prop.clone().position_owner,
+                   prop.user_repay_amount,
+                   )?;
+               
+               repay_amount = prop.user_repay_amount;
+
+               //Save new distributions from this liquidation
+               prop.sell_wall_distributions = add_distributions(prop.sell_wall_distributions, SellWallDistribution {distributions: collateral_distributions} );
+
+               submessages.extend( sell_wall_msgs.
+                   into_iter()
+                   .map(|msg| {
+                       //If this succeeds, we update the positions collateral claims
+                       //If this fails, revert. Try again isn't a useful alternative.
+                       SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
+                   }).collect::<Vec<SubMsg>>() );
+
+           }
+           
+           //Since Error, we add the leftovers to the liq_queue_leftovers so the stability pool reply handles it
+           prop.liq_queue_leftovers += prop.user_repay_amount;
+
+           REPAY.save(deps.storage, &prop)?;
+
+           Ok( Response::new().add_submessages(submessages)
+               .add_attribute( "error", string)
+               .add_attribute( "sent_to_sell_wall", repay_amount.to_string() ) )
+       }        
+   }        
+
+}
+
 fn handle_withdraw_reply(
     deps: DepsMut,
     env: Env,
-    msg: Reply
+    msg: Reply,
 ) -> StdResult<Response>{
     match msg.result.into_result(){
         Ok( _result ) => {
@@ -864,7 +929,7 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             if leftover_amount != Uint128::zero(){
 
 
-                //Sell Wall SP leftovers and LQ leftovers
+                //Sell Wall SP, LQ and User's SP Fund leftovers 
                 let ( sell_wall_msgs, collateral_distributions ) = sell_wall_using_ids( 
                     deps.storage,
                     env,
@@ -904,10 +969,10 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                             deps.querier, 
                             config.clone(), 
                             repay_propagation.liq_queue_leftovers,
-                             basket.clone().credit_asset.info
+                            basket.clone().credit_asset.info
                         )?;
 
-                        
+                //If there are leftovers, send to sell wall 
                 if leftover_repayment > Decimal::zero(){
 
                     //Sell wall remaining
@@ -934,7 +999,8 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                         }).collect::<Vec<SubMsg>>() );
 
                 }
-                //Send whatever u can to the Stability Pool
+
+                //Send whatever is able to the Stability Pool
                 let sp_repay_amount = repay_propagation.liq_queue_leftovers - leftover_repayment;
                 
                 
@@ -959,6 +1025,12 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
 
                     //Remove repayment from leftovers
                     repay_propagation.liq_queue_leftovers -= sp_repay_amount;
+
+                    //If the first stability pool message succeed and needs to call a 2nd, 
+                    //We set the stability_pool amount in the propogation to the 2nd amount
+                    //If the 2nd errors, then it'll sell wall the correct amount 
+                    repay_propagation.stability_pool = sp_repay_amount;
+
                     REPAY.save(deps.storage, &repay_propagation)?;
                     
 
@@ -987,8 +1059,10 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                 repay_propagation.liq_queue_leftovers + repay_propagation.stability_pool,
                 )?;
 
-            
-            
+            //Set both liq amounts to 0
+            repay_propagation.liq_queue_leftovers = Decimal::zero();
+            repay_propagation.stability_pool = Decimal::zero();
+
             //Save new distributions from this liquidations
             repay_propagation.sell_wall_distributions = add_distributions(repay_propagation.sell_wall_distributions, SellWallDistribution {distributions: collateral_distributions} );
             REPAY.save(deps.storage, &repay_propagation)?;
@@ -997,7 +1071,7 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                 into_iter()
                 .map(|msg| {
                     //If this succeeds, we update the positions collateral claims
-                    //If this fails, do nothing. Try again isn't a useful alternative.
+                    //If this fails, revert. Try again isn't a useful alternative.
                     SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
                 }).collect::<Vec<SubMsg>>() );
 
@@ -1021,6 +1095,10 @@ fn add_distributions(
 }
 
 fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Response>{
+
+    let mut attrs = vec![
+        attr("method", "handle_liq_queue_reply")
+    ];
 
     match msg.result.into_result(){
          Ok(result)  => {
@@ -1089,7 +1167,7 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Resp
              )?;
 
                           
-             //Subtract repaid amount from LQs repay responsibility. If it hits 0 then there were no LQ errors.
+             //Subtract repaid amount from LQs repay responsibility. If it hits 0 then there were no LQ or User SP fund errors.
              if repay_amount != Uint128::zero(){
 
                 if !prop.liq_queue_leftovers.is_zero(){
@@ -1098,21 +1176,30 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Resp
                     //SP reply handles LQ_leftovers
                 }
 
-                update_position_claims(deps.storage, deps.querier, env, prop.basket_id, prop.clone().position_id, prop.clone().position_owner, token_info, send_amount)?;
+                update_position_claims(deps.storage, deps.querier, env, prop.basket_id, prop.clone().position_id, prop.clone().position_owner, token_info.clone(), send_amount)?;
             }
             //Remove Asset
             prop.per_asset_repayment.remove(0);
             REPAY.save(deps.storage, &prop)?;
             
+            attrs.extend(
+                vec![
+                    attr("repay_amount", repay_amount),
+                    attr("reward_amount", send_amount),
+                    attr("reward_info", token_info.to_string()),
+                ]
+            );
             
-            //TODO: Add detail
-            Ok(Response::new().add_message(msg))
+            
+            Ok(Response::new()
+                .add_message( msg )
+                .add_attributes( attrs ))
 
              
             
         },
         Err( string ) => {
-            //If error, do nothing
+            //If error, do nothing if the SP was used
             //The SP reply will handle the sell wall
 
             let mut submessages: Vec<SubMsg> = vec![];

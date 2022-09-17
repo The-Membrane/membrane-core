@@ -10,7 +10,7 @@ use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20H
 use membrane::stability_pool::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, DepositResponse, ClaimsResponse, PoolResponse, Cw20HookMsg };
 use membrane::apollo_router::{ ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterCw20HookMsg };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, ExecuteMsg as OsmoExecuteMsg, TokenInfoResponse };
-use membrane::types::{ Asset, AssetInfo, LiqAsset, AssetPool, Deposit, cAsset, UserRatio, User, PositionUserInfo };
+use membrane::types::{ Asset, AssetInfo, LiqAsset, AssetPool, Deposit, cAsset, UserRatio, User, PositionUserInfo, UserInfo };
 use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg};
 
 use crate::error::ContractError;
@@ -141,6 +141,7 @@ pub fn execute(
         ExecuteMsg::Claim { claim_as_native, claim_as_cw20, deposit_to } => claim( deps, info, claim_as_native, claim_as_cw20, deposit_to ),
         ExecuteMsg::AddPool { asset_pool } => add_asset_pool( deps, info, asset_pool.credit_asset, asset_pool.liq_premium ),
         ExecuteMsg::Distribute { distribution_assets, distribution_asset_ratios, credit_asset, distribute_for } => distribute_funds( deps, info, None, env, distribution_assets, distribution_asset_ratios, credit_asset, distribute_for ), 
+        ExecuteMsg::Repay { user_info, repayment } => repay( deps, env, info, user_info, repayment ),
     }
 }
 
@@ -408,7 +409,7 @@ pub fn withdraw(
         let asset_pools = ASSETS.load(deps.storage)?;
 
         //If the Asset has a pool, act
-        match asset_pools.clone().into_iter().find(|mut x| x.credit_asset.info.equal(&asset.info)){
+        match asset_pools.clone().into_iter().find(|mut asset_pool| asset_pool.credit_asset.info.equal(&asset.info)){
             
             //Some Asset
             Some( pool ) => {                
@@ -434,14 +435,16 @@ pub fn withdraw(
                 } else{
 
                     //Go thru each deposit and withdraw request from state
-                    let ( withdrawable, mut new_pool) = withdrawal_from_state(
+                    let ( withdrawable, new_pool) = withdrawal_from_state(
                         deps.storage,
                         deps.querier,
                         env.clone(),
                         config.clone(),
                         info.clone().sender, 
                         Decimal::from_ratio(asset.amount, Uint128::new(1u128)), 
-                        pool)?;
+                        pool,
+                        false,
+                    )?;
                    
                     
                     let mut temp_pools: Vec<AssetPool> = asset_pools.clone()
@@ -480,10 +483,12 @@ pub fn withdraw(
         
         
     }
-
         
     
-    Ok( Response::new().add_attributes(attrs).add_messages(msgs) )
+    Ok( Response::new()
+        .add_attributes(attrs)
+        .add_messages(msgs)
+    )
 }
 
 fn withdrawal_from_state(
@@ -494,6 +499,7 @@ fn withdrawal_from_state(
     user: Addr,
     mut withdrawal_amount: Decimal,
     mut pool: AssetPool,
+    skip_unstaking: bool,
 ) -> Result<(Uint128,AssetPool), ContractError>{
 
     let mut mbrn_incentives = Uint128::zero();
@@ -512,17 +518,19 @@ fn withdrawal_from_state(
                 is_user = true;
                 
                 /////Check if deposit is withdrawable
-                //If deposit has been "unstaked" ie previously withdrawn, assert the unstaking period has passed before withdrawing
-                if deposit_item.unstake_time.is_some() {
-                    //If time_elapsed is >= unstaking period
-                    if env.block.time.seconds() - deposit_item.unstake_time.unwrap() >= ( config.unstaking_period * SECONDS_PER_DAY ) {
-                        withdrawable = true;
-                    } 
-                    //If unstaking period hasn't passed do nothing
-                    
-                } else {
-                    //Set unstaking time and don't withdraw anything
-                    deposit_item.unstake_time = Some( env.block.time.seconds() );
+                if !skip_unstaking {
+                    //If deposit has been "unstaked" ie previously withdrawn, assert the unstaking period has passed before withdrawing
+                    if deposit_item.unstake_time.is_some() {
+                        //If time_elapsed is >= unstaking period
+                        if env.block.time.seconds() - deposit_item.unstake_time.unwrap() >= ( config.unstaking_period * SECONDS_PER_DAY ) {
+                            withdrawable = true;
+                        } 
+                        //If unstaking period hasn't passed do nothing
+                        
+                    } else {
+                        //Set unstaking time and don't withdraw anything
+                        deposit_item.unstake_time = Some( env.block.time.seconds() );
+                    }
                 }
 
                 //Subtract from each deposit until there is none left to withdraw
@@ -610,7 +618,7 @@ fn withdrawal_from_state(
     //If there are incentives
     if !mbrn_incentives.is_zero(){
 
-         //Add incentives to User Claims
+        //Add incentives to User Claims
         USERS.update( storage, user, |user_claims| -> Result<User, ContractError> {
             match user_claims {
                 Some( mut user ) => {
@@ -1117,6 +1125,101 @@ pub fn distribute_funds(
     }
 
     Ok( res.add_attributes(attrs) )
+
+}
+
+fn repay(
+    deps: DepsMut, 
+    env: Env,
+    info: MessageInfo,
+    user_info: UserInfo,
+    repayment: Asset,
+) -> Result<Response, ContractError>{
+
+    let config = CONFIG.load( deps.storage )?;
+    
+    let mut msgs = vec![];       
+    let mut attrs = vec![
+        attr("method", "repay"),
+        attr("user_info", user_info.clone().to_string()),
+    ];
+
+    let asset_pools = ASSETS.load(deps.storage)?;
+
+    if let Some( pool ) = asset_pools.clone().into_iter().find(|mut asset_pool| asset_pool.credit_asset.info.equal(&repayment.info)){
+
+        let position_owner = deps.api.addr_validate(&user_info.clone().position_owner)?;
+
+        //This forces withdrawals to be done by the position_owner
+        //so no need to check if the withdrawal is done by the position owner
+        let user_deposits: Vec<Deposit> = pool.clone().deposits
+            .into_iter()
+            .filter(|deposit| deposit.user == info.sender)
+            .collect::<Vec<Deposit>>();
+
+        let total_user_deposits: Decimal = user_deposits
+            .iter()
+            .map(|user_deposit| user_deposit.amount)
+            .collect::<Vec<Decimal>>()
+            .into_iter()
+            .sum();
+
+        
+        //Cant withdraw more than the total deposit amount
+        if total_user_deposits < Decimal::from_ratio(repayment.amount , Uint128::new(1u128)){
+            return Err(ContractError::InvalidWithdrawal {  })
+        } else {
+
+            //Go thru each deposit and withdraw request from state
+            let ( _withdrawable, new_pool) = withdrawal_from_state(
+                deps.storage,
+                deps.querier,
+                env.clone(),
+                config.clone(),
+                position_owner, 
+                Decimal::from_ratio(repayment.amount, Uint128::new(1u128)), 
+                pool,
+                true,
+            )?;
+            
+            
+            let mut temp_pools: Vec<AssetPool> = asset_pools.clone()
+                .into_iter()
+                .filter(|pool| !pool.credit_asset.info.equal(&repayment.info))
+                .collect::<Vec<AssetPool>>();
+            temp_pools.push(new_pool.clone());
+
+            //Update pool
+            ASSETS.save(deps.storage, &temp_pools)?;
+
+            /////This is where the function is different from withdraw()
+
+            //Add Positions RepayMsg
+            let repay_msg = CDP_ExecuteMsg::Repay {
+                basket_id: user_info.clone().basket_id,
+                position_id: user_info.clone().position_id,
+                position_owner: Some( user_info.clone().position_owner ),
+            };
+
+            let coin: Coin = asset_to_coin( repayment.clone() )?;
+
+            let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.positions_contract.to_string(),
+                msg: to_binary(&repay_msg)?,
+                funds: vec![coin], 
+            });
+
+            msgs.push( msg );
+        }
+
+    } else {
+        return Err(ContractError::InvalidAsset {  })
+    }
+
+    Ok( Response::new()
+        .add_attributes(attrs)
+        .add_messages(msgs)
+    )
 
 }
 

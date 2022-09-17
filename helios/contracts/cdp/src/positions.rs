@@ -16,7 +16,7 @@ use membrane::types::{Asset, Basket, Position, cAsset, AssetInfo, SellWallDistri
 use membrane::positions::{ExecuteMsg, CallbackMsg};
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse };
-use membrane::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg};
+use membrane::stability_pool::{Cw20HookMsg as SP_Cw20HookMsg, QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, ExecuteMsg as SP_ExecuteMsg, DepositResponse};
 use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg, TokenInfoResponse };
 use membrane::staking::{ ExecuteMsg as StakingExecuteMsg };
 use membrane::oracle::{ QueryMsg as OracleQueryMsg, ExecuteMsg as OracleExecuteMsg };
@@ -32,6 +32,7 @@ pub const STABILITY_POOL_REPLY_ID: u64 = 2u64;
 pub const SELL_WALL_REPLY_ID: u64 = 3u64;
 pub const CREATE_DENOM_REPLY_ID: u64 = 4u64;
 pub const WITHDRAW_REPLY_ID: u64 = 5u64;
+pub const SP_REPAY_REPLY_ID: u64 = 6u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
@@ -1016,7 +1017,7 @@ pub fn liquidate(
         }
     }
 
-    let credit_repay_amount = match decimal_division(repay_value, basket.clone().credit_price){
+    let mut credit_repay_amount = match decimal_division(repay_value, basket.clone().credit_price){
         
         //Repay amount has to be above 0, or there is nothing to liquidate and there was a mistake prior
         x if x <= Decimal::new(Uint128::zero()) => {
@@ -1093,6 +1094,76 @@ pub fn liquidate(
     let caller_fee = decimal_subtraction(current_LTV, avg_max_LTV);
 
     //let total_fees = caller_fee + config.clone().liq_fee;
+
+    let mut user_repay_amount = Decimal::zero();
+    //Let the user repay their position if they are in the SP
+    if config.clone().stability_pool.is_some(){
+
+        //Query Stability Pool to see if the user has funds
+        let user_deposits = querier.query::<DepositResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.clone().stability_pool.unwrap().to_string(), 
+            msg: to_binary(&SP_QueryMsg::AssetDeposits { 
+                user: position_owner.clone(),
+                asset_info: basket.clone().credit_asset.info,
+            }
+            )?
+        }))?
+        .deposits;
+
+        let total_user_deposit: Decimal = user_deposits
+            .iter()
+            .map(|user_deposit| user_deposit.amount)
+            .collect::<Vec<Decimal>>()
+            .into_iter()
+            .sum();
+                
+
+        //If the user has funds, tell the SP to repay and subtract from credit_repay_amount
+        if !total_user_deposit.is_zero() {
+
+            //Set Repayment amount to what needs to get liquidated or total_deposits
+            user_repay_amount = {
+                //Repay the full debt
+                if total_user_deposit > credit_repay_amount {
+                    credit_repay_amount
+                } else {
+                    total_user_deposit
+                }
+            };
+
+            //Add Repay SubMsg
+            let repay_msg = SP_ExecuteMsg::Repay {
+                user_info: UserInfo {
+                    basket_id,
+                    position_id,
+                    position_owner: position_owner.clone(),
+                },
+                repayment: Asset {
+                    amount: user_repay_amount * Uint128::new(1u128),
+                    info: basket.clone().credit_asset.info,
+                }
+            };            
+
+            let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.clone().stability_pool.unwrap().to_string(),
+                msg: to_binary(&repay_msg)?,
+                funds: vec![ ], 
+            });
+            
+            //Convert to submsg
+            let sub_msg: SubMsg = SubMsg::reply_on_error(msg, SP_REPAY_REPLY_ID);
+
+            submessages.push( sub_msg );
+
+            //Subtract Repay amount from credit_repay_amount for the liquidation
+            credit_repay_amount -= user_repay_amount;
+
+        }
+
+    }
+    
+
+   // panic!("{}", credit_repay_amount);
     
     //Track total leftover repayment after the liq_queue
     let mut liq_queue_leftover_credit_repayment: Decimal = credit_repay_amount;
@@ -1316,6 +1387,7 @@ pub fn liquidate(
                 liq_queue_leftovers, 
                 stability_pool: Decimal::zero(),
                 sell_wall_distributions: vec![ SellWallDistribution {distributions: collateral_distributions} ],
+                user_repay_amount,
                 basket_id,
                 position_id,
                 position_owner: valid_position_owner.clone(),
@@ -1379,6 +1451,7 @@ pub fn liquidate(
                 liq_queue_leftovers, 
                 stability_pool: sp_repay_amount,
                 sell_wall_distributions: vec![ SellWallDistribution {distributions: collateral_distributions} ],
+                user_repay_amount,
                 basket_id,
                 position_id,
                 position_owner: valid_position_owner.clone(),
@@ -1429,6 +1502,7 @@ pub fn liquidate(
             liq_queue_leftovers: Decimal::zero(), 
             stability_pool: Decimal::zero(),
             sell_wall_distributions: vec![ ],
+            user_repay_amount,
             basket_id,
             position_id,
             position_owner: valid_position_owner.clone(),
@@ -1492,6 +1566,7 @@ pub fn liquidate(
             liq_queue_leftovers: Decimal::zero(), 
             stability_pool: Decimal::zero(),
             sell_wall_distributions: vec![ SellWallDistribution {distributions: collateral_distributions} ],
+            user_repay_amount,
             basket_id,
             position_id,
             position_owner: valid_position_owner.clone(),

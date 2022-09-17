@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, Uint128, Decimal};
 
-use crate::types::{ Asset, AssetPool, LiqAsset, cAsset, AssetInfo, Deposit, PositionUserInfo };
+use crate::types::{ Asset, AssetPool, LiqAsset, cAsset, AssetInfo, Deposit, PositionUserInfo, UserInfo };
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -61,7 +61,12 @@ pub enum ExecuteMsg {
         distribution_asset_ratios: Vec<Decimal>,
         credit_asset: AssetInfo,
         distribute_for: Uint128,
-    } 
+    },
+    //Allow the Positions contract to use user funds to repay for themselves
+    Repay {
+        user_info: UserInfo,
+        repayment: Asset,
+    },
 }
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -82,16 +87,16 @@ pub enum QueryMsg {
         asset: LiqAsset 
     }, 
     //User deposits in 1 AssetPool
-    AssetDeposits{ 
+    AssetDeposits { 
         user: String, 
         asset_info: AssetInfo 
     }, 
     //Check if user has any claimable assets
-    UserClaims{ 
+    UserClaims { 
         user: String 
     }, 
     //Returns asset pool info
-    AssetPool{ 
+    AssetPool { 
         asset_info: AssetInfo 
     },
 }

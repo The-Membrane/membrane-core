@@ -58,7 +58,7 @@ pub fn instantiate(
         cpc_margin_of_error: Decimal::percent(1),
         rate_slope_multiplier: Decimal::one(),
         debt_minimum: msg.debt_minimum,
-        base_debt_cap_multiplier: Uint128::new(10u128),
+        base_debt_cap_multiplier: Uint128::new(21u128),
         collateral_twap_timeframe: msg.collateral_twap_timeframe,
         credit_twap_timeframe: msg.credit_twap_timeframe,
     };

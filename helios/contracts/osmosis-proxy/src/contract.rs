@@ -258,10 +258,10 @@ pub fn mint_tokens(
     validate_denom(deps.querier, denom.clone())?;
 
     //Debt Auction can mint over max supply
-    let mut over_max = false;
+    let mut mint_allowed = false;
     if let Some( debt_auction ) = config.debt_auction{
         if info.sender == debt_auction{
-            over_max = true;
+            mint_allowed = true;
         }  
     };
 
@@ -269,12 +269,16 @@ pub fn mint_tokens(
     TOKENS.update( deps.storage, denom.clone(), | token_info | -> Result<TokenInfo, TokenFactoryError> {
         match token_info {
             Some( mut token_info ) => {
-                token_info.current_supply += amount;
+                
 
                 if token_info.clone().max_supply.is_some(){
-                    if token_info.current_supply > token_info.max_supply.unwrap() && !over_max{
-                        return Err( TokenFactoryError::CustomError { val: String::from("This mint puts token supply over Max supply") } )
+                    if token_info.current_supply < token_info.max_supply.unwrap() || mint_allowed {
+                        token_info.current_supply += amount;
+                        mint_allowed = true;
                     }
+                } else {
+                    token_info.current_supply += amount;
+                    mint_allowed = true;
                 }
 
                 Ok( token_info )
@@ -285,11 +289,20 @@ pub fn mint_tokens(
 
     let mint_tokens_msg = OsmosisMsg::mint_contract_tokens(denom, amount, mint_to_address.clone());
 
-    let res = Response::new()
+    let mut res = Response::new()
         .add_attribute("method", "mint_tokens")
+        .add_attribute("mint_status", mint_allowed.to_string())
+        .add_attribute("amount", Uint128::zero());
+
+    //If a mint was made/allowed
+    if mint_allowed {
+        res = Response::new()
+        .add_attribute("method", "mint_tokens")
+        .add_attribute("mint_status", mint_allowed.to_string())
         .add_attribute("amount", amount)
         .add_attribute("mint_to_address", mint_to_address)
         .add_message(mint_tokens_msg);
+    }
 
     Ok(res)
 }

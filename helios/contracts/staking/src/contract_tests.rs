@@ -173,6 +173,25 @@ fn unstake() {
         attr("unstake_amount", String::from("0")),
     ]);
 
+    //Successful Restake to reset the deposits
+    let msg = ExecuteMsg::Restake { mbrn_amount: Uint128::new(10_000_000u128) };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    assert_eq!(res.attributes, vec![
+        attr("method", "restake"),
+        attr("restake_amount", String::from("10000000")),
+    ]);
+
+    //Successful Unstake w/o withdrawals to assert Restake
+    let msg = ExecuteMsg::Unstake { mbrn_amount: None };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    assert_eq!(res.attributes, vec![
+        attr("method", "unstake"),
+        attr("staker", String::from("sender88")),
+        attr("unstake_amount", String::from("0")),
+    ]);
+
     //Successful Unstake from builders contract w/o withdrawals
     let msg = ExecuteMsg::Unstake { mbrn_amount: Some( Uint128::new(5u128) ) };
     let info = mock_info("builders_contract", &[]);

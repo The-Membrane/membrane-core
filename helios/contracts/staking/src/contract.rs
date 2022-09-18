@@ -149,7 +149,8 @@ pub fn execute(
         ExecuteMsg::Stake{ user } => {          
             stake( deps, env, info, user )
         },
-        ExecuteMsg::Unstake{ mbrn_amount }=> unstake( deps, env, info , mbrn_amount),
+        ExecuteMsg::Unstake{ mbrn_amount } => unstake( deps, env, info , mbrn_amount),
+        ExecuteMsg::Restake { mbrn_amount } => restake(deps, env, info, mbrn_amount),
         ExecuteMsg::ClaimRewards { claim_as_native, claim_as_cw20, send_to, restake } => claim_rewards( deps, env, info, claim_as_native, claim_as_cw20, send_to, restake),
         ExecuteMsg::DepositFee { } => {
             let config = CONFIG.load( deps.storage )?;
@@ -499,10 +500,12 @@ fn restake (
     mut restake_amount: Uint128,
 ) -> Result<Response, ContractError> {
 
-    let restaked_deposits = STAKED.load( deps.storage )?
+    let initial_restake = restake_amount.clone();
+
+    let restaked_deposits: Vec<StakeDeposit> = STAKED.load( deps.storage )?
         .into_iter()
-        .map(|deposit| 
-            if deposit.staker == info.clone().sender && !restake_amount.is_zero() {
+        .map(|mut deposit|{
+             if deposit.staker == info.clone().sender && !restake_amount.is_zero() {
 
                 if deposit.amount >= restake_amount {
 
@@ -510,8 +513,8 @@ fn restake (
                     restake_amount = Uint128::zero();
                     
                     //Restake
-                    deposit.unstake_time = None;
-                    deposit.deposit_time = env.block.time.seconds();
+                    deposit.unstake_start_time = None;
+                    deposit.stake_time = env.block.time.seconds();
 
                 } else if deposit.amount < restake_amount {
                     
@@ -519,16 +522,25 @@ fn restake (
                     restake_amount -= deposit.amount;
 
                     //Restake
-                    deposit.unstake_time = None;
-                    deposit.deposit_time = env.block.time.seconds();
+                    deposit.unstake_start_time = None;
+                    deposit.stake_time = env.block.time.seconds();
 
                 }
                 
-        })
+            }        
+            deposit
+        }
+
+        )
         .collect::<Vec<StakeDeposit>>();
 
     //Save new Deposits
     STAKED.save( deps.storage, &restaked_deposits )?;
+
+    Ok( Response::new().add_attributes(vec![
+        attr("method", "restake"),
+        attr("restake_amount", initial_restake),
+    ]) )
 
 }
 
@@ -611,6 +623,9 @@ fn withdraw_from_state(
                                     unstake_start_time: None,
                                     ..deposit.clone()
                             } );
+
+                            //Set new deposit amount
+                            deposit.amount = withdrawal_amount;
                         } 
 
                         //Set the unstaking_start_time and stake_time to now
@@ -652,19 +667,6 @@ fn withdraw_from_state(
                         withdrawable_amount += deposit.amount;
                         deposit.amount = Uint128::zero();
                     } else {
-
-                        //Set unstaking time for the amount getting withdrawn
-                        //Create a StakeDeposit object for the amount not getting unstaked
-                        if deposit.amount > withdrawal_amount && withdrawal_amount != Uint128::zero() {
-                            
-                            //Set new deposit 
-                            returning_deposit = Some( 
-                                StakeDeposit {
-                                    amount: deposit.amount - withdrawal_amount,
-                                    unstake_start_time: None,
-                                    ..deposit.clone()
-                            } );
-                        } 
 
                         //Ee, Set the unstaking_start_time and stake_time to now
                         deposit.unstake_start_time = Some( env.block.time.seconds() );

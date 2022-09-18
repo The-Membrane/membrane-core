@@ -272,7 +272,7 @@ pub fn mint_tokens(
                 
 
                 if token_info.clone().max_supply.is_some(){
-                    if token_info.current_supply < token_info.max_supply.unwrap() || mint_allowed {
+                    if token_info.current_supply <= token_info.max_supply.unwrap() || mint_allowed {
                         token_info.current_supply += amount;
                         mint_allowed = true;
                     }

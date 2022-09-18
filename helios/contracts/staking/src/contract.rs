@@ -226,7 +226,7 @@ fn update_config(
         Some( mut staking_rate ) => { 
             //Hard code a 20% maximum
             if staking_rate > Decimal::percent(20){
-                staking_rate = Decimal::percent(20)
+                staking_rate = Decimal::percent(20);
             }
             config.staking_rate = staking_rate.clone();
             attrs.push( attr("new_staking_rate", staking_rate.to_string()) );

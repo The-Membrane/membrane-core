@@ -56,7 +56,7 @@ pub fn instantiate(
             positions_contract: None,
             builders_contract: None,
             osmosis_proxy: None,
-            staking_rate: msg.staking_rate.unwrap_or_else(|| Decimal::percent(10)),
+            staking_rate: msg.staking_rate.unwrap_or_else(|| Decimal::zero()),
             fee_wait_period: msg.fee_wait_period.unwrap_or_else(|| 3u64),
             unstaking_period: msg.unstaking_period.unwrap_or_else(|| 3u64 ),
             mbrn_denom: msg.mbrn_denom,
@@ -223,7 +223,11 @@ fn update_config(
         None => {},
     }
     match staking_rate {
-        Some( staking_rate ) => { 
+        Some( mut staking_rate ) => { 
+            //Hard code a 20% maximum
+            if staking_rate > Decimal::percent(20){
+                staking_rate = Decimal::percent(20)
+            }
             config.staking_rate = staking_rate.clone();
             attrs.push( attr("new_staking_rate", staking_rate.to_string()) );
         },

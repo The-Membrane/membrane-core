@@ -9,6 +9,9 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
+    #[error("Can't have duplicate withdrawal assets in assets field")]
+    DuplicateWithdrawalAssets {},
+
     #[error("Cw20Msg Error")]
     Cw20MsgError {},
 

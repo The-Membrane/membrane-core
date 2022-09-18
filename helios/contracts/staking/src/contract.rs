@@ -373,7 +373,8 @@ pub fn stake(
 
 }
 
-
+//First call is an unstake
+//2nd call is a withdrawal
 pub fn unstake(
     deps: DepsMut,
     env: Env,
@@ -490,6 +491,47 @@ pub fn unstake(
      Ok( response.add_attributes(attrs).add_messages(msgs) )
 }
 
+//Restake unstaking deposits for a user
+fn restake (
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    mut restake_amount: Uint128,
+) -> Result<Response, ContractError> {
+
+    let restaked_deposits = STAKED.load( deps.storage )?
+        .into_iter()
+        .map(|deposit| 
+            if deposit.staker == info.clone().sender && !restake_amount.is_zero() {
+
+                if deposit.amount >= restake_amount {
+
+                    //Zero restake_amount
+                    restake_amount = Uint128::zero();
+                    
+                    //Restake
+                    deposit.unstake_time = None;
+                    deposit.deposit_time = env.block.time.seconds();
+
+                } else if deposit.amount < restake_amount {
+                    
+                    //Sub from restake_amount
+                    restake_amount -= deposit.amount;
+
+                    //Restake
+                    deposit.unstake_time = None;
+                    deposit.deposit_time = env.block.time.seconds();
+
+                }
+                
+        })
+        .collect::<Vec<StakeDeposit>>();
+
+    //Save new Deposits
+    STAKED.save( deps.storage, &restaked_deposits )?;
+
+}
+
 //Returns claimable assets, accrued interest, withdrawable amount
 fn withdraw_from_state(
     storage:  &mut dyn Storage,
@@ -509,6 +551,8 @@ fn withdraw_from_state(
     let mut withdrawable_amount = Uint128::zero();
     let mut withdrawable = false;
 
+    let mut returning_deposit: Option<StakeDeposit> = None;
+
     let mut new_deposits: Vec<StakeDeposit> = deposits
         .into_iter()
         .map( |mut deposit| {
@@ -526,7 +570,7 @@ fn withdraw_from_state(
                 }
 
                 //Subtract from each deposit until there is none left to withdraw
-                if withdrawal_amount != Uint128::zero() &&  deposit.amount > withdrawal_amount{
+                if withdrawal_amount != Uint128::zero() &&  deposit.amount > withdrawal_amount {
 
                     //Calc claimables from this deposit
                     let (deposit_claimables, deposit_interest) = match get_deposit_claimables( config.clone(), env.clone(), fee_events.clone(), deposit.clone()){
@@ -556,7 +600,20 @@ fn withdraw_from_state(
                         deposit.amount = Uint128::zero();
                         withdrawable_amount += withdrawal_amount;
                     } else {
-                        //Else, Set the unstaking_start_time and stake_time to now
+                        //Set unstaking time for the amount getting withdrawn
+                        //Create a StakeDeposit object for the amount not getting unstaked
+                        if deposit.amount > withdrawal_amount && withdrawal_amount != Uint128::zero() {
+                            
+                            //Set new deposit 
+                            returning_deposit = Some( 
+                                StakeDeposit {
+                                    amount: deposit.amount - withdrawal_amount,
+                                    unstake_start_time: None,
+                                    ..deposit.clone()
+                            } );
+                        } 
+
+                        //Set the unstaking_start_time and stake_time to now
                         deposit.unstake_start_time = Some( env.block.time.seconds() );
                         //Since we claimed rewards
                         deposit.stake_time = env.block.time.seconds();
@@ -564,7 +621,7 @@ fn withdraw_from_state(
                     //Zero withdrawal_amount
                     withdrawal_amount = Uint128::zero();
 
-                }else if withdrawal_amount != Uint128::zero() && deposit.amount <= withdrawal_amount{
+                } else if withdrawal_amount != Uint128::zero() && deposit.amount <= withdrawal_amount{
 
                     //Calc claimables from this deposit
                     let (deposit_claimables, deposit_interest) = match get_deposit_claimables( config.clone(), env.clone(), fee_events.clone(), deposit.clone()){
@@ -595,7 +652,21 @@ fn withdraw_from_state(
                         withdrawable_amount += deposit.amount;
                         deposit.amount = Uint128::zero();
                     } else {
-                        //Else, Set the unstaking_start_time and stake_time to now
+
+                        //Set unstaking time for the amount getting withdrawn
+                        //Create a StakeDeposit object for the amount not getting unstaked
+                        if deposit.amount > withdrawal_amount && withdrawal_amount != Uint128::zero() {
+                            
+                            //Set new deposit 
+                            returning_deposit = Some( 
+                                StakeDeposit {
+                                    amount: deposit.amount - withdrawal_amount,
+                                    unstake_start_time: None,
+                                    ..deposit.clone()
+                            } );
+                        } 
+
+                        //Ee, Set the unstaking_start_time and stake_time to now
                         deposit.unstake_start_time = Some( env.block.time.seconds() );
                         //Since we claimed rewards
                         deposit.stake_time = env.block.time.seconds();
@@ -619,6 +690,11 @@ fn withdraw_from_state(
     if error.is_some(){
         return Err( error.unwrap() ) 
     }
+
+    //Push returning_deposit if some
+    if let Some( deposit ) = returning_deposit {
+        new_deposits.push( deposit );
+    } 
     
     //We set any edited deposit to zero and push any partial withdrawals back to the list here
     if !new_deposit_total.is_zero(){

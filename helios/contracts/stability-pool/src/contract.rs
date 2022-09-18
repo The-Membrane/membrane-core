@@ -402,6 +402,8 @@ pub fn withdraw(
         attr("position_owner", info.clone().sender.to_string()),
     ];
 
+    duplicate_asset_check( assets.clone() )?;
+
     //Each Asset
     for asset in assets.clone(){
         //We have to reload after every asset so we are using up to date data
@@ -491,6 +493,23 @@ pub fn withdraw(
     )
 }
 
+fn duplicate_asset_check(
+    assets: Vec<Asset>,
+) -> Result<(), ContractError>{
+    
+    //No duplicates
+    for ( i, asset ) in assets.clone().into_iter().enumerate(){
+        let mut assets_copy = assets.clone();
+        assets_copy.remove(i);
+
+        if let Some( _asset ) = assets_copy.into_iter().find(|asset_clone| asset_clone.info.equal(&asset.info)){
+            return Err( ContractError::DuplicateWithdrawalAssets {  } )
+        }
+    }
+
+    Ok( () )
+}
+
 fn withdrawal_from_state(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -508,9 +527,10 @@ fn withdrawal_from_state(
     let mut is_user = false;
     let mut withdrawable = false;
     let mut withdrawable_amount = Uint128::zero();
-    let initial_withdrawal = withdrawal_amount.clone();
+    
+    let mut returning_deposit: Option<Deposit> = None;
 
-    let new_deposits: Vec<Deposit> = pool.clone().deposits
+    let mut new_deposits: Vec<Deposit> = pool.clone().deposits
         .into_iter()
         .map( |mut deposit_item| {
             
@@ -529,8 +549,25 @@ fn withdrawal_from_state(
                         //If unstaking period hasn't passed do nothing
                         
                     } else {
-                        //Set unstaking time and don't withdraw anything
+                        //Set unstaking time for the amount getting withdrawn
+                        //Create a Deposit object for the amount not getting unstaked
+                        if deposit_item.amount > withdrawal_amount && withdrawal_amount != Decimal::zero() {
+                            
+                            //Set new deposit
+                            returning_deposit = Some( 
+                                Deposit {
+                                    amount: deposit_item.amount - withdrawal_amount,
+                                    unstake_time: None,
+                                    ..deposit_item.clone()
+                            } );
+
+                            //Set new deposit amount
+                            deposit_item.amount = withdrawal_amount;
+                        } 
+                         
                         deposit_item.unstake_time = Some( env.block.time.seconds() );
+                        
+                        
                     }
                 } else { //Allow regular withdraws if from Reply fn
                     //Makes sure no incentives are accrued
@@ -611,17 +648,18 @@ fn withdrawal_from_state(
         .filter( |deposit| deposit.amount != Decimal::zero())
         .collect::<Vec<Deposit>>();
 
+    //Push returning_deposit if some
+    if let Some( deposit ) = returning_deposit {
+        new_deposits.push( deposit );
+    }    
+
     //Set new deposits
     pool.deposits = new_deposits;
 
-    //If the msg is from the Repay fn, we subtract initial_withdrawal from the total pool amount
-    // if skip_unstaking { 
-    //     pool.credit_asset.amount -= initial_withdrawal * Uint128::new(1u128);
-    // } else {
-        //Subtract withdrawable from total pool amount
-        pool.credit_asset.amount -= withdrawable_amount;
-    // }
     
+    //Subtract withdrawable from total pool amount
+    pool.credit_asset.amount -= withdrawable_amount;
+        
 
     if error.is_some(){
         return Err( ContractError::CustomError { val: error.unwrap().to_string() } )

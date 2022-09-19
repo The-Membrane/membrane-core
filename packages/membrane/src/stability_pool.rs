@@ -41,9 +41,12 @@ pub enum ExecuteMsg {
         user: Option<String>,
         assets: Vec<AssetInfo>,
     },
-    Withdraw { //Withdraw a list of accepted assets 
+    Withdraw { // Unstake/Withdraw a list of accepted assets 
         assets: Vec<Asset>
     }, 
+    Restake { //Restake unstak(ed/ing) assets
+        restake_asset: LiqAsset,
+    },
     Claim { //Claim ALL liquidation revenue && MBRN incentives
         claim_as_native: Option<String>, //Native FullDenom
         claim_as_cw20: Option<String>, //Contract Address

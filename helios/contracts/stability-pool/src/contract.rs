@@ -136,7 +136,8 @@ pub fn execute(
 
             deposit( deps, env, info, user, valid_assets )
         },
-        ExecuteMsg::Withdraw{ assets }=> withdraw( deps, env, info, assets ),
+        ExecuteMsg::Withdraw{ assets } => withdraw( deps, env, info, assets ),
+        ExecuteMsg::Restake { restake_asset } => restake(deps, env, info, restake_asset),
         ExecuteMsg::Liquidate { credit_asset } => liquidate( deps, info, credit_asset ),
         ExecuteMsg::Claim { claim_as_native, claim_as_cw20, deposit_to } => claim( deps, info, claim_as_native, claim_as_cw20, deposit_to ),
         ExecuteMsg::AddPool { asset_pool } => add_asset_pool( deps, info, asset_pool.credit_asset, asset_pool.liq_premium ),
@@ -496,7 +497,7 @@ pub fn withdraw(
 fn duplicate_asset_check(
     assets: Vec<Asset>,
 ) -> Result<(), ContractError>{
-    
+
     //No duplicates
     for ( i, asset ) in assets.clone().into_iter().enumerate(){
         let mut assets_copy = assets.clone();
@@ -700,6 +701,77 @@ fn withdrawal_from_state(
    
 
     Ok( ( withdrawable_amount, pool ) )
+}
+
+//Restake unstaking deposits for a user
+fn restake (
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    mut restake_asset: LiqAsset,
+) -> Result<Response, ContractError> {
+
+    let initial_restake = restake_asset.clone().amount;
+
+    let mut new_pool: AssetPool;
+
+    if let Some( mut pool ) =  ASSETS.load( deps.storage )?
+    .into_iter()
+    .find(| pool|pool.credit_asset.info.equal(&restake_asset.info)){
+
+        pool.deposits = pool.deposits
+            .into_iter()
+            .map(|mut deposit|{
+                if deposit.user == info.clone().sender && !restake_asset.amount.is_zero() {
+
+                if deposit.amount >= restake_asset.amount {
+
+                    //Zero restake_amount
+                    restake_asset.amount = Decimal::zero();
+                    
+                    //Restake
+                    deposit.unstake_time = None;
+                    deposit.deposit_time = env.block.time.seconds();
+
+                } else if deposit.amount < restake_asset.amount {
+                    
+                    //Sub from restake_amount
+                    restake_asset.amount -= deposit.amount;
+
+                    //Restake
+                    deposit.unstake_time = None;
+                    deposit.deposit_time = env.block.time.seconds();
+
+                }
+                
+            }        
+            deposit
+            }
+
+            )
+            .collect::<Vec<Deposit>>();
+
+        new_pool = pool;
+
+    } else {
+        return Err( ContractError::InvalidAsset {  } )
+    }
+        
+    //Filter for pools other than the restake asset
+    let mut temp_pools: Vec<AssetPool> =  ASSETS.load( deps.storage )?
+        .into_iter()
+        .filter(|pool| !pool.credit_asset.info.equal(&restake_asset.info))
+        .collect::<Vec<AssetPool>>();
+    temp_pools.push( new_pool );
+
+    //Save new Deposits
+    ASSETS.save( deps.storage, &temp_pools )?;
+
+    Ok( Response::new().add_attributes(vec![
+        attr("method", "restake"),
+        attr("restake_amount", initial_restake.to_string() ),
+    ]) )
+
 }
 
  /*

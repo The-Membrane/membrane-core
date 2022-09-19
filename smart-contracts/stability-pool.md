@@ -159,7 +159,7 @@ Withdraw caller owned deposits from corresponding Asset Pools
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Withdraw { //Withdraw a list of accepted assets 
+    Withdraw { 
         assets: Vec<Asset>
     }
 }
@@ -168,6 +168,24 @@ pub enum ExecuteMsg {
 | Key      | Type        | Description            |
 | -------- | ----------- | ---------------------- |
 | `assets` | Vec\<Asset> | Assets to be withdrawn |
+
+### `Restake`
+
+Restake unstak(ed/ing) assets
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecuteMsg {
+    Restake { 
+        restake_asset: LiqAsset,
+    }
+}
+```
+
+| Key             | Type     | Description       |
+| --------------- | -------- | ----------------- |
+| `restake_asset` | LiqAsset | Asset to restake  |
 
 ### `Liquidate`
 

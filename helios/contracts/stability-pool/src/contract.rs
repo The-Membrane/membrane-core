@@ -40,9 +40,9 @@ pub fn instantiate(
     if msg.owner.is_some(){
         config = Config {
             owner: deps.api.addr_validate(&msg.owner.unwrap())?, 
-            incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(0)),
-            max_incentives: msg.max_incentives.unwrap_or_else(|| Uint128::new(70_000_000_000_000)),
-            desired_ratio_of_total_credit_supply: msg.desired_ratio_of_total_credit_supply.unwrap_or_else(|| Decimal::percent(0)),
+            incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(10)),
+            max_incentives: msg.max_incentives.unwrap_or_else(|| Uint128::new(10_000_000_000_000)),
+            desired_ratio_of_total_credit_supply: msg.desired_ratio_of_total_credit_supply.unwrap_or_else(|| Decimal::percent(20)),
             unstaking_period: 1u64,
             mbrn_denom: msg.mbrn_denom,
             osmosis_proxy: deps.api.addr_validate( &msg.osmosis_proxy )?,
@@ -53,9 +53,9 @@ pub fn instantiate(
     }else{
         config = Config {
             owner: info.sender.clone(),
-            incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(0)),
-            max_incentives: msg.max_incentives.unwrap_or_else(|| Uint128::new(70_000_000_000_000)),
-            desired_ratio_of_total_credit_supply: msg.desired_ratio_of_total_credit_supply.unwrap_or_else(|| Decimal::percent(0)),
+            incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(10)),
+            max_incentives: msg.max_incentives.unwrap_or_else(|| Uint128::new(10_000_000_000_000)),
+            desired_ratio_of_total_credit_supply: msg.desired_ratio_of_total_credit_supply.unwrap_or_else(|| Decimal::percent(20)),
             unstaking_period: 1u64,
             mbrn_denom: msg.mbrn_denom,
             osmosis_proxy: deps.api.addr_validate( &msg.osmosis_proxy )?,

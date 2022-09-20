@@ -13,7 +13,7 @@ mod tests {
     use membrane::math::Uint256;
     
     use osmo_bindings::{ SpotPriceResponse, PoolStateResponse, ArithmeticTwapToNowResponse };
-    use cosmwasm_std::{Addr, Coin, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr, StdError };
+    use cosmwasm_std::{Addr, Coin, Empty, Uint128, Decimal, Response, StdResult, Binary, from_binary, to_binary, coin, attr, StdError };
     use cw_multi_test::{App, AppBuilder, Contract, ContractWrapper, Executor, BankKeeper};
     use schemars::JsonSchema;
     use serde::{ Deserialize, Serialize };
@@ -1754,7 +1754,7 @@ mod tests {
             liq_queue: None,
         };
         let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-        app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+        let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
         let msg = ExecuteMsg::EditBasket {
             basket_id: Uint128::from(1u128), 

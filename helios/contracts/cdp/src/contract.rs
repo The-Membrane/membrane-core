@@ -756,7 +756,7 @@ fn handle_withdraw_reply(
     msg: Reply,
 ) -> StdResult<Response>{
 
-    //Initiate Response Attributes
+    //Initialize Response Attributes
     let mut attrs = vec![];
 
     //Match on msg.result
@@ -823,7 +823,7 @@ fn handle_withdraw_reply(
             //The reply_order numbers are used to loop the logic on the list of native assets whenever it arrives while still allowing Cw20s to work in the reply
 
         },//We only reply on success 
-        Err( err ) => {return Err( StdError::GenericErr { msg: err } )}
+        Err( err ) => { return Err( StdError::GenericErr { msg: err } ) }
 
     }
 
@@ -834,6 +834,10 @@ fn handle_withdraw_reply(
 }
 
 fn handle_create_denom_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
+
+    //Initialize Response Attributes
+    let mut attrs = vec![];
+
     match msg.result.into_result(){
         Ok( result ) => {
 
@@ -889,18 +893,26 @@ fn handle_create_denom_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
 
                         Ok( basket )
                     },
-                    None => {return Err( StdError::GenericErr { msg: "Non-existent basket".to_string() } )},
+                    None => {
+                        return Err( StdError::GenericErr { msg: "Non-existent basket".to_string() } )
+                    },
                 }
             })?;
 
             //Save liquidity_multiplier to credit_asset
-            CREDIT_MULTI.save( deps.storage, res.denom, &liquidity_multiplier )?;
+            CREDIT_MULTI.save( deps.storage, res.clone().denom, &liquidity_multiplier )?;
+
+            //Add Response attributes
+            attrs.extend(vec![
+                attr("full_denom", res.clone().denom ),
+                attr("liquidity_multiplier", liquidity_multiplier.to_string() ),
+            ]);
                 
         },//We only reply on success 
-        Err( err ) => {return Err( StdError::GenericErr { msg: err } )}
+        Err( err ) => { return Err( StdError::GenericErr { msg: err } ) }
 
     }
-    Ok( Response::new() ) 
+    Ok( Response::new().add_attributes( attrs ) ) 
 }
 
 

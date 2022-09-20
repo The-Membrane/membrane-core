@@ -12,6 +12,7 @@ use cw20::{ Cw20ExecuteMsg, Cw20ReceiveMsg };
 
 use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg };
 use membrane::staking::{ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, TotalStakedResponse, StakedResponse, FeeEventsResponse, RewardsResponse, StakerResponse };
+use membrane::apollo_router::{ ExecuteMsg as RouterExecuteMsg };
 use membrane::types::{ LiqAsset, Asset, AssetInfo, StakeDeposit, FeeEvent };
 
 #[test]
@@ -353,10 +354,25 @@ fn claim_rewards() {
     let info = mock_info("sender88", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
-    //Successful Stake
+    //Successful Stake for User 1
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("sender88", &[coin( 10_000_000, "mbrn_denom")]);
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let info = mock_info("user_1", &[coin( 10_000_000, "mbrn_denom")]);
+    let _res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap(); 
+
+     //Successful Stake for User 2
+     let msg = ExecuteMsg::Stake { user: None };
+     let info = mock_info("user_2", &[coin( 10_000_000, "mbrn_denom")]);
+     let _res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap(); 
+
+      //Successful Stake for User 3
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("user_3", &[coin( 10_000_000, "mbrn_denom")]);
+    let _res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap(); 
+
+     //Successful Stake for User 4
+     let msg = ExecuteMsg::Stake { user: None };
+     let info = mock_info("user_4", &[coin( 10_000_000, "mbrn_denom")]);
+     let _res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap(); 
 
     //Successful Stake from builders contract
     let msg = ExecuteMsg::Stake { user: None };
@@ -384,7 +400,7 @@ fn claim_rewards() {
     let info = mock_info("positions_contract", &[ coin( 10_000_000_000, "fee_asset" ) ]);
     let mut env = mock_env();
     env.block.time = env.block.time.plus_seconds(86_400u64 * 3u64);
-    let _res = execute(deps.as_mut(), env, info.clone(), msg).unwrap();
+    let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
    
 
@@ -392,7 +408,7 @@ fn claim_rewards() {
     let res = query(deps.as_ref(),
         mock_env(),
         QueryMsg::StakerRewards {
-            staker: String::from("sender88"),   
+            staker: String::from("user_1"),   
         })
         .unwrap();
 
@@ -400,7 +416,7 @@ fn claim_rewards() {
     assert_eq!(resp.claimables, vec![
         Asset {
             info: AssetInfo::NativeToken { denom: String::from("fee_asset") },
-            amount: Uint128::new(4_761_904_761u128),
+            amount: Uint128::new(1_960_784_313u128),
         }
     ]);   
 
@@ -416,7 +432,7 @@ fn claim_rewards() {
     assert_eq!(resp.claimables, vec![
         Asset {
             info: AssetInfo::NativeToken { denom: String::from("fee_asset") },
-            amount: Uint128::new(5_238_095_238u128),
+            amount: Uint128::new(2_156_862_745u128),
         }
     ]);   
 
@@ -431,6 +447,150 @@ fn claim_rewards() {
     let err = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap_err();
     assert_eq!(err.to_string(), "Generic error: User has no stake".to_string() );
 
+    //Error
+    let claim_msg = ExecuteMsg::ClaimRewards { 
+        claim_as_native: Some( String::from("credit") ), 
+        claim_as_cw20: Some( String::from("protocol_token") ),
+        send_to: None,
+        restake: false,
+    }; 
+    //Can't claim as two different assets Error
+    let err = execute(deps.as_mut(), mock_env(), info.clone(), claim_msg).unwrap_err();
+    assert_eq!(err.to_string(), String::from("Custom Error val: \"Can't claim as multiple assets, if not all claimable assets\""));
+    
+
+    //Claim As Native
+    let claim_msg = ExecuteMsg::ClaimRewards { 
+        claim_as_native: Some( String::from("credit") ), 
+        claim_as_cw20: None, 
+        send_to: None,
+        restake: false,
+    };
+    let info = mock_info("user_1", &[]);
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), claim_msg).unwrap();
+    assert_eq!(res.messages, 
+        vec![
+        SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: String::from("router_addr"),
+            funds: coins(1_960_784_313, "fee_asset"),
+            msg: to_binary(&RouterExecuteMsg::SwapFromNative { 
+                to:  AssetInfo::NativeToken { denom: String::from("credit") }, 
+                max_spread: Some( Decimal::percent(10) ), 
+                recipient: Some( String::from("user_1") ), 
+                hook_msg: None, 
+                split: None, 
+            }).unwrap()})),
+        SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: String::from("osmosis_proxy"),
+            funds: vec![],
+            msg: to_binary(&OsmoExecuteMsg::MintTokens { 
+                denom: String::from("mbrn_denom"), 
+                amount: Uint128::new(8219u128), 
+                mint_to_address: String::from("user_1")
+            }).unwrap()}))]
+    );
+        
+    //Claim As Native + send_to
+    let claim_msg = ExecuteMsg::ClaimRewards { 
+        claim_as_native: Some( String::from("credit") ), 
+        claim_as_cw20: None, 
+        send_to: Some( String::from("receiver") ),
+        restake: false,
+    };
+    let info = mock_info("user_2", &[]);
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), claim_msg).unwrap();
+    assert_eq!(res.messages, 
+        vec![
+        SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: String::from("router_addr"),
+            funds: coins(1_960_784_313, "fee_asset"),
+            msg: to_binary(&RouterExecuteMsg::SwapFromNative { 
+                to:  AssetInfo::NativeToken { denom: String::from("credit") }, 
+                max_spread: Some( Decimal::percent(10) ), 
+                recipient: Some( String::from("receiver") ), 
+                hook_msg: None, 
+                split: None, 
+            }).unwrap()})),
+        SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: String::from("osmosis_proxy"),
+            funds: vec![],
+            msg: to_binary(&OsmoExecuteMsg::MintTokens { 
+                denom: String::from("mbrn_denom"), 
+                amount: Uint128::new(8219u128), 
+                mint_to_address: String::from("receiver")
+            }).unwrap()}))]
+    );
+
+    //Claim As Cw20
+    let claim_msg = ExecuteMsg::ClaimRewards { 
+        claim_as_native: None, 
+        claim_as_cw20: Some( String::from("credit") ), 
+        send_to: None,
+        restake: false,
+    };
+    let info = mock_info("user_3", &[]);
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), claim_msg).unwrap();
+    assert_eq!(res.messages, 
+        vec![ SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: String::from("router_addr"),
+            funds: coins(1_960_784_313, "fee_asset"),
+            msg: to_binary(&RouterExecuteMsg::SwapFromNative { 
+                to:  AssetInfo::Token { address: Addr::unchecked("credit") }, 
+                max_spread: Some( Decimal::percent(10) ), 
+                recipient: Some( String::from("user_3") ), 
+                hook_msg: None, 
+                split: None, 
+            }).unwrap()})),
+        SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: String::from("osmosis_proxy"),
+            funds: vec![],
+            msg: to_binary(&OsmoExecuteMsg::MintTokens { 
+                denom: String::from("mbrn_denom"), 
+                amount: Uint128::new(8219u128), 
+                mint_to_address: String::from("user_3")
+            }).unwrap()}))]
+    );
+
+    //Claim As Cw20 + send_to
+    let claim_msg = ExecuteMsg::ClaimRewards { 
+        claim_as_native: None, 
+        claim_as_cw20: Some( String::from("credit") ), 
+        send_to: Some( String::from("receiver") ),
+        restake: false,
+    };
+    let info = mock_info("user_4", &[]);
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), claim_msg).unwrap();
+    assert_eq!(res.messages, 
+        vec![ SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: String::from("router_addr"),
+            funds: coins(1_960_784_313, "fee_asset"),
+            msg: to_binary(&RouterExecuteMsg::SwapFromNative { 
+                to:  AssetInfo::Token { address: Addr::unchecked("credit") }, 
+                max_spread: Some( Decimal::percent(10) ), 
+                recipient: Some( String::from("receiver") ), 
+                hook_msg: None, 
+                split: None, 
+            }).unwrap()})),
+        SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: String::from("osmosis_proxy"),
+            funds: vec![],
+            msg: to_binary(&OsmoExecuteMsg::MintTokens { 
+                denom: String::from("mbrn_denom"), 
+                amount: Uint128::new(8219u128), 
+                mint_to_address: String::from("receiver")
+            }).unwrap()}))]
+    );
+
+    
+
+    //Reset Rewards
+    //Successful DepositFee after the Staker's waiting period
+    let msg = ExecuteMsg::DepositFee { };
+    let info = mock_info("positions_contract", &[ coin( 10_000_000_000, "fee_asset" ) ]);
+    env.block.time = env.block.time.plus_seconds(86_400u64 * 3u64);
+    let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+     
 
     //Successful Staker ClaimRewards
     let msg = ExecuteMsg::ClaimRewards { 
@@ -439,24 +599,23 @@ fn claim_rewards() {
         send_to: None,
         restake: false,
     };
-    let info = mock_info("sender88", &[]);
-
-    let mut env = mock_env();
-    env.block.time = env.block.time.plus_seconds(31_536_000);
+    let info = mock_info("user_1", &[]);
+    
+    env.block.time = env.block.time.plus_seconds(31_536_000); //Seconds in a Year
 
     let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
     assert_eq!(res.messages, vec![
         SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
-            to_address: String::from("sender88"),
-            amount: coins(4_761_904_761, "fee_asset"),
+            to_address: String::from("user_1"),
+            amount: coins(1_960_784_313, "fee_asset"),
         })),
         SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: String::from("osmosis_proxy"),
             funds: vec![],
             msg: to_binary(&OsmoExecuteMsg::MintTokens { 
                 denom: String::from("mbrn_denom"), 
-                amount: Uint128::new(1_000_000u128), 
-                mint_to_address: String::from("sender88")
+                amount: Uint128::new(1_008_219u128), 
+                mint_to_address: String::from("user_1")
             }).unwrap()})),
     ]);
     
@@ -473,14 +632,13 @@ fn claim_rewards() {
     };
     let info = mock_info("builders_contract", &[]);
 
-    let mut env = mock_env();
     env.block.time = env.block.time.plus_seconds(31_536_000);
 
     let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
     assert_eq!(res.messages, vec![
         SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
             to_address: String::from("builders_contract"),
-            amount: coins(5_238_095_238, "fee_asset"),
+            amount: coins(4_313_725_490, "fee_asset"),
         })),
     ]);
 
@@ -491,7 +649,7 @@ fn claim_rewards() {
         send_to: None,
         restake: true,
     };
-    let info = mock_info("sender88", &[]);
+    let info = mock_info("user_1", &[]);
     env.block.time = env.clone().block.time.plus_seconds(31_536_000);
 
     let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
@@ -501,14 +659,14 @@ fn claim_rewards() {
             funds: vec![ ],
             msg: to_binary(&OsmoExecuteMsg::MintTokens { 
                 denom: String::from("mbrn_denom"), 
-                amount: Uint128::new(1_000_000u128), 
+                amount: Uint128::new(2_000_000u128), 
                 mint_to_address: String::from("cosmos2contract")
             }).unwrap()})),
         SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: String::from("cosmos2contract"),
-            funds: vec![ coin(1_000_000, "mbrn_denom") ],
+            funds: vec![ coin(2_000_000, "mbrn_denom") ],
             msg: to_binary(&ExecuteMsg::Stake {
-                user: Some( String::from("sender88") ),
+                user: Some( String::from("user_1") ),
             }).unwrap()})),
     ]);
 
@@ -520,7 +678,7 @@ fn claim_rewards() {
         send_to: Some( String::from("receiver") ),
         restake: false,
     };
-    let info = mock_info("sender88", &[]);
+    let info = mock_info("user_1", &[]);
     env.block.time = env.clone().block.time.plus_seconds(31_536_000);
 
     let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();

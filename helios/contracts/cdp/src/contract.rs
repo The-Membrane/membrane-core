@@ -918,6 +918,9 @@ fn handle_create_denom_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{
 
 fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{
 
+    //Initialize Response Attributes
+    let mut attrs = vec![];
+
     match msg.result.into_result(){
          Ok(result)  => {
             //1) Parse potential leftover amount and send to sell_wall if there is any
@@ -925,7 +928,6 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             //There should only be leftover here if the SP loses funds between the query and the repayment
             //2) Send collateral to the SP in the repay function and call distribute
 
-            let mut res = Response::new();
 
             let liq_event = result
                 .events
@@ -953,6 +955,8 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             //Success w/o leftovers: Send LQ leftovers to the SP
             //Error: Sell Wall combined leftovers
             if leftover_amount != Uint128::zero(){
+
+                attrs.push( attr( "leftover_amount", leftover_amount.clone().to_string() ) );
 
 
                 //Sell Wall SP, LQ and User's SP Fund leftovers 
@@ -994,12 +998,15 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                         query_stability_pool_liquidatible(
                             deps.querier, 
                             config.clone(), 
-                            repay_propagation.liq_queue_leftovers,
+                            repay_propagation.clone().liq_queue_leftovers,
                             basket.clone().credit_asset.info
                         )?;
+                
 
                 //If there are leftovers, send to sell wall 
                 if leftover_repayment > Decimal::zero(){
+
+                    attrs.push( attr( "leftover_amount", leftover_repayment.clone().to_string() ) );
 
                     //Sell wall remaining
                     let ( sell_wall_msgs, collateral_distributions ) = sell_wall_using_ids( 
@@ -1025,12 +1032,14 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                         }).collect::<Vec<SubMsg>>() );
 
                 }
-
+                
                 //Send whatever is able to the Stability Pool
-                let sp_repay_amount = repay_propagation.liq_queue_leftovers - leftover_repayment;
-                
-                
+                let sp_repay_amount = decimal_subtraction( repay_propagation.clone().liq_queue_leftovers, leftover_repayment.clone() );
+                                                
                 if !sp_repay_amount.is_zero(){
+
+                    attrs.push( attr( "sent_to_sp", sp_repay_amount.clone().to_string() ) );
+
                     //Stability Pool message builder
                     let liq_msg = SP_ExecuteMsg::Liquidate {
                         credit_asset: LiqAsset{
@@ -1052,9 +1061,9 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                     //Remove repayment from leftovers
                     repay_propagation.liq_queue_leftovers -= sp_repay_amount;
 
-                    //If the first stability pool message succeed and needs to call a 2nd, 
-                    //We set the stability_pool amount in the propogation to the 2nd amount
-                    //If the 2nd errors, then it'll sell wall the correct amount 
+                    //If the first stability pool message succeed and needs to call a 2nd here, 
+                    //We set the stability_pool amount in the propogation to the 2nd amount so that...
+                    //..if the 2nd errors, then it'll sell wall the correct amount 
                     repay_propagation.stability_pool = sp_repay_amount;
 
                     REPAY.save(deps.storage, &repay_propagation)?;
@@ -1064,8 +1073,11 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                 
             }
             
-            //TODO: Add detail
-            Ok( res.add_submessages(submessages) )
+            
+            Ok( Response::new()
+                .add_submessages(submessages)
+                .add_attributes(attrs) 
+            )
 
              
             
@@ -1085,6 +1097,8 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                 repay_propagation.liq_queue_leftovers + repay_propagation.stability_pool,
                 )?;
 
+            attrs.push( attr("sent_to_sell_wall", (repay_propagation.liq_queue_leftovers + repay_propagation.stability_pool).to_string() ) );
+
             //Set both liq amounts to 0
             repay_propagation.liq_queue_leftovers = Decimal::zero();
             repay_propagation.stability_pool = Decimal::zero();
@@ -1101,8 +1115,8 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                     SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
                 }).collect::<Vec<SubMsg>>() );
 
-            //TODO: Add detail
-            Ok( res )
+            
+            Ok( res.add_attributes( attrs ) )
 
         }        
     }        

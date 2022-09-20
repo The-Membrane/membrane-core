@@ -37,7 +37,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -693,7 +693,7 @@ fn handle_sp_repay_reply(
 ) -> StdResult<Response>{
 
     match msg.result.into_result(){
-        Ok(result)  => {
+        Ok( _result )  => {
            //Its reply on error only
            Ok( Response::new() )          
            
@@ -755,14 +755,19 @@ fn handle_withdraw_reply(
     env: Env,
     msg: Reply,
 ) -> StdResult<Response>{
+
+    //Initiate Response Attributes
+    let mut attrs = vec![];
+
+    //Match on msg.result
     match msg.result.into_result(){
         Ok( _result ) => {
-            let mut withdraw_prop = WITHDRAW.load( deps.storage )?;  
 
+            let mut withdraw_prop = WITHDRAW.load( deps.storage )?;  
             
             //Assert valid withdrawal for each asset this reply is 
-            for i in 0..withdraw_prop.reply_order[0]{                                    
-            
+            for i in 0..withdraw_prop.reply_order[0]{          
+                                            
                 let asset_info: AssetInfo = withdraw_prop.positions_prev_collateral[0].clone().info;
                 let position_amount: Uint128 = withdraw_prop.positions_prev_collateral[0].amount;
                 let withdraw_amount: Uint128 = withdraw_prop.withdraw_amounts[0];
@@ -790,11 +795,18 @@ fn handle_withdraw_reply(
                 //Assert the withdrawal was correctly saved to state
                 if let Some(cAsset) = user_position.collateral_assets.into_iter().find(|cAsset| cAsset.asset.info.equal(&asset_info)) {
                     if cAsset.asset.amount != ( position_amount - withdraw_amount ){
-                        panic!("{}, {}, {}", cAsset.asset.amount,  position_amount, withdraw_amount);
                         return Err( StdError::GenericErr { msg: format!("Conditional 2: Invalid withdrawal, possible bug found by {}", withdraw_prop.position_info.position_owner) } )
                     }
                 }
                 
+                //Add Success attributes
+                attrs.push(
+                    attr( "successful_withdrawal", Asset {
+                        info: asset_info,
+                        amount: withdraw_amount,
+                    }.to_string() )
+                );
+
                 //Remove the first entry from each field
                 withdraw_prop.positions_prev_collateral.remove(0);
                 withdraw_prop.withdraw_amounts.remove(0);
@@ -816,7 +828,9 @@ fn handle_withdraw_reply(
     }
 
 
-    Ok( Response::new() ) 
+    Ok( Response::new()
+        .add_attributes( attrs ) 
+    ) 
 }
 
 fn handle_create_denom_reply(deps: DepsMut, msg: Reply) -> StdResult<Response>{

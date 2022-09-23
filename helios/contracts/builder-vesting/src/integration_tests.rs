@@ -1,10 +1,10 @@
 #[cfg(test)]
+#[allow(unused_variables)]
 mod tests {
     
     use crate::helpers::{ BVContract };
             
     use cw20::BalanceResponse;
-    use membrane::math::Uint256;
     use membrane::builder_vesting::{ InstantiateMsg, QueryMsg, ExecuteMsg, ReceiverResponse };
     use membrane::staking::{ RewardsResponse };
     use membrane::osmosis_proxy::{ GetDenomResponse };
@@ -12,13 +12,12 @@ mod tests {
 
     
     use osmo_bindings::{ SpotPriceResponse, PoolStateResponse, ArithmeticTwapToNowResponse };
-    use cosmwasm_std::{Addr, Coin, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr, StdError };
+    use cosmwasm_std::{Addr, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr };
     use cw_multi_test::{App, AppBuilder, Contract, ContractWrapper, Executor, BankKeeper};
     use schemars::JsonSchema;
     use serde::{ Deserialize, Serialize };
 
 
-    const USER: &str = "user";
     const ADMIN: &str = "admin";
 
     //Builder's Contract
@@ -398,8 +397,6 @@ mod tests {
     mod builders {
         
         use super::*;
-        use cosmwasm_std::BlockInfo;
-        use cw20::Cw20ReceiveMsg;
         
 
         #[test]

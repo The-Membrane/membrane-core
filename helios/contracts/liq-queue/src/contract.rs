@@ -1,19 +1,15 @@
 use std::env;
-use std::error::Error;
-use std::ops::Index;
 
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Storage, Addr, Api, Uint128, CosmosMsg, BankMsg, WasmMsg, Coin, Decimal, BankQuery, BalanceResponse, QueryRequest, WasmQuery, QuerierWrapper, attr, CanonicalAddr};
-use cosmwasm_storage::{ReadonlyBucket, Bucket};
+use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError,  Addr, Api, Uint128, QueryRequest, WasmQuery, attr};
 use cw2::set_contract_version;
-use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg};
-use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, SlotResponse, ClaimsResponse };
+use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg };
 //use cw_multi_test::Contract;
-use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, Cw20HookMsg as CDP_Cw20HookMsg, BasketResponse};
-use membrane::types::{ Asset, AssetInfo, LiqAsset, cAsset,  UserRatio, BidInput, Bid, Queue, PremiumSlot, PositionUserInfo };
-use membrane::math::{ Uint256, Decimal256, decimal_division, decimal_subtraction, decimal_multiplication};
+use membrane::positions::{ QueryMsg as CDP_QueryMsg, BasketResponse};
+use membrane::types::{ Asset, AssetInfo, Queue, PremiumSlot };
+use membrane::math::{ Uint256, Decimal256 };
 
 
 use crate::bid::{submit_bid, retract_bid, execute_liquidation, claim_liquidations, store_queue};
@@ -21,7 +17,7 @@ use crate::error::ContractError;
 //use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, SlotResponse, ClaimsResponse, PositionUserInfo};
 use crate::query::{query_config, query_liquidatible, query_premium_slots, query_user_claims, query_premium_slot, query_bid, query_queue, query_queues, query_bids_by_user};
 //use crate::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
-use crate::state::{ CONFIG, Config, QUEUES, EPOCH_SCALE_SUM};
+use crate::state::{ CONFIG, Config, QUEUES };
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:liq-queue";
@@ -37,30 +33,49 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
 
-
     let config: Config;
+
+    let positions_contract = deps.api.addr_validate(&msg.positions_contract)?;
+
+    //Set Bid Asset
+    let bid_asset: AssetInfo;
+    if let Some( basket_id ) = msg.basket_id {
+        
+        //Get bid_asset from Basket
+        bid_asset = deps.querier.query::<BasketResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+            contract_addr: positions_contract.clone().to_string(), 
+            msg: to_binary(&CDP_QueryMsg::GetBasket { basket_id })?,
+        }))?
+        .credit_asset
+        .info;
+    } else if let Some( asset) = msg.bid_asset {
+        bid_asset = asset;
+    } else {
+        return Err( ContractError::CustomError { val: String::from("Need a bid_asset") } )
+    };
+
     if msg.owner.is_some(){
         config = Config {
             owner: deps.api.addr_validate(&msg.owner.unwrap())?,  
-            positions_contract: deps.api.addr_validate(&msg.positions_contract)?,  
+            positions_contract,  
             waiting_period: msg.waiting_period,
             added_assets: Some(vec![]),
-            basket_id: msg.basket_id,
+            bid_asset,
         };
     }else{
         config = Config {
             owner: info.sender.clone(),  
-            positions_contract: deps.api.addr_validate(&msg.positions_contract)?,  
+            positions_contract,  
             waiting_period: msg.waiting_period,
             added_assets: Some(vec![]),
-            basket_id: msg.basket_id,
+            bid_asset,
         };
     }
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
 
-    let mut res = Response::new();
+    let res = Response::new();
     let mut attrs = vec![];
 
     attrs.push(("method", "instantiate"));
@@ -127,8 +142,17 @@ fn update_config(
     if waiting_period.is_some(){
         config.waiting_period = waiting_period.unwrap();
     }
-    if let Some( id ) = basket_id {
-        config.basket_id = id;
+    if let Some( basket_id ) = basket_id {
+
+        //Get bid_asset from Basket
+        let bid_asset = deps.querier.query::<BasketResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+            contract_addr: config.clone().positions_contract.to_string(), 
+            msg: to_binary(&CDP_QueryMsg::GetBasket { basket_id, })?,
+        }))?
+        .credit_asset
+        .info;
+
+        config.bid_asset = bid_asset;
     }
 
     CONFIG.save( deps.storage, &config)?;
@@ -137,7 +161,7 @@ fn update_config(
         attr("method", "update_config"),
         attr("owner", config.owner.to_string()),
         attr("waiting_period", config.waiting_period.to_string()),
-        attr("basket_id", config.basket_id.to_string()),
+        attr("basket_id", config.bid_asset.to_string()),
     ]))
 }
 
@@ -148,7 +172,7 @@ fn edit_queue(
     max_premium: Option<Uint128>, 
     bid_threshold: Option<Uint256>, 
 )-> Result<Response, ContractError>{
-    let mut config = CONFIG.load(deps.storage)?;
+    let config = CONFIG.load(deps.storage)?;
 
     if info.sender != config.owner{
         return Err(ContractError::Unauthorized {  })
@@ -180,15 +204,9 @@ fn add_queue(
     bid_threshold: Uint256,
 )-> Result<Response, ContractError>{
   
-
     let mut config = CONFIG.load(deps.storage)?;
 
-    let bid_asset = deps.querier.query::<BasketResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
-        contract_addr: config.clone().positions_contract.to_string(), 
-        msg: to_binary(&CDP_QueryMsg::GetBasket { basket_id: config.clone().basket_id })?,
-    }))?
-    .credit_asset
-    .info;
+    let bid_asset = config.clone().bid_asset;
 
     if info.sender != config.owner{
         return Err(ContractError::Unauthorized {  })
@@ -226,7 +244,7 @@ fn add_queue(
     //Save new queue
     QUEUES.update(deps.storage, bid_for.to_string(), |queue| -> Result<Queue, ContractError>{
         match queue {
-            Some( queue) => { return Err(ContractError::DuplicateQueue {  }) }, 
+            Some( _queue) => { return Err(ContractError::DuplicateQueue {  }) }, 
             None => { Ok( new_queue ) }
         }
     })?;
@@ -293,7 +311,7 @@ pub fn validate_position_owner(
 
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {  } => to_binary(&query_config( deps )?),
         QueryMsg::CheckLiquidatible { bid_for, collateral_price, collateral_amount, credit_info, credit_price } => to_binary( &query_liquidatible( deps, bid_for, collateral_price, collateral_amount, credit_info, credit_price )?),

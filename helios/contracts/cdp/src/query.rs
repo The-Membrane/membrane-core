@@ -1,21 +1,20 @@
-use std::cmp::min;
 
-use cosmwasm_std::{Deps, StdResult, Uint128, Addr, StdError, Order, QuerierWrapper, Decimal, to_binary, QueryRequest, WasmQuery, Storage, Env, MessageInfo};
+use cosmwasm_std::{Deps, StdResult, Uint128, Addr, StdError, Order, QuerierWrapper, Decimal, to_binary, QueryRequest, WasmQuery, Storage, Env};
 
 use cw_storage_plus::Bound;
 
 use membrane::oracle::{ QueryMsg as OracleQueryMsg, PriceResponse };
 use membrane::positions::{PropResponse, ConfigResponse, PositionResponse, BasketResponse, PositionsResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse, InterestResponse, CollateralInterestResponse};
-use membrane::types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PriceInfo, PositionUserInfo, InsolventPosition, UserInfo, StoredPrice, Asset, SupplyCap};
+use membrane::types::{Position, Basket, AssetInfo, LiqAsset, cAsset, PositionUserInfo, InsolventPosition, UserInfo, StoredPrice, Asset, SupplyCap};
 use membrane::stability_pool::{ QueryMsg as SP_QueryMsg, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, TokenInfoResponse };
 
 use crate::positions::{ accumulate_interest, get_LP_pool_cAssets, get_asset_liquidity, SECONDS_PER_YEAR };
 
-use osmo_bindings::{SpotPriceResponse, PoolStateResponse};
+use osmo_bindings::{PoolStateResponse};
 
 use crate::state::CREDIT_MULTI;
-use crate::{state::{CONFIG, POSITIONS, REPAY, BASKETS, Config}, positions::{read_price, validate_position_owner}, math::{decimal_multiplication, decimal_division, decimal_subtraction}, ContractError};
+use crate::{state::{CONFIG, POSITIONS, REPAY, BASKETS, Config}, positions::{read_price}, math::{decimal_multiplication, decimal_division, decimal_subtraction}, ContractError};
 
 const MAX_LIMIT: u32 = 31;
 
@@ -91,7 +90,7 @@ pub fn query_position(
 
             let config = CONFIG.load( deps.storage )?;
 
-            let ( borrow, max, value, prices) = get_avg_LTV_imut( deps.storage, env.clone(), deps.querier, position.clone().collateral_assets, config.clone() )?;
+            let ( borrow, max, _value,_prices ) = get_avg_LTV_imut( deps.storage, env.clone(), deps.querier, position.clone().collateral_assets, config.clone() )?;
 
             accrue_imut( deps.storage, deps.querier, env.clone(), &mut position, &mut basket )?;
 
@@ -140,7 +139,7 @@ pub fn query_user_positions(
             .take(limit)
             .map(|mut position| {
                 
-                let ( borrow, max, value, prices) = match get_avg_LTV_imut( deps.storage, env.clone(), deps.querier, position.clone().collateral_assets, config.clone() ){
+                let ( borrow, max, _value, _prices) = match get_avg_LTV_imut( deps.storage, env.clone(), deps.querier, position.clone().collateral_assets, config.clone() ){
 
                     Ok( ( borrow, max, value, prices) ) => {
                         ( borrow, max, value, prices)
@@ -194,7 +193,7 @@ pub fn query_user_positions(
 
                     for mut position in positions{
 
-                        let ( borrow, max, value, prices) = get_avg_LTV_imut( deps.storage, env.clone(), deps.querier, position.clone().collateral_assets, config.clone() )?;
+                        let ( borrow, max, _value, _prices) = get_avg_LTV_imut( deps.storage, env.clone(), deps.querier, position.clone().collateral_assets, config.clone() )?;
 
                         match accrue_imut( deps.storage, deps.querier, env.clone(), &mut position, &mut basket){
                             Ok( () ) => {},
@@ -424,7 +423,7 @@ pub fn query_basket_debt_caps(
         if cap.lp {
 
             //Find the LP's cAsset and get its pool_assets
-            if let Some(lp_cAsset) = temp_cAssets.clone().into_iter().find(|asset| asset.asset.info.equal(&cap.asset_info)) {
+            if let Some(_lp_cAsset) = temp_cAssets.clone().into_iter().find(|asset| asset.asset.info.equal(&cap.asset_info)) {
 
                 if let Some(basket_lp_cAsset) = basket.clone().collateral_types.into_iter().find(|asset| asset.asset.info.equal(&cap.asset_info)) {
                     
@@ -531,7 +530,7 @@ fn get_credit_asset_multiplier_imut(
         for collateral in basket.collateral_supply_caps {
 
             if !collateral.lp{
-                if let Some(( index, _total)) = collateral_totals.clone().into_iter().enumerate().find(|( i, asset )| asset.info.equal(&collateral.asset_info)){
+                if let Some(( index, _total)) = collateral_totals.clone().into_iter().enumerate().find(|( _i, asset )| asset.info.equal(&collateral.asset_info)){
                     //Add to collateral total
                     collateral_totals[ index ].amount += collateral.current_supply;
                 } else {
@@ -775,8 +774,8 @@ pub fn query_collateral_rates(
     //Calc Time-elapsed and update last_Accrued 
     let time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
     
-    let mut negative_rate: bool = false;
-    let mut price_difference: Decimal = Decimal::zero();
+    let negative_rate: bool;
+    let mut price_difference: Decimal;
 
     if !(time_elapsed == 0u64) && basket.oracle_set{
         basket.credit_last_accrued = env.block.time.seconds();
@@ -922,7 +921,7 @@ fn accrue_imut(
             price_difference = decimal_subtraction(price_difference, config.clone().cpc_margin_of_error);
             
             //Calculate rate of change
-            let mut applied_rate = Decimal::zero();
+            let mut applied_rate: Decimal;
             applied_rate = price_difference.checked_mul(Decimal::from_ratio(
                 Uint128::from(time_elapsed),
                 Uint128::from(SECONDS_PER_YEAR),
@@ -1310,7 +1309,7 @@ fn get_cAsset_ratios_imut(
     collateral_assets: Vec<cAsset>,
     config: Config,
 ) -> StdResult<Vec<Decimal>>{
-    let (cAsset_values, cAsset_prices) = get_asset_values_imut( storage, env, querier, collateral_assets.clone(), config, None )?;
+    let (cAsset_values, _cAsset_prices) = get_asset_values_imut( storage, env, querier, collateral_assets.clone(), config, None )?;
 
     let total_value: Decimal = cAsset_values.iter().sum();
 
@@ -1411,7 +1410,7 @@ pub fn get_asset_values_imut(
 
     if config.clone().oracle_contract.is_some(){
         
-        for (i, cAsset) in assets.iter().enumerate() {
+        for (_i, cAsset) in assets.iter().enumerate() {
 
         //If an Osmosis LP
         if cAsset.pool_info.is_some(){
@@ -1554,7 +1553,7 @@ pub fn insolvency_check_imut( //Returns true if insolvent, current_LTV and avail
     
     let asset_values: Decimal = avg_LTVs.2; //pulls total_asset_value
     
-    let mut check: bool;
+    let check: bool;
     let current_LTV = decimal_division( decimal_multiplication(credit_amount, credit_price) , asset_values);
 
     match max_borrow{

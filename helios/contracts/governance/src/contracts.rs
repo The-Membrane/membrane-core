@@ -1,11 +1,10 @@
 //Fork of: https://github.com/astroport-fi/astroport-governance/tree/main/contracts/assembly
 
 use cosmwasm_std::{
-    attr, entry_point, from_binary, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut,
-    Env, MessageInfo, Order, Response, StdResult, Uint128, Uint64, WasmMsg, QueryRequest, WasmQuery, StdError,
+    attr, entry_point, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut,
+    Env, MessageInfo, Order, Response, StdResult, Uint128, Uint64, WasmMsg, QueryRequest, WasmQuery,
 };
-use cw2::{get_contract_version, set_contract_version};
-use cw20::{BalanceResponse, Cw20ExecuteMsg, Cw20ReceiveMsg};
+use cw2::{set_contract_version};
 use cw_storage_plus::Bound;
 
 use membrane::governance::helpers::validate_links;
@@ -480,7 +479,7 @@ pub fn calc_total_voting_power_at(
 
     
     //Calc total voting power
-    let mut total: Uint128;
+    let total: Uint128;
     if staked_mbrn == vec![] { total = Uint128::zero() } else {
 
         total = staked_mbrn
@@ -513,7 +512,7 @@ pub fn calc_voting_power(
     let config = CONFIG.load(deps.storage)?;
 
     //Pulls stake from before Proposal's start_time
-    let mut staked_mbrn = deps.querier.query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+    let staked_mbrn = deps.querier.query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
         contract_addr: config.staking_contract_addr.to_string(), 
         msg: to_binary(&StakingQueryMsg::Staked { 
             limit: None, 
@@ -523,7 +522,7 @@ pub fn calc_voting_power(
         })? 
     }))?.stakers;
 
-    let mut total: Uint128;
+    let total: Uint128;
     //If calculating builder's voting power, we take from receiver's allocation
     if !builders{
          //Calc total voting power

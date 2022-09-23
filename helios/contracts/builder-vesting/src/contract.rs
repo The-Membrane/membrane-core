@@ -5,7 +5,7 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128, QueryRequest, CosmosMsg, SubMsg, WasmMsg, WasmQuery, attr, StdError, coin, Coin, BankMsg, Addr, Decimal,
+    to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128, QueryRequest, CosmosMsg, WasmMsg, WasmQuery, attr, StdError, coin, Coin, BankMsg, Addr, Decimal,
 };
 use cw2::set_contract_version;
 use cw20::{ Cw20ExecuteMsg };
@@ -65,7 +65,7 @@ pub fn instantiate(
     CONFIG.save( deps.storage, &config )?;
     RECEIVERS.save( deps.storage, &vec![] )?;
 
-    let mut res = mint_initial_allocation( deps, env.clone(), config.clone(), info )?;
+    let mut res = mint_initial_allocation( env.clone(), config.clone() )?;
 
     let mut attrs = vec![
         attr("method", "instantiate"),
@@ -86,7 +86,7 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::Receive( msg ) => Ok( Response::new() ),
+        ExecuteMsg::Receive( _msg ) => Ok( Response::new() ),
         ExecuteMsg::AddReceiver { receiver } => add_receiver(deps, info, receiver),
         ExecuteMsg::RemoveReceiver { receiver } => remove_receiver(deps, info, receiver),
         ExecuteMsg::AddAllocation { receiver, allocation, vesting_period } => add_allocation(deps, env, info, receiver, allocation, vesting_period ),
@@ -173,7 +173,7 @@ fn claim_fees_for_receiver(
     let mut receivers = RECEIVERS.load( deps.storage )?;
 
     let mut messages: Vec<CosmosMsg> = vec![];
-    let mut claimables: Vec<Asset> = vec![];
+    let claimables: Vec<Asset> = vec![];
 
     match receivers.clone().into_iter().enumerate().find(|(_i, receiver)| receiver.receiver == info.sender ) {
         Some( (i, receiver) ) => {
@@ -243,9 +243,9 @@ fn claim_fees_for_contract(
 
             for ( i, receiver ) in allocated_receivers.clone().into_iter().enumerate() {
                 
-                match receiver.clone().claimables.into_iter().enumerate().find(|(index, claim)| claim.info == claim_asset.info) {
+                match receiver.clone().claimables.into_iter().enumerate().find(|(_index, claim)| claim.info == claim_asset.info) {
                     //If found in claimables, add amount to position
-                    Some( (index, claim) ) => {
+                    Some( (index, _claim) ) => {
                         allocated_receivers[i].claimables[index].amount += claim_asset.amount * allocation_ratios[i]
                     },
                     //If None, add asset as if new
@@ -351,6 +351,12 @@ fn update_config(
         },
         None => {}
     };
+    if let Some( staking_contract ) = staking_contract {
+        config.staking_contract = deps.api.addr_validate( &staking_contract.clone() )?;
+        attrs.push( attr( "new_staking_contract", staking_contract ) );
+    };
+
+
     CONFIG.save( deps.storage, &config.clone() )?;
 
     Ok( Response::new().add_attributes(attrs) )
@@ -366,10 +372,10 @@ fn withdraw_unlocked(
 
     let receivers = RECEIVERS.load( deps.storage )?;
 
-    let mut message: CosmosMsg;
+    let message: CosmosMsg;
 
-    let mut unlocked_amount: Uint128;
-    let mut new_allocation: Allocation;
+    let unlocked_amount: Uint128;
+    let new_allocation: Allocation;
 
     match receivers.clone().into_iter().find(|receiver| receiver.receiver == info.sender ){
         Some( mut receiver ) => {
@@ -431,7 +437,7 @@ fn get_unlocked_amount(
             //Unlock amount based off time into linear vesting period
             let ratio_unlocked = decimal_division(Decimal::from_ratio(Uint128::new(time_passed_cliff as u128), Uint128::new(1u128)) , Decimal::from_ratio(Uint128::new(linear_in_seconds as u128), Uint128::new(1u128)));
             
-            let mut newly_unlocked: Uint128;
+            let newly_unlocked: Uint128;
             if !ratio_unlocked.is_zero() {
                 newly_unlocked = (ratio_unlocked * allocation.clone().amount) - allocation.clone().amount_withdrawn;
             } else {
@@ -529,7 +535,7 @@ fn decrease_allocation(
     let error: Option<ContractError> = None;
     //Decrease allocation for receiver
     //If trying to decrease more than allocation, allocation set to 0
-    RECEIVERS.update( deps.storage, | mut receivers| -> Result<Vec<Receiver>, ContractError> {
+    RECEIVERS.update( deps.storage, | receivers| -> Result<Vec<Receiver>, ContractError> {
 
         //Decrease allocation
         Ok( receivers
@@ -622,7 +628,7 @@ fn remove_receiver(
     if info.sender != config.owner{ return Err( ContractError::Unauthorized { } ) }
 
     //Remove Receiver
-    RECEIVERS.update( deps.storage, | mut receivers| -> Result<Vec<Receiver>, ContractError> {
+    RECEIVERS.update( deps.storage, | receivers| -> Result<Vec<Receiver>, ContractError> {
 
         //Filter out receiver and save
         Ok( receivers
@@ -641,10 +647,8 @@ fn remove_receiver(
 
 //Mint and stake initial allocation
 fn mint_initial_allocation(
-    deps: DepsMut,
     env: Env,
     config: Config,
-    info: MessageInfo,
 ) -> Result<Response, ContractError>{
 
     let mut messages: Vec<CosmosMsg> = vec![];
@@ -797,7 +801,7 @@ pub fn withdrawal_msg(
     recipient: Addr,
 )-> StdResult<CosmosMsg>{
 
-    match asset.clone().info{
+    match asset.clone().info {
         AssetInfo::Token { address } => {
             let message = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: address.to_string(),
@@ -849,11 +853,10 @@ pub fn asset_to_coin(
 mod tests {
     use super::*;
     use cosmwasm_std::testing::{
-        mock_env, mock_info, MockApi, MockQuerier, MockStorage, MOCK_CONTRACT_ADDR, mock_dependencies,
+        mock_env, mock_info, mock_dependencies,
     };
     use cosmwasm_std::{
-        coins, from_binary, Attribute, ContractResult, CosmosMsg, OwnedDeps, Querier, StdError,
-        SystemError, SystemResult,
+        from_binary, SubMsg, CosmosMsg 
     };
 
     #[test]

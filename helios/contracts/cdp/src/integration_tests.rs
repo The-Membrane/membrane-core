@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[allow(unused_variables)]
 mod tests {
     
     use crate::helpers::{ LQContract, CDPContract };
@@ -13,7 +14,7 @@ mod tests {
     use membrane::math::Uint256;
     
     use osmo_bindings::{ SpotPriceResponse, PoolStateResponse, ArithmeticTwapToNowResponse };
-    use cosmwasm_std::{Addr, Coin, Empty, Uint128, Decimal, Response, StdResult, Binary, from_binary, to_binary, coin, attr, StdError };
+    use cosmwasm_std::{Addr, Coin, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr, StdError };
     use cw_multi_test::{App, AppBuilder, Contract, ContractWrapper, Executor, BankKeeper};
     use schemars::JsonSchema;
     use serde::{ Deserialize, Serialize };
@@ -80,14 +81,14 @@ mod tests {
             |deps, _, info, msg: LQ_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
                     LQ_MockExecuteMsg::Liquidate {
-                        credit_price,
-                        collateral_price,
+                        credit_price: _,
+                        collateral_price: _,
                         collateral_amount,
                         bid_for,
                         bid_with,
-                        basket_id,
-                        position_id,
-                        position_owner,
+                        basket_id: _,
+                        position_id: _,
+                        position_owner: _,
                     } => {
                         
                         match bid_for{
@@ -122,9 +123,9 @@ mod tests {
                         }
                     }, 
                     LQ_MockExecuteMsg::AddQueue { 
-                        bid_for, 
-                        max_premium, 
-                        bid_threshold 
+                        bid_for: _, 
+                        max_premium: _, 
+                        bid_threshold: _, 
                     } => {
                         Ok( Response::new() )
                     },
@@ -141,11 +142,11 @@ mod tests {
             |_, _, msg: LQ_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     LQ_MockQueryMsg::CheckLiquidatible { 
-                        bid_for, 
-                        collateral_price, 
+                        bid_for: _, 
+                        collateral_price: _, 
                         collateral_amount, 
-                        credit_info, 
-                        credit_price 
+                        credit_info: _, 
+                        credit_price: _, 
                     } => Ok(
                         to_binary(
                             &LQ_LiquidatibleResponse {
@@ -160,17 +161,17 @@ mod tests {
 
     pub fn liq_queue_contract_bignums()-> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
-            |deps, _, info, msg: LQ_MockExecuteMsg| -> StdResult<Response> {
+            |_, _, _, msg: LQ_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
                     LQ_MockExecuteMsg::Liquidate {
-                        credit_price,
-                        collateral_price,
+                        credit_price: _,
+                        collateral_price: _,
                         collateral_amount,
                         bid_for,
                         bid_with,
-                        basket_id,
-                        position_id,
-                        position_owner,
+                        basket_id: _,
+                        position_id: _,
+                        position_owner: _,
                     } => {
                         
                         match bid_for{
@@ -205,16 +206,16 @@ mod tests {
                         }
                     },
                     LQ_MockExecuteMsg::AddQueue { 
-                        bid_for, 
-                        max_premium, 
-                        bid_threshold 
+                        bid_for: _, 
+                        max_premium: _, 
+                        bid_threshold: _ 
                     } => {
                         Ok( Response::new() )
                     },
                     LQ_MockExecuteMsg::EditQueue { 
-                        bid_for, 
-                        max_premium, 
-                        bid_threshold 
+                        bid_for: _, 
+                        max_premium: _, 
+                        bid_threshold: _ 
                     } => {
                         Ok( Response::new() )
                     },
@@ -224,11 +225,11 @@ mod tests {
             |_, _, msg: LQ_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     LQ_MockQueryMsg::CheckLiquidatible { 
-                        bid_for, 
-                        collateral_price, 
+                        bid_for: _, 
+                        collateral_price: _, 
                         collateral_amount, 
-                        credit_info, 
-                        credit_price 
+                        credit_info: _, 
+                        credit_price: _ 
                     } => Ok(
                         to_binary(
                             &LQ_LiquidatibleResponse {
@@ -243,31 +244,31 @@ mod tests {
 
     pub fn liq_queue_contract_errors()-> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
-            |deps, _, info, msg: LQ_MockExecuteMsg| -> StdResult<Response> {
+            |_, _, _, msg: LQ_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
                     LQ_MockExecuteMsg::Liquidate {
-                        credit_price,
-                        collateral_price,
-                        collateral_amount,
-                        bid_for,
-                        bid_with,
-                        basket_id,
-                        position_id,
-                        position_owner,
+                        credit_price: _,
+                        collateral_price: _,
+                        collateral_amount: _,
+                        bid_for: _,
+                        bid_with: _,
+                        basket_id: _,
+                        position_id: _,
+                        position_owner: _,
                     } => {
                         Err( StdError::GenericErr { msg: "no siree".to_string() })
                     },
                     LQ_MockExecuteMsg::AddQueue { 
-                        bid_for, 
-                        max_premium, 
-                        bid_threshold 
+                        bid_for: _, 
+                        max_premium: _, 
+                        bid_threshold: _ 
                     } => {
                         Ok( Response::new() )
                     },
                     LQ_MockExecuteMsg::EditQueue { 
-                        bid_for, 
-                        max_premium, 
-                        bid_threshold 
+                        bid_for: _, 
+                        max_premium: _, 
+                        bid_threshold: _ 
                     } => {
                         Ok( Response::new() )
                     },
@@ -277,11 +278,11 @@ mod tests {
             |_, _, msg: LQ_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     LQ_MockQueryMsg::CheckLiquidatible { 
-                        bid_for, 
-                        collateral_price, 
+                        bid_for: _, 
+                        collateral_price: _, 
                         collateral_amount, 
-                        credit_info, 
-                        credit_price 
+                        credit_info: _, 
+                        credit_price: _ 
                     } => Ok(
                         to_binary(
                             &LQ_LiquidatibleResponse {
@@ -296,17 +297,17 @@ mod tests {
 
     pub fn liq_queue_contract_minimumliq()-> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
-            |deps, _, info, msg: LQ_MockExecuteMsg| -> StdResult<Response> {
+            |_, _, _, msg: LQ_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
                     LQ_MockExecuteMsg::Liquidate {
-                        credit_price,
-                        collateral_price,
+                        credit_price: _,
+                        collateral_price: _,
                         collateral_amount,
                         bid_for,
                         bid_with,
-                        basket_id,
-                        position_id,
-                        position_owner,
+                        basket_id: _,
+                        position_id: _,
+                        position_owner: _,
                     } => {
                         
                         match bid_for{
@@ -336,16 +337,16 @@ mod tests {
                         }
                     },
                     LQ_MockExecuteMsg::AddQueue { 
-                        bid_for, 
-                        max_premium, 
-                        bid_threshold 
+                        bid_for: _, 
+                        max_premium: _, 
+                        bid_threshold: _ 
                     } => {
                         Ok( Response::new() )
                     },
                     LQ_MockExecuteMsg::EditQueue { 
-                        bid_for, 
-                        max_premium, 
-                        bid_threshold 
+                        bid_for: _, 
+                        max_premium: _, 
+                        bid_threshold: _ 
                     } => {
                         Ok( Response::new() )
                     },
@@ -355,11 +356,11 @@ mod tests {
             |_, _, msg: LQ_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     LQ_MockQueryMsg::CheckLiquidatible { 
-                        bid_for, 
-                        collateral_price, 
+                        bid_for: _, 
+                        collateral_price: _, 
                         collateral_amount, 
-                        credit_info, 
-                        credit_price 
+                        credit_info: _, 
+                        credit_price: _ 
                     } => Ok(
                         to_binary(
                             &LQ_LiquidatibleResponse {
@@ -413,7 +414,7 @@ mod tests {
 
     pub fn stability_pool_contract()-> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
-            |deps, _, info, msg: SP_MockExecuteMsg| -> StdResult<Response> {
+            |_, _, _, msg: SP_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
                     SP_MockExecuteMsg::Liquidate {
                         credit_asset
@@ -428,9 +429,10 @@ mod tests {
                     }
                     SP_MockExecuteMsg::Distribute { 
                         distribution_assets,
-                        distribution_asset_ratios, 
-                        credit_asset, 
-                        distribute_for } => {
+                        distribution_asset_ratios: _, 
+                        credit_asset: _, 
+                        distribute_for: _,
+                     } => {
                         
                         if distribution_assets != vec![
                                         Asset { 
@@ -456,8 +458,8 @@ mod tests {
                             .add_attribute("credit_asset", "cdl"))
                     },
                     SP_MockExecuteMsg::Repay {
-                        user_info,
-                        repayment,
+                        user_info: _,
+                        repayment: _,
                     } => {
                         Ok( Response::new() )
                     }
@@ -467,13 +469,13 @@ mod tests {
             |_, _, msg: SP_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     SP_MockQueryMsg::CheckLiquidatible { 
-                        asset,
+                        asset: _,
                     } => Ok(
                         to_binary(
                             &SP_LiquidatibleResponse {
                                 leftover: Decimal::zero(),
                             })?),
-                    SP_MockQueryMsg::AssetPool { asset_info 
+                    SP_MockQueryMsg::AssetPool { asset_info: _ 
                     } => Ok(
                         to_binary(&PoolResponse {
                             credit_asset: Asset {
@@ -484,7 +486,7 @@ mod tests {
                             deposits: vec![],
                         })?),
                     SP_MockQueryMsg::AssetDeposits { 
-                        user,
+                        user: _,
                         asset_info,
                     } => Ok(
                         to_binary(&DepositResponse {
@@ -501,10 +503,10 @@ mod tests {
 
     pub fn stability_pool_contract_bignums()-> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
-            |deps, _, info, msg: SP_MockExecuteMsg| -> StdResult<Response> {
+            |_, _, _, msg: SP_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
                     SP_MockExecuteMsg::Liquidate {
-                        credit_asset
+                        credit_asset: _
                     } => {
                         // if credit_asset.to_string() != "222.222225 credit_fulldenom".to_string() && credit_asset.to_string() != "2000 credit_fulldenom".to_string() && credit_asset.to_string() != "22222.22225 credit_fulldenom".to_string() && credit_asset.to_string() != "20222.22225 credit_fulldenom".to_string(){
                         //     panic!("{}", credit_asset.to_string());
@@ -515,10 +517,10 @@ mod tests {
                             .add_attribute("leftover_repayment", "0"))
                     }
                     SP_MockExecuteMsg::Distribute { 
-                        distribution_assets,
-                        distribution_asset_ratios, 
-                        credit_asset, 
-                        distribute_for } => {
+                        distribution_assets: _,
+                        distribution_asset_ratios: _, 
+                        credit_asset: _, 
+                        distribute_for: _ } => {
                         
                       
                         Ok(Response::new()
@@ -526,8 +528,8 @@ mod tests {
                             .add_attribute("credit_asset", "cdl"))
                     },
                     SP_MockExecuteMsg::Repay {
-                        user_info,
-                        repayment,
+                        user_info: _,
+                        repayment: _,
                     } => {
                         Ok( Response::new() )
                     }
@@ -537,13 +539,13 @@ mod tests {
             |_, _, msg: SP_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     SP_MockQueryMsg::CheckLiquidatible { 
-                        asset,
+                        asset: _,
                     } => Ok(
                         to_binary(
                             &SP_LiquidatibleResponse {
                                 leftover: Decimal::zero(),
                             })?),
-                    SP_MockQueryMsg::AssetPool { asset_info 
+                    SP_MockQueryMsg::AssetPool { asset_info: _ 
                     } => Ok(
                         to_binary(&PoolResponse {
                             credit_asset: Asset {
@@ -554,7 +556,7 @@ mod tests {
                             deposits: vec![],
                         })?),
                     SP_MockQueryMsg::AssetDeposits { 
-                        user,
+                        user: _,
                         asset_info,
                     } => Ok(
                         to_binary(&DepositResponse {
@@ -569,19 +571,19 @@ mod tests {
 
     pub fn stability_pool_contract_errors()-> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
-            |deps, _, info, msg: SP_MockExecuteMsg| -> StdResult<Response> {
+            |_, _, _, msg: SP_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
                     SP_MockExecuteMsg::Liquidate {
-                        credit_asset
+                        credit_asset: _
                     } => {
                         
                         Err( StdError::GenericErr { msg: "no siree".to_string() })
                     }
                     SP_MockExecuteMsg::Distribute { 
-                        distribution_assets, 
-                        distribution_asset_ratios,
-                        credit_asset, 
-                        distribute_for } => {
+                        distribution_assets: _, 
+                        distribution_asset_ratios: _,
+                        credit_asset: _, 
+                        distribute_for: _ } => {
 
                                                 
                         Ok(Response::new()
@@ -589,8 +591,8 @@ mod tests {
                             .add_attribute("credit_asset", "cdl"))
                     },
                     SP_MockExecuteMsg::Repay {
-                        user_info,
-                        repayment,
+                        user_info: _,
+                        repayment: _,
                     } => {
                         Err( StdError::GenericErr { msg: String::from("erroar") } )
                     },
@@ -600,13 +602,13 @@ mod tests {
             |_, _, msg: SP_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     SP_MockQueryMsg::CheckLiquidatible { 
-                        asset,
+                        asset: _,
                     } => Ok(
                         to_binary(
                             &SP_LiquidatibleResponse {
                                 leftover: Decimal::zero(),
                             })?),
-                    SP_MockQueryMsg::AssetPool { asset_info 
+                    SP_MockQueryMsg::AssetPool { asset_info: _ 
                     } => Ok(
                         to_binary(&PoolResponse {
                             credit_asset: Asset {
@@ -617,7 +619,7 @@ mod tests {
                             deposits: vec![],
                         })?),
                     SP_MockQueryMsg::AssetDeposits { 
-                        user,
+                        user: _,
                         asset_info,
                     } => Ok(
                         to_binary(&DepositResponse {
@@ -639,10 +641,10 @@ mod tests {
 
     pub fn stability_pool_contract_minimumliq()-> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
-            |deps, _, info, msg: SP_MockExecuteMsg| -> StdResult<Response> {
+            |_, _, _, msg: SP_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
                     SP_MockExecuteMsg::Liquidate {
-                        credit_asset
+                        credit_asset: _
                     } => {
                                                 
                         Ok(Response::new()
@@ -650,10 +652,10 @@ mod tests {
                             .add_attribute("leftover_repayment", "0"))
                     }
                     SP_MockExecuteMsg::Distribute { 
-                        distribution_assets,
-                        distribution_asset_ratios, 
-                        credit_asset, 
-                        distribute_for } => {
+                        distribution_assets: _,
+                        distribution_asset_ratios: _, 
+                        credit_asset: _, 
+                        distribute_for: _ } => {
                         
                        
                         Ok(Response::new()
@@ -661,8 +663,8 @@ mod tests {
                             .add_attribute("credit_asset", "cdl"))
                     },
                     SP_MockExecuteMsg::Repay {
-                        user_info,
-                        repayment,
+                        user_info: _,
+                        repayment: _,
                     } => {
                         Ok( Response::new() )
                     },
@@ -672,13 +674,13 @@ mod tests {
             |_, _, msg: SP_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     SP_MockQueryMsg::CheckLiquidatible { 
-                        asset,
+                        asset: _,
                     } => Ok(
                         to_binary(
                             &SP_LiquidatibleResponse {
                                 leftover: Decimal::zero(),
                             })?),
-                    SP_MockQueryMsg::AssetPool { asset_info 
+                    SP_MockQueryMsg::AssetPool { asset_info: _ 
                     } => Ok(
                         to_binary(&PoolResponse {
                             credit_asset: Asset {
@@ -689,7 +691,7 @@ mod tests {
                             deposits: vec![],
                         })?),
                     SP_MockQueryMsg::AssetDeposits { 
-                        user,
+                        user: _,
                         asset_info,
                     } => Ok(
                         to_binary(&DepositResponse {
@@ -704,10 +706,10 @@ mod tests {
 
     pub fn stability_pool_contract_high_premium()-> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
-            |deps, _, info, msg: SP_MockExecuteMsg| -> StdResult<Response> {
+            |_, _, _, msg: SP_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
                     SP_MockExecuteMsg::Liquidate {
-                        credit_asset
+                        credit_asset: _
                     } => {
                                                 
                         Ok(Response::new()
@@ -715,10 +717,10 @@ mod tests {
                             .add_attribute("leftover_repayment", "0"))
                     }
                     SP_MockExecuteMsg::Distribute { 
-                        distribution_assets,
-                        distribution_asset_ratios, 
-                        credit_asset, 
-                        distribute_for } => {
+                        distribution_assets: _,
+                        distribution_asset_ratios: _, 
+                        credit_asset: _, 
+                        distribute_for: _ } => {
                         
                        
                         Ok(Response::new()
@@ -726,8 +728,8 @@ mod tests {
                             .add_attribute("credit_asset", "cdl"))
                     },
                     SP_MockExecuteMsg::Repay {
-                        user_info,
-                        repayment,
+                        user_info: _,
+                        repayment: _,
                     } => {
                         Ok( Response::new() )
                     },
@@ -737,13 +739,13 @@ mod tests {
             |_, _, msg: SP_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     SP_MockQueryMsg::CheckLiquidatible { 
-                        asset,
+                        asset: _,
                     } => Ok(
                         to_binary(
                             &SP_LiquidatibleResponse {
                                 leftover: Decimal::zero(),
                             })?),
-                    SP_MockQueryMsg::AssetPool { asset_info 
+                    SP_MockQueryMsg::AssetPool { asset_info: _ 
                     } => Ok(
                         to_binary(&PoolResponse {
                             credit_asset: Asset {
@@ -754,7 +756,7 @@ mod tests {
                             deposits: vec![],
                         })?),
                     SP_MockQueryMsg::AssetDeposits { 
-                        user,
+                        user: _,
                         asset_info,
                     } => Ok(
                         to_binary(&DepositResponse {
@@ -820,7 +822,7 @@ mod tests {
 
     pub fn osmosis_proxy_contract()-> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
-            |deps, _, info, msg: Osmo_MockExecuteMsg| -> StdResult<Response> {
+            |_, _, _, msg: Osmo_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
                     Osmo_MockExecuteMsg::MintTokens { 
                             denom, 
@@ -834,14 +836,14 @@ mod tests {
                         Ok(Response::new())
                     },
                     Osmo_MockExecuteMsg::BurnTokens {
-                        denom,
-                        amount,
-                        burn_from_address,
+                        denom: _,
+                        amount: _,
+                        burn_from_address: _,
                     } => {
                         Ok(Response::new())
                     },
                     Osmo_MockExecuteMsg::CreateDenom { 
-                        subdenom,
+                        subdenom: _,
                         basket_id,
                         max_supply,
                         liquidity_multiplier,
@@ -861,7 +863,7 @@ mod tests {
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     Osmo_MockQueryMsg::SpotPrice { 
-                        asset,
+                        asset: _,
                     } => 
                         Ok(
                             to_binary(&SpotPriceResponse {
@@ -889,8 +891,8 @@ mod tests {
                         )
                     },
                     Osmo_MockQueryMsg::GetDenom { 
-                        creator_address, 
-                        subdenom 
+                        creator_address: _, 
+                        subdenom: _ 
                     } => {
                         Ok(
                             to_binary(&GetDenomResponse {
@@ -899,10 +901,10 @@ mod tests {
                         )
                     },
                     Osmo_MockQueryMsg::ArithmeticTwapToNow { 
-                        id, 
-                        quote_asset_denom, 
+                        id: _, 
+                        quote_asset_denom: _, 
                         base_asset_denom, 
-                        start_time 
+                        start_time: _ 
                     } => {
                         if base_asset_denom == String::from("base") {
 
@@ -940,7 +942,7 @@ mod tests {
 
     pub fn osmosis_proxy_contract_bignums()-> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
-            |deps, _, info, msg: Osmo_MockExecuteMsg| -> StdResult<Response> {
+            |_, _, _, msg: Osmo_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
                     Osmo_MockExecuteMsg::MintTokens { 
                             denom, 
@@ -951,15 +953,15 @@ mod tests {
                         Ok(Response::new())
                     },
                     Osmo_MockExecuteMsg::BurnTokens {
-                        denom,
-                        amount,
-                        burn_from_address,
+                        denom: _,
+                        amount: _,
+                        burn_from_address: _,
                     } => {
                         Ok(Response::new())
                     },
                     Osmo_MockExecuteMsg::CreateDenom { 
-                        subdenom,
-                        basket_id,
+                        subdenom: _,
+                        basket_id: _,
                         max_supply,
                         liquidity_multiplier,
                     } => {
@@ -978,7 +980,7 @@ mod tests {
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     Osmo_MockQueryMsg::SpotPrice { 
-                        asset,
+                        asset: _,
                     } => 
                         Ok(
                             to_binary(&SpotPriceResponse {
@@ -1007,8 +1009,8 @@ mod tests {
                         }
                     },
                     Osmo_MockQueryMsg::GetDenom { 
-                        creator_address, 
-                        subdenom 
+                        creator_address: _, 
+                        subdenom: _ 
                     } => {
                         Ok(
                             to_binary(&GetDenomResponse {
@@ -1017,10 +1019,10 @@ mod tests {
                         )
                     },
                     Osmo_MockQueryMsg::ArithmeticTwapToNow { 
-                        id, 
-                        quote_asset_denom, 
+                        id: _, 
+                        quote_asset_denom: _, 
                         base_asset_denom, 
-                        start_time 
+                        start_time: _ 
                     } => {
                         if base_asset_denom == String::from("base") {
 
@@ -1541,7 +1543,7 @@ mod tests {
                 None).unwrap();
         
         //Instanitate SP
-        let mut sp_id: u64;
+        let sp_id: u64;
         if sp_error {
             sp_id = app.store_code(stability_pool_contract_errors());
         } else if liq_minimum && !lq_error{
@@ -1580,7 +1582,7 @@ mod tests {
             .unwrap();
 
         //Instaniate LQ
-        let mut lq_id: u64;
+        let lq_id: u64;
         if lq_error{
             lq_id = app.store_code(liq_queue_contract_errors());
         }else if liq_minimum && !lq_error{
@@ -1606,7 +1608,7 @@ mod tests {
         let lq_contract = LQContract(lq_contract_addr);
 
         //Instaniate Osmosis Proxy
-        let mut proxy_id: u64;
+        let proxy_id: u64;
         if bignums{
             proxy_id = app.store_code(osmosis_proxy_contract_bignums());
         }else{
@@ -1654,7 +1656,7 @@ mod tests {
             .unwrap();
 
         //Instaniate Oracle Contract
-        let mut oracle_id: u64;
+        let oracle_id: u64;
         if liq_minimum && !lq_error{
             oracle_id = app.store_code(oracle_contract());
         } else {
@@ -1673,7 +1675,7 @@ mod tests {
             .unwrap();
 
         //Instaniate Liquidity Contract
-        let mut liq_id: u64;
+        let liq_id: u64;
         if bignums {
             liq_id = app.store_code(liquidity_contract_bignums());      
         } else {
@@ -1754,7 +1756,7 @@ mod tests {
             liq_queue: None,
         };
         let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-        let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+        app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
         let msg = ExecuteMsg::EditBasket {
             basket_id: Uint128::from(1u128), 
@@ -1788,17 +1790,14 @@ mod tests {
         use super::*;
         use cosmwasm_std::{BlockInfo, coins};
         use cw20::Cw20ReceiveMsg;
-        use membrane::positions::{ExecuteMsg, ConfigResponse, PropResponse, PositionResponse, BasketResponse, DebtCapResponse, CollateralInterestResponse, BadDebtResponse, InsolvencyResponse, PositionsResponse, Cw20HookMsg};
-        use membrane::types::{UserInfo, InsolventPosition, PositionUserInfo, TWAPPoolInfo, PoolInfo, SupplyCap, LPAssetInfo};
+        use membrane::positions::{ExecuteMsg, ConfigResponse, PositionResponse, BasketResponse, DebtCapResponse, CollateralInterestResponse, BadDebtResponse, InsolvencyResponse, PositionsResponse, Cw20HookMsg};
+        use membrane::types::{UserInfo, InsolventPosition, PoolInfo, SupplyCap, LPAssetInfo};
 
         #[test]
         fn withdrawal() {
-            let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
+            let (mut app, cdp_contract, lq_contract, _cw20_addr) = proper_instantiate( false, false, false, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
             
              
             //Edit Basket
@@ -1955,9 +1954,6 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) = proper_instantiate( false, false, false, false);
 
             let res: ConfigResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&QueryMsg::Config {} ).unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
             
              
             //Edit Basket
@@ -5440,13 +5436,13 @@ mod tests {
             assert_eq!(res.caps, String::from("debit: 0/23696, 2nddebit: 0/23696, ") );
 
             //Query Basket Debt Caps
-            //Has less than minimum, ~2000, so gets 20000
+            //Has less than minimum, ~2000, so gets 42000
             //Has no 2nddebit collateral so gets no cap
             let query_msg = QueryMsg::GetBasketDebtCaps {
                 basket_id: Uint128::new(1u128), 
             };
             let res: DebtCapResponse = app.wrap().query_wasm_smart(cdp_contract.addr(),&query_msg.clone() ).unwrap();
-            assert_eq!(res.caps, String::from("debit: 0/20000, 2nddebit: 0/0, ") );
+            assert_eq!(res.caps, String::from("debit: 0/42000, 2nddebit: 0/0, ") );
         
         }
     }

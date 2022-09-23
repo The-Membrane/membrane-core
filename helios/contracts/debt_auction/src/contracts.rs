@@ -12,9 +12,6 @@ use membrane::positions::{ ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg,
 use membrane::oracle::{ QueryMsg as OracleQueryMsg, PriceResponse};
 use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg };
 use membrane::types::{ AssetInfo, RepayPosition, UserInfo, Asset };
-use osmo_bindings::ArithmeticTwapToNowResponse;
-
-use std::str::FromStr;
 
 use crate::error::ContractError;
 use crate::state::{ ASSETS, Config, CONFIG, Auction, ONGOING_AUCTIONS };
@@ -36,7 +33,7 @@ pub fn instantiate(
     
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let mut config: Config;
+    let config: Config;
     if let Some(owner) = msg.owner {
 
         config = Config {
@@ -238,7 +235,7 @@ fn remove_auction(
         return Err( ContractError::Unauthorized {  } )
     }
 
-    let mut attrs = vec![
+    let attrs = vec![
         attr("method", "remove_auction"),        
         attr("debt_asset", debt_asset.to_string()),
     ];
@@ -270,7 +267,7 @@ fn swap_for_mbrn (
         if let Ok( mut auction ) = ONGOING_AUCTIONS.load( deps.storage, coin.clone().denom ){
             if !auction.remaining_recapitalization.is_zero() {
 
-                let mut swap_amount = Decimal::zero();
+                let swap_amount: Decimal;
                 //Set swap_amount
                 if coin.amount > auction.remaining_recapitalization {
                     swap_amount = Decimal::from_ratio( auction.remaining_recapitalization, Uint128::new(1u128) );
@@ -333,11 +330,11 @@ fn swap_for_mbrn (
                 auction.remaining_recapitalization -= swap_amount;
 
                 //Calculate what positions can be repaid for
-                for ( i, mut position ) in auction.repayment_positions.clone().into_iter().enumerate() {
+                for ( i, position ) in auction.repayment_positions.clone().into_iter().enumerate() {
 
                     if !position.repayment.is_zero() && !swap_amount.is_zero(){
 
-                        let mut repay_amount = Uint128::zero();
+                        let repay_amount: Uint128;
                         //Calc how much to repay for this position
                         if position.repayment >= swap_amount {
                             //Repay the full swap_amount                            
@@ -504,7 +501,7 @@ fn get_valid_assets(
 
     if let Some( debt_asset ) = debt_asset {
     
-        if let Some( asset ) = ASSETS.load( deps.storage )?.into_iter().find(|asset| debt_asset.equal(asset) ){
+        if let Some( _asset ) = ASSETS.load( deps.storage )?.into_iter().find(|asset| debt_asset.equal(asset) ){
                         
             Ok( vec![ debt_asset ] )
         

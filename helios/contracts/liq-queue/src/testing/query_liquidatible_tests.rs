@@ -1,16 +1,15 @@
-use crate::ContractError;
+
 use crate::contract::{execute, instantiate, query};
 //use crate::state::{AssetInfo, BidInput};
 
 //use cw_multi_test::Contract;
 //use cw_multi_test::Contract;
-use membrane::liq_queue::{InstantiateMsg, QueryMsg, ConfigResponse, ExecuteMsg, BidResponse, QueueResponse, SlotResponse, LiquidatibleResponse};
-use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg};
-use membrane::types::{ AssetInfo, BidInput, Asset, Bid };
-use membrane::math::{ Uint256, Decimal256 };
+use membrane::liq_queue::{InstantiateMsg, QueryMsg, ExecuteMsg, LiquidatibleResponse};
+use membrane::types::{ AssetInfo, BidInput };
+use membrane::math::{ Uint256 };
 
-use cosmwasm_std::testing::{mock_dependencies_with_balance, mock_env, mock_info, mock_dependencies};
-use cosmwasm_std::{coins, from_binary, attr, Uint128, Coin, StdError, SubMsg, CosmosMsg, BankMsg, Decimal, WasmMsg, to_binary, Addr};
+use cosmwasm_std::testing::{ mock_env, mock_info, mock_dependencies};
+use cosmwasm_std::{ from_binary, Uint128, Coin, Decimal};
 
 #[test]
 fn partial_one_collateral_one_slot() {
@@ -20,7 +19,8 @@ fn partial_one_collateral_one_slot() {
         positions_contract: String::from("positions_contract"),
         owner: None, //Defaults to sender
         waiting_period: 60u64,
-        basket_id: Uint128::new(1u128),
+        basket_id: None,
+        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -43,7 +43,7 @@ fn partial_one_collateral_one_slot() {
     let submit_info = mock_info(
         "owner0000",
         &[Coin {
-            denom: "cdl".to_string(),
+            denom: "cdt".to_string(),
             amount: Uint128::from(1000u128),
         }],
     );
@@ -55,7 +55,7 @@ fn partial_one_collateral_one_slot() {
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() }, 
         collateral_price: Decimal::one(),
         collateral_amount: Uint256::from( 999u128 ),
-        credit_info: AssetInfo::NativeToken { denom: "cdl".to_string() },
+        credit_info: AssetInfo::NativeToken { denom: "cdt".to_string() },
         credit_price: Decimal::one(),
     };
     let res = query( deps.as_ref(), mock_env(), msg).unwrap();
@@ -67,7 +67,7 @@ fn partial_one_collateral_one_slot() {
         collateral_price: Decimal::one(),
         collateral_amount: Uint256::from( 999u128 ),
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdl".to_string() },
+        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -85,7 +85,8 @@ fn partial_one_collateral_one_slot_w_fees() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: Uint128::new(1u128),
+        basket_id: None,
+        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -109,7 +110,7 @@ fn partial_one_collateral_one_slot_w_fees() {
     let submit_info = mock_info(
         "owner0000",
         &[Coin {
-            denom: "cdl".to_string(),
+            denom: "cdt".to_string(),
             amount: Uint128::from(1000u128),
         }],
     );
@@ -121,7 +122,7 @@ fn partial_one_collateral_one_slot_w_fees() {
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() }, 
         collateral_price: Decimal::one(),
         collateral_amount: Uint256::from( 1110u128 ),
-        credit_info: AssetInfo::NativeToken { denom: "cdl".to_string() },
+        credit_info: AssetInfo::NativeToken { denom: "cdt".to_string() },
         credit_price: Decimal::one(),
     };
     let res = query( deps.as_ref(), mock_env(), msg).unwrap();
@@ -134,7 +135,7 @@ fn partial_one_collateral_one_slot_w_fees() {
         collateral_price: Decimal::one(),
         collateral_amount: Uint256::from( 1110u128 ),
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdl".to_string() },
+        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -152,7 +153,8 @@ fn one_collateral_one_slot() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: Uint128::new(1u128),
+        basket_id: None,
+        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -175,7 +177,7 @@ fn one_collateral_one_slot() {
     let submit_info = mock_info(
         "owner0000",
         &[Coin {
-            denom: "cdl".to_string(),
+            denom: "cdt".to_string(),
             amount: Uint128::from(1000u128),
         }],
     );
@@ -187,7 +189,7 @@ fn one_collateral_one_slot() {
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() }, 
         collateral_price: Decimal::one(),
         collateral_amount: Uint256::from( 1000u128 ),
-        credit_info: AssetInfo::NativeToken { denom: "cdl".to_string() },
+        credit_info: AssetInfo::NativeToken { denom: "cdt".to_string() },
         credit_price: Decimal::one(),
     };
     let res = query( deps.as_ref(), mock_env(), msg).unwrap();
@@ -199,7 +201,7 @@ fn one_collateral_one_slot() {
         collateral_price: Decimal::one(),
         collateral_amount: Uint256::from( 1000u128 ),
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdl".to_string() },
+        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -209,6 +211,7 @@ fn one_collateral_one_slot() {
 
 }
 
+#[test]
 fn one_collateral_one_slot_w_fees() {
     let mut deps = mock_dependencies( );
 
@@ -216,7 +219,8 @@ fn one_collateral_one_slot_w_fees() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: Uint128::new(1u128),
+        basket_id: None,
+        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -240,7 +244,7 @@ fn one_collateral_one_slot_w_fees() {
     let submit_info = mock_info(
         "owner0000",
         &[Coin {
-            denom: "cdl".to_string(),
+            denom: "cdt".to_string(),
             amount: Uint128::from(1000u128),
         }],
     );
@@ -251,21 +255,20 @@ fn one_collateral_one_slot_w_fees() {
     let msg = QueryMsg::CheckLiquidatible { 
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() }, 
         collateral_price: Decimal::one(),
-        collateral_amount: Uint256::from( 1111u128 ),
-        credit_info: AssetInfo::NativeToken { denom: "cdl".to_string() },
+        collateral_amount: Uint256::from( 1112u128 ),
+        credit_info: AssetInfo::NativeToken { denom: "cdt".to_string() },
         credit_price: Decimal::one(),
     };
     let res = query( deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
-    //panic!( "{}, {}", resp.leftover_collateral, resp.total_credit_repaid);
     assert_eq!( resp.total_credit_repaid, String::from("1000") );
     
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::one(),
-        collateral_amount: Uint256::from( 1111u128 ),
+        collateral_amount: Uint256::from( 1112u128 ),
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdl".to_string() },
+        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -282,7 +285,8 @@ fn two_slot_w_fees() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: Uint128::new(1u128),
+        basket_id: None,
+        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -306,7 +310,7 @@ fn two_slot_w_fees() {
     let submit_info = mock_info(
         "owner0000",
         &[Coin {
-            denom: "cdl".to_string(),
+            denom: "cdt".to_string(),
             amount: Uint128::from(1000u128),
         }],
     );
@@ -324,7 +328,7 @@ fn two_slot_w_fees() {
     let submit_info = mock_info(
         "owner0000",
         &[Coin {
-            denom: "cdl".to_string(),
+            denom: "cdt".to_string(),
             amount: Uint128::from(1000u128),
         }],
     );
@@ -335,7 +339,7 @@ fn two_slot_w_fees() {
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() }, 
         collateral_price: Decimal::one(),
         collateral_amount: Uint256::from( 2000u128 ),
-        credit_info: AssetInfo::NativeToken { denom: "cdl".to_string() },
+        credit_info: AssetInfo::NativeToken { denom: "cdt".to_string() },
         credit_price: Decimal::one(),
     };
     let res = query( deps.as_ref(), mock_env(), msg).unwrap();
@@ -348,7 +352,7 @@ fn two_slot_w_fees() {
         collateral_price: Decimal::one(),
         collateral_amount: Uint256::from( 2000u128 ),
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdl".to_string() },
+        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -365,7 +369,8 @@ fn partial_two_slot_w_fees() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: Uint128::new(1u128),
+        basket_id: None,
+        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -389,7 +394,7 @@ fn partial_two_slot_w_fees() {
     let submit_info = mock_info(
         "owner0000",
         &[Coin {
-            denom: "cdl".to_string(),
+            denom: "cdt".to_string(),
             amount: Uint128::from(1000u128),
         }],
     );
@@ -407,7 +412,7 @@ fn partial_two_slot_w_fees() {
     let submit_info = mock_info(
         "owner0000",
         &[Coin {
-            denom: "cdl".to_string(),
+            denom: "cdt".to_string(),
             amount: Uint128::from(1000u128),
         }],
     );
@@ -418,7 +423,7 @@ fn partial_two_slot_w_fees() {
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() }, 
         collateral_price: Decimal::one(),
         collateral_amount: Uint256::from( 2222u128 ),
-        credit_info: AssetInfo::NativeToken { denom: "cdl".to_string() },
+        credit_info: AssetInfo::NativeToken { denom: "cdt".to_string() },
         credit_price: Decimal::one(),
     };
     let res = query( deps.as_ref(), mock_env(), msg).unwrap();
@@ -431,7 +436,7 @@ fn partial_two_slot_w_fees() {
         collateral_price: Decimal::one(),
         collateral_amount: Uint256::from( 2111u128 ),
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdl".to_string() },
+        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -448,7 +453,8 @@ fn partial_two_slot_w_fees_bignums() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: Uint128::new(1u128),
+        basket_id: None,
+        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -472,7 +478,7 @@ fn partial_two_slot_w_fees_bignums() {
     let submit_info = mock_info(
         "owner0000",
         &[Coin {
-            denom: "cdl".to_string(),
+            denom: "cdt".to_string(),
             amount: Uint128::from(1000_000_000u128),
         }],
     );
@@ -490,7 +496,7 @@ fn partial_two_slot_w_fees_bignums() {
     let submit_info = mock_info(
         "owner0000",
         &[Coin {
-            denom: "cdl".to_string(),
+            denom: "cdt".to_string(),
             amount: Uint128::from(1000_000_000u128),
         }],
     );
@@ -501,7 +507,7 @@ fn partial_two_slot_w_fees_bignums() {
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() }, 
         collateral_price: Decimal::one(),
         collateral_amount: Uint256::from( 2222_222_222u128 ),
-        credit_info: AssetInfo::NativeToken { denom: "cdl".to_string() },
+        credit_info: AssetInfo::NativeToken { denom: "cdt".to_string() },
         credit_price: Decimal::one(),
     };
     let res = query( deps.as_ref(), mock_env(), msg).unwrap();
@@ -514,7 +520,7 @@ fn partial_two_slot_w_fees_bignums() {
         collateral_price: Decimal::one(),
         collateral_amount: Uint256::from( 2111_111_111u128 ),
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdl".to_string() },
+        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),

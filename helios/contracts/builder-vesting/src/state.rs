@@ -1,5 +1,5 @@
 
-use membrane::types::{ VestingPeriod, Allocation, Asset };
+use membrane::types::{ Allocation, Asset };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 

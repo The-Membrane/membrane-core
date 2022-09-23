@@ -5,27 +5,25 @@ use std::str::FromStr;
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Addr, Uint128, QueryRequest, WasmQuery, Decimal, CosmosMsg, WasmMsg, BankMsg, Coin, from_binary, Order, Storage, Api, QuerierWrapper, Querier, SubMsg, Reply, attr, coin};
+use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Addr, Uint128, QueryRequest, WasmQuery, Decimal, CosmosMsg, WasmMsg, from_binary, SubMsg, Reply, attr };
 use cw2::set_contract_version;
-use cw20::{Cw20ReceiveMsg, Cw20ExecuteMsg};
-use cw_storage_plus::Bound;
-use osmo_bindings::{ SpotPriceResponse, OsmosisMsg, FullDenomResponse, OsmosisQuery };
+use cw20::{Cw20ReceiveMsg};
+
 
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, GetDenomResponse };
 use membrane::debt_auction::{ ExecuteMsg as AuctionExecuteMsg };
 use membrane::stability_pool::{ ExecuteMsg as SP_ExecuteMsg };
 use membrane::liq_queue::{ ExecuteMsg as LQ_ExecuteMsg };
-use membrane::positions::{ ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, PositionResponse, PositionsResponse, BasketResponse, ConfigResponse, PropResponse, CallbackMsg };
-use membrane::math::{ Uint256, Decimal256 };
-use membrane::types::{ AssetInfo, Asset, cAsset, Basket, Position, LiqAsset, SellWallDistribution, UserInfo, TWAPPoolInfo };
+use membrane::positions::{ ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, CallbackMsg };
+use membrane::types::{ AssetInfo, Asset, cAsset, Basket, Position, LiqAsset, SellWallDistribution, UserInfo };
 
 
 
 //use crate::liq_queue::LiquidatibleResponse;
-use crate::math::{decimal_multiplication, decimal_division, decimal_subtraction};
+use crate::math::{ decimal_subtraction };
 use crate::error::ContractError;
 use crate::positions::{create_basket, assert_basket_assets, assert_sent_native_token_balance, deposit, withdraw, increase_debt, repay, liq_repay, edit_contract_owner, liquidate, edit_basket, sell_wall_using_ids, SELL_WALL_REPLY_ID, SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID, LIQ_QUEUE_REPLY_ID, withdrawal_msg, update_position_claims, CREATE_DENOM_REPLY_ID, BAD_DEBT_REPLY_ID, mint_revenue, WITHDRAW_REPLY_ID, get_contract_balances, get_target_position, clone_basket};
-use crate::query::{ query_collateral_rates, query_stability_pool_liquidatible, query_config, query_position, query_user_positions, query_basket_positions, query_basket, query_baskets, query_prop, query_stability_pool_fee, query_basket_debt_caps, query_bad_debt, query_basket_insolvency, query_position_insolvency, query_basket_credit_interest};
+use crate::query::{ query_collateral_rates, query_stability_pool_liquidatible, query_config, query_position, query_user_positions, query_basket_positions, query_basket, query_baskets, query_prop, query_basket_debt_caps, query_bad_debt, query_basket_insolvency, query_position_insolvency, query_basket_credit_interest};
 use crate::state::{ Config, CONFIG, POSITIONS, BASKETS, RepayPropagation, REPAY, WITHDRAW, CREDIT_MULTI };
 
 // version info for migration info
@@ -274,7 +272,7 @@ fn edit_cAsset(
         attr("method", "edit_cAsset"),
         attr("basket", basket_id.clone().to_string()) ];
 
-    let mut new_asset: cAsset;
+    let new_asset: cAsset;
     let mut msgs : Vec<CosmosMsg> = vec![];
 
     match basket.clone().collateral_types.into_iter().find(|cAsset| cAsset.asset.info.equal(&asset)){
@@ -766,7 +764,7 @@ fn handle_withdraw_reply(
             let mut withdraw_prop = WITHDRAW.load( deps.storage )?;  
             
             //Assert valid withdrawal for each asset this reply is 
-            for i in 0..withdraw_prop.reply_order[0]{          
+            for _i in 0..withdraw_prop.reply_order[0]{          
                                             
                 let asset_info: AssetInfo = withdraw_prop.positions_prev_collateral[0].clone().info;
                 let position_amount: Uint128 = withdraw_prop.positions_prev_collateral[0].amount;
@@ -1167,8 +1165,6 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Resp
             let mut prop: RepayPropagation = REPAY.load(deps.storage)?;
 
             let basket = BASKETS.load(deps.storage, prop.basket_id.to_string())?;
-            
-            let config = CONFIG.load(deps.storage)?;
 
             //Send successfully liquidated amount
             let amount = &liq_event.attributes
@@ -1295,7 +1291,7 @@ fn handle_sell_wall_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Resp
             //On success we update the position owner's claims bc it means the protocol sent assets on their behalf
             let mut repay_propagation = REPAY.load( deps.storage )?;
             
-            let mut res = Response::new();
+            let res = Response::new();
             let mut attrs = vec![];
 
             //We use the distribution at the end of the list bc new ones were appended in the SP or LQ replies, and msgs are fulfilled depth first.

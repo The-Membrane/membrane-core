@@ -1,28 +1,23 @@
-use std::env;
 
-use std::ops::Index;
 use std::str::FromStr;
 
 #[cfg(not(feature = "library"))]
-use cosmwasm_std::entry_point;
-use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Storage, Addr, CosmosMsg, BankMsg, WasmMsg, Coin, Decimal, BankQuery, BalanceResponse, QueryRequest, WasmQuery, QuerierWrapper, attr, CanonicalAddr, Uint128};
+use cosmwasm_std::{to_binary, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Storage, Addr, CosmosMsg, BankMsg, WasmMsg, Coin, Decimal, attr, CanonicalAddr, Uint128};
 use cosmwasm_storage::{ReadonlyBucket, Bucket};
-use cw2::set_contract_version;
 use bigint::U256;
-use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
-use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, SlotResponse, ClaimsResponse};
-use membrane::types::{ Asset, AssetInfo, LiqAsset, cAsset, BidInput, Bid, Queue, PremiumSlot };
-use membrane::math::{ Decimal256, Uint256, decimal_division, decimal_subtraction, decimal_multiplication};
+use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg};
+use membrane::types::{ Asset, AssetInfo, BidInput, Bid, Queue, PremiumSlot };
+use membrane::math::{ Decimal256, Uint256 };
 
-use cw20::{Cw20ExecuteMsg, Cw20QueryMsg};
+use cw20::{Cw20ExecuteMsg};
 //use cw_multi_test::Contract;
 
-use crate::contract::{validate_position_owner, assert_sent_native_token_balance};
+use crate::contract::{validate_position_owner};
 //use crate::cw20::{Cw20ExecuteMsg, CW20QueryMsg};
 use crate::error::ContractError;
 //use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, SlotResponse, ClaimsResponse};
 //use crate::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
-use crate::state::{ CONFIG, Config, QUEUES, EPOCH_SCALE_SUM};
+use crate::state::{ CONFIG, Config, QUEUES };
 
 
 const MAX_LIMIT: u32 = 2147483646;
@@ -156,7 +151,7 @@ pub fn assert_bid_asset_from_sent_funds(
                 return Err(StdError::GenericErr { msg: "Invalid asset provided, only bid asset allowed".to_string() })
             }  
         },
-        AssetInfo::Token { address } => { return Err(StdError::GenericErr { msg: "Bid asset's are native assets".to_string() })}
+        AssetInfo::Token { address: _ } => { return Err(StdError::GenericErr { msg: "Bid asset's are native assets".to_string() })}
     }
 
 }
@@ -169,7 +164,7 @@ pub fn store_queue(
     
     QUEUES.update(deps, bid_for, |old_queue| -> Result<Queue, ContractError>{
         match old_queue {
-            Some( old_queue) => { Ok( queue ) },
+            Some( _old_queue) => { Ok( queue ) },
             None => { return Err(ContractError::InvalidAsset {  })}
         }
     })?;
@@ -181,7 +176,7 @@ pub fn store_queue(
 pub fn retract_bid(
     deps: DepsMut,
     info: MessageInfo,
-    env: Env,
+    _env: Env,
     bid_id: Uint128,
     bid_for: AssetInfo,
     amount: Option<Uint256>
@@ -313,7 +308,7 @@ pub fn execute_liquidation(
         return Err(ContractError::Unauthorized {  });
     }
 
-    let mut queue = QUEUES.load(deps.storage, bid_for.clone().to_string())?;
+    let queue = QUEUES.load(deps.storage, bid_for.clone().to_string())?;
     if queue.bid_asset.info != bid_with{
         return Err(ContractError::Unauthorized {  });
     }
@@ -665,8 +660,6 @@ pub(crate) fn set_slot_total(
 
     let mut queue = QUEUES.load(deps, bid_for.to_string())?;
 
-    let mut waiting_bids: Vec<Uint128> = vec![];
-
     let block_time = env.block.time.seconds();
 
     let config = CONFIG.load(deps)?;
@@ -711,19 +704,6 @@ pub(crate) fn set_slot_total(
     slot.last_total = block_time;
 
     Ok( slot )
-}
-
-fn read_total_bids(
-    deps:&dyn Storage,
-    bid_for: String,
-    env: Env,
-    wait: bool
-)-> Result<Uint128, ContractError>{
-
-    let mut queue = QUEUES.load(deps, bid_for)?;
-
-    Ok( queue.bid_asset.amount )
-
 }
 
 fn claim_bid_residue(slot: &mut PremiumSlot) -> Uint256 {
@@ -944,7 +924,7 @@ fn remove_bid(
     //Update
     QUEUES.update(deps, bid_for.to_string(), |old_queue| -> Result<Queue, ContractError>{
         match old_queue {
-            Some( old_queue) => { Ok( queue ) },
+            Some( _old_queue) => { Ok( queue ) },
             None => { return Err(ContractError::InvalidAsset {  })}
         }
     })?;
@@ -996,7 +976,7 @@ fn store_bid(
     //Update
     QUEUES.update(deps, bid_for.to_string(), |old_queue| -> Result<Queue, ContractError>{
         match old_queue {
-            Some( old_queue) => { Ok( queue ) },
+            Some( _old_queue) => { Ok( queue ) },
             None => { return Err(ContractError::InvalidAsset {  })}
         }
     })?;

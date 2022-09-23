@@ -101,7 +101,8 @@ fn instantiate_and_whitelist(deps: &mut OwnedDeps<MemoryStorage, MockApi, MockQu
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: Uint128::new(1u128),
+        basket_id: None,
+        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -145,7 +146,7 @@ fn simulate_bids_with_2_liq_amounts(
         let submit_info = mock_info(
             "owner0000",
             &[Coin {
-                denom: "cdl".to_string(),
+                denom: "cdt".to_string(),
                 amount: Uint128::from( bid_amount ),
             }],
         );
@@ -159,7 +160,7 @@ fn simulate_bids_with_2_liq_amounts(
                 collateral_price: asset_price,
                 collateral_amount: Uint256::from( liq_amount_1 ),
                 bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-                bid_with: AssetInfo::NativeToken { denom: "cdl".to_string() },
+                bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
                 basket_id: Uint128::new(1u128),
                 position_id: Uint128::new(1u128),
                 position_owner: "owner01".to_string(),
@@ -178,7 +179,7 @@ fn simulate_bids_with_2_liq_amounts(
                 collateral_price: asset_price,
                 collateral_amount: Uint256::from( liq_amount_2 ),
                 bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-                bid_with: AssetInfo::NativeToken { denom: "cdl".to_string() },
+                bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
                 basket_id: Uint128::new(1u128),
                 position_id: Uint128::new(1u128),
                 position_owner: "owner01".to_string(),

@@ -1,22 +1,19 @@
 #[cfg(test)]
+#[allow(unused_variables)]
 mod tests {
     
     use crate::helpers::{ DebtContract };
        
     
-    use cw20::BalanceResponse;
     use membrane::debt_auction::{ InstantiateMsg, QueryMsg, ExecuteMsg };
-    use membrane::builder_vesting::{ QueryMsg as BVQueryMsg, AllocationResponse };
     use membrane::oracle::{PriceResponse, AssetResponse};
     use membrane::positions::BasketResponse;
-    use membrane::staking::{ RewardsResponse, StakedResponse, ConfigResponse as StakingConfigResponse };
     use membrane::osmosis_proxy::{ GetDenomResponse };
-    use membrane::math::Uint256;
-    use membrane::types::{AssetInfo, Asset, VestingPeriod, StakeDeposit, AssetOracleInfo, TWAPPoolInfo };
+    use membrane::types::{AssetInfo, Asset, AssetOracleInfo, TWAPPoolInfo };
 
     
     use osmo_bindings::{ SpotPriceResponse, PoolStateResponse, ArithmeticTwapToNowResponse };
-    use cosmwasm_std::{Addr, Coin, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr, StdError };
+    use cosmwasm_std::{Addr, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr };
     use cw_multi_test::{App, AppBuilder, Contract, ContractWrapper, Executor, BankKeeper};
     use schemars::JsonSchema;
     use serde::{ Deserialize, Serialize };
@@ -425,8 +422,7 @@ mod tests {
     mod debt_auction {
         
         use super::*;
-        use cosmwasm_std::{BlockInfo, Uint64, WasmMsg};
-        use cw20::Cw20ReceiveMsg;
+        use cosmwasm_std::{BlockInfo};
         use membrane::{ types::{UserInfo, RepayPosition}, debt_auction::AuctionResponse };
         
         

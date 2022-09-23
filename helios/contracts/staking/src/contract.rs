@@ -1136,7 +1136,9 @@ fn user_claims(
 
         }
 
-     } else { return Err( StdError::GenericErr { msg: String::from("Can't claim as without a DEX router") } ) }
+    } else { return Err( StdError::GenericErr { msg: String::from("Can't claim as without a DEX router") } ) }
+
+    //Once messages are created, we set user_claims to vec![]
 
     Ok( (messages, user_claimables, accrued_interest) )
 }

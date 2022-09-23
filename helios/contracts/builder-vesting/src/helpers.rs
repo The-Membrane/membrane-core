@@ -2,10 +2,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{
-    to_binary, Addr, CosmosMsg, CustomQuery, Querier, QuerierWrapper, StdResult, WasmMsg, WasmQuery, Coin,
+    to_binary, Addr, CosmosMsg, StdResult, WasmMsg, Coin,
 };
 
-use membrane::builder_vesting::{ExecuteMsg, QueryMsg};
+use membrane::builder_vesting::{ExecuteMsg};
 
 /// BVContract is a wrapper around Addr that provides a lot of helpers
 /// for working with this.

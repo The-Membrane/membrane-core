@@ -20,7 +20,8 @@ fn query_liquidatible() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: Uint128::new(1u128),
+        basket_id: None,
+        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -44,7 +45,7 @@ fn query_liquidatible() {
     let submit_info = mock_info(
         "owner0000",
         &[Coin {
-            denom: "cdl".to_string(),
+            denom: "cdt".to_string(),
             amount: Uint128::from(1_000_000u128),
         }],
     );
@@ -56,7 +57,7 @@ fn query_liquidatible() {
         bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() }, 
         collateral_price: Decimal::percent(100), 
         collateral_amount: Uint256::from(10_000u128), 
-        credit_info: AssetInfo::NativeToken { denom: "cdl".to_string() }, 
+        credit_info: AssetInfo::NativeToken { denom: "cdt".to_string() }, 
         credit_price: Decimal::percent(100), 
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
@@ -77,7 +78,8 @@ fn query_bid() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: Uint128::new(1u128),
+        basket_id: None,
+        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -101,7 +103,7 @@ fn query_bid() {
     let submit_info = mock_info(
         "owner0000",
         &[Coin {
-            denom: "cdl".to_string(),
+            denom: "cdt".to_string(),
             amount: Uint128::from(1_000_000u128),
         }],
     );
@@ -143,7 +145,7 @@ fn query_bid() {
     let submit_info = mock_info(
         "owner0000",
         &[Coin {
-            denom: "cdl".to_string(),
+            denom: "cdt".to_string(),
             amount: Uint128::from(1_000_000u128),
         }],
     );
@@ -200,7 +202,8 @@ fn query_slots_queues() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: Uint128::new(1u128),
+        basket_id: None,
+        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -226,13 +229,13 @@ fn query_slots_queues() {
     let resp: Vec<QueueResponse> = from_binary(&res).unwrap();
     assert_eq!(resp, vec![
         QueueResponse {
-            bid_asset: String::from("0 cdl"),
+            bid_asset: String::from("0 cdt"),
             max_premium: String::from("10"),
             current_bid_id: String::from("1"),
             bid_threshold: String::from("1000000000"),
         },
         QueueResponse {
-            bid_asset: String::from("0 cdl"),
+            bid_asset: String::from("0 cdt"),
             max_premium: String::from("10"),
             current_bid_id: String::from("1"),
             bid_threshold: String::from("1000000000"),
@@ -286,7 +289,7 @@ fn query_slots_queues() {
     let submit_info = mock_info(
         "owner0000",
         &[Coin {
-            denom: "cdl".to_string(),
+            denom: "cdt".to_string(),
             amount: Uint128::from(1_000_000u128),
         }],
     );
@@ -334,7 +337,7 @@ fn query_slots_queues() {
     let resp: QueueResponse = from_binary(&res).unwrap();
     assert_eq!(resp, 
         QueueResponse {
-            bid_asset: String::from("1000000 cdl"),
+            bid_asset: String::from("1000000 cdt"),
             max_premium: String::from("10"),
             current_bid_id: String::from("2"),
             bid_threshold: String::from("1000000000"),
@@ -347,7 +350,7 @@ fn query_slots_queues() {
     let resp: Vec<QueueResponse> = from_binary(&res).unwrap();
     assert_eq!(resp[0], 
         QueueResponse {
-            bid_asset: String::from("1000000 cdl"),
+            bid_asset: String::from("1000000 cdt"),
             max_premium: String::from("10"),
             current_bid_id: String::from("2"),
             bid_threshold: String::from("1000000000"),

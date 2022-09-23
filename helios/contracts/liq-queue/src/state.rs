@@ -1,11 +1,9 @@
-use core::fmt;
 
-
-use membrane::types::{ AssetInfo, Asset, Queue };
+use membrane::types::{ AssetInfo, Queue };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Uint128, Decimal, CanonicalAddr};
+use cosmwasm_std::{Addr, Uint128, Decimal};
 use cw_storage_plus::{Item, Map};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -14,7 +12,7 @@ pub struct Config {
     pub positions_contract: Addr,
     pub added_assets: Option<Vec<AssetInfo>>,
     pub waiting_period: u64, //Wait period is at max doubled due to slot_total calculation
-    pub basket_id: Uint128,
+    pub bid_asset: AssetInfo,
 }
 
 // #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

@@ -2,11 +2,11 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Uint128, Decimal};
+use cosmwasm_std::{Uint128, Decimal};
 use cw20::Cw20ReceiveMsg;
 
 use crate::math::{Uint256, Decimal256};
-use crate::types::{Asset, AssetInfo, BidInput, Bid, PremiumSlot};
+use crate::types::{AssetInfo, BidInput, Bid};
 
 
 
@@ -15,7 +15,8 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub positions_contract: String,
     pub waiting_period: u64, //seconds
-    pub basket_id: Uint128,
+    pub basket_id: Option<Uint128>,
+    pub bid_asset: Option<AssetInfo>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

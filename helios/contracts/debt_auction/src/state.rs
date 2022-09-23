@@ -4,7 +4,7 @@ use cw_storage_plus::{Item, Map};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use membrane::types::{ UserInfo, RepayPosition, AssetInfo };
+use membrane::types::{ RepayPosition, AssetInfo };
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {    

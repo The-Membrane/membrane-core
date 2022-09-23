@@ -2,18 +2,12 @@ use std::str::FromStr;
 
 
 #[cfg(not(feature = "library"))]
-use cosmwasm_std::entry_point;
-use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Storage, Addr, Api, Uint128, CosmosMsg, BankMsg, WasmMsg, Coin, Decimal, BankQuery, BalanceResponse, QueryRequest, WasmQuery, QuerierWrapper, attr, CanonicalAddr};
-use cosmwasm_storage::{ReadonlyBucket, Bucket};
-use cw2::set_contract_version;
-use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg, SlotResponse, ConfigResponse, BidResponse, ClaimsResponse, LiquidatibleResponse, QueueResponse};
-use membrane::types::{Asset, AssetInfo, LiqAsset, cAsset, UserRatio, BidInput, Bid, Queue, PremiumSlot};
-use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
-use membrane::math::{ Decimal256, Uint256, decimal_division, decimal_subtraction, decimal_multiplication};
+use cosmwasm_std::{ Deps, StdResult, StdError, Uint128, Decimal};
+use membrane::liq_queue::{SlotResponse, ConfigResponse, BidResponse, ClaimsResponse, LiquidatibleResponse, QueueResponse};
+use membrane::types::{AssetInfo, Bid, Queue, PremiumSlot};
+use membrane::math::{ Decimal256, Uint256};
 
-use cw20::{Cw20ExecuteMsg, Cw20QueryMsg};
 
-use crate::error::ContractError;
 use crate::state::{ CONFIG, Config, QUEUES };
 //use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, SlotResponse, ConfigResponse, BidResponse, ClaimsResponse, LiquidatibleResponse, QueueResponse};
 //use crate::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};

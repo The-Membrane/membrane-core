@@ -1,19 +1,19 @@
 #[cfg(test)]
+#[allow(unused_variables)]
+
 mod tests {
     
     use crate::helpers::{ GovContract };  
     
-    use cw20::BalanceResponse;
     use membrane::governance::{ InstantiateMsg, QueryMsg, ExecuteMsg, VOTING_PERIOD_INTERVAL, STAKE_INTERVAL };
-    use::membrane::builder_vesting::{ QueryMsg as BVQueryMsg, AllocationResponse };
+    use::membrane::builder_vesting::{ AllocationResponse };
     use membrane::staking::{ RewardsResponse, StakedResponse, ConfigResponse as StakingConfigResponse };
     use membrane::osmosis_proxy::{ GetDenomResponse };
     use membrane::types::{AssetInfo, Asset, VestingPeriod, StakeDeposit };
-    use membrane::math::Uint256;
 
     
     use osmo_bindings::{ SpotPriceResponse, PoolStateResponse, ArithmeticTwapToNowResponse };
-    use cosmwasm_std::{Addr, Coin, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr, StdError };
+    use cosmwasm_std::{Addr, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr };
     use cw_multi_test::{App, AppBuilder, Contract, ContractWrapper, Executor, BankKeeper};
     use schemars::JsonSchema;
     use serde::{ Deserialize, Serialize };
@@ -458,8 +458,7 @@ mod tests {
     mod gov {
         
         use super::*;
-        use cosmwasm_std::{BlockInfo, Uint64, WasmMsg};
-        use cw20::Cw20ReceiveMsg;
+        use cosmwasm_std::{Uint64, WasmMsg};
         use membrane::governance::{ProposalMessage, ProposalResponse, ProposalStatus, ProposalVoteOption, ProposalVotesResponse, UpdateConfig, Config, ProposalListResponse};
         
 

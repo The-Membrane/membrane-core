@@ -34,16 +34,18 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub positions_contract: String,
     pub waiting_period: u64, //seconds
-    pub basket_id: Uint128,
+    pub basket_id: Option<Uint128>,
+    pub bid_asset: Option<AssetInfo>,
 }
 ```
 
-| Key                  | Type    | Description                                    |
-| -------------------- | ------- | ---------------------------------------------- |
-| `*owner`             | String  | Owner of the contract, defaults to info.sender |
-| `positions_contract` | String  | CDP contract                                   |
-| `waiting_period`     | u64     | Waiting period for bids (secs)                 |
-| `basket_id`          | Uint128 | Basket ID for contract's bid\_asset            |
+| Key                  | Type      | Description                                    |
+| -------------------- | --------- | ---------------------------------------------- |
+| `*owner`             | String    | Owner of the contract, defaults to info.sender |
+| `positions_contract` | String    | CDP contract                                   |
+| `waiting_period`     | u64       | Waiting period for bids (secs)                 |
+| `*basket_id`         | Uint128   | Basket ID for contract's bid\_asset            |
+| `*bid_asset`         | AssetInfo | Bid asset direct input                         |
 
 &#x20;\* = optional
 

@@ -4,13 +4,12 @@ use crate::contract::{execute, instantiate, query};
 
 //use cw_multi_test::Contract;
 //use cw_multi_test::Contract;
-use membrane::liq_queue::{InstantiateMsg, QueryMsg, ConfigResponse, ExecuteMsg, BidResponse, QueueResponse, SlotResponse, LiquidatibleResponse};
-use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg};
-use membrane::types::{ AssetInfo, BidInput, Asset, Bid };
+use membrane::liq_queue::{InstantiateMsg, QueryMsg, ExecuteMsg, BidResponse, SlotResponse};
+use membrane::types::{ AssetInfo, BidInput };
 use membrane::math::{ Uint256, Decimal256 };
 
-use cosmwasm_std::testing::{mock_dependencies_with_balance, mock_env, mock_info, mock_dependencies};
-use cosmwasm_std::{coins, from_binary, attr, Uint128, Coin, StdError, SubMsg, CosmosMsg, BankMsg, Decimal, WasmMsg, to_binary, Addr};
+use cosmwasm_std::testing::{mock_env, mock_info, mock_dependencies};
+use cosmwasm_std::{from_binary, attr, Uint128, Coin, StdError, Decimal};
 
 
 #[test]
@@ -576,7 +575,7 @@ fn completely_empty_pool() {
             amount: Uint128::from(1000_000_000u128),
         }],
     );
-    let mut env = mock_env();
+    let env = mock_env();
     execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
 
     ///Liquidate 20 at $50
@@ -641,7 +640,6 @@ fn completely_empty_pool() {
     };   
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
-    //env.block.time = env.block.time.plus_seconds(70u64);
     execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
 
 
@@ -834,7 +832,7 @@ fn two_bidder_distribution_multiple_common_slots() {
             amount: Uint128::from(100_000_000u128),
         }],
     );
-    let mut env = mock_env();
+    let env = mock_env();
     execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
 
     ///Submit 2nd bid, 100 in 5%
@@ -1015,7 +1013,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
             amount: Uint128::from(50u128),
         }],
     );
-    let mut env = mock_env();
+    let  env = mock_env();
     execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
 
     //Bidder 2 submits 100 to 0%
@@ -1033,7 +1031,6 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
             amount: Uint128::from(100u128),
         }],
     );
-    let mut env = mock_env();
     execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
 
     //Bidder 3 submits 100 to 0%

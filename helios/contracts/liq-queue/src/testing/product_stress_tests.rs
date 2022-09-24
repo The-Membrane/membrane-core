@@ -1,18 +1,16 @@
 use std::str::FromStr;
 
-use crate::ContractError;
 use crate::contract::{execute, instantiate, query};
 //use crate::state::{AssetInfo, BidInput};
 
 //use cw_multi_test::Contract;
 //use cw_multi_test::Contract;
-use membrane::liq_queue::{InstantiateMsg, QueryMsg, ConfigResponse, ExecuteMsg, BidResponse, QueueResponse, SlotResponse, LiquidatibleResponse};
-use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg};
-use membrane::types::{ AssetInfo, BidInput, Asset, Bid };
+use membrane::liq_queue::{InstantiateMsg, QueryMsg, ExecuteMsg, BidResponse};
+use membrane::types::{ AssetInfo, BidInput };
 use membrane::math::{ Uint256, Decimal256 };
 
-use cosmwasm_std::testing::{mock_dependencies_with_balance, mock_env, mock_info, mock_dependencies, MockApi, MockQuerier};
-use cosmwasm_std::{coins, from_binary, attr, Uint128, Coin, StdError, SubMsg, CosmosMsg, BankMsg, Decimal, WasmMsg, to_binary, Addr, OwnedDeps, MemoryStorage};
+use cosmwasm_std::testing::{mock_env, mock_info, mock_dependencies, MockApi, MockQuerier};
+use cosmwasm_std::{from_binary, Uint128, Coin, Decimal, OwnedDeps, MemoryStorage};
 
 const TOLERANCE: &str = "0.00001"; // 0.001%
 const ITERATIONS: u32 = 100u32;

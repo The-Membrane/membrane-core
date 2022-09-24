@@ -1,19 +1,16 @@
 
 use cosmwasm_std::{
-    attr, entry_point, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Order,
-    Env, MessageInfo, Response, StdResult, Uint128, WasmMsg, QueryRequest, WasmQuery, StdError, coins, BankMsg, Coin,
+    attr, entry_point, to_binary, Binary, Deps, DepsMut, Order,
+    Env, MessageInfo, Response, StdResult, Uint128, QueryRequest, WasmQuery, Coin,
 };
 use cw2::{ set_contract_version};
-use cw20::{ Cw20ExecuteMsg };
 
-use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 use membrane::liquidity_check::{ ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg };
-use membrane::types::{ AssetInfo, Asset, LiquidityInfo };
+use membrane::types::{ AssetInfo, LiquidityInfo };
 
 use osmo_bindings::{ PoolStateResponse };
 
-use std::str::FromStr;
 use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
@@ -36,7 +33,7 @@ pub fn instantiate(
     
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let mut config: Config;
+    let config: Config;
     if let Some(owner) = msg.owner {
 
         config = Config {
@@ -62,7 +59,7 @@ pub fn instantiate(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     info: MessageInfo,
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
@@ -157,7 +154,7 @@ fn remove_asset(
         return Err( ContractError::Unauthorized {  } )
     }
 
-    let mut attrs = vec![
+    let attrs = vec![
         attr("method", "remove_asset"),
         attr("removed_asset", asset.clone().to_string()),
     ];
@@ -233,7 +230,7 @@ fn get_assets(
             .range(deps.storage, start, None, Order::Ascending)
             .take(limit)
             .map(|item| {
-                let (asset, info) = item.unwrap();
+                let (_asset, info) = item.unwrap();
 
                 Ok( info )
             })

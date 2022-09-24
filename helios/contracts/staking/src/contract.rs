@@ -1,21 +1,19 @@
 use std::env;
-use std::error::Error;
-use std::ops::Index;
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Storage, Addr, Api, Uint128, CosmosMsg, BankMsg, WasmMsg, Coin, Decimal, BankQuery, BalanceResponse, QueryRequest, WasmQuery, QuerierWrapper, attr, from_binary, coin};
+use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Storage, Addr, Api, Uint128, CosmosMsg, BankMsg, WasmMsg, Coin, Decimal, attr, from_binary, coin};
 use cw2::set_contract_version;
-use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg};
+use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
 
 use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg };
 use membrane::staking::{ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, ConfigResponse, StakerResponse, RewardsResponse, StakedResponse, FeeEventsResponse, TotalStakedResponse };
 use membrane::apollo_router::{ ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterCw20HookMsg };
-use membrane::types::{ Asset, AssetInfo, LiqAsset, Deposit, StakeDeposit, FeeEvent };
+use membrane::types::{ Asset, AssetInfo, LiqAsset,  StakeDeposit, FeeEvent };
 
 
 use crate::error::ContractError;
-use crate::math::{decimal_division, decimal_subtraction, decimal_multiplication};
+use crate::math::{decimal_division};
 use crate::state::{ CONFIG, Config, STAKED, TOTALS, Totals, FEE_EVENTS };
 
 // version info for migration info
@@ -113,7 +111,7 @@ pub fn instantiate(
     FEE_EVENTS.save( deps.storage, &vec )?;
     
     
-    let mut res = Response::new();
+    let res = Response::new();
 
     attrs.push( attr("method", "instantiate"));
     
@@ -321,7 +319,7 @@ pub fn stake(
 
     let config = CONFIG.load( deps.storage )?;
 
-    let mut valid_asset: Asset;
+    let valid_asset: Asset;
     //Assert only MBRN was sent
     if info.funds.len() == 1 && info.funds[0].denom == config.mbrn_denom{
         valid_asset = assert_sent_native_token_balance( AssetInfo::NativeToken { denom: config.mbrn_denom }, &info)?;
@@ -483,7 +481,7 @@ pub fn unstake(
          
     //Response builder
     let response = Response::new();
-    let mut attrs = vec![
+    let attrs = vec![
         attr("method", "unstake"),
         attr("staker", info.sender.to_string()),
         attr("unstake_amount", withdrawable_amount.to_string()),
@@ -597,7 +595,7 @@ fn withdraw_from_state(
                     //Condense like Assets
                     for claim_asset in deposit_claimables {
                         //Check if asset is already in the list of claimables and add according
-                        match claimables.clone().into_iter().enumerate().find(|(i,asset)| asset.info == claim_asset.info) {
+                        match claimables.clone().into_iter().enumerate().find(|(_i,asset)| asset.info == claim_asset.info) {
                             Some( (index, _asset) ) => { claimables[index].amount += claim_asset.amount },
                             None => claimables.push( claim_asset ),
                         }
@@ -651,7 +649,7 @@ fn withdraw_from_state(
                     //Condense like Assets
                     for claim_asset in deposit_claimables {
                         //Check if asset is already in the list of claimables and add according
-                        match claimables.clone().into_iter().enumerate().find(|(i,asset)| asset.info == claim_asset.info) {
+                        match claimables.clone().into_iter().enumerate().find(|(_i,asset)| asset.info == claim_asset.info) {
                             Some( (index, _asset) ) => { claimables[index].amount += claim_asset.amount },
                             None => claimables.push( claim_asset ),
                         }
@@ -728,9 +726,9 @@ pub fn claim_rewards(
 ) -> Result<Response, ContractError>{
     let config: Config = CONFIG.load( deps.storage )?;
 
-    let mut messages: Vec<CosmosMsg> = vec![];
-    let mut accrued_interest = Uint128::zero();
-    let mut user_claimables: Vec<Asset> = vec![];
+    let mut messages: Vec<CosmosMsg>;
+    let accrued_interest: Uint128;
+    let user_claimables: Vec<Asset>;
 
     //Only 1 toggle at a time 
     if claim_as_native.is_some() && claim_as_cw20.is_some(){
@@ -1174,7 +1172,7 @@ fn get_user_claimables(
         //Condense like Assets
         for claim_asset in deposit_claimables {
             //Check if asset is already in the list of claimables and add according
-            match claimables.clone().into_iter().enumerate().find(|(i,asset)| asset.info == claim_asset.info) {
+            match claimables.clone().into_iter().enumerate().find(|(_i,asset)| asset.info == claim_asset.info) {
                 Some( (index, _asset) ) => { claimables[index].amount += claim_asset.amount },
                 None => claimables.push( claim_asset ),
             }
@@ -1303,7 +1301,7 @@ pub fn assert_sent_native_token_balance(
     asset_info: AssetInfo,
     message_info: &MessageInfo)-> StdResult<Asset> {
         
-    let mut asset: Asset;
+    let asset: Asset;
 
     if let AssetInfo::NativeToken { denom} = &asset_info {
         match message_info.funds.iter().find(|x| x.denom == *denom) {

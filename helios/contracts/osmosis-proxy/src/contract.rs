@@ -1,18 +1,17 @@
 //Token factory fork
 //https://github.com/osmosis-labs/bindings/blob/main/contracts/tokenfactory
 
-use std::error::Error;
 use std::str::FromStr;
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, Deps, DepsMut, Reply, Env, MessageInfo, Response, StdResult, Uint128, QueryRequest, attr, CosmosMsg, StdError, Coin, QuerierWrapper, Addr, Decimal
+    to_binary, Binary, Deps, DepsMut, Reply, Env, MessageInfo, Response, StdResult, Uint128, QueryRequest, attr, StdError, QuerierWrapper, Addr, Decimal
 };
 use cw2::set_contract_version;
 
 use crate::error::TokenFactoryError;
-use membrane::osmosis_proxy::{ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse, ConfigResponse };
+use membrane::osmosis_proxy::{ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse };
 use crate::state::{Config, CONFIG, TOKENS, TokenInfo};
 use osmo_bindings::{ OsmosisMsg, OsmosisQuerier, OsmosisQuery, PoolStateResponse, ArithmeticTwapToNowResponse, FullDenomResponse };
 
@@ -530,68 +529,5 @@ fn handle_create_denom_reply(deps: DepsMut<OsmosisQuery>, env: Env, msg: Reply) 
     Ok( Response::new() ) 
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use cosmwasm_std::testing::{
-        mock_env, mock_info, MockApi, MockQuerier, MockStorage, MOCK_CONTRACT_ADDR, mock_dependencies
-    };
-    use cosmwasm_std::{
-        coins, from_binary, Attribute, ContractResult, CosmosMsg, OwnedDeps, Querier, StdError,
-        SystemError, SystemResult,
-    };
-
-    const DENOM_NAME: &str = "mydenom";
-    const DENOM_PREFIX: &str = "factory";
 
 
-//   #[test]
-//   fn max_supply(){
-
-//     let mut deps = mock_dependencies();
-    
-//     let msg = InstantiateMsg { };
-
-//     let info = mock_info("addr0000", &[]);
-//     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
-
-//     let msg = ExecuteMsg::CreateDenom { 
-//         subdenom: String::from(DENOM_NAME), 
-//         basket_id: String::from("1"), 
-//         max_supply: Some( Uint128::zero() ), 
-//         liquidity_multiplier: None,
-//     };
-//     let res = execute(deps.as_mut(), mock_env(), info, msg.clone() ).unwrap();
-//     assert_eq!(res.attributes, vec![]);
-
-//   }
-}
-
-// fn exit_pool(
-//     sender: String,
-//     pool_id: u64,
-//     share_in_amount: Uint128,
-//     token_out_mins: Vec<Coin>,
-// ) -> Result<Response<>, TokenFactoryError>{
-//     let mut token_mins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
-//     if token_out_mins != vec![]{
-//         for token in token_out_mins {
-//             token_mins.push( osmosis_std::types::cosmos::base::v1beta1::Coin {
-//                 denom: token.denom,
-//                 amount: token.amount.to_string(),
-//             } );
-//         }
-//     }    
-
-//     let msg: CosmosMsg = MsgExitPool {
-//         sender,
-//         pool_id,
-//         share_in_amount: share_in_amount.to_string(),
-//         token_out_mins: token_mins,
-//     }.into();
-
-//     Ok( Response::new()
-//             .add_message(msg)
-//             .add_attribute("method", "exit_pool") )
-
-// }

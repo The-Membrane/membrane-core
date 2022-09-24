@@ -1,19 +1,16 @@
 
-use std::env;
-
 use crate::ContractError;
 use crate::contract::{execute, instantiate, query};
 use crate::state::CONFIG;
 
-use super::*;
-use cosmwasm_std::testing::{mock_dependencies_with_balance, mock_env, mock_info, MockApi, MockQuerier, mock_dependencies};
-use cosmwasm_std::{coins, from_binary, attr, SubMsg, Uint128, Decimal, to_binary, CosmosMsg, WasmMsg, Coin, StdError, OwnedDeps, MemoryStorage, MessageInfo, Addr};
-use cw20::{ Cw20ExecuteMsg, Cw20ReceiveMsg };
+use cosmwasm_std::testing::{mock_dependencies_with_balance, mock_env, mock_info, mock_dependencies};
+use cosmwasm_std::{coins, from_binary, attr, SubMsg, Uint128, Decimal, to_binary, CosmosMsg, WasmMsg, Coin, StdError, Addr};
+use cw20::{ Cw20ReceiveMsg };
 
 use membrane::stability_pool::{ ExecuteMsg, InstantiateMsg, ClaimsResponse, QueryMsg, DepositResponse, PoolResponse, Cw20HookMsg, LiquidatibleResponse };
 use membrane::positions::{ ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg };
-use membrane::apollo_router::{ ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterCw20HookMsg };
-use membrane::types::{ AssetPool, Asset, AssetInfo, cAsset, LiqAsset, PositionUserInfo, UserInfo, Deposit };
+use membrane::apollo_router::{ ExecuteMsg as RouterExecuteMsg };
+use membrane::types::{ AssetPool, Asset, AssetInfo, LiqAsset, PositionUserInfo, UserInfo, Deposit };
 
 #[test]
 fn deposit() {

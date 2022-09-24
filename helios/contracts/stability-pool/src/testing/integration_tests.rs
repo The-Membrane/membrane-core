@@ -11,7 +11,7 @@ mod tests {
 
     
     use osmo_bindings::{ SpotPriceResponse, PoolStateResponse, ArithmeticTwapToNowResponse };
-    use cosmwasm_std::{Addr, Coin, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr, StdError };
+    use cosmwasm_std::{Addr, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr };
     use cw_multi_test::{App, AppBuilder, Contract, ContractWrapper, Executor, BankKeeper};
     use schemars::JsonSchema;
     use serde::{ Deserialize, Serialize };
@@ -461,7 +461,6 @@ mod tests {
         
         use super::*;
         use cosmwasm_std::BlockInfo;
-        use cw20::Cw20ReceiveMsg;
         
 
         #[test]

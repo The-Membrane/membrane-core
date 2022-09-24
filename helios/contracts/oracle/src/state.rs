@@ -4,7 +4,7 @@ use cw_storage_plus::{Item, Map};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use membrane::types::{ TWAPPoolInfo, AssetOracleInfo };
+use membrane::types::{  AssetOracleInfo };
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {

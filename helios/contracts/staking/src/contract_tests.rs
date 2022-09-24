@@ -1,17 +1,12 @@
 
-use std::env;
-
-use crate::ContractError;
 use crate::contract::{execute, instantiate, query};
-use crate::state::CONFIG;
 
-use super::*;
-use cosmwasm_std::testing::{mock_dependencies_with_balance, mock_env, mock_info, MockApi, MockQuerier, mock_dependencies};
-use cosmwasm_std::{coins, from_binary, attr, SubMsg, BankMsg, Uint128, Decimal, to_binary, CosmosMsg, WasmMsg, Coin, StdError, OwnedDeps, MemoryStorage, MessageInfo, Addr, coin};
-use cw20::{ Cw20ExecuteMsg, Cw20ReceiveMsg };
+use cosmwasm_std::testing::{mock_env, mock_info, mock_dependencies};
+use cosmwasm_std::{coins, from_binary, attr, SubMsg, BankMsg, Uint128, Decimal, to_binary, CosmosMsg, WasmMsg, Addr, coin};
+use cw20::{ Cw20ReceiveMsg };
 
 use membrane::osmosis_proxy::{ ExecuteMsg as OsmoExecuteMsg };
-use membrane::staking::{ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, TotalStakedResponse, StakedResponse, FeeEventsResponse, RewardsResponse, StakerResponse };
+use membrane::staking::{ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, TotalStakedResponse, StakedResponse, FeeEventsResponse, RewardsResponse};
 use membrane::apollo_router::{ ExecuteMsg as RouterExecuteMsg };
 use membrane::types::{ LiqAsset, Asset, AssetInfo, StakeDeposit, FeeEvent };
 

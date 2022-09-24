@@ -1,6 +1,5 @@
-use core::fmt;
 
-use membrane::types::{AssetPool, User, AssetInfo};
+use membrane::types::{AssetPool, User};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 

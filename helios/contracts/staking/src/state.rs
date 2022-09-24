@@ -1,11 +1,10 @@
-use core::fmt;
 
-use membrane::types::{Asset, User, AssetInfo, StakeDeposit, FeeEvent};
+use membrane::types::{StakeDeposit, FeeEvent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, Uint128, Decimal};
-use cw_storage_plus::{Item, Map};
+use cw_storage_plus::{Item};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {

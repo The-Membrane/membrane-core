@@ -1,8 +1,8 @@
 use std::time::{ SystemTime, UNIX_EPOCH };
 
 use cosmwasm_std::{
-    attr, entry_point, from_binary, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut,
-    Env, MessageInfo, Order, Response, StdResult, Uint128, Uint64, WasmMsg, QueryRequest, WasmQuery, StdError, QuerierWrapper, Storage,
+    attr, entry_point, to_binary, Binary, Decimal, Deps, DepsMut,
+    Env, MessageInfo, Response, StdResult, Uint128, QueryRequest, WasmQuery, StdError, QuerierWrapper, Storage,
 };
 use cw2::{ set_contract_version};
 
@@ -107,12 +107,12 @@ fn edit_asset(
     } else if oracle_info.clone().is_some() {
         let oracle_info = oracle_info.unwrap();
         //Update Asset
-        ASSETS.update( deps.storage, asset_info.to_string(), |mut oracle| -> Result<Vec<AssetOracleInfo>, ContractError> {
+        ASSETS.update( deps.storage, asset_info.to_string(), |oracle| -> Result<Vec<AssetOracleInfo>, ContractError> {
 
             //If oracle list
             if let Some( mut oracle_list ) = oracle {
                 //Find oracle
-                if let Some( (i, _oracle) ) = oracle_list.clone().into_iter().enumerate().find(|(index, info)| info.basket_id == oracle_info.basket_id) {
+                if let Some( (i, _oracle) ) = oracle_list.clone().into_iter().enumerate().find(|(_index, info)| info.basket_id == oracle_info.basket_id) {
                     oracle_list[i] = oracle_info.clone();
                 }
 
@@ -177,7 +177,7 @@ fn add_asset(
             //Save oracle to asset, no duplicates
             if let None = oracles.into_iter().find(|oracle| oracle.basket_id == oracle_info.basket_id){
 
-                ASSETS.update( deps.storage, asset_info.to_string(), |mut oracle| -> Result<Vec<AssetOracleInfo>, ContractError> {
+                ASSETS.update( deps.storage, asset_info.to_string(), |oracle| -> Result<Vec<AssetOracleInfo>, ContractError> {
         
                     match oracle {
                         Some( mut oracle_list ) => {

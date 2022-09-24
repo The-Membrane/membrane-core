@@ -1,11 +1,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{
-    to_binary, Addr, CosmosMsg, CustomQuery, Querier, QuerierWrapper, StdResult, WasmMsg, WasmQuery, Coin,
-};
+use cosmwasm_std::{ to_binary, Addr, CosmosMsg, StdResult, WasmMsg, Coin };
 
-use membrane::liquidity_check::{ExecuteMsg, QueryMsg};
+use membrane::liquidity_check::{ExecuteMsg};
 
 /// LiquidityContract is a wrapper around Addr that provides a lot of helpers
 /// for working with this.

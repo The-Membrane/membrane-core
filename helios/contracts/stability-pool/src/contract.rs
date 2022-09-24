@@ -1,17 +1,15 @@
 use std::env;
-use std::error::Error;
-use std::ops::Index;
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Storage, Addr, Api, Uint128, CosmosMsg, BankMsg, WasmMsg, Coin, Decimal, BankQuery, BalanceResponse, QueryRequest, WasmQuery, QuerierWrapper, attr, from_binary};
+use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, StdError, Storage, Addr, Api, Uint128, CosmosMsg, BankMsg, WasmMsg, Coin, Decimal, QueryRequest, WasmQuery, QuerierWrapper, attr, from_binary};
 use cw2::set_contract_version;
 use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
 use membrane::stability_pool::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, DepositResponse, ClaimsResponse, PoolResponse, Cw20HookMsg };
 use membrane::apollo_router::{ ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterCw20HookMsg };
 use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, ExecuteMsg as OsmoExecuteMsg, TokenInfoResponse };
-use membrane::types::{ Asset, AssetInfo, LiqAsset, AssetPool, Deposit, cAsset, UserRatio, User, PositionUserInfo, UserInfo };
-use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg};
+use membrane::types::{ Asset, AssetInfo, LiqAsset, AssetPool, Deposit, UserRatio, User, PositionUserInfo, UserInfo };
+use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
 
 use crate::error::ContractError;
 use crate::math::{decimal_division, decimal_subtraction, decimal_multiplication};
@@ -95,7 +93,7 @@ pub fn instantiate(
         ASSETS.save(deps.storage, &vec![pool])?;
     }
     
-    let mut res = Response::new();
+    let res = Response::new();
     let mut attrs = vec![];
 
     attrs.push(("method", "instantiate"));
@@ -275,7 +273,7 @@ pub fn deposit(
         };
 
         
-        match asset_pools.clone().into_iter().find(|mut x| x.credit_asset.info.equal(&asset.info)){
+        match asset_pools.clone().into_iter().find(|x| x.credit_asset.info.equal(&asset.info)){
             Some(mut pool ) => {
 
                 //Add user deposit to Pool totals
@@ -412,7 +410,7 @@ pub fn withdraw(
         let asset_pools = ASSETS.load(deps.storage)?;
 
         //If the Asset has a pool, act
-        match asset_pools.clone().into_iter().find(|mut asset_pool| asset_pool.credit_asset.info.equal(&asset.info)){
+        match asset_pools.clone().into_iter().find(|asset_pool| asset_pool.credit_asset.info.equal(&asset.info)){
             
             //Some Asset
             Some( pool ) => {                
@@ -713,7 +711,7 @@ fn restake (
 
     let initial_restake = restake_asset.clone().amount;
 
-    let mut new_pool: AssetPool;
+    let new_pool: AssetPool;
 
     if let Some( mut pool ) =  ASSETS.load( deps.storage )?
     .into_iter()
@@ -853,7 +851,7 @@ pub fn liquidate(
     //2) Add position user info to response
     //3) Add potential leftover funds
 
-    let mut res: Response = Response::new();
+    let res: Response = Response::new();
     
     Ok( res.add_message(message)
             .add_attributes(vec![
@@ -896,7 +894,7 @@ pub fn distribute_funds(
     };
 
     //Assert that the distributed assets were sent
-    let mut assets: Vec<AssetInfo> = distribution_assets.clone()
+    let assets: Vec<AssetInfo> = distribution_assets.clone()
         .into_iter()
         .map(|asset| asset.info )
         .collect::<Vec<AssetInfo>>();
@@ -915,12 +913,12 @@ pub fn distribute_funds(
     //Liquidations are one msg at a time and PROP is always saved to first
     //so we can propagate without worry
     let mut prop = PROP.load( deps.storage )?;
-    let mut repaid_amount: Uint128;
+    let repaid_amount: Uint128;
     //If this distribution is at most for the amount that was repaid
     if distribute_for <= prop.repaid_amount{
         repaid_amount = distribute_for;
         prop.repaid_amount -= distribute_for;
-        PROP.save( deps.storage, &prop );
+        PROP.save( deps.storage, &prop )?;
     }else{
         return Err( ContractError::CustomError { val: format!("Distribution attempting to distribute_for too much ( {} > {} )", distribute_for, prop.repaid_amount) } )
     }
@@ -1050,7 +1048,7 @@ pub fn distribute_funds(
     let ( ratios, user_deposits ) = get_distribution_ratios(distribution_list.clone())?;
     
 
-    let mut distribution_ratios: Vec<UserRatio> = user_deposits
+    let distribution_ratios: Vec<UserRatio> = user_deposits
         .into_iter()
         .enumerate()
         .map( |(index, deposit)| {
@@ -1062,20 +1060,17 @@ pub fn distribute_funds(
         .collect::<Vec<UserRatio>>();
 
         
-    //1) Calc cAsset's ratios of total value
-    //2) Split to users
-    
+    //1) Calc cAsset's ratios of total value    
     let mut cAsset_ratios = distribution_asset_ratios;
-    //let messages: Vec<CosmosMsg> = vec![];
 
-        
+    //2) Split to users
     for mut user_ratio in distribution_ratios{
                      
-        for ( index, mut cAsset_ratio ) in cAsset_ratios.clone().into_iter().enumerate(){
+        for ( index, cAsset_ratio ) in cAsset_ratios.clone().into_iter().enumerate(){
 
             if cAsset_ratio == Decimal::zero(){ continue }
 
-            if user_ratio.ratio == cAsset_ratio{
+            if user_ratio.ratio == cAsset_ratio {
                 
                 //Add all of this asset to existing claims
                 USERS.update(deps.storage, user_ratio.user, |user: Option<User>| -> Result<User, ContractError> {
@@ -1127,7 +1122,7 @@ pub fn distribute_funds(
                 cAsset_ratios[index] = Decimal::zero();
 
                 break;
-            }else if user_ratio.ratio < cAsset_ratio {
+            } else if user_ratio.ratio < cAsset_ratio {
                 //Add full user ratio of the asset
                 let send_ratio = decimal_division(user_ratio.ratio, cAsset_ratio);
                 let send_amount = decimal_multiplication(send_ratio, Decimal::from_ratio(distribution_assets[index].amount, Uint128::new(1u128))) * Uint128::new(1u128);
@@ -1177,10 +1172,10 @@ pub fn distribute_funds(
                 })?;
 
                 //Set cAsset_ratio to the difference
-                cAsset_ratio = decimal_subtraction(cAsset_ratio, user_ratio.ratio);
+                cAsset_ratios[index] = decimal_subtraction(cAsset_ratio, user_ratio.ratio);
 
                 break;
-            }else if user_ratio.ratio > cAsset_ratio{
+            } else if user_ratio.ratio > cAsset_ratio {
                 //Add all of this asset
                  //Add to existing user claims
                  USERS.update(deps.storage, user_ratio.clone().user, |user| -> Result<User, ContractError> {
@@ -1264,14 +1259,14 @@ fn repay(
     if info.sender != config.positions_contract { return Err( ContractError::Unauthorized { } ) }
     
     let mut msgs = vec![];       
-    let mut attrs = vec![
+    let attrs = vec![
         attr("method", "repay"),
         attr("user_info", user_info.clone().to_string()),
     ];
 
     let asset_pools = ASSETS.load(deps.storage)?;
 
-    if let Some( pool ) = asset_pools.clone().into_iter().find(|mut asset_pool| asset_pool.credit_asset.info.equal(&repayment.info)){
+    if let Some( pool ) = asset_pools.clone().into_iter().find(|asset_pool| asset_pool.credit_asset.info.equal(&repayment.info)){
 
         let position_owner = deps.api.addr_validate(&user_info.clone().position_owner)?;
 
@@ -1360,7 +1355,7 @@ pub fn claim(
 ) -> Result<Response, ContractError>{
     let config: Config = CONFIG.load( deps.storage )?;
 
-    let mut messages: Vec<CosmosMsg>;
+    let messages: Vec<CosmosMsg>;
 
     if claim_as_native.is_some() && claim_as_cw20.is_some(){
         return Err( ContractError::CustomError { val: "Can't claim as multiple assets, if not all claimable assets".to_string() } )
@@ -1398,7 +1393,7 @@ fn user_claims_msgs(
     claim_as_cw20: Option<String>,
 ) -> Result<Vec<CosmosMsg>, ContractError>{
 
-    let mut user = match USERS.load(storage, info.clone().sender){
+    let user = match USERS.load(storage, info.clone().sender){
         Ok( user ) => user ,
         Err(_) => { return Err( ContractError::CustomError { val: "Info.sender is not a user".to_string() } ) } 
     };
@@ -1764,7 +1759,7 @@ pub fn deposit_to_position(
     
     for asset in assets.clone().into_iter(){
         match asset.clone().info{
-            AssetInfo::NativeToken { denom } => {
+            AssetInfo::NativeToken { denom: _ } => {
                 native_assets.push( asset.clone() );
                 coins.push( asset_to_coin( asset.clone() )? );
             },
@@ -1790,12 +1785,6 @@ pub fn deposit_to_position(
             }
         };
     }
-
-    // let asset_info: Vec<AssetInfo> = assets
-    //     .into_iter()
-    //     .map(|asset| {
-    //         asset.info
-    //     }).collect::<Vec<AssetInfo>>();
 
     //Adds Native token deposit msg to messages
     let deposit_msg = CDP_ExecuteMsg::Deposit { 
@@ -1964,7 +1953,7 @@ pub fn asset_to_coin(
 pub fn validate_liq_assets(
     deps:  &dyn Storage,
     liq_assets: Vec<LiqAsset>,
-    info: MessageInfo
+    _info: MessageInfo
 ) -> Result<(), ContractError>{
 
     //Validate sent assets against accepted assets
@@ -2053,7 +2042,7 @@ pub fn assert_sent_native_token_balance(
     asset_info: AssetInfo,
     message_info: &MessageInfo)-> StdResult<Asset> {
         
-    let mut asset: Asset;
+    let asset: Asset;
 
     if let AssetInfo::NativeToken { denom} = &asset_info {
         match message_info.funds.iter().find(|x| x.denom == *denom) {

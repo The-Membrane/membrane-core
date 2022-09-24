@@ -3,7 +3,6 @@ use itertools::Itertools;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::cmp::max;
 use std::fmt::Debug;
 use std::iter;
 use std::ops::{Deref, DerefMut};
@@ -44,10 +43,6 @@ impl Pool {
             shares,
             fee: Decimal::permille(3),
         }
-    }
-
-    pub fn has_denom(&self, denom: &str) -> bool {
-        self.assets.iter().any(|c| c.denom == denom)
     }
 
     pub fn get_amount(&self, denom: &str) -> Option<Uint128> {
@@ -130,34 +125,7 @@ impl Pool {
         self.set_amount(denom_out, final_out)?;
         Ok(payout)
     }
-
-    pub fn swap_with_limit(
-        &mut self,
-        denom_in: &str,
-        denom_out: &str,
-        amount: SwapAmountWithLimit,
-    ) -> Result<SwapAmount, OsmosisError> {
-        match amount {
-            SwapAmountWithLimit::ExactIn { input, min_output } => {
-                let payout = self.swap(denom_in, denom_out, SwapAmount::In(input))?;
-                let payout_as = payout.as_out();
-                if payout_as < min_output {
-                    Err(OsmosisError::PriceTooLowExactIn(payout_as, min_output))
-                } else {
-                    Ok(payout)
-                }
-            }
-            SwapAmountWithLimit::ExactOut { output, max_input } => {
-                let payin = self.swap(denom_in, denom_out, SwapAmount::Out(output))?;
-                let payin_as = payin.as_in();
-                if payin_as > max_input {
-                    Err(OsmosisError::PriceTooLowExactOut(payin_as, max_input))
-                } else {
-                    Ok(payin)
-                }
-            }
-        }
-    }
+   
 
     // returns spot price as place holders, not the arithmetic twap value
     pub fn arithmetic_twap(
@@ -214,9 +182,6 @@ impl Pool {
 
 pub struct OsmosisModule {}
 
-/// How many seconds per block
-/// (when we increment block.height, use this multiplier for block.time)
-pub const BLOCK_TIME: u64 = 5;
 
 impl OsmosisModule {
     fn build_denom(&self, creator: &Addr, subdenom: &str) -> Result<String, ContractError> {
@@ -527,10 +492,7 @@ pub enum OsmosisError {
 
     #[error("Aborting swap - payin: {0} is bigger then maximum input: {1}")]
     PriceTooLowExactOut(Uint128, Uint128),
-
-    /// Remove this to let the compiler find all TODOs
-    #[error("Not yet implemented (TODO)")]
-    Unimplemented,
+    
 }
 
 pub type OsmosisAppWrapped =
@@ -574,34 +536,7 @@ impl OsmosisApp {
                 }),
         )
     }
-
-    pub fn block_info(&self) -> BlockInfo {
-        self.0.block_info()
-    }
-
-    /// This advances BlockInfo by given number of blocks.
-    /// It does not do any callbacks, but keeps the ratio of seconds/block
-    pub fn advance_blocks(&mut self, blocks: u64) {
-        self.update_block(|block| {
-            block.time = block.time.plus_seconds(BLOCK_TIME * blocks);
-            block.height += blocks;
-        });
-    }
-
-    /// This advances BlockInfo by given number of seconds.
-    /// It does not do any callbacks, but keeps the ratio of seconds/block
-    pub fn advance_seconds(&mut self, seconds: u64) {
-        self.update_block(|block| {
-            block.time = block.time.plus_seconds(seconds);
-            block.height += max(1, seconds / BLOCK_TIME);
-        });
-    }
-
-    /// Simple iterator when you don't care too much about the details and just want to
-    /// simulate forward motion.
-    pub fn next_block(&mut self) {
-        self.advance_blocks(1)
-    }
+   
 }
 
 #[cfg(test)]
@@ -1042,14 +977,4 @@ mod tests {
         assert_eq!(state.assets, expected_assets);
     }
 
-    // TODO: make the following test work
-    #[test]
-    fn maximum_supply() {
-        let pool = Pool::new(coin(2_000_000, "atom"), coin(1_000_000, "btc"));
-
-        // set up with one pool
-        let mut app = OsmosisApp::new();
-
-        
-    }
 }

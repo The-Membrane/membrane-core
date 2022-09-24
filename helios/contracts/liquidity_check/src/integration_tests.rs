@@ -1,16 +1,16 @@
 #[cfg(test)]
+#[allow(unused_variables)]
 mod tests {
     
     use crate::helpers::{ LiquidityContract };   
-    
-    use cw20::BalanceResponse;
+        
     use membrane::liquidity_check::{ InstantiateMsg, QueryMsg, ExecuteMsg };
     use membrane::osmosis_proxy::{ GetDenomResponse };
-    use membrane::types::{AssetInfo, Asset, VestingPeriod, StakeDeposit, AssetOracleInfo, TWAPPoolInfo };
+    use membrane::types::{AssetInfo };
 
     
     use osmo_bindings::{ SpotPriceResponse, PoolStateResponse, ArithmeticTwapToNowResponse };
-    use cosmwasm_std::{Addr, Coin, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr, StdError };
+    use cosmwasm_std::{Addr, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr };
     use cw_multi_test::{App, AppBuilder, Contract, ContractWrapper, Executor, BankKeeper};
     use schemars::JsonSchema;
     use serde::{ Deserialize, Serialize };
@@ -242,9 +242,7 @@ mod tests {
     mod liquidity {
         
         use super::*;
-        use cosmwasm_std::{BlockInfo, Uint64, WasmMsg};
-        use cw20::Cw20ReceiveMsg;
-        use membrane::{ types::{UserInfo, RepayPosition, LiquidityInfo}, oracle::{PriceResponse, AssetResponse} };
+        use membrane::types::{ LiquidityInfo };
         
         
         #[test]

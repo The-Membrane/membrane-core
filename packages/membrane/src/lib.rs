@@ -1,4 +1,7 @@
-
+#![allow(non_snake_case)]
+#![allow(unused_parens)]
+#![allow(unused_doc_comments)]
+#![allow(non_camel_case_types)]
 pub mod stability_pool;
 pub mod liq_queue;
 pub mod positions;

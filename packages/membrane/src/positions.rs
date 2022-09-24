@@ -214,17 +214,17 @@ pub struct PositionResponse {
     pub credit_amount: String,
     pub basket_id: String,
     pub avg_borrow_LTV: Decimal,
-    pub avg_max_LTV: Decimal,
-    
+    pub avg_max_LTV: Decimal,    
 }
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct PositionsResponse{
+pub struct PositionsResponse {
     pub user: String,
     pub positions: Vec<Position>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct BasketResponse{
+pub struct BasketResponse {
     pub owner: String,
     pub basket_id: String,
     pub current_position_id: String,
@@ -275,27 +275,27 @@ pub struct PropResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct DebtCapResponse{
+pub struct DebtCapResponse {
     pub caps: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct BadDebtResponse{
+pub struct BadDebtResponse {
     pub has_bad_debt: Vec<( PositionUserInfo, Uint128 )>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct InsolvencyResponse{
+pub struct InsolvencyResponse {
     pub insolvent_positions: Vec<InsolventPosition>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct InterestResponse{
+pub struct InterestResponse {
     pub credit_interest: Decimal,
     pub negative_rate: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct CollateralInterestResponse{
+pub struct CollateralInterestResponse {
     pub rates: Vec<(AssetInfo, Decimal)>,    
 }

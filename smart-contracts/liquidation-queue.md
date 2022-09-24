@@ -271,6 +271,7 @@ pub struct ConfigResponse {
     pub positions_contract: String,
     pub waiting_period: u64,
     pub added_assets: Vec<AssetInfo>,
+    pub bid_asset: AssetInfo,
 }
 ```
 

@@ -1,10 +1,9 @@
-use std::fmt;
 
-use cosmwasm_std::{Addr, Uint128, Coin, Binary, Decimal};
+use cosmwasm_std::{Addr, Uint128, Decimal};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{ Asset, cAsset, Position, LiqAsset, SellWallDistribution, AssetInfo, UserInfo, PositionUserInfo, InsolventPosition, TWAPPoolInfo, PoolInfo, SupplyCap };
+use crate::types::{ Asset, cAsset, Position, SellWallDistribution, AssetInfo, UserInfo, PositionUserInfo, InsolventPosition, TWAPPoolInfo, SupplyCap };
 
 use cw20::Cw20ReceiveMsg;
 

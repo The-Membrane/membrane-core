@@ -2,9 +2,9 @@ use cw20::Cw20ReceiveMsg;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Uint128, Decimal};
+use cosmwasm_std::{Uint128, Decimal};
 
-use crate::types::{ Asset, AssetPool, LiqAsset, cAsset, AssetInfo, Deposit, PositionUserInfo, UserInfo };
+use crate::types::{ Asset, AssetPool, LiqAsset, AssetInfo, Deposit, PositionUserInfo, UserInfo };
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

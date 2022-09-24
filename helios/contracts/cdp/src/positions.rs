@@ -3846,7 +3846,7 @@ pub fn get_LP_pool_cAssets(
                 //Find the coin in the basket
                 if let Some( basket_cAsset) = basket.clone().collateral_types.into_iter().find(|cAsset| cAsset.asset.info.equal(&info)){
                     //Check if its already in the position asset list
-                    if let Some( (i, _cAsset) ) = new_assets.clone().into_iter().enumerate().find(|( index, cAsset)| cAsset.asset.info.equal(&basket_cAsset.clone().asset.info)){
+                    if let Some( (i, _cAsset) ) = new_assets.clone().into_iter().enumerate().find(|( _index, cAsset)| cAsset.asset.info.equal(&basket_cAsset.clone().asset.info)){
                         //Add to assets
                         new_assets[i].asset.amount += pool_coin.amount;
     

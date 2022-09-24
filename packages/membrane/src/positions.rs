@@ -26,16 +26,6 @@ pub struct InstantiateMsg {
     pub osmosis_proxy: Option<String>,
     pub debt_auction: Option<String>,
     pub liquidity_contract: Option<String>,
-    // // //For Basket creation
-    // pub collateral_types: Option<Vec<cAsset>>,
-    // pub credit_asset: Option<Asset>,
-    // pub credit_price: Option<Decimal>,
-    // pub collateral_supply_caps: Option<Vec<Decimal>>,
-    // pub base_interest_rate: Option<Decimal>,
-    // pub desired_debt_cap_util: Option<Decimal>,
-    // pub credit_asset_twap_price_source: Option<TWAPPoolInfo>,
-    // pub credit_pool_ids: Option<Vec<u64>>, 
-    // pub liquidity_multiplier_for_debt_caps: Option<Decimal>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -218,6 +208,9 @@ pub enum QueryMsg {
 pub struct PositionResponse {
     pub position_id: String,
     pub collateral_assets: Vec<cAsset>,
+    //Allows front ends to get ratios using the smae oracles 
+    //Useful for users who want to deposit or withdraw at the current ratio
+    pub cAsset_ratios: Vec<Decimal>,
     pub credit_amount: String,
     pub basket_id: String,
     pub avg_borrow_LTV: Decimal,

@@ -96,7 +96,8 @@ pub fn query_position(
 
             Ok(PositionResponse {
                 position_id: position.position_id.to_string(),
-                collateral_assets: position.collateral_assets,
+                collateral_assets: position.clone().collateral_assets,
+                cAsset_ratios: get_cAsset_ratios_imut(deps.storage, env.clone(), deps.querier, position.clone().collateral_assets, config.clone())?,
                 credit_amount: position.credit_amount.to_string(),
                 basket_id: position.basket_id.to_string(),
                 avg_borrow_LTV: borrow,
@@ -155,11 +156,20 @@ pub fn query_user_positions(
                     Err( err ) => error = Some( err ),
                 };
 
+                let cAsset_ratios = match get_cAsset_ratios_imut(deps.storage, env.clone(), deps.querier, position.clone().collateral_assets, config.clone()){
+                    Ok( ratios ) => { ratios },
+                    Err( err ) => { 
+                        error = Some( err );
+                        vec![]
+                    },
+                };
+
                 if error.is_none(){                   
 
                     user_positions.push( PositionResponse {
                             position_id: position.position_id.to_string(),
                             collateral_assets: position.collateral_assets,
+                            cAsset_ratios,
                             credit_amount: position.credit_amount.to_string(),
                             basket_id: position.basket_id.to_string(),
                             avg_borrow_LTV: borrow,
@@ -200,10 +210,19 @@ pub fn query_user_positions(
                             Err( err ) => error = Some( err ),
                         };
 
+                        let cAsset_ratios = match get_cAsset_ratios_imut(deps.storage, env.clone(), deps.querier, position.clone().collateral_assets, config.clone()){
+                            Ok( ratios ) => { ratios },
+                            Err( err ) => { 
+                                error = Some( err );
+                                vec![]
+                            },
+                        };
+
                         response.push(
                             PositionResponse {
                                 position_id: position.position_id.to_string(),
                                 collateral_assets: position.collateral_assets,
+                                cAsset_ratios,
                                 credit_amount: position.credit_amount.to_string(),
                                 basket_id: position.basket_id.to_string(),
                                 avg_borrow_LTV: borrow,

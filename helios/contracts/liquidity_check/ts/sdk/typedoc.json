@@ -1,7 +1,0 @@
-{
-  "out": "./docs",
-  "name": "governance",
-  "theme": "markdown",
-  "readme": "none",
-  "tsconfig": "./tsconfig.bundle.json"
-}

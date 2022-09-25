@@ -3719,7 +3719,10 @@ fn get_basket_debt_caps(
     //Get the base debt cap
     let mut debt_cap =
         get_asset_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?
-            * credit_asset_multiplier;
+        * credit_asset_multiplier;
+
+    //Add SP liquidity to the cap
+    debt_cap += get_stability_pool_liquidity( querier, config.clone(), basket.clone().credit_asset.info )?;
 
     //If debt cap is less than the minimum, set it to the minimum
     if debt_cap < (config.base_debt_cap_multiplier * config.debt_minimum) {
@@ -3747,6 +3750,30 @@ fn get_basket_debt_caps(
     }
 
     Ok(per_asset_debt_caps)
+}
+
+//Get total pooled amount for an asset
+pub fn get_stability_pool_liquidity(    
+    querier: QuerierWrapper,
+    config: Config,
+    pool_asset: AssetInfo,
+) -> StdResult<Uint128>{
+
+    if let Some( sp_addr ) = config.clone().stability_pool {
+
+        //Query the SP Asset Pool
+        Ok( querier.query::<PoolResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: sp_addr.to_string(),
+            msg: to_binary(&SP_QueryMsg::AssetPool { asset_info: pool_asset })?,
+        }))?
+        .credit_asset
+        .amount )
+        
+    } else {
+        
+        Ok( Uint128::zero() )
+    }
+    
 }
 
 fn get_credit_asset_multiplier(

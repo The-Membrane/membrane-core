@@ -434,7 +434,7 @@ mod tests {
 
                         Ok(Response::new()
                             .add_attribute("method", "distribute")
-                            .add_attribute("credit_asset", "cdl"))
+                            .add_attribute("credit_asset", "cdt"))
                     }
                     SP_MockExecuteMsg::Repay {
                         user_info: _,
@@ -453,7 +453,7 @@ mod tests {
                     SP_MockQueryMsg::AssetPool { asset_info: _ } => Ok(to_binary(&PoolResponse {
                         credit_asset: Asset {
                             info: AssetInfo::NativeToken {
-                                denom: "cdl".to_string(),
+                                denom: "cdt".to_string(),
                             },
                             amount: Uint128::zero(),
                         },
@@ -493,7 +493,7 @@ mod tests {
                         distribute_for: _,
                     } => Ok(Response::new()
                         .add_attribute("method", "distribute")
-                        .add_attribute("credit_asset", "cdl")),
+                        .add_attribute("credit_asset", "cdt")),
                     SP_MockExecuteMsg::Repay {
                         user_info: _,
                         repayment: _,
@@ -511,7 +511,7 @@ mod tests {
                     SP_MockQueryMsg::AssetPool { asset_info: _ } => Ok(to_binary(&PoolResponse {
                         credit_asset: Asset {
                             info: AssetInfo::NativeToken {
-                                denom: "cdl".to_string(),
+                                denom: "cdt".to_string(),
                             },
                             amount: Uint128::zero(),
                         },
@@ -545,7 +545,7 @@ mod tests {
                         distribute_for: _,
                     } => Ok(Response::new()
                         .add_attribute("method", "distribute")
-                        .add_attribute("credit_asset", "cdl")),
+                        .add_attribute("credit_asset", "cdt")),
                     SP_MockExecuteMsg::Repay {
                         user_info: _,
                         repayment: _,
@@ -565,7 +565,7 @@ mod tests {
                     SP_MockQueryMsg::AssetPool { asset_info: _ } => Ok(to_binary(&PoolResponse {
                         credit_asset: Asset {
                             info: AssetInfo::NativeToken {
-                                denom: "cdl".to_string(),
+                                denom: "cdt".to_string(),
                             },
                             amount: Uint128::zero(),
                         },
@@ -604,7 +604,7 @@ mod tests {
                         distribute_for: _,
                     } => Ok(Response::new()
                         .add_attribute("method", "distribute")
-                        .add_attribute("credit_asset", "cdl")),
+                        .add_attribute("credit_asset", "cdt")),
                     SP_MockExecuteMsg::Repay {
                         user_info: _,
                         repayment: _,
@@ -622,7 +622,7 @@ mod tests {
                     SP_MockQueryMsg::AssetPool { asset_info: _ } => Ok(to_binary(&PoolResponse {
                         credit_asset: Asset {
                             info: AssetInfo::NativeToken {
-                                denom: "cdl".to_string(),
+                                denom: "cdt".to_string(),
                             },
                             amount: Uint128::zero(),
                         },
@@ -656,7 +656,7 @@ mod tests {
                         distribute_for: _,
                     } => Ok(Response::new()
                         .add_attribute("method", "distribute")
-                        .add_attribute("credit_asset", "cdl")),
+                        .add_attribute("credit_asset", "cdt")),
                     SP_MockExecuteMsg::Repay {
                         user_info: _,
                         repayment: _,
@@ -674,7 +674,7 @@ mod tests {
                     SP_MockQueryMsg::AssetPool { asset_info: _ } => Ok(to_binary(&PoolResponse {
                         credit_asset: Asset {
                             info: AssetInfo::NativeToken {
-                                denom: "cdl".to_string(),
+                                denom: "cdt".to_string(),
                             },
                             amount: Uint128::zero(),
                         },

@@ -20,7 +20,7 @@ use membrane::types::{
 };
 
 use crate::positions::{
-    accumulate_interest, get_LP_pool_cAssets, get_asset_liquidity, SECONDS_PER_YEAR,
+    accumulate_interest, get_LP_pool_cAssets, get_asset_liquidity, SECONDS_PER_YEAR, get_stability_pool_liquidity,
 };
 
 use osmo_bindings::PoolStateResponse;
@@ -580,7 +580,7 @@ pub fn query_basket_debt_caps(
         }
     }
 
-    //Get credit_asset's liquidity_multiplier
+    //Get basket's credit_asset liquidity_multiplier
     let credit_asset_multiplier = get_credit_asset_multiplier_imut(
         deps.storage,
         deps.querier,
@@ -590,8 +590,12 @@ pub fn query_basket_debt_caps(
     )?;
 
     //Get the debt cap
-    let mut debt_cap = get_asset_liquidity(deps.querier, config.clone(), basket.credit_asset.info)?
+    let mut debt_cap = 
+        get_asset_liquidity(deps.querier, config.clone(), basket.clone().credit_asset.info)?
         * credit_asset_multiplier;
+    
+    //Add SP liquidity to the cap
+    debt_cap += get_stability_pool_liquidity( deps.querier, config.clone(), basket.clone().credit_asset.info )?;
 
     //If debt cap is less than the minimum, set it to the minimum
     if debt_cap < (config.base_debt_cap_multiplier * config.debt_minimum) {

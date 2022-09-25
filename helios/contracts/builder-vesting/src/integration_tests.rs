@@ -31,7 +31,7 @@ mod tests {
     }
 
     //Mock Osmo Proxy Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockExecuteMsg {
         MintTokens {
@@ -49,11 +49,11 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct Osmo_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockQueryMsg {
         SpotPrice {
@@ -128,7 +128,7 @@ mod tests {
                         base_asset_denom,
                         start_time,
                     } => {
-                        if base_asset_denom == String::from("base") {
+                        if base_asset_denom == *"base" {
                             Ok(to_binary(&ArithmeticTwapToNowResponse {
                                 twap: Decimal::percent(100),
                             })?)
@@ -145,7 +145,7 @@ mod tests {
     }
 
     //Mock Staking Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Staking_MockExecuteMsg {
         DepositFee {
@@ -162,11 +162,11 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct Staking_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Staking_MockQueryMsg {
         StakerRewards { staker: String },
@@ -217,17 +217,17 @@ mod tests {
     }
 
     //Mock Cw20 Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Cw20_MockExecuteMsg {
         Transfer { recipient: String, amount: Uint128 },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct Cw20_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Cw20_MockQueryMsg {
         Balance { address: String },
@@ -391,8 +391,8 @@ mod tests {
             //Send the Claimed Fees to mimic a send from the Staking Contract
             app.send_tokens(
                 Addr::unchecked("coin_God"),
-                Addr::unchecked(bv_contract.clone().addr()),
-                &vec![coin(1_000_000, "debit"), coin(1_000_000, "2nddebit")],
+                Addr::unchecked(bv_contract.addr()),
+                &[coin(1_000_000, "debit"), coin(1_000_000, "2nddebit")],
             )
             .unwrap();
 
@@ -402,7 +402,7 @@ mod tests {
             };
             let res: ReceiverResponse = app
                 .wrap()
-                .query_wasm_smart(bv_contract.addr(), &query_msg.clone())
+                .query_wasm_smart(bv_contract.addr(), &query_msg)
                 .unwrap();
             assert_eq!(
                 res.claimables,
@@ -428,7 +428,7 @@ mod tests {
             };
             let res: ReceiverResponse = app
                 .wrap()
-                .query_wasm_smart(bv_contract.addr(), &query_msg.clone())
+                .query_wasm_smart(bv_contract.addr(), &query_msg)
                 .unwrap();
             assert_eq!(
                 res.claimables,

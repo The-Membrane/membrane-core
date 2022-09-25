@@ -31,7 +31,7 @@ mod tests {
     }
 
     //Mock Osmo Proxy Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockExecuteMsg {
         MintTokens {
@@ -49,11 +49,11 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct Osmo_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockQueryMsg {
         SpotPrice {
@@ -147,7 +147,7 @@ mod tests {
     }
 
     //Mock Staking Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Staking_MockExecuteMsg {
         DepositFee {
@@ -164,11 +164,11 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct Staking_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Staking_MockQueryMsg {
         StakerRewards { staker: String },
@@ -219,21 +219,21 @@ mod tests {
     }
 
     //Mock Positions Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum CDP_MockExecuteMsg {
         LiqRepay {},
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct CDP_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum CDP_MockQueryMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct MockResponse {}
 
@@ -245,23 +245,23 @@ mod tests {
                 }
             },
             |_, _, _, _: CDP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
-            |_, _, _: CDP_MockQueryMsg| -> StdResult<Binary> { Ok(to_binary(&MockResponse {})?) },
+            |_, _, _: CDP_MockQueryMsg| -> StdResult<Binary> { to_binary(&MockResponse {}) },
         );
         Box::new(contract)
     }
 
     //Mock Cw20 Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Cw20_MockExecuteMsg {
         Transfer { recipient: String, amount: Uint128 },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct Cw20_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Cw20_MockQueryMsg {
         Balance { address: String },
@@ -457,7 +457,7 @@ mod tests {
             };
             let res: ClaimsResponse = app
                 .wrap()
-                .query_wasm_smart(sp_contract.addr(), &query_msg.clone())
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
                 .unwrap();
             assert_eq!(
                 res.claims,
@@ -515,7 +515,7 @@ mod tests {
             app.send_tokens(
                 Addr::unchecked("coin_God"),
                 cdp_contract_addr.clone(),
-                &vec![coin(100, "debit")],
+                &[coin(100, "debit")],
             )
             .unwrap();
             app.set_block(BlockInfo {
@@ -531,7 +531,7 @@ mod tests {
             };
             let res: ClaimsResponse = app
                 .wrap()
-                .query_wasm_smart(sp_contract.addr(), &query_msg.clone())
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
                 .unwrap();
             assert_eq!(
                 res.claims,

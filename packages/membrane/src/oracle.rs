@@ -12,7 +12,7 @@ pub struct InstantiateMsg {
     pub positions_contract: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     UpdateConfig {
@@ -59,7 +59,7 @@ pub struct PriceResponse {
     pub avg_price: Decimal,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct AssetResponse {
     pub asset_info: AssetInfo,
     pub oracle_info: Vec<AssetOracleInfo>,

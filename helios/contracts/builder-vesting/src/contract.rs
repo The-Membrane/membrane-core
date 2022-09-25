@@ -886,7 +886,7 @@ mod tests {
 
         //Instantiating contract
         let v_info = mock_info("sender88", &[]);
-        let _res = instantiate(deps.as_mut(), mock_env(), v_info.clone(), msg.clone()).unwrap();
+        let _res = instantiate(deps.as_mut(), mock_env(), v_info, msg).unwrap();
 
         //AddReceiver
         let add_msg = ExecuteMsg::AddReceiver {
@@ -963,7 +963,7 @@ mod tests {
 
         //Instantiating contract
         let v_info = mock_info("sender88", &[]);
-        let _res = instantiate(deps.as_mut(), mock_env(), v_info.clone(), msg.clone()).unwrap();
+        let _res = instantiate(deps.as_mut(), mock_env(), v_info, msg).unwrap();
 
         //AddReceiver
         let add_msg = ExecuteMsg::AddReceiver {
@@ -1064,7 +1064,7 @@ mod tests {
 
         //Instantiating contract
         let v_info = mock_info("sender88", &[]);
-        let _res = instantiate(deps.as_mut(), mock_env(), v_info.clone(), msg.clone()).unwrap();
+        let _res = instantiate(deps.as_mut(), mock_env(), v_info, msg).unwrap();
 
         //AddReceiver
         let add_msg = ExecuteMsg::AddReceiver {
@@ -1163,7 +1163,7 @@ mod tests {
 
         //Instantiating contract
         let v_info = mock_info("sender88", &[]);
-        let res = instantiate(deps.as_mut(), mock_env(), v_info.clone(), msg.clone()).unwrap();
+        let res = instantiate(deps.as_mut(), mock_env(), v_info, msg).unwrap();
 
         //Assert Mint and Stake Msgs
         assert_eq!(

@@ -448,7 +448,7 @@ pub struct ProposalVotesResponse {
 }
 
 /// This structure describes a proposal list response.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct ProposalListResponse {
     /// The amount of proposals returned
     pub proposal_count: Uint64,

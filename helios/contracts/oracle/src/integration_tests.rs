@@ -29,7 +29,7 @@ mod tests {
     }
 
     //Mock Osmo Proxy Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockExecuteMsg {
         MintTokens {
@@ -47,11 +47,11 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct Osmo_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockQueryMsg {
         SpotPrice {
@@ -254,7 +254,7 @@ mod tests {
             let price: PriceResponse = app
                 .wrap()
                 .query_wasm_smart(
-                    oracle_contract.clone().addr(),
+                    oracle_contract.addr(),
                     &QueryMsg::Price {
                         asset_info: AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
@@ -289,7 +289,7 @@ mod tests {
             let asset: AssetResponse = app
                 .wrap()
                 .query_wasm_smart(
-                    oracle_contract.clone().addr(),
+                    oracle_contract.addr(),
                     &QueryMsg::Asset {
                         asset_info: AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
@@ -321,7 +321,7 @@ mod tests {
             let price: Vec<PriceResponse> = app
                 .wrap()
                 .query_wasm_smart(
-                    oracle_contract.clone().addr(),
+                    oracle_contract.addr(),
                     &QueryMsg::Prices {
                         asset_infos: vec![
                             AssetInfo::NativeToken {
@@ -352,7 +352,7 @@ mod tests {
             //Assert Asset was removed
             app.wrap()
                 .query_wasm_smart::<AssetResponse>(
-                    oracle_contract.clone().addr(),
+                    oracle_contract.addr(),
                     &QueryMsg::Assets {
                         asset_infos: vec![AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
@@ -395,7 +395,7 @@ mod tests {
             let price: PriceResponse = app
                 .wrap()
                 .query_wasm_smart(
-                    oracle_contract.clone().addr(),
+                    oracle_contract.addr(),
                     &QueryMsg::Price {
                         asset_info: AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
@@ -425,7 +425,7 @@ mod tests {
             let price: PriceResponse = app
                 .wrap()
                 .query_wasm_smart(
-                    oracle_contract.clone().addr(),
+                    oracle_contract.addr(),
                     &QueryMsg::Price {
                         asset_info: AssetInfo::NativeToken {
                             denom: String::from("axlusdc"),

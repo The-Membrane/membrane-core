@@ -114,7 +114,7 @@ pub struct StakerResponse {
     pub deposit_list: Vec<(String, String)>, //Amount and timestamp of each deposit
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct RewardsResponse {
     pub claimables: Vec<Asset>,
     pub accrued_interest: Uint128,
@@ -131,7 +131,7 @@ pub struct TotalStakedResponse {
     pub builders_total: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct FeeEventsResponse {
     pub fee_events: Vec<FeeEvent>,
 }

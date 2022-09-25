@@ -32,7 +32,7 @@ mod tests {
     }
 
     //Mock Osmo Proxy Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockExecuteMsg {
         MintTokens {
@@ -50,11 +50,11 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct Osmo_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockQueryMsg {
         SpotPrice {
@@ -135,7 +135,7 @@ mod tests {
                         base_asset_denom,
                         start_time,
                     } => {
-                        if base_asset_denom == String::from("base") {
+                        if base_asset_denom == *"base" {
                             Ok(to_binary(&ArithmeticTwapToNowResponse {
                                 twap: Decimal::percent(100),
                             })?)
@@ -152,7 +152,7 @@ mod tests {
     }
 
     //Mock Oracle Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Oracle_MockExecuteMsg {
         AddAsset {
@@ -161,11 +161,11 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct Oracle_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Oracle_MockQueryMsg {
         Price {
@@ -222,7 +222,7 @@ mod tests {
     }
 
     //Mock CDP Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum CDP_MockExecuteMsg {
         Repay {
@@ -232,11 +232,11 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct CDP_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum CDP_MockQueryMsg {
         GetBasket { basket_id: Uint128 },
@@ -429,7 +429,7 @@ mod tests {
             let auction: Vec<AuctionResponse> = app
                 .wrap()
                 .query_wasm_smart(
-                    debt_contract.clone().addr(),
+                    debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
                         debt_asset: Some(AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
@@ -480,7 +480,7 @@ mod tests {
             let auction: Vec<AuctionResponse> = app
                 .wrap()
                 .query_wasm_smart(
-                    debt_contract.clone().addr(),
+                    debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
                         debt_asset: Some(AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
@@ -563,7 +563,7 @@ mod tests {
             let auction: Vec<AuctionResponse> = app
                 .wrap()
                 .query_wasm_smart(
-                    debt_contract.clone().addr(),
+                    debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
                         debt_asset: Some(AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
@@ -608,7 +608,7 @@ mod tests {
             let err = app
                 .wrap()
                 .query_wasm_smart::<Vec<AuctionResponse>>(
-                    debt_contract.clone().addr(),
+                    debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
                         debt_asset: Some(AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
@@ -624,7 +624,7 @@ mod tests {
             let valid_assets: Vec<AssetInfo> = app
                 .wrap()
                 .query_wasm_smart(
-                    debt_contract.clone().addr(),
+                    debt_contract.addr(),
                     &QueryMsg::ValidDebtAssets {
                         debt_asset: Some(AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
@@ -685,7 +685,7 @@ mod tests {
             //Assert Auction removal
             app.wrap()
                 .query_wasm_smart::<Vec<AuctionResponse>>(
-                    debt_contract.clone().addr(),
+                    debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
                         debt_asset: Some(AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),

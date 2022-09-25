@@ -97,7 +97,7 @@ pub struct UnlockedResponse {
     pub unlocked_amount: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ReceiverResponse {
     pub receiver: String,

@@ -75,7 +75,7 @@ fn deposit() {
     let invalid_info = mock_info("sender88", &coinz);
 
     //Fail due to Invalid Asset
-    let _err = execute(deps.as_mut(), mock_env(), invalid_info.clone(), deposit_msg).unwrap_err();
+    let _err = execute(deps.as_mut(), mock_env(), invalid_info, deposit_msg).unwrap_err();
 
     //Query position data to make sure it was NOT saved to state
     let res = query(
@@ -128,7 +128,7 @@ fn deposit() {
         user: None,
     };
 
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     assert_eq!(
         res.attributes,
@@ -238,7 +238,7 @@ fn withdrawal() {
         user: None,
     };
 
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //Successful "credit" deposit
     let deposit_msg = ExecuteMsg::Deposit {
@@ -327,7 +327,7 @@ fn withdrawal() {
         deps.as_mut(),
         mock_env(),
         info.clone(),
-        withdraw_msg.clone(),
+        withdraw_msg,
     );
     match res {
         Err(ContractError::DuplicateWithdrawalAssets {}) => {}
@@ -360,7 +360,7 @@ fn withdrawal() {
         deps.as_mut(),
         mock_env(),
         info.clone(),
-        withdraw_msg.clone(),
+        withdraw_msg,
     )
     .unwrap();
 
@@ -405,7 +405,7 @@ fn withdrawal() {
             amount: Decimal::percent(12_00),
         },
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), restake_msg.clone()).unwrap();
+    execute(deps.as_mut(), mock_env(), info.clone(), restake_msg).unwrap();
 
     //Successful ReWithdraw
     let assets: Vec<Asset> = vec![
@@ -445,7 +445,7 @@ fn withdrawal() {
     let mut env = mock_env();
     env.block.time = env.block.time.plus_seconds(86400u64); //Added a day
                                                             //Second msg to withdraw
-    let res = execute(deps.as_mut(), env.clone(), info.clone(), withdraw_msg).unwrap();
+    let res = execute(deps.as_mut(), env, info, withdraw_msg).unwrap();
 
     assert_eq!(
         res.attributes,
@@ -571,7 +571,7 @@ fn liquidate() {
         user: None,
     };
 
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //Unauthorized Sender
     let liq_msg = ExecuteMsg::Liquidate {
@@ -588,7 +588,7 @@ fn liquidate() {
     let res = execute(
         deps.as_mut(),
         mock_env(),
-        unauthorized_info.clone(),
+        unauthorized_info,
         liq_msg,
     );
 
@@ -642,7 +642,7 @@ fn liquidate() {
             amount: Decimal::from_ratio(11u128, 1u128),
         },
     };
-    let res = execute(deps.as_mut(), mock_env(), cdp_info.clone(), liq_msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), cdp_info, liq_msg).unwrap();
 
     assert_eq!(
         res.attributes,
@@ -729,7 +729,7 @@ fn liquidate_bignums() {
         user: None,
     };
 
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //Unauthorized Sender
     let liq_msg = ExecuteMsg::Liquidate {
@@ -746,7 +746,7 @@ fn liquidate_bignums() {
     let res = execute(
         deps.as_mut(),
         mock_env(),
-        unauthorized_info.clone(),
+        unauthorized_info,
         liq_msg,
     );
 
@@ -768,7 +768,7 @@ fn liquidate_bignums() {
         },
     };
     let cdp_info = mock_info("positions_contract", &coin);
-    let res = execute(deps.as_mut(), mock_env(), cdp_info.clone(), liq_msg);
+    let res = execute(deps.as_mut(), mock_env(), cdp_info, liq_msg);
 
     match res {
         Err(ContractError::InvalidAsset {}) => {}
@@ -801,7 +801,7 @@ fn liquidate_bignums() {
         },
     };
     let cdp_info = mock_info("positions_contract", &coin);
-    let res = execute(deps.as_mut(), mock_env(), cdp_info.clone(), liq_msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), cdp_info, liq_msg).unwrap();
 
     assert_eq!(
         res.attributes,
@@ -871,7 +871,7 @@ fn distribute() {
     let res = execute(
         deps.as_mut(),
         mock_env(),
-        unauthorized_info.clone(),
+        unauthorized_info,
         distribute_msg,
     );
 
@@ -936,7 +936,7 @@ fn distribute() {
         user: Some("2nduser".to_string()),
     };
 
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //Succesfful attempt
 
@@ -950,7 +950,7 @@ fn distribute() {
         },
     };
     let cdp_info = mock_info("positions_contract", &coins(5, "credit"));
-    let _res = execute(deps.as_mut(), mock_env(), cdp_info.clone(), liq_msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), cdp_info, liq_msg).unwrap();
 
     //Distribute
     let distribute_msg = ExecuteMsg::Distribute {
@@ -980,7 +980,7 @@ fn distribute() {
 
     let cdp_info = mock_info("positions_contract", &coin);
 
-    let res = execute(deps.as_mut(), mock_env(), cdp_info.clone(), distribute_msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), cdp_info, distribute_msg).unwrap();
 
     assert_eq!(
         res.attributes,
@@ -1109,7 +1109,7 @@ fn distribute_cw20() {
         user: Some("2nduser".to_string()),
     };
 
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //Succesfful attempt
 
@@ -1123,7 +1123,7 @@ fn distribute_cw20() {
         },
     };
     let cdp_info = mock_info("positions_contract", &[]);
-    let _res = execute(deps.as_mut(), mock_env(), cdp_info.clone(), liq_msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), cdp_info, liq_msg).unwrap();
 
     //Distribute 1st asset
     let distribute_msg = ExecuteMsg::Receive(Cw20ReceiveMsg {
@@ -1138,7 +1138,7 @@ fn distribute_cw20() {
         .unwrap(),
     });
     let info = mock_info("debit", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), distribute_msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, distribute_msg).unwrap();
 
     assert_eq!(
         res.attributes,
@@ -1162,7 +1162,7 @@ fn distribute_cw20() {
         .unwrap(),
     });
     let info = mock_info("2nddebit", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), distribute_msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, distribute_msg).unwrap();
 
     assert_eq!(
         res.attributes,
@@ -1277,7 +1277,7 @@ fn distribute_bignums() {
     let res = execute(
         deps.as_mut(),
         mock_env(),
-        unauthorized_info.clone(),
+        unauthorized_info,
         distribute_msg,
     );
 
@@ -1342,7 +1342,7 @@ fn distribute_bignums() {
         user: Some("2nduser".to_string()),
     };
 
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //Succesfful attempt
 
@@ -1356,7 +1356,7 @@ fn distribute_bignums() {
         },
     };
 
-    let _res = execute(deps.as_mut(), mock_env(), cdp_info.clone(), liq_msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), cdp_info, liq_msg).unwrap();
 
     //Distribute
     let distribute_msg = ExecuteMsg::Distribute {
@@ -1386,7 +1386,7 @@ fn distribute_bignums() {
 
     let info = mock_info("positions_contract", &coin);
 
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), distribute_msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, distribute_msg).unwrap();
 
     assert_eq!(
         res.attributes,
@@ -1520,7 +1520,7 @@ fn add_asset_pool() {
     let res = execute(
         deps.as_mut(),
         mock_env(),
-        unauthorized_info.clone(),
+        unauthorized_info,
         add_msg.clone(),
     );
 
@@ -1533,7 +1533,7 @@ fn add_asset_pool() {
     }
 
     //Successful Attempt
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), add_msg.clone()).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, add_msg).unwrap();
 
     assert_eq!(
         res.attributes,
@@ -1620,7 +1620,7 @@ fn claims() {
         user: Some("2nduser".to_string()),
     };
 
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //Liquidation
     let liq_msg = ExecuteMsg::Liquidate {
@@ -1669,7 +1669,7 @@ fn claims() {
         claim_as_cw20: Some(String::from("protocol_token")),
         deposit_to: None,
     }; //Can't claim as two different assets Error
-    let err = execute(deps.as_mut(), mock_env(), info.clone(), claim_msg).unwrap_err();
+    let err = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap_err();
 
     assert_eq!(
         err.to_string(),
@@ -1685,7 +1685,7 @@ fn claims() {
         deposit_to: None,
     };
     let info = mock_info("sender88", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), claim_msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap();
     assert_eq!(
         res.messages,
         vec![
@@ -1731,7 +1731,7 @@ fn claims() {
         }),
     };
     let info = mock_info("2nduser", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), claim_msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap();
 
     let deposit_msg = CDP_ExecuteMsg::Deposit {
         position_owner: Some(String::from("sender88")),
@@ -1785,7 +1785,7 @@ fn claims() {
         user: Some("2nduser".to_string()),
     };
 
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //Liquidation
     let liq_msg = ExecuteMsg::Liquidate {
@@ -1797,7 +1797,7 @@ fn claims() {
         },
     };
     let info = mock_info("owner00", &[]);
-    let _res = execute(deps.as_mut(), mock_env(), cdp_info.clone(), liq_msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), cdp_info, liq_msg).unwrap();
 
     //Distribute
     let distribute_msg = ExecuteMsg::Distribute {
@@ -1826,7 +1826,7 @@ fn claims() {
     coin.append(&mut coins(100, "2nddebit"));
 
     let info = mock_info("positions_contract", &coin);
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), distribute_msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, distribute_msg).unwrap();
 
     //Claim As Cw20
     let claim_msg = ExecuteMsg::Claim {
@@ -1835,7 +1835,7 @@ fn claims() {
         deposit_to: None,
     };
     let info = mock_info("sender88", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), claim_msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap();
     assert_eq!(
         res.messages,
         vec![
@@ -1881,7 +1881,7 @@ fn claims() {
         }),
     };
     let info = mock_info("2nduser", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), claim_msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap();
 
     let deposit_msg = CDP_Cw20HookMsg::Deposit {
         position_owner: Some(String::from("sender88")),
@@ -1934,8 +1934,8 @@ fn cdp_repay() {
     };
 
     //Instantiating contract
-    let info = mock_info("sender88", &vec![]);
-    let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let info = mock_info("sender88", &[]);
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Successful Deposit
     let deposit_msg = ExecuteMsg::Deposit {
@@ -1945,7 +1945,7 @@ fn cdp_repay() {
         user: None,
     };
     let info = mock_info("sender88", &coins(5_000_000_000_000, "credit"));
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //Repay: Error( Unauthorized )
     let repay_msg = ExecuteMsg::Repay {
@@ -1961,8 +1961,8 @@ fn cdp_repay() {
             amount: Uint128::new(1u128),
         },
     };
-    let info = mock_info("sender88", &vec![]);
-    let err = execute(deps.as_mut(), mock_env(), info.clone(), repay_msg).unwrap_err();
+    let info = mock_info("sender88", &[]);
+    let err = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap_err();
     if let ContractError::Unauthorized {} = err {
         /////
     } else {
@@ -1983,8 +1983,8 @@ fn cdp_repay() {
             amount: Uint128::new(1u128),
         },
     };
-    let info = mock_info("positions_contract", &vec![]);
-    let err = execute(deps.as_mut(), mock_env(), info.clone(), repay_msg).unwrap_err();
+    let info = mock_info("positions_contract", &[]);
+    let err = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap_err();
     if let ContractError::InvalidAsset {} = err {
         /////
     } else {
@@ -2006,8 +2006,8 @@ fn cdp_repay() {
             amount: Uint128::new(0u128),
         },
     };
-    let info = mock_info("positions_contract", &vec![]);
-    let err = execute(deps.as_mut(), mock_env(), info.clone(), repay_msg).unwrap_err();
+    let info = mock_info("positions_contract", &[]);
+    let err = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap_err();
     if let ContractError::InvalidWithdrawal {} = err {
         /////
     } else {
@@ -2029,8 +2029,8 @@ fn cdp_repay() {
             amount: Uint128::new(1u128),
         },
     };
-    let info = mock_info("positions_contract", &vec![]);
-    let err = execute(deps.as_mut(), mock_env(), info.clone(), repay_msg).unwrap_err();
+    let info = mock_info("positions_contract", &[]);
+    let err = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap_err();
     if let ContractError::InvalidWithdrawal {} = err {
         /////
     } else {
@@ -2051,8 +2051,8 @@ fn cdp_repay() {
             amount: Uint128::new(5_000_000_000_000u128),
         },
     };
-    let info = mock_info("positions_contract", &vec![]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), repay_msg).unwrap();
+    let info = mock_info("positions_contract", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap();
     assert_eq!(
         res.messages,
         vec![SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {

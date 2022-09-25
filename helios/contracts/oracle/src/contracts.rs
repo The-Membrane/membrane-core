@@ -181,9 +181,8 @@ fn add_asset(
         }
         Ok(oracles) => {
             //Save oracle to asset, no duplicates
-            if oracles
-                .into_iter()
-                .find(|oracle| oracle.basket_id == oracle_info.basket_id).is_none()
+            if !oracles
+                .into_iter().any(|oracle| oracle.basket_id == oracle_info.basket_id)
             {
                 ASSETS.update(
                     deps.storage,

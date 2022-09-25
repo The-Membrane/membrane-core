@@ -18,7 +18,7 @@ pub struct InstantiateMsg {
     pub discount_increase: Decimal, //Increase in discount per unit of timeframe
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     //Start or add to ongoing auction
@@ -63,7 +63,7 @@ pub enum QueryMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct AuctionResponse {
     pub remaining_recapitalization: Uint128,
     pub repayment_positions: Vec<RepayPosition>, //Repayment amount, Positions info

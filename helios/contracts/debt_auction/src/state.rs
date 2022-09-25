@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use membrane::types::{AssetInfo, RepayPosition};
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Config {
     pub owner: Addr,
     pub oracle_contract: Addr,
@@ -18,7 +18,7 @@ pub struct Config {
     pub discount_increase: Decimal,       //% increase
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Auction {
     pub remaining_recapitalization: Uint128,
     pub repayment_positions: Vec<RepayPosition>, //Repayment amount, Positions info

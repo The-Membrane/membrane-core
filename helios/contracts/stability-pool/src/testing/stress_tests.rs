@@ -25,7 +25,7 @@ fn stress_tests() {
 
     // with greater asset price (10k USD per collateral)
     // 1M USD bids
-    simulate_bids_with_2_liq_amounts(ITERATIONS, 1000_000_000_000u128, 99999999, 99999999);
+    simulate_bids_with_2_liq_amounts(ITERATIONS, 1_000_000_000_000_u128, 99999999, 99999999);
     // 10,001 USD bids
     simulate_bids_with_2_liq_amounts(ITERATIONS, 10001000000u128, 1000000, 1000000);
 
@@ -41,7 +41,7 @@ fn stress_tests() {
     // 1M USD bids
     simulate_bids_with_2_liq_amounts(
         ITERATIONS,
-        1000_000_000_000u128,
+        1_000_000_000_000_u128,
         999999999900, // 10 micros of residue
         999999999999, // no residue
     );
@@ -72,7 +72,7 @@ fn instantiate_and_whitelist(deps: &mut OwnedDeps<MemoryStorage, MockApi, MockQu
 
     //Instantiating contract
     let info = mock_info("sender88", &[]);
-    let res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 }
 
 fn simulate_bids_with_2_liq_amounts(
@@ -99,7 +99,7 @@ fn simulate_bids_with_2_liq_amounts(
             }],
             user: None,
         };
-        let bid_info = mock_info("bidder0000", &vec![coin(bid_amount, "credit")]);
+        let bid_info = mock_info("bidder0000", &[coin(bid_amount, "credit")]);
         execute(deps.as_mut(), mock_env(), bid_info.clone(), deposit_msg).unwrap();
 
         total_bids += bid_amount;

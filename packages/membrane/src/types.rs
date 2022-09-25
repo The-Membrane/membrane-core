@@ -62,7 +62,7 @@ impl Deposit {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct AssetPool {
     pub credit_asset: Asset,
     pub liq_premium: Decimal,
@@ -76,7 +76,7 @@ impl fmt::Display for AssetPool {
 }
 
 //Liq-queue
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Queue {
     pub bid_asset: Asset,
     pub max_premium: Uint128, //A slot for each premium is created when queue is created
@@ -130,7 +130,7 @@ impl Bid {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct User {
     //pub user: Addr,
     pub claimable_assets: Vec<Asset>, //Collateral assets earned from liquidations
@@ -166,7 +166,7 @@ impl fmt::Display for StakeDeposit {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct FeeEvent {
     pub time_of_event: u64,
     pub fee: LiqAsset,
@@ -218,7 +218,7 @@ pub struct PriceInfo {
 ////////////////CDP///////////
 ///
 ///
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct cAsset {
     pub asset: Asset, //amount is 0 when adding to basket_contract config or initiator
     pub max_borrow_LTV: Decimal, //aka what u can bprrpw up to
@@ -229,7 +229,7 @@ pub struct cAsset {
     pub pool_info: Option<PoolInfo>, //if its an Osmosis LP add PoolInfo.
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct PoolInfo {
     pub pool_id: u64,
     //AssetInfo, Asset Decimal Places

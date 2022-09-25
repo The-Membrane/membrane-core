@@ -34,7 +34,7 @@ fn partial_one_collateral_one_slot() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
@@ -54,7 +54,7 @@ fn partial_one_collateral_one_slot() {
     );
 
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     let msg = QueryMsg::CheckLiquidatible {
         bid_for: AssetInfo::NativeToken {
@@ -86,7 +86,7 @@ fn partial_one_collateral_one_slot() {
         position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 }
 
 #[test]
@@ -113,7 +113,7 @@ fn partial_one_collateral_one_slot_w_fees() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //10% premium
     let msg = ExecuteMsg::SubmitBid {
@@ -134,7 +134,7 @@ fn partial_one_collateral_one_slot_w_fees() {
     );
 
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     let msg = QueryMsg::CheckLiquidatible {
         bid_for: AssetInfo::NativeToken {
@@ -167,7 +167,7 @@ fn partial_one_collateral_one_slot_w_fees() {
         position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 }
 
 #[test]
@@ -194,7 +194,7 @@ fn one_collateral_one_slot() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
@@ -214,7 +214,7 @@ fn one_collateral_one_slot() {
     );
 
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     let msg = QueryMsg::CheckLiquidatible {
         bid_for: AssetInfo::NativeToken {
@@ -246,7 +246,7 @@ fn one_collateral_one_slot() {
         position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 }
 
 #[test]
@@ -273,7 +273,7 @@ fn one_collateral_one_slot_w_fees() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //10% premium
     let msg = ExecuteMsg::SubmitBid {
@@ -294,7 +294,7 @@ fn one_collateral_one_slot_w_fees() {
     );
 
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     let msg = QueryMsg::CheckLiquidatible {
         bid_for: AssetInfo::NativeToken {
@@ -326,7 +326,7 @@ fn one_collateral_one_slot_w_fees() {
         position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 }
 
 #[test]
@@ -353,7 +353,7 @@ fn two_slot_w_fees() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //0% premium
     let msg = ExecuteMsg::SubmitBid {
@@ -373,7 +373,7 @@ fn two_slot_w_fees() {
         }],
     );
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env, submit_info, msg).unwrap();
 
     //10% premium
     let msg = ExecuteMsg::SubmitBid {
@@ -393,7 +393,7 @@ fn two_slot_w_fees() {
         }],
     );
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     let msg = QueryMsg::CheckLiquidatible {
         bid_for: AssetInfo::NativeToken {
@@ -426,7 +426,7 @@ fn two_slot_w_fees() {
         position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 }
 
 #[test]
@@ -453,7 +453,7 @@ fn partial_two_slot_w_fees() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //0% premium
     let msg = ExecuteMsg::SubmitBid {
@@ -473,7 +473,7 @@ fn partial_two_slot_w_fees() {
         }],
     );
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env, submit_info, msg).unwrap();
 
     //10% premium
     let msg = ExecuteMsg::SubmitBid {
@@ -493,7 +493,7 @@ fn partial_two_slot_w_fees() {
         }],
     );
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     let msg = QueryMsg::CheckLiquidatible {
         bid_for: AssetInfo::NativeToken {
@@ -526,7 +526,7 @@ fn partial_two_slot_w_fees() {
         position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 }
 
 #[test]
@@ -553,7 +553,7 @@ fn partial_two_slot_w_fees_bignums() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(100_000_000_000_000u128),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //0% premium
     let msg = ExecuteMsg::SubmitBid {
@@ -569,11 +569,11 @@ fn partial_two_slot_w_fees_bignums() {
         "owner0000",
         &[Coin {
             denom: "cdt".to_string(),
-            amount: Uint128::from(1000_000_000u128),
+            amount: Uint128::from(1_000_000_000_u128),
         }],
     );
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env, submit_info, msg).unwrap();
 
     //10% premium
     let msg = ExecuteMsg::SubmitBid {
@@ -589,18 +589,18 @@ fn partial_two_slot_w_fees_bignums() {
         "owner0000",
         &[Coin {
             denom: "cdt".to_string(),
-            amount: Uint128::from(1000_000_000u128),
+            amount: Uint128::from(1_000_000_000_u128),
         }],
     );
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     let msg = QueryMsg::CheckLiquidatible {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
         collateral_price: Decimal::one(),
-        collateral_amount: Uint256::from(2222_222_222u128),
+        collateral_amount: Uint256::from(2_222_222_222_u128),
         credit_info: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
@@ -614,7 +614,7 @@ fn partial_two_slot_w_fees_bignums() {
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::one(),
-        collateral_amount: Uint256::from(2111_111_111u128),
+        collateral_amount: Uint256::from(2_111_111_111_u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
@@ -626,5 +626,5 @@ fn partial_two_slot_w_fees_bignums() {
         position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 }

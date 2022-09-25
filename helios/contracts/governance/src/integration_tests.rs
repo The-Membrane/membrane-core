@@ -44,7 +44,7 @@ mod tests {
     }
 
     //Mock Osmo Proxy Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockExecuteMsg {
         MintTokens {
@@ -62,11 +62,11 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct Osmo_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockQueryMsg {
         SpotPrice {
@@ -141,7 +141,7 @@ mod tests {
                         base_asset_denom,
                         start_time,
                     } => {
-                        if base_asset_denom == String::from("base") {
+                        if base_asset_denom == *"base" {
                             Ok(to_binary(&ArithmeticTwapToNowResponse {
                                 twap: Decimal::percent(100),
                             })?)
@@ -158,7 +158,7 @@ mod tests {
     }
 
     //Mock Staking Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Staking_MockExecuteMsg {
         DepositFee {
@@ -175,11 +175,11 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct Staking_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Staking_MockQueryMsg {
         StakerRewards {
@@ -272,15 +272,15 @@ mod tests {
     }
 
     //Mock BV Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum BV_MockExecuteMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct BV_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum BV_MockQueryMsg {
         Allocation { receiver: String },
@@ -615,12 +615,12 @@ mod tests {
                 receiver: Some(String::from("receiver")),
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
-            app.execute(bv_contract_addr.clone(), cosmos_msg).unwrap();
+            app.execute(bv_contract_addr, cosmos_msg).unwrap();
 
             let proposal: ProposalResponse = app
                 .wrap()
                 .query_wasm_smart(
-                    gov_contract.clone().addr(),
+                    gov_contract.addr(),
                     &QueryMsg::Proposal { proposal_id: 1 },
                 )
                 .unwrap();
@@ -663,7 +663,7 @@ mod tests {
                 messages: Some(vec![ProposalMessage {
                     order: Uint64::new(1u64),
                     msg: cosmwasm_std::CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: gov_contract.clone().addr().to_string(),
+                        contract_addr: gov_contract.addr().to_string(),
                         msg: to_binary(&ExecuteMsg::UpdateConfig(UpdateConfig {
                             mbrn_denom: None,
                             staking_contract: None,
@@ -699,7 +699,7 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
-                .execute(bv_contract_addr.clone(), cosmos_msg)
+                .execute(bv_contract_addr, cosmos_msg)
                 .unwrap_err();
             assert_eq!(err.root_cause().to_string(), String::from("Unauthorized"));
 
@@ -724,7 +724,7 @@ mod tests {
             let proposal: ProposalResponse = app
                 .wrap()
                 .query_wasm_smart(
-                    gov_contract.clone().addr(),
+                    gov_contract.addr(),
                     &QueryMsg::Proposal { proposal_id: 1 },
                 )
                 .unwrap();
@@ -732,7 +732,7 @@ mod tests {
             let proposal_votes: ProposalVotesResponse = app
                 .wrap()
                 .query_wasm_smart(
-                    gov_contract.clone().addr(),
+                    gov_contract.addr(),
                     &QueryMsg::ProposalVotes { proposal_id: 1 },
                 )
                 .unwrap();
@@ -740,7 +740,7 @@ mod tests {
             let proposal_for_voters: Vec<Addr> = app
                 .wrap()
                 .query_wasm_smart(
-                    gov_contract.clone().addr(),
+                    gov_contract.addr(),
                     &QueryMsg::ProposalVoters {
                         proposal_id: 1,
                         vote_option: ProposalVoteOption::For,
@@ -753,7 +753,7 @@ mod tests {
             let proposal_against_voters: Vec<Addr> = app
                 .wrap()
                 .query_wasm_smart(
-                    gov_contract.clone().addr(),
+                    gov_contract.addr(),
                     &QueryMsg::ProposalVoters {
                         proposal_id: 1,
                         vote_option: ProposalVoteOption::Against,
@@ -809,7 +809,7 @@ mod tests {
             let proposal: ProposalResponse = app
                 .wrap()
                 .query_wasm_smart(
-                    gov_contract.clone().addr(),
+                    gov_contract.addr(),
                     &QueryMsg::Proposal { proposal_id: 1 },
                 )
                 .unwrap();
@@ -840,7 +840,7 @@ mod tests {
             let config: Config = app
                 .wrap()
                 .query_wasm_smart(
-                    gov_contract.clone().addr().to_string(),
+                    gov_contract.addr().to_string(),
                     &QueryMsg::Config {},
                 )
                 .unwrap();
@@ -848,7 +848,7 @@ mod tests {
             let proposal: ProposalResponse = app
                 .wrap()
                 .query_wasm_smart(
-                    gov_contract.clone().addr().to_string(),
+                    gov_contract.addr().to_string(),
                     &QueryMsg::Proposal { proposal_id: 1 },
                 )
                 .unwrap();
@@ -879,7 +879,7 @@ mod tests {
 
             app.execute_contract(
                 Addr::unchecked("user0"),
-                gov_contract.clone().addr(),
+                gov_contract.addr(),
                 &ExecuteMsg::RemoveCompletedProposal { proposal_id: 1 },
                 &[],
             )
@@ -888,7 +888,7 @@ mod tests {
             let res: ProposalListResponse = app
                 .wrap()
                 .query_wasm_smart(
-                    gov_contract.clone().addr().to_string(),
+                    gov_contract.addr().to_string(),
                     &QueryMsg::Proposals {
                         start: None,
                         limit: None,
@@ -913,7 +913,7 @@ mod tests {
                 messages: Some(vec![ProposalMessage {
                     order: Uint64::new(1u64),
                     msg: cosmwasm_std::CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: gov_contract.clone().addr().to_string(),
+                        contract_addr: gov_contract.addr().to_string(),
                         msg: to_binary(&ExecuteMsg::UpdateConfig(UpdateConfig {
                             mbrn_denom: None,
                             staking_contract: None,
@@ -938,7 +938,7 @@ mod tests {
                 receiver: Some(String::from("receiver")),
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
-            app.execute(bv_contract_addr.clone(), cosmos_msg).unwrap();
+            app.execute(bv_contract_addr, cosmos_msg).unwrap();
 
             //For
             let msg = ExecuteMsg::CastVote {
@@ -971,7 +971,7 @@ mod tests {
             let proposal: ProposalResponse = app
                 .wrap()
                 .query_wasm_smart(
-                    gov_contract.clone().addr(),
+                    gov_contract.addr(),
                     &QueryMsg::Proposal { proposal_id: 1 },
                 )
                 .unwrap();
@@ -988,7 +988,7 @@ mod tests {
 
             app.execute_contract(
                 Addr::unchecked(USER),
-                gov_contract.clone().addr(),
+                gov_contract.addr(),
                 &ExecuteMsg::RemoveCompletedProposal { proposal_id: 1 },
                 &[],
             )
@@ -997,7 +997,7 @@ mod tests {
             let res: ProposalListResponse = app
                 .wrap()
                 .query_wasm_smart(
-                    gov_contract.clone().addr().to_string(),
+                    gov_contract.addr().to_string(),
                     &QueryMsg::Proposals {
                         start: None,
                         limit: None,
@@ -1017,7 +1017,7 @@ mod tests {
             let config_before: Config = app
                 .wrap()
                 .query_wasm_smart(
-                    gov_contract.clone().addr().to_string(),
+                    gov_contract.addr().to_string(),
                     &QueryMsg::Config {},
                 )
                 .unwrap();
@@ -1026,7 +1026,7 @@ mod tests {
                 messages: vec![ProposalMessage {
                     order: Uint64::new(1u64),
                     msg: cosmwasm_std::CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: gov_contract.clone().addr().to_string(),
+                        contract_addr: gov_contract.addr().to_string(),
                         msg: to_binary(&ExecuteMsg::UpdateConfig(UpdateConfig {
                             mbrn_denom: None,
                             staking_contract: None,
@@ -1051,7 +1051,7 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
-                .execute(bv_contract_addr.clone(), cosmos_msg)
+                .execute(bv_contract_addr, cosmos_msg)
                 .unwrap_err();
             assert_eq!(
                 &err.root_cause().to_string(),
@@ -1061,7 +1061,7 @@ mod tests {
             let config_after: Config = app
                 .wrap()
                 .query_wasm_smart(
-                    gov_contract.clone().addr().to_string(),
+                    gov_contract.addr().to_string(),
                     &QueryMsg::Config {},
                 )
                 .unwrap();

@@ -34,12 +34,12 @@ fn stake() {
 
     //Instantiating contract
     let info = mock_info("sender88", &[]);
-    let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Stake non-MBRN asset
     let msg = ExecuteMsg::Stake { user: None };
     let info = mock_info("sender88", &[coin(10, "not-mbrn")]);
-    let err = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap_err();
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(
         err.to_string(),
         "Custom Error val: \"No valid assets\"".to_string()
@@ -48,7 +48,7 @@ fn stake() {
     //Successful Stake
     let msg = ExecuteMsg::Stake { user: None };
     let info = mock_info("sender88", &[coin(10, "mbrn_denom")]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -61,7 +61,7 @@ fn stake() {
     //Successful Stake from builders contract
     let msg = ExecuteMsg::Stake { user: None };
     let info = mock_info("builders_contract", &[coin(11, "mbrn_denom")]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -130,12 +130,12 @@ fn unstake() {
 
     //Instantiating contract
     let info = mock_info("sender88", &[]);
-    let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Successful Stake
     let msg = ExecuteMsg::Stake { user: None };
     let info = mock_info("sender88", &[coin(10_000_000, "mbrn_denom")]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -148,7 +148,7 @@ fn unstake() {
     //Successful Stake from builders contract
     let msg = ExecuteMsg::Stake { user: None };
     let info = mock_info("builders_contract", &[coin(11, "mbrn_denom")]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -170,7 +170,7 @@ fn unstake() {
         mbrn_amount: Some(Uint128::new(11_000_000u128)),
     };
     let info = mock_info("sender88", &[]);
-    let err = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap_err();
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(
         err.to_string(),
         "Custom Error val: \"Invalid withdrawal amount\"".to_string()
@@ -179,7 +179,7 @@ fn unstake() {
     //Not a staker Error
     let msg = ExecuteMsg::Unstake { mbrn_amount: None };
     let info = mock_info("not_a_user", &[]);
-    let err = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap_err();
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(
         err.to_string(),
         "Custom Error val: \"User has no stake\"".to_string()
@@ -188,7 +188,7 @@ fn unstake() {
     //Successful Unstake w/o withdrawals
     let msg = ExecuteMsg::Unstake { mbrn_amount: None };
     let info = mock_info("sender88", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -203,7 +203,7 @@ fn unstake() {
         mbrn_amount: Uint128::new(10_000_000u128),
     };
     let info = mock_info("sender88", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -215,7 +215,7 @@ fn unstake() {
     //Successful Unstake w/o withdrawals to assert Restake
     let msg = ExecuteMsg::Unstake { mbrn_amount: None };
     let info = mock_info("sender88", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -230,7 +230,7 @@ fn unstake() {
         mbrn_amount: Some(Uint128::new(5u128)),
     };
     let info = mock_info("builders_contract", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -246,7 +246,7 @@ fn unstake() {
     //Successful Unstake w/ withdrawals after unstaking period
     let msg = ExecuteMsg::Unstake { mbrn_amount: None };
     let info = mock_info("sender88", &[]);
-    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -281,7 +281,7 @@ fn unstake() {
         mbrn_amount: Some(Uint128::new(5u128)),
     };
     let info = mock_info("builders_contract", &[]);
-    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), env, info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -319,18 +319,18 @@ fn deposit_fee() {
 
     //Instantiating contract
     let info = mock_info("sender88", &[]);
-    let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Unauthorized
     let msg = ExecuteMsg::DepositFee {};
     let info = mock_info("sender88", &[]);
-    let err = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap_err();
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(err.to_string(), "Unauthorized".to_string());
 
     //Successful DepositFee
     let msg = ExecuteMsg::DepositFee {};
     let info = mock_info("positions_contract", &[coin(10, "fee_asset")]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -347,7 +347,7 @@ fn deposit_fee() {
     });
 
     let info = mock_info("cw20_asset", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -413,37 +413,37 @@ fn claim_rewards() {
 
     //Instantiating contract
     let info = mock_info("sender88", &[]);
-    let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Successful Stake for User 1
     let msg = ExecuteMsg::Stake { user: None };
     let info = mock_info("user_1", &[coin(10_000_000, "mbrn_denom")]);
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Successful Stake for User 2
     let msg = ExecuteMsg::Stake { user: None };
     let info = mock_info("user_2", &[coin(10_000_000, "mbrn_denom")]);
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Successful Stake for User 3
     let msg = ExecuteMsg::Stake { user: None };
     let info = mock_info("user_3", &[coin(10_000_000, "mbrn_denom")]);
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Successful Stake for User 4
     let msg = ExecuteMsg::Stake { user: None };
     let info = mock_info("user_4", &[coin(10_000_000, "mbrn_denom")]);
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Successful Stake from builders contract
     let msg = ExecuteMsg::Stake { user: None };
     let info = mock_info("builders_contract", &[coin(11_000_000, "mbrn_denom")]);
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Successful DepositFee
     let msg = ExecuteMsg::DepositFee {};
     let info = mock_info("positions_contract", &[coin(10_000_000_000, "fee_asset")]);
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Query and Assert no rewards due to waiting period
     let res = query(
@@ -463,7 +463,7 @@ fn claim_rewards() {
     let info = mock_info("positions_contract", &[coin(10_000_000_000, "fee_asset")]);
     let mut env = mock_env();
     env.block.time = env.block.time.plus_seconds(86_400u64 * 3u64);
-    let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    let _res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
 
     //Query and Assert Rewards
     let res = query(
@@ -529,7 +529,7 @@ fn claim_rewards() {
         restake: false,
     };
     //Can't claim as two different assets Error
-    let err = execute(deps.as_mut(), mock_env(), info.clone(), claim_msg).unwrap_err();
+    let err = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap_err();
     assert_eq!(
         err.to_string(),
         String::from(
@@ -545,7 +545,7 @@ fn claim_rewards() {
         restake: false,
     };
     let info = mock_info("user_1", &[]);
-    let res = execute(deps.as_mut(), env.clone(), info.clone(), claim_msg).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, claim_msg).unwrap();
     assert_eq!(
         res.messages,
         vec![
@@ -584,7 +584,7 @@ fn claim_rewards() {
         restake: false,
     };
     let info = mock_info("user_2", &[]);
-    let res = execute(deps.as_mut(), env.clone(), info.clone(), claim_msg).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, claim_msg).unwrap();
     assert_eq!(
         res.messages,
         vec![
@@ -623,7 +623,7 @@ fn claim_rewards() {
         restake: false,
     };
     let info = mock_info("user_3", &[]);
-    let res = execute(deps.as_mut(), env.clone(), info.clone(), claim_msg).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, claim_msg).unwrap();
     assert_eq!(
         res.messages,
         vec![
@@ -662,7 +662,7 @@ fn claim_rewards() {
         restake: false,
     };
     let info = mock_info("user_4", &[]);
-    let res = execute(deps.as_mut(), env.clone(), info.clone(), claim_msg).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, claim_msg).unwrap();
     assert_eq!(
         res.messages,
         vec![
@@ -698,7 +698,7 @@ fn claim_rewards() {
     let msg = ExecuteMsg::DepositFee {};
     let info = mock_info("positions_contract", &[coin(10_000_000_000, "fee_asset")]);
     env.block.time = env.block.time.plus_seconds(86_400u64 * 3u64);
-    let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    let _res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
 
     //Successful Staker ClaimRewards
     let msg = ExecuteMsg::ClaimRewards {
@@ -733,7 +733,7 @@ fn claim_rewards() {
     );
 
     //Secondary claim gives nothing
-    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     assert_eq!(res.messages, vec![]);
 
     //Builders contract claim is only Fee rewards
@@ -747,7 +747,7 @@ fn claim_rewards() {
 
     env.block.time = env.block.time.plus_seconds(31_536_000);
 
-    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     assert_eq!(
         res.messages,
         vec![SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
@@ -764,9 +764,9 @@ fn claim_rewards() {
         restake: true,
     };
     let info = mock_info("user_1", &[]);
-    env.block.time = env.clone().block.time.plus_seconds(31_536_000);
+    env.block.time = env.block.time.plus_seconds(31_536_000);
 
-    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     assert_eq!(
         res.messages,
         vec![
@@ -800,9 +800,9 @@ fn claim_rewards() {
         restake: false,
     };
     let info = mock_info("user_1", &[]);
-    env.block.time = env.clone().block.time.plus_seconds(31_536_000);
+    env.block.time = env.block.time.plus_seconds(31_536_000);
 
-    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
+    let res = execute(deps.as_mut(), env, info, msg).unwrap();
     assert_eq!(
         res.messages,
         vec![SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {

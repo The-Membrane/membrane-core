@@ -37,7 +37,7 @@ fn query_liquidatible() {
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
 
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
@@ -57,7 +57,7 @@ fn query_liquidatible() {
     );
 
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env, submit_info, msg).unwrap();
 
     let msg = QueryMsg::CheckLiquidatible {
         bid_for: AssetInfo::NativeToken {
@@ -105,7 +105,7 @@ fn query_bid() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Submit 1 Bid
     let msg = ExecuteMsg::SubmitBid {
@@ -126,7 +126,7 @@ fn query_bid() {
     );
 
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env, submit_info, msg).unwrap();
 
     //Query Individual Bid
     let msg = QueryMsg::Bid {
@@ -173,7 +173,7 @@ fn query_bid() {
     );
 
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env, submit_info, msg).unwrap();
 
     //Query User Bids
     let msg = QueryMsg::BidsByUser {
@@ -251,7 +251,7 @@ fn query_slots_queues() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Query Queues
     let msg = QueryMsg::Queues {
@@ -335,7 +335,7 @@ fn query_slots_queues() {
     );
 
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env, submit_info, msg).unwrap();
 
     //Query a Slot
     let msg = QueryMsg::PremiumSlot {

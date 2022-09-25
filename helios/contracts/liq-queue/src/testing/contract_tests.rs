@@ -75,7 +75,7 @@ fn update_config() {
         basket_id: None,
     };
 
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(0, res.messages.len());
 
     // it worked, let's query the state
@@ -175,7 +175,7 @@ fn submit_bid() {
     };
 
     let info = mock_info("addr0000", &[]);
-    let err = execute(deps.as_mut(), mock_env(), info, msg.clone()).unwrap_err();
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(err, ContractError::InvalidAsset {});
 
     //No Assets sent w/ bid
@@ -255,13 +255,13 @@ fn submit_bid() {
         }],
     );
 
-    let err = execute(deps.as_mut(), mock_env(), info.clone(), invalid_msg.clone()).unwrap_err();
+    let err = execute(deps.as_mut(), mock_env(), info.clone(), invalid_msg).unwrap_err();
     assert_eq!(err, ContractError::InvalidPremium {});
 
     //Successful Bid
     let env = mock_env();
     let wait_end = env.block.time.plus_seconds(60u64);
-    execute(deps.as_mut(), env, info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env, info, msg).unwrap();
 
     // let slot_res: SlotResponse = from_binary(
     //     &query(
@@ -470,7 +470,7 @@ fn execute_bid() {
     );
 
     let env = mock_env();
-    execute(deps.as_mut(), env, info.clone(), msg.clone()).unwrap();
+    execute(deps.as_mut(), env, info, msg).unwrap();
     /////////////////////
 
     // required_stable 495,000
@@ -495,7 +495,7 @@ fn execute_bid() {
     let err = execute(
         deps.as_mut(),
         env.clone(),
-        unauth_info.clone(),
+        unauth_info,
         liq_msg.clone(),
     )
     .unwrap_err();
@@ -525,7 +525,7 @@ fn execute_bid() {
         }))]
     );
 
-    let err = execute(deps.as_mut(), env.clone(), info.clone(), liq_msg.clone()).unwrap_err();
+    let err = execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap_err();
     assert_eq!(err, ContractError::InsufficientBids {});
 
     let liq_msg = ExecuteMsg::Liquidate {
@@ -543,7 +543,7 @@ fn execute_bid() {
         position_owner: "owner01".to_string(),
     };
 
-    let res = execute(deps.as_mut(), env, info, liq_msg.clone()).unwrap_err();
+    let res = execute(deps.as_mut(), env, info, liq_msg).unwrap_err();
     assert_eq!(res, ContractError::InsufficientBids {});
 }
 
@@ -572,7 +572,7 @@ fn claim_liquidations() {
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
 
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
@@ -592,7 +592,7 @@ fn claim_liquidations() {
     );
 
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
@@ -609,7 +609,7 @@ fn claim_liquidations() {
         position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
     /////////
 
     let msg = ExecuteMsg::ClaimLiquidations {
@@ -660,7 +660,7 @@ fn update_queue() {
     assert_eq!(err, ContractError::Unauthorized {});
 
     //Success
-    execute(deps.as_mut(), mock_env(), info.clone(), msg.clone()).unwrap();
+    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let query_msg = QueryMsg::Queue {
         bid_for: AssetInfo::NativeToken {
@@ -692,10 +692,10 @@ fn update_queue() {
         max_premium: Some(Uint128::new(20u128)),
         bid_threshold: Some(Uint256::from(500_000_000u128)),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     let queue_response: QueueResponse =
-        from_binary(&query(deps.as_ref(), mock_env(), query_msg.clone()).unwrap()).unwrap();
+        from_binary(&query(deps.as_ref(), mock_env(), query_msg).unwrap()).unwrap();
 
     assert_eq!(queue_response.max_premium, Uint128::new(20u128).to_string());
     assert_eq!(

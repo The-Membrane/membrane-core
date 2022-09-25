@@ -106,7 +106,7 @@ fn update_config(
         attr("add_owner", add_owner.to_string()),
     ];
 
-    if !validate_authority(config.clone(), info.clone()) {
+    if !validate_authority(config.clone(), info) {
         return Err(TokenFactoryError::Unauthorized {});
     }
 
@@ -121,7 +121,7 @@ fn update_config(
                 .clone()
                 .owners
                 .into_iter()
-                .filter(|stored_owner| stored_owner.to_string() != owner)
+                .filter(|stored_owner| *stored_owner != owner)
                 .collect::<Vec<Addr>>();
         }
         attrs.push(attr("owner", owner));
@@ -143,16 +143,12 @@ fn validate_authority(config: Config, info: MessageInfo) -> bool {
     match config
         .owners
         .into_iter()
-        .find(|owner| owner.to_string() == info.sender.to_string())
+        .find(|owner| *owner == info.sender)
     {
         Some(_owner) => true,
         None => {
             if let Some(debt_auction) = config.debt_auction {
-                if info.sender == debt_auction {
-                    true
-                } else {
-                    false
-                }
+                info.sender == debt_auction
             } else {
                 false
             }
@@ -170,7 +166,7 @@ pub fn create_denom(
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
-    if !validate_authority(config, info.clone()) {
+    if !validate_authority(config, info) {
         return Err(TokenFactoryError::Unauthorized {});
     }
 
@@ -185,12 +181,12 @@ pub fn create_denom(
     let res = Response::new()
         .add_attribute("method", "create_denom")
         .add_attribute("sub_denom", subdenom)
-        .add_attribute("max_supply", max_supply.unwrap_or_else(|| Uint128::zero()))
+        .add_attribute("max_supply", max_supply.unwrap_or_else(Uint128::zero))
         .add_attribute("basket_id", basket_id)
         .add_attribute(
             "liquidity_multiplier",
             liquidity_multiplier
-                .unwrap_or_else(|| Decimal::zero())
+                .unwrap_or_else(Decimal::zero)
                 .to_string(),
         )
         .add_message(create_denom_msg);
@@ -206,7 +202,7 @@ pub fn change_admin(
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
-    if !validate_authority(config, info.clone()) {
+    if !validate_authority(config, info) {
         return Err(TokenFactoryError::Unauthorized {});
     }
 
@@ -236,7 +232,7 @@ fn edit_token_max(
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
-    if !validate_authority(config, info.clone()) {
+    if !validate_authority(config, info) {
         return Err(TokenFactoryError::Unauthorized {});
     }
 
@@ -247,12 +243,12 @@ fn edit_token_max(
         |token_info| -> Result<TokenInfo, TokenFactoryError> {
             match token_info {
                 Some(mut token_info) => {
-                    token_info.max_supply = Some(max_supply.clone());
+                    token_info.max_supply = Some(max_supply);
 
                     Ok(token_info)
                 }
                 None => {
-                    return Err(TokenFactoryError::CustomError {
+                    Err(TokenFactoryError::CustomError {
                         val: String::from("Denom was not created in this contract"),
                     })
                 }
@@ -320,7 +316,7 @@ pub fn mint_tokens(
                     Ok(token_info)
                 }
                 None => {
-                    return Err(TokenFactoryError::CustomError {
+                    Err(TokenFactoryError::CustomError {
                         val: String::from("Denom was not created in this contract"),
                     })
                 }
@@ -357,7 +353,7 @@ pub fn burn_tokens(
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
-    if !validate_authority(config, info.clone()) {
+    if !validate_authority(config, info) {
         return Err(TokenFactoryError::Unauthorized {});
     }
 
@@ -384,7 +380,7 @@ pub fn burn_tokens(
                     Ok(token_info)
                 }
                 None => {
-                    return Err(TokenFactoryError::CustomError {
+                    Err(TokenFactoryError::CustomError {
                         val: String::from("Denom was not created in this contract"),
                     })
                 }
@@ -433,7 +429,7 @@ fn get_token_info(deps: Deps<OsmosisQuery>, denom: String) -> StdResult<TokenInf
     Ok(TokenInfoResponse {
         denom,
         current_supply: token_info.current_supply,
-        max_supply: token_info.max_supply.unwrap_or_else(|| Uint128::zero()),
+        max_supply: token_info.max_supply.unwrap_or_else(Uint128::zero),
     })
 }
 
@@ -533,7 +529,7 @@ fn handle_create_denom_reply(
                 .into_iter()
                 .find(|e| e.attributes.iter().any(|attr| attr.key == "subdenom"))
                 .ok_or_else(|| {
-                    StdError::generic_err(format!("unable to find create_denom event"))
+                    StdError::generic_err("unable to find create_denom event".to_string())
                 })?;
 
             let subdenom = &instantiate_event

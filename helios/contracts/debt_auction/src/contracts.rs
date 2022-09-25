@@ -184,10 +184,9 @@ fn start_auction(
         deps.storage,
         |mut assets: Vec<AssetInfo>| -> Result<Vec<AssetInfo>, ContractError> {
             //Add to list if new asset
-            if let None = assets
+            if !assets
                 .clone()
-                .into_iter()
-                .find(|asset| asset.equal(&debt_asset.info))
+                .into_iter().any(|asset| asset.equal(&debt_asset.info))
             {
                 assets.push(debt_asset.clone().info);
             }
@@ -441,7 +440,7 @@ pub fn credit_mint_msg(
 ) -> StdResult<CosmosMsg> {
     match credit_asset.clone().info {
         AssetInfo::Token { address: _ } => {
-            return Err(StdError::GenericErr {
+            Err(StdError::GenericErr {
                 msg: "Credit has to be a native token".to_string(),
             })
         }
@@ -489,12 +488,12 @@ pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {
     match asset.info {
         //
         AssetInfo::Token { address: _ } => {
-            return Err(StdError::GenericErr {
+            Err(StdError::GenericErr {
                 msg: "Only native assets can become Coin objects".to_string(),
             })
         }
         AssetInfo::NativeToken { denom } => Ok(Coin {
-            denom: denom,
+            denom,
             amount: asset.amount,
         }),
     }
@@ -536,12 +535,12 @@ fn get_valid_assets(
         {
             Ok(vec![debt_asset])
         } else {
-            return Err(StdError::GenericErr {
-                msg: format!("Invalid auction swap asset: {}", debt_asset.to_string()),
-            });
+            Err(StdError::GenericErr {
+                msg: format!("Invalid auction swap asset: {}", debt_asset),
+            })
         }
     } else {
-        let limit: u64 = limit.unwrap_or_else(|| MAX_LIMIT);
+        let limit: u64 = limit.unwrap_or(MAX_LIMIT);
         let start = if let Some(start) = start_without {
             start
         } else {
@@ -572,23 +571,23 @@ fn get_ongoing_auction(
             //Skip zeroed auctions
             if !auction.remaining_recapitalization.is_zero() {
                 Ok(vec![AuctionResponse {
-                    remaining_recapitalization: auction.clone().remaining_recapitalization,
+                    remaining_recapitalization: auction.remaining_recapitalization,
                     repayment_positions: auction.clone().repayment_positions,
-                    auction_start_time: auction.clone().auction_start_time,
-                    basket_id_price_source: auction.clone().basket_id_price_source,
+                    auction_start_time: auction.auction_start_time,
+                    basket_id_price_source: auction.basket_id_price_source,
                 }])
             } else {
-                return Err(StdError::GenericErr {
+                Err(StdError::GenericErr {
                     msg: String::from("Auction recapitalization amount empty"),
-                });
+                })
             }
         } else {
-            return Err(StdError::GenericErr {
-                msg: format!("Invalid auction swap asset: {}", debt_asset.to_string()),
-            });
+            Err(StdError::GenericErr {
+                msg: format!("Invalid auction swap asset: {}", debt_asset),
+            })
         }
     } else {
-        let limit: u64 = limit.unwrap_or_else(|| MAX_LIMIT);
+        let limit: u64 = limit.unwrap_or(MAX_LIMIT);
         let start = if let Some(start) = start_without {
             start
         } else {
@@ -621,7 +620,7 @@ fn get_ongoing_auction(
                 }
             } else {
                 return Err(StdError::GenericErr {
-                    msg: format!("Invalid auction swap asset: {}", asset.to_string()),
+                    msg: format!("Invalid auction swap asset: {}", asset),
                 });
             }
         }

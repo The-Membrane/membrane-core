@@ -6,7 +6,7 @@ use cosmwasm_std::{Decimal, Uint128};
 
 use crate::types::{Asset, AssetInfo, AssetPool, Deposit, LiqAsset, PositionUserInfo, UserInfo};
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub asset_pool: Option<AssetPool>,
@@ -87,7 +87,7 @@ pub enum Cw20HookMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
@@ -113,12 +113,12 @@ pub struct DepositResponse {
     pub deposits: Vec<Deposit>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct ClaimsResponse {
     pub claims: Vec<Asset>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct PoolResponse {
     pub credit_asset: Asset,
     pub liq_premium: Decimal,

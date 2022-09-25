@@ -35,7 +35,7 @@ fn one_bidder_distribution() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
@@ -55,7 +55,7 @@ fn one_bidder_distribution() {
     );
 
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
@@ -72,7 +72,7 @@ fn one_bidder_distribution() {
         position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 
     // let msg = QueryMsg::PremiumSlot { bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() }, premium: 1u64 };
     // let res = query( deps.as_ref(), mock_env(), msg).unwrap();
@@ -141,7 +141,7 @@ fn two_bidder_distribution() {
         bid_threshold: Uint256::zero(),
     };
 
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
@@ -160,7 +160,7 @@ fn two_bidder_distribution() {
         }],
     );
     let mut env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     ///Liquidate 4 at $10
     let liq_msg = ExecuteMsg::Liquidate {
@@ -178,7 +178,7 @@ fn two_bidder_distribution() {
         position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env.clone(), info, liq_msg).unwrap();
 
     ///Submit 2nd bid
     let msg = ExecuteMsg::SubmitBid {
@@ -197,7 +197,7 @@ fn two_bidder_distribution() {
             amount: Uint128::from(60u128),
         }],
     );
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     //Liquidate 6 at $20
     let liq_msg = ExecuteMsg::Liquidate {
@@ -217,7 +217,7 @@ fn two_bidder_distribution() {
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 
     //First bidder participated in 2 liquidations
     let msg = ExecuteMsg::ClaimLiquidations {
@@ -312,7 +312,7 @@ fn two_bidder_distribution_big_number() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::zero(),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //First bidder bids 10,000
     let msg = ExecuteMsg::SubmitBid {
@@ -328,11 +328,11 @@ fn two_bidder_distribution_big_number() {
         "owner0000",
         &[Coin {
             denom: "cdt".to_string(),
-            amount: Uint128::from(10000_000_000u128),
+            amount: Uint128::from(10_000_000_000_u128),
         }],
     );
     let mut env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     ///Liquidate 400 at $10
     let liq_msg = ExecuteMsg::Liquidate {
@@ -350,7 +350,7 @@ fn two_bidder_distribution_big_number() {
         position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env.clone(), info, liq_msg).unwrap();
 
     ///Submit 2nd bid for 6000
     let msg = ExecuteMsg::SubmitBid {
@@ -366,10 +366,10 @@ fn two_bidder_distribution_big_number() {
         "user0000",
         &[Coin {
             denom: "cdt".to_string(),
-            amount: Uint128::from(6000_000_000u128),
+            amount: Uint128::from(6_000_000_000_u128),
         }],
     );
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     //Liquidate 600 at $20
     let liq_msg = ExecuteMsg::Liquidate {
@@ -389,7 +389,7 @@ fn two_bidder_distribution_big_number() {
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 
     //First bidder participated in 2 liquidations
     let msg = ExecuteMsg::ClaimLiquidations {
@@ -484,7 +484,7 @@ fn one_user_two_slots() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::zero(),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //First bidder bids 100 at 5%
     let msg = ExecuteMsg::SubmitBid {
@@ -516,7 +516,7 @@ fn one_user_two_slots() {
         },
         bid_owner: None,
     };
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     //Liquidate 5 at $10
     let liq_msg = ExecuteMsg::Liquidate {
@@ -536,7 +536,7 @@ fn one_user_two_slots() {
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env.clone(), info, liq_msg).unwrap();
 
     //Bidder can claim 5
     let msg = ExecuteMsg::ClaimLiquidations {
@@ -546,7 +546,7 @@ fn one_user_two_slots() {
         bid_ids: None,
     };
     let info = mock_info("owner0000", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -574,7 +574,7 @@ fn one_user_two_slots() {
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 
     //Bidder can claim 10
     let msg = ExecuteMsg::ClaimLiquidations {
@@ -654,7 +654,7 @@ fn completely_empty_pool() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::zero(),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //First bidder bids 1000
     let msg = ExecuteMsg::SubmitBid {
@@ -670,11 +670,11 @@ fn completely_empty_pool() {
         "owner0000",
         &[Coin {
             denom: "cdt".to_string(),
-            amount: Uint128::from(1000_000_000u128),
+            amount: Uint128::from(1_000_000_000_u128),
         }],
     );
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     ///Liquidate 20 at $50
     let liq_msg = ExecuteMsg::Liquidate {
@@ -692,7 +692,7 @@ fn completely_empty_pool() {
         position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env.clone(), info, liq_msg).unwrap();
 
     ///Submit 2nd bid for 2000
     let msg = ExecuteMsg::SubmitBid {
@@ -708,10 +708,10 @@ fn completely_empty_pool() {
         "user0000",
         &[Coin {
             denom: "cdt".to_string(),
-            amount: Uint128::from(2000_000_000u128),
+            amount: Uint128::from(2_000_000_000_u128),
         }],
     );
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     let msg = QueryMsg::Bid {
         bid_for: AssetInfo::NativeToken {
@@ -759,7 +759,7 @@ fn completely_empty_pool() {
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 
     //First bidder can claim from 1st liq
     let msg = ExecuteMsg::ClaimLiquidations {
@@ -803,7 +803,7 @@ fn completely_empty_pool() {
         bid_ids: None,
     };
     let info = mock_info("user0000", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -838,7 +838,7 @@ fn product_truncated_to_zero() {
         max_premium: Uint128::new(30u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(10000u128),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //force product to zero
     for _ in 0..8 {
@@ -855,7 +855,7 @@ fn product_truncated_to_zero() {
             "owner0000",
             &[Coin {
                 denom: "cdt".to_string(),
-                amount: Uint128::from(1000_000_000u128),
+                amount: Uint128::from(1_000_000_000_u128),
             }],
         );
 
@@ -963,7 +963,7 @@ fn two_bidder_distribution_multiple_common_slots() {
         bid_threshold: Uint256::zero(),
     };
 
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //First bidder submits 100 to 5%
     let msg = ExecuteMsg::SubmitBid {
@@ -984,7 +984,7 @@ fn two_bidder_distribution_multiple_common_slots() {
         }],
     );
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     ///Submit 2nd bid, 100 in 5%
     let msg = ExecuteMsg::SubmitBid {
@@ -1003,7 +1003,7 @@ fn two_bidder_distribution_multiple_common_slots() {
             amount: Uint128::from(100_000_000u128),
         }],
     );
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env, submit_info, msg).unwrap();
 
     //First bidder submits 200 to 10%
     let msg = ExecuteMsg::SubmitBid {
@@ -1024,7 +1024,7 @@ fn two_bidder_distribution_multiple_common_slots() {
         }],
     );
     let mut env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     ///Submit 2nd bid, 200 in 10%
     let msg = ExecuteMsg::SubmitBid {
@@ -1043,7 +1043,7 @@ fn two_bidder_distribution_multiple_common_slots() {
             amount: Uint128::from(200_000_000u128),
         }],
     );
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     //Liquidate 32 at $10
     let liq_msg = ExecuteMsg::Liquidate {
@@ -1063,7 +1063,7 @@ fn two_bidder_distribution_multiple_common_slots() {
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 
     // bidders claiming the collaterals
     //  1st: 5 col from the 5% pool, 11 col from the 10% pool
@@ -1075,7 +1075,7 @@ fn two_bidder_distribution_multiple_common_slots() {
         bid_ids: None,
     };
     let info = mock_info("owner0000", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -1167,7 +1167,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::zero(),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Bidder 1 submits 50 to 0%
     let msg = ExecuteMsg::SubmitBid {
@@ -1187,7 +1187,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         }],
     );
     let env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     //Bidder 2 submits 100 to 0%
     let msg = ExecuteMsg::SubmitBid {
@@ -1206,7 +1206,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
             amount: Uint128::from(100u128),
         }],
     );
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env, submit_info, msg).unwrap();
 
     //Bidder 3 submits 100 to 0%
     let msg = ExecuteMsg::SubmitBid {
@@ -1226,7 +1226,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         }],
     );
     let mut env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     ///Liquidate 100 at $1
     let liq_msg = ExecuteMsg::Liquidate {
@@ -1246,7 +1246,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the secondary bids
     env.block.time = env.block.time.plus_seconds(60u64);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 
     //Bidder 1 submits no new bids
 
@@ -1268,7 +1268,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         }],
     );
     let mut env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     //Bidder 3 submits another 250 to 0%
     let msg = ExecuteMsg::SubmitBid {
@@ -1287,7 +1287,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
             amount: Uint128::from(250u128),
         }],
     );
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     //Liquidate 50 at $1
     let liq_msg = ExecuteMsg::Liquidate {
@@ -1307,7 +1307,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the secondary bids
     env.block.time = env.block.time.plus_seconds(120u64);
-    execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    execute(deps.as_mut(), env, info, liq_msg).unwrap();
 
     // #1 Bidder CLAIMS COLLATERALS AND RETRACTS BID
     // 20 from the first liquidations, 2 from the second
@@ -1372,7 +1372,7 @@ fn not_enough_bid_for_collateral() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::zero(),
     };
-    execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //First bidder submits 100 in the 6%
     let msg = ExecuteMsg::SubmitBid {
@@ -1392,7 +1392,7 @@ fn not_enough_bid_for_collateral() {
         }],
     );
     let mut env = mock_env();
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     //2nd bidder submits 100 in the 6%
     let msg = ExecuteMsg::SubmitBid {
@@ -1411,7 +1411,7 @@ fn not_enough_bid_for_collateral() {
             amount: Uint128::from(100u128),
         }],
     );
-    execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
+    execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     ///Try to liquidate 100 at $3
     ///
@@ -1434,6 +1434,6 @@ fn not_enough_bid_for_collateral() {
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
-    let err = execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap_err();
+    let err = execute(deps.as_mut(), env, info, liq_msg).unwrap_err();
     assert_eq!(err, ContractError::InsufficientBids {});
 }

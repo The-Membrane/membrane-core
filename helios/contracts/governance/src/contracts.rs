@@ -129,7 +129,7 @@ pub fn submit_proposal(
 
     //If sender is Builder's Contract, toggle
     let mut builders: bool = false;
-    if info.sender == config.clone().builders_contract_addr {
+    if info.sender == config.builders_contract_addr {
         builders = true;
     }
 
@@ -210,7 +210,7 @@ pub fn cast_vote(
 
     //If sender is Builder's Contract, toggle
     let mut builders: bool = false;
-    if info.sender == config.clone().builders_contract_addr {
+    if info.sender == config.builders_contract_addr {
         builders = true;
     }
 
@@ -568,7 +568,7 @@ pub fn calc_voting_power(
             total = staked_mbrn
                 .into_iter()
                 .map(|stake| {
-                    if stake.staker.to_string() == sender {
+                    if stake.staker == sender {
                         stake.amount
                     } else {
                         Uint128::zero()
@@ -591,7 +591,7 @@ pub fn calc_voting_power(
         total = Uint128::from_str(&allocation.amount)? * config.builders_voting_power_multiplier;
     } else if builders {
         //If builder's but receiver isn't passed, use the sender
-        let receiver = sender.clone();
+        let receiver = sender;
 
         let allocation = deps
             .querier

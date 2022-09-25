@@ -268,7 +268,7 @@ pub struct ConfigResponse {
     pub rate_slope_multiplier: Decimal,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct PropResponse {
     pub liq_queue_leftovers: Decimal,
     pub stability_pool: Decimal,
@@ -290,7 +290,7 @@ pub struct BadDebtResponse {
     pub has_bad_debt: Vec<(PositionUserInfo, Uint128)>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InsolvencyResponse {
     pub insolvent_positions: Vec<InsolventPosition>,
 }

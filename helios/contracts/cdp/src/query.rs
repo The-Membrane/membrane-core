@@ -266,8 +266,8 @@ pub fn query_user_positions(
         for basket_id in 1..range {
             let mut basket = BASKETS.load(deps.storage, basket_id.clone().to_string())?;
 
-            match POSITIONS.load(deps.storage, (basket_id.to_string(), user.clone())) {
-                Ok(positions) => {
+            if let Ok( positions ) = POSITIONS.load(deps.storage, (basket_id.to_string(), user.clone())) {
+               
                     for mut position in positions {
                         let (borrow, max, _value, _prices) = get_avg_LTV_imut(
                             deps.storage,
@@ -311,9 +311,7 @@ pub fn query_user_positions(
                             avg_borrow_LTV: borrow,
                             avg_max_LTV: max,
                         });
-                    }
-                }
-                Err(_) => {} //This is so errors don't stop the response builder, but we don't actually care about them here
+                    }               
             }
         }
         if error.is_some() {
@@ -1130,11 +1128,9 @@ fn accrue_imut(
 
             let mut new_price = basket.credit_price;
             //Negative repayment interest needs to be enabled by the basket
-            if negative_rate && basket.negative_rates {
+            if negative_rate && basket.negative_rates || !negative_rate {
                 new_price = decimal_multiplication(basket.credit_price, applied_rate);
-            } else if !negative_rate {
-                new_price = decimal_multiplication(basket.credit_price, applied_rate);
-            }
+            } 
 
             basket.credit_price = new_price;
         } else {

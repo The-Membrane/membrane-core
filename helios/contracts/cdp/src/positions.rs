@@ -4577,11 +4577,9 @@ fn accrue(
 
             let mut new_price = basket.credit_price;
             //Negative repayment interest needs to be enabled by the basket
-            if negative_rate && basket.negative_rates {
+            if negative_rate && basket.negative_rates || !negative_rate {
                 new_price = decimal_multiplication(basket.credit_price, applied_rate);
-            } else if !negative_rate {
-                new_price = decimal_multiplication(basket.credit_price, applied_rate);
-            }
+            } 
 
             basket.credit_price = new_price;
         } else {

@@ -9,7 +9,7 @@ use cosmwasm_std::{Addr, Decimal, Uint128};
 
 //Stability Pool
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct PositionUserInfo {
     pub basket_id: Uint128,
@@ -17,7 +17,7 @@ pub struct PositionUserInfo {
     pub position_owner: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct LiqAsset {
     pub info: AssetInfo,
     pub amount: Decimal,
@@ -29,13 +29,13 @@ impl fmt::Display for LiqAsset {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UserRatio {
     pub user: Addr,
     pub ratio: Decimal,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Deposit {
     pub user: Addr,
     pub amount: Decimal,
@@ -85,7 +85,7 @@ pub struct Queue {
     pub bid_threshold: Uint256,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct BidInput {
     pub bid_for: AssetInfo,
     pub liq_premium: u8, //Premium within range of Queue
@@ -97,7 +97,7 @@ impl fmt::Display for BidInput {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Bid {
     pub user: Addr,
     pub id: Uint128,
@@ -136,7 +136,7 @@ pub struct User {
     pub claimable_assets: Vec<Asset>, //Collateral assets earned from liquidations
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct PremiumSlot {
     pub bids: Vec<Bid>,
     pub liq_premium: Decimal256, //
@@ -152,7 +152,7 @@ pub struct PremiumSlot {
 
 ///Staking////
 ///
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct StakeDeposit {
     pub staker: Addr,
     pub amount: Uint128,
@@ -173,7 +173,7 @@ pub struct FeeEvent {
 }
 
 ///////Oracle////////
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct AssetOracleInfo {
     pub basket_id: Uint128,
     pub osmosis_pools_for_twap: Vec<TWAPPoolInfo>,
@@ -186,7 +186,7 @@ impl fmt::Display for AssetOracleInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct TWAPPoolInfo {
     pub pool_id: u64,
     pub base_asset_denom: String,
@@ -203,13 +203,13 @@ impl fmt::Display for TWAPPoolInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct StoredPrice {
     pub price: Decimal,
     pub last_time_updated: u64,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct PriceInfo {
     pub source: String, //Chain name, Oracle Address or static
     pub price: Decimal,
@@ -236,7 +236,7 @@ pub struct PoolInfo {
     pub asset_infos: Vec<LPAssetInfo>, //Asset decimals (https://api-osmosis.imperator.co/tokens/v2/all)
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct LPAssetInfo {
     pub info: AssetInfo,
     pub decimals: u64,
@@ -272,7 +272,7 @@ pub struct Basket {
     pub liq_queue: Option<Addr>, //Each basket holds its own liq_queue contract
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct SupplyCap {
     pub asset_info: AssetInfo,
     pub current_supply: Uint128,
@@ -281,12 +281,12 @@ pub struct SupplyCap {
     pub lp: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct SellWallDistribution {
     pub distributions: Vec<(AssetInfo, Decimal)>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UserInfo {
     pub basket_id: Uint128,
     pub position_id: Uint128,
@@ -303,7 +303,7 @@ impl fmt::Display for UserInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InsolventPosition {
     pub insolvent: bool,
     pub position_info: UserInfo,
@@ -313,7 +313,7 @@ pub struct InsolventPosition {
 
 ////////Builder Vesting////////
 ///
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct VestingPeriod {
     pub cliff: u64,  //In days
     pub linear: u64, //In days
@@ -321,15 +321,11 @@ pub struct VestingPeriod {
 
 impl VestingPeriod {
     pub fn equal(&self, vesting_period: &VestingPeriod) -> bool {
-        if vesting_period.cliff == self.cliff && vesting_period.linear == self.linear {
-            true
-        } else {
-            false
-        }
+        vesting_period.cliff == self.cliff && vesting_period.linear == self.linear
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Allocation {
     pub amount: Uint128,
     pub amount_withdrawn: Uint128,
@@ -339,7 +335,7 @@ pub struct Allocation {
 
 /////Debt Auction
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct RepayPosition {
     pub repayment: Uint128,
     pub position_info: UserInfo,
@@ -347,7 +343,7 @@ pub struct RepayPosition {
 
 /////////Liquidity Check
 ///
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct LiquidityInfo {
     pub asset: AssetInfo,
     pub pool_ids: Vec<u64>,
@@ -355,7 +351,7 @@ pub struct LiquidityInfo {
 
 //////////Possibly switching to cw-asset//////
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AssetInfo {
     Token { address: Addr },
@@ -399,7 +395,7 @@ impl AssetInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct Asset {
     pub info: AssetInfo,
@@ -414,7 +410,7 @@ impl fmt::Display for Asset {
 
 ////////////////////Osmosis binding types
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Debug)]
 pub struct Swap {
     pub pool_id: u64,
     pub denom_in: String,
@@ -431,7 +427,7 @@ impl Swap {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Debug)]
 pub struct Step {
     pub pool_id: u64,
     pub denom_out: String,
@@ -446,7 +442,7 @@ impl Step {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum SwapAmount {
     In(Uint128),
@@ -469,7 +465,7 @@ impl SwapAmount {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum SwapAmountWithLimit {
     ExactIn { input: Uint128, min_output: Uint128 },

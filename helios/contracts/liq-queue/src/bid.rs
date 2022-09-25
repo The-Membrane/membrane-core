@@ -107,7 +107,7 @@ pub fn submit_bid(
     queue.slots = new_slots;
 
     //Save queue to state
-    store_queue(deps.storage, bid_input.clone().bid_for.to_string(), queue)?;
+    store_queue(deps.storage, bid_input.bid_for.to_string(), queue)?;
 
     //Response build
     let response = Response::new();
@@ -132,7 +132,7 @@ pub fn assert_bid_asset_from_sent_funds(
     bid_asset: AssetInfo,
     info: &MessageInfo,
 ) -> StdResult<Asset> {
-    if info.funds.len() == 0 {
+    if info.funds.is_empty() {
         return Err(StdError::GenericErr {
             msg: "No asset provided, only bid asset allowed".to_string(),
         });
@@ -141,18 +141,18 @@ pub fn assert_bid_asset_from_sent_funds(
     match bid_asset.clone() {
         AssetInfo::NativeToken { denom } => {
             if info.funds[0].denom == denom && info.funds.len() == 1 {
-                return Ok(Asset {
+                Ok(Asset {
                     info: bid_asset,
                     amount: info.funds[0].amount,
-                });
+                })
             } else {
-                return Err(StdError::GenericErr {
+                Err(StdError::GenericErr {
                     msg: "Invalid asset provided, only bid asset allowed".to_string(),
-                });
+                })
             }
         }
         AssetInfo::Token { address: _ } => {
-            return Err(StdError::GenericErr {
+            Err(StdError::GenericErr {
                 msg: "Bid asset's are native assets".to_string(),
             })
         }
@@ -167,7 +167,7 @@ pub fn store_queue(
     QUEUES.update(deps, bid_for, |old_queue| -> Result<Queue, ContractError> {
         match old_queue {
             Some(_old_queue) => Ok(queue),
-            None => return Err(ContractError::InvalidAsset {}),
+            None => Err(ContractError::InvalidAsset {}),
         }
     })?;
 
@@ -258,13 +258,13 @@ pub fn retract_bid(
 
     let mut msgs: Vec<CosmosMsg> = vec![];
     if !withdraw_amount.is_zero() {
-        let mut queue = QUEUES.load(deps.storage, bid_for.clone().to_string())?;
+        let mut queue = QUEUES.load(deps.storage, bid_for.to_string())?;
 
         let w_amount: u128 = withdraw_amount.into();
 
         //Store total bids
         queue.bid_asset.amount -= Uint128::from(w_amount);
-        store_queue(deps.storage, bid_for.clone().to_string(), queue.clone())?;
+        store_queue(deps.storage, bid_for.to_string(), queue.clone())?;
 
         msgs.push(withdrawal_msg(
             Asset {
@@ -313,7 +313,7 @@ pub fn execute_liquidation(
         return Err(ContractError::Unauthorized {});
     }
 
-    let queue = QUEUES.load(deps.storage, bid_for.clone().to_string())?;
+    let queue = QUEUES.load(deps.storage, bid_for.to_string())?;
     if queue.bid_asset.info != bid_with {
         return Err(ContractError::Unauthorized {});
     }
@@ -382,11 +382,11 @@ pub fn execute_liquidation(
     let r_amount: u128 = repay_amount.into();
     let repay_asset = Asset {
         amount: Uint128::new(r_amount),
-        ..queue.bid_asset.clone()
+        ..queue.bid_asset
     };
 
     //Have to reload Queue to use newly saved Slots
-    let mut queue = QUEUES.load(deps.storage, bid_for.clone().to_string())?;
+    let mut queue = QUEUES.load(deps.storage, bid_for.to_string())?;
 
     //Store total bids
     queue.bid_asset.amount = match queue.bid_asset.amount.checked_sub(Uint128::new(r_amount)) {
@@ -394,7 +394,7 @@ pub fn execute_liquidation(
         Err(_) => return Err(ContractError::InsufficientBids {}),
     };
 
-    store_queue(deps.storage, bid_for.clone().to_string(), queue.clone())?;
+    store_queue(deps.storage, bid_for.to_string(), queue.clone())?;
 
     let repay_msg = CDP_ExecuteMsg::Repay {
         basket_id,
@@ -451,7 +451,7 @@ pub fn claim_liquidations(
     } else {
         read_bids_by_user(
             deps.storage,
-            bid_for.clone().to_string(),
+            bid_for.to_string(),
             info.clone().sender,
             None,
             None,
@@ -813,7 +813,7 @@ pub fn read_epoch_scale_sum(
         ],
     );
 
-    Ok(epoch_scale_sum.load(&scale.u128().to_be_bytes())?)
+    epoch_scale_sum.load(&scale.u128().to_be_bytes())
 }
 
 pub fn calculate_remaining_bid(bid: &Bid, slot: &PremiumSlot) -> StdResult<(Uint256, Decimal256)> {
@@ -893,7 +893,7 @@ fn store_premium_slot(
         |old_queue| -> Result<Queue, ContractError> {
             match old_queue {
                 Some(_old_queue) => Ok(queue),
-                None => return Err(ContractError::InvalidAsset {}),
+                None => Err(ContractError::InvalidAsset {}),
             }
         },
     )?;
@@ -954,7 +954,7 @@ fn remove_bid(deps: &mut dyn Storage, bid: Bid, bid_for: AssetInfo) -> Result<()
         |old_queue| -> Result<Queue, ContractError> {
             match old_queue {
                 Some(_old_queue) => Ok(queue),
-                None => return Err(ContractError::InvalidAsset {}),
+                None => Err(ContractError::InvalidAsset {}),
             }
         },
     )?;
@@ -1016,7 +1016,7 @@ fn store_bid(deps: &mut dyn Storage, bid_for: AssetInfo, bid: Bid) -> Result<(),
         |old_queue| -> Result<Queue, ContractError> {
             match old_queue {
                 Some(_old_queue) => Ok(queue),
-                None => return Err(ContractError::InvalidAsset {}),
+                None => Err(ContractError::InvalidAsset {}),
             }
         },
     )?;
@@ -1056,7 +1056,7 @@ pub fn read_bid(deps: &dyn Storage, bid_id: Uint128, bid_for: AssetInfo) -> StdR
     //         }
     //     });
 
-    let queue = QUEUES.load(deps, bid_for.clone().to_string())?;
+    let queue = QUEUES.load(deps, bid_for.to_string())?;
 
     let premium_range = 0..(queue.max_premium.u128() as u8 + 1u8);
 
@@ -1091,7 +1091,7 @@ pub fn read_bids_by_user(
 ) -> StdResult<Vec<Bid>> {
     let mut read_bids: Vec<Bid> = vec![];
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
-    let start = start_after.unwrap_or_else(|| Uint128::zero());
+    let start = start_after.unwrap_or_else(Uint128::zero);
 
     let queue = QUEUES.load(deps, bid_for)?;
 
@@ -1141,9 +1141,9 @@ pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> Result<CosmosMsg, Contra
 pub fn asset_to_coin(asset: Asset) -> Result<Coin, ContractError> {
     match asset.info {
         //
-        AssetInfo::Token { address: _ } => return Err(ContractError::InvalidParameters {}),
+        AssetInfo::Token { address: _ } => Err(ContractError::InvalidParameters {}),
         AssetInfo::NativeToken { denom } => Ok(Coin {
-            denom: denom,
+            denom,
             amount: asset.amount,
         }),
     }
@@ -1152,7 +1152,7 @@ pub fn asset_to_coin(asset: Asset) -> Result<Coin, ContractError> {
 pub fn validate_bid_input(deps: &dyn Storage, bid_input: BidInput) -> Result<(), ContractError> {
     match QUEUES.load(deps, bid_input.bid_for.to_string()) {
         Ok(queue) => {
-            if !(bid_input.liq_premium > queue.max_premium.u128() as u8)
+            if bid_input.liq_premium <= queue.max_premium.u128() as u8
                 && queue.bid_asset.info.equal(&queue.bid_asset.info)
             {
                 Ok(())

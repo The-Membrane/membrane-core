@@ -150,7 +150,7 @@ fn remove_asset(
 
     let attrs = vec![
         attr("method", "remove_asset"),
-        attr("removed_asset", asset.clone().to_string()),
+        attr("removed_asset", asset.to_string()),
     ];
 
     //Add onto object
@@ -211,11 +211,7 @@ fn get_assets(
 ) -> StdResult<Vec<LiquidityInfo>> {
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
 
-    let start = if let Some(start) = start_after {
-        Some(Bound::exclusive(start.to_string()))
-    } else {
-        None
-    };
+    let start = start_after.map(|start| Bound::exclusive(start.to_string()));
 
     if let Some(asset) = asset {
         Ok(vec![ASSETS.load(deps.storage, asset.to_string())?])

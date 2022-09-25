@@ -48,14 +48,14 @@ pub fn query_queues(
 
     let mut resp: Vec<QueueResponse> = vec![];
 
-    let asset_list = config.added_assets.clone().unwrap();
+    let asset_list = config.added_assets.unwrap();
 
     let limit = limit.unwrap_or(31u8) as usize;
 
     if start_after.is_some() {
         let start_after = &start_after.unwrap();
 
-        let start = asset_list.iter().position(|info| info.equal(&start_after));
+        let start = asset_list.iter().position(|info| info.equal(start_after));
         let start = start.unwrap_or_default();
 
         for index in start..asset_list.len() {
@@ -102,7 +102,7 @@ pub fn query_liquidatible(
         Ok(queue) => {
             if !queue.bid_asset.info.equal(&credit_info) {
                 return Err(StdError::GenericErr {
-                    msg: format!("Invalid bid denomination for {}", bid_for.to_string()),
+                    msg: format!("Invalid bid denomination for {}", bid_for),
                 });
             }
 
@@ -163,10 +163,10 @@ pub fn query_liquidatible(
     }
 
     //If 0, it means there is no leftover and the collateral_amount is liquidatible
-    return Ok(LiquidatibleResponse {
+    Ok(LiquidatibleResponse {
         leftover_collateral: (remaining_collateral_to_liquidate.0.to_string()),
         total_credit_repaid: total_credit_repaid.to_string(),
-    });
+    })
 }
 
 pub fn query_premium_slot(
@@ -309,21 +309,21 @@ pub fn query_bids_by_user(
 
     let user_bids = read_bids_by_user(
         deps.storage,
-        bid_for.clone().to_string(),
+        bid_for.to_string(),
         valid_user,
         limit,
         start_after,
     )?;
 
-    let responses = user_bids
+    
+
+    user_bids
         .into_iter()
         .map(|bid| match query_bid(deps, bid_for.clone(), bid.id) {
             Ok(res) => Ok(res),
-            Err(err) => return Err(err),
+            Err(err) => Err(err),
         })
-        .collect::<StdResult<Vec<BidResponse>>>();
-
-    responses
+        .collect::<StdResult<Vec<BidResponse>>>()
 }
 
 pub fn query_user_claims(deps: Deps, user: String) -> StdResult<Vec<ClaimsResponse>> {

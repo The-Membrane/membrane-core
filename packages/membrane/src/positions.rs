@@ -10,7 +10,7 @@ use crate::types::{
 use cw20::Cw20ReceiveMsg;
 
 //Msg Start
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub oracle_time_limit: u64, //in seconds until oracle failure is acceoted
@@ -131,7 +131,7 @@ pub enum ExecuteMsg {
     Callback(CallbackMsg),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Cw20HookMsg {
     Deposit {
@@ -143,7 +143,7 @@ pub enum Cw20HookMsg {
 
 // NOTE: Since CallbackMsg are always sent by the contract itself, we assume all types are already
 // validated and don't do additional checks. E.g. user addresses are Addr instead of String
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CallbackMsg {
     BadDebtCheck {
@@ -153,7 +153,7 @@ pub enum CallbackMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
@@ -246,7 +246,7 @@ pub struct BasketResponse {
     pub negative_rates: bool, //Allow negative repayment interest or not
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct ConfigResponse {
     pub owner: String,
     pub current_basket_id: Uint128,
@@ -280,12 +280,12 @@ pub struct PropResponse {
     pub position_owner: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct DebtCapResponse {
     pub caps: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct BadDebtResponse {
     pub has_bad_debt: Vec<(PositionUserInfo, Uint128)>,
 }
@@ -295,13 +295,13 @@ pub struct InsolvencyResponse {
     pub insolvent_positions: Vec<InsolventPosition>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InterestResponse {
     pub credit_interest: Decimal,
     pub negative_rate: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct CollateralInterestResponse {
     pub rates: Vec<(AssetInfo, Decimal)>,
 }

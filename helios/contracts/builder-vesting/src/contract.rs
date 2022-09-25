@@ -45,7 +45,7 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     let mut config = Config {
-        owner: info.clone().sender,
+        owner: info.sender,
         initial_allocation: msg.initial_allocation,
         mbrn_denom: msg.mbrn_denom,
         osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
@@ -136,7 +136,7 @@ fn submit_proposal(
     let receivers = RECEIVERS.load(deps.storage)?;
 
     match receivers
-        .clone()
+        
         .into_iter()
         .find(|receiver| receiver.receiver == info.sender)
     {
@@ -148,7 +148,7 @@ fn submit_proposal(
                     description,
                     link,
                     messages,
-                    receiver: Some(receiver.clone().receiver.to_string()),
+                    receiver: Some(receiver.receiver.to_string()),
                 })?,
                 funds: vec![],
             });
@@ -156,11 +156,11 @@ fn submit_proposal(
             Ok(Response::new()
                 .add_attributes(vec![
                     attr("method", "submit_proposal"),
-                    attr("proposer", receiver.clone().receiver.to_string()),
+                    attr("proposer", receiver.receiver.to_string()),
                 ])
                 .add_message(message))
         }
-        None => return Err(ContractError::InvalidReceiver {}),
+        None => Err(ContractError::InvalidReceiver {}),
     }
 }
 
@@ -174,7 +174,7 @@ fn cast_vote(
     let receivers = RECEIVERS.load(deps.storage)?;
 
     match receivers
-        .clone()
+        
         .into_iter()
         .find(|receiver| receiver.receiver == info.sender)
     {
@@ -184,7 +184,7 @@ fn cast_vote(
                 msg: to_binary(&GovExecuteMsg::CastVote {
                     proposal_id,
                     vote,
-                    receiver: Some(receiver.clone().receiver.to_string()),
+                    receiver: Some(receiver.receiver.to_string()),
                 })?,
                 funds: vec![],
             });
@@ -192,11 +192,11 @@ fn cast_vote(
             Ok(Response::new()
                 .add_attributes(vec![
                     attr("method", "cast_vote"),
-                    attr("voter", receiver.clone().receiver.to_string()),
+                    attr("voter", receiver.receiver.to_string()),
                 ])
                 .add_message(message))
         }
-        None => return Err(ContractError::InvalidReceiver {}),
+        None => Err(ContractError::InvalidReceiver {}),
     }
 }
 
@@ -249,7 +249,7 @@ fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, Contract
 
     //Query Rewards
     let res: RewardsResponse = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().staking_contract.to_string(),
+        contract_addr: config.staking_contract.to_string(),
         msg: to_binary(&StakingQueryMsg::StakerRewards {
             staker: env.contract.address.to_string(),
         })?,
@@ -294,7 +294,7 @@ fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, Contract
 
         //Filter out, Extend, Save
         let mut new_receivers: Vec<Receiver> = receivers
-            .clone()
+            
             .into_iter()
             .filter(|receiver| receiver.allocation.is_none())
             .collect::<Vec<Receiver>>();
@@ -329,7 +329,7 @@ fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, Contract
 
 fn get_allocation_ratios(config: Config, receivers: Vec<Receiver>) -> StdResult<Vec<Decimal>> {
     let mut allocation_ratios: Vec<Decimal> = vec![];
-    for receiver in receivers.clone() {
+    for receiver in receivers {
         //Ratio of allocation.amount to initial_allocation
         allocation_ratios.push(decimal_division(
             Decimal::from_ratio(
@@ -381,11 +381,11 @@ fn update_config(
         None => {}
     };
     if let Some(staking_contract) = staking_contract {
-        config.staking_contract = deps.api.addr_validate(&staking_contract.clone())?;
+        config.staking_contract = deps.api.addr_validate(&staking_contract)?;
         attrs.push(attr("new_staking_contract", staking_contract));
     };
 
-    CONFIG.save(deps.storage, &config.clone())?;
+    CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new().add_attributes(attrs))
 }
@@ -516,7 +516,7 @@ fn add_allocation(
             receivers = receivers
                 .into_iter()
                 .map(|mut current_receiver| {
-                    if current_receiver.receiver.to_string() == receiver {
+                    if current_receiver.receiver == receiver {
                         current_receiver.allocation = Some(Allocation {
                             amount: allocation,
                             amount_withdrawn: Uint128::zero(),
@@ -576,29 +576,27 @@ fn decrease_allocation(
             Ok(receivers
                 .into_iter()
                 .map(|mut current_receiver| {
-                    if current_receiver.receiver.to_string() == receiver {
-                        if current_receiver.allocation.is_some() {
-                            match current_receiver
-                                .allocation
-                                .clone()
-                                .unwrap()
-                                .amount
-                                .checked_sub(allocation)
-                            {
-                                Ok(difference) => {
-                                    current_receiver.allocation = Some(Allocation {
-                                        amount: difference,
-                                        ..current_receiver.allocation.clone().unwrap()
-                                    });
-                                }
-                                Err(_) => {
-                                    current_receiver.allocation = Some(Allocation {
-                                        amount: Uint128::zero(),
-                                        ..current_receiver.allocation.clone().unwrap()
-                                    });
-                                }
-                            };
-                        }
+                    if current_receiver.receiver == receiver && current_receiver.allocation.is_some() {
+                        match current_receiver
+                            .allocation
+                            .clone()
+                            .unwrap()
+                            .amount
+                            .checked_sub(allocation)
+                        {
+                            Ok(difference) => {
+                                current_receiver.allocation = Some(Allocation {
+                                    amount: difference,
+                                    ..current_receiver.allocation.clone().unwrap()
+                                });
+                            }
+                            Err(_) => {
+                                current_receiver.allocation = Some(Allocation {
+                                    amount: Uint128::zero(),
+                                    ..current_receiver.allocation.clone().unwrap()
+                                });
+                            }
+                        };
                     }
 
                     current_receiver
@@ -637,8 +635,7 @@ fn add_receiver(
         |mut receivers| -> Result<Vec<Receiver>, ContractError> {
             if receivers
                 .iter()
-                .find(|receiver| receiver.receiver == valid_receiver)
-                .is_some()
+                .any(|receiver| receiver.receiver == valid_receiver)
             {
                 return Err(ContractError::CustomError {
                     val: String::from("Duplicate receiver"),
@@ -679,7 +676,7 @@ fn remove_receiver(
             //Filter out receiver and save
             Ok(receivers
                 .into_iter()
-                .filter(|current_receiver| current_receiver.receiver.to_string() != receiver)
+                .filter(|current_receiver| current_receiver.receiver != receiver)
                 .collect::<Vec<Receiver>>())
         },
     )?;
@@ -696,7 +693,7 @@ fn mint_initial_allocation(env: Env, config: Config) -> Result<Response, Contrac
 
     //Mint token msg in Osmosis Proxy
     messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.clone().osmosis_proxy.to_string(),
+        contract_addr: config.osmosis_proxy.to_string(),
         msg: to_binary(&OsmoExecuteMsg::MintTokens {
             denom: config.clone().mbrn_denom,
             amount: config.initial_allocation,
@@ -745,7 +742,7 @@ fn query_allocation(deps: Deps, receiver: String) -> StdResult<AllocationRespons
     let receiver = match RECEIVERS
         .load(deps.storage)?
         .into_iter()
-        .find(|stored_receiver| stored_receiver.receiver.to_string() == receiver)
+        .find(|stored_receiver| stored_receiver.receiver == receiver)
     {
         Some(receiver) => receiver,
         None => {
@@ -764,9 +761,9 @@ fn query_allocation(deps: Deps, receiver: String) -> StdResult<AllocationRespons
             vesting_period: allocation.vesting_period,
         })
     } else {
-        return Err(StdError::GenericErr {
+        Err(StdError::GenericErr {
             msg: String::from("Receiver has no allocation"),
-        });
+        })
     }
 }
 
@@ -774,7 +771,7 @@ fn query_unlocked(deps: Deps, env: Env, receiver: String) -> StdResult<UnlockedR
     let receiver = match RECEIVERS
         .load(deps.storage)?
         .into_iter()
-        .find(|stored_receiver| stored_receiver.receiver.to_string() == receiver)
+        .find(|stored_receiver| stored_receiver.receiver == receiver)
     {
         Some(receiver) => receiver,
         None => {
@@ -788,9 +785,9 @@ fn query_unlocked(deps: Deps, env: Env, receiver: String) -> StdResult<UnlockedR
         let unlocked_amount = get_unlocked_amount(receiver.allocation, env.block.time.seconds()).0;
         Ok(UnlockedResponse { unlocked_amount })
     } else {
-        return Err(StdError::GenericErr {
+        Err(StdError::GenericErr {
             msg: String::from("Receiver has no allocation"),
-        });
+        })
     }
 }
 
@@ -815,7 +812,7 @@ fn query_receiver(deps: Deps, receiver: String) -> StdResult<ReceiverResponse> {
 
     match receivers
         .into_iter()
-        .find(|stored_receiver| stored_receiver.receiver.to_string() == receiver)
+        .find(|stored_receiver| stored_receiver.receiver == receiver)
     {
         Some(stored_receiver) => Ok(ReceiverResponse {
             receiver: stored_receiver.receiver.to_string(),
@@ -823,7 +820,7 @@ fn query_receiver(deps: Deps, receiver: String) -> StdResult<ReceiverResponse> {
             claimables: stored_receiver.claimables,
         }),
         None => {
-            return Err(StdError::GenericErr {
+            Err(StdError::GenericErr {
                 msg: String::from("Invalid receiver"),
             })
         }
@@ -858,12 +855,12 @@ pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {
     match asset.info {
         //
         AssetInfo::Token { address: _ } => {
-            return Err(StdError::GenericErr {
+            Err(StdError::GenericErr {
                 msg: String::from("CW20 Assets can't be converted into Coin"),
             })
         }
         AssetInfo::NativeToken { denom } => Ok(Coin {
-            denom: denom,
+            denom,
             amount: asset.amount,
         }),
     }

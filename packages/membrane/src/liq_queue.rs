@@ -7,7 +7,7 @@ use cw20::Cw20ReceiveMsg;
 use crate::math::{Decimal256, Uint256};
 use crate::types::{AssetInfo, Bid, BidInput};
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub positions_contract: String,
@@ -72,7 +72,7 @@ pub enum ExecuteMsg {
 //     }
 // }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
@@ -117,7 +117,7 @@ pub enum QueryMsg {
 }
 
 // We define a custom struct for each query response
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct SlotResponse {
     pub bids: Vec<Bid>,
     pub liq_premium: String,
@@ -130,7 +130,7 @@ pub struct SlotResponse {
     pub residue_bid: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct ConfigResponse {
     pub owner: String,
     pub positions_contract: String,
@@ -138,7 +138,7 @@ pub struct ConfigResponse {
     pub added_assets: Vec<AssetInfo>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct BidResponse {
     pub user: String,
     pub id: Uint128,
@@ -152,19 +152,19 @@ pub struct BidResponse {
     pub scale_snapshot: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct ClaimsResponse {
     pub bid_for: String,
     pub pending_liquidated_collateral: Uint256,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct LiquidatibleResponse {
     pub leftover_collateral: String,
     pub total_credit_repaid: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct QueueResponse {
     pub bid_asset: String,
     pub max_premium: String,

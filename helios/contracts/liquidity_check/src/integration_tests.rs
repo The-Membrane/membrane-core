@@ -30,7 +30,7 @@ mod tests {
     }
 
     //Mock Osmo Proxy Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockExecuteMsg {
         MintTokens {
@@ -48,11 +48,11 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct Osmo_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockQueryMsg {
         SpotPrice {
@@ -127,7 +127,7 @@ mod tests {
                         base_asset_denom,
                         start_time,
                     } => {
-                        if base_asset_denom == String::from("base") {
+                        if base_asset_denom == *"base" {
                             Ok(to_binary(&ArithmeticTwapToNowResponse {
                                 twap: Decimal::percent(100),
                             })?)
@@ -249,7 +249,7 @@ mod tests {
             let assets: Vec<LiquidityInfo> = app
                 .wrap()
                 .query_wasm_smart(
-                    liquidity_contract.clone().addr(),
+                    liquidity_contract.addr(),
                     &QueryMsg::Assets {
                         asset_info: Some(AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
@@ -289,7 +289,7 @@ mod tests {
             let assets: Vec<LiquidityInfo> = app
                 .wrap()
                 .query_wasm_smart(
-                    liquidity_contract.clone().addr(),
+                    liquidity_contract.addr(),
                     &QueryMsg::Assets {
                         asset_info: None,
                         limit: None,
@@ -313,7 +313,7 @@ mod tests {
             let assets: Vec<LiquidityInfo> = app
                 .wrap()
                 .query_wasm_smart(
-                    liquidity_contract.clone().addr(),
+                    liquidity_contract.addr(),
                     &QueryMsg::Assets {
                         asset_info: None,
                         limit: None,
@@ -343,7 +343,7 @@ mod tests {
             //Error: Invalid Asset
             app.wrap()
                 .query_wasm_smart::<Uint128>(
-                    liquidity_contract.clone().addr(),
+                    liquidity_contract.addr(),
                     &QueryMsg::Liquidity {
                         asset: AssetInfo::NativeToken {
                             denom: String::from("invalid"),
@@ -356,7 +356,7 @@ mod tests {
             let liquidity: Uint128 = app
                 .wrap()
                 .query_wasm_smart(
-                    liquidity_contract.clone().addr(),
+                    liquidity_contract.addr(),
                     &QueryMsg::Liquidity {
                         asset: AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),

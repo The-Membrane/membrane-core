@@ -45,21 +45,21 @@ pub fn instantiate(
             builders_contract: None,
             osmosis_proxy: None,
             staking_rate: msg.staking_rate.unwrap_or_else(|| Decimal::percent(10)),
-            fee_wait_period: msg.fee_wait_period.unwrap_or_else(|| 3u64),
-            unstaking_period: msg.unstaking_period.unwrap_or_else(|| 3u64),
+            fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
+            unstaking_period: msg.unstaking_period.unwrap_or(3u64),
             mbrn_denom: msg.mbrn_denom,
             dex_router: None,
             max_spread: msg.max_spread,
         };
     } else {
         config = Config {
-            owner: info.sender.clone(),
+            owner: info.sender,
             positions_contract: None,
             builders_contract: None,
             osmosis_proxy: None,
             staking_rate: msg.staking_rate.unwrap_or_else(|| Decimal::percent(10)),
-            fee_wait_period: msg.fee_wait_period.unwrap_or_else(|| 3u64),
-            unstaking_period: msg.unstaking_period.unwrap_or_else(|| 3u64),
+            fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
+            unstaking_period: msg.unstaking_period.unwrap_or(3u64),
             mbrn_denom: msg.mbrn_denom,
             dex_router: None,
             max_spread: msg.max_spread,
@@ -70,28 +70,28 @@ pub fn instantiate(
     // //Set optional config parameters
     match msg.dex_router {
         Some(dex_router) => {
-            config.dex_router = Some(deps.api.addr_validate(&dex_router.clone())?);
+            config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
             attrs.push(attr("dex_router", dex_router));
         }
         None => {}
     }
     match msg.builders_contract {
         Some(builders_contract) => {
-            config.builders_contract = Some(deps.api.addr_validate(&builders_contract.clone())?);
+            config.builders_contract = Some(deps.api.addr_validate(&builders_contract)?);
             attrs.push(attr("builders_contract", builders_contract));
         }
         None => {}
     }
     match msg.positions_contract {
         Some(positions_contract) => {
-            config.positions_contract = Some(deps.api.addr_validate(&positions_contract.clone())?);
+            config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
             attrs.push(attr("positions_contract", positions_contract));
         }
         None => {}
     }
     match msg.osmosis_proxy {
         Some(osmosis_proxy) => {
-            config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy.clone())?);
+            config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
             attrs.push(attr("osmosis_proxy", osmosis_proxy));
         }
         None => {}
@@ -179,7 +179,7 @@ pub fn execute(
         ExecuteMsg::DepositFee {} => {
             let config = CONFIG.load(deps.storage)?;
 
-            if info.clone().sender != config.positions_contract.unwrap() {
+            if info.sender != config.positions_contract.unwrap() {
                 return Err(ContractError::Unauthorized {});
             }
 
@@ -242,7 +242,7 @@ fn update_config(
     }
     match max_spread {
         Some(max_spread) => {
-            config.max_spread = Some(max_spread.clone());
+            config.max_spread = Some(max_spread);
             attrs.push(attr("new_max_spread", max_spread.to_string()));
         }
         None => {}
@@ -253,21 +253,21 @@ fn update_config(
             if staking_rate > Decimal::percent(20) {
                 staking_rate = Decimal::percent(20);
             }
-            config.staking_rate = staking_rate.clone();
+            config.staking_rate = staking_rate;
             attrs.push(attr("new_staking_rate", staking_rate.to_string()));
         }
         None => {}
     }
     match unstaking_period {
         Some(unstaking_period) => {
-            config.unstaking_period = unstaking_period.clone();
+            config.unstaking_period = unstaking_period;
             attrs.push(attr("new_unstaking_period", unstaking_period.to_string()));
         }
         None => {}
     }
     match fee_wait_period {
         Some(fee_wait_period) => {
-            config.fee_wait_period = fee_wait_period.clone();
+            config.fee_wait_period = fee_wait_period;
             attrs.push(attr("new_fee_wait_period", fee_wait_period.to_string()));
         }
         None => {}
@@ -275,27 +275,27 @@ fn update_config(
     match mbrn_denom {
         Some(mbrn_denom) => {
             config.mbrn_denom = mbrn_denom.clone();
-            attrs.push(attr("new_mbrn_denom", mbrn_denom.to_string()));
+            attrs.push(attr("new_mbrn_denom", mbrn_denom));
         }
         None => {}
     }
     match builders_contract {
         Some(builders_contract) => {
-            config.builders_contract = Some(deps.api.addr_validate(&builders_contract.clone())?);
+            config.builders_contract = Some(deps.api.addr_validate(&builders_contract)?);
             attrs.push(attr("new_builders_contract", builders_contract));
         }
         None => {}
     }
     match positions_contract {
         Some(positions_contract) => {
-            config.positions_contract = Some(deps.api.addr_validate(&positions_contract.clone())?);
+            config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
             attrs.push(attr("new_positions_contract", positions_contract));
         }
         None => {}
     }
     match osmosis_proxy {
         Some(osmosis_proxy) => {
-            config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy.clone())?);
+            config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
             attrs.push(attr("new_osmosis_proxy", osmosis_proxy));
         }
         None => {}
@@ -435,7 +435,7 @@ pub fn unstake(
     };
 
     //Assert valid stake
-    let withdraw_amount = mbrn_withdraw_amount.unwrap_or_else(|| total_stake);
+    let withdraw_amount = mbrn_withdraw_amount.unwrap_or(total_stake);
     if withdraw_amount > total_stake {
         return Err(ContractError::CustomError {
             val: String::from("Invalid withdrawal amount"),
@@ -482,7 +482,7 @@ pub fn unstake(
 
     if native_claims != vec![] {
         let msg = CosmosMsg::Bank(BankMsg::Send {
-            to_address: info.clone().sender.to_string(),
+            to_address: info.sender.to_string(),
             amount: native_claims,
         });
         msgs.push(msg);
@@ -495,7 +495,7 @@ pub fn unstake(
             msg: to_binary(&OsmoExecuteMsg::MintTokens {
                 denom: config.clone().mbrn_denom,
                 amount: accrued_interest,
-                mint_to_address: info.clone().sender.to_string(),
+                mint_to_address: info.sender.to_string(),
             })?,
             funds: vec![],
         });
@@ -529,7 +529,7 @@ fn restake(
     info: MessageInfo,
     mut restake_amount: Uint128,
 ) -> Result<Response, ContractError> {
-    let initial_restake = restake_amount.clone();
+    let initial_restake = restake_amount;
 
     let restaked_deposits: Vec<StakeDeposit> = STAKED
         .load(deps.storage)?
@@ -594,7 +594,7 @@ fn withdraw_from_state(
                 //If the deposit has started unstaking
                 if deposit.unstake_start_time.is_some() {
                     //If the unstake period has been fulfilled
-                    if env.block.time.seconds() - deposit.clone().unstake_start_time.unwrap()
+                    if env.block.time.seconds() - deposit.unstake_start_time.unwrap()
                         >= config.unstaking_period
                     {
                         withdrawable = true;
@@ -743,7 +743,7 @@ fn withdraw_from_state(
         new_deposits.push(StakeDeposit {
             staker,
             amount: new_deposit_total,
-            stake_time: env.clone().block.time.seconds(),
+            stake_time: env.block.time.seconds(),
             unstake_start_time: None,
         });
     }
@@ -804,7 +804,7 @@ pub fn claim_rewards(
                 let message = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
                     msg: to_binary(&OsmoExecuteMsg::MintTokens {
-                        denom: config.clone().mbrn_denom,
+                        denom: config.mbrn_denom,
                         amount: accrued_interest,
                         mint_to_address: valid_receipient.to_string(),
                     })?,
@@ -1288,7 +1288,7 @@ fn get_user_claimables(
     new_deposits.push(StakeDeposit {
         staker,
         amount: total_deposits,
-        stake_time: env.clone().block.time.seconds(),
+        stake_time: env.block.time.seconds(),
         unstake_start_time: None,
     });
     //Save new StakeDeposit list
@@ -1365,12 +1365,12 @@ pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {
     match asset.info {
         //
         AssetInfo::Token { address: _ } => {
-            return Err(StdError::GenericErr {
+            Err(StdError::GenericErr {
                 msg: String::from("CW20 Assets can't be converted into Coin"),
             })
         }
         AssetInfo::NativeToken { denom } => Ok(Coin {
-            denom: denom,
+            denom,
             amount: asset.amount,
         }),
     }
@@ -1419,7 +1419,7 @@ pub fn validate_position_owner(
     let valid_recipient: Addr = if let Some(recipient) = recipient {
         deps.addr_validate(&recipient)?
     } else {
-        info.sender.clone()
+        info.sender
     };
     Ok(valid_recipient)
 }
@@ -1543,8 +1543,8 @@ fn query_staked(
     end_before: Option<u64>,
     unstaking: bool,
 ) -> StdResult<StakedResponse> {
-    let limit = limit.unwrap_or_else(|| DEFAULT_LIMIT);
-    let start_after = start_after.unwrap_or_else(|| 0u64);
+    let limit = limit.unwrap_or(DEFAULT_LIMIT);
+    let start_after = start_after.unwrap_or(0u64);
     let end_before = end_before.unwrap_or_else(|| env.block.time.seconds() + 1u64);
 
     let mut stakers = STAKED
@@ -1571,8 +1571,8 @@ fn query_fee_events(
     limit: Option<u32>,
     start_after: Option<u64>,
 ) -> StdResult<FeeEventsResponse> {
-    let limit = limit.unwrap_or_else(|| DEFAULT_LIMIT);
-    let start_after = start_after.unwrap_or_else(|| 0u64);
+    let limit = limit.unwrap_or(DEFAULT_LIMIT);
+    let start_after = start_after.unwrap_or(0u64);
 
     let fee_events = FEE_EVENTS
         .load(deps.storage)?

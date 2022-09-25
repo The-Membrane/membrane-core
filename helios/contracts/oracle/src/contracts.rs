@@ -107,7 +107,7 @@ fn edit_asset(
 
     if remove {
         ASSETS.remove(deps.storage, asset_info.to_string());
-    } else if oracle_info.clone().is_some() {
+    } else if oracle_info.is_some() {
         let oracle_info = oracle_info.unwrap();
         //Update Asset
         ASSETS.update(
@@ -167,7 +167,7 @@ fn add_asset(
     match asset_info.clone() {
         AssetInfo::Token { address } => {
             //Validate address
-            deps.api.addr_validate(&address.to_string())?;
+            deps.api.addr_validate(address.as_ref())?;
         }
         AssetInfo::NativeToken { denom: _ } => {}
     };
@@ -181,9 +181,9 @@ fn add_asset(
         }
         Ok(oracles) => {
             //Save oracle to asset, no duplicates
-            if let None = oracles
+            if oracles
                 .into_iter()
-                .find(|oracle| oracle.basket_id == oracle_info.basket_id)
+                .find(|oracle| oracle.basket_id == oracle_info.basket_id).is_none()
             {
                 ASSETS.update(
                     deps.storage,
@@ -347,7 +347,7 @@ fn get_asset_price(
 
         //Query price from the TWAP sources
         //This is if we need to use multiple pools to calculate our price
-        for pool in oracle_info.clone().osmosis_pools_for_twap {
+        for pool in oracle_info.osmosis_pools_for_twap {
             let res = querier.query::<ArithmeticTwapToNowResponse>(&QueryRequest::Wasm(
                 WasmQuery::Smart {
                     contract_addr: config.clone().osmosis_proxy.to_string(),
@@ -388,7 +388,7 @@ fn get_asset_price(
     let mut price_sum = Decimal::zero();
 
     for price_info in oracle_prices.clone() {
-        price_sum = price_sum + price_info.price;
+        price_sum += price_info.price;
     }
     let decimal_len = Decimal::from_ratio(
         Uint128::new(oracle_prices.len() as u128),
@@ -414,7 +414,7 @@ fn get_asset_prices(
             deps.storage,
             deps.querier,
             asset,
-            twap_timeframe.clone(),
+            twap_timeframe,
             None,
         )?);
     }

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use cosmwasm_std::{Addr, Decimal, Uint128};
 use cw_storage_plus::{Item, Map};
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Config {
     pub owner: Addr, //Positions contract address
     pub incentive_rate: Decimal,
@@ -21,7 +21,7 @@ pub struct Config {
     pub max_spread: Option<Decimal>, //max_spread for the router, mainly claim_as swaps
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Propagation {
     pub repaid_amount: Uint128,
 }

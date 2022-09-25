@@ -27,7 +27,7 @@ const MAX_LINK_LENGTH: usize = 128;
 const SAFE_TEXT_CHARS: &str = "!&?#()*+'-./\"";
 
 /// This structure holds the parameters used for creating a Governance contract.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
     /// MBRN Staking contract to query MBRN denom
     pub mbrn_staking_contract_addr: String,
@@ -52,7 +52,7 @@ pub struct InstantiateMsg {
 }
 
 /// This enum describes all execute functions available in the contract.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     /// Submit a new proposal in the Governance contract
@@ -102,7 +102,7 @@ pub enum ExecuteMsg {
 }
 
 /// Thie enum describes all the queries available in the contract.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     /// Return the contract's configuration
@@ -140,7 +140,7 @@ pub enum QueryMsg {
 }
 
 /// This structure stores general parameters for the Governance contract.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Config {
     /// MBRN native token fulldenom
     pub mbrn_denom: String,
@@ -228,7 +228,7 @@ impl Config {
 }
 
 /// This structure sotres the params used when updating the main Governance contract params.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UpdateConfig {
     /// MBRN native token fulldenom
     pub mbrn_denom: Option<String>,
@@ -257,7 +257,7 @@ pub struct UpdateConfig {
 }
 
 /// This structure stores data for a proposal.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Proposal {
     /// Unique proposal ID
     pub proposal_id: Uint64,
@@ -294,7 +294,7 @@ pub struct Proposal {
 }
 
 /// This structure describes a proposal response.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct ProposalResponse {
     /// Unique proposal ID
     pub proposal_id: Uint64,
@@ -381,7 +381,7 @@ impl Proposal {
 }
 
 /// This enum describes available statuses/states for a Proposal.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub enum ProposalStatus {
     Active,
     Passed,
@@ -403,7 +403,7 @@ impl Display for ProposalStatus {
 }
 
 /// This structure describes a proposal message.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct ProposalMessage {
     /// Order of execution of the message
     pub order: Uint64,
@@ -412,7 +412,7 @@ pub struct ProposalMessage {
 }
 
 /// This structure describes a proposal vote.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct ProposalVote {
     /// Voted option for the proposal
     pub option: ProposalVoteOption,
@@ -421,7 +421,7 @@ pub struct ProposalVote {
 }
 
 /// This enum describes available options for voting on a proposal.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub enum ProposalVoteOption {
     For,
     Against,
@@ -437,7 +437,7 @@ impl Display for ProposalVoteOption {
 }
 
 /// This structure describes a proposal vote response.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct ProposalVotesResponse {
     /// Proposal identifier
     pub proposal_id: u64,

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use membrane::types::LiquidityInfo;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Config {
     pub owner: Addr,
     pub osmosis_proxy: Addr,

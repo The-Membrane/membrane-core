@@ -45,7 +45,7 @@ pub fn instantiate(
         bid_asset = deps
             .querier
             .query::<BasketResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: positions_contract.clone().to_string(),
+                contract_addr: positions_contract.to_string(),
                 msg: to_binary(&CDP_QueryMsg::GetBasket { basket_id })?,
             }))?
             .credit_asset
@@ -68,7 +68,7 @@ pub fn instantiate(
         };
     } else {
         config = Config {
-            owner: info.sender.clone(),
+            owner: info.sender,
             positions_contract,
             waiting_period: msg.waiting_period,
             added_assets: Some(vec![]),
@@ -101,7 +101,7 @@ pub fn execute(
         //Receive but don't act upon
         ExecuteMsg::Receive(Cw20ReceiveMsg) => Ok(Response::new().add_attribute(
             "asset_received",
-            format!("{} {}", Cw20ReceiveMsg.amount, info.sender.clone()),
+            format!("{} {}", Cw20ReceiveMsg.amount, info.sender),
         )),
         ExecuteMsg::SubmitBid {
             bid_input,
@@ -292,7 +292,7 @@ fn add_queue(
         bid_for.to_string(),
         |queue| -> Result<Queue, ContractError> {
             match queue {
-                Some(_queue) => return Err(ContractError::DuplicateQueue {}),
+                Some(_queue) => Err(ContractError::DuplicateQueue {}),
                 None => Ok(new_queue),
             }
         },
@@ -351,7 +351,7 @@ pub fn validate_position_owner(
     let valid_recipient: Addr = if let Some(recipient) = recipient {
         deps.addr_validate(&recipient)?
     } else {
-        info.sender.clone()
+        info.sender
     };
     Ok(valid_recipient)
 }

@@ -5,12 +5,12 @@ use crate::contract::{execute, instantiate, query};
 
 //use cw_multi_test::Contract;
 //use cw_multi_test::Contract;
-use membrane::liq_queue::{InstantiateMsg, QueryMsg, ExecuteMsg, BidResponse};
-use membrane::types::{ AssetInfo, BidInput };
-use membrane::math::{ Uint256, Decimal256 };
+use membrane::liq_queue::{BidResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
+use membrane::math::{Decimal256, Uint256};
+use membrane::types::{AssetInfo, BidInput};
 
-use cosmwasm_std::testing::{mock_env, mock_info, mock_dependencies, MockApi, MockQuerier};
-use cosmwasm_std::{from_binary, Uint128, Coin, Decimal, OwnedDeps, MemoryStorage};
+use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockApi, MockQuerier};
+use cosmwasm_std::{from_binary, Coin, Decimal, MemoryStorage, OwnedDeps, Uint128};
 
 const TOLERANCE: &str = "0.00001"; // 0.001%
 const ITERATIONS: u32 = 100u32;
@@ -94,26 +94,28 @@ fn stress_tests() {
 }
 
 fn instantiate_and_whitelist(deps: &mut OwnedDeps<MemoryStorage, MockApi, MockQuerier>) {
-    
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
         basket_id: None,
-        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
+        bid_asset: Some(AssetInfo::NativeToken {
+            denom: String::from("cdt"),
+        }),
     };
 
     let info = mock_info("owner0000", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(10_000_000_000_000u128),
     };
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 }
-
 
 fn simulate_bids_with_2_liq_amounts(
     iterations: u32,
@@ -132,59 +134,66 @@ fn simulate_bids_with_2_liq_amounts(
     let mut total_consumed = Uint256::zero();
 
     for i in 0..iterations {
-
         //Bidders
         let msg = ExecuteMsg::SubmitBid {
-        bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-            liq_premium: 0u8,
-        },
-        bid_owner: None,
+            bid_input: BidInput {
+                bid_for: AssetInfo::NativeToken {
+                    denom: "osmo".to_string(),
+                },
+                liq_premium: 0u8,
+            },
+            bid_owner: None,
         };
         let submit_info = mock_info(
             "owner0000",
             &[Coin {
                 denom: "cdt".to_string(),
-                amount: Uint128::from( bid_amount ),
+                amount: Uint128::from(bid_amount),
             }],
         );
         execute(deps.as_mut(), mock_env(), submit_info.clone(), msg).unwrap();
 
         if i % 2 == 0 {
-
             // EXECUTE ALL EXCEPT 1uusd
             let liq_msg = ExecuteMsg::Liquidate {
                 credit_price: Decimal::one(),
                 collateral_price: asset_price,
-                collateral_amount: Uint256::from( liq_amount_1 ),
-                bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-                bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+                collateral_amount: Uint256::from(liq_amount_1),
+                bid_for: AssetInfo::NativeToken {
+                    denom: "osmo".to_string(),
+                },
+                bid_with: AssetInfo::NativeToken {
+                    denom: "cdt".to_string(),
+                },
                 basket_id: Uint128::new(1u128),
                 position_id: Uint128::new(1u128),
                 position_owner: "owner01".to_string(),
             };
             total_liquidated += Uint256::from(liq_amount_1);
             total_consumed += Uint256::from(liq_amount_1 * asset_price.atomics().u128());
-            
+
             //Increment time to unlock the second bid
             //env.block.time = env.block.time.plus_seconds(70u64);
             execute(deps.as_mut(), mock_env(), info.clone(), liq_msg).unwrap();
-
         } else {
             // EXECUTE ALL EXCEPT 1uusd
             let liq_msg = ExecuteMsg::Liquidate {
                 credit_price: Decimal::one(),
                 collateral_price: asset_price,
-                collateral_amount: Uint256::from( liq_amount_2 ),
-                bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-                bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+                collateral_amount: Uint256::from(liq_amount_2),
+                bid_for: AssetInfo::NativeToken {
+                    denom: "osmo".to_string(),
+                },
+                bid_with: AssetInfo::NativeToken {
+                    denom: "cdt".to_string(),
+                },
                 basket_id: Uint128::new(1u128),
                 position_id: Uint128::new(1u128),
                 position_owner: "owner01".to_string(),
             };
             total_liquidated += Uint256::from(liq_amount_2);
             total_consumed += Uint256::from(liq_amount_2 * asset_price.atomics().u128());
-            
+
             //Increment time to unlock the second bid
             //env.block.time = env.block.time.plus_seconds(70u64);
             execute(deps.as_mut(), mock_env(), info.clone(), liq_msg).unwrap();
@@ -201,7 +210,9 @@ fn simulate_bids_with_2_liq_amounts(
                 deps.as_ref(),
                 mock_env(),
                 QueryMsg::BidsByUser {
-                    bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+                    bid_for: AssetInfo::NativeToken {
+                        denom: "osmo".to_string(),
+                    },
                     user: "owner0000".to_string(),
                     limit: Some(30u32),
                     start_after: Some(Uint128::from(queried_bids)),
@@ -220,7 +231,7 @@ fn simulate_bids_with_2_liq_amounts(
             total_claimed += bid.pending_liquidated_collateral;
             total_retracted += bid.amount;
         }
-        
+
         println!("total claimed:    {}", total_claimed);
         println!("total liquidated: {}", total_liquidated);
         assert!(total_claimed < total_liquidated);

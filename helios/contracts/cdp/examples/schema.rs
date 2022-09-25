@@ -3,8 +3,12 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use membrane::positions::{ ExecuteMsg, InstantiateMsg, QueryMsg, Cw20HookMsg, CallbackMsg, PositionResponse, PositionsResponse, BasketResponse, ConfigResponse, PropResponse, DebtCapResponse, BadDebtResponse, InsolvencyResponse };
-use cdp::state::{ RepayPropagation, Config };
+use cdp::state::{Config, RepayPropagation};
+use membrane::positions::{
+    BadDebtResponse, BasketResponse, CallbackMsg, ConfigResponse, Cw20HookMsg, DebtCapResponse,
+    ExecuteMsg, InsolvencyResponse, InstantiateMsg, PositionResponse, PositionsResponse,
+    PropResponse, QueryMsg,
+};
 
 fn main() {
     let mut out_dir = current_dir().unwrap();

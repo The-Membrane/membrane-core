@@ -1,6 +1,5 @@
-
 use schemars::JsonSchema;
-use serde::{ Serialize, Deserialize };
+use serde::{Deserialize, Serialize};
 
 use crate::types::{AssetInfo, LiquidityInfo};
 
@@ -29,8 +28,6 @@ pub enum ExecuteMsg {
         positions_contract: Option<String>,
     },
 }
-
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]

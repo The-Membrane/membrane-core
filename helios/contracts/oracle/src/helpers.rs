@@ -1,11 +1,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{
-    to_binary, Addr, CosmosMsg, StdResult, WasmMsg, Coin,
-};
+use cosmwasm_std::{to_binary, Addr, Coin, CosmosMsg, StdResult, WasmMsg};
 
-use membrane::oracle::{ExecuteMsg};
+use membrane::oracle::ExecuteMsg;
 
 /// OracleContract is a wrapper around Addr that provides a lot of helpers
 /// for working with this.
@@ -27,4 +25,3 @@ impl OracleContract {
         .into())
     }
 }
-

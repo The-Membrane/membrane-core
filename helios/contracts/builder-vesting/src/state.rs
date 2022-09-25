@@ -1,5 +1,4 @@
-
-use membrane::types::{ Allocation, Asset };
+use membrane::types::{Allocation, Asset};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -15,11 +14,10 @@ pub struct Config {
     pub staking_contract: Addr,
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Receiver {
     pub receiver: Addr,
-    pub allocation: Option<Allocation>,  
+    pub allocation: Option<Allocation>,
     pub claimables: Vec<Asset>,
 }
 

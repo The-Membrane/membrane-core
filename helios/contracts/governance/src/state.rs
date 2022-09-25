@@ -1,6 +1,6 @@
-use membrane::governance::{Config, Proposal};
 use cosmwasm_std::Uint64;
 use cw_storage_plus::{Item, Map};
+use membrane::governance::{Config, Proposal};
 
 /// ## Description
 /// Stores the config for the Governance contract

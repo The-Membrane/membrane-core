@@ -5,14 +5,13 @@ use crate::math::{Decimal256, Uint256};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Uint128, Decimal};
-
+use cosmwasm_std::{Addr, Decimal, Uint128};
 
 //Stability Pool
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct PositionUserInfo{
+pub struct PositionUserInfo {
     pub basket_id: Uint128,
     pub position_id: Option<Uint128>,
     pub position_owner: Option<String>,
@@ -51,13 +50,10 @@ impl fmt::Display for Deposit {
 }
 
 impl Deposit {
-
     pub fn equal(&self, deposits: &Vec<Deposit>) -> bool {
-
         let mut check = false;
-        for deposit in deposits.iter(){
-
-            if self.amount == deposit.amount && self.user == deposit.user{
+        for deposit in deposits.iter() {
+            if self.amount == deposit.amount && self.user == deposit.user {
                 check = true;
             }
         }
@@ -70,7 +66,7 @@ impl Deposit {
 pub struct AssetPool {
     pub credit_asset: Asset,
     pub liq_premium: Decimal,
-    pub deposits: Vec<Deposit>
+    pub deposits: Vec<Deposit>,
 }
 
 impl fmt::Display for AssetPool {
@@ -90,7 +86,7 @@ pub struct Queue {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct BidInput{
+pub struct BidInput {
     pub bid_for: AssetInfo,
     pub liq_premium: u8, //Premium within range of Queue
 }
@@ -122,13 +118,10 @@ impl fmt::Display for Bid {
 }
 
 impl Bid {
-
     pub fn equal(&self, bids: &Vec<Bid>) -> bool {
-
         let mut check = false;
-        for bid in bids.iter(){
-
-            if self.amount == bid.amount && self.user == bid.user{
+        for bid in bids.iter() {
+            if self.amount == bid.amount && self.user == bid.user {
                 check = true;
             }
         }
@@ -142,7 +135,6 @@ pub struct User {
     //pub user: Addr,
     pub claimable_assets: Vec<Asset>, //Collateral assets earned from liquidations
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct PremiumSlot {
@@ -159,7 +151,7 @@ pub struct PremiumSlot {
 }
 
 ///Staking////
-/// 
+///
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct StakeDeposit {
     pub staker: Addr,
@@ -174,13 +166,11 @@ impl fmt::Display for StakeDeposit {
     }
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct FeeEvent {
-    pub time_of_event: u64, 
+    pub time_of_event: u64,
     pub fee: LiqAsset,
 }
-
 
 ///////Oracle////////
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -196,7 +186,6 @@ impl fmt::Display for AssetOracleInfo {
     }
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct TWAPPoolInfo {
     pub pool_id: u64,
@@ -206,7 +195,11 @@ pub struct TWAPPoolInfo {
 
 impl fmt::Display for TWAPPoolInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "pool_id: {}, base_asset_denom: {}, quote_asset_denom: {}", self.pool_id, self.base_asset_denom, self.quote_asset_denom)
+        write!(
+            f,
+            "pool_id: {}, base_asset_denom: {}, quote_asset_denom: {}",
+            self.pool_id, self.base_asset_denom, self.quote_asset_denom
+        )
     }
 }
 
@@ -223,33 +216,32 @@ pub struct PriceInfo {
 }
 
 ////////////////CDP///////////
-/// 
-/// 
+///
+///
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct cAsset {
     pub asset: Asset, //amount is 0 when adding to basket_contract config or initiator
     pub max_borrow_LTV: Decimal, //aka what u can bprrpw up to
-    pub max_LTV: Decimal, //ie liquidation point 
+    pub max_LTV: Decimal, //ie liquidation point
     // //Osmosis Pool Info to pull TWAP from
     // pub pool_info_for_price: TWAPPoolInfo,
     // //NOTE: AssetInfo denom for an Osmo LP is the shares_denom
-    pub pool_info: Option<PoolInfo>, //if its an Osmosis LP add PoolInfo. 
-     }
+    pub pool_info: Option<PoolInfo>, //if its an Osmosis LP add PoolInfo.
+}
 
- #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct PoolInfo {
-    pub pool_id: u64,    
+    pub pool_id: u64,
     //AssetInfo, Asset Decimal Places
-    pub asset_infos: Vec<LPAssetInfo>,//Asset decimals (https://api-osmosis.imperator.co/tokens/v2/all)
+    pub asset_infos: Vec<LPAssetInfo>, //Asset decimals (https://api-osmosis.imperator.co/tokens/v2/all)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct LPAssetInfo {
     pub info: AssetInfo,
-    pub decimals: u64,    
+    pub decimals: u64,
     pub ratio: Decimal,
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Position {
@@ -265,7 +257,7 @@ pub struct Basket {
     pub owner: Addr,
     pub basket_id: Uint128,
     pub current_position_id: Uint128,
-    pub collateral_types: Vec<cAsset>, 
+    pub collateral_types: Vec<cAsset>,
     pub collateral_supply_caps: Vec<SupplyCap>, //Order needs to correlate to collateral_types order
     pub credit_asset: Asset, //Depending on type of token we use for credit this.info will be an Addr or denom (Cw20 or Native token respectively)
     pub credit_price: Decimal, //This is credit_repayment_price, not market price
@@ -291,7 +283,7 @@ pub struct SupplyCap {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct SellWallDistribution {
-    pub distributions: Vec<( AssetInfo, Decimal )>,
+    pub distributions: Vec<(AssetInfo, Decimal)>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -303,10 +295,13 @@ pub struct UserInfo {
 
 impl fmt::Display for UserInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "owner: {}, basket: {}, position: {}", self.position_owner, self.basket_id, self.position_id)
+        write!(
+            f,
+            "owner: {}, basket: {}, position: {}",
+            self.position_owner, self.basket_id, self.position_id
+        )
     }
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InsolventPosition {
@@ -317,22 +312,20 @@ pub struct InsolventPosition {
 }
 
 ////////Builder Vesting////////
-/// 
+///
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct VestingPeriod {
-    pub cliff: u64, //In days
+    pub cliff: u64,  //In days
     pub linear: u64, //In days
 }
 
 impl VestingPeriod {
-    pub fn equal(&self, vesting_period: &VestingPeriod ) -> bool{
-
+    pub fn equal(&self, vesting_period: &VestingPeriod) -> bool {
         if vesting_period.cliff == self.cliff && vesting_period.linear == self.linear {
             true
         } else {
             false
         }
-
     }
 }
 
@@ -341,21 +334,21 @@ pub struct Allocation {
     pub amount: Uint128,
     pub amount_withdrawn: Uint128,
     pub start_time_of_allocation: u64, //block time of allocation in seconds
-    pub vesting_period: VestingPeriod,  //In days
+    pub vesting_period: VestingPeriod, //In days
 }
 
 /////Debt Auction
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct RepayPosition {  
+pub struct RepayPosition {
     pub repayment: Uint128,
     pub position_info: UserInfo,
 }
 
 /////////Liquidity Check
-/// 
+///
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct LiquidityInfo {  
+pub struct LiquidityInfo {
     pub asset: AssetInfo,
     pub pool_ids: Vec<u64>,
 }
@@ -365,12 +358,8 @@ pub struct LiquidityInfo {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AssetInfo {
-    Token{
-        address: Addr,
-    },
-    NativeToken{
-        denom: String,
-    },
+    Token { address: Addr },
+    NativeToken { denom: String },
 }
 
 impl fmt::Display for AssetInfo {
@@ -383,7 +372,6 @@ impl fmt::Display for AssetInfo {
 }
 
 impl AssetInfo {
-
     pub fn is_native_token(&self) -> bool {
         match self {
             AssetInfo::NativeToken { .. } => true,
@@ -413,7 +401,7 @@ impl AssetInfo {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct Asset{
+pub struct Asset {
     pub info: AssetInfo,
     pub amount: Uint128,
 }

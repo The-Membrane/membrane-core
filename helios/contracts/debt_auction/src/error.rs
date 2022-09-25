@@ -12,14 +12,10 @@ pub enum ContractError {
     Unauthorized {},
 
     #[error("Custom Error val: {val}")]
-    CustomError {
-        val: String,
-    },
+    CustomError { val: String },
 
     #[error("Invalid Asset: {asset}")]
-    InvalidAsset {
-        asset: String,
-    },
+    InvalidAsset { asset: String },
 }
 
 impl From<OverflowError> for ContractError {

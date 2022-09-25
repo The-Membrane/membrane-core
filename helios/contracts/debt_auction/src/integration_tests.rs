@@ -1,23 +1,22 @@
 #[cfg(test)]
 #[allow(unused_variables)]
 mod tests {
-    
-    use crate::helpers::{ DebtContract };
-       
-    
-    use membrane::debt_auction::{ InstantiateMsg, QueryMsg, ExecuteMsg };
-    use membrane::oracle::{PriceResponse, AssetResponse};
+
+    use crate::helpers::DebtContract;
+
+    use membrane::debt_auction::{ExecuteMsg, InstantiateMsg, QueryMsg};
+    use membrane::oracle::{AssetResponse, PriceResponse};
+    use membrane::osmosis_proxy::GetDenomResponse;
     use membrane::positions::BasketResponse;
-    use membrane::osmosis_proxy::{ GetDenomResponse };
-    use membrane::types::{AssetInfo, Asset, AssetOracleInfo, TWAPPoolInfo };
+    use membrane::types::{Asset, AssetInfo, AssetOracleInfo, TWAPPoolInfo};
 
-    
-    use osmo_bindings::{ SpotPriceResponse, PoolStateResponse, ArithmeticTwapToNowResponse };
-    use cosmwasm_std::{Addr, Empty, Uint128, Decimal, Response, StdResult, Binary, to_binary, coin, attr };
-    use cw_multi_test::{App, AppBuilder, Contract, ContractWrapper, Executor, BankKeeper};
+    use cosmwasm_std::{
+        attr, coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
+    };
+    use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
+    use osmo_bindings::{ArithmeticTwapToNowResponse, PoolStateResponse, SpotPriceResponse};
     use schemars::JsonSchema;
-    use serde::{ Deserialize, Serialize };
-
+    use serde::{Deserialize, Serialize};
 
     const USER: &str = "user";
     const ADMIN: &str = "admin";
@@ -31,7 +30,7 @@ mod tests {
         );
         Box::new(contract)
     }
-      
+
     //Mock Osmo Proxy Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
@@ -76,104 +75,78 @@ mod tests {
         },
     }
 
-    pub fn osmosis_proxy_contract()-> Box<dyn Contract<Empty>> {
+    pub fn osmosis_proxy_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Osmo_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
-                    Osmo_MockExecuteMsg::MintTokens { 
-                            denom, 
-                            amount, 
-                            mint_to_address
-                     } => {
-                        if amount != Uint128::new(105_319u128) && amount != Uint128::new(1_063u128) {
+                    Osmo_MockExecuteMsg::MintTokens {
+                        denom,
+                        amount,
+                        mint_to_address,
+                    } => {
+                        if amount != Uint128::new(105_319u128) && amount != Uint128::new(1_063u128)
+                        {
                             panic!("{}", amount)
                         }
                         Ok(Response::new())
-                    },
+                    }
                     Osmo_MockExecuteMsg::BurnTokens {
                         denom,
                         amount,
                         burn_from_address,
-                    } => {
-                        Ok(Response::new())
-                    },
-                    Osmo_MockExecuteMsg::CreateDenom { 
-                        subdenom
-                    } => {
-
-                        Ok(Response::new().add_attributes(vec![
+                    } => Ok(Response::new()),
+                    Osmo_MockExecuteMsg::CreateDenom { subdenom } => Ok(Response::new()
+                        .add_attributes(vec![
                             attr("basket_id", "1"),
-                            attr("subdenom", "credit_fulldenom")]
-                        ))
+                            attr("subdenom", "credit_fulldenom"),
+                        ])),
+                }
+            },
+            |_, _, _, _: Osmo_MockInstantiateMsg| -> StdResult<Response> {
+                Ok(Response::default())
+            },
+            |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    Osmo_MockQueryMsg::SpotPrice { asset } => Ok(to_binary(&SpotPriceResponse {
+                        price: Decimal::one(),
+                    })?),
+                    Osmo_MockQueryMsg::PoolState { id } => {
+                        if id == 99u64 {
+                            Ok(to_binary(&PoolStateResponse {
+                                assets: vec![coin(100_000_000, "base"), coin(100_000_000, "quote")],
+                                shares: coin(100_000_000, "lp_denom"),
+                            })?)
+                        } else {
+                            Ok(to_binary(&PoolStateResponse {
+                                assets: vec![coin(49_999, "credit_fulldenom")],
+                                shares: coin(0, "shares"),
+                            })?)
+                        }
+                    }
+                    Osmo_MockQueryMsg::GetDenom {
+                        creator_address,
+                        subdenom,
+                    } => Ok(to_binary(&GetDenomResponse {
+                        denom: String::from("credit_fulldenom"),
+                    })?),
+                    Osmo_MockQueryMsg::ArithmeticTwapToNow {
+                        id,
+                        quote_asset_denom,
+                        base_asset_denom,
+                        start_time,
+                    } => {
+                        if base_asset_denom == String::from("base") {
+                            Ok(to_binary(&ArithmeticTwapToNowResponse {
+                                twap: Decimal::percent(100),
+                            })?)
+                        } else {
+                            Ok(to_binary(&ArithmeticTwapToNowResponse {
+                                twap: Decimal::percent(100),
+                            })?)
+                        }
                     }
                 }
             },
-            |_, _, _, _: Osmo_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
-            |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
-                match msg {
-                    Osmo_MockQueryMsg::SpotPrice { 
-                        asset,
-                    } => 
-                        Ok(
-                            to_binary(&SpotPriceResponse {
-                                price: Decimal::one(),
-                            })?
-                        ),
-                    Osmo_MockQueryMsg::PoolState { id } => 
-                    if id == 99u64 {
-                        Ok(
-                            to_binary(&PoolStateResponse {
-                                assets: vec![ coin( 100_000_000 , "base" ), coin( 100_000_000 , "quote" ) ],
-                                shares: coin( 100_000_000, "lp_denom" ),
-                            }
-
-                            )?
-                        )
-                    } else {
-                        Ok(
-                            to_binary(&PoolStateResponse {
-                                assets: vec![ coin( 49_999 , "credit_fulldenom" ) ],
-                                shares: coin( 0, "shares" ),
-                            }
-
-                            )?
-                        )
-                    },
-                    Osmo_MockQueryMsg::GetDenom { 
-                        creator_address, 
-                        subdenom 
-                    } => {
-                        Ok(
-                            to_binary(&GetDenomResponse {
-                                denom: String::from( "credit_fulldenom" ),
-                            })?
-                        )
-                    },
-                    Osmo_MockQueryMsg::ArithmeticTwapToNow { 
-                        id, 
-                        quote_asset_denom, 
-                        base_asset_denom, 
-                        start_time 
-                    } => {
-                        if base_asset_denom == String::from("base") {
-
-                            Ok(
-                                to_binary(&ArithmeticTwapToNowResponse {
-                                    twap: Decimal::percent(100),
-                                })?
-                            )
-
-                        } else {
-
-                            Ok(
-                                to_binary(&ArithmeticTwapToNowResponse {
-                                    twap: Decimal::percent(100),
-                                })?
-                            )
-
-                        }
-                    }
-                }},
         );
         Box::new(contract)
     }
@@ -185,9 +158,9 @@ mod tests {
         AddAsset {
             asset_info: AssetInfo,
             oracle_info: AssetOracleInfo,
-        }
+        },
     }
-    
+
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct Oracle_MockInstantiateMsg {}
@@ -205,50 +178,45 @@ mod tests {
         },
     }
 
-    pub fn oracle_contract()-> Box<dyn Contract<Empty>> {
+    pub fn oracle_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Oracle_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
-                    Oracle_MockExecuteMsg::AddAsset { 
-                        asset_info, 
-                        oracle_info, 
-                    }  => {
-                        
-                        Ok(Response::default())
-                    },
+                    Oracle_MockExecuteMsg::AddAsset {
+                        asset_info,
+                        oracle_info,
+                    } => Ok(Response::default()),
                 }
             },
-            |_, _, _, _: Oracle_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
+            |_, _, _, _: Oracle_MockInstantiateMsg| -> StdResult<Response> {
+                Ok(Response::default())
+            },
             |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Oracle_MockQueryMsg::Price { 
+                    Oracle_MockQueryMsg::Price {
                         asset_info,
                         twap_timeframe,
-                        basket_id 
-                    } => {
-
-                        Ok( to_binary(&PriceResponse { 
-                            prices: vec![],
-                            avg_price: Decimal::one(),
-                        })? )
-                        
-                        
-                    },
-                    Oracle_MockQueryMsg::Asset { asset_info } => {
-                        Ok( to_binary(&AssetResponse { 
-                            asset_info: AssetInfo::NativeToken { denom: String::from("denom") },
-                            oracle_info: vec![ AssetOracleInfo {
-                                basket_id: Uint128::new(1u128),
-                                osmosis_pools_for_twap: vec![ TWAPPoolInfo {
-                                    pool_id: 0u64,
-                                    base_asset_denom: String::from("denom"),
-                                    quote_asset_denom: String::from("denom"),
-                                }],
-                                static_price: None,
+                        basket_id,
+                    } => Ok(to_binary(&PriceResponse {
+                        prices: vec![],
+                        avg_price: Decimal::one(),
+                    })?),
+                    Oracle_MockQueryMsg::Asset { asset_info } => Ok(to_binary(&AssetResponse {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: String::from("denom"),
+                        },
+                        oracle_info: vec![AssetOracleInfo {
+                            basket_id: Uint128::new(1u128),
+                            osmosis_pools_for_twap: vec![TWAPPoolInfo {
+                                pool_id: 0u64,
+                                base_asset_denom: String::from("denom"),
+                                quote_asset_denom: String::from("denom"),
                             }],
-                        })? )
-                    },
-                }  },
+                            static_price: None,
+                        }],
+                    })?),
+                }
+            },
         );
         Box::new(contract)
     }
@@ -263,7 +231,7 @@ mod tests {
             position_owner: Option<String>,
         },
     }
-    
+
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub struct CDP_MockInstantiateMsg {}
@@ -274,76 +242,79 @@ mod tests {
         GetBasket { basket_id: Uint128 },
     }
 
-    pub fn cdp_contract()-> Box<dyn Contract<Empty>> {
+    pub fn cdp_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: CDP_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
-                    CDP_MockExecuteMsg::Repay { 
+                    CDP_MockExecuteMsg::Repay {
                         basket_id,
                         position_id,
                         position_owner,
-                    }  => {                        
-                        Ok(Response::default())
-                    },
+                    } => Ok(Response::default()),
                 }
             },
             |_, _, _, _: CDP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
             |_, _, msg: CDP_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    CDP_MockQueryMsg::GetBasket {
-                        basket_id 
-                    } => {
-
-                        Ok( to_binary(&BasketResponse {
-                            owner: String::from("owner"),
-                            basket_id: String::from(""),
-                            current_position_id: String::from(""),
-                            collateral_types: vec![],
-                            collateral_supply_caps: vec![],
-                            credit_asset: Asset { info: AssetInfo::NativeToken{ denom: String::from("") }, amount: Uint128::zero() },
-                            credit_price: Decimal::one(),
-                            liq_queue: String::from(""),
-                            base_interest_rate: Decimal::zero(),
-                            liquidity_multiplier: Decimal::zero(),
-                            desired_debt_cap_util: Decimal::zero(),
-                            pending_revenue: Uint128::zero(),
-                            negative_rates: true,
-                        })? )
-                                               
-                    }
-                }  },
+                    CDP_MockQueryMsg::GetBasket { basket_id } => Ok(to_binary(&BasketResponse {
+                        owner: String::from("owner"),
+                        basket_id: String::from(""),
+                        current_position_id: String::from(""),
+                        collateral_types: vec![],
+                        collateral_supply_caps: vec![],
+                        credit_asset: Asset {
+                            info: AssetInfo::NativeToken {
+                                denom: String::from(""),
+                            },
+                            amount: Uint128::zero(),
+                        },
+                        credit_price: Decimal::one(),
+                        liq_queue: String::from(""),
+                        base_interest_rate: Decimal::zero(),
+                        liquidity_multiplier: Decimal::zero(),
+                        desired_debt_cap_util: Decimal::zero(),
+                        pending_revenue: Uint128::zero(),
+                        negative_rates: true,
+                    })?),
+                }
+            },
         );
         Box::new(contract)
     }
 
-
-
-    
     fn mock_app() -> App {
-            AppBuilder::new().build(|router, _, storage| {
-                                    
-                let bank = BankKeeper::new();
-                
-                bank.init_balance(storage, &Addr::unchecked("contract3"), vec![coin(30_000_000_000_000, "mbrn_denom")])
-                .unwrap(); //contract3 = Builders contract                
-                bank.init_balance(storage, &Addr::unchecked("coin_God"), vec![coin(100_000_000, "debit"), coin(100_000_000, "2nddebit")])
-                .unwrap();
-                bank.init_balance(storage, &Addr::unchecked(USER), vec![coin(99, "error"), coin(101_000, "credit_fulldenom")])
-                .unwrap();
-              
+        AppBuilder::new().build(|router, _, storage| {
+            let bank = BankKeeper::new();
 
-                router
-                    .bank = bank;
-                    
-            })
-        }
+            bank.init_balance(
+                storage,
+                &Addr::unchecked("contract3"),
+                vec![coin(30_000_000_000_000, "mbrn_denom")],
+            )
+            .unwrap(); //contract3 = Builders contract
+            bank.init_balance(
+                storage,
+                &Addr::unchecked("coin_God"),
+                vec![coin(100_000_000, "debit"), coin(100_000_000, "2nddebit")],
+            )
+            .unwrap();
+            bank.init_balance(
+                storage,
+                &Addr::unchecked(USER),
+                vec![coin(99, "error"), coin(101_000, "credit_fulldenom")],
+            )
+            .unwrap();
 
-    fn proper_instantiate(  ) -> ( App, DebtContract, Addr ) {
+            router.bank = bank;
+        })
+    }
+
+    fn proper_instantiate() -> (App, DebtContract, Addr) {
         let mut app = mock_app();
 
         //Instaniate Osmosis Proxy
         let proxy_id = app.store_code(osmosis_proxy_contract());
-                
+
         let osmosis_proxy_contract_addr = app
             .instantiate_contract(
                 proxy_id,
@@ -354,7 +325,7 @@ mod tests {
                 None,
             )
             .unwrap();
-       
+
         //Instaniate Oracle Contract
         let oracle_id = app.store_code(oracle_contract());
 
@@ -383,8 +354,6 @@ mod tests {
             )
             .unwrap();
 
-        
-
         //Instantiate Gov contract
         let debt_id = app.store_code(debt_contract());
 
@@ -398,291 +367,329 @@ mod tests {
             initial_discount: Decimal::percent(1),
             discount_increase_timeframe: 60u64,
             discount_increase: Decimal::percent(1),
-        };        
+        };
 
         let debt_contract_addr = app
-            .instantiate_contract(
-                debt_id,
-                Addr::unchecked(ADMIN),
-                &msg,
-                &[],
-                "test",
-                None,
-            )
+            .instantiate_contract(debt_id, Addr::unchecked(ADMIN), &msg, &[], "test", None)
             .unwrap();
 
         let debt_contract = DebtContract(debt_contract_addr);
 
-
-        ( app, debt_contract, cdp_contract_addr )
+        (app, debt_contract, cdp_contract_addr)
     }
-   
-
 
     mod debt_auction {
-        
+
         use super::*;
-        use cosmwasm_std::{BlockInfo};
-        use membrane::{ types::{UserInfo, RepayPosition}, debt_auction::AuctionResponse };
-        
-        
+        use cosmwasm_std::BlockInfo;
+        use membrane::{
+            debt_auction::AuctionResponse,
+            types::{RepayPosition, UserInfo},
+        };
+
         #[test]
         fn start_auction() {
-            let (mut app, debt_contract, cdp_contract ) = proper_instantiate( );
-            
+            let (mut app, debt_contract, cdp_contract) = proper_instantiate();
+
             //Unauthorized StartAuction
-            let msg = ExecuteMsg::StartAuction { 
-                repayment_position_info: UserInfo { 
-                    basket_id: Uint128::new(1u128), 
-                    position_id: Uint128::new(1u128), 
-                    position_owner: String::from("owner") 
-                }, 
+            let msg = ExecuteMsg::StartAuction {
+                repayment_position_info: UserInfo {
+                    basket_id: Uint128::new(1u128),
+                    position_id: Uint128::new(1u128),
+                    position_owner: String::from("owner"),
+                },
                 debt_asset: Asset {
-                    info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
-                    amount: Uint128::new(100u128), 
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("credit_fulldenom"),
+                    },
+                    amount: Uint128::new(100u128),
                 },
             };
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
             //Successful StartAuction
-            let msg = ExecuteMsg::StartAuction { 
-                repayment_position_info: UserInfo { 
-                    basket_id: Uint128::new(1u128), 
-                    position_id: Uint128::new(1u128), 
-                    position_owner: String::from("owner") 
-                }, 
+            let msg = ExecuteMsg::StartAuction {
+                repayment_position_info: UserInfo {
+                    basket_id: Uint128::new(1u128),
+                    position_id: Uint128::new(1u128),
+                    position_owner: String::from("owner"),
+                },
                 debt_asset: Asset {
-                    info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
-                    amount: Uint128::new(100u128), 
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("credit_fulldenom"),
+                    },
+                    amount: Uint128::new(100u128),
                 },
             };
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();           
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Assert Auction Response
             let auction: Vec<AuctionResponse> = app
                 .wrap()
                 .query_wasm_smart(
                     debt_contract.clone().addr(),
-                    &QueryMsg::OngoingAuctions { 
-                        debt_asset: Some(AssetInfo::NativeToken { denom: String::from("credit_fulldenom") } ),
+                    &QueryMsg::OngoingAuctions {
+                        debt_asset: Some(AssetInfo::NativeToken {
+                            denom: String::from("credit_fulldenom"),
+                        }),
                         limit: None,
                         start_without: None,
                     },
                 )
                 .unwrap();
-                assert_eq!( auction[0].auction_start_time, 1571797419u64);
-                assert_eq!( auction[0].basket_id_price_source, Uint128::new(1u128));
-                assert_eq!( auction[0].remaining_recapitalization,  Uint128::new(100u128));
-                assert_eq!( auction[0].repayment_positions, vec![
-                    RepayPosition { 
-                        repayment: Uint128::new(100u128), 
-                        position_info: UserInfo { 
-                            basket_id: Uint128::new(1u128), 
-                            position_id: Uint128::new(1u128), 
-                            position_owner: String::from("owner"),
-                        } }
-                ] );
+            assert_eq!(auction[0].auction_start_time, 1571797419u64);
+            assert_eq!(auction[0].basket_id_price_source, Uint128::new(1u128));
+            assert_eq!(auction[0].remaining_recapitalization, Uint128::new(100u128));
+            assert_eq!(
+                auction[0].repayment_positions,
+                vec![RepayPosition {
+                    repayment: Uint128::new(100u128),
+                    position_info: UserInfo {
+                        basket_id: Uint128::new(1u128),
+                        position_id: Uint128::new(1u128),
+                        position_owner: String::from("owner"),
+                    }
+                }]
+            );
 
             //Successful Start adding to existing auction
-            let msg = ExecuteMsg::StartAuction { 
-                repayment_position_info: UserInfo { 
-                    basket_id: Uint128::new(1u128), 
-                    position_id: Uint128::new(1u128), 
-                    position_owner: String::from("owner") 
-                }, 
+            let msg = ExecuteMsg::StartAuction {
+                repayment_position_info: UserInfo {
+                    basket_id: Uint128::new(1u128),
+                    position_id: Uint128::new(1u128),
+                    position_owner: String::from("owner"),
+                },
                 debt_asset: Asset {
-                    info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
-                    amount: Uint128::new(100u128), 
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("credit_fulldenom"),
+                    },
+                    amount: Uint128::new(100u128),
                 },
             };
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
-            app.set_block( BlockInfo { 
-                height: app.block_info().height, 
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
                 time: app.block_info().time.plus_seconds(31536000u64), //Added a year
-                chain_id: app.block_info().chain_id } );
-            app.execute( cdp_contract, cosmos_msg ).unwrap();
+                chain_id: app.block_info().chain_id,
+            });
+            app.execute(cdp_contract, cosmos_msg).unwrap();
 
             //Assert Auction Response
             let auction: Vec<AuctionResponse> = app
-            .wrap()
-            .query_wasm_smart(
-                debt_contract.clone().addr(),
-                &QueryMsg::OngoingAuctions { 
-                    debt_asset: Some(AssetInfo::NativeToken { denom: String::from("credit_fulldenom") } ),
-                    limit: None,
-                    start_without: None,
-                },
-            )
-            .unwrap();
-            assert_eq!( auction[0].auction_start_time, 1571797419u64); //Start_time doesn't change
-            assert_eq!( auction[0].basket_id_price_source, Uint128::new(1u128));
-            assert_eq!( auction[0].remaining_recapitalization,  Uint128::new(200u128));
-            assert_eq!( auction[0].repayment_positions, vec![
-                RepayPosition { 
-                    repayment: Uint128::new(100u128), 
-                    position_info: UserInfo { 
-                        basket_id: Uint128::new(1u128), 
-                        position_id: Uint128::new(1u128), 
-                        position_owner: String::from("owner"),
-                    } }, 
-                RepayPosition { 
-                    repayment: Uint128::new(100u128), 
-                    position_info: UserInfo { 
-                        basket_id: Uint128::new(1u128), 
-                        position_id: Uint128::new(1u128), 
-                        position_owner: String::from("owner"),
-                    } }
-            ] );
-           
+                .wrap()
+                .query_wasm_smart(
+                    debt_contract.clone().addr(),
+                    &QueryMsg::OngoingAuctions {
+                        debt_asset: Some(AssetInfo::NativeToken {
+                            denom: String::from("credit_fulldenom"),
+                        }),
+                        limit: None,
+                        start_without: None,
+                    },
+                )
+                .unwrap();
+            assert_eq!(auction[0].auction_start_time, 1571797419u64); //Start_time doesn't change
+            assert_eq!(auction[0].basket_id_price_source, Uint128::new(1u128));
+            assert_eq!(auction[0].remaining_recapitalization, Uint128::new(200u128));
+            assert_eq!(
+                auction[0].repayment_positions,
+                vec![
+                    RepayPosition {
+                        repayment: Uint128::new(100u128),
+                        position_info: UserInfo {
+                            basket_id: Uint128::new(1u128),
+                            position_id: Uint128::new(1u128),
+                            position_owner: String::from("owner"),
+                        }
+                    },
+                    RepayPosition {
+                        repayment: Uint128::new(100u128),
+                        position_info: UserInfo {
+                            basket_id: Uint128::new(1u128),
+                            position_id: Uint128::new(1u128),
+                            position_owner: String::from("owner"),
+                        }
+                    }
+                ]
+            );
         }
-
 
         #[test]
         fn swap_For_mbrn() {
-            let (mut app, debt_contract, cdp_contract ) = proper_instantiate( );
-            
+            let (mut app, debt_contract, cdp_contract) = proper_instantiate();
 
             //Successful StartAuction
-            let msg = ExecuteMsg::StartAuction { 
-                repayment_position_info: UserInfo { 
-                    basket_id: Uint128::new(1u128), 
-                    position_id: Uint128::new(1u128), 
-                    position_owner: String::from("owner") 
-                }, 
+            let msg = ExecuteMsg::StartAuction {
+                repayment_position_info: UserInfo {
+                    basket_id: Uint128::new(1u128),
+                    position_id: Uint128::new(1u128),
+                    position_owner: String::from("owner"),
+                },
                 debt_asset: Asset {
-                    info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
-                    amount: Uint128::new(100_000u128), 
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("credit_fulldenom"),
+                    },
+                    amount: Uint128::new(100_000u128),
                 },
             };
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();          
-        
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
             //Errored Swap, invalid asset
-            let msg = ExecuteMsg::SwapForMBRN {  };
-            let cosmos_msg = debt_contract.call(msg, vec![ coin(99, "error") ]).unwrap();
-            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();    
-            assert_eq!( err.root_cause().to_string(), String::from("Invalid Asset: error") );
+            let msg = ExecuteMsg::SwapForMBRN {};
+            let cosmos_msg = debt_contract.call(msg, vec![coin(99, "error")]).unwrap();
+            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            assert_eq!(
+                err.root_cause().to_string(),
+                String::from("Invalid Asset: error")
+            );
 
             //Successful Partial Swap
-            let msg = ExecuteMsg::SwapForMBRN {  };
-            let cosmos_msg = debt_contract.call(msg, vec![ coin(99_000, "credit_fulldenom") ]).unwrap();
-            app.set_block( BlockInfo { 
-                height: app.block_info().height, 
+            let msg = ExecuteMsg::SwapForMBRN {};
+            let cosmos_msg = debt_contract
+                .call(msg, vec![coin(99_000, "credit_fulldenom")])
+                .unwrap();
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
                 time: app.block_info().time.plus_seconds(300u64), //60 * 5
-                chain_id: app.block_info().chain_id } );
-            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();                       
+                chain_id: app.block_info().chain_id,
+            });
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             ///Mint amount asserted in the contract definition
-
             //Assert Auction partial fulfillment
             let auction: Vec<AuctionResponse> = app
-            .wrap()
-            .query_wasm_smart(
-                debt_contract.clone().addr(),
-                &QueryMsg::OngoingAuctions { 
-                    debt_asset: Some(AssetInfo::NativeToken { denom: String::from("credit_fulldenom") } ),
-                    limit: None,
-                    start_without: None,
-                },
-            )
-            .unwrap();
+                .wrap()
+                .query_wasm_smart(
+                    debt_contract.clone().addr(),
+                    &QueryMsg::OngoingAuctions {
+                        debt_asset: Some(AssetInfo::NativeToken {
+                            denom: String::from("credit_fulldenom"),
+                        }),
+                        limit: None,
+                        start_without: None,
+                    },
+                )
+                .unwrap();
 
-            assert_eq!( auction[0].auction_start_time, 1571797419u64); 
-            assert_eq!( auction[0].basket_id_price_source, Uint128::new(1u128));
-            assert_eq!( auction[0].remaining_recapitalization,  Uint128::new(1_000u128));
-            assert_eq!( auction[0].repayment_positions, vec![
-                RepayPosition { 
-                    repayment: Uint128::new(1_000u128), 
-                    position_info: UserInfo { 
-                        basket_id: Uint128::new(1u128), 
-                        position_id: Uint128::new(1u128), 
+            assert_eq!(auction[0].auction_start_time, 1571797419u64);
+            assert_eq!(auction[0].basket_id_price_source, Uint128::new(1u128));
+            assert_eq!(
+                auction[0].remaining_recapitalization,
+                Uint128::new(1_000u128)
+            );
+            assert_eq!(
+                auction[0].repayment_positions,
+                vec![RepayPosition {
+                    repayment: Uint128::new(1_000u128),
+                    position_info: UserInfo {
+                        basket_id: Uint128::new(1u128),
+                        position_id: Uint128::new(1u128),
                         position_owner: String::from("owner"),
-                    } }
-            ] );
-            
+                    }
+                }]
+            );
+
             //Successful Overpay Swap
-            let msg = ExecuteMsg::SwapForMBRN {  };
-            let cosmos_msg = debt_contract.call(msg, vec![ coin( 2_000, "credit_fulldenom" ) ]).unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();    
-            
-            assert_eq!(app.wrap().query_all_balances(USER).unwrap(), vec![coin( 1_000, "credit_fulldenom" ), coin( 99, "error" ) ]);
+            let msg = ExecuteMsg::SwapForMBRN {};
+            let cosmos_msg = debt_contract
+                .call(msg, vec![coin(2_000, "credit_fulldenom")])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            assert_eq!(
+                app.wrap().query_all_balances(USER).unwrap(),
+                vec![coin(1_000, "credit_fulldenom"), coin(99, "error")]
+            );
 
             //Assert Auction is empty
             let err = app
-            .wrap()
-            .query_wasm_smart::<Vec<AuctionResponse>>(
-                debt_contract.clone().addr(),
-                &QueryMsg::OngoingAuctions { 
-                    debt_asset: Some( AssetInfo::NativeToken { denom: String::from("credit_fulldenom") } ),
-                    limit: None,
-                    start_without: None,
-                },
-            )
-            .unwrap_err();
+                .wrap()
+                .query_wasm_smart::<Vec<AuctionResponse>>(
+                    debt_contract.clone().addr(),
+                    &QueryMsg::OngoingAuctions {
+                        debt_asset: Some(AssetInfo::NativeToken {
+                            denom: String::from("credit_fulldenom"),
+                        }),
+                        limit: None,
+                        start_without: None,
+                    },
+                )
+                .unwrap_err();
             assert_eq!(err.to_string(), String::from("Generic error: Querier contract error: Generic error: Auction recapitalization amount empty"));
-
 
             //Assert Asset is still valid
             let valid_assets: Vec<AssetInfo> = app
-            .wrap()
-            .query_wasm_smart(
-                debt_contract.clone().addr(),
-                &QueryMsg::ValidDebtAssets { 
-                    debt_asset: Some( AssetInfo::NativeToken { denom: String::from("credit_fulldenom") } ),
-                    limit: None,
-                    start_without: None,
-                },
-            )
-            .unwrap();
-            assert_eq!(valid_assets, vec![ AssetInfo::NativeToken { denom: String::from("credit_fulldenom") } ]);
-
+                .wrap()
+                .query_wasm_smart(
+                    debt_contract.clone().addr(),
+                    &QueryMsg::ValidDebtAssets {
+                        debt_asset: Some(AssetInfo::NativeToken {
+                            denom: String::from("credit_fulldenom"),
+                        }),
+                        limit: None,
+                        start_without: None,
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                valid_assets,
+                vec![AssetInfo::NativeToken {
+                    denom: String::from("credit_fulldenom")
+                }]
+            );
         }
 
         #[test]
         fn remove_auction() {
-            let (mut app, debt_contract, cdp_contract ) = proper_instantiate( );
-            
+            let (mut app, debt_contract, cdp_contract) = proper_instantiate();
 
             //Successful StartAuction
-            let msg = ExecuteMsg::StartAuction { 
-                repayment_position_info: UserInfo { 
-                    basket_id: Uint128::new(1u128), 
-                    position_id: Uint128::new(1u128), 
-                    position_owner: String::from("owner") 
-                }, 
+            let msg = ExecuteMsg::StartAuction {
+                repayment_position_info: UserInfo {
+                    basket_id: Uint128::new(1u128),
+                    position_id: Uint128::new(1u128),
+                    position_owner: String::from("owner"),
+                },
                 debt_asset: Asset {
-                    info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
-                    amount: Uint128::new(100u128), 
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("credit_fulldenom"),
+                    },
+                    amount: Uint128::new(100u128),
                 },
             };
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap(); 
-            
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
             //Successful RemoveAuction: InvalidAsset
-            let msg = ExecuteMsg::RemoveAuction { 
-                debt_asset: AssetInfo::NativeToken { denom: String::from("invalid_asset") }
+            let msg = ExecuteMsg::RemoveAuction {
+                debt_asset: AssetInfo::NativeToken {
+                    denom: String::from("invalid_asset"),
+                },
             };
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
             //assert_eq!( err.root_cause().to_string(), String::from("Invalid Asset: invalid_asset") );
-            
+
             //Successful RemoveAuction
-            let msg = ExecuteMsg::RemoveAuction { 
-                debt_asset: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
+            let msg = ExecuteMsg::RemoveAuction {
+                debt_asset: AssetInfo::NativeToken {
+                    denom: String::from("credit_fulldenom"),
+                },
             };
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();  
-            
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Assert Auction removal
-            app
-                .wrap()
-                .query_wasm_smart::< Vec<AuctionResponse>>(
+            app.wrap()
+                .query_wasm_smart::<Vec<AuctionResponse>>(
                     debt_contract.clone().addr(),
-                    &QueryMsg::OngoingAuctions { 
-                        debt_asset: Some(AssetInfo::NativeToken { denom: String::from("credit_fulldenom") } ),
+                    &QueryMsg::OngoingAuctions {
+                        debt_asset: Some(AssetInfo::NativeToken {
+                            denom: String::from("credit_fulldenom"),
+                        }),
                         limit: None,
                         start_without: None,
                     },

@@ -1,8 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Uint128, Decimal};
-
+use cosmwasm_std::{Decimal, Uint128};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {}
@@ -50,7 +49,9 @@ pub enum QueryMsg {
     },
     /// For a given pool ID, list all tokens traded on it with current liquidity (spot).
     /// As well as the total number of LP shares and their denom
-    PoolState { id: u64 },
+    PoolState {
+        id: u64,
+    },
     // Returns the accumulated historical TWAP of the given base asset and quote asset.
     // CONTRACT: start_time should be based on Unix time millisecond.
     ArithmeticTwapToNow {
@@ -62,7 +63,7 @@ pub enum QueryMsg {
     GetTokenInfo {
         denom: String,
     },
-    Config { },
+    Config {},
 }
 
 // We define a custom struct for each query response

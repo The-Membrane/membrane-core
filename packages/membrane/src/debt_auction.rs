@@ -1,9 +1,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Uint128, Decimal};
+use cosmwasm_std::{Decimal, Uint128};
 
-use crate::types::{Asset, UserInfo, RepayPosition, AssetInfo};
+use crate::types::{Asset, AssetInfo, RepayPosition, UserInfo};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -28,9 +28,9 @@ pub enum ExecuteMsg {
         debt_asset: Asset, //Asset being bought by MBRN
     },
     //Swap for MBRN w/ any open auction's swap_from_asset
-    SwapForMBRN { },
+    SwapForMBRN {},
     //Remove ongoing auction
-    //Mostly for potential mistakes 
+    //Mostly for potential mistakes
     RemoveAuction {
         debt_asset: AssetInfo,
     },
@@ -43,7 +43,7 @@ pub enum ExecuteMsg {
         twap_timeframe: Option<u64>,
         initial_discount: Option<Decimal>,
         discount_increase_timeframe: Option<u64>, //in seconds
-        discount_increase: Option<Decimal>, //% increase
+        discount_increase: Option<Decimal>,       //% increase
     },
 }
 
@@ -66,8 +66,7 @@ pub enum QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct AuctionResponse {
     pub remaining_recapitalization: Uint128,
-    pub repayment_positions: Vec<RepayPosition>,  //Repayment amount, Positions info
+    pub repayment_positions: Vec<RepayPosition>, //Repayment amount, Positions info
     pub auction_start_time: u64,
     pub basket_id_price_source: Uint128,
 }
-

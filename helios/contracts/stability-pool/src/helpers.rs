@@ -1,9 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{
-    to_binary, Addr, Coin, CosmosMsg, StdResult, WasmMsg, 
-};
+use cosmwasm_std::{to_binary, Addr, Coin, CosmosMsg, StdResult, WasmMsg};
 
 use membrane::stability_pool::ExecuteMsg;
 

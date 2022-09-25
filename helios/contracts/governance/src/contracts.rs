@@ -1,16 +1,22 @@
 //Fork of: https://github.com/astroport-fi/astroport-governance/tree/main/contracts/assembly
 
 use cosmwasm_std::{
-    attr, entry_point, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut,
-    Env, MessageInfo, Order, Response, StdResult, Uint128, Uint64, WasmMsg, QueryRequest, WasmQuery,
+    attr, entry_point, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
+    MessageInfo, Order, QueryRequest, Response, StdResult, Uint128, Uint64, WasmMsg, WasmQuery,
 };
-use cw2::{set_contract_version};
+use cw2::set_contract_version;
 use cw_storage_plus::Bound;
 
+use membrane::builder_vesting::{AllocationResponse, QueryMsg as BuildersQueryMsg};
 use membrane::governance::helpers::validate_links;
-use membrane::governance::{ InstantiateMsg, ExecuteMsg, QueryMsg, Config, Proposal, ProposalMessage, ProposalStatus, ProposalVoteOption, UpdateConfig, ProposalListResponse, ProposalResponse, ProposalVotesResponse };
-use membrane::staking::{ QueryMsg as StakingQueryMsg, ConfigResponse as StakingConfigResponse, StakedResponse };
-use membrane::builder_vesting::{ QueryMsg as BuildersQueryMsg, AllocationResponse };
+use membrane::governance::{
+    Config, ExecuteMsg, InstantiateMsg, Proposal, ProposalListResponse, ProposalMessage,
+    ProposalResponse, ProposalStatus, ProposalVoteOption, ProposalVotesResponse, QueryMsg,
+    UpdateConfig,
+};
+use membrane::staking::{
+    ConfigResponse as StakingConfigResponse, QueryMsg as StakingQueryMsg, StakedResponse,
+};
 
 use std::str::FromStr;
 
@@ -35,13 +41,16 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let mbrn_denom = deps.querier.query::<StakingConfigResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: deps.api.addr_validate(&msg.mbrn_staking_contract_addr)?.to_string(),
-        msg: to_binary(
-            &StakingQueryMsg::Config{ }
-        )?,
-    }))?
-    .mbrn_denom;
+    let mbrn_denom = deps
+        .querier
+        .query::<StakingConfigResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: deps
+                .api
+                .addr_validate(&msg.mbrn_staking_contract_addr)?
+                .to_string(),
+            msg: to_binary(&StakingQueryMsg::Config {})?,
+        }))?
+        .mbrn_denom;
 
     let config = Config {
         mbrn_denom,
@@ -74,8 +83,27 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::SubmitProposal { title, description, link, messages, receiver } => submit_proposal(deps, env, info, title, description, link, messages, receiver ),
-        ExecuteMsg::CastVote { proposal_id, vote, receiver } => cast_vote(deps, env, info, proposal_id, vote, receiver),
+        ExecuteMsg::SubmitProposal {
+            title,
+            description,
+            link,
+            messages,
+            receiver,
+        } => submit_proposal(
+            deps,
+            env,
+            info,
+            title,
+            description,
+            link,
+            messages,
+            receiver,
+        ),
+        ExecuteMsg::CastVote {
+            proposal_id,
+            vote,
+            receiver,
+        } => cast_vote(deps, env, info, proposal_id, vote, receiver),
         ExecuteMsg::EndProposal { proposal_id } => end_proposal(deps, env, proposal_id),
         ExecuteMsg::ExecuteProposal { proposal_id } => execute_proposal(deps, env, proposal_id),
         ExecuteMsg::CheckMessages { messages } => check_messages(env, messages),
@@ -86,7 +114,6 @@ pub fn execute(
         ExecuteMsg::UpdateConfig(config) => update_config(deps, env, info, config),
     }
 }
-
 
 pub fn submit_proposal(
     deps: DepsMut,
@@ -102,15 +129,21 @@ pub fn submit_proposal(
 
     //If sender is Builder's Contract, toggle
     let mut builders: bool = false;
-    if info.sender == config.clone().builders_contract_addr{
+    if info.sender == config.clone().builders_contract_addr {
         builders = true;
     }
 
     //Validate voting power
-    let voting_power = calc_voting_power(deps.as_ref(), info.sender.to_string(), env.block.time.seconds(), builders, receiver.clone())?;
+    let voting_power = calc_voting_power(
+        deps.as_ref(),
+        info.sender.to_string(),
+        env.block.time.seconds(),
+        builders,
+        receiver.clone(),
+    )?;
 
     if voting_power < config.proposal_required_stake {
-        return Err(ContractError::InsufficientStake { });
+        return Err(ContractError::InsufficientStake {});
     }
 
     // Update the proposal count
@@ -120,12 +153,12 @@ pub fn submit_proposal(
 
     let mut submitter: Option<Addr> = None;
     if let Some(receiver) = receiver.clone() {
-        submitter = Some( deps.api.addr_validate(&receiver)? );
+        submitter = Some(deps.api.addr_validate(&receiver)?);
     }
 
     let proposal = Proposal {
         proposal_id: count,
-        submitter: submitter.unwrap_or_else( || info.sender.clone() ),
+        submitter: submitter.unwrap_or_else(|| info.sender.clone()),
         status: ProposalStatus::Active,
         for_power: Uint128::zero(),
         against_power: Uint128::zero(),
@@ -153,7 +186,10 @@ pub fn submit_proposal(
 
     Ok(Response::new().add_attributes(vec![
         attr("action", "submit_proposal"),
-        attr("submitter", receiver.unwrap_or_else(|| info.sender.to_string())),
+        attr(
+            "submitter",
+            receiver.unwrap_or_else(|| info.sender.to_string()),
+        ),
         attr("proposal_id", count),
         attr(
             "proposal_end_height",
@@ -170,18 +206,16 @@ pub fn cast_vote(
     vote_option: ProposalVoteOption,
     receiver: Option<String>,
 ) -> Result<Response, ContractError> {
-    
-    let config = CONFIG.load( deps.storage )?;
+    let config = CONFIG.load(deps.storage)?;
 
     //If sender is Builder's Contract, toggle
     let mut builders: bool = false;
-    if info.sender == config.clone().builders_contract_addr{
+    if info.sender == config.clone().builders_contract_addr {
         builders = true;
     }
 
     let mut proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
 
-   
     if proposal.status != ProposalStatus::Active {
         return Err(ContractError::ProposalNotActive {});
     }
@@ -192,7 +226,7 @@ pub fn cast_vote(
     } else if let Some(receiver) = receiver.clone() {
         let receiver = deps.api.addr_validate(&receiver)?;
 
-        if proposal.submitter == receiver{
+        if proposal.submitter == receiver {
             return Err(ContractError::Unauthorized {});
         }
     }
@@ -206,7 +240,13 @@ pub fn cast_vote(
         return Err(ContractError::UserAlreadyVoted {});
     }
 
-    let voting_power = calc_voting_power(deps.as_ref(), info.sender.to_string(), proposal.clone().start_time, builders, receiver.clone() )?;
+    let voting_power = calc_voting_power(
+        deps.as_ref(),
+        info.sender.to_string(),
+        proposal.clone().start_time,
+        builders,
+        receiver.clone(),
+    )?;
 
     if voting_power.is_zero() {
         return Err(ContractError::NoVotingPower {});
@@ -234,12 +274,7 @@ pub fn cast_vote(
     ]))
 }
 
-pub fn end_proposal(
-    deps: DepsMut, 
-    env: Env,
-    proposal_id: u64
-) -> Result<Response, ContractError> {
-
+pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Response, ContractError> {
     let mut proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
 
     if proposal.status != ProposalStatus::Active {
@@ -256,7 +291,8 @@ pub fn end_proposal(
     let against_votes = proposal.against_power;
     let total_votes = for_votes + against_votes;
 
-    let total_voting_power = calc_total_voting_power_at( deps.as_ref(), proposal.clone().start_time )?;
+    let total_voting_power =
+        calc_total_voting_power_at(deps.as_ref(), proposal.clone().start_time)?;
 
     let mut proposal_quorum: Decimal = Decimal::zero();
     let mut proposal_threshold: Decimal = Decimal::zero();
@@ -280,23 +316,22 @@ pub fn end_proposal(
 
     PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;
 
-    let response = Response::new()
-        .add_attributes(vec![
-            attr("action", "end_proposal"),
-            attr("proposal_id", proposal_id.to_string()),
-            attr("proposal_result", proposal.status.to_string()),
-        ]);
+    let response = Response::new().add_attributes(vec![
+        attr("action", "end_proposal"),
+        attr("proposal_id", proposal_id.to_string()),
+        attr("proposal_result", proposal.status.to_string()),
+    ]);
 
     Ok(response)
 }
 
-//Execute Proposal Msgs  
+//Execute Proposal Msgs
 pub fn execute_proposal(
     deps: DepsMut,
     env: Env,
     proposal_id: u64,
 ) -> Result<Response, ContractError> {
-    let mut proposal = PROPOSALS.load( deps.storage, proposal_id.to_string() )?;
+    let mut proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
 
     if proposal.status != ProposalStatus::Passed {
         return Err(ContractError::ProposalNotPassed {});
@@ -312,7 +347,7 @@ pub fn execute_proposal(
 
     proposal.status = ProposalStatus::Executed;
 
-    PROPOSALS.save( deps.storage, proposal_id.to_string(), &proposal )?;
+    PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;
 
     let messages = match proposal.messages {
         Some(mut messages) => {
@@ -327,7 +362,6 @@ pub fn execute_proposal(
         .add_attribute("proposal_id", proposal_id.to_string())
         .add_messages(messages))
 }
-
 
 /// Checks that proposal messages are correct.
 /// Returns [`ContractError`] on failure, otherwise returns a [`Response`] with the specified
@@ -357,7 +391,7 @@ pub fn remove_completed_proposal(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    let mut proposal = PROPOSALS.load( deps.storage, proposal_id.to_string() )?;
+    let mut proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
 
     if env.block.height
         > (proposal.end_block + config.proposal_effective_delay + config.proposal_expiration_period)
@@ -369,7 +403,7 @@ pub fn remove_completed_proposal(
         return Err(ContractError::ProposalNotCompleted {});
     }
 
-    PROPOSALS.remove( deps.storage, proposal_id.to_string() );
+    PROPOSALS.remove(deps.storage, proposal_id.to_string());
 
     Ok(Response::new()
         .add_attribute("action", "remove_completed_proposal")
@@ -401,7 +435,8 @@ pub fn update_config(
         config.builders_contract_addr = deps.api.addr_validate(&builders_contract_addr)?;
     }
 
-    if let Some(builders_voting_power_multiplier) = updated_config.builders_voting_power_multiplier {
+    if let Some(builders_voting_power_multiplier) = updated_config.builders_voting_power_multiplier
+    {
         config.builders_voting_power_multiplier = builders_voting_power_multiplier;
     }
 
@@ -460,28 +495,28 @@ pub fn update_config(
 }
 
 //Calc total voting power at a specific time
-pub fn calc_total_voting_power_at(
-    deps: Deps, 
-    start_time: u64,
-) -> StdResult<Uint128> {
+pub fn calc_total_voting_power_at(deps: Deps, start_time: u64) -> StdResult<Uint128> {
     let config = CONFIG.load(deps.storage)?;
 
     //Pulls stake from before Proposal's start_time
-    let staked_mbrn = deps.querier.query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
-        contract_addr: config.staking_contract_addr.to_string(), 
-        msg: to_binary(&StakingQueryMsg::Staked { 
-            limit: None, 
-            start_after: None, 
-            end_before: Some( start_time ), 
-            unstaking: false,
-        })? 
-    }))?.stakers;
+    let staked_mbrn = deps
+        .querier
+        .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.staking_contract_addr.to_string(),
+            msg: to_binary(&StakingQueryMsg::Staked {
+                limit: None,
+                start_after: None,
+                end_before: Some(start_time),
+                unstaking: false,
+            })?,
+        }))?
+        .stakers;
 
-    
     //Calc total voting power
     let total: Uint128;
-    if staked_mbrn == vec![] { total = Uint128::zero() } else {
-
+    if staked_mbrn == vec![] {
+        total = Uint128::zero()
+    } else {
         total = staked_mbrn
             .into_iter()
             .map(|stake| {
@@ -494,40 +529,42 @@ pub fn calc_total_voting_power_at(
             .collect::<Vec<Uint128>>()
             .into_iter()
             .sum();
+    }
 
-    }   
-    
     Ok(total)
 }
 
 //Calc voting power for sender at a Popoosal's start_time
 pub fn calc_voting_power(
-    deps: Deps, 
-    sender: String, 
-    start_time: u64, 
-    builders: bool, 
-    receiver: Option<String> 
+    deps: Deps,
+    sender: String,
+    start_time: u64,
+    builders: bool,
+    receiver: Option<String>,
 ) -> StdResult<Uint128> {
-
     let config = CONFIG.load(deps.storage)?;
 
     //Pulls stake from before Proposal's start_time
-    let staked_mbrn = deps.querier.query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
-        contract_addr: config.staking_contract_addr.to_string(), 
-        msg: to_binary(&StakingQueryMsg::Staked { 
-            limit: None, 
-            start_after: None, 
-            end_before: Some( start_time ), 
-            unstaking: false,
-        })? 
-    }))?.stakers;
+    let staked_mbrn = deps
+        .querier
+        .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.staking_contract_addr.to_string(),
+            msg: to_binary(&StakingQueryMsg::Staked {
+                limit: None,
+                start_after: None,
+                end_before: Some(start_time),
+                unstaking: false,
+            })?,
+        }))?
+        .stakers;
 
     let total: Uint128;
     //If calculating builder's voting power, we take from receiver's allocation
-    if !builders{
-         //Calc total voting power
-        if staked_mbrn == vec![] { total = Uint128::zero() } else {
-
+    if !builders {
+        //Calc total voting power
+        if staked_mbrn == vec![] {
+            total = Uint128::zero()
+        } else {
             total = staked_mbrn
                 .into_iter()
                 .map(|stake| {
@@ -540,31 +577,34 @@ pub fn calc_voting_power(
                 .collect::<Vec<Uint128>>()
                 .into_iter()
                 .sum();
-
         }
-    } else if receiver.is_some(){
+    } else if receiver.is_some() {
         let receiver = receiver.unwrap();
-        
-        let allocation = deps.querier.query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
-            contract_addr: config.builders_contract_addr.to_string(),
-            msg: to_binary(&BuildersQueryMsg::Allocation { receiver })?, 
+
+        let allocation = deps
+            .querier
+            .query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: config.builders_contract_addr.to_string(),
+                msg: to_binary(&BuildersQueryMsg::Allocation { receiver })?,
             }))?;
-        
+
         total = Uint128::from_str(&allocation.amount)? * config.builders_voting_power_multiplier;
-    } else if builders { //If builder's but receiver isn't passed, use the sender
+    } else if builders {
+        //If builder's but receiver isn't passed, use the sender
         let receiver = sender.clone();
-        
-        let allocation = deps.querier.query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
-            contract_addr: config.builders_contract_addr.to_string(),
-            msg: to_binary(&BuildersQueryMsg::Allocation { receiver })?, 
+
+        let allocation = deps
+            .querier
+            .query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: config.builders_contract_addr.to_string(),
+                msg: to_binary(&BuildersQueryMsg::Allocation { receiver })?,
             }))?;
-        
+
         total = Uint128::from_str(&allocation.amount)? * config.builders_voting_power_multiplier;
     } else {
         //This isn't necessary but fulfills the compiler
         total = Uint128::zero();
     }
-    
 
     Ok(total)
 }
@@ -572,22 +612,32 @@ pub fn calc_voting_power(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Config {} => to_binary( &CONFIG.load(deps.storage)? ),
+        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::Proposals { start, limit } => to_binary(&query_proposals(deps, start, limit)?),
         QueryMsg::Proposal { proposal_id } => to_binary(&query_proposal(deps, proposal_id)?),
         QueryMsg::ProposalVotes { proposal_id } => {
             to_binary(&query_proposal_votes(deps, proposal_id)?)
         }
-        QueryMsg::UserVotingPower { user, proposal_id, builders } => {
-            let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string() )?;
+        QueryMsg::UserVotingPower {
+            user,
+            proposal_id,
+            builders,
+        } => {
+            let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
 
             let user = deps.api.addr_validate(&user)?;
 
-            to_binary(&calc_voting_power(deps, user.to_string(), proposal.start_time, builders, None)?)
+            to_binary(&calc_voting_power(
+                deps,
+                user.to_string(),
+                proposal.start_time,
+                builders,
+                None,
+            )?)
         }
         QueryMsg::TotalVotingPower { proposal_id } => {
-            let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string() )?;
-            to_binary(&calc_total_voting_power_at( deps, proposal.start_time )?)
+            let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
+            to_binary(&calc_total_voting_power_at(deps, proposal.start_time)?)
         }
         QueryMsg::ProposalVoters {
             proposal_id,
@@ -604,9 +654,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-
 pub fn query_proposal(deps: Deps, proposal_id: u64) -> StdResult<ProposalResponse> {
-    let proposal = PROPOSALS.load( deps.storage, proposal_id.to_string() )?;
+    let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
 
     Ok(ProposalResponse {
         proposal_id: proposal.proposal_id,
@@ -626,14 +675,12 @@ pub fn query_proposal(deps: Deps, proposal_id: u64) -> StdResult<ProposalRespons
     })
 }
 
-
-
 pub fn query_proposals(
     deps: Deps,
     start: Option<u64>,
     limit: Option<u32>,
 ) -> StdResult<ProposalListResponse> {
-    let proposal_count = PROPOSAL_COUNT.load( deps.storage )?;
+    let proposal_count = PROPOSAL_COUNT.load(deps.storage)?;
 
     let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
     let start = start.map(|start| Bound::inclusive(start.to_string()));
@@ -668,7 +715,6 @@ pub fn query_proposals(
     })
 }
 
-
 pub fn query_proposal_voters(
     deps: Deps,
     proposal_id: u64,
@@ -679,7 +725,7 @@ pub fn query_proposal_voters(
     let limit = limit.unwrap_or(DEFAULT_VOTERS_LIMIT).min(MAX_VOTERS_LIMIT);
     let start = start.unwrap_or_default();
 
-    let proposal = PROPOSALS.load( deps.storage, proposal_id.to_string() )?;
+    let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
 
     let voters = match vote_option {
         ProposalVoteOption::For => proposal.for_voters,
@@ -694,9 +740,8 @@ pub fn query_proposal_voters(
         .collect())
 }
 
-
 pub fn query_proposal_votes(deps: Deps, proposal_id: u64) -> StdResult<ProposalVotesResponse> {
-    let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string() )?;
+    let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
 
     Ok(ProposalVotesResponse {
         proposal_id,

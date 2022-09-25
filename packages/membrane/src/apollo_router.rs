@@ -1,10 +1,9 @@
-use cosmwasm_std::{Decimal, Uint128, Addr, Binary};
+use cosmwasm_std::{Addr, Binary, Decimal, Uint128};
 use cw20::Cw20ReceiveMsg;
 use schemars::JsonSchema;
-use serde::{ Serialize, Deserialize };
+use serde::{Deserialize, Serialize};
 
 use crate::types::AssetInfo;
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -65,8 +64,6 @@ pub enum ExecuteMsg {
     },
 }
 
-
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Cw20HookMsg {
@@ -78,8 +75,6 @@ pub enum Cw20HookMsg {
         split: Option<bool>,
     },
 }
-
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]

@@ -1,34 +1,37 @@
-use crate::ContractError;
 use crate::contract::{execute, instantiate, query};
+use crate::ContractError;
 //use crate::state::{AssetInfo, BidInput};
 
 //use cw_multi_test::Contract;
 //use cw_multi_test::Contract;
-use membrane::liq_queue::{InstantiateMsg, QueryMsg, ExecuteMsg, BidResponse, SlotResponse};
-use membrane::types::{ AssetInfo, BidInput };
-use membrane::math::{ Uint256, Decimal256 };
+use membrane::liq_queue::{BidResponse, ExecuteMsg, InstantiateMsg, QueryMsg, SlotResponse};
+use membrane::math::{Decimal256, Uint256};
+use membrane::types::{AssetInfo, BidInput};
 
-use cosmwasm_std::testing::{mock_env, mock_info, mock_dependencies};
-use cosmwasm_std::{from_binary, attr, Uint128, Coin, StdError, Decimal};
-
+use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
+use cosmwasm_std::{attr, from_binary, Coin, Decimal, StdError, Uint128};
 
 #[test]
 fn one_bidder_distribution() {
-    let mut deps = mock_dependencies( );
+    let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
         basket_id: None,
-        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
+        bid_asset: Some(AssetInfo::NativeToken {
+            denom: String::from("cdt"),
+        }),
     };
 
     let info = mock_info("owner0000", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
@@ -36,7 +39,9 @@ fn one_bidder_distribution() {
 
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 1u8,
         },
         bid_owner: None,
@@ -51,13 +56,17 @@ fn one_bidder_distribution() {
 
     let env = mock_env();
     execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
-    
+
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::one(),
-        collateral_amount: Uint256::from( 5000u128 ),
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+        collateral_amount: Uint256::from(5000u128),
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_with: AssetInfo::NativeToken {
+            denom: "cdt".to_string(),
+        },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -69,9 +78,11 @@ fn one_bidder_distribution() {
     // let res = query( deps.as_ref(), mock_env(), msg).unwrap();
     // let resp: SlotResponse = from_binary(&res).unwrap();
     // panic!("{:?}", resp);
-    
+
     let msg = ExecuteMsg::ClaimLiquidations {
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         bid_ids: None,
     };
     let info = mock_info("owner0000", &[]);
@@ -88,7 +99,9 @@ fn one_bidder_distribution() {
     // Can only withdraw the leftover since 4950 was used to liquidate
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(1u128),
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         amount: None,
     };
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -103,33 +116,38 @@ fn one_bidder_distribution() {
     );
 }
 
-
 #[test]
 fn two_bidder_distribution() {
-    let mut deps = mock_dependencies( );
+    let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 1u64,
         basket_id: None,
-        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
+        bid_asset: Some(AssetInfo::NativeToken {
+            denom: String::from("cdt"),
+        }),
     };
 
     let info = mock_info("owner0000", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::zero(),
     };
-    
+
     execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 0u8,
         },
         bid_owner: None,
@@ -148,9 +166,13 @@ fn two_bidder_distribution() {
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::from_ratio(10u128, 1u128),
-        collateral_amount: Uint256::from( 4u128 ),
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+        collateral_amount: Uint256::from(4u128),
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_with: AssetInfo::NativeToken {
+            denom: "cdt".to_string(),
+        },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -158,11 +180,12 @@ fn two_bidder_distribution() {
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
 
-    
     ///Submit 2nd bid
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 0u8,
         },
         bid_owner: None,
@@ -180,9 +203,13 @@ fn two_bidder_distribution() {
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::from_ratio(20u128, 1u128),
-        collateral_amount: Uint256::from( 6u128 ),
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+        collateral_amount: Uint256::from(6u128),
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_with: AssetInfo::NativeToken {
+            denom: "cdt".to_string(),
+        },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -192,10 +219,11 @@ fn two_bidder_distribution() {
     env.block.time = env.block.time.plus_seconds(70u64);
     execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
 
-
     //First bidder participated in 2 liquidations
     let msg = ExecuteMsg::ClaimLiquidations {
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         bid_ids: None,
     };
     let info = mock_info("owner0000", &[]);
@@ -212,17 +240,24 @@ fn two_bidder_distribution() {
     // Nothing to wtihdraw
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(1u128),
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         amount: None,
     };
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(err, 
-        ContractError::Std(StdError::GenericErr { msg: "Bid not found".to_string() })
+    assert_eq!(
+        err,
+        ContractError::Std(StdError::GenericErr {
+            msg: "Bid not found".to_string()
+        })
     );
 
     //2nd bidder participated in 1 liquidations
     let msg = ExecuteMsg::ClaimLiquidations {
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         bid_ids: None,
     };
     let info = mock_info("user0000", &[]);
@@ -239,33 +274,41 @@ fn two_bidder_distribution() {
     // Can only withdraw the leftover
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(2u128),
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         amount: None,
     };
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(err, 
-        ContractError::Std(StdError::GenericErr { msg: "Bid not found".to_string() })
+    assert_eq!(
+        err,
+        ContractError::Std(StdError::GenericErr {
+            msg: "Bid not found".to_string()
+        })
     );
-
 }
 
 #[test]
 fn two_bidder_distribution_big_number() {
-    let mut deps = mock_dependencies( );
+    let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
         basket_id: None,
-        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
+        bid_asset: Some(AssetInfo::NativeToken {
+            denom: String::from("cdt"),
+        }),
     };
 
     let info = mock_info("owner0000", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::zero(),
     };
@@ -274,7 +317,9 @@ fn two_bidder_distribution_big_number() {
     //First bidder bids 10,000
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 0u8,
         },
         bid_owner: None,
@@ -293,9 +338,13 @@ fn two_bidder_distribution_big_number() {
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::from_ratio(10u128, 1u128),
-        collateral_amount: Uint256::from( 400_000_000u128 ),
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+        collateral_amount: Uint256::from(400_000_000u128),
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_with: AssetInfo::NativeToken {
+            denom: "cdt".to_string(),
+        },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -303,11 +352,12 @@ fn two_bidder_distribution_big_number() {
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
 
-    
     ///Submit 2nd bid for 6000
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 0u8,
         },
         bid_owner: None,
@@ -325,22 +375,27 @@ fn two_bidder_distribution_big_number() {
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::from_ratio(20u128, 1u128),
-        collateral_amount: Uint256::from( 600_000_000u128 ),
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+        collateral_amount: Uint256::from(600_000_000u128),
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_with: AssetInfo::NativeToken {
+            denom: "cdt".to_string(),
+        },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
-    };   
+    };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
     execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
 
-
     //First bidder participated in 2 liquidations
     let msg = ExecuteMsg::ClaimLiquidations {
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         bid_ids: None,
     };
     let info = mock_info("owner0000", &[]);
@@ -357,17 +412,24 @@ fn two_bidder_distribution_big_number() {
     // Nothing leftover
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(1u128),
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         amount: None,
     };
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(err, 
-        ContractError::Std(StdError::GenericErr { msg: "Bid not found".to_string() })
+    assert_eq!(
+        err,
+        ContractError::Std(StdError::GenericErr {
+            msg: "Bid not found".to_string()
+        })
     );
 
     //2nd bidder participated in 1 liquidations
     let msg = ExecuteMsg::ClaimLiquidations {
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         bid_ids: None,
     };
     let info = mock_info("user0000", &[]);
@@ -384,32 +446,41 @@ fn two_bidder_distribution_big_number() {
     // Can only withdraw the leftover
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(2u128),
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         amount: None,
     };
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(err, 
-        ContractError::Std(StdError::GenericErr { msg: "Bid not found".to_string() })
+    assert_eq!(
+        err,
+        ContractError::Std(StdError::GenericErr {
+            msg: "Bid not found".to_string()
+        })
     );
 }
 
 #[test]
 fn one_user_two_slots() {
-    let mut deps = mock_dependencies( );
+    let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
         basket_id: None,
-        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
+        bid_asset: Some(AssetInfo::NativeToken {
+            denom: String::from("cdt"),
+        }),
     };
 
     let info = mock_info("owner0000", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::zero(),
     };
@@ -418,7 +489,9 @@ fn one_user_two_slots() {
     //First bidder bids 100 at 5%
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 5u8,
         },
         bid_owner: None,
@@ -432,11 +505,13 @@ fn one_user_two_slots() {
     );
     let mut env = mock_env();
     execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
-    
+
     ///Submit 2nd bid for 100 at 10%
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 10u8,
         },
         bid_owner: None,
@@ -447,22 +522,27 @@ fn one_user_two_slots() {
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::from_ratio(10u128, 1u128),
-        collateral_amount: Uint256::from( 5_000_000u128 ),
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+        collateral_amount: Uint256::from(5_000_000u128),
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_with: AssetInfo::NativeToken {
+            denom: "cdt".to_string(),
+        },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
-    };   
+    };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
     execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
 
-
     //Bidder can claim 5
     let msg = ExecuteMsg::ClaimLiquidations {
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         bid_ids: None,
     };
     let info = mock_info("owner0000", &[]);
@@ -480,22 +560,27 @@ fn one_user_two_slots() {
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::from_ratio(10u128, 1u128),
-        collateral_amount: Uint256::from( 10_000_000u128 ),
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+        collateral_amount: Uint256::from(10_000_000u128),
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_with: AssetInfo::NativeToken {
+            denom: "cdt".to_string(),
+        },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
-    };   
+    };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
     execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
 
-
     //Bidder can claim 10
     let msg = ExecuteMsg::ClaimLiquidations {
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         bid_ids: None,
     };
     let info = mock_info("owner0000", &[]);
@@ -512,18 +597,25 @@ fn one_user_two_slots() {
     // Nothing leftover from first bid
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(1u128),
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         amount: None,
     };
     let err = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap_err();
-    assert_eq!(err, 
-        ContractError::Std(StdError::GenericErr { msg: "Bid not found".to_string() })
+    assert_eq!(
+        err,
+        ContractError::Std(StdError::GenericErr {
+            msg: "Bid not found".to_string()
+        })
     );
 
     // Can only withdraw the leftover from the 10% bid
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(2u128),
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         amount: None,
     };
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -533,28 +625,32 @@ fn one_user_two_slots() {
             attr("method", "retract_bid"),
             attr("bid_for", "osmo"),
             attr("bid_id", "2"),
-            attr("amount", "59736835"),  // 100 ust - 40.263165 = 59.736835 UST
+            attr("amount", "59736835"), // 100 ust - 40.263165 = 59.736835 UST
         ]
     );
 }
 
 #[test]
 fn completely_empty_pool() {
-    let mut deps = mock_dependencies( );
+    let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
         basket_id: None,
-        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
+        bid_asset: Some(AssetInfo::NativeToken {
+            denom: String::from("cdt"),
+        }),
     };
 
     let info = mock_info("owner0000", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::zero(),
     };
@@ -563,7 +659,9 @@ fn completely_empty_pool() {
     //First bidder bids 1000
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 0u8,
         },
         bid_owner: None,
@@ -582,9 +680,13 @@ fn completely_empty_pool() {
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::from_ratio(50u128, 1u128),
-        collateral_amount: Uint256::from( 20_000_000u128 ),
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+        collateral_amount: Uint256::from(20_000_000u128),
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_with: AssetInfo::NativeToken {
+            denom: "cdt".to_string(),
+        },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -592,11 +694,12 @@ fn completely_empty_pool() {
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
 
-    
     ///Submit 2nd bid for 2000
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 0u8,
         },
         bid_owner: None,
@@ -610,42 +713,59 @@ fn completely_empty_pool() {
     );
     execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
 
-    let msg = QueryMsg::Bid { bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() }, bid_id: Uint128::new(2u128) };
-    let res = query( deps.as_ref(), mock_env(), msg).unwrap();
+    let msg = QueryMsg::Bid {
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_id: Uint128::new(2u128),
+    };
+    let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: BidResponse = from_binary(&res).unwrap();
     assert!(!resp.product_snapshot.is_zero(),);
     assert!(resp.epoch_snapshot == Uint128::from(1u128)); // epoch increased
 
-    let msg = QueryMsg::PremiumSlot { bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() }, premium: 0u64 };
-    let res = query( deps.as_ref(), mock_env(), msg).unwrap();
+    let msg = QueryMsg::PremiumSlot {
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        premium: 0u64,
+    };
+    let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: SlotResponse = from_binary(&res).unwrap();
-    assert_eq!( resp.sum_snapshot, Decimal256::zero().to_string() );    // reseted
-    assert_eq!( resp.product_snapshot, Decimal256::one().to_string() ); // reseted
-    assert_eq!( resp.liq_premium, Decimal256::zero().to_string() );
-    assert_eq!( resp.total_bid_amount, Uint256::from(2000000000u128).to_string() ); // only 2nd bid
-    assert_eq!( resp.current_epoch, Uint128::from(1u128) );       // increased epoch
-    assert_eq!( resp.current_scale, Uint128::zero() );
-        
+    assert_eq!(resp.sum_snapshot, Decimal256::zero().to_string()); // reseted
+    assert_eq!(resp.product_snapshot, Decimal256::one().to_string()); // reseted
+    assert_eq!(resp.liq_premium, Decimal256::zero().to_string());
+    assert_eq!(
+        resp.total_bid_amount,
+        Uint256::from(2000000000u128).to_string()
+    ); // only 2nd bid
+    assert_eq!(resp.current_epoch, Uint128::from(1u128)); // increased epoch
+    assert_eq!(resp.current_scale, Uint128::zero());
 
     //Liquidate 20 at $50
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::from_ratio(50u128, 1u128),
-        collateral_amount: Uint256::from( 20_000_000u128 ),
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+        collateral_amount: Uint256::from(20_000_000u128),
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_with: AssetInfo::NativeToken {
+            denom: "cdt".to_string(),
+        },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
-    };   
+    };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
     execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
 
-
     //First bidder can claim from 1st liq
     let msg = ExecuteMsg::ClaimLiquidations {
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         bid_ids: None,
     };
     let info = mock_info("owner0000", &[]);
@@ -662,17 +782,24 @@ fn completely_empty_pool() {
     // Nothing leftover
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(1u128),
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         amount: None,
     };
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(err, 
-        ContractError::Std(StdError::GenericErr { msg: "Bid not found".to_string() })
+    assert_eq!(
+        err,
+        ContractError::Std(StdError::GenericErr {
+            msg: "Bid not found".to_string()
+        })
     );
 
     //2nd bidder participated in 1 liquidation as well
     let msg = ExecuteMsg::ClaimLiquidations {
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         bid_ids: None,
     };
     let info = mock_info("user0000", &[]);
@@ -687,34 +814,39 @@ fn completely_empty_pool() {
     );
 }
 
-
 #[test]
 fn product_truncated_to_zero() {
-    let mut deps = mock_dependencies( );
+    let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
         basket_id: None,
-        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
+        bid_asset: Some(AssetInfo::NativeToken {
+            denom: String::from("cdt"),
+        }),
     };
 
     let info = mock_info("owner0000", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         max_premium: Uint128::new(30u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(10000u128),
     };
     execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     //force product to zero
-    for _ in 0..8{
+    for _ in 0..8 {
         let msg = ExecuteMsg::SubmitBid {
             bid_input: BidInput {
-                bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+                bid_for: AssetInfo::NativeToken {
+                    denom: "osmo".to_string(),
+                },
                 liq_premium: 0u8,
             },
             bid_owner: None,
@@ -729,13 +861,17 @@ fn product_truncated_to_zero() {
 
         let env = mock_env();
         execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
-        
+
         let liq_msg = ExecuteMsg::Liquidate {
             credit_price: Decimal::one(),
             collateral_price: Decimal::one(),
-            collateral_amount: Uint256::from( 999_999_995u128 ), //5 uusd residue //999_999_999
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-            bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+            collateral_amount: Uint256::from(999_999_995u128), //5 uusd residue //999_999_999
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
+            bid_with: AssetInfo::NativeToken {
+                denom: "cdt".to_string(),
+            },
             basket_id: Uint128::new(1u128),
             position_id: Uint128::new(1u128),
             position_owner: "owner01".to_string(),
@@ -748,9 +884,11 @@ fn product_truncated_to_zero() {
     // let res = query( deps.as_ref(), mock_env(), msg).unwrap();
     // let resp: SlotResponse = from_binary(&res).unwrap();
     // panic!("{:?}", resp);
-    
+
     let msg = ExecuteMsg::ClaimLiquidations {
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         bid_ids: None,
     };
     let info = mock_info("owner0000", &[]);
@@ -767,18 +905,25 @@ fn product_truncated_to_zero() {
     let resp: SlotResponse = from_binary(
         &query(
             deps.as_ref(),
-        mock_env(),
-        QueryMsg::PremiumSlot { 
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() }, 
-            premium: 0u64 },
-        ).unwrap()
-    ).unwrap();
+            mock_env(),
+            QueryMsg::PremiumSlot {
+                bid_for: AssetInfo::NativeToken {
+                    denom: "osmo".to_string(),
+                },
+                premium: 0u64,
+            },
+        )
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(resp.total_bid_amount, Uint256::from(40u128).to_string()); // 5 * 8 = 40
 
     //Only last bid is active
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(8u128),
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         amount: None,
     };
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -795,31 +940,37 @@ fn product_truncated_to_zero() {
 
 #[test]
 fn two_bidder_distribution_multiple_common_slots() {
-    let mut deps = mock_dependencies( );
+    let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 1u64,
         basket_id: None,
-        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
+        bid_asset: Some(AssetInfo::NativeToken {
+            denom: String::from("cdt"),
+        }),
     };
 
     let info = mock_info("owner0000", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::zero(),
     };
-    
+
     execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     //First bidder submits 100 to 5%
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 5u8,
         },
         bid_owner: None,
@@ -838,7 +989,9 @@ fn two_bidder_distribution_multiple_common_slots() {
     ///Submit 2nd bid, 100 in 5%
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 5u8,
         },
         bid_owner: None,
@@ -855,7 +1008,9 @@ fn two_bidder_distribution_multiple_common_slots() {
     //First bidder submits 200 to 10%
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 10u8,
         },
         bid_owner: None,
@@ -874,7 +1029,9 @@ fn two_bidder_distribution_multiple_common_slots() {
     ///Submit 2nd bid, 200 in 10%
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 10u8,
         },
         bid_owner: None,
@@ -892,9 +1049,13 @@ fn two_bidder_distribution_multiple_common_slots() {
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::from_ratio(10u128, 1u128),
-        collateral_amount: Uint256::from( 32_000_000u128 ),
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+        collateral_amount: Uint256::from(32_000_000u128),
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_with: AssetInfo::NativeToken {
+            denom: "cdt".to_string(),
+        },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -904,13 +1065,14 @@ fn two_bidder_distribution_multiple_common_slots() {
     env.block.time = env.block.time.plus_seconds(70u64);
     execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
 
-
     // bidders claiming the collaterals
     //  1st: 5 col from the 5% pool, 11 col from the 10% pool
     //  2nd: 5 col from the 5% pool, 11 col from the 10% pool
     let msg = ExecuteMsg::ClaimLiquidations {
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_ids:  None,
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_ids: None,
     };
     let info = mock_info("owner0000", &[]);
     let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
@@ -925,7 +1087,9 @@ fn two_bidder_distribution_multiple_common_slots() {
 
     //2nd bidder participated in 1 liquidations
     let msg = ExecuteMsg::ClaimLiquidations {
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         bid_ids: None,
     };
     let info = mock_info("user0000", &[]);
@@ -942,7 +1106,9 @@ fn two_bidder_distribution_multiple_common_slots() {
     // Bid #4 leftover
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(4u128),
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         amount: None,
     };
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -952,14 +1118,16 @@ fn two_bidder_distribution_multiple_common_slots() {
             attr("method", "retract_bid"),
             attr("bid_for", "osmo"),
             attr("bid_id", "4"),
-            attr("amount", "150736840"),   
+            attr("amount", "150736840"),
         ]
     );
 
     // Bid #3 leftover
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(3u128),
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         amount: None,
     };
     let info = mock_info("owner0000", &[]);
@@ -970,29 +1138,32 @@ fn two_bidder_distribution_multiple_common_slots() {
             attr("method", "retract_bid"),
             attr("bid_for", "osmo"),
             attr("bid_id", "3"),
-            attr("amount", "150736839"), 
+            attr("amount", "150736839"),
         ]
     );
-
 }
 
 #[test]
 fn scalable_reward_distribution_after_multiple_liquidations() {
-    let mut deps = mock_dependencies( );
+    let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
         basket_id: None,
-        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
+        bid_asset: Some(AssetInfo::NativeToken {
+            denom: String::from("cdt"),
+        }),
     };
 
     let info = mock_info("owner0000", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::zero(),
     };
@@ -1001,7 +1172,9 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
     //Bidder 1 submits 50 to 0%
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 0u8,
         },
         bid_owner: None,
@@ -1013,13 +1186,15 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
             amount: Uint128::from(50u128),
         }],
     );
-    let  env = mock_env();
+    let env = mock_env();
     execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
 
     //Bidder 2 submits 100 to 0%
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 0u8,
         },
         bid_owner: None,
@@ -1036,7 +1211,9 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
     //Bidder 3 submits 100 to 0%
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 0u8,
         },
         bid_owner: None,
@@ -1051,14 +1228,17 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
     let mut env = mock_env();
     execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
 
-  
     ///Liquidate 100 at $1
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::from_ratio(1u128, 1u128),
-        collateral_amount: Uint256::from( 100u128 ),
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+        collateral_amount: Uint256::from(100u128),
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_with: AssetInfo::NativeToken {
+            denom: "cdt".to_string(),
+        },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -1073,7 +1253,9 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
     //Bidder 2 submits another 250 to 0%
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 0u8,
         },
         bid_owner: None,
@@ -1091,7 +1273,9 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
     //Bidder 3 submits another 250 to 0%
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 0u8,
         },
         bid_owner: None,
@@ -1109,9 +1293,13 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::from_ratio(1u128, 1u128),
-        collateral_amount: Uint256::from( 50u128 ),
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+        collateral_amount: Uint256::from(50u128),
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_with: AssetInfo::NativeToken {
+            denom: "cdt".to_string(),
+        },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -1121,11 +1309,12 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
     env.block.time = env.block.time.plus_seconds(120u64);
     execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
 
-
     // #1 Bidder CLAIMS COLLATERALS AND RETRACTS BID
     // 20 from the first liquidations, 2 from the second
     let msg = ExecuteMsg::ClaimLiquidations {
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         bid_ids: None,
     };
     let info = mock_info("owner0000", &[]);
@@ -1142,7 +1331,9 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
     //Rounding errors grant27 instead of 28
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(1u128),
-        bid_for:  AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         amount: None,
     };
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -1152,30 +1343,32 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
             attr("method", "retract_bid"),
             attr("bid_for", "osmo"),
             attr("bid_id", "1"),
-            attr("amount", "27"), 
+            attr("amount", "27"),
         ]
     );
-   
 }
-
 
 #[test]
 fn not_enough_bid_for_collateral() {
-    let mut deps = mock_dependencies( );
+    let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 1u64,
         basket_id: None,
-        bid_asset: Some( AssetInfo::NativeToken { denom: String::from("cdt") } ),
+        bid_asset: Some(AssetInfo::NativeToken {
+            denom: String::from("cdt"),
+        }),
     };
 
     let info = mock_info("owner0000", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::zero(),
     };
@@ -1184,7 +1377,9 @@ fn not_enough_bid_for_collateral() {
     //First bidder submits 100 in the 6%
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 6u8,
         },
         bid_owner: None,
@@ -1202,7 +1397,9 @@ fn not_enough_bid_for_collateral() {
     //2nd bidder submits 100 in the 6%
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
-            bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
             liq_premium: 6u8,
         },
         bid_owner: None,
@@ -1217,15 +1414,19 @@ fn not_enough_bid_for_collateral() {
     execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
 
     ///Try to liquidate 100 at $3
-    /// 
+    ///
     // TOTAL COLLATERAL VALUE: 300 UST
     // TOTAL BID POOL AMOUNT: 200 UST
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
         collateral_price: Decimal::from_ratio(3u128, 1u128),
-        collateral_amount: Uint256::from( 100u128 ),
-        bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-        bid_with: AssetInfo::NativeToken { denom: "cdt".to_string() },
+        collateral_amount: Uint256::from(100u128),
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        bid_with: AssetInfo::NativeToken {
+            denom: "cdt".to_string(),
+        },
         basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -1234,6 +1435,5 @@ fn not_enough_bid_for_collateral() {
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
     let err = execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap_err();
-    assert_eq!(err,
-        ContractError::InsufficientBids {  });
+    assert_eq!(err, ContractError::InsufficientBids {});
 }

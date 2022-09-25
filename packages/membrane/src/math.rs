@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 use bigint::U256;
 
-use cosmwasm_std::{Decimal, Uint128, StdError};
+use cosmwasm_std::{Decimal, StdError, Uint128};
 
 const DECIMAL_FRACTIONAL: Uint128 = Uint128::new(1_000_000_000u128);
 
@@ -41,9 +41,7 @@ pub fn decimal_min(a: Decimal, b: Decimal) -> Decimal {
     }
 }
 
-
 //////////////cosmwasm-bignumber Fork: https://github.com/terra-money/terra-cosmwasm/blob/094dc24caa9d417e528e32cc2e44fa19c576599b/packages/bignumber/Cargo.toml///////////////////////
-
 
 /// A fixed-point decimal value with 18 fractional digits, i.e. Decimal256(1_000_000_000_000_000_000) == 1.0
 /// The greatest possible value that can be represented is 115792089237316195423570985008687907853269984665640564039457.584007913129639935 (which is (2^128 - 1) / 10^18)

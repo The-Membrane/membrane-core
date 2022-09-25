@@ -1,4 +1,3 @@
-
 use cosmwasm_std::{Addr, CosmosMsg, Decimal, StdError, StdResult, Uint128, Uint64};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -131,15 +130,14 @@ pub enum QueryMsg {
     /// Return information about the votes cast on a specific proposal
     ProposalVotes { proposal_id: u64 },
     /// Return user voting power for a specific proposal
-    UserVotingPower { 
-        user: String, 
-        proposal_id: u64, 
-        builders: bool 
+    UserVotingPower {
+        user: String,
+        proposal_id: u64,
+        builders: bool,
     },
     /// Return total voting power for a specific proposal
     TotalVotingPower { proposal_id: u64 },
 }
-
 
 /// This structure stores general parameters for the Governance contract.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -225,8 +223,6 @@ impl Config {
             )));
         }
 
-        
-
         Ok(())
     }
 }
@@ -241,7 +237,7 @@ pub struct UpdateConfig {
     /// Builders' contract address
     pub builders_contract_addr: Option<String>,
     /// Multiplier for Builders' allocation voting power
-    pub builders_voting_power_multiplier: Option<Decimal>,    
+    pub builders_voting_power_multiplier: Option<Decimal>,
     /// Proposal voting period
     pub proposal_voting_period: Option<u64>,
     /// Proposal effective delay
@@ -259,7 +255,6 @@ pub struct UpdateConfig {
     /// Links to add to whitelist
     pub whitelist_add: Option<Vec<String>>,
 }
-
 
 /// This structure stores data for a proposal.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

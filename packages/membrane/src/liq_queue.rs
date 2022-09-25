@@ -1,14 +1,11 @@
-
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Uint128, Decimal};
+use cosmwasm_std::{Decimal, Uint128};
 use cw20::Cw20ReceiveMsg;
 
-use crate::math::{Uint256, Decimal256};
-use crate::types::{AssetInfo, BidInput, Bid};
-
-
+use crate::math::{Decimal256, Uint256};
+use crate::types::{AssetInfo, Bid, BidInput};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -23,40 +20,43 @@ pub struct InstantiateMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     Receive(Cw20ReceiveMsg),
-    SubmitBid { //Deposit a list of accepted assets
+    SubmitBid {
+        //Deposit a list of accepted assets
         bid_input: BidInput,
         bid_owner: Option<String>,
     },
-    RetractBid { //Withdraw a list of accepted assets 
+    RetractBid {
+        //Withdraw a list of accepted assets
         bid_id: Uint128,
         bid_for: AssetInfo,
         amount: Option<Uint256>, //If none, retracts full bid
-    }, 
-    Liquidate { //Use bids to fulfll liquidation of Position Contract basket. Called by Positions
-        credit_price: Decimal, //Sent from Position's contract
+    },
+    Liquidate {
+        //Use bids to fulfll liquidation of Position Contract basket. Called by Positions
+        credit_price: Decimal,     //Sent from Position's contract
         collateral_price: Decimal, //Sent from Position's contract
         collateral_amount: Uint256,
         bid_for: AssetInfo,
-        bid_with: AssetInfo,   
+        bid_with: AssetInfo,
         basket_id: Uint128,
         position_id: Uint128,
-        position_owner: String, 
-    }, 
+        position_owner: String,
+    },
     ClaimLiquidations {
         bid_for: AssetInfo,
         bid_ids: Option<Vec<Uint128>>, //None = All bids in the queue
     },
-    AddQueue{    
+    AddQueue {
         bid_for: AssetInfo,
         max_premium: Uint128, //A slot for each premium is created when queue is created
         bid_threshold: Uint256, //Minimum bid amount. Unlocks waiting bids if total_bids is less than.
     },
-    UpdateQueue{
+    UpdateQueue {
         bid_for: AssetInfo, //To signla which queue to edit. You can't edit the bid_for asset.
-        max_premium: Option<Uint128>, 
-        bid_threshold: Option<Uint256>, 
+        max_premium: Option<Uint128>,
+        bid_threshold: Option<Uint256>,
     },
-    UpdateConfig{
+    UpdateConfig {
         owner: Option<String>,
         positions_contract: Option<String>,
         waiting_period: Option<u64>,
@@ -68,7 +68,7 @@ pub enum ExecuteMsg {
 // #[serde(rename_all = "snake_case")]
 // pub enum Cw20HookMsg {
 //     Liquidate {
-        
+
 //     }
 // }
 
@@ -77,10 +77,10 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     Config {},
     Bid {
-        bid_for: AssetInfo, 
-        bid_id: Uint128, 
+        bid_for: AssetInfo,
+        bid_id: Uint128,
     },
-    BidsByUser{
+    BidsByUser {
         bid_for: AssetInfo,
         user: String,
         limit: Option<u32>,
@@ -89,29 +89,31 @@ pub enum QueryMsg {
     Queue {
         bid_for: AssetInfo,
     },
-    Queues{
+    Queues {
         start_after: Option<AssetInfo>,
         limit: Option<u8>,
     },
     //Check if the amount of said asset is liquidatible
     //Position's contract is sending its basket.credit_price
-    CheckLiquidatible { 
+    CheckLiquidatible {
         bid_for: AssetInfo,
         collateral_price: Decimal,
         collateral_amount: Uint256,
         credit_info: AssetInfo,
         credit_price: Decimal,
     },
-    UserClaims { user: String }, //Check if user has any claimable assets
-    PremiumSlot { 
-        bid_for: AssetInfo, 
+    UserClaims {
+        user: String,
+    }, //Check if user has any claimable assets
+    PremiumSlot {
+        bid_for: AssetInfo,
         premium: u64, //Taken as %. 50 = 50%
-    }, 
-    PremiumSlots { 
-        bid_for: AssetInfo, 
+    },
+    PremiumSlots {
+        bid_for: AssetInfo,
         start_after: Option<u64>, //Start after a premium value taken as a %.( 50 = 50%)
         limit: Option<u8>,
-    }, 
+    },
 }
 
 // We define a custom struct for each query response
@@ -130,7 +132,7 @@ pub struct SlotResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct ConfigResponse {
-    pub owner: String, 
+    pub owner: String,
     pub positions_contract: String,
     pub waiting_period: u64,
     pub added_assets: Vec<AssetInfo>,
@@ -153,7 +155,7 @@ pub struct BidResponse {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct ClaimsResponse {
     pub bid_for: String,
-    pub pending_liquidated_collateral: Uint256
+    pub pending_liquidated_collateral: Uint256,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -165,7 +167,7 @@ pub struct LiquidatibleResponse {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct QueueResponse {
     pub bid_asset: String,
-    pub max_premium: String, 
+    pub max_premium: String,
     pub current_bid_id: String,
     pub bid_threshold: String,
 }

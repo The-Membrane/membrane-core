@@ -1,11 +1,9 @@
-
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{ Uint128, Decimal};
+use cosmwasm_std::{Decimal, Uint128};
 
-use crate::types::{ AssetInfo, AssetOracleInfo, PriceInfo };
-
+use crate::types::{AssetInfo, AssetOracleInfo, PriceInfo};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -30,9 +28,8 @@ pub enum ExecuteMsg {
         asset_info: AssetInfo,
         oracle_info: Option<AssetOracleInfo>,
         remove: bool,
-    },    
+    },
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -40,7 +37,7 @@ pub enum QueryMsg {
     Config {},
     Price {
         asset_info: AssetInfo,
-        twap_timeframe: u64, //in minutes
+        twap_timeframe: u64,        //in minutes
         basket_id: Option<Uint128>, //To switch oracle sources
     },
     Prices {
@@ -58,7 +55,7 @@ pub enum QueryMsg {
 // We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct PriceResponse {
-    pub prices: Vec<PriceInfo>, 
+    pub prices: Vec<PriceInfo>,
     pub avg_price: Decimal,
 }
 
@@ -67,8 +64,3 @@ pub struct AssetResponse {
     pub asset_info: AssetInfo,
     pub oracle_info: Vec<AssetOracleInfo>,
 }
-
-
-
-
-

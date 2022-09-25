@@ -5,13 +5,10 @@
 pub mod contract;
 mod error;
 pub mod helpers;
-pub mod state;
+pub mod integration_tests;
 pub mod math;
 pub mod positions;
 pub mod query;
-pub mod integration_tests;
-
-
-
+pub mod state;
 
 pub use crate::error::ContractError;

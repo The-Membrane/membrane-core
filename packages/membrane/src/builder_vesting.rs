@@ -1,11 +1,13 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Uint128};
-use cw20::{ Cw20ReceiveMsg };
+use cosmwasm_std::Uint128;
+use cw20::Cw20ReceiveMsg;
 
-use crate::{types::{ VestingPeriod, Allocation, Asset }, governance::{ProposalMessage, ProposalVoteOption}};
-
+use crate::{
+    governance::{ProposalMessage, ProposalVoteOption},
+    types::{Allocation, Asset, VestingPeriod},
+};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -19,7 +21,7 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Receive( Cw20ReceiveMsg ),
+    Receive(Cw20ReceiveMsg),
     AddReceiver {
         receiver: String,
     },
@@ -35,11 +37,11 @@ pub enum ExecuteMsg {
         receiver: String,
         allocation: Uint128,
     },
-    WithdrawUnlocked { },
+    WithdrawUnlocked {},
     //Claim fees from MBRN staking for contract. This is called to distribute rewards for "ClaimFeesforReceiver".
-    ClaimFeesforContract { }, 
+    ClaimFeesforContract {},
     //Claim fees pro rata to receiver allcoation.
-    ClaimFeesforReceiver { },
+    ClaimFeesforReceiver {},
     SubmitProposal {
         title: String,
         description: String,
@@ -64,19 +66,11 @@ pub enum ExecuteMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
-    Allocation {
-        receiver: String,
-    },
-    UnlockedTokens {
-        receiver: String,
-    },
-    Receiver {
-        receiver: String,
-    },
+    Allocation { receiver: String },
+    UnlockedTokens { receiver: String },
+    Receiver { receiver: String },
     Receivers {},
 }
-
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -94,7 +88,7 @@ pub struct AllocationResponse {
     pub amount: String,
     pub amount_withdrawn: String,
     pub start_time_of_allocation: String, //block time of allocation in seconds
-    pub vesting_period: VestingPeriod,  //In days
+    pub vesting_period: VestingPeriod,    //In days
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

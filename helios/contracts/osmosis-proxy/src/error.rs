@@ -27,5 +27,3 @@ pub enum TokenFactoryError {
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },
 }
-
-

@@ -125,7 +125,6 @@ impl Pool {
         self.set_amount(denom_out, final_out)?;
         Ok(payout)
     }
-   
 
     // returns spot price as place holders, not the arithmetic twap value
     pub fn arithmetic_twap(
@@ -181,7 +180,6 @@ impl Pool {
 }
 
 pub struct OsmosisModule {}
-
 
 impl OsmosisModule {
     fn build_denom(&self, creator: &Addr, subdenom: &str) -> Result<String, ContractError> {
@@ -492,7 +490,6 @@ pub enum OsmosisError {
 
     #[error("Aborting swap - payin: {0} is bigger then maximum input: {1}")]
     PriceTooLowExactOut(Uint128, Uint128),
-    
 }
 
 pub type OsmosisAppWrapped =
@@ -536,7 +533,6 @@ impl OsmosisApp {
                 }),
         )
     }
-   
 }
 
 #[cfg(test)]
@@ -976,5 +972,4 @@ mod tests {
         let expected_assets = vec![coin(2_000_000 + 1993, "atom"), coin(1_000_000 - 993, "btc")];
         assert_eq!(state.assets, expected_assets);
     }
-
 }

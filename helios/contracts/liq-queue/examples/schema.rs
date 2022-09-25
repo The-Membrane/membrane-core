@@ -3,8 +3,14 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use membrane::{liq_queue::{ ExecuteMsg, InstantiateMsg, QueryMsg}, liq_queue::{SlotResponse, BidResponse, ConfigResponse, ClaimsResponse, LiquidatibleResponse, QueueResponse}};
-use liq_queue::state::{Config};
+use liq_queue::state::Config;
+use membrane::{
+    liq_queue::{
+        BidResponse, ClaimsResponse, ConfigResponse, LiquidatibleResponse, QueueResponse,
+        SlotResponse,
+    },
+    liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg},
+};
 
 fn main() {
     let mut out_dir = current_dir().unwrap();

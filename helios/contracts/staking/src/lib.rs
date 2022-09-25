@@ -4,12 +4,11 @@
 #![allow(non_camel_case_types)]
 pub mod contract;
 mod error;
-pub mod state;
 pub mod math;
+pub mod state;
 
 #[cfg(test)]
 #[allow(unused_variables)]
 pub mod contract_tests;
 
 pub use crate::error::ContractError;
-

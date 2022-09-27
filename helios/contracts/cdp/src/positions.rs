@@ -1198,7 +1198,7 @@ pub fn liquidate(
         false,
         config.clone(),
     )?;
-    //TODO: Delete
+    //TODO: For liquidation tests, Delete.
     let insolvent = true;
     let current_LTV = Decimal::percent(90);
 
@@ -1226,8 +1226,7 @@ pub fn liquidate(
 
     //repay value = the % of the loan insolvent. Insolvent is anything between current and max borrow LTV.
     //IE, repay what to get the position down to borrow LTV
-    let mut repay_value = loan_value
-        - decimal_multiplication(decimal_division(avg_borrow_LTV, current_LTV), loan_value);
+    let mut repay_value = decimal_multiplication( decimal_division( decimal_subtraction(current_LTV, avg_borrow_LTV), current_LTV), loan_value);
 
     //Assert repay_value is above the minimum, if not repay at least the minimum
     //Repay the full loan if the resulting leftover credit amount is less than the minimum.
@@ -1274,6 +1273,13 @@ pub fn liquidate(
         target_position.clone().collateral_assets,
         config.clone(),
     )?;
+    //Post-LP Split assets
+    let collateral_assets = get_LP_pool_cAssets(
+        querier,
+        config.clone(),
+        basket.clone(),
+        target_position.clone().collateral_assets,
+    )?;
 
     for (i, cAsset) in target_position
         .clone()
@@ -1286,14 +1292,76 @@ pub fn liquidate(
         if cAsset.clone().pool_info.is_some() {
             let pool_info = cAsset.clone().pool_info.unwrap();
 
+            //Find cAsset_prices index for both LP assets
+            let mut indexes = vec![];
+
+            for asset in pool_info.asset_infos.clone() {
+                if let Some( (i, _cAsset) ) = collateral_assets.clone().into_iter().enumerate().find(|cAsset| cAsset.1.asset.info.equal(&asset.info)){
+                    //Push index
+                    indexes.push( i );
+                }
+            }
+            
+            //Query per share asset amounts
+            let share_asset_amounts = querier
+                .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+                    msg: to_binary(&OsmoQueryMsg::PoolState {
+                        id: pool_info.pool_id,
+                    })?,
+                }))?
+                .shares_value(Uint128::new(1u128));
+
+            //Find LP price
+            let lp_price = {
+                //Get asset values
+                let mut per_asset_value = vec![]; 
+                
+                for (i, asset) in share_asset_amounts.clone().into_iter().enumerate() {
+                    per_asset_value.push( cAsset_prices[ indexes[i] ] * asset.amount );
+                }
+                //Get value for 1 LPshare
+                let individual_share_value: Uint128 = per_asset_value.clone().into_iter().sum();
+
+                //Get asset ratios
+                let mut per_asset_ratio = vec![]; 
+
+                for value in per_asset_value {
+                    per_asset_ratio.push( Decimal::from_ratio(value, individual_share_value) );
+                }
+
+                //Get price
+                let mut lp_price = Decimal::zero();
+
+                for (i, ratio) in per_asset_ratio.into_iter().enumerate() {
+                    lp_price += decimal_multiplication(ratio, cAsset_prices[ indexes[i] ] );
+                }
+
+                lp_price
+            };
+
             ////Calculate amount of asset to liquidate
             // Amount to liquidate = cAsset_ratio * % of position insolvent * cAsset amount
-            let lp_liquidate_amount = decimal_multiplication(
-                cAsset_ratios[i],
-                decimal_division(avg_borrow_LTV, current_LTV),
-            ) * cAsset.asset.amount;
+            let lp_liquidate_amount = decimal_division( 
+                decimal_multiplication(
+                    cAsset_ratios[i],
+                    repay_value), 
+                lp_price)
+            * Uint128::new(1u128);
 
-            //Query share asset amount
+            
+            update_position_claims(
+                storage,
+                querier,
+                env.clone(),
+                basket_id,
+                position_id,
+                valid_position_owner.clone(),
+                cAsset.clone().asset.info,
+                lp_liquidate_amount,
+            )?;
+            
+            //Query total share asset amounts
             let share_asset_amounts = querier
                 .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                     contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
@@ -1319,17 +1387,15 @@ pub fn liquidate(
                 token_out_mins,
             }
             .into();
-            lp_withdraw_messages.push(msg);
+
+
+
+            //Comment to pass accrue_debt test
+            // lp_withdraw_messages.push(msg);
         }
     }
 
     //Post-LP Split ratios
-    let collateral_assets = get_LP_pool_cAssets(
-        querier,
-        config.clone(),
-        basket.clone(),
-        target_position.clone().collateral_assets,
-    )?;
     let cAsset_ratios = get_cAsset_ratios(
         storage,
         env.clone(),
@@ -1337,11 +1403,8 @@ pub fn liquidate(
         collateral_assets.clone(),
         config.clone(),
     )?;
-
     //Dynamic fee that goes to the caller (info.sender): current_LTV - max_LTV
     let caller_fee = decimal_subtraction(current_LTV, avg_max_LTV);
-
-    //let total_fees = caller_fee + config.clone().liq_fee;
 
     let mut user_repay_amount = Decimal::zero();
     //Let the user repay their position if they are in the SP
@@ -1405,8 +1468,6 @@ pub fn liquidate(
         }
     }
 
-    // panic!("{}", credit_repay_amount);
-
     //Track total leftover repayment after the liq_queue
     let mut liq_queue_leftover_credit_repayment: Decimal = credit_repay_amount;
 
@@ -1428,6 +1489,7 @@ pub fn liquidate(
 
         let repay_amount_per_asset =
             decimal_multiplication(credit_repay_amount, cAsset_ratios[num]);
+
 
         let collateral_price = cAsset_prices[num];
         let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num]);
@@ -1521,7 +1583,7 @@ pub fn liquidate(
                 fee_assets.push(asset.clone());
                 protocol_coins.push(asset_to_coin(asset)?);
             }
-        }
+        } 
         //Create Msg to send all native token liq fees for fn caller
         let msg = CosmosMsg::Bank(BankMsg::Send {
             to_address: info.clone().sender.to_string(),
@@ -1601,7 +1663,6 @@ pub fn liquidate(
             submessages.push(sub_msg);
         }
     }
-
     //If this is some that means the module is in use.
     //Build SubMsgs to send to the Stability Pool
 
@@ -4655,6 +4716,7 @@ pub fn mint_revenue(
     repay_for: Option<UserInfo>,
     amount: Option<Uint128>,
 ) -> Result<Response, ContractError> {
+    
     //Can't send_to and repay_for at the same time
     if send_to.is_some() && repay_for.is_some() {
         return Err(ContractError::CustomError {

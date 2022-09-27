@@ -842,7 +842,6 @@ pub fn receive_cw20(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
-    //panic!("here".to_string());
     match msg.id {
         LIQ_QUEUE_REPLY_ID => handle_liq_queue_reply(deps, msg, env),
         STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, env, msg),
@@ -1403,7 +1402,6 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Resp
                     denom: token.to_string(),
                 }
             };
-
             let msg = withdrawal_msg(
                 Asset {
                     info: token_info.clone(),

@@ -254,7 +254,7 @@ pub fn deposit(
             } else {
                 //If user doesn't pass an ID, we create a new position
                 new_position =
-                    create_position(deps.storage, cAssets.clone(), basket_id, env.clone())?;
+                    create_position(deps.storage, cAssets.clone(), &mut basket, env.clone())?;
 
                 //Accrue, mainly for repayment price
                 accrue(
@@ -269,6 +269,7 @@ pub fn deposit(
 
                 //For response
                 new_position_id = new_position.clone().position_id;
+                
 
                 //Need to add new position to the old set of positions if a new one was created.
                 POSITIONS.update(
@@ -287,7 +288,7 @@ pub fn deposit(
         }
         // If Err() meaning no positions loaded, new Vec<Position> is created
         Err(_) => {
-            new_position = create_position(deps.storage, cAssets.clone(), basket_id, env.clone())?;
+            new_position = create_position(deps.storage, cAssets.clone(), &mut basket, env.clone())?;
 
             //Accrue, mainly for repayment price
             accrue(
@@ -2660,28 +2661,9 @@ pub fn edit_contract_owner(
 pub fn create_position(
     deps: &mut dyn Storage,
     cAssets: Vec<cAsset>, //Assets being added into the position
-    basket_id: Uint128,
+    basket: &mut Basket,
     env: Env,
-) -> Result<Position, ContractError> {
-    let basket: Basket = match BASKETS.load(deps, basket_id.to_string()) {
-        Err(_) => return Err(ContractError::NonExistentBasket {}),
-        Ok(basket) => basket,
-    };
-
-    //increment config id
-    BASKETS.update(
-        deps,
-        basket_id.to_string(),
-        |basket| -> Result<_, ContractError> {
-            match basket {
-                Some(mut basket) => {
-                    basket.current_position_id += Uint128::from(1u128);
-                    Ok(basket)
-                }
-                None => return Err(ContractError::NonExistentBasket {}), //Due to the first check this should never get hit
-            }
-        },
-    )?;
+) -> Result<Position, ContractError> {   
 
     //Create Position instance
     let new_position: Position;
@@ -2690,9 +2672,12 @@ pub fn create_position(
         position_id: basket.current_position_id,
         collateral_assets: cAssets,
         credit_amount: Uint128::zero(),
-        basket_id,
+        basket_id: basket.clone().basket_id,
         last_accrued: env.block.time.seconds(),
     };
+
+    //increment position id
+    basket.current_position_id += Uint128::from(1u128);
 
     return Ok(new_position);
 }

@@ -1,2 +1,2 @@
 mod integration_tests;
-//mod osmosis_testing;
+mod fuzz_test;

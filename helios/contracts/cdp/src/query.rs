@@ -147,7 +147,7 @@ pub fn query_position(
             )?;
 
             Ok(PositionResponse {
-                position_id: position.position_id.to_string(),
+                position_id: position.position_id,
                 collateral_assets: position.clone().collateral_assets,
                 cAsset_ratios: get_cAsset_ratios_imut(
                     deps.storage,
@@ -156,8 +156,8 @@ pub fn query_position(
                     position.clone().collateral_assets,
                     config.clone(),
                 )?,
-                credit_amount: position.credit_amount.to_string(),
-                basket_id: position.basket_id.to_string(),
+                credit_amount: position.credit_amount,
+                basket_id: position.basket_id,
                 avg_borrow_LTV: borrow,
                 avg_max_LTV: max,
             })
@@ -237,11 +237,11 @@ pub fn query_user_positions(
 
             if error.is_none() {
                 user_positions.push(PositionResponse {
-                    position_id: position.position_id.to_string(),
+                    position_id: position.position_id,
                     collateral_assets: position.collateral_assets,
                     cAsset_ratios,
-                    credit_amount: position.credit_amount.to_string(),
-                    basket_id: position.basket_id.to_string(),
+                    credit_amount: position.credit_amount,
+                    basket_id: position.basket_id,
                     avg_borrow_LTV: borrow,
                     avg_max_LTV: max,
                 })
@@ -303,11 +303,11 @@ pub fn query_user_positions(
                         };
 
                         response.push(PositionResponse {
-                            position_id: position.position_id.to_string(),
+                            position_id: position.position_id,
                             collateral_assets: position.collateral_assets,
                             cAsset_ratios,
-                            credit_amount: position.credit_amount.to_string(),
-                            basket_id: position.basket_id.to_string(),
+                            credit_amount: position.credit_amount,
+                            basket_id: position.basket_id,
                             avg_borrow_LTV: borrow,
                             avg_max_LTV: max,
                         });

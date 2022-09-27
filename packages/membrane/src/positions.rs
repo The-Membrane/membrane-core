@@ -212,13 +212,13 @@ pub enum QueryMsg {
 // We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct PositionResponse {
-    pub position_id: String,
+    pub position_id: Uint128,
     pub collateral_assets: Vec<cAsset>,
     //Allows front ends to get ratios using the smae oracles
     //Useful for users who want to deposit or withdraw at the current ratio
     pub cAsset_ratios: Vec<Decimal>,
-    pub credit_amount: String,
-    pub basket_id: String,
+    pub credit_amount: Uint128,
+    pub basket_id: Uint128,
     pub avg_borrow_LTV: Decimal,
     pub avg_max_LTV: Decimal,
 }

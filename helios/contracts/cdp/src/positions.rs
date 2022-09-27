@@ -32,7 +32,7 @@ use membrane::stability_pool::{
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::types::{
     cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, LiqAsset, LiquidityInfo, Position,
-    SellWallDistribution, StoredPrice, SupplyCap, TWAPPoolInfo, UserInfo,
+    SellWallDistribution, StoredPrice, SupplyCap, TWAPPoolInfo, UserInfo, PoolInfo,
 };
 
 use crate::query::{query_stability_pool_fee, query_stability_pool_liquidatible};
@@ -1257,7 +1257,7 @@ pub fn liquidate(
     };
 
     // Don't send any funds here, only send UserInfo and repayment amounts.
-    // We want to act on the reply status but since SubMsg state won't revert if we catch the error,
+    // We want to act on the reply status but since SubMsg state won't   revert if we catch the error,
     // assets we send prematurely won't come back.
 
     let res = Response::new();
@@ -1290,108 +1290,11 @@ pub fn liquidate(
         //Withdraw the necessary amount of LP shares
         //Ensures liquidations are on the pooled assets and not the LP share itself for more efficient queue capital
         if cAsset.clone().pool_info.is_some() {
-            let pool_info = cAsset.clone().pool_info.unwrap();
 
-            //Find cAsset_prices index for both LP assets
-            let mut indexes = vec![];
+            let msg = get_lp_liq_withdraw_msg( storage, querier, env.clone(), config.clone(), basket_id.clone(), position_id.clone(), valid_position_owner.clone(), collateral_assets.clone(), cAsset_ratios.clone(), cAsset_prices.clone(), repay_value.clone(), cAsset.clone(), i.clone()  )?;
 
-            for asset in pool_info.asset_infos.clone() {
-                if let Some( (i, _cAsset) ) = collateral_assets.clone().into_iter().enumerate().find(|cAsset| cAsset.1.asset.info.equal(&asset.info)){
-                    //Push index
-                    indexes.push( i );
-                }
-            }
-            
-            //Query per share asset amounts
-            let share_asset_amounts = querier
-                .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-                    msg: to_binary(&OsmoQueryMsg::PoolState {
-                        id: pool_info.pool_id,
-                    })?,
-                }))?
-                .shares_value(Uint128::new(1u128));
-
-            //Find LP price
-            let lp_price = {
-                //Get asset values
-                let mut per_asset_value = vec![]; 
-                
-                for (i, asset) in share_asset_amounts.clone().into_iter().enumerate() {
-                    per_asset_value.push( cAsset_prices[ indexes[i] ] * asset.amount );
-                }
-                //Get value for 1 LPshare
-                let individual_share_value: Uint128 = per_asset_value.clone().into_iter().sum();
-
-                //Get asset ratios
-                let mut per_asset_ratio = vec![]; 
-
-                for value in per_asset_value {
-                    per_asset_ratio.push( Decimal::from_ratio(value, individual_share_value) );
-                }
-
-                //Get price
-                let mut lp_price = Decimal::zero();
-
-                for (i, ratio) in per_asset_ratio.into_iter().enumerate() {
-                    lp_price += decimal_multiplication(ratio, cAsset_prices[ indexes[i] ] );
-                }
-
-                lp_price
-            };
-
-            ////Calculate amount of asset to liquidate
-            // Amount to liquidate = cAsset_ratio * % of position insolvent * cAsset amount
-            let lp_liquidate_amount = decimal_division( 
-                decimal_multiplication(
-                    cAsset_ratios[i],
-                    repay_value), 
-                lp_price)
-            * Uint128::new(1u128);
-
-            
-            update_position_claims(
-                storage,
-                querier,
-                env.clone(),
-                basket_id,
-                position_id,
-                valid_position_owner.clone(),
-                cAsset.clone().asset.info,
-                lp_liquidate_amount,
-            )?;
-            
-            //Query total share asset amounts
-            let share_asset_amounts = querier
-                .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-                    msg: to_binary(&OsmoQueryMsg::PoolState {
-                        id: pool_info.pool_id,
-                    })?,
-                }))?
-                .shares_value(lp_liquidate_amount);
-
-            //Push LP Withdrawal Msg
-            let mut token_out_mins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
-            for token in share_asset_amounts {
-                token_out_mins.push(osmosis_std::types::cosmos::base::v1beta1::Coin {
-                    denom: token.denom,
-                    amount: token.amount.to_string(),
-                });
-            }
-
-            let msg: CosmosMsg = MsgExitPool {
-                sender: env.contract.address.to_string(),
-                pool_id: pool_info.pool_id,
-                share_in_amount: lp_liquidate_amount.to_string(),
-                token_out_mins,
-            }
-            .into();
-
-
-
-            //Comment to pass accrue_debt test
-            // lp_withdraw_messages.push(msg);
+            //Comment out to pass accrue_debt test
+            lp_withdraw_messages.push(msg);
         }
     }
 
@@ -1935,6 +1838,124 @@ pub fn liquidate(
                 ),
             ]))
     }
+}
+
+fn get_lp_liq_withdraw_msg(
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    config: Config,
+    basket_id: Uint128,
+    position_id: Uint128,
+    valid_position_owner: Addr,
+    collateral_assets: Vec<cAsset>,
+    cAsset_ratios: Vec<Decimal>,
+    cAsset_prices: Vec<Decimal>,
+    repay_value: Decimal,
+    cAsset: cAsset,
+    i: usize,
+) -> StdResult<CosmosMsg>{
+    
+    let pool_info = cAsset.clone().pool_info.unwrap();
+
+    //Find cAsset_prices index for both LP assets
+    let mut indexes = vec![];
+
+    for asset in pool_info.asset_infos.clone() {
+        if let Some( (i, _cAsset) ) = collateral_assets.clone().into_iter().enumerate().find(|cAsset| cAsset.1.asset.info.equal(&asset.info)){
+            //Push index
+            indexes.push( i );
+        }
+    }
+    
+    //Query per share asset amounts
+    let share_asset_amounts = querier
+        .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+            msg: to_binary(&OsmoQueryMsg::PoolState {
+                id: pool_info.pool_id,
+            })?,
+        }))?
+        .shares_value(Uint128::new(1u128));
+
+    //Find LP price
+    let lp_price = {
+        //Get asset values
+        let mut per_asset_value = vec![]; 
+        
+        for (i, asset) in share_asset_amounts.clone().into_iter().enumerate() {
+            per_asset_value.push( cAsset_prices[ indexes[i] ] * asset.amount );
+        }
+        //Get value for 1 LPshare
+        let individual_share_value: Uint128 = per_asset_value.clone().into_iter().sum();
+
+        //Get asset ratios
+        let mut per_asset_ratio = vec![]; 
+
+        for value in per_asset_value {
+            per_asset_ratio.push( Decimal::from_ratio(value, individual_share_value) );
+        }
+
+        //Get price
+        let mut lp_price = Decimal::zero();
+
+        for (i, ratio) in per_asset_ratio.into_iter().enumerate() {
+            lp_price += decimal_multiplication(ratio, cAsset_prices[ indexes[i] ] );
+        }
+
+        lp_price
+    };
+
+    ////Calculate amount of asset to liquidate
+    // Amount to liquidate = cAsset_ratio * % of position insolvent * cAsset amount
+    let lp_liquidate_amount = decimal_division( 
+        decimal_multiplication(
+            cAsset_ratios[i],
+            repay_value), 
+        lp_price)
+    * Uint128::new(1u128);
+
+    
+    update_position_claims(
+        storage,
+        querier,
+        env.clone(),
+        basket_id,
+        position_id,
+        valid_position_owner.clone(),
+        cAsset.clone().asset.info,
+        lp_liquidate_amount,
+    )?;
+    
+    //Query total share asset amounts
+    let share_asset_amounts = querier
+        .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+            msg: to_binary(&OsmoQueryMsg::PoolState {
+                id: pool_info.pool_id,
+            })?,
+        }))?
+        .shares_value(lp_liquidate_amount);
+
+    //Push LP Withdrawal Msg
+    let mut token_out_mins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
+    for token in share_asset_amounts {
+        token_out_mins.push(osmosis_std::types::cosmos::base::v1beta1::Coin {
+            denom: token.denom,
+            amount: token.amount.to_string(),
+        });
+    }
+
+    let msg: CosmosMsg = MsgExitPool {
+        sender: env.contract.address.to_string(),
+        pool_id: pool_info.pool_id,
+        share_in_amount: lp_liquidate_amount.to_string(),
+        token_out_mins,
+    }
+    .into();
+
+    Ok( msg )
+
 }
 
 pub fn get_contract_balances(

@@ -7,7 +7,7 @@ use std::str::FromStr;
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Addr, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper,
-    QueryRequest, Reply, Response, StdError, StdResult, Uint128,
+    QueryRequest, Reply, Response, StdError, StdResult, Uint128, SubMsg,
 };
 use cw2::set_contract_version;
 
@@ -164,6 +164,7 @@ pub fn create_denom(
     max_supply: Option<Uint128>,
     liquidity_multiplier: Option<Decimal>,
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
     if !validate_authority(config, info) {
@@ -174,9 +175,10 @@ pub fn create_denom(
         return Err(TokenFactoryError::InvalidSubdenom { subdenom });
     }
 
-    let create_denom_msg = OsmosisMsg::CreateDenom {
+    let create_denom_msg = SubMsg::reply_on_success(OsmosisMsg::CreateDenom {
         subdenom: subdenom.clone(),
-    };
+    }, CREATE_DENOM_REPLY_ID );
+
 
     let res = Response::new()
         .add_attribute("method", "create_denom")
@@ -189,7 +191,7 @@ pub fn create_denom(
                 .unwrap_or_else(Decimal::zero)
                 .to_string(),
         )
-        .add_message(create_denom_msg);
+        .add_submessage(create_denom_msg);
 
     Ok(res)
 }
@@ -467,7 +469,7 @@ fn get_denom(deps: Deps<OsmosisQuery>, creator_addr: String, subdenom: String) -
     }
 }
 
-fn validate_denom(
+pub fn validate_denom(
     querier: QuerierWrapper<OsmosisQuery>,
     denom: String,
 ) -> Result<(), TokenFactoryError> {
@@ -510,7 +512,6 @@ fn validate_denom(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn reply(deps: DepsMut<OsmosisQuery>, env: Env, msg: Reply) -> StdResult<Response> {
-    //panic!("here".to_string());
     match msg.id {
         CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),

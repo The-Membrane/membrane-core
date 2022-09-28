@@ -39,14 +39,6 @@ mod tests {
             amount: Uint128,
             mint_to_address: String,
         },
-        BurnTokens {
-            denom: String,
-            amount: Uint128,
-            burn_from_address: String,
-        },
-        CreateDenom {
-            subdenom: String,
-        },
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
@@ -55,24 +47,11 @@ mod tests {
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Osmo_MockQueryMsg {
-        SpotPrice {
-            asset: String,
-        },
-        PoolState {
-            id: u64,
-        },
-        GetDenom {
-            creator_address: String,
-            subdenom: String,
-        },
-        ArithmeticTwapToNow {
-            id: u64,
-            quote_asset_denom: String,
-            base_asset_denom: String,
-            start_time: i64,
-        },
-    }
+    pub enum Osmo_MockQueryMsg { }
+
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub struct MockResponse {}
 
     pub fn osmosis_proxy_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
@@ -83,62 +62,13 @@ mod tests {
                         amount,
                         mint_to_address,
                     } => Ok(Response::new()),
-                    Osmo_MockExecuteMsg::BurnTokens {
-                        denom,
-                        amount,
-                        burn_from_address,
-                    } => Ok(Response::new()),
-                    Osmo_MockExecuteMsg::CreateDenom { subdenom } => Ok(Response::new()
-                        .add_attributes(vec![
-                            attr("basket_id", "1"),
-                            attr("subdenom", "credit_fulldenom"),
-                        ])),
                 }
             },
             |_, _, _, _: Osmo_MockInstantiateMsg| -> StdResult<Response> {
                 Ok(Response::default())
             },
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
-                match msg {
-                    Osmo_MockQueryMsg::SpotPrice { asset } => Ok(to_binary(&SpotPriceResponse {
-                        price: Decimal::one(),
-                    })?),
-                    Osmo_MockQueryMsg::PoolState { id } => {
-                        if id == 99u64 {
-                            Ok(to_binary(&PoolStateResponse {
-                                assets: vec![coin(100_000_000, "base"), coin(100_000_000, "quote")],
-                                shares: coin(100_000_000, "lp_denom"),
-                            })?)
-                        } else {
-                            Ok(to_binary(&PoolStateResponse {
-                                assets: vec![coin(49_999, "credit_fulldenom")],
-                                shares: coin(0, "shares"),
-                            })?)
-                        }
-                    }
-                    Osmo_MockQueryMsg::GetDenom {
-                        creator_address,
-                        subdenom,
-                    } => Ok(to_binary(&GetDenomResponse {
-                        denom: String::from("credit_fulldenom"),
-                    })?),
-                    Osmo_MockQueryMsg::ArithmeticTwapToNow {
-                        id,
-                        quote_asset_denom,
-                        base_asset_denom,
-                        start_time,
-                    } => {
-                        if base_asset_denom == *"base" {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(100),
-                            })?)
-                        } else {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(100),
-                            })?)
-                        }
-                    }
-                }
+                Ok(to_binary(&MockResponse {})?)
             },
         );
         Box::new(contract)
@@ -148,9 +78,6 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Staking_MockExecuteMsg {
-        DepositFee {
-            fee_assets: Vec<Asset>,
-        },
         ClaimRewards {
             claim_as_cw20: Option<String>,
             claim_as_native: Option<String>,
@@ -176,7 +103,6 @@ mod tests {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Staking_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
-                    Staking_MockExecuteMsg::DepositFee { fee_assets } => Ok(Response::default()),
                     Staking_MockExecuteMsg::ClaimRewards {
                         claim_as_cw20,
                         claim_as_native,
@@ -219,9 +145,7 @@ mod tests {
     //Mock Cw20 Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Cw20_MockExecuteMsg {
-        Transfer { recipient: String, amount: Uint128 },
-    }
+    pub enum Cw20_MockExecuteMsg { }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
@@ -229,26 +153,18 @@ mod tests {
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Cw20_MockQueryMsg {
-        Balance { address: String },
-    }
+    pub enum Cw20_MockQueryMsg { }
 
     pub fn cw20_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Cw20_MockExecuteMsg| -> StdResult<Response> {
-                match msg {
-                    Cw20_MockExecuteMsg::Transfer { recipient, amount } => Ok(Response::default()),
-                }
+                 Ok(Response::default())
             },
             |_, _, _, _: Cw20_MockInstantiateMsg| -> StdResult<Response> {
                 Ok(Response::default())
             },
             |_, _, msg: Cw20_MockQueryMsg| -> StdResult<Binary> {
-                match msg {
-                    Cw20_MockQueryMsg::Balance { address } => Ok(to_binary(&BalanceResponse {
-                        balance: Uint128::zero(),
-                    })?),
-                }
+                Ok(to_binary(&MockResponse {})?)
             },
         );
         Box::new(contract)
@@ -341,6 +257,8 @@ mod tests {
 
     mod builders {
 
+        use membrane::builder_vesting::ConfigResponse;
+
         use super::*;
 
         #[test]
@@ -396,6 +314,18 @@ mod tests {
             )
             .unwrap();
 
+            //Claim Fees again from Staking
+            let msg = ExecuteMsg::ClaimFeesforContract {};
+            let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            //Send the Claimed Fees to mimic a send from the Staking Contract
+            app.send_tokens(
+                Addr::unchecked("coin_God"),
+                Addr::unchecked(bv_contract.addr()),
+                &[coin(1_000_000, "debit"), coin(1_000_000, "2nddebit")],
+            )
+            .unwrap();
+
             //Query and Assert Claimables
             let query_msg = QueryMsg::Receiver {
                 receiver: String::from("receiver1"),
@@ -411,13 +341,13 @@ mod tests {
                         info: AssetInfo::NativeToken {
                             denom: String::from("debit")
                         },
-                        amount: Uint128::new(333_333u128),
+                        amount: Uint128::new(666_666u128),
                     },
                     Asset {
                         info: AssetInfo::NativeToken {
                             denom: String::from("2nddebit")
                         },
-                        amount: Uint128::new(333_333u128),
+                        amount: Uint128::new(666_666u128),
                     },
                 ]
             );
@@ -437,16 +367,22 @@ mod tests {
                         info: AssetInfo::NativeToken {
                             denom: String::from("debit")
                         },
-                        amount: Uint128::new(250_000u128),
+                        amount: Uint128::new(500_000u128),
                     },
                     Asset {
                         info: AssetInfo::NativeToken {
                             denom: String::from("2nddebit")
                         },
-                        amount: Uint128::new(250_000u128),
+                        amount: Uint128::new(500_000u128),
                     },
                 ]
             );
+
+            //Invalid receiver for ClaimFeesforReceiver
+            let msg = ExecuteMsg::ClaimFeesforReceiver {};
+            let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("not_a_receiver"), cosmos_msg)
+                .unwrap_err();
 
             //Claim for each receiver
             let msg = ExecuteMsg::ClaimFeesforReceiver {};
@@ -464,13 +400,13 @@ mod tests {
                 app.wrap()
                     .query_all_balances(Addr::unchecked("receiver1"))
                     .unwrap(),
-                vec![coin(333_333, "2nddebit"), coin(333_333, "debit")]
+                vec![coin(666_666, "2nddebit"), coin(666_666, "debit")]
             );
             assert_eq!(
                 app.wrap()
                     .query_all_balances(Addr::unchecked("receiver2"))
                     .unwrap(),
-                vec![coin(250_000, "2nddebit"), coin(250_000, "debit")]
+                vec![coin(500_000, "2nddebit"), coin(500_000, "debit")]
             );
 
             //Assert there is nothing left to claim
@@ -483,6 +419,49 @@ mod tests {
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("receiver2"), cosmos_msg)
                 .unwrap_err();
+
+        }
+
+        #[test]
+        fn update_config(){
+            let (mut app, bv_contract, cw20_addr) = proper_instantiate();
+
+            //Update Config: Error Unauthorized
+            let msg = ExecuteMsg::UpdateConfig { 
+                owner: None, 
+                mbrn_denom: None,
+                osmosis_proxy: None,
+                staking_contract: None,
+            };
+            let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("not_owner"), cosmos_msg).unwrap_err();
+
+            //Update Config: Success
+            let msg = ExecuteMsg::UpdateConfig { 
+                owner: Some( String::from("new_owner")), 
+                mbrn_denom: Some( String::from("new_denom") ), 
+                osmosis_proxy: Some( cw20_addr.to_string() ), 
+                staking_contract: Some( cw20_addr.to_string() ), 
+            };
+            let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            
+            //Query and Assert Claimables
+            let query_msg = QueryMsg::Config {  };
+            let res: ConfigResponse = app
+                .wrap()
+                .query_wasm_smart(bv_contract.addr(), &query_msg)
+                .unwrap();
+            assert_eq!(
+                res,
+                ConfigResponse { 
+                    owner: String::from("new_owner"), 
+                    initial_allocation: String::from("30000000000000"), 
+                    mbrn_denom: String::from("new_denom"), 
+                    osmosis_proxy: cw20_addr.to_string(), 
+                    staking_contract: cw20_addr.to_string(), 
+                }
+            );
         }
     }
 }

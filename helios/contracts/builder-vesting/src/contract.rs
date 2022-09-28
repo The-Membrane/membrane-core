@@ -977,6 +977,23 @@ mod tests {
         )
         .unwrap();
 
+        //AddAllocation: Unauthorized
+        let allocation_msg = ExecuteMsg::AddAllocation {
+            receiver: String::from(""),
+            allocation: Uint128::new(0u128),
+            vesting_period: VestingPeriod {
+                cliff: 365u64,
+                linear: 365u64,
+            },
+        };
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("not_an_owner", &[]),
+            allocation_msg,
+        )
+        .unwrap_err();
+
         //AddAllocation
         let allocation_msg = ExecuteMsg::AddAllocation {
             receiver: String::from("receiver0000"),
@@ -993,7 +1010,7 @@ mod tests {
             allocation_msg,
         )
         .unwrap();
-
+        
         //Decrease Allocation
         let allocation_msg = ExecuteMsg::DecreaseAllocation {
             receiver: String::from("receiver0000"),
@@ -1016,6 +1033,28 @@ mod tests {
         let resp: AllocationResponse = from_binary(&res).unwrap();
         assert_eq!(resp.amount, String::from("500000000000"));
 
+        //Decrease Allocation: More than allocation sets it to 0
+        let allocation_msg = ExecuteMsg::DecreaseAllocation {
+            receiver: String::from("receiver0000"),
+            allocation: Uint128::new(999_999_999_999u128),
+        };
+        let _res = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("owner0000", &[]),
+            allocation_msg,
+        )
+        .unwrap();
+
+        //Query Allocation and assert Decrease
+        let msg = QueryMsg::Allocation {
+            receiver: String::from("receiver0000"),
+        };
+        let res = query(deps.as_ref(), mock_env(), msg).unwrap();
+
+        let resp: AllocationResponse = from_binary(&res).unwrap();
+        assert_eq!(resp.amount, String::from("0"));
+
         //AddReceiver
         let add_msg = ExecuteMsg::AddReceiver {
             receiver: String::from("receiver1"),
@@ -1031,7 +1070,7 @@ mod tests {
         //Error: AddAllocation over Allocation limit
         let allocation_msg = ExecuteMsg::AddAllocation {
             receiver: String::from("receiver1"),
-            allocation: Uint128::new(29_500_000_000_001u128),
+            allocation: Uint128::new(30_000_000_000_001u128),
             vesting_period: VestingPeriod {
                 cliff: 365u64,
                 linear: 365u64,
@@ -1065,6 +1104,18 @@ mod tests {
         //Instantiating contract
         let v_info = mock_info("sender88", &[]);
         let _res = instantiate(deps.as_mut(), mock_env(), v_info, msg).unwrap();
+
+        //AddReceiver that won't get an allocation
+        let add_msg = ExecuteMsg::AddReceiver {
+            receiver: String::from("not_an_allocation"),
+        };
+        let _res = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("owner0000", &[]),
+            add_msg,
+        )
+        .unwrap();
 
         //AddReceiver
         let add_msg = ExecuteMsg::AddReceiver {
@@ -1108,6 +1159,26 @@ mod tests {
         let resp: UnlockedResponse = from_binary(&res).unwrap();
         assert_eq!(resp.unlocked_amount, Uint128::new(500_000_000_000u128));
 
+        ///Invalid Receiver withdraw
+        let withdraw_msg = ExecuteMsg::WithdrawUnlocked {};
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info("not_a_receiver", &[]),
+            withdraw_msg,
+        )
+        .unwrap_err();
+
+        ///Receiver w/ no Allocaition 'Withdraw'
+        let withdraw_msg = ExecuteMsg::WithdrawUnlocked {};
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info("not_an_allocation", &[]),
+            withdraw_msg,
+        )
+        .unwrap_err();
+
         ///Withdraw unlocked
         let withdraw_msg = ExecuteMsg::WithdrawUnlocked {};
         let res = execute(
@@ -1132,7 +1203,7 @@ mod tests {
         let withdraw_msg = ExecuteMsg::WithdrawUnlocked {};
         let res = execute(
             deps.as_mut(),
-            env,
+            env.clone(),
             mock_info("receiver0000", &[]),
             withdraw_msg,
         )
@@ -1147,6 +1218,29 @@ mod tests {
                 attr("withdrawn_amount", String::from("0")),
             ]
         );
+
+        env.block.time = env.block.time.plus_seconds(99999999u64); //buncha years
+
+         ///Withdraw unlocked
+         let withdraw_msg = ExecuteMsg::WithdrawUnlocked {};
+         let res = execute(
+             deps.as_mut(),
+             env.clone(),
+             mock_info("receiver0000", &[]),
+             withdraw_msg,
+         )
+         .unwrap();
+ 
+         //Can withdraw the rest (ie the other half)
+         assert_eq!(
+             res.attributes,
+             vec![
+                 attr("method", "withdraw_unlocked"),
+                 attr("receiver", String::from("receiver0000")),
+                 attr("withdrawn_amount", String::from("500000000000")),
+             ]
+         );
+ 
     }
 
     #[test]
@@ -1186,5 +1280,18 @@ mod tests {
                 })),
             ]
         );
+
+        let msg = QueryMsg::Config {  };
+        let res = query(deps.as_ref(), mock_env(), msg).unwrap();
+
+        let resp: ConfigResponse = from_binary(&res).unwrap();
+        assert_eq!(resp, 
+            ConfigResponse { 
+                owner: String::from("owner0000"),
+                initial_allocation: String::from("30000000000000"),
+                mbrn_denom: String::from("mbrn_denom"),
+                osmosis_proxy: String::from("osmosis_proxy"),
+                staking_contract: String::from("staking_contract"),
+            });
     }
 }

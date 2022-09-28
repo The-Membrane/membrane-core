@@ -1160,7 +1160,7 @@ pub fn distribute_funds(
 
     //2) Split to users
     for mut user_ratio in distribution_ratios {
-        for (index, cAsset_ratio) in cAsset_ratios.clone().into_iter().enumerate() {
+        for (index, mut cAsset_ratio) in cAsset_ratios.clone().into_iter().enumerate() {
             if cAsset_ratio == Decimal::zero() {
                 continue;
             }
@@ -1219,7 +1219,7 @@ pub fn distribute_funds(
                     },
                 )?;
 
-                //Set cAsset_ratio to 0
+                //Set cAsset_ratios[index] to 0
                 cAsset_ratios[index] = Decimal::zero();
 
                 break;
@@ -1281,7 +1281,9 @@ pub fn distribute_funds(
                 )?;
 
                 //Set cAsset_ratio to the difference
-                cAsset_ratios[index] = decimal_subtraction(cAsset_ratio, user_ratio.ratio);
+                cAsset_ratio = decimal_subtraction(cAsset_ratio, user_ratio.ratio);
+                //This says unread but changing it to cAsset_ratios[index] breaks the functionality
+                //Ignore warning
 
                 break;
             } else if user_ratio.ratio > cAsset_ratio {
@@ -1335,7 +1337,7 @@ pub fn distribute_funds(
                 )?;
 
                 //Set user_ratio as leftover
-                user_ratio.ratio = decimal_subtraction(user_ratio.ratio, cAsset_ratios[0]);
+                user_ratio.ratio = decimal_subtraction(user_ratio.ratio, cAsset_ratio);
 
                 //Set cAsset_ratio to 0
                 cAsset_ratios[index] = Decimal::zero();

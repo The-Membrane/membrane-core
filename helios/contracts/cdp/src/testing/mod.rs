@@ -1,2 +1,2 @@
 mod integration_tests;
-mod fuzz_test;
+//mod fuzz_test;

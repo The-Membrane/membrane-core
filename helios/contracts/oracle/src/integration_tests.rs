@@ -335,7 +335,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(price[0].avg_price, Decimal::percent(50));
+            assert_eq!(price[0].avg_price, Decimal::percent(450));
             assert_eq!(price[1].avg_price, Decimal::percent(50));
 
             //Successful Remove

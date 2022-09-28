@@ -5845,14 +5845,12 @@ mod tests {
             app.execute(Addr::unchecked("owner"), cosmos_msg)
                 .unwrap_err();
 
-            //Fail for invalid collateral
+            //Fail due to invalid collateral
             let exec_msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 basket_id: Uint128::from(1u128),
                 position_id: None,
             };
-
-            //fail due to invalid collateral
             let cosmos_msg = cdp_contract
                 .call(exec_msg, vec![coin(666, "fake_debit")])
                 .unwrap();
@@ -5889,7 +5887,7 @@ mod tests {
                     attr("method", "deposit"),
                     attr("basket_id", "1"),
                     attr("position_owner", "owner"),
-                    attr("position_id", "1"),
+                    attr("position_id", "2"),
                     attr("assets", "11 debit"),
                     attr("assets", "11 2nddebit"),
                 ]

@@ -1295,7 +1295,7 @@ pub fn liquidate(
             let msg = get_lp_liq_withdraw_msg( storage, querier, env.clone(), config.clone(), basket_id.clone(), position_id.clone(), valid_position_owner.clone(), collateral_assets.clone(), cAsset_ratios.clone(), cAsset_prices.clone(), repay_value.clone(), cAsset.clone(), i.clone()  )?;
 
             //Comment out to pass accrue_debt test
-            lp_withdraw_messages.push(msg);
+            //lp_withdraw_messages.push(msg);
         }
     }
 

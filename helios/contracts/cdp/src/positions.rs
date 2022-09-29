@@ -2072,7 +2072,16 @@ pub fn create_basket(
                 //Gets Liquidation Queue max premium.
                 //The premium has to be at most 5% less than the difference between max_LTV and 100%
                 //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
-                let max_premium = Uint128::new(95u128) - asset.max_LTV.atomics();
+                let max_premium = match Uint128::new(95u128).checked_sub( asset.max_LTV * Uint128::new(100u128) ){
+                    Ok( diff ) => diff,
+                    //A default to 10 assuming that will be the lowest sp_liq_fee
+                    Err( _err ) => Uint128::new(10u128) 
+                    ,
+                };
+                //We rather the LQ liquidate than the SP if possible so its max_premium will be at most the sp_liq fee...
+                //..if the first subtraction fails.
+                //If it failed, allowing the LQ premium to be more than the SP fee means less efficient liquidations..
+                //Since we are aiming for lowest possible fee
 
                 msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: new_liq_queue.clone().unwrap().to_string(),
@@ -2370,8 +2379,12 @@ pub fn edit_basket(
                     //Gets Liquidation Queue max premium.
                     //The premium has to be at most 5% less than the difference between max_LTV and 100%
                     //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
-                    let max_premium =
-                        Uint128::new(95u128) - new_cAsset.max_LTV * Uint128::new(100u128);
+                    let max_premium = match Uint128::new(95u128).checked_sub( new_cAsset.max_LTV * Uint128::new(100u128) ){
+                        Ok( diff ) => diff,
+                        //A default to 10 assuming that will be the lowest sp_liq_fee
+                        Err( _err ) => Uint128::new(10u128) 
+                        ,
+                    };
 
                     msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                         contract_addr: basket.clone().liq_queue.unwrap().into_string(),
@@ -2424,7 +2437,12 @@ pub fn edit_basket(
                 //Gets Liquidation Queue max premium.
                 //The premium has to be at most 5% less than the difference between max_LTV and 100%
                 //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
-                let max_premium = Uint128::new(95u128) - new_cAsset.max_LTV * Uint128::new(100u128);
+                let max_premium = match Uint128::new(95u128).checked_sub( new_cAsset.max_LTV * Uint128::new(100u128) ){
+                    Ok( diff ) => diff,
+                    //A default to 10 assuming that will be the lowest sp_liq_fee
+                    Err( _err ) => Uint128::new(10u128) 
+                    ,
+                };
 
                 msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: basket.clone().liq_queue.unwrap().into_string(),
@@ -2439,7 +2457,12 @@ pub fn edit_basket(
                 //Gets Liquidation Queue max premium.
                 //The premium has to be at most 5% less than the difference between max_LTV and 100%
                 //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
-                let max_premium = Uint128::new(95u128) - new_cAsset.max_LTV * Uint128::new(100u128);
+                let max_premium = match Uint128::new(95u128).checked_sub( new_cAsset.max_LTV * Uint128::new(100u128) ){
+                    Ok( diff ) => diff,
+                    //A default to 10 assuming that will be the lowest sp_liq_fee
+                    Err( _err ) => Uint128::new(10u128) 
+                    ,
+                };
 
                 msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: new_queue.clone().unwrap().into_string(),

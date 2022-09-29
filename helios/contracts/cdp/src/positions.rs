@@ -3191,70 +3191,26 @@ fn update_basket_tally(
 ) -> Result<(), ContractError> {
     let config = CONFIG.load(storage)?;
 
+    //get LP cAssets
+    let collateral_assets = get_LP_pool_cAssets(querier, config.clone(), basket.clone(), collateral_assets)?;
+
     for cAsset in collateral_assets.iter() {
-        //If its an LP, edit each collateral type.
-        if cAsset.clone().pool_info.is_some() {
-            let pool_info = cAsset.clone().pool_info.unwrap();
 
-            //Query share asset amount
-            let share_asset_amounts = querier
-                .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-                    msg: to_binary(&OsmoQueryMsg::PoolState {
-                        id: pool_info.pool_id,
-                    })?,
-                }))?
-                .shares_value(cAsset.asset.amount);
-
-            //Add to the cap for each individual asset
-            for (i, asset) in pool_info.asset_infos.into_iter().enumerate() {
-                if let Some((index, mut cap)) = basket
-                    .clone()
-                    .collateral_supply_caps
-                    .into_iter()
-                    .enumerate()
-                    .find(|(_x, cap)| cap.asset_info.equal(&asset.info))
-                {
-                    if add_to_cAsset {
-                        cap.current_supply += share_asset_amounts[i].amount;
-                    } else {
-                        cap.current_supply -= share_asset_amounts[i].amount;
-                    }
-                    basket.collateral_supply_caps[index] = cap.clone();
-                }
+        if let Some((index, mut cap)) = basket
+            .clone()
+            .collateral_supply_caps
+            .into_iter()
+            .enumerate()
+            .find(|(_x, cap)| cap.asset_info.equal(&cAsset.asset.info))
+        {
+            if add_to_cAsset {
+                cap.current_supply += cAsset.asset.amount;
+            } else {
+                cap.current_supply -= cAsset.asset.amount;
             }
-
-            //Add to the cap of the share token as well
-            if let Some((index, mut cap)) = basket
-                .clone()
-                .collateral_supply_caps
-                .into_iter()
-                .enumerate()
-                .find(|(_x, cap)| cap.asset_info.equal(&cAsset.asset.info))
-            {
-                if add_to_cAsset {
-                    cap.current_supply += cAsset.asset.amount;
-                } else {
-                    cap.current_supply -= cAsset.asset.amount;
-                }
-                basket.collateral_supply_caps[index] = cap;
-            }
-        } else {
-            if let Some((index, mut cap)) = basket
-                .clone()
-                .collateral_supply_caps
-                .into_iter()
-                .enumerate()
-                .find(|(_x, cap)| cap.asset_info.equal(&cAsset.asset.info))
-            {
-                if add_to_cAsset {
-                    cap.current_supply += cAsset.asset.amount;
-                } else {
-                    cap.current_supply -= cAsset.asset.amount;
-                }
-                basket.collateral_supply_caps[index] = cap;
-            }
+            basket.collateral_supply_caps[index] = cap;
         }
+    
     }
 
     //Map supply caps to cAssets to get new ratios

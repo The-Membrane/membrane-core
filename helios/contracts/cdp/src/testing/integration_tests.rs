@@ -1686,7 +1686,7 @@ mod tests {
         use membrane::positions::{
             BadDebtResponse, BasketResponse, CollateralInterestResponse, ConfigResponse,
             Cw20HookMsg, DebtCapResponse, ExecuteMsg, InsolvencyResponse, PositionResponse,
-            PositionsResponse,
+            PositionsResponse, InterestResponse,
         };
         use membrane::types::{InsolventPosition, LPAssetInfo, PoolInfo, SupplyCap, UserInfo};
 
@@ -3161,6 +3161,21 @@ mod tests {
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             assert_eq!(res.credit_amount, Uint128::new(50001));
+
+            // //Query Redemption Rate/Repayment Interest
+            let resp: InterestResponse = app
+            .wrap()
+            .query_wasm_smart(cdp_contract.addr(), &QueryMsg::GetBasketInterest { basket_id: Uint128::new(1u128) })
+            .unwrap();
+
+            assert_eq!(
+                resp.credit_interest.to_string(),
+                String::from("0.041654809"),
+            );
+            assert_eq!(
+                resp.negative_rate,
+                true,
+            );
         }
 
         #[test]
@@ -3222,8 +3237,8 @@ mod tests {
                 .unwrap();
 
             //Assert interest rates decreased from the negative redemption rate
-            //Base rate is 285714000000000
-            //Accrued rate is 282856000000000
+            //Base rate is 14285714000000000
+            //Accrued rate is 141428570000000000
             let query_msg = QueryMsg::GetCollateralInterest {
                 basket_id: Uint128::new(1u128),
             };
@@ -3242,6 +3257,8 @@ mod tests {
                     "[(NativeToken { denom: \"debit\" }, Decimal(Uint128(141428570000000000)))]"
                 )
             );
+
+            
         }
 
         #[test]
@@ -5679,8 +5696,8 @@ mod tests {
             assert_eq!(resp[0].basket_id, String::from(Uint128::from(1u128)));
             assert_eq!(resp[1].basket_id, String::from(Uint128::from(2u128)));
             assert_eq!(resp.len().to_string(), String::from("2"));
-
             
+
             //Update Config
             let msg = ExecuteMsg::UpdateConfig { 
                 owner: None, 

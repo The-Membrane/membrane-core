@@ -1496,7 +1496,7 @@ pub fn query_basket_credit_interest(
     let mut price_difference = Decimal::zero();
     let mut negative_rate: bool = false;
 
-    if !time_elapsed == 0u64 {
+    if !(time_elapsed == 0u64) {
         //Calculate new interest rate
         let credit_asset = cAsset {
             asset: basket.clone().credit_asset,
@@ -1514,6 +1514,7 @@ pub fn query_basket_credit_interest(
             Some(basket_id),
         )?
         .1[0];
+        
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
             //If market price > than repayment price

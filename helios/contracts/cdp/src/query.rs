@@ -189,13 +189,14 @@ pub fn query_user_positions(
             Err(_) => return Err(StdError::generic_err("No User Positions")),
             Ok(positions) => positions,
         };
-
+        
         let mut basket =
             BASKETS.load(deps.storage, basket_id.clone().unwrap().clone().to_string())?;
 
         let mut user_positions: Vec<PositionResponse> = vec![];
-
-        let _iter = positions.into_iter().take(limit).map(|mut position| {
+        
+        let _iter: () = positions.into_iter().take(limit).map(|mut position| {
+            
             let (borrow, max, _value, _prices) = match get_avg_LTV_imut(
                 deps.storage,
                 env.clone(),
@@ -246,7 +247,7 @@ pub fn query_user_positions(
                     avg_max_LTV: max,
                 })
             }
-        });
+        }).collect();
 
         if error.is_some() {
             return Err(error.unwrap());
@@ -741,7 +742,7 @@ pub fn query_bad_debt(deps: Deps, basket_id: Uint128) -> StdResult<BadDebtRespon
         has_bad_debt: vec![],
     };
 
-    let _iter = POSITIONS
+    let _iter: () = POSITIONS
         .prefix(basket_id.to_string())
         .range(deps.storage, None, None, Order::Ascending)
         .map(|item| {
@@ -770,7 +771,7 @@ pub fn query_bad_debt(deps: Deps, basket_id: Uint128) -> StdResult<BadDebtRespon
                     ))
                 }
             }
-        });
+        }).collect();
 
     Ok(res)
 }
@@ -800,7 +801,7 @@ pub fn query_basket_insolvency(
         None
     };
 
-    let _iter = POSITIONS
+    let _iter: () = POSITIONS
         .prefix(basket_id.to_string())
         .range(deps.storage, start, None, Order::Ascending)
         .take(limit)
@@ -851,7 +852,7 @@ pub fn query_basket_insolvency(
                     });
                 }
             }
-        });
+        }).collect();
 
     if error.is_some() {
         return Err(error.unwrap());
@@ -932,8 +933,6 @@ pub fn query_collateral_rates(
     let mut basket = BASKETS.load(deps.storage, basket_id.to_string())?;
 
     let rates = get_interest_rates_imut(deps.storage, deps.querier, env.clone(), &mut basket)?;
-
-    // panic!("{:?}", rates);
 
     let config = CONFIG.load(deps.storage)?;
 
@@ -1124,7 +1123,6 @@ fn accrue_imut(
                 //Subtract price difference to make it .9___
                 applied_rate = decimal_subtraction(Decimal::one(), price_difference);
             }
-            //if negative_rate && applied_rate != Decimal::one() {panic!("{}", applied_rate)};
 
             let mut new_price = basket.credit_price;
             //Negative repayment interest needs to be enabled by the basket
@@ -1206,8 +1204,6 @@ fn get_position_avg_rate_imut(
 
     let interest_rates = get_interest_rates_imut(storage, querier, env, basket)?;
 
-    // if !interest_rates[1].1.is_zero() {panic!("{:?}, {:?}", interest_rates, ratios)};
-
     let mut avg_rate = Decimal::zero();
 
     for (i, cAsset) in new_assets.clone().iter().enumerate() {
@@ -1220,8 +1216,6 @@ fn get_position_avg_rate_imut(
             avg_rate += decimal_multiplication(ratios[i], rate.1);
         }
     }
-
-    //if !interest_rates[1].1.is_zero() {panic!("{:?}", avg_rate)};
 
     Ok(avg_rate)
 }
@@ -1250,9 +1244,6 @@ fn get_interest_rates_imut(
             ));
         }
     }
-    //if !basket.clone().base_interest_rate.is_zero() {panic!("{:?}", rates)};
-
-    //panic!("{:?}", rates);
 
     //Get proportion of debt && supply caps filled
     let mut debt_proportions = vec![];
@@ -1514,7 +1505,7 @@ pub fn query_basket_credit_interest(
             Some(basket_id),
         )?
         .1[0];
-        
+
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
             //If market price > than repayment price
@@ -1783,8 +1774,6 @@ fn get_avg_LTV_imut(
         None,
     )?;
 
-    //panic!("{}", cAsset_values.len());
-
     let total_value: Decimal = cAsset_values.iter().sum();
 
     //getting each cAsset's % of total value
@@ -1796,17 +1785,6 @@ fn get_avg_LTV_imut(
     //converting % of value to avg_LTV by multiplying collateral LTV by % of total value
     let mut avg_max_LTV: Decimal = Decimal::zero();
     let mut avg_borrow_LTV: Decimal = Decimal::zero();
-
-    if cAsset_ratios.len() == 0 {
-        //TODO: Change back to no values. This is for testing without oracles
-        //return Ok((Decimal::percent(0), Decimal::percent(0), Decimal::percent(0)))
-        return Ok((
-            Decimal::percent(50),
-            Decimal::percent(50),
-            Decimal::percent(100_000_000),
-            vec![Decimal::one()],
-        ));
-    }
 
     //Skip unecessary calculations if length is 1
     if cAsset_ratios.len() == 1 {

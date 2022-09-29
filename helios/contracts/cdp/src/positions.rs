@@ -4324,7 +4324,6 @@ fn get_interest_rates(
         }
     }
 
-    //if !debt_proportions[1].is_zero() {panic!("{:?}", debt_proportions)};
     //Gets pro-rata rate and uses multiplier if above desired utilization
     let mut two_slope_pro_rata_rates = vec![];
     for (i, _rate) in rates.iter().enumerate() {
@@ -4486,8 +4485,6 @@ fn get_position_avg_rate(
 
     let interest_rates = get_interest_rates(storage, querier, env, basket)?;
 
-    // if !interest_rates[1].1.is_zero() {panic!("{:?}, {:?}", interest_rates, ratios)};
-
     let mut avg_rate = Decimal::zero();
 
     for (i, cAsset) in new_assets.clone().iter().enumerate() {
@@ -4500,8 +4497,6 @@ fn get_position_avg_rate(
             avg_rate += decimal_multiplication(ratios[i], rate.1);
         }
     }
-
-    //if !interest_rates[1].1.is_zero() {panic!("{:?}", avg_rate)};
 
     Ok(avg_rate)
 }

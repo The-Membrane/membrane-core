@@ -5696,7 +5696,41 @@ mod tests {
             assert_eq!(resp[0].basket_id, String::from(Uint128::from(1u128)));
             assert_eq!(resp[1].basket_id, String::from(Uint128::from(2u128)));
             assert_eq!(resp.len().to_string(), String::from("2"));
-            
+
+            //Query UserPositions
+            let msg = QueryMsg::GetUserPositions { 
+                basket_id: Some(Uint128::new(1)), 
+                user: String::from("sender88"), 
+                limit: None, 
+            };
+            let resp: Vec<PositionResponse> = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &msg.clone())
+                .unwrap();
+            assert_eq!(
+                resp[0],
+                PositionResponse { 
+                    position_id: Uint128::new(1), 
+                    collateral_assets: vec![
+                        cAsset {
+                            asset: Asset {
+                                info: AssetInfo::NativeToken {
+                                    denom: "debit".to_string(),
+                                },
+                                amount: Uint128::from(11u128),
+                            },
+                            max_borrow_LTV: Decimal::percent(50),
+                            max_LTV: Decimal::percent(70),
+                            pool_info: None,
+                        }
+                    ], 
+                    cAsset_ratios: vec![Decimal::one()], 
+                    credit_amount: Uint128::zero(), 
+                    basket_id: Uint128::new(1), 
+                    avg_borrow_LTV: Decimal::percent(50),
+                    avg_max_LTV: Decimal::percent(70),
+                },
+            );
 
             //Update Config
             let msg = ExecuteMsg::UpdateConfig { 

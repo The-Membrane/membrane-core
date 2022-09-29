@@ -6,7 +6,7 @@ use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, from_binary, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
     MessageInfo, QueryRequest, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg,
-    WasmQuery,
+    WasmQuery, QuerierWrapper, Storage,
 };
 use cw2::set_contract_version;
 use cw20::Cw20ReceiveMsg;
@@ -28,7 +28,7 @@ use crate::positions::{
     edit_basket, edit_contract_owner, get_contract_balances, get_target_position, increase_debt,
     liq_repay, liquidate, mint_revenue, repay, sell_wall_using_ids, update_position_claims,
     withdraw, withdrawal_msg, BAD_DEBT_REPLY_ID, CREATE_DENOM_REPLY_ID, LIQ_QUEUE_REPLY_ID,
-    SELL_WALL_REPLY_ID, SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID, WITHDRAW_REPLY_ID,
+    SELL_WALL_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID, WITHDRAW_REPLY_ID,
 };
 use crate::query::{
     query_bad_debt, query_basket, query_basket_credit_interest, query_basket_debt_caps,
@@ -848,7 +848,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         SELL_WALL_REPLY_ID => handle_sell_wall_reply(deps, msg, env),
         CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, msg),
         WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
-        SP_REPAY_REPLY_ID => handle_sp_repay_reply(deps, env, msg),
+        USER_SP_REPAY_REPLY_ID => handle_sp_repay_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
@@ -872,41 +872,18 @@ fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respo
 
             //If SP wasn't called, meaning User's SP funds can't be handled there, sell wall the leftovers
             if prop.stability_pool == Decimal::zero() {
+                
+                repay_amount = prop.clone().user_repay_amount;
+
                 //Sell wall asset's repayment amount
-                let (sell_wall_msgs, collateral_distributions) = sell_wall_using_ids(
-                    deps.storage,
-                    env,
-                    deps.querier,
-                    prop.clone().basket_id,
-                    prop.clone().position_id,
-                    prop.clone().position_owner,
-                    prop.user_repay_amount,
-                )?;
+                sell_wall_in_reply(deps.storage, env.clone(), deps.querier, &mut prop, &mut submessages, repay_amount.clone())?;
 
-                repay_amount = prop.user_repay_amount;
-
-                //Save new distributions from this liquidation
-                prop.sell_wall_distributions = add_distributions(
-                    prop.sell_wall_distributions,
-                    SellWallDistribution {
-                        distributions: collateral_distributions,
-                    },
-                );
-
-                submessages.extend(
-                    sell_wall_msgs
-                        .into_iter()
-                        .map(|msg| {
-                            //If this succeeds, we update the positions collateral claims
-                            //If this fails, revert. Try again isn't a useful alternative.
-                            SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
-                        })
-                        .collect::<Vec<SubMsg>>(),
-                );
+            } else {                    
+                //Since Error && SP was used (ie there will be a reply later in the esecution)...
+                //we add the leftovers to the liq_queue_leftovers so the stability pool reply handles it
+                prop.liq_queue_leftovers += prop.user_repay_amount;
             }
 
-            //Since Error, we add the leftovers to the liq_queue_leftovers so the stability pool reply handles it
-            prop.liq_queue_leftovers += prop.user_repay_amount;
 
             REPAY.save(deps.storage, &prop)?;
 
@@ -1097,7 +1074,7 @@ fn handle_create_denom_reply(deps: DepsMut, msg: Reply) -> StdResult<Response> {
 
             //Save liquidity_multiplier to credit_asset
             CREDIT_MULTI.save(deps.storage, res.clone().denom, &liquidity_multiplier)?;
-
+            
             //Add Response attributes
             attrs.extend(vec![
                 attr("full_denom", res.clone().denom),
@@ -1150,31 +1127,11 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             if leftover_amount != Uint128::zero() {
                 attrs.push(attr("leftover_amount", leftover_amount.clone().to_string()));
 
+                let repay_amount = repay_propagation.clone().liq_queue_leftovers
+                + Decimal::from_ratio(leftover_amount, Uint128::new(1u128));
+
                 //Sell Wall SP, LQ and User's SP Fund leftovers
-                let (sell_wall_msgs, collateral_distributions) = sell_wall_using_ids(
-                    deps.storage,
-                    env,
-                    deps.querier,
-                    repay_propagation.clone().basket_id,
-                    repay_propagation.clone().position_id,
-                    repay_propagation.clone().position_owner,
-                    repay_propagation.clone().liq_queue_leftovers
-                        + Decimal::from_ratio(leftover_amount, Uint128::new(1u128)),
-                )?;
-
-                submessages.extend(
-                    sell_wall_msgs
-                        .into_iter()
-                        .map(|msg| SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID))
-                        .collect::<Vec<SubMsg>>(),
-                );
-
-                repay_propagation.sell_wall_distributions = add_distributions(
-                    repay_propagation.clone().sell_wall_distributions,
-                    SellWallDistribution {
-                        distributions: collateral_distributions,
-                    },
-                );
+                sell_wall_in_reply(deps.storage, env.clone(), deps.querier, &mut repay_propagation, &mut submessages, repay_amount.clone())?;
 
                 //Save to propagate
                 REPAY.save(deps.storage, &repay_propagation)?;
@@ -1205,37 +1162,12 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                         "leftover_amount",
                         leftover_repayment.clone().to_string(),
                     ));
-
+                    
                     //Sell wall remaining
-                    let (sell_wall_msgs, collateral_distributions) = sell_wall_using_ids(
-                        deps.storage,
-                        env,
-                        deps.querier,
-                        repay_propagation.clone().basket_id,
-                        repay_propagation.clone().position_id,
-                        repay_propagation.clone().position_owner,
-                        leftover_repayment,
-                    )?;
-
-                    //Save new distributions from this liquidations
-                    repay_propagation.sell_wall_distributions = add_distributions(
-                        repay_propagation.sell_wall_distributions,
-                        SellWallDistribution {
-                            distributions: collateral_distributions,
-                        },
-                    );
+                    sell_wall_in_reply(deps.storage, env.clone(), deps.querier, &mut repay_propagation, &mut submessages, leftover_repayment)?;
+                    
                     REPAY.save(deps.storage, &repay_propagation)?;
-
-                    submessages.extend(
-                        sell_wall_msgs
-                            .into_iter()
-                            .map(|msg| {
-                                //If this succeeds, we update the positions collateral claims
-                                //If this fails, do nothing. Try again isn't a useful alternative.
-                                SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
-                            })
-                            .collect::<Vec<SubMsg>>(),
-                    );
+                   
                 }
 
                 //Send whatever is able to the Stability Pool
@@ -1265,6 +1197,9 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
 
                     submessages.push(sub_msg);
 
+                    //Have to reload due to prior saves
+                    let mut repay_propagation = REPAY.load(deps.storage)?;
+
                     //Remove repayment from leftovers
                     repay_propagation.liq_queue_leftovers -= sp_repay_amount;
 
@@ -1282,23 +1217,20 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                 .add_attributes(attrs))
         }
         Err(_) => {
+
+            let mut submessages: Vec<SubMsg> = vec![];
+
             //If error, sell wall the SP repay amount and LQ leftovers
             let mut repay_propagation = REPAY.load(deps.storage)?;
 
+            let repay_amount = repay_propagation.liq_queue_leftovers + repay_propagation.stability_pool;
+
             //Sell wall remaining
-            let (sell_wall_msgs, collateral_distributions) = sell_wall_using_ids(
-                deps.storage,
-                env,
-                deps.querier,
-                repay_propagation.clone().basket_id,
-                repay_propagation.clone().position_id,
-                repay_propagation.clone().position_owner,
-                repay_propagation.liq_queue_leftovers + repay_propagation.stability_pool,
-            )?;
+            sell_wall_in_reply(deps.storage, env.clone(), deps.querier, &mut repay_propagation, &mut submessages, repay_amount.clone())?;
 
             attrs.push(attr(
                 "sent_to_sell_wall",
-                (repay_propagation.liq_queue_leftovers + repay_propagation.stability_pool)
+                (repay_amount)
                     .to_string(),
             ));
 
@@ -1306,32 +1238,15 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             repay_propagation.liq_queue_leftovers = Decimal::zero();
             repay_propagation.stability_pool = Decimal::zero();
 
-            //Save new distributions from this liquidations
-            repay_propagation.sell_wall_distributions = add_distributions(
-                repay_propagation.sell_wall_distributions,
-                SellWallDistribution {
-                    distributions: collateral_distributions,
-                },
-            );
+            
             REPAY.save(deps.storage, &repay_propagation)?;
 
-            let res = Response::new().add_submessages(
-                sell_wall_msgs
-                    .into_iter()
-                    .map(|msg| {
-                        //If this succeeds, we update the positions collateral claims
-                        //If this fails, revert. Try again isn't a useful alternative.
-                        SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
-                    })
-                    .collect::<Vec<SubMsg>>(),
-            );
-
-            Ok(res.add_attributes(attrs))
+            Ok(Response::new().add_submessages(submessages).add_attributes(attrs))
         }
     }
 }
 
-//Add to the front of the "queue" bc message semantics are depth first
+//Add to the front of the "stack" bc message semantics are depth first
 //LIFO
 fn add_distributions(
     mut old_distributions: Vec<SellWallDistribution>,
@@ -1456,37 +1371,12 @@ fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Resp
             //If SP wasn't called, meaning LQ leftovers can't be handled there, sell wall this asset's leftovers
             //Replies are FIFO so we remove from front
             if prop.stability_pool == Decimal::zero() {
-                //Sell wall asset's repayment amount
-                let (sell_wall_msgs, collateral_distributions) = sell_wall_using_ids(
-                    deps.storage,
-                    env,
-                    deps.querier,
-                    prop.clone().basket_id,
-                    prop.clone().position_id,
-                    prop.clone().position_owner,
-                    prop.clone().per_asset_repayment[0],
-                )?;
-
+                
                 repay_amount = prop.clone().per_asset_repayment[0];
 
-                //Save new distributions from this liquidations
-                prop.sell_wall_distributions = add_distributions(
-                    prop.sell_wall_distributions,
-                    SellWallDistribution {
-                        distributions: collateral_distributions,
-                    },
-                );
-
-                submessages.extend(
-                    sell_wall_msgs
-                        .into_iter()
-                        .map(|msg| {
-                            //If this succeeds, we update the positions collateral claims
-                            //If this fails, do nothing. Try again isn't a useful alternative.
-                            SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
-                        })
-                        .collect::<Vec<SubMsg>>(),
-                );
+                //Sell wall asset's repayment amount
+                sell_wall_in_reply(deps.storage, env.clone(), deps.querier, &mut prop, &mut submessages, repay_amount.clone())?;
+               
             }
 
             prop.per_asset_repayment.remove(0);
@@ -1552,6 +1442,49 @@ fn handle_sell_wall_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Resp
             Ok(Response::new().add_attribute("error", string))
         }
     }
+}
+
+//Adds sell wall submessages to list of submessages
+fn sell_wall_in_reply(
+    storage: &mut dyn Storage,
+    env: Env,
+    querier: QuerierWrapper,
+    prop: &mut RepayPropagation,
+    submessages: &mut Vec<SubMsg>,
+    repay_amount: Decimal,
+) -> StdResult<()>{
+    //Sell wall asset's repayment amount
+    let (sell_wall_msgs, collateral_distributions) = sell_wall_using_ids(
+        storage,
+        env,
+        querier,
+        prop.clone().basket_id,
+        prop.clone().position_id,
+        prop.clone().position_owner,
+        repay_amount,
+    )?;
+    
+
+    //Save new distributions from this liquidation
+    prop.sell_wall_distributions = add_distributions(
+        prop.clone().sell_wall_distributions,
+        SellWallDistribution {
+            distributions: collateral_distributions,
+        },
+    );
+
+    submessages.extend(
+        sell_wall_msgs
+            .into_iter()
+            .map(|msg| {
+                //If this succeeds, we update the positions collateral claims
+                //If this fails, revert. Try again isn't a useful alternative.
+                SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
+            })
+            .collect::<Vec<SubMsg>>(),
+    );
+
+    Ok( () )
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

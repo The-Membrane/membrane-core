@@ -49,7 +49,7 @@ pub const STABILITY_POOL_REPLY_ID: u64 = 2u64;
 pub const SELL_WALL_REPLY_ID: u64 = 3u64;
 pub const CREATE_DENOM_REPLY_ID: u64 = 4u64;
 pub const WITHDRAW_REPLY_ID: u64 = 5u64;
-pub const SP_REPAY_REPLY_ID: u64 = 6u64;
+pub const USER_SP_REPAY_REPLY_ID: u64 = 6u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
@@ -1363,7 +1363,7 @@ pub fn liquidate(
             });
 
             //Convert to submsg
-            let sub_msg: SubMsg = SubMsg::reply_on_error(msg, SP_REPAY_REPLY_ID);
+            let sub_msg: SubMsg = SubMsg::reply_on_error(msg, USER_SP_REPAY_REPLY_ID);
 
             submessages.push(sub_msg);
 

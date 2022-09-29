@@ -5679,6 +5679,60 @@ mod tests {
             assert_eq!(resp[0].basket_id, String::from(Uint128::from(1u128)));
             assert_eq!(resp[1].basket_id, String::from(Uint128::from(2u128)));
             assert_eq!(resp.len().to_string(), String::from("2"));
+
+            
+            //Update Config
+            let msg = ExecuteMsg::UpdateConfig { 
+                owner: None, 
+                stability_pool: Some(String::from("new_sp")), 
+                dex_router: Some(String::from("new_router")),  
+                osmosis_proxy: Some(String::from("new_op")),  
+                debt_auction: Some(String::from("new_auction")),  
+                staking_contract: Some(String::from("new_staking")),  
+                oracle_contract: Some(String::from("new_oracle")),  
+                liquidity_contract: Some(String::from("new_liq_check")),   
+                interest_revenue_collector: Some(String::from("new_revenue")),   
+                liq_fee: Some(Decimal::percent(13)), 
+                debt_minimum: Some(Uint128::zero()), 
+                base_debt_cap_multiplier: Some(Uint128::new(48497)), 
+                oracle_time_limit: Some(33u64), 
+                credit_twap_timeframe: Some(33u64), 
+                collateral_twap_timeframe: Some(33u64), 
+                cpc_margin_of_error: Some(Decimal::percent(2)), 
+                rate_slope_multiplier: Some(Decimal::percent(2)), 
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap();
+
+            let resp: ConfigResponse = app
+            .wrap()
+            .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {  }.clone())
+            .unwrap();
+
+            assert_eq!(
+                resp,
+                ConfigResponse { 
+                    owner: String::from("owner"), 
+                    current_basket_id: Uint128::new(3u128),
+                    stability_pool: String::from("new_sp"), 
+                    dex_router: String::from("new_router"),  
+                    osmosis_proxy: String::from("new_op"),  
+                    debt_auction: String::from("new_auction"),  
+                    staking_contract: String::from("new_staking"),  
+                    oracle_contract: String::from("new_oracle"),  
+                    liquidity_contract: String::from("new_liq_check"),   
+                    interest_revenue_collector: String::from("new_revenue"),   
+                    liq_fee: Decimal::percent(13), 
+                    debt_minimum: Uint128::zero(), 
+                    base_debt_cap_multiplier: Uint128::new(48497), 
+                    oracle_time_limit: 33u64, 
+                    credit_twap_timeframe: 33u64, 
+                    collateral_twap_timeframe: 33u64, 
+                    cpc_margin_of_error: Decimal::percent(2), 
+                    rate_slope_multiplier: Decimal::percent(2), 
+                }
+            );
+
         }
 
         #[test]

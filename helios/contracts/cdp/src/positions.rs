@@ -394,6 +394,37 @@ pub fn withdraw(
             &mut target_position,
             &mut basket,
         )?;
+        //Save updated position to lock-in credit_amount and last_accrued time
+        POSITIONS.update(
+            deps.storage,
+            (basket_id.to_string(), info.clone().sender),
+            |old_positions| -> StdResult<Vec<Position>> {
+                match old_positions {
+                    Some(old_positions) => {
+                        let new_positions = old_positions
+                            .into_iter()
+                            .map(|mut stored_position| {
+                                //Find position
+                                if stored_position.position_id == position_id {
+                                    //Swap to target_position 
+                                    target_position.clone()
+                                } else {
+                                    //Save stored_positon
+                                    stored_position
+                                }
+                            })
+                            .collect::<Vec<Position>>();
+
+                        Ok(new_positions)
+                    },
+                    None => {
+                        return Err(StdError::GenericErr {
+                            msg: "Invalid position owner".to_string(),
+                        })
+                    }
+                }
+            },
+        )?;
 
         //If the cAsset is found in the position, attempt withdrawal
         match target_position
@@ -477,7 +508,6 @@ pub fn withdraw(
                                             .collect::<Vec<Position>>();
 
                                             //Leave finding LTVs for solvency checks bc it uses deps. Can't be used inside of an update function
-                                            // let new_avg_LTV = get_avg_LTV(deps.querier, updated_cAsset_list)?;
 
                                             //For debt cap updates
                                             new_assets = updated_cAsset_list.clone();
@@ -784,21 +814,21 @@ pub fn repay(
         },
     )?;
 
-    //Save updated repayment price
-    BASKETS.save(storage, basket_id.to_string(), &basket)?;
-
     //Subtract paid debt from debt-per-asset tallies
     update_basket_debt(
         storage,
         env,
         querier,
         config,
-        basket_id,
+        &mut basket,
         target_position.collateral_assets,
         credit_asset.amount,
         false,
         false,
     )?;
+
+    //Save updated repayment price and debts
+    BASKETS.save(storage, basket_id.to_string(), &basket)?;
 
     //This is a safe unwrap bc the code errors if it is uninitialized
     Ok(response.add_message(burn_msg.unwrap()).add_attributes(vec![
@@ -1040,11 +1070,11 @@ pub fn increase_debt(
         &mut basket,
     )?;
 
-    let total_credit = target_position.credit_amount + amount;
+    target_position.credit_amount += amount;
 
     //Test for minimum debt requirements
     if decimal_multiplication(
-        Decimal::from_ratio(total_credit, Uint128::new(1u128)),
+        Decimal::from_ratio(target_position.credit_amount, Uint128::new(1u128)),
         basket.credit_price,
     ) < Decimal::from_ratio(config.debt_minimum, Uint128::new(1u128))
     {
@@ -1064,7 +1094,7 @@ pub fn increase_debt(
             deps.querier,
             basket.clone(),
             target_position.clone().collateral_assets,
-            Decimal::from_ratio(total_credit, Uint128::new(1u128)),
+            Decimal::from_ratio(target_position.credit_amount, Uint128::new(1u128)),
             basket.credit_price,
             true,
             config.clone(),
@@ -1101,10 +1131,8 @@ pub fn increase_debt(
                                         .filter(|x| x.position_id != position_id)
                                         .collect::<Vec<Position>>();
 
-                                    updated_positions.push(Position {
-                                        credit_amount: total_credit,
-                                        ..position
-                                    });
+                                    updated_positions.push(target_position.clone());
+
                                     Ok(updated_positions)
                                 }
                                 None => return Err(ContractError::NonExistentPosition {}),
@@ -1116,21 +1144,21 @@ pub fn increase_debt(
                 },
             )?;
 
-            //Save updated repayment price
-            BASKETS.save(deps.storage, basket_id.to_string(), &basket)?;
-
             //Add new debt to debt-per-asset tallies
             update_basket_debt(
                 deps.storage,
                 env,
                 deps.querier,
                 config,
-                basket_id,
+                &mut basket,
                 target_position.collateral_assets,
                 amount,
                 true,
                 false,
             )?;
+            
+            //Save updated repayment price and debts
+            BASKETS.save(deps.storage, basket_id.to_string(), &basket)?;
         }
     } else {
         return Err(ContractError::NoRepaymentPrice {});
@@ -1141,7 +1169,7 @@ pub fn increase_debt(
         .add_attribute("method", "increase_debt")
         .add_attribute("basket_id", basket_id.to_string())
         .add_attribute("position_id", position_id.to_string())
-        .add_attribute("total_loan", total_credit.to_string());
+        .add_attribute("total_loan", target_position.credit_amount.to_string());
 
     Ok(response)
 }
@@ -1174,7 +1202,6 @@ pub fn liquidate(
         valid_position_owner.clone(),
         position_id,
     )?;
-
     //Accrue interest
     accrue(
         storage,
@@ -1183,9 +1210,40 @@ pub fn liquidate(
         &mut target_position,
         &mut basket,
     )?;
-
-    //Save updated repayment price
+    //Save updated repayment price and basket debt
     BASKETS.save(storage, basket_id.to_string(), &basket)?;
+
+    //Save updated position to lock-in credit_amount and last_accrued time
+    POSITIONS.update(
+        storage,
+        (basket_id.to_string(), valid_position_owner.clone()),
+        |old_positions| -> StdResult<Vec<Position>> {
+            match old_positions {
+                Some(old_positions) => {
+                    let new_positions = old_positions
+                        .into_iter()
+                        .map(|mut stored_position| {
+                            //Find position
+                            if stored_position.position_id == position_id {
+                                //Swap to target_position 
+                                target_position.clone()
+                            } else {
+                                //Save stored_positon
+                                stored_position
+                            }
+                        })
+                        .collect::<Vec<Position>>();
+
+                    Ok(new_positions)
+                },
+                None => {
+                    return Err(StdError::GenericErr {
+                        msg: "Invalid position owner".to_string(),
+                    })
+                }
+            }
+        },
+    )?;
 
     //Check position health comparative to max_LTV
     let (_insolvent, _current_LTV, _available_fee) = insolvency_check(
@@ -4085,16 +4143,12 @@ fn update_basket_debt(
     env: Env,
     querier: QuerierWrapper,
     config: Config,
-    basket_id: Uint128,
+    basket: &mut Basket,
     collateral_assets: Vec<cAsset>,
     credit_amount: Uint128,
     add_to_debt: bool,
     interest_accrual: bool,
 ) -> Result<(), ContractError> {
-    let basket: Basket = match BASKETS.load(storage, basket_id.to_string()) {
-        Err(_) => return Err(ContractError::NonExistentBasket {}),
-        Ok(basket) => basket,
-    };
 
     let collateral_assets =
         get_LP_pool_cAssets(querier, config.clone(), basket.clone(), collateral_assets)?;
@@ -4113,66 +4167,53 @@ fn update_basket_debt(
     for asset in cAsset_ratios {
         asset_debt.push(asset * credit_amount);
     }
-
+    
     let mut over_cap = false;
     let mut assets_over_cap = vec![];
 
     //Calculate debt per asset caps
-    let cAsset_caps = get_basket_debt_caps(storage, querier, env, basket)?;
+    let cAsset_caps = get_basket_debt_caps(storage, querier, env, basket.clone())?;
 
     //Update supply caps w/ new debt distribution
-    BASKETS.update(
-        storage,
-        basket_id.to_string(),
-        |basket| -> Result<Basket, ContractError> {
-            match basket {
-                Some(mut basket) => {
-                    for (index, cAsset) in collateral_assets.iter().enumerate() {
-                        basket.collateral_supply_caps = basket
-                            .clone()
-                            .collateral_supply_caps
-                            .into_iter()
-                            .enumerate()
-                            .filter(|cap| !cap.1.lp) //We don't take LP supply caps when calculating debt
-                            .map(|(i, mut cap)| {
-                                //Add or subtract deposited amount to/from the correlated cAsset object
-                                if cap.asset_info.equal(&cAsset.asset.info) {
-                                    if add_to_debt {
-                                        //Assert its not over the cap
-                                        //IF the debt is adding to interest then we allow it to exceed the cap
-                                        if (cap.debt_total + asset_debt[index]) <= cAsset_caps[i]
-                                            || interest_accrual
-                                        {
-                                            cap.debt_total += asset_debt[index];
-                                        } else {
-                                            over_cap = true;
-                                            assets_over_cap.push(cap.asset_info.to_string());
-                                        }
-                                    } else {
-                                        match cap.debt_total.checked_sub(asset_debt[index]) {
-                                            Ok(difference) => {
-                                                cap.debt_total = difference;
-                                            }
-                                            Err(_) => {
-                                                //Don't subtract bc it'll end up being an invalid repayment error anyway
-                                                //Can't return an Error here without inferring the map return type
-                                            }
-                                        };
-                                    }
-                                }
-
-                                cap
-                            })
-                            .collect::<Vec<SupplyCap>>();
+    for (index, cAsset) in collateral_assets.iter().enumerate() {
+        basket.collateral_supply_caps = basket
+            .clone()
+            .collateral_supply_caps
+            .into_iter()
+            .enumerate()
+            .filter(|cap| !cap.1.lp) //We don't take LP supply caps when calculating debt
+            .map(|(i, mut cap)| {
+                //Add or subtract deposited amount to/from the correlated cAsset object
+                if cap.asset_info.equal(&cAsset.asset.info) {
+                    if add_to_debt {
+                        //Assert its not over the cap
+                        //IF the debt is adding to interest then we allow it to exceed the cap
+                        if (cap.debt_total + asset_debt[index]) <= cAsset_caps[i]
+                            || interest_accrual
+                        {
+                            cap.debt_total += asset_debt[index];
+                        } else {
+                            over_cap = true;
+                            assets_over_cap.push(cap.asset_info.to_string());
+                        }
+                    } else {
+                        match cap.debt_total.checked_sub(asset_debt[index]) {
+                            Ok(difference) => {
+                                cap.debt_total = difference;
+                            }
+                            Err(_) => {
+                                //Don't subtract bc it'll end up being an invalid repayment error anyway
+                                //Can't return an Error here without inferring the map return type
+                            }
+                        };
                     }
-
-                    Ok(basket)
                 }
-                //None should be unreachable
-                None => return Err(ContractError::NonExistentBasket {}),
-            }
-        },
-    )?;
+
+                cap
+            })
+            .collect::<Vec<SupplyCap>>();       
+
+    }
 
     //Error if over the asset cap
     if over_cap {
@@ -4670,7 +4711,7 @@ fn accrue(
         env.clone(),
         querier,
         config.clone(),
-        basket.basket_id,
+        basket,
         position.clone().collateral_assets,
         accrued_interest * Uint128::new(1u128),
         true,

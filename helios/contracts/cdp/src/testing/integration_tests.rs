@@ -2699,6 +2699,19 @@ mod tests {
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
 
+            //Query Basket Debt Caps
+            let query_msg = QueryMsg::GetBasketDebtCaps {
+                basket_id: Uint128::new(1u128),
+            };
+            let res: DebtCapResponse = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(
+                res.caps,
+                String::from("debit: 0/0, base: 49999/124997, quote: 49999/124997, ")
+            );
+
             //Insolvent position error
             ///Expected to Error due to accrued interest
             let msg = ExecuteMsg::IncreaseDebt {
@@ -2728,6 +2741,19 @@ mod tests {
                 .unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
+
+            //Query Basket Debt Caps
+            let query_msg = QueryMsg::GetBasketDebtCaps {
+                basket_id: Uint128::new(1u128),
+            };
+            let res: DebtCapResponse = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(
+                res.caps,
+                String::from("debit: 0/0, base: 4144/124997, quote: 4144/124997, ")
+            );
 
             let query_msg = QueryMsg::GetPosition {
                 position_id: Uint128::new(1u128),
@@ -2762,6 +2788,18 @@ mod tests {
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap_err();
 
+            //Query to assert new debt amount
+            let query_msg = QueryMsg::GetPosition {
+                position_id: Uint128::new(1u128),
+                basket_id: Uint128::new(1u128),
+                position_owner: "bigger_bank".to_string(),
+            };
+            let res: PositionResponse = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(res.credit_amount, Uint128::new(8894));
+
             //Query Rates
             let query_msg = QueryMsg::GetCollateralInterest {
                 basket_id: Uint128::new(1u128),
@@ -2795,6 +2833,44 @@ mod tests {
             .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
+            //Query Basket Debt Caps
+        let query_msg = QueryMsg::GetBasketDebtCaps {
+            basket_id: Uint128::new(1u128),
+        };
+        let res: DebtCapResponse = app
+            .wrap()
+            .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+            .unwrap();
+        assert_eq!(
+            res.caps,
+            String::from("debit: 0/0, base: 4748/124997, quote: 4748/124997, ")
+        );
+
+            //Repay to mimic liquidation repayment - LiqRepay
+            let msg = ExecuteMsg::Repay {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                position_owner: Some(String::from("bigger_bank")),
+            };
+            let cosmos_msg = cdp_contract
+                .call(msg, vec![coin(3_722, "credit_fulldenom")])
+                .unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+
+            //Query Basket Debt Caps
+            let query_msg = QueryMsg::GetBasketDebtCaps {
+                basket_id: Uint128::new(1u128),
+            };
+            let res: DebtCapResponse = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(
+                res.caps,
+                String::from("debit: 0/0, base: 2887/124997, quote: 2887/124997, ")
+            );
+
             //Successful LiqRepay
             let msg = ExecuteMsg::LiqRepay {};
             let cosmos_msg = cdp_contract
@@ -2802,7 +2878,7 @@ mod tests {
                 .unwrap();
             app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
                 .unwrap();
-
+            
             //Would normally liquidate and leave 96048 "lp_denom"
             // but w/ accrued interest its leaving 95779
             let query_msg = QueryMsg::GetUserPositions {
@@ -2819,6 +2895,23 @@ mod tests {
                 res[0].collateral_assets[0].asset.amount,
                 Uint128::new(95779)
             );
+            assert_eq!(
+                res[0].credit_amount,
+                Uint128::new(5277)
+            );
+            
+        //Query Basket Debt Caps
+        let query_msg = QueryMsg::GetBasketDebtCaps {
+            basket_id: Uint128::new(1u128),
+        };
+        let res: DebtCapResponse = app
+            .wrap()
+            .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+            .unwrap();
+        assert_eq!(
+            res.caps,
+            String::from("debit: 0/0, base: 2638/124997, quote: 2638/124997, ")
+        );
 
             //Assert sell wall wasn't sent Assets
             assert_eq!(
@@ -2838,16 +2931,17 @@ mod tests {
                 app.wrap().query_all_balances(USER).unwrap(),
                 vec![coin(100000, "2nddebit"), coin(422, "base"), coin(100_000, "debit"),  coin(422, "quote")]
             );
-            //SP sent 274 of each
+            //SP is sent 274 of each
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
                 vec![  coin(274, "base"), coin(1726, "credit_fulldenom"), coin(274, "quote")]
             );
-            //LQ sent 1_611
+            //LQ is sent 1_611
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
                 vec![coin(1_611, "base"), coin(1_611, "quote")]
             );
+            
         }
 
         #[test]
@@ -3029,7 +3123,7 @@ mod tests {
             assert_eq!(
                 res[0].collateral_assets[0].asset.amount,
                 Uint128::new(97926)
-            );
+            );           
 
             //////////////NEGATIVE RATES///////
             ///
@@ -5256,7 +5350,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 0/83331, base: 0/83331, quote: 0/83331, lp_denom: 0/0, ")
+                String::from("debit: 0/83331, base: 0/83331, quote: 0/83331, ")
             );
 
             //Successful Withdraw uneffected by caps
@@ -5697,6 +5791,35 @@ mod tests {
             assert_eq!(resp[1].basket_id, String::from(Uint128::from(2u128)));
             assert_eq!(resp.len().to_string(), String::from("2"));
 
+            //Query AllBasket start_after
+            let msg = QueryMsg::GetAllBaskets {
+                start_after: Some(Uint128::new(1)),
+                limit: None,
+            };
+            let resp: Vec<BasketResponse> = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &msg.clone())
+                .unwrap();
+            
+            assert_eq!(resp[0].basket_id, String::from(Uint128::from(2u128)));
+            assert_eq!(resp.len().to_string(), String::from("1"));
+
+            //Query BasketPositions
+            let msg = QueryMsg::GetBasketPositions {
+                basket_id: Uint128::from(1u128),
+                start_after: Some(String::from("sender88")),
+                limit: None,
+            };
+
+            let resp: Vec<PositionsResponse> = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &msg.clone())
+                .unwrap();
+            assert_eq!(
+                resp.len().to_string(),
+                String::from("0"),
+            );
+
             //Query UserPositions
             let msg = QueryMsg::GetUserPositions { 
                 basket_id: Some(Uint128::new(1)), 
@@ -5731,6 +5854,8 @@ mod tests {
                     avg_max_LTV: Decimal::percent(70),
                 },
             );
+
+            //Quer
 
             //Update Config
             let msg = ExecuteMsg::UpdateConfig { 

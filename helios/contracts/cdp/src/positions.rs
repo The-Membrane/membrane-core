@@ -3122,11 +3122,16 @@ pub fn insolvency_check(
     credit_price: Decimal,
     max_borrow: bool, //Toggle for either over max_borrow or over max_LTV (liquidatable), ie taking the minimum collateral ratio into account.
     config: Config,
-) -> StdResult<(bool, Decimal, Uint128)> {
-    //insolvent, current_LTV, available_fee
+) -> StdResult<(bool, Decimal, Uint128)> {//insolvent, current_LTV, available_fee
 
-    //No assets but still has debt
-    if collateral_assets.len() == 0 && !credit_amount.is_zero() {
+    //No assets but still has debt, return insolvent and skip other checks
+    let total_assets: Uint128 = collateral_assets
+        .iter()
+        .map(|asset| asset.asset.amount)
+        .collect::<Vec<Uint128>>()
+        .iter()
+        .sum();
+    if total_assets.is_zero() && !credit_amount.is_zero() {
         return Ok((true, Decimal::percent(100), Uint128::zero()));
     }
 
@@ -3550,9 +3555,15 @@ fn query_price(
                 .seconds()
                 .checked_sub(stored_price.last_time_updated);
             //If its None then the subtraction was negative meaning the initial read_price() errored
-            if time_elapsed.is_some() && time_elapsed.unwrap() <= config.oracle_time_limit {
-                stored_price.price
-            } else {
+            if time_elapsed.is_some() {
+                if time_elapsed.unwrap() <= config.oracle_time_limit {
+                    stored_price.price
+                } else {
+                    return Err(StdError::GenericErr {
+                        msg: String::from("Oracle price invalid"),
+                    });
+                }
+            }else{
                 return Err(StdError::GenericErr {
                     msg: String::from("Oracle price invalid"),
                 });

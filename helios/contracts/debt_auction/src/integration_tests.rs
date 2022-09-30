@@ -39,15 +39,7 @@ mod tests {
             denom: String,
             amount: Uint128,
             mint_to_address: String,
-        },
-        BurnTokens {
-            denom: String,
-            amount: Uint128,
-            burn_from_address: String,
-        },
-        CreateDenom {
-            subdenom: String,
-        },
+        }
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
@@ -56,24 +48,11 @@ mod tests {
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Osmo_MockQueryMsg {
-        SpotPrice {
-            asset: String,
-        },
-        PoolState {
-            id: u64,
-        },
-        GetDenom {
-            creator_address: String,
-            subdenom: String,
-        },
-        ArithmeticTwapToNow {
-            id: u64,
-            quote_asset_denom: String,
-            base_asset_denom: String,
-            start_time: i64,
-        },
-    }
+    pub enum Osmo_MockQueryMsg {  }
+
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub struct MockResponse {  }
 
     pub fn osmosis_proxy_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
@@ -90,62 +69,13 @@ mod tests {
                         }
                         Ok(Response::new())
                     }
-                    Osmo_MockExecuteMsg::BurnTokens {
-                        denom,
-                        amount,
-                        burn_from_address,
-                    } => Ok(Response::new()),
-                    Osmo_MockExecuteMsg::CreateDenom { subdenom } => Ok(Response::new()
-                        .add_attributes(vec![
-                            attr("basket_id", "1"),
-                            attr("subdenom", "credit_fulldenom"),
-                        ])),
                 }
             },
             |_, _, _, _: Osmo_MockInstantiateMsg| -> StdResult<Response> {
                 Ok(Response::default())
             },
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
-                match msg {
-                    Osmo_MockQueryMsg::SpotPrice { asset } => Ok(to_binary(&SpotPriceResponse {
-                        price: Decimal::one(),
-                    })?),
-                    Osmo_MockQueryMsg::PoolState { id } => {
-                        if id == 99u64 {
-                            Ok(to_binary(&PoolStateResponse {
-                                assets: vec![coin(100_000_000, "base"), coin(100_000_000, "quote")],
-                                shares: coin(100_000_000, "lp_denom"),
-                            })?)
-                        } else {
-                            Ok(to_binary(&PoolStateResponse {
-                                assets: vec![coin(49_999, "credit_fulldenom")],
-                                shares: coin(0, "shares"),
-                            })?)
-                        }
-                    }
-                    Osmo_MockQueryMsg::GetDenom {
-                        creator_address,
-                        subdenom,
-                    } => Ok(to_binary(&GetDenomResponse {
-                        denom: String::from("credit_fulldenom"),
-                    })?),
-                    Osmo_MockQueryMsg::ArithmeticTwapToNow {
-                        id,
-                        quote_asset_denom,
-                        base_asset_denom,
-                        start_time,
-                    } => {
-                        if base_asset_denom == *"base" {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(100),
-                            })?)
-                        } else {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(100),
-                            })?)
-                        }
-                    }
-                }
+                Ok(to_binary(&MockResponse { })?)
             },
         );
         Box::new(contract)
@@ -154,12 +84,7 @@ mod tests {
     //Mock Oracle Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Oracle_MockExecuteMsg {
-        AddAsset {
-            asset_info: AssetInfo,
-            oracle_info: AssetOracleInfo,
-        },
-    }
+    pub enum Oracle_MockExecuteMsg {  }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
@@ -172,21 +97,13 @@ mod tests {
             asset_info: AssetInfo,
             twap_timeframe: u64,
             basket_id: Option<Uint128>,
-        },
-        Asset {
-            asset_info: AssetInfo,
-        },
+        }
     }
 
     pub fn oracle_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Oracle_MockExecuteMsg| -> StdResult<Response> {
-                match msg {
-                    Oracle_MockExecuteMsg::AddAsset {
-                        asset_info,
-                        oracle_info,
-                    } => Ok(Response::default()),
-                }
+                Ok(Response::default())
             },
             |_, _, _, _: Oracle_MockInstantiateMsg| -> StdResult<Response> {
                 Ok(Response::default())
@@ -200,21 +117,7 @@ mod tests {
                     } => Ok(to_binary(&PriceResponse {
                         prices: vec![],
                         avg_price: Decimal::one(),
-                    })?),
-                    Oracle_MockQueryMsg::Asset { asset_info } => Ok(to_binary(&AssetResponse {
-                        asset_info: AssetInfo::NativeToken {
-                            denom: String::from("denom"),
-                        },
-                        oracle_info: vec![AssetOracleInfo {
-                            basket_id: Uint128::new(1u128),
-                            osmosis_pools_for_twap: vec![TWAPPoolInfo {
-                                pool_id: 0u64,
-                                base_asset_denom: String::from("denom"),
-                                quote_asset_denom: String::from("denom"),
-                            }],
-                            static_price: None,
-                        }],
-                    })?),
+                    })?)
                 }
             },
         );
@@ -380,6 +283,8 @@ mod tests {
 
     mod debt_auction {
 
+        use crate::state::Config;
+
         use super::*;
         use cosmwasm_std::BlockInfo;
         use membrane::{
@@ -513,6 +418,25 @@ mod tests {
                         }
                     }
                 ]
+            );
+
+            //Assert Asset is still valid
+            let valid_assets: Vec<AssetInfo> = app
+                .wrap()
+                .query_wasm_smart(
+                    debt_contract.addr(),
+                    &QueryMsg::ValidDebtAssets {
+                        debt_asset: None,
+                        limit: None,
+                        start_without: None,
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                valid_assets,
+                vec![AssetInfo::NativeToken {
+                    denom: String::from("credit_fulldenom")
+                }]
             );
         }
 
@@ -687,14 +611,55 @@ mod tests {
                 .query_wasm_smart::<Vec<AuctionResponse>>(
                     debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
-                        debt_asset: Some(AssetInfo::NativeToken {
-                            denom: String::from("credit_fulldenom"),
-                        }),
+                        debt_asset: None,
                         limit: None,
                         start_without: None,
                     },
                 )
                 .unwrap_err();
+        }
+
+        #[test]
+        fn update_config() {
+            let (mut app, debt_contract, cdp_contract) = proper_instantiate();
+
+            //Update Config
+            let msg = ExecuteMsg::UpdateConfig { 
+                owner: Some(String::from("new_owner")), 
+                oracle_contract: Some(String::from("new_contract")),  
+                osmosis_proxy: Some(String::from("new_contract")),  
+                mbrn_denom: Some(String::from("new_denom")), 
+                positions_contract: Some(String::from("new_contract")),  
+                twap_timeframe: Some(0u64),
+                initial_discount: Some(Decimal::zero()), 
+                discount_increase_timeframe: Some(0u64), 
+                discount_increase: Some(Decimal::zero()), 
+            };
+            let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Assert Config Response
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    debt_contract.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            assert_eq!(
+                config,
+                Config {
+                    owner: Addr::unchecked("new_owner"), 
+                    oracle_contract: Addr::unchecked("new_contract"),  
+                    osmosis_proxy: Addr::unchecked("new_contract"),  
+                    mbrn_denom: String::from("new_denom"), 
+                    positions_contract: Addr::unchecked("new_contract"),  
+                    twap_timeframe: 0u64,
+                    initial_discount: Decimal::zero(), 
+                    discount_increase_timeframe: 0u64, 
+                    discount_increase: Decimal::zero(), 
+                },
+            );
         }
     }
 }

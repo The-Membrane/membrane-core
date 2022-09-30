@@ -433,33 +433,6 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
     Ok(Response::new().add_messages(msgs))
 }
 
-pub fn credit_mint_msg(
-    config: Config,
-    credit_asset: Asset,
-    recipient: Addr,
-) -> StdResult<CosmosMsg> {
-    match credit_asset.clone().info {
-        AssetInfo::Token { address: _ } => {
-            Err(StdError::GenericErr {
-                msg: "Credit has to be a native token".to_string(),
-            })
-        }
-        AssetInfo::NativeToken { denom } => {
-            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.osmosis_proxy.to_string(),
-                msg: to_binary(&OsmoExecuteMsg::MintTokens {
-                    denom,
-                    amount: credit_asset.amount,
-                    mint_to_address: recipient.to_string(),
-                })?,
-                funds: vec![],
-            });
-
-            Ok(message)
-        }
-    }
-}
-
 pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
     match asset.clone().info {
         AssetInfo::NativeToken { denom: _ } => {

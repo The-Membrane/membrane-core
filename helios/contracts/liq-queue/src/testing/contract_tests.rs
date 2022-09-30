@@ -1,10 +1,11 @@
 use crate::contract::{execute, instantiate, query};
 use crate::ContractError;
-//use crate::state::{AssetInfo, BidInput};
+
+use bigint::U256;
 
 //use cw_multi_test::Contract;
 use membrane::liq_queue::{
-    BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, QueryMsg, QueueResponse,
+    BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, QueryMsg, QueueResponse, ClaimsResponse,
 };
 use membrane::math::{Decimal256, Uint256};
 use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
@@ -611,6 +612,18 @@ fn claim_liquidations() {
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
     /////////
+    
+    let query_msg = QueryMsg::UserClaims { user: String::from("owner0000") };
+    let claims: Vec<ClaimsResponse> = from_binary(&query(deps.as_ref(), mock_env(), query_msg.clone()).unwrap()).unwrap();
+    assert_eq!(
+        claims,
+        vec![
+            ClaimsResponse { 
+                bid_for: String::from("osmo"), 
+                pending_liquidated_collateral: Uint256::from(5000u128),
+            },
+        ],
+    );
 
     let msg = ExecuteMsg::ClaimLiquidations {
         bid_for: AssetInfo::NativeToken {

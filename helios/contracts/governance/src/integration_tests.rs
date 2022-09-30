@@ -387,6 +387,7 @@ mod tests {
             builders_contract_addr: bv_contract_addr.to_string(),
             builders_voting_power_multiplier: Decimal::percent(33),
             proposal_voting_period: PROPOSAL_VOTING_PERIOD,
+            expedited_proposal_voting_period: PROPOSAL_VOTING_PERIOD,
             proposal_effective_delay: PROPOSAL_EFFECTIVE_DELAY,
             proposal_expiration_period: PROPOSAL_EXPIRATION_PERIOD,
             proposal_required_stake: Uint128::from(PROPOSAL_REQUIRED_STAKE),
@@ -424,6 +425,7 @@ mod tests {
                 link: None,
                 messages: None,
                 receiver: None,
+                expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
@@ -441,6 +443,7 @@ mod tests {
                 link: None,
                 messages: None,
                 receiver: Some(String::from("receiver")),
+                expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(bv_contract_addr, cosmos_msg).unwrap();
@@ -452,6 +455,7 @@ mod tests {
                 link: None,
                 messages: None,
                 receiver: None,
+                expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
@@ -468,6 +472,7 @@ mod tests {
                 link: None,
                 messages: None,
                 receiver: Some(String::from("receiver")),
+                expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
@@ -483,6 +488,7 @@ mod tests {
                 link: None,
                 messages: None,
                 receiver: Some(String::from("receiver")),
+                expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
@@ -500,6 +506,7 @@ mod tests {
                 link: None,
                 messages: None,
                 receiver: Some(String::from("receiver")),
+                expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
@@ -517,6 +524,7 @@ mod tests {
                 link: None,
                 messages: None,
                 receiver: Some(String::from("receiver")),
+                expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
@@ -534,6 +542,7 @@ mod tests {
                 link: Some(String::from("X")),
                 messages: None,
                 receiver: Some(String::from("receiver")),
+                expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
@@ -551,6 +560,7 @@ mod tests {
                 link: Some(String::from_utf8(vec![b'X'; 129]).unwrap()),
                 messages: None,
                 receiver: Some(String::from("receiver")),
+                expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
@@ -568,6 +578,7 @@ mod tests {
                 link: Some(String::from("https://some1.link")),
                 messages: None,
                 receiver: Some(String::from("receiver")),
+                expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
@@ -587,6 +598,7 @@ mod tests {
                 )),
                 messages: None,
                 receiver: Some(String::from("receiver")),
+                expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
@@ -613,6 +625,7 @@ mod tests {
                     }),
                 }]),
                 receiver: Some(String::from("receiver")),
+                expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(bv_contract_addr, cosmos_msg).unwrap();
@@ -670,6 +683,7 @@ mod tests {
                             builders_contract_addr: None,
                             builders_voting_power_multiplier: None,
                             proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
+                            expedited_proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
                             proposal_effective_delay: None,
                             proposal_expiration_period: None,
                             proposal_required_stake: None,
@@ -686,6 +700,7 @@ mod tests {
                     }),
                 }]),
                 receiver: Some(String::from("receiver")),
+                expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(bv_contract_addr.clone(), cosmos_msg).unwrap();
@@ -772,6 +787,46 @@ mod tests {
 
             assert_eq!(proposal_for_voters, vec![Addr::unchecked("user")]);
             assert_eq!(proposal_against_voters, vec![Addr::unchecked("admin")]);
+
+            //Query voting power
+            let voting_power_1: Uint128 = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::UserVotingPower { 
+                        user: String::from("user"), 
+                        proposal_id: 1, 
+                        builders: false, 
+                    },
+                )
+                .unwrap();
+            assert_eq!(voting_power_1, Uint128::new(100000002));
+
+            //Query voting power
+            let voting_power_2: Uint128 = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::UserVotingPower { 
+                        user: String::from("admin"), 
+                        proposal_id: 1, 
+                        builders: false, 
+                    },
+                )
+                .unwrap();
+            assert_eq!(voting_power_2, Uint128::new(60000000));
+
+            //Query total voting power
+            let total_voting_power: Uint128 = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::TotalVotingPower { 
+                        proposal_id: 1, 
+                    },
+                )
+                .unwrap();
+            assert_eq!(total_voting_power, voting_power_1 + voting_power_2);
 
             // Skip voting period
             app.update_block(|bi| {
@@ -871,6 +926,21 @@ mod tests {
                 String::from("Proposal not completed!")
             );
 
+            //Query Proposal
+            let res: ProposalListResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr().to_string(),
+                    &QueryMsg::Proposals {
+                        start: None,
+                        limit: None,
+                    },
+                )
+                .unwrap();
+
+            assert_eq!(res.proposal_list.len(), 1);
+            assert_eq!(res.proposal_count, Uint64::from(1u32));
+
             // Remove expired proposal
             app.update_block(|bi| {
                 bi.height += PROPOSAL_EXPIRATION_PERIOD + 1;
@@ -899,6 +969,8 @@ mod tests {
             assert_eq!(res.proposal_list, vec![]);
             // proposal_count should not be changed after removing a proposal
             assert_eq!(res.proposal_count, Uint64::from(1u32));
+
+            
         }
 
         #[test]
@@ -920,6 +992,7 @@ mod tests {
                             builders_contract_addr: None,
                             builders_voting_power_multiplier: None,
                             proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
+                            expedited_proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
                             proposal_effective_delay: None,
                             proposal_expiration_period: None,
                             proposal_required_stake: None,
@@ -936,6 +1009,7 @@ mod tests {
                     }),
                 }]),
                 receiver: Some(String::from("receiver")),
+                expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(bv_contract_addr, cosmos_msg).unwrap();
@@ -1033,6 +1107,7 @@ mod tests {
                             builders_contract_addr: None,
                             builders_voting_power_multiplier: None,
                             proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
+                            expedited_proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
                             proposal_effective_delay: None,
                             proposal_expiration_period: None,
                             proposal_required_stake: None,

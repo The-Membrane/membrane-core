@@ -106,7 +106,8 @@ pub fn execute(
             description,
             link,
             messages,
-        } => submit_proposal(deps, info, title, description, link, messages),
+            expedited
+        } => submit_proposal(deps, info, title, description, link, messages, expedited),
         ExecuteMsg::CastVote { proposal_id, vote } => cast_vote(deps, info, proposal_id, vote),
         ExecuteMsg::UpdateConfig {
             owner,
@@ -131,6 +132,7 @@ fn submit_proposal(
     description: String,
     link: Option<String>,
     messages: Option<Vec<ProposalMessage>>,
+    expedited
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let receivers = RECEIVERS.load(deps.storage)?;
@@ -149,6 +151,7 @@ fn submit_proposal(
                     link,
                     messages,
                     receiver: Some(receiver.receiver.to_string()),
+                    expedited,
                 })?,
                 funds: vec![],
             });

@@ -58,6 +58,7 @@ pub fn instantiate(
         builders_contract_addr: deps.api.addr_validate(&msg.builders_contract_addr)?,
         builders_voting_power_multiplier: msg.builders_voting_power_multiplier,
         proposal_voting_period: msg.proposal_voting_period,
+        expedited_proposal_voting_period: msg.expedited_proposal_voting_period,
         proposal_effective_delay: msg.proposal_effective_delay,
         proposal_expiration_period: msg.proposal_expiration_period,
         proposal_required_stake: msg.proposal_required_stake,
@@ -89,6 +90,7 @@ pub fn execute(
             link,
             messages,
             receiver,
+            expedited,
         } => submit_proposal(
             deps,
             env,
@@ -98,6 +100,7 @@ pub fn execute(
             link,
             messages,
             receiver,
+            expedited,
         ),
         ExecuteMsg::CastVote {
             proposal_id,
@@ -124,6 +127,7 @@ pub fn submit_proposal(
     link: Option<String>,
     messages: Option<Vec<ProposalMessage>>,
     receiver: Option<String>,
+    expedited: bool,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -156,6 +160,15 @@ pub fn submit_proposal(
         submitter = Some(deps.api.addr_validate(&receiver)?);
     }
 
+    //Set end_block 
+    let end_block: u64 = {
+        if expedited {
+            env.block.height + config.expedited_proposal_voting_period
+        } else {
+            env.block.height + config.proposal_voting_period
+        }
+    };    
+
     let proposal = Proposal {
         proposal_id: count,
         submitter: submitter.unwrap_or_else(|| info.sender.clone()),
@@ -166,7 +179,7 @@ pub fn submit_proposal(
         against_voters: Vec::new(),
         start_block: env.block.height,
         start_time: env.block.time.seconds(),
-        end_block: env.block.height + config.proposal_voting_period,
+        end_block,
         delayed_end_block: env.block.height
             + config.proposal_voting_period
             + config.proposal_effective_delay,
@@ -193,7 +206,7 @@ pub fn submit_proposal(
         attr("proposal_id", count),
         attr(
             "proposal_end_height",
-            (env.block.height + config.proposal_voting_period).to_string(),
+            (proposal.end_block).to_string(),
         ),
     ]))
 }
@@ -370,8 +383,11 @@ pub fn check_messages(
     env: Env,
     mut messages: Vec<ProposalMessage>,
 ) -> Result<Response, ContractError> {
+
     messages.sort_by(|a, b| a.order.cmp(&b.order));
+
     let mut messages: Vec<_> = messages.into_iter().map(|message| message.msg).collect();
+
     messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
         msg: to_binary(&ExecuteMsg::CheckMessagesPassed {})?,
@@ -442,6 +458,10 @@ pub fn update_config(
 
     if let Some(proposal_voting_period) = updated_config.proposal_voting_period {
         config.proposal_voting_period = proposal_voting_period;
+    }
+
+    if let Some(expedited_proposal_voting_period) = updated_config.expedited_proposal_voting_period {
+        config.expedited_proposal_voting_period = expedited_proposal_voting_period;
     }
 
     if let Some(proposal_effective_delay) = updated_config.proposal_effective_delay {

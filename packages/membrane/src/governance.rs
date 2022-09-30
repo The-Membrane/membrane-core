@@ -37,6 +37,8 @@ pub struct InstantiateMsg {
     pub builders_voting_power_multiplier: Decimal,
     /// Proposal voting period
     pub proposal_voting_period: u64,
+    /// Expedited Proposal voting period
+    pub expedited_proposal_voting_period: u64,
     /// Proposal effective delay
     pub proposal_effective_delay: u64,
     /// Proposal expiration period
@@ -49,7 +51,7 @@ pub struct InstantiateMsg {
     pub proposal_required_threshold: String,
     /// Whitelisted links
     pub whitelisted_links: Vec<String>,
-}
+}//u64 fields are block units
 
 /// This enum describes all execute functions available in the contract.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -63,6 +65,8 @@ pub enum ExecuteMsg {
         messages: Option<Vec<ProposalMessage>>,
         //If from the builder's contract
         receiver: Option<String>,
+        //Expedited toggle
+        expedited: bool,
     },
     /// Cast a vote for an active proposal
     CastVote {
@@ -152,6 +156,8 @@ pub struct Config {
     pub builders_voting_power_multiplier: Decimal,
     /// Proposal voting period
     pub proposal_voting_period: u64,
+    /// Expedited Proposal voting period
+    pub expedited_proposal_voting_period: u64,
     /// Proposal effective delay
     pub proposal_effective_delay: u64,
     /// Proposal expiration period
@@ -240,6 +246,8 @@ pub struct UpdateConfig {
     pub builders_voting_power_multiplier: Option<Decimal>,
     /// Proposal voting period
     pub proposal_voting_period: Option<u64>,
+    /// Expedited Proposal voting period
+    pub expedited_proposal_voting_period: Option<u64>,
     /// Proposal effective delay
     pub proposal_effective_delay: Option<u64>,
     /// Proposal expiration period

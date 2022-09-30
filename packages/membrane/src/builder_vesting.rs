@@ -47,6 +47,7 @@ pub enum ExecuteMsg {
         description: String,
         link: Option<String>,
         messages: Option<Vec<ProposalMessage>>,
+        expedited: bool,
     },
     CastVote {
         /// Proposal identifier

@@ -46,21 +46,7 @@ mod tests {
     //Mock Osmo Proxy Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Osmo_MockExecuteMsg {
-        MintTokens {
-            denom: String,
-            amount: Uint128,
-            mint_to_address: String,
-        },
-        BurnTokens {
-            denom: String,
-            amount: Uint128,
-            burn_from_address: String,
-        },
-        CreateDenom {
-            subdenom: String,
-        },
-    }
+    pub enum Osmo_MockExecuteMsg { }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
@@ -68,90 +54,22 @@ mod tests {
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Osmo_MockQueryMsg {
-        SpotPrice {
-            asset: String,
-        },
-        PoolState {
-            id: u64,
-        },
-        GetDenom {
-            creator_address: String,
-            subdenom: String,
-        },
-        ArithmeticTwapToNow {
-            id: u64,
-            quote_asset_denom: String,
-            base_asset_denom: String,
-            start_time: i64,
-        },
-    }
+    pub enum Osmo_MockQueryMsg { }
+
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub struct MockReponse { }
 
     pub fn osmosis_proxy_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Osmo_MockExecuteMsg| -> StdResult<Response> {
-                match msg {
-                    Osmo_MockExecuteMsg::MintTokens {
-                        denom,
-                        amount,
-                        mint_to_address,
-                    } => Ok(Response::new()),
-                    Osmo_MockExecuteMsg::BurnTokens {
-                        denom,
-                        amount,
-                        burn_from_address,
-                    } => Ok(Response::new()),
-                    Osmo_MockExecuteMsg::CreateDenom { subdenom } => Ok(Response::new()
-                        .add_attributes(vec![
-                            attr("basket_id", "1"),
-                            attr("subdenom", "credit_fulldenom"),
-                        ])),
-                }
+                Ok(Response::default())
             },
             |_, _, _, _: Osmo_MockInstantiateMsg| -> StdResult<Response> {
                 Ok(Response::default())
             },
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
-                match msg {
-                    Osmo_MockQueryMsg::SpotPrice { asset } => Ok(to_binary(&SpotPriceResponse {
-                        price: Decimal::one(),
-                    })?),
-                    Osmo_MockQueryMsg::PoolState { id } => {
-                        if id == 99u64 {
-                            Ok(to_binary(&PoolStateResponse {
-                                assets: vec![coin(100_000_000, "base"), coin(100_000_000, "quote")],
-                                shares: coin(100_000_000, "lp_denom"),
-                            })?)
-                        } else {
-                            Ok(to_binary(&PoolStateResponse {
-                                assets: vec![coin(49_999, "credit_fulldenom")],
-                                shares: coin(0, "shares"),
-                            })?)
-                        }
-                    }
-                    Osmo_MockQueryMsg::GetDenom {
-                        creator_address,
-                        subdenom,
-                    } => Ok(to_binary(&GetDenomResponse {
-                        denom: String::from("credit_fulldenom"),
-                    })?),
-                    Osmo_MockQueryMsg::ArithmeticTwapToNow {
-                        id,
-                        quote_asset_denom,
-                        base_asset_denom,
-                        start_time,
-                    } => {
-                        if base_asset_denom == *"base" {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(100),
-                            })?)
-                        } else {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(100),
-                            })?)
-                        }
-                    }
-                }
+                Ok(to_binary(&MockResponse { }))
             },
         );
         Box::new(contract)
@@ -160,20 +78,7 @@ mod tests {
     //Mock Staking Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Staking_MockExecuteMsg {
-        DepositFee {
-            fee_assets: Vec<Asset>,
-        },
-        ClaimRewards {
-            claim_as_cw20: Option<String>,
-            claim_as_native: Option<String>,
-            send_to: Option<String>,
-            restake: bool,
-        },
-        Stake {
-            user: Option<String>,
-        },
-    }
+    pub enum Staking_MockExecuteMsg { }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
@@ -182,9 +87,6 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Staking_MockQueryMsg {
-        StakerRewards {
-            staker: String,
-        },
         Staked {
             limit: Option<u64>,
             start_after: Option<u64>,
@@ -197,41 +99,13 @@ mod tests {
     pub fn staking_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Staking_MockExecuteMsg| -> StdResult<Response> {
-                match msg {
-                    Staking_MockExecuteMsg::DepositFee { fee_assets } => Ok(Response::default()),
-                    Staking_MockExecuteMsg::ClaimRewards {
-                        claim_as_cw20,
-                        claim_as_native,
-                        send_to,
-                        restake,
-                    } => Ok(Response::default()),
-                    Staking_MockExecuteMsg::Stake { user } => Ok(Response::default()),
-                }
+                Ok(Response::default())
             },
             |_, _, _, _: Staking_MockInstantiateMsg| -> StdResult<Response> {
                 Ok(Response::default())
             },
             |_, _, msg: Staking_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Staking_MockQueryMsg::StakerRewards { staker } => {
-                        Ok(to_binary(&RewardsResponse {
-                            claimables: vec![
-                                Asset {
-                                    info: AssetInfo::NativeToken {
-                                        denom: String::from("debit"),
-                                    },
-                                    amount: Uint128::new(1_000_000u128),
-                                },
-                                Asset {
-                                    info: AssetInfo::NativeToken {
-                                        denom: String::from("2nddebit"),
-                                    },
-                                    amount: Uint128::new(1_000_000u128),
-                                },
-                            ],
-                            accrued_interest: Uint128::zero(),
-                        })?)
-                    }
                     Staking_MockQueryMsg::Staked {
                         limit,
                         start_after,

@@ -243,6 +243,8 @@ pub fn execute(
                 assets,
                 false,
             )?;
+            //If there is nothing being withdrawn, error
+            if cAssets == vec![] { return Err(ContractError::CustomError { val: String::from("No withdrawal assets passed") }) }
             withdraw(deps, env, info, position_id, basket_id, cAssets)
         }
 

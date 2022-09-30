@@ -6005,6 +6005,7 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, false, false);
 
+            //Add supply caps and a new cAsset (2nddebit)
             let edit_basket_msg = ExecuteMsg::EditBasket {
                 basket_id: Uint128::new(1u128),
                 added_cAsset: Some(cAsset {
@@ -6387,7 +6388,7 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, false, false);
 
-            //Add a second asset
+            //Add a second asset & supply caps
             let edit_basket_msg = ExecuteMsg::EditBasket {
                 basket_id: Uint128::new(1u128),
                 added_cAsset: Some(cAsset {
@@ -6542,6 +6543,178 @@ mod tests {
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             assert_eq!(res.caps, String::from("debit: 0/42000, 2nddebit: 0/0, "));
+        }
+
+        #[test]
+        fn asset_expunge(){
+            let (mut app, cdp_contract, lq_contract, cw20_addr) =
+                proper_instantiate(false, false, false, false);
+
+            //Add supply caps & a 2nd cAsset
+            let edit_basket_msg = ExecuteMsg::EditBasket {
+                basket_id: Uint128::new(1u128),
+                added_cAsset:  Some(cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "2nddebit".to_string(),
+                        },
+                        amount: Uint128::from(0u128),
+                    },
+                    max_borrow_LTV: Decimal::percent(50),
+                    max_LTV: Decimal::percent(70),
+                    pool_info: None,
+                }),
+                owner: None,
+                liq_queue: None,
+                credit_pool_ids: None,
+                liquidity_multiplier: None,
+                collateral_supply_caps: Some(vec![SupplyCap {
+                    asset_info: AssetInfo::NativeToken {
+                        denom: "debit".to_string(),
+                    },
+                    current_supply: Uint128::zero(),
+                    debt_total: Uint128::zero(),
+                    supply_cap_ratio: Decimal::percent(100),
+                    lp: false,
+                },
+                SupplyCap {
+                    asset_info: AssetInfo::NativeToken {
+                        denom: "2nddebit".to_string(),
+                    },
+                    current_supply: Uint128::zero(),
+                    debt_total: Uint128::zero(),
+                    supply_cap_ratio: Decimal::percent(100),
+                    lp: false,
+                }]),
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+            };
+            let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();           
+
+            //Initial deposit
+            let exec_msg = ExecuteMsg::Deposit {
+                position_owner: None,
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract.call(exec_msg, vec![coin(11, "debit"), coin(11, "2nddebit")]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Set debit supply caps to 0 
+            let edit_basket_msg = ExecuteMsg::EditBasket {
+                basket_id: Uint128::new(1u128),
+                added_cAsset: None,
+                owner: None,
+                liq_queue: None,
+                credit_pool_ids: None,
+                liquidity_multiplier: None,
+                collateral_supply_caps: Some(vec![SupplyCap {
+                    asset_info: AssetInfo::NativeToken {
+                        denom: "debit".to_string(),
+                    },
+                    current_supply: Uint128::zero(),
+                    debt_total: Uint128::zero(),
+                    supply_cap_ratio: Decimal::percent(0),
+                    lp: false,
+                }]),
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+            };
+            let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap(); 
+
+            //Attempt to withdraw 2nddebit only: Error
+            let withdrawal_msg = ExecuteMsg::Withdraw {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                assets: vec![
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "2nddebit".to_string(),
+                        },
+                        amount: Uint128::from(11u128),
+                    }
+                ],
+            };
+            let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //Attempt to withdraw both but not debit fully: Error
+            let withdrawal_msg = ExecuteMsg::Withdraw {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                assets: vec![
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "2nddebit".to_string(),
+                        },
+                        amount: Uint128::from(11u128),
+                    },
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "debit".to_string(),
+                        },
+                        amount: Uint128::from(1u128),
+                    }
+                ],
+            };
+            let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            
+            //Withdraw only debit partially: Successful
+            let withdrawal_msg = ExecuteMsg::Withdraw {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                assets: vec![
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "debit".to_string(),
+                        },
+                        amount: Uint128::from(5u128),
+                    }
+                ],
+            };
+            let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Withdraw both: Successful
+            let withdrawal_msg = ExecuteMsg::Withdraw {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                assets: vec![
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "2nddebit".to_string(),
+                        },
+                        amount: Uint128::from(11u128),
+                    },
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "debit".to_string(),
+                        },
+                        amount: Uint128::from(6u128),
+                    }
+                ],
+            };
+            let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Query Position assets to assert withdrawal
+            let query_msg = QueryMsg::GetPosition {
+                position_id: Uint128::new(1u128),
+                basket_id: Uint128::new(1u128),
+                position_owner: USER.to_string(),
+            };
+            let res: PositionResponse = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(res.collateral_assets, vec![]);
         }
     }
 }

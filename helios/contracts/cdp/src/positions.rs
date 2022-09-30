@@ -374,6 +374,9 @@ pub fn withdraw(
     //For Withdraw Msg
     let mut withdraw_coins: Vec<Coin> = vec![];
 
+    //Check for expunged assets and assert they are being withdrawn
+    check_for_expunged( old_assets.clone(), cAssets.clone(), basket.clone() )?;
+
     //Each cAsset
     //We reload at every loop to account for edited state data
     //Otherwise users could siphon funds they don't own w/ duplicate cAssets.
@@ -1899,6 +1902,70 @@ pub fn liquidate(
     }
 }
 
+//Checks if any Basket caps are set to 0
+//If so the withdrawal assets have to either fully withdraw the asset from the position or only withdraw said asset
+//Otherwise users could just fully withdrawal other assets and create a new position
+//In a LUNA situation this would leave debt backed by an asset whose solvency we have no faith in
+fn check_for_expunged(
+    position_assets: Vec<cAsset>,
+    withdrawal_assets: Vec<cAsset>,
+    basket: Basket
+)-> StdResult<()>{
+
+    //Extract the Asset from the cAssets
+    let position_assets: Vec<Asset> = position_assets
+        .into_iter()
+        .map(|cAsset| cAsset.asset)
+        .collect::<Vec<Asset>>();
+
+    let withdrawal_assets: Vec<Asset> = withdrawal_assets
+        .into_iter()
+        .map(|cAsset| cAsset.asset)
+        .collect::<Vec<Asset>>();
+
+    let mut passed = false;
+
+    let mut invalid_withdraws = vec![];
+
+    //For any supply cap at 0
+    for cap in basket.clone().collateral_supply_caps {
+
+        if cap.supply_cap_ratio.is_zero(){
+
+            //If in the position
+            if let Some( asset ) = position_assets.clone().into_iter().find(|asset| asset.info.equal(&cap.asset_info)){
+
+                //Withdraw asset has to either..
+                //1) Only withdraw the asset
+                if withdrawal_assets[0].info.equal(&asset.info) && withdrawal_assets.len() == 1 as usize{
+                    passed = true;
+                
+                //2) Fully withdraw the asset
+                } else if let Some( withdrawal_asset ) = withdrawal_assets.clone().into_iter().find(|w_asset| w_asset.info.equal(&asset.info)){
+
+                    if withdrawal_asset.amount == asset.amount {
+                        passed = true;
+                    }else {
+                        passed = false;
+                        invalid_withdraws.push( asset.info.to_string() );
+                    } 
+                } else {
+                    passed = false;
+                    invalid_withdraws.push( asset.info.to_string() );
+                }
+
+            }
+        }
+    }
+
+    if !passed {
+        return Err( StdError::GenericErr { msg: format!("These assets need to be expunged from the positon: {:?}", invalid_withdraws) } )
+    }
+
+    Ok(())
+}
+
+//Returns LP withdrawal message that is used in liquidations
 fn get_lp_liq_withdraw_msg(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,

@@ -21,9 +21,10 @@ use membrane::stability_pool::{
 use membrane::types::{
     Asset, AssetInfo, AssetPool, Deposit, LiqAsset, PositionUserInfo, User, UserInfo, UserRatio,
 };
+use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
-use crate::math::{decimal_division, decimal_multiplication, decimal_subtraction};
+use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_deposits, query_user_claims, query_pool};
 use crate::state::{Config, Propagation, ASSETS, CONFIG, INCENTIVES, PROP, USERS};
 
 // version info for migration info
@@ -395,8 +396,6 @@ fn accrue_incentives(
     deposit: &mut Deposit,
 ) -> StdResult<Uint128> {
     
-    let rate = get_rate(storage, querier, Some(asset_pool), None)?;
-
     //Time elapsed starting from now or unstake time
     let time_elapsed = match deposit.unstake_time {
         Some( unstake_time ) => {
@@ -406,6 +405,15 @@ fn accrue_incentives(
             env.block.time.seconds() - deposit.last_accrued
         },
     };    
+
+    let rate: Decimal;
+    if time_elapsed == 0 {
+        return Ok(Uint128::zero())
+    } else {
+        
+        rate = get_rate(storage, querier, Some(asset_pool), None)?;
+    }
+
     //Set last_accrued
     deposit.last_accrued = env.block.time.seconds();
 
@@ -423,7 +431,7 @@ fn accrue_incentives(
     Ok(incentives)
 }
 
-fn accumulate_interest(stake: Uint128, rate: Decimal, time_elapsed: u64) -> StdResult<Uint128> {
+pub fn accumulate_interest(stake: Uint128, rate: Decimal, time_elapsed: u64) -> StdResult<Uint128> {
     let applied_rate = rate.checked_mul(Decimal::from_ratio(
         Uint128::from(time_elapsed),
         Uint128::from(SECONDS_PER_YEAR),
@@ -2420,196 +2428,3 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-fn query_user_incentives(
-    deps: Deps, 
-    env: Env,
-    user: String,
-    asset_info: AssetInfo
-) -> StdResult<Uint128>{
-    let resp: DepositResponse = query_deposits(deps, user, asset_info.clone())?;
-
-    let rate = query_rate(deps, asset_info)?;
-
-    let mut total_incentives = Uint128::zero();
-
-    for deposit in resp.deposits {
-
-        match deposit.unstake_time{
-            Some(unstake_time) => {
-                let time_elapsed = unstake_time - deposit.last_accrued;
-                let stake = deposit.amount * Uint128::one();
-
-                total_incentives += accumulate_interest(stake, rate, time_elapsed)?;
-            },
-            None => {
-                let time_elapsed = env.block.time.seconds() - deposit.last_accrued;
-                let stake = deposit.amount * Uint128::one();
-
-                total_incentives += accumulate_interest(stake, rate, time_elapsed)?;
-            },
-        }
-        
-    }
-
-    Ok(total_incentives)
-}
-
-fn query_rate(
-    deps: Deps,
-    asset_info: AssetInfo,
-) -> StdResult<Decimal>{
-
-    let config = CONFIG.load(deps.storage)?;
-
-    let asset_pools: Vec<AssetPool> = ASSETS.load(deps.storage)?;
-
-    let asset_pool = match asset_pools.into_iter().find(|pool| pool.credit_asset.info.equal(&asset_info)){
-        Some(pool) => pool,
-        None => return Err( StdError::GenericErr { msg: String::from("Invalid asset") } ),
-    };
-
-    let asset_current_supply = deps.querier
-    .query::<TokenInfoResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.osmosis_proxy.to_string(),
-        msg: to_binary(&OsmoQueryMsg::GetTokenInfo {
-            denom: asset_pool.credit_asset.info.to_string(),
-        })?,
-    }))?
-    .current_supply;
-
-    //Set Rate
-    //The 2 slope model is based on total credit supply AFTER liquidations.
-    //So the users who are distributed liq_funds will get rates based off the AssetPool's total AFTER their funds were used.
-    let mut rate = config.incentive_rate;
-    if !config
-        .desired_ratio_of_total_credit_supply
-        .is_zero()
-    {
-        let asset_util_ratio = decimal_division(
-            Decimal::from_ratio(asset_pool.credit_asset.amount, Uint128::new(1u128)),
-            Decimal::from_ratio(asset_current_supply, Uint128::new(1u128)),
-        );
-        let mut proportion_of_desired_util = decimal_division(
-            asset_util_ratio,
-            config.desired_ratio_of_total_credit_supply,
-        );
-
-        if proportion_of_desired_util.is_zero() {
-            proportion_of_desired_util = Decimal::one();
-        }
-
-        let rate_multiplier = decimal_division(Decimal::one(), proportion_of_desired_util);
-
-        rate = decimal_multiplication(config.incentive_rate, rate_multiplier);
-    }
-
-    Ok(rate)
-}
-
-pub fn query_pool(deps: Deps, asset_info: AssetInfo) -> StdResult<PoolResponse> {
-    match ASSETS
-        .load(deps.storage)?
-        .into_iter()
-        .find(|pool| pool.credit_asset.info.equal(&asset_info))
-    {
-        Some(pool) => {
-            Ok(PoolResponse {
-                credit_asset: pool.clone().credit_asset,
-                liq_premium: pool.liq_premium,
-                deposits: pool.deposits,
-            })
-        }
-        None => {
-            Err(StdError::GenericErr {
-                msg: "Asset Pool nonexistent".to_string(),
-            })
-        }
-    }
-}
-
-pub fn query_liquidatible(deps: Deps, asset: LiqAsset) -> StdResult<LiquidatibleResponse> {
-    match ASSETS
-        .load(deps.storage)?
-        .iter()
-        .find(|pool| pool.credit_asset.info.equal(&asset.info))
-    {
-        Some(pool) => {
-            let asset_amount_uint128 = asset.amount * Uint128::new(1u128);
-
-            let liquidatible_amount = pool.credit_asset.amount;
-
-            if liquidatible_amount > asset_amount_uint128 {
-                Ok(LiquidatibleResponse {
-                    leftover: Decimal::percent(0),
-                })
-            } else {
-                let leftover = asset_amount_uint128 - pool.credit_asset.amount;
-                Ok(LiquidatibleResponse {
-                    leftover: Decimal::from_ratio(leftover, Uint128::new(1u128)),
-                })
-            }
-        }
-        None => {
-            Err(StdError::GenericErr {
-                msg: "Asset doesnt exist as an AssetPool".to_string(),
-            })
-        }
-    }
-}
-
-pub fn query_deposits(
-    deps: Deps,
-    user: String,
-    asset_info: AssetInfo,
-) -> StdResult<DepositResponse> {
-    let valid_user = deps.api.addr_validate(&user)?;
-
-    match ASSETS
-        .load(deps.storage)?
-        .into_iter()
-        .find(|pool| pool.credit_asset.info.equal(&asset_info))
-    {
-        Some(pool) => {
-            let deposits: Vec<Deposit> = pool
-                .deposits
-                .into_iter()
-                .filter(|deposit| deposit.user == valid_user)
-                .collect::<Vec<Deposit>>();
-
-            if deposits.is_empty() {
-                return Err(StdError::GenericErr {
-                    msg: "User has no open positions in this asset pool or the pool doesn't exist"
-                        .to_string(),
-                });
-            }
-
-            Ok(DepositResponse {
-                asset: asset_info,
-                deposits,
-            })
-        }
-        None => {
-            Err(StdError::GenericErr {
-                msg: "User has no open positions in this asset pool or the pool doesn't exist"
-                    .to_string(),
-            })
-        }
-    }
-}
-
-pub fn query_user_claims(deps: Deps, user: String) -> StdResult<ClaimsResponse> {
-    let valid_user = deps.api.addr_validate(&user)?;
-
-    match USERS.load(deps.storage, valid_user) {
-        Ok(user) => {
-            Ok(ClaimsResponse {
-                claims: user.claimable_assets,
-            })
-        }
-        Err(_) => {
-            Err(StdError::GenericErr {
-                msg: "User has no claimable assets".to_string(),
-            })
-        }
-    }
-}

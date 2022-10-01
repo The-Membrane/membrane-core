@@ -11,7 +11,7 @@ mod tests {
     use osmo_bindings::{ OsmosisMsg, OsmosisQuery};
     use std::marker::PhantomData;
 
-    use membrane::osmosis_proxy::{ InstantiateMsg, ExecuteMsg, QueryMsg, GetDenomResponse };
+    use membrane::osmosis_proxy::{ InstantiateMsg, ExecuteMsg, QueryMsg, GetDenomResponse, TokenInfoResponse };
 
     use crate::TokenFactoryError;
     use crate::contract::{instantiate, execute, query, reply};
@@ -124,7 +124,7 @@ mod tests {
         let actual_attribute = res.attributes.get(0).unwrap();
         assert_eq!(expected_attribute, actual_attribute);
 
-        assert_eq!(res.data.ok_or(0), Err(0));
+        assert_eq!(res.data.ok_or(0), Err(0));       
     }
 
     #[test]
@@ -320,5 +320,7 @@ mod tests {
 
         assert_eq!(expected_error, err)
     }
+
+
 
 }

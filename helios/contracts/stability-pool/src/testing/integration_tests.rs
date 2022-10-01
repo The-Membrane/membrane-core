@@ -442,16 +442,9 @@ mod tests {
             });
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Successful Withdraw
-            let cosmos_msg = sp_contract.call(withdraw_msg, vec![]).unwrap();
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
-                chain_id: app.block_info().chain_id,
-            });
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
-
             //Query and Assert Claimables
+            //User should be able to claim incentives without fully withdrawing
+            //This allows them to restake to save their spot in line (FIFO)
             let query_msg = QueryMsg::UserClaims {
                 user: String::from(USER),
             };
@@ -468,6 +461,15 @@ mod tests {
                     amount: Uint128::new(8_800u128),
                 },]
             );
+
+            //Successful Withdraw
+            let cosmos_msg = sp_contract.call(withdraw_msg, vec![]).unwrap();
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
+                chain_id: app.block_info().chain_id,
+            });
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();           
 
             //Incentives during distributions
 

@@ -576,6 +576,7 @@ fn withdrawal_from_state(
     mut pool: AssetPool,
     skip_unstaking: bool,
 ) -> Result<(Uint128, AssetPool), ContractError> {
+    
     let mut mbrn_incentives = Uint128::zero();
 
     let mut error: Option<StdError> = None;
@@ -625,9 +626,8 @@ fn withdrawal_from_state(
                         deposit_item.unstake_time = Some(env.block.time.seconds());
                     }
                 } else {
-                    //Allow regular withdraws if from Reply fn
-                    //Makes sure no incentives are accrued
-                    deposit_item.unstake_time = Some(deposit_item.deposit_time);
+                    //Allow regular withdraws if from CDP Repay fn
+                    deposit_item.unstake_time = Some( env.block.time.seconds() );
                     //Withdraws from state
                     withdrawable = true;
                 }
@@ -643,28 +643,30 @@ fn withdrawal_from_state(
 
                         //Subtract from deposit.amount
                         deposit_item.amount -= withdrawal_amount;
-
-                        //Calc incentives
-                        let time_elapsed =
-                            deposit_item.unstake_time.unwrap() - deposit_item.deposit_time;
-                        if time_elapsed != 0u64 {
-                            let accrued_incentives = match accrue_incentives(
-                                storage,
-                                querier,
-                                config.clone(),
-                                pool.clone(),
-                                withdrawal_amount * Uint128::new(1u128),
-                                time_elapsed,
-                            ) {
-                                Ok(incentives) => incentives,
-                                Err(err) => {
-                                    error = Some(err);
-                                    Uint128::zero()
-                                }
-                            };
-                            mbrn_incentives += accrued_incentives;
-                        }
+                        
                     }
+
+                    //Calc incentives
+                    let time_elapsed =
+                    deposit_item.unstake_time.unwrap() - deposit_item.deposit_time;
+                    if time_elapsed != 0u64 {
+                        let accrued_incentives = match accrue_incentives(
+                            storage,
+                            querier,
+                            config.clone(),
+                            pool.clone(),
+                            withdrawal_amount * Uint128::new(1u128),
+                            time_elapsed,
+                        ) {
+                            Ok(incentives) => incentives,
+                            Err(err) => {
+                                error = Some(err);
+                                Uint128::zero()
+                            }
+                        };
+                        mbrn_incentives += accrued_incentives;
+                    }
+
                     //////
                     withdrawal_amount = Decimal::zero();
                     //////
@@ -677,30 +679,30 @@ fn withdrawal_from_state(
 
                     if withdrawable {
                         //Add to withdrawable_amount
-                        withdrawable_amount += deposit_item.amount * Uint128::new(1u128);
-
-                        //Calc incentives
-                        let time_elapsed =
-                            deposit_item.unstake_time.unwrap() - deposit_item.deposit_time;
-                        if time_elapsed != 0u64 {
-                            let accrued_incentives = match accrue_incentives(
-                                storage,
-                                querier,
-                                config.clone(),
-                                pool.clone(),
-                                deposit_item.amount * Uint128::new(1u128),
-                                time_elapsed,
-                            ) {
-                                Ok(incentives) => incentives,
-                                Err(err) => {
-                                    error = Some(err);
-                                    Uint128::zero()
-                                }
-                            };
-                            mbrn_incentives += accrued_incentives;
-                        }
+                        withdrawable_amount += deposit_item.amount * Uint128::new(1u128);                        
 
                         deposit_item.amount = Decimal::zero();
+                    }
+
+                    //Calc incentives
+                    let time_elapsed =
+                    deposit_item.unstake_time.unwrap() - deposit_item.deposit_time;
+                    if time_elapsed != 0u64 {
+                        let accrued_incentives = match accrue_incentives(
+                            storage,
+                            querier,
+                            config.clone(),
+                            pool.clone(),
+                            deposit_item.amount * Uint128::new(1u128),
+                            time_elapsed,
+                        ) {
+                            Ok(incentives) => incentives,
+                            Err(err) => {
+                                error = Some(err);
+                                Uint128::zero()
+                            }
+                        };
+                        mbrn_incentives += accrued_incentives;
                     }
                 }
 
@@ -1106,7 +1108,6 @@ pub fn distribute_funds(
                 }
             }
             None => {
-                // panic!("None");
                 //End of deposit list
                 //If it gets here and the repaid amount != current_repay_total, the state was mismanaged previously
                 //since by now the funds have already been sent.
@@ -1468,8 +1469,8 @@ pub fn claim(
     claim_as_cw20: Option<String>,
     deposit_to: Option<PositionUserInfo>,
 ) -> Result<Response, ContractError> {
-    let config: Config = CONFIG.load(deps.storage)?;
 
+    let config: Config = CONFIG.load(deps.storage)?;
     
 
     if claim_as_native.is_some() && claim_as_cw20.is_some() {
@@ -1494,6 +1495,9 @@ pub fn claim(
     } else {
         String::from("None")
     };
+
+    //Error if there is nothing to claim
+    if messages == vec![] {return Err(ContractError::CustomError { val: String::from("Nothing to claim") }) }
 
     let res = Response::new()
         .add_attribute("method", "claim")

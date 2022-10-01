@@ -93,7 +93,11 @@ pub enum QueryMsg {
     Config {},
     //Get current SP incentive rate
     Rate {
-        credit_asset: AssetInfo,
+        asset_info: AssetInfo,
+    },
+    UnclaimedIncentives {
+        user: String,
+        asset_info: AssetInfo,
     },
     //Check if the amount of said asset is liquidatible
     CheckLiquidatible { asset: LiqAsset },

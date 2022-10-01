@@ -2234,10 +2234,11 @@ pub fn validate_position_owner(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::Rate { credit_asset } => to_binary(&query_rate(deps, credit_asset)?),
+        QueryMsg::Rate { asset_info } => to_binary(&query_rate(deps, asset_info)?),
+        QueryMsg::UnclaimedIncentives { user, asset_info } => to_binary(&query_user_incentives(deps, env, user, asset_info)?),
         QueryMsg::CheckLiquidatible { asset } => to_binary(&query_liquidatible(deps, asset)?),
         QueryMsg::AssetDeposits { user, asset_info } => {
             to_binary(&query_deposits(deps, user, asset_info)?)
@@ -2247,16 +2248,50 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
+fn query_user_incentives(
+    deps: Deps, 
+    env: Env,
+    user: String,
+    asset_info: AssetInfo
+) -> StdResult<Uint128>{
+    let resp: DepositResponse = query_deposits(deps, user, asset_info.clone())?;
+
+    let rate = query_rate(deps, asset_info)?;
+
+    let mut total_incentives = Uint128::zero();
+
+    for deposit in resp.deposits {
+
+        match deposit.unstake_time{
+            Some(unstake_time) => {
+                let time_elapsed = unstake_time - deposit.deposit_time;
+                let stake = deposit.amount * Uint128::one();
+
+                total_incentives += accumulate_interest(stake, rate, time_elapsed)?;
+            },
+            None => {
+                let time_elapsed = env.block.time.seconds() - deposit.deposit_time;
+                let stake = deposit.amount * Uint128::one();
+
+                total_incentives += accumulate_interest(stake, rate, time_elapsed)?;
+            },
+        }
+        
+    }
+
+    Ok(total_incentives)
+}
+
 fn query_rate(
     deps: Deps,
-    credit_asset: AssetInfo,
+    asset_info: AssetInfo,
 ) -> StdResult<Decimal>{
 
     let config = CONFIG.load(deps.storage)?;
 
     let asset_pools: Vec<AssetPool> = ASSETS.load(deps.storage)?;
 
-    let asset_pool = match asset_pools.into_iter().find(|pool| pool.credit_asset.info.equal(&credit_asset)){
+    let asset_pool = match asset_pools.into_iter().find(|pool| pool.credit_asset.info.equal(&asset_info)){
         Some(pool) => pool,
         None => return Err( StdError::GenericErr { msg: String::from("Invalid asset") } ),
     };

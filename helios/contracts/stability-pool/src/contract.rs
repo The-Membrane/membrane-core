@@ -406,7 +406,6 @@ fn accrue_incentives(
     //So the users who are distributed liq_funds will get rates based off the AssetPool's total AFTER their funds were used.
     let mut rate = config.incentive_rate;
     if !config
-        
         .desired_ratio_of_total_credit_supply
         .is_zero()
     {
@@ -420,7 +419,7 @@ fn accrue_incentives(
         );
 
         if proportion_of_desired_util.is_zero() {
-            proportion_of_desired_util = Decimal::one();
+            proportion_of_desired_util = Decimal::percent(1);
         }
 
         let rate_multiplier = decimal_division(Decimal::one(), proportion_of_desired_util);

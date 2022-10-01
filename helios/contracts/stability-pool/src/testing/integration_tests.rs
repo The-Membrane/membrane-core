@@ -548,7 +548,7 @@ mod tests {
                         info: AssetInfo::NativeToken {
                             denom: String::from("mbrn_denom")
                         },
-                        amount: Uint128::new(10_000u128),
+                        amount: Uint128::new(1_000_000u128),
                     },
                     Asset {
                         info: AssetInfo::NativeToken {

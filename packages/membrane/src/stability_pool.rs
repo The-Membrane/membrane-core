@@ -91,6 +91,10 @@ pub enum Cw20HookMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
+    //Get current SP incentive rate
+    Rate {
+        credit_asset: AssetInfo,
+    },
     //Check if the amount of said asset is liquidatible
     CheckLiquidatible { asset: LiqAsset },
     //User deposits in 1 AssetPool

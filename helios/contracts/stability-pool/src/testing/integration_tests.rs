@@ -484,6 +484,16 @@ mod tests {
                 .call(deposit_msg, vec![coin(100_000, "credit")])
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            
+            //QueryRate
+            let query_msg = QueryMsg::Rate {
+                credit_asset: AssetInfo::NativeToken { denom: String::from("credit") }
+            };
+            let rate: Decimal = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
+                .unwrap();
+            assert_eq!(rate.to_string(), String::from("0.088"));
 
             //Liquidate
             let liq_msg = ExecuteMsg::Liquidate {
@@ -558,6 +568,7 @@ mod tests {
                     },
                 ]
             );
+
         }
     }
 }

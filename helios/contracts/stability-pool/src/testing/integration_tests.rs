@@ -174,6 +174,12 @@ mod tests {
                 vec![coin(100_000_000, "debit"), coin(100_000_000, "2nddebit")],
             )
             .unwrap();
+            bank.init_balance(
+                storage,
+                &Addr::unchecked("contract4"),
+                vec![coin(100_000, "mbrn_denom")],
+            )
+            .unwrap();
 
             router.bank = bank;
         })
@@ -275,6 +281,7 @@ mod tests {
 
         use super::*;
         use cosmwasm_std::BlockInfo;
+        use membrane::stability_pool::DepositResponse;
 
         #[test]
         fn accrue_incentives() {
@@ -325,8 +332,6 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Query and Assert Claimables
-            //User should be able to claim incentives without fully withdrawing
-            //This allows them to restake to save their spot in line (FIFO)
             let query_msg = QueryMsg::UserClaims {
                 user: String::from(USER),
             };
@@ -343,6 +348,17 @@ mod tests {
                     amount: Uint128::new(8_800u128),
                 },]
             );
+
+            //Query Incentives and assert that there are none after being added to claimables
+            let query_msg = QueryMsg::UnclaimedIncentives {
+                user: String::from(USER),
+                asset_info: AssetInfo::NativeToken { denom: String::from("credit") }
+            };
+            let total_incentives: Uint128 = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
+                .unwrap();
+            assert_eq!(total_incentives, Uint128::new(0));
 
             //Successful Withdraw
             let cosmos_msg = sp_contract.call(withdraw_msg, vec![]).unwrap();
@@ -376,6 +392,21 @@ mod tests {
                 .query_wasm_smart(sp_contract.addr(), &query_msg)
                 .unwrap();
             assert_eq!(rate.to_string(), String::from("0.088"));
+
+            //Claim accrued incentives 
+            let claim_msg = ExecuteMsg::Claim {
+                claim_as_native: None,
+                claim_as_cw20: None,
+                deposit_to: None,
+            };
+            let cosmos_msg = sp_contract.call(claim_msg, vec![]).unwrap();
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
+                chain_id: app.block_info().chain_id,
+            });
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+          
 
             //Liquidate
             let liq_msg = ExecuteMsg::Liquidate {
@@ -411,7 +442,7 @@ mod tests {
                 cdp_contract_addr.clone(),
                 &[coin(100, "debit")],
             )
-            .unwrap();
+            .unwrap();           
             app.set_block(BlockInfo {
                 height: app.block_info().height,
                 time: app.block_info().time.plus_seconds(31536000u64), //Added a year
@@ -420,6 +451,7 @@ mod tests {
             app.execute(cdp_contract_addr, cosmos_msg).unwrap();
 
             //Query and Assert Claimables
+            //Since incentives were claimed earlier, these are only from the most recent timeskip
             let query_msg = QueryMsg::UserClaims {
                 user: String::from(USER),
             };
@@ -434,13 +466,7 @@ mod tests {
                         info: AssetInfo::NativeToken {
                             denom: String::from("mbrn_denom")
                         },
-                        amount: Uint128::new(8_800u128),
-                    },
-                    Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: String::from("mbrn_denom")
-                        },
-                        amount: Uint128::new(1_000_000u128),
+                        amount: Uint128::new(10_000u128),
                     },
                     Asset {
                         info: AssetInfo::NativeToken {
@@ -450,6 +476,24 @@ mod tests {
                     },
                 ]
             );
+
+            //Claim 
+            let claim_msg = ExecuteMsg::Claim {
+                claim_as_native: None,
+                claim_as_cw20: None,
+                deposit_to: None,
+            };
+            let cosmos_msg = sp_contract.call(claim_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Claim but get nothing
+            let claim_msg = ExecuteMsg::Claim {
+                claim_as_native: None,
+                claim_as_cw20: None,
+                deposit_to: None,
+            };
+            let cosmos_msg = sp_contract.call(claim_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
         }
     }

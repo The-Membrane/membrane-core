@@ -385,12 +385,14 @@ fn withdrawal() {
                 user: Addr::unchecked("sender88"),
                 amount: Decimal::percent(1_00),
                 deposit_time: mock_env().block.time.seconds(),
+                last_accrued: mock_env().block.time.seconds(),
                 unstake_time: Some(mock_env().block.time.seconds()),
             },
             Deposit {
                 user: Addr::unchecked("sender88"),
                 amount: Decimal::percent(10_00),
                 deposit_time: mock_env().block.time.seconds(),
+                last_accrued: mock_env().block.time.seconds(),
                 unstake_time: None,
             }
         ]

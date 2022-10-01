@@ -175,7 +175,7 @@ pub fn execute(
             claim_as_native,
             claim_as_cw20,
             deposit_to,
-        } => claim(deps, info, claim_as_native, claim_as_cw20, deposit_to),
+        } => claim(deps, env, info, claim_as_native, claim_as_cw20, deposit_to),
         ExecuteMsg::AddPool { asset_pool } => {
             add_asset_pool(deps, info, asset_pool.credit_asset, asset_pool.liq_premium)
         }
@@ -336,6 +336,7 @@ pub fn deposit(
             user: valid_owner_addr.clone(),
             amount: Decimal::from_ratio(asset.amount, Uint128::new(1u128)),
             deposit_time: env.block.time.seconds(),
+            last_accrued: env.block.time.seconds(),
             unstake_time: None,
         };
 
@@ -387,45 +388,26 @@ pub fn deposit(
 fn accrue_incentives(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
+    env: Env,
     config: Config,
     asset_pool: AssetPool,
     stake: Uint128,
-    time_elapsed: u64,
+    deposit: &mut Deposit,
 ) -> StdResult<Uint128> {
-    let asset_current_supply = querier
-        .query::<TokenInfoResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.osmosis_proxy.to_string(),
-            msg: to_binary(&OsmoQueryMsg::GetTokenInfo {
-                denom: asset_pool.credit_asset.info.to_string(),
-            })?,
-        }))?
-        .current_supply;
+    
+    let rate = get_rate(storage, querier, Some(asset_pool), None)?;
 
-    //Set Rate
-    //The 2 slope model is based on total credit supply AFTER liquidations.
-    //So the users who are distributed liq_funds will get rates based off the AssetPool's total AFTER their funds were used.
-    let mut rate = config.incentive_rate;
-    if !config
-        .desired_ratio_of_total_credit_supply
-        .is_zero()
-    {
-        let asset_util_ratio = decimal_division(
-            Decimal::from_ratio(asset_pool.credit_asset.amount, Uint128::new(1u128)),
-            Decimal::from_ratio(asset_current_supply, Uint128::new(1u128)),
-        );
-        let mut proportion_of_desired_util = decimal_division(
-            asset_util_ratio,
-            config.desired_ratio_of_total_credit_supply,
-        );
-
-        if proportion_of_desired_util.is_zero() {
-            proportion_of_desired_util = Decimal::percent(1);
-        }
-
-        let rate_multiplier = decimal_division(Decimal::one(), proportion_of_desired_util);
-
-        rate = decimal_multiplication(config.incentive_rate, rate_multiplier);
-    }
+    //Time elapsed starting from now or unstake time
+    let time_elapsed = match deposit.unstake_time {
+        Some( unstake_time ) => {
+            unstake_time - deposit.last_accrued
+        },
+        None => {
+            env.block.time.seconds() - deposit.last_accrued
+        },
+    };    
+    //Set last_accrued
+    deposit.last_accrued = env.block.time.seconds();
 
     let mut incentives = accumulate_interest(stake, rate, time_elapsed)?;
 
@@ -646,25 +628,23 @@ fn withdrawal_from_state(
                     }
 
                     //Calc incentives
-                    let time_elapsed =
-                    deposit_item.unstake_time.unwrap() - deposit_item.deposit_time;
-                    if time_elapsed != 0u64 {
-                        let accrued_incentives = match accrue_incentives(
-                            storage,
-                            querier,
-                            config.clone(),
-                            pool.clone(),
-                            withdrawal_amount * Uint128::new(1u128),
-                            time_elapsed,
-                        ) {
-                            Ok(incentives) => incentives,
-                            Err(err) => {
-                                error = Some(err);
-                                Uint128::zero()
-                            }
-                        };
-                        mbrn_incentives += accrued_incentives;
-                    }
+                    let accrued_incentives = match accrue_incentives(
+                        storage,
+                        querier,
+                        env.clone(),
+                        config.clone(),
+                        pool.clone(),
+                        withdrawal_amount * Uint128::new(1u128),
+                        &mut deposit_item,
+                    ){
+                        Ok(incentive) => incentive,
+                        Err(err) => {
+                            error = Some(err);
+                            Uint128::zero()
+                        }
+                    };
+                    mbrn_incentives += accrued_incentives;
+                    
 
                     //////
                     withdrawal_amount = Decimal::zero();
@@ -684,25 +664,23 @@ fn withdrawal_from_state(
                     }
 
                     //Calc incentives
-                    let time_elapsed =
-                    deposit_item.unstake_time.unwrap() - deposit_item.deposit_time;
-                    if time_elapsed != 0u64 {
-                        let accrued_incentives = match accrue_incentives(
-                            storage,
-                            querier,
-                            config.clone(),
-                            pool.clone(),
-                            deposit_item.amount * Uint128::new(1u128),
-                            time_elapsed,
-                        ) {
-                            Ok(incentives) => incentives,
-                            Err(err) => {
-                                error = Some(err);
-                                Uint128::zero()
-                            }
-                        };
-                        mbrn_incentives += accrued_incentives;
-                    }
+                    let accrued_incentives = match accrue_incentives(
+                        storage,
+                        querier,
+                        env.clone(),
+                        config.clone(),
+                        pool.clone(),
+                        deposit_item.amount * Uint128::new(1u128),
+                        &mut deposit_item,
+                    ){
+                        Ok(incentive) => incentive,
+                        Err(err) => {
+                            error = Some(err);
+                            Uint128::zero()
+                        }
+                    };
+                    mbrn_incentives += accrued_incentives;
+                    
                 }
 
                 withdrawable = false;
@@ -1008,7 +986,6 @@ pub fn distribute_funds(
     while current_repay_total < repaid_amount_decimal {
         match pool_parse.next() {
             Some(mut deposit) => {
-                //panic!("{}", deposit.amount);
 
                 //If greater, only add what's necessary and edit the deposit
                 if (current_repay_total + deposit.amount) > repaid_amount_decimal {
@@ -1026,40 +1003,43 @@ pub fn distribute_funds(
                     });
 
                     //Calc MBRN incentives
-                    let time_elapsed = env.block.time.seconds() - deposit.deposit_time;
-                    if time_elapsed != 0u64 {
+                    if env.block.time.seconds() > deposit.last_accrued{
                         let accrued_incentives = accrue_incentives(
                             deps.storage,
                             deps.querier,
+                            env.clone(),
                             config.clone(),
                             asset_pool.clone(),
                             remaining_repayment * Uint128::new(1u128),
-                            time_elapsed,
+                            &mut deposit,
                         )?;
 
-                        //Add incentives to User Claims
-                        USERS.update(
-                            deps.storage,
-                            deposit.user,
-                            |user_claims| -> Result<User, ContractError> {
-                                match user_claims {
-                                    Some(mut user) => {
-                                        user.claimable_assets.push(Asset {
-                                            info: AssetInfo::NativeToken {
-                                                denom: config.clone().mbrn_denom,
-                                            },
-                                            amount: accrued_incentives,
-                                        });
-                                        Ok(user)
+                        if !accrued_incentives.is_zero() {                        
+
+                            //Add incentives to User Claims
+                            USERS.update(
+                                deps.storage,
+                                deposit.user,
+                                |user_claims| -> Result<User, ContractError> {
+                                    match user_claims {
+                                        Some(mut user) => {
+                                            user.claimable_assets.push(Asset {
+                                                info: AssetInfo::NativeToken {
+                                                    denom: config.clone().mbrn_denom,
+                                                },
+                                                amount: accrued_incentives,
+                                            });
+                                            Ok(user)
+                                        }
+                                        None => {
+                                            Err(ContractError::CustomError {
+                                                val: String::from("Invalid user"),
+                                            })
+                                        }
                                     }
-                                    None => {
-                                        Err(ContractError::CustomError {
-                                            val: String::from("Invalid user"),
-                                        })
-                                    }
-                                }
-                            },
-                        )?;
+                                },
+                            )?;
+                        }
                     }
                 } else {
                     //Else, keep adding
@@ -1068,41 +1048,48 @@ pub fn distribute_funds(
 
                     distribution_list.push(deposit.clone());
 
-                    //Calc MBRN incentives
-                    let time_elapsed = env.block.time.seconds() - deposit.deposit_time;
-                    if time_elapsed != 0u64 {
+                    
+                    if env.block.time.seconds() > deposit.last_accrued{
+                        //Calc MBRN incentives
                         let accrued_incentives = accrue_incentives(
                             deps.storage,
                             deps.querier,
+                            env.clone(),
                             config.clone(),
                             asset_pool.clone(),
                             deposit.amount * Uint128::new(1u128),
-                            time_elapsed,
+                            &mut deposit,
                         )?;
 
-                        //Add incentives to User Claims
-                        USERS.update(
-                            deps.storage,
-                            deposit.user,
-                            |user_claims| -> Result<User, ContractError> {
-                                match user_claims {
-                                    Some(mut user) => {
-                                        user.claimable_assets.push(Asset {
-                                            info: AssetInfo::NativeToken {
-                                                denom: config.clone().mbrn_denom,
-                                            },
-                                            amount: accrued_incentives,
-                                        });
-                                        Ok(user)
+                        if !accrued_incentives.is_zero() {
+                            
+                            //Add incentives to User Claims
+                            USERS.update(
+                                deps.storage,
+                                deposit.user,
+                                |user_claims| -> Result<User, ContractError> {
+                                    match user_claims {
+                                        Some(mut user) => {
+                                            user.claimable_assets.push(Asset {
+                                                info: AssetInfo::NativeToken {
+                                                    denom: config.clone().mbrn_denom,
+                                                },
+                                                amount: accrued_incentives,
+                                            });
+                                            Ok(user)
+                                        }
+                                        None => {
+                                            Err(ContractError::CustomError {
+                                                val: String::from("Invalid user"),
+                                            })
+                                        }
                                     }
-                                    None => {
-                                        Err(ContractError::CustomError {
-                                            val: String::from("Invalid user"),
-                                        })
-                                    }
-                                }
-                            },
-                        )?;
+                                },
+                            )?;
+                        }
+
+                        //1697941419
+                        // panic!("{}", deposit.last_accrued);
                     }
                 }
             }
@@ -1463,21 +1450,54 @@ fn repay(
 //If claim_as is passed, the claims will be sent as said asset
 pub fn claim(
     deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     claim_as_native: Option<String>,
     claim_as_cw20: Option<String>,
     deposit_to: Option<PositionUserInfo>,
 ) -> Result<Response, ContractError> {
 
-    let config: Config = CONFIG.load(deps.storage)?;
-    
+    let config: Config = CONFIG.load(deps.storage)?;    
 
     if claim_as_native.is_some() && claim_as_cw20.is_some() {
         return Err(ContractError::CustomError {
             val: "Can't claim as multiple assets, if not all claimable assets".to_string(),
         });
     }
+    
+    let mut accrued_incentives = Uint128::zero();
+    //Add newly accrued incentives to claimables
+    for asset in ASSETS.load(deps.storage)?{
+        accrued_incentives += get_user_incentives(deps.storage, deps.querier, env.clone(), info.clone().sender, asset.credit_asset.info)?;
+    }
 
+    if !accrued_incentives.is_zero(){
+        //Add incentives to User Claims
+        USERS.update(
+            deps.storage,
+            info.clone().sender,
+            |user_claims| -> Result<User, ContractError> {
+                match user_claims {
+                    Some(mut user) => {
+                        user.claimable_assets.push(Asset {
+                            info: AssetInfo::NativeToken {
+                                denom: config.clone().mbrn_denom,
+                            },
+                            amount: accrued_incentives,
+                        });
+                        Ok(user)
+                    }
+                    None => {
+                        Err(ContractError::CustomError {
+                            val: String::from("Invalid user"),
+                        })
+                    }
+                }
+            },
+        )?;
+    }
+    
+    //Create claim msgs
     let messages: Vec<CosmosMsg> = user_claims_msgs(
         deps.storage,
         deps.api,
@@ -1501,8 +1521,8 @@ pub fn claim(
     let res = Response::new()
         .add_attribute("method", "claim")
         .add_attribute("user", info.sender)
-        .add_attribute("claim_as_native", claim_as_native.unwrap_or_default())
-        .add_attribute("claim_as_cw20", claim_as_cw20.unwrap_or_default())
+        .add_attribute("claim_as_native", claim_as_native.unwrap_or_else(|| "None".to_string()))
+        .add_attribute("claim_as_cw20", claim_as_cw20.unwrap_or_else(|| String::from("None")))
         .add_attribute("deposit_to", deposit_attribute);
 
     Ok(res.add_messages(messages))
@@ -2026,47 +2046,199 @@ pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal
     Ok((user_ratios, user_deposits))
 }
 
-//Confirms that sent assets are at least valued greater than the credit repayment value
-// pub fn confirm_asset_values(
-//     deps: DepsMut,
-//     info: MessageInfo,
-//     liq_msg: LiqModuleMsg,
-// ) -> Result<(), ContractError>{
+fn get_user_incentives(
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    user: Addr,
+    asset_info: AssetInfo
+) -> StdResult<Uint128>{
 
-//     let liq_value: Decimal;
+    let asset_pools = ASSETS.load(storage)?;
+    
+    let mut asset_pool = match asset_pools.clone().into_iter().find(|pool| pool.credit_asset.info.equal(&asset_info.clone())){
+        Some(pool) => pool,
+        None => return Err( StdError::GenericErr { msg: String::from("Invalid asset") } ),
+    };
 
-//     for asset in liq_msg.clone().liquidated_cAssets{
+    let mut total_incentives = Uint128::zero();
+    let mut error: Option<StdError> = None;
 
-//         match asset.asset.info {
-//             AssetInfo::NativeToken { denom } => {
-//                 assert_sent_native_token_balance(&asset.asset, &info)?;
+    let new_deposits: Vec<Deposit> = asset_pool.deposits.into_iter().map(|mut deposit| {
 
-//                 //TODO: Query price by denom using the ORACLES item
-//                 let asset_price: Decimal;
+        if deposit.user == user {
+            match deposit.unstake_time {
+                Some(unstake_time) => {
+                    let time_elapsed = unstake_time - deposit.last_accrued;
+                    let stake = deposit.amount * Uint128::one();
+    
+                    if time_elapsed != 0 {
+                        //Get incentive Rate
+                        let rate = match get_rate(storage, querier, None, Some(asset_info.clone())){
+                            Ok(rate) => rate,
+                            Err(err) => {
+                                error = Some(err);
+                                Decimal::zero()
+                            },
+                        };
+                        //Add accrued incentives
+                        total_incentives += match accumulate_interest(stake, rate, time_elapsed){
+                            Ok(incentives) => incentives,
+                            Err(err) => {
+                                error = Some(err);
+                                Uint128::zero()
+                            },
+                        };
+                    }    
+                    
+                    
+                    deposit.last_accrued = env.block.time.seconds();
+                },
+                None => {
+                    let time_elapsed = env.block.time.seconds() - deposit.last_accrued;
+                    let stake = deposit.amount * Uint128::one();
+    
+                    if time_elapsed != 0 {
+                        //Get incentive Rate
+                        let rate = match get_rate(storage, querier, None, Some(asset_info.clone())){
+                            Ok(rate) => rate,
+                            Err(err) => {
+                                error = Some(err);
+                                Decimal::zero()
+                            },
+                        };
+                        //Add accrued incentives
+                        total_incentives += match accumulate_interest(stake, rate, time_elapsed){
+                            Ok(incentives) => incentives,
+                            Err(err) => {
+                                error = Some(err);
+                                Uint128::zero()
+                            },
+                        };
+                    }    
 
-//                 let asset_value: Decimal = decimal_multiplication(asset_price, asset.asset.amount);
-//                 liq_value += asset_value;
-//             },
+                    
+                    deposit.last_accrued = env.block.time.seconds();
+                },
+            }
+        }
 
-//             AssetInfo::Token { address } => {
+        deposit
+    }).collect::<Vec<Deposit>>();
+    //Set new deposits
+    asset_pool.deposits = new_deposits;
 
-//                  //TODO: Query price by denom using the ORACLES item
-//                  let asset_price: Decimal;
+    //Filter out this pool
+    let mut temp_pools: Vec<AssetPool>  = asset_pools.into_iter().filter(|pool| !pool.credit_asset.info.equal(&asset_info)).collect::<Vec<AssetPool>>();
 
-//                  let asset_value: Decimal = decimal_multiplication(asset_price, asset.asset.amount);
-//                  liq_value += asset_value;
-//             }
-//         }
-//     }
+    //Add edited pool
+    temp_pools.push( asset_pool );
 
-//     let credit_value = decimal_multiplication(liq_msg.credit_price, liq_msg.credit_asset.amount);
+    //Save pools
+    ASSETS.save( storage, &temp_pools )?;
 
-//     if liq_value > credit_value {
-//         return Ok(())
-//     }else{
-//         return Err(ContractError::CustomError { val: "Liquidated assets aren't worth more than the requested repayment amount".to_string() })
-//     }
-// }
+    Ok(total_incentives)
+}
+
+pub fn get_user_deposits(
+    storage: &mut dyn Storage,
+    valid_user: Addr,
+    asset_info: AssetInfo,
+) -> StdResult<DepositResponse> {
+    
+    match ASSETS
+        .load(storage)?
+        .into_iter()
+        .find(|pool| pool.credit_asset.info.equal(&asset_info))
+    {
+        Some(pool) => {
+            let deposits: Vec<Deposit> = pool
+                .deposits
+                .into_iter()
+                .filter(|deposit| deposit.user == valid_user)
+                .collect::<Vec<Deposit>>();
+
+            if deposits.is_empty() {
+                return Err(StdError::GenericErr {
+                    msg: "User has no open positions in this asset pool or the pool doesn't exist"
+                        .to_string(),
+                });
+            }
+
+            Ok(DepositResponse {
+                asset: asset_info,
+                deposits,
+            })
+        }
+        None => {
+            Err(StdError::GenericErr {
+                msg: "User has no open positions in this asset pool or the pool doesn't exist"
+                    .to_string(),
+            })
+        }
+    }
+}
+
+fn get_rate(
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    asset_pool: Option<AssetPool>,
+    asset_info: Option<AssetInfo>,
+) -> StdResult<Decimal>{
+
+    let config = CONFIG.load(storage)?;
+
+    let asset_pool = if let Some(pool) = asset_pool {
+        pool
+    } else if let Some(asset_info) = asset_info{
+        let asset_pools: Vec<AssetPool> = ASSETS.load(storage)?;
+
+        match asset_pools.into_iter().find(|pool| pool.credit_asset.info.equal(&asset_info)){
+            Some(pool) => pool,
+            None => return Err( StdError::GenericErr { msg: String::from("Invalid asset") } ),
+        }
+    } else {
+        return Err( StdError::GenericErr { msg: String::from("No parameters passed") } )
+    };
+    
+
+    let asset_current_supply = querier
+    .query::<TokenInfoResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.osmosis_proxy.to_string(),
+        msg: to_binary(&OsmoQueryMsg::GetTokenInfo {
+            denom: asset_pool.credit_asset.info.to_string(),
+        })?,
+    }))?
+    .current_supply;
+
+    //Set Rate
+    //The 2 slope model is based on total credit supply AFTER liquidations.
+    //So the users who are distributed liq_funds will get rates based off the AssetPool's total AFTER their funds were used.
+    let mut rate = config.incentive_rate;
+    if !config
+        .desired_ratio_of_total_credit_supply
+        .is_zero()
+    {
+        let asset_util_ratio = decimal_division(
+            Decimal::from_ratio(asset_pool.credit_asset.amount, Uint128::new(1u128)),
+            Decimal::from_ratio(asset_current_supply, Uint128::new(1u128)),
+        );
+        let mut proportion_of_desired_util = decimal_division(
+            asset_util_ratio,
+            config.desired_ratio_of_total_credit_supply,
+        );
+
+        if proportion_of_desired_util.is_zero() {
+            proportion_of_desired_util = Decimal::one();
+        }
+
+        let rate_multiplier = decimal_division(Decimal::one(), proportion_of_desired_util);
+
+        rate = decimal_multiplication(config.incentive_rate, rate_multiplier);
+    }
+
+    Ok(rate)
+}
 
 pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> Result<CosmosMsg, ContractError> {
     //let credit_contract: Addr = basket.credit_contract;
@@ -2264,13 +2436,13 @@ fn query_user_incentives(
 
         match deposit.unstake_time{
             Some(unstake_time) => {
-                let time_elapsed = unstake_time - deposit.deposit_time;
+                let time_elapsed = unstake_time - deposit.last_accrued;
                 let stake = deposit.amount * Uint128::one();
 
                 total_incentives += accumulate_interest(stake, rate, time_elapsed)?;
             },
             None => {
-                let time_elapsed = env.block.time.seconds() - deposit.deposit_time;
+                let time_elapsed = env.block.time.seconds() - deposit.last_accrued;
                 let stake = deposit.amount * Uint128::one();
 
                 total_incentives += accumulate_interest(stake, rate, time_elapsed)?;
@@ -2323,7 +2495,7 @@ fn query_rate(
         );
 
         if proportion_of_desired_util.is_zero() {
-            proportion_of_desired_util = Decimal::percent(1);
+            proportion_of_desired_util = Decimal::one();
         }
 
         let rate_multiplier = decimal_division(Decimal::one(), proportion_of_desired_util);

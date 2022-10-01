@@ -31,21 +31,7 @@ mod tests {
     //Mock Osmo Proxy Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Osmo_MockExecuteMsg {
-        MintTokens {
-            denom: String,
-            amount: Uint128,
-            mint_to_address: String,
-        },
-        BurnTokens {
-            denom: String,
-            amount: Uint128,
-            burn_from_address: String,
-        },
-        CreateDenom {
-            subdenom: String,
-        },
-    }
+    pub enum Osmo_MockExecuteMsg {}
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
@@ -54,16 +40,6 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockQueryMsg {
-        SpotPrice {
-            asset: String,
-        },
-        PoolState {
-            id: u64,
-        },
-        GetDenom {
-            creator_address: String,
-            subdenom: String,
-        },
         ArithmeticTwapToNow {
             id: u64,
             quote_asset_denom: String,
@@ -75,51 +51,13 @@ mod tests {
     pub fn osmosis_proxy_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Osmo_MockExecuteMsg| -> StdResult<Response> {
-                match msg {
-                    Osmo_MockExecuteMsg::MintTokens {
-                        denom,
-                        amount,
-                        mint_to_address,
-                    } => Ok(Response::new()),
-                    Osmo_MockExecuteMsg::BurnTokens {
-                        denom,
-                        amount,
-                        burn_from_address,
-                    } => Ok(Response::new()),
-                    Osmo_MockExecuteMsg::CreateDenom { subdenom } => Ok(Response::new()
-                        .add_attributes(vec![
-                            attr("basket_id", "1"),
-                            attr("subdenom", "credit_fulldenom"),
-                        ])),
-                }
+                Ok(Response::default())
             },
             |_, _, _, _: Osmo_MockInstantiateMsg| -> StdResult<Response> {
                 Ok(Response::default())
             },
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Osmo_MockQueryMsg::SpotPrice { asset } => Ok(to_binary(&SpotPriceResponse {
-                        price: Decimal::one(),
-                    })?),
-                    Osmo_MockQueryMsg::PoolState { id } => {
-                        if id == 99u64 {
-                            Ok(to_binary(&PoolStateResponse {
-                                assets: vec![coin(100_000_000, "base"), coin(100_000_000, "quote")],
-                                shares: coin(100_000_000, "lp_denom"),
-                            })?)
-                        } else {
-                            Ok(to_binary(&PoolStateResponse {
-                                assets: vec![coin(49_999, "credit_fulldenom")],
-                                shares: coin(0, "shares"),
-                            })?)
-                        }
-                    }
-                    Osmo_MockQueryMsg::GetDenom {
-                        creator_address,
-                        subdenom,
-                    } => Ok(to_binary(&GetDenomResponse {
-                        denom: String::from("credit_fulldenom"),
-                    })?),
                     Osmo_MockQueryMsg::ArithmeticTwapToNow {
                         id,
                         quote_asset_denom,
@@ -207,6 +145,8 @@ mod tests {
     #[cfg(test)]
     mod oracle {
 
+        use crate::state::Config;
+
         use super::*;
         use membrane::oracle::{AssetResponse, PriceResponse};
 
@@ -232,7 +172,7 @@ mod tests {
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
-            //Successful AddAsset
+            //Successful AddAsset for Basket 1
             let msg = ExecuteMsg::AddAsset {
                 asset_info: AssetInfo::NativeToken {
                     denom: String::from("credit_fulldenom"),
@@ -250,7 +190,25 @@ mod tests {
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Query Price
+            //Successful AddAsset for Basket 2
+            let msg = ExecuteMsg::AddAsset {
+                asset_info: AssetInfo::NativeToken {
+                    denom: String::from("credit_fulldenom"),
+                },
+                oracle_info: AssetOracleInfo {
+                    basket_id: Uint128::new(2u128),
+                    osmosis_pools_for_twap: vec![TWAPPoolInfo {
+                        pool_id: 2u64,
+                        base_asset_denom: String::from("credit_fulldenom"),
+                        quote_asset_denom: String::from("axlusdc"),
+                    }],
+                    static_price: None,
+                },
+            };
+            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Query Price for Basket 1
             let price: PriceResponse = app
                 .wrap()
                 .query_wasm_smart(
@@ -265,6 +223,22 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(price.avg_price, Decimal::percent(50));
+
+            //Query Price for Basket 2
+            let price: PriceResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    oracle_contract.addr(),
+                    &QueryMsg::Price {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: String::from("credit_fulldenom"),
+                        },
+                        twap_timeframe: 90u64,
+                        basket_id: Some(Uint128::new(2u128)),
+                    },
+                )
+                .unwrap();
+            assert_eq!(price.avg_price, Decimal::percent(450));
 
             //Successful EditAsset
             let msg = ExecuteMsg::EditAsset {
@@ -436,6 +410,37 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(price.avg_price, Decimal::one());
+        }
+
+        #[test]
+        fn update_config() {
+            let (mut app, oracle_contract) = proper_instantiate();
+
+            //Successful AddAsset
+            let msg = ExecuteMsg::UpdateConfig { 
+                owner: Some(String::from("new_owner")), 
+                osmosis_proxy: Some(String::from("new_op_contract")),  
+                positions_contract: Some(String::from("new_pos_contract")), 
+            };
+            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            
+            //Query Liquidity
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    oracle_contract.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            assert_eq!(
+                config, 
+                Config {
+                    owner: Addr::unchecked("new_owner"), 
+                    osmosis_proxy:  Addr::unchecked("new_op_contract"),  
+                    positions_contract: Some(Addr::unchecked("new_pos_contract")), 
+            });
         }
     }
 }

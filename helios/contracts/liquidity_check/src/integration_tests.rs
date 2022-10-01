@@ -32,21 +32,7 @@ mod tests {
     //Mock Osmo Proxy Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Osmo_MockExecuteMsg {
-        MintTokens {
-            denom: String,
-            amount: Uint128,
-            mint_to_address: String,
-        },
-        BurnTokens {
-            denom: String,
-            amount: Uint128,
-            burn_from_address: String,
-        },
-        CreateDenom {
-            subdenom: String,
-        },
-    }
+    pub enum Osmo_MockExecuteMsg {}
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
@@ -55,53 +41,21 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockQueryMsg {
-        SpotPrice {
-            asset: String,
-        },
         PoolState {
             id: u64,
-        },
-        GetDenom {
-            creator_address: String,
-            subdenom: String,
-        },
-        ArithmeticTwapToNow {
-            id: u64,
-            quote_asset_denom: String,
-            base_asset_denom: String,
-            start_time: i64,
-        },
+        }
     }
 
     pub fn osmosis_proxy_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Osmo_MockExecuteMsg| -> StdResult<Response> {
-                match msg {
-                    Osmo_MockExecuteMsg::MintTokens {
-                        denom,
-                        amount,
-                        mint_to_address,
-                    } => Ok(Response::new()),
-                    Osmo_MockExecuteMsg::BurnTokens {
-                        denom,
-                        amount,
-                        burn_from_address,
-                    } => Ok(Response::new()),
-                    Osmo_MockExecuteMsg::CreateDenom { subdenom } => Ok(Response::new()
-                        .add_attributes(vec![
-                            attr("basket_id", "1"),
-                            attr("subdenom", "credit_fulldenom"),
-                        ])),
-                }
+                Ok(Response::default())
             },
             |_, _, _, _: Osmo_MockInstantiateMsg| -> StdResult<Response> {
                 Ok(Response::default())
             },
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Osmo_MockQueryMsg::SpotPrice { asset } => Ok(to_binary(&SpotPriceResponse {
-                        price: Decimal::one(),
-                    })?),
                     Osmo_MockQueryMsg::PoolState { id } => {
                         if id == 99u64 {
                             Ok(to_binary(&PoolStateResponse {
@@ -112,28 +66,6 @@ mod tests {
                             Ok(to_binary(&PoolStateResponse {
                                 assets: vec![coin(49_999, "credit_fulldenom")],
                                 shares: coin(0, "shares"),
-                            })?)
-                        }
-                    }
-                    Osmo_MockQueryMsg::GetDenom {
-                        creator_address,
-                        subdenom,
-                    } => Ok(to_binary(&GetDenomResponse {
-                        denom: String::from("credit_fulldenom"),
-                    })?),
-                    Osmo_MockQueryMsg::ArithmeticTwapToNow {
-                        id,
-                        quote_asset_denom,
-                        base_asset_denom,
-                        start_time,
-                    } => {
-                        if base_asset_denom == *"base" {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(100),
-                            })?)
-                        } else {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(100),
                             })?)
                         }
                     }
@@ -214,6 +146,8 @@ mod tests {
 
     mod liquidity {
 
+        use crate::state::Config;
+
         use super::*;
         use membrane::types::LiquidityInfo;
 
@@ -221,7 +155,7 @@ mod tests {
         fn add_edit_remove() {
             let (mut app, liquidity_contract) = proper_instantiate();
 
-            //Unauthorized AddAsset
+            //Unauthorized AddAsset: Error
             let msg = ExecuteMsg::AddAsset {
                 asset: LiquidityInfo {
                     asset: AssetInfo::NativeToken {
@@ -244,6 +178,18 @@ mod tests {
             };
             let cosmos_msg = liquidity_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Duplicate AddAsset: Error
+            let msg = ExecuteMsg::AddAsset {
+                asset: LiquidityInfo {
+                    asset: AssetInfo::NativeToken {
+                        denom: String::from("credit_fulldenom"),
+                    },
+                    pool_ids: vec![1u64],
+                },
+            };
+            let cosmos_msg = liquidity_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap_err();
 
             //Query Asset(s)
             let assets: Vec<LiquidityInfo> = app
@@ -365,6 +311,37 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(liquidity, Uint128::new(99998u128));
+        }
+
+        #[test]
+        fn update_config() {
+            let (mut app, liquidity_contract) = proper_instantiate();
+
+            //Successful AddAsset
+            let msg = ExecuteMsg::UpdateConfig { 
+                owner: Some(String::from("new_owner")), 
+                osmosis_proxy: Some(String::from("new_op_contract")),  
+                positions_contract: Some(String::from("new_pos_contract")), 
+            };
+            let cosmos_msg = liquidity_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            
+            //Query Liquidity
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    liquidity_contract.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            assert_eq!(
+                config, 
+                Config {
+                    owner: Addr::unchecked("new_owner"), 
+                    osmosis_proxy:  Addr::unchecked("new_op_contract"),  
+                    positions_contract:  Addr::unchecked("new_pos_contract"), 
+            });
         }
     }
 }

@@ -1,4 +1,5 @@
 use crate::contract::{execute, instantiate, query};
+use crate::state::Config;
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
 use cosmwasm_std::{
@@ -11,9 +12,80 @@ use membrane::apollo_router::ExecuteMsg as RouterExecuteMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
     Cw20HookMsg, ExecuteMsg, FeeEventsResponse, InstantiateMsg, QueryMsg, RewardsResponse,
-    StakedResponse, TotalStakedResponse,
+    StakedResponse, TotalStakedResponse, ConfigResponse,
 };
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit};
+
+
+#[test]
+fn update_config(){
+
+    let mut deps = mock_dependencies();
+
+    let msg = InstantiateMsg {
+        owner: None,
+        dex_router: Some(String::from("router_addr")),
+        max_spread: Some(Decimal::percent(10)),
+        positions_contract: Some("positions_contract".to_string()),
+        builders_contract: Some("builders_contract".to_string()),
+        osmosis_proxy: Some("osmosis_proxy".to_string()),
+        staking_rate: Some(Decimal::percent(10)),
+        fee_wait_period: None,
+        mbrn_denom: String::from("mbrn_denom"),
+        unstaking_period: None,
+    };
+
+    //Instantiating contract
+    let info = mock_info("sender88", &[]);
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+    
+    let msg = ExecuteMsg::UpdateConfig { 
+        owner: Some(String::from("new_owner")),
+        unstaking_period: Some(1),  
+        osmosis_proxy: Some(String::from("new_op")), 
+        positions_contract: Some(String::from("new_cdp")), 
+        mbrn_denom: Some(String::from("new_denom")), 
+        dex_router: Some(String::from("new_router")), 
+        max_spread: Some(Decimal::one()),
+        builders_contract: Some(String::from("new_bv")), 
+        staking_rate: Some(Decimal::one()),
+        fee_wait_period: Some(1),  
+    };
+
+    execute(
+        deps.as_mut(),
+        mock_env(),
+        mock_info("sender88", &vec![]),
+        msg,
+    )
+    .unwrap();
+
+    //Query Config
+    let res = query(
+        deps.as_ref(),
+        mock_env(),
+        QueryMsg::Config {},
+    )
+    .unwrap();
+    let config: ConfigResponse = from_binary(&res).unwrap();
+
+    assert_eq!(
+        config,
+        ConfigResponse {
+            owner: String::from("new_owner"),
+            unstaking_period: String::from("1"),  
+            osmosis_proxy: String::from("new_op"), 
+            positions_contract: String::from("new_cdp"), 
+            mbrn_denom: String::from("new_denom"), 
+            dex_router: String::from("new_router"), 
+            max_spread: String::from("1"), 
+            builders_contract: String::from("new_bv"), 
+            staking_rate: String::from("0.2"), //Capped at 20% that's why it isn't 1
+            fee_wait_period: String::from("1"), 
+            
+        },
+    );
+}
 
 #[test]
 fn stake() {
@@ -288,6 +360,16 @@ fn unstake() {
             attr("method", "unstake"),
             attr("staker", String::from("builders_contract")),
             attr("unstake_amount", String::from("5")),
+        ]
+    );
+    //Only msg is stake withdrawal
+    assert_eq!(
+        res.messages,
+        vec![
+            SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
+                to_address: String::from("builders_contract"),
+                amount: coins(5, "mbrn_denom"),
+            })),
         ]
     );
 

@@ -4,7 +4,6 @@
 #![allow(non_camel_case_types)]
 pub mod contract;
 mod error;
-pub mod math;
 pub mod state;
 
 #[cfg(test)]

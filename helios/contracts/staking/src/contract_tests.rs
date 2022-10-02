@@ -12,7 +12,7 @@ use membrane::apollo_router::ExecuteMsg as RouterExecuteMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
     Cw20HookMsg, ExecuteMsg, FeeEventsResponse, InstantiateMsg, QueryMsg, RewardsResponse,
-    StakedResponse, TotalStakedResponse, ConfigResponse,
+    StakedResponse, TotalStakedResponse, ConfigResponse, StakerResponse,
 };
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit};
 
@@ -181,6 +181,24 @@ fn stake() {
 
     assert_eq!(resp.total_not_including_builders, String::from("10"));
     assert_eq!(resp.builders_total, String::from("11"));
+
+    //Query and Assert User stake
+    let res = query(
+        deps.as_ref(),
+        mock_env(),
+        QueryMsg::UserStake { staker: String::from("sender88") }
+    )
+    .unwrap();
+    let resp: StakerResponse = from_binary(&res).unwrap();
+    assert_eq!(resp, 
+        StakerResponse { 
+            staker: String::from("sender88"),
+            total_staked: Uint128::new(10),
+            deposit_list: vec![
+                ( String::from("10"), mock_env().block.time.seconds().to_string() )
+            ],
+        }
+    );
 }
 
 #[test]

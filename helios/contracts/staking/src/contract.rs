@@ -16,9 +16,9 @@ use membrane::staking::{
     RewardsResponse, StakedResponse, StakerResponse, TotalStakedResponse,
 };
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit};
+use membrane::math::decimal_division;
 
 use crate::error::ContractError;
-use crate::math::decimal_division;
 use crate::state::{Config, Totals, CONFIG, FEE_EVENTS, STAKED, TOTALS};
 
 // version info for migration info

@@ -95,7 +95,13 @@ pub enum QueryMsg {
     Rate {
         asset_info: AssetInfo,
     },
+    //Query unclaimed incentives for a user
     UnclaimedIncentives {
+        user: String,
+        asset_info: AssetInfo,
+    },
+    //Query capital ahead of user deposits
+    CapitalAheadOfDeposit {
         user: String,
         asset_info: AssetInfo,
     },
@@ -131,4 +137,10 @@ pub struct PoolResponse {
     pub credit_asset: Asset,
     pub liq_premium: Decimal,
     pub deposits: Vec<Deposit>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct DepositPositionResponse {
+    pub deposit: Deposit,
+    pub capital_ahead: Decimal,
 }

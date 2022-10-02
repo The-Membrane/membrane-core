@@ -24,7 +24,7 @@ use membrane::types::{
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
-use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_deposits, query_user_claims, query_pool};
+use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_deposits, query_user_claims, query_pool, query_capital_ahead_of_deposits};
 use crate::state::{Config, Propagation, ASSETS, CONFIG, INCENTIVES, PROP, USERS};
 
 // version info for migration info
@@ -2419,6 +2419,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::Rate { asset_info } => to_binary(&query_rate(deps, asset_info)?),
         QueryMsg::UnclaimedIncentives { user, asset_info } => to_binary(&query_user_incentives(deps, env, user, asset_info)?),
+        QueryMsg::CapitalAheadOfDeposit { user, asset_info } => to_binary(&query_capital_ahead_of_deposits(deps, asset_info, user)?),
         QueryMsg::CheckLiquidatible { asset } => to_binary(&query_liquidatible(deps, asset)?),
         QueryMsg::AssetDeposits { user, asset_info } => {
             to_binary(&query_deposits(deps, user, asset_info)?)

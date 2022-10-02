@@ -15,7 +15,7 @@ use membrane::apollo_router::ExecuteMsg as RouterExecuteMsg;
 use membrane::positions::{Cw20HookMsg as CDP_Cw20HookMsg, ExecuteMsg as CDP_ExecuteMsg};
 use membrane::stability_pool::{
     ClaimsResponse, Cw20HookMsg, DepositResponse, ExecuteMsg, InstantiateMsg, LiquidatibleResponse,
-    PoolResponse, QueryMsg,
+    PoolResponse, QueryMsg, DepositPositionResponse,
 };
 use membrane::types::{Asset, AssetInfo, AssetPool, Deposit, LiqAsset, PositionUserInfo, UserInfo};
 
@@ -2253,4 +2253,165 @@ fn update_config(){
             max_spread: Some(Decimal::one()),              
         },
     );
+}
+
+#[test]
+fn capital_ahead_of_deposits() {
+    let mut deps = mock_dependencies();
+
+    let msg = InstantiateMsg {
+        owner: Some("sender88".to_string()),
+        asset_pool: Some(AssetPool {
+            credit_asset: Asset {
+                info: AssetInfo::NativeToken {
+                    denom: "credit".to_string(),
+                },
+                amount: Uint128::zero(),
+            },
+            liq_premium: Decimal::zero(),
+            deposits: vec![],
+        }),
+        dex_router: Some(String::from("router_addr")),
+        max_spread: Some(Decimal::percent(10)),
+        desired_ratio_of_total_credit_supply: None,
+        osmosis_proxy: String::from("osmosis_proxy"),
+        mbrn_denom: String::from("mbrn_denom"),
+        incentive_rate: None,
+        positions_contract: String::from("positions_contract"),
+        max_incentives: None,
+    };
+
+    //Instantiating contract
+    let info = mock_info("sender88", &vec![]);
+    let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+   
+
+    //Successful Deposit by user 1
+    let deposit_msg = ExecuteMsg::Deposit {
+        assets: vec![
+            AssetInfo::NativeToken {
+                denom: "credit".to_string(),
+            }
+        ],
+        user: None,
+    };
+    let info = mock_info("user1", &coins(11, "credit"));
+    let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
+
+    //Successful Deposit by user 2
+    let deposit_msg = ExecuteMsg::Deposit {
+        assets: vec![
+            AssetInfo::NativeToken {
+                denom: "credit".to_string(),
+            }
+        ],
+        user: None,
+    };
+    let info = mock_info("user2", &coins(11, "credit"));
+    let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
+
+    //2nd Deposit by user 1
+    let deposit_msg = ExecuteMsg::Deposit {
+        assets: vec![
+            AssetInfo::NativeToken {
+                denom: "credit".to_string(),
+            }
+        ],
+        user: None,
+    };
+    let info = mock_info("user1", &coins(11, "credit"));
+    let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
+
+    //2nd Deposit by user 2
+    let deposit_msg = ExecuteMsg::Deposit {
+        assets: vec![
+            AssetInfo::NativeToken {
+                denom: "credit".to_string(),
+            }
+        ],
+        user: None,
+    };
+    let info = mock_info("user2", &coins(11, "credit"));
+    let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
+
+    let query_msg = QueryMsg::CapitalAheadOfDeposit { 
+        user: String::from("user1"), 
+        asset_info: AssetInfo::NativeToken { denom: "credit".to_string() }  
+    };
+    let res = query(
+        deps.as_ref(),
+        mock_env(),
+        query_msg,
+    )
+    .unwrap();
+
+    let resp: Vec<DepositPositionResponse> = from_binary(&res).unwrap();
+
+    assert_eq!(
+        resp,
+        vec![
+            DepositPositionResponse { 
+                deposit: Deposit { 
+                    user: Addr::unchecked("user1"), 
+                    amount: Decimal::percent(11_00), 
+                    deposit_time: mock_env().block.time.seconds(), 
+                    last_accrued: mock_env().block.time.seconds(), 
+                    unstake_time: None 
+                }, 
+                capital_ahead: Decimal::zero(),
+            },
+            DepositPositionResponse { 
+                deposit: Deposit { 
+                    user: Addr::unchecked("user1"), 
+                    amount: Decimal::percent(11_00), 
+                    deposit_time: mock_env().block.time.seconds(), 
+                    last_accrued: mock_env().block.time.seconds(), 
+                    unstake_time: None 
+                }, 
+                capital_ahead: Decimal::percent(22_00),
+            },
+        ]
+    );
+
+    
+    let query_msg = QueryMsg::CapitalAheadOfDeposit { 
+        user: String::from("user2"), 
+        asset_info: AssetInfo::NativeToken { denom: "credit".to_string() }  
+    };
+    let res = query(
+        deps.as_ref(),
+        mock_env(),
+        query_msg,
+    )
+    .unwrap();
+
+    let resp: Vec<DepositPositionResponse> = from_binary(&res).unwrap();
+
+    assert_eq!(
+        resp,
+        vec![
+            DepositPositionResponse { 
+                deposit: Deposit { 
+                    user: Addr::unchecked("user2"), 
+                    amount: Decimal::percent(11_00), 
+                    deposit_time: mock_env().block.time.seconds(), 
+                    last_accrued: mock_env().block.time.seconds(), 
+                    unstake_time: None 
+                }, 
+                capital_ahead: Decimal::percent(11_00),
+            },
+            DepositPositionResponse { 
+                deposit: Deposit { 
+                    user: Addr::unchecked("user2"), 
+                    amount: Decimal::percent(11_00), 
+                    deposit_time: mock_env().block.time.seconds(), 
+                    last_accrued: mock_env().block.time.seconds(), 
+                    unstake_time: None 
+                }, 
+                capital_ahead: Decimal::percent(33_00),
+            },
+        ]
+    );
+
+
 }

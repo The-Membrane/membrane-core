@@ -11,14 +11,12 @@ use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
 
 use membrane::apollo_router::{Cw20HookMsg as RouterCw20HookMsg, ExecuteMsg as RouterExecuteMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
-use membrane::staking::{
-    ConfigResponse, Cw20HookMsg, ExecuteMsg, FeeEventsResponse, InstantiateMsg, QueryMsg,
-    RewardsResponse, StakedResponse, StakerResponse, TotalStakedResponse,
-};
+use membrane::staking::{ Cw20HookMsg, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit};
 use membrane::math::decimal_division;
 
 use crate::error::ContractError;
+use crate::query::{query_user_stake, query_staker_rewards, query_staked, query_fee_events, query_totals};
 use crate::state::{Config, Totals, CONFIG, FEE_EVENTS, STAKED, TOTALS};
 
 // version info for migration info
@@ -27,7 +25,6 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const SECONDS_PER_YEAR: u64 = 31_536_000u64;
 const SECONDS_PER_DAY: u64 = 86_400u64;
-const DEFAULT_LIMIT: u32 = 32u32;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -103,6 +100,7 @@ pub fn instantiate(
     //Initialize StakeDeposit List
     let vec: Vec<StakeDeposit> = vec![];
     STAKED.save(deps.storage, &vec)?;
+
     //Initialize stake Totals
     TOTALS.save(
         deps.storage,
@@ -787,12 +785,7 @@ pub fn claim_rewards(
         claim_as_native.clone(),
         claim_as_cw20.clone(),
         send_to.clone(),
-    )?;
-
-    //Because get_user_claimables() in user_claim_msgs() saves a condensed user deposit at the front of the List...
-    // //we can fetch the user's total deposits from the end of the list
-    // let staked = STAKED.load( deps.storage )?;
-    // let user_stake = &staked[ staked.len()-1 ];
+    )?;    
 
     //Create MBRN Mint Msg
     if config.osmosis_proxy.is_some() {
@@ -1219,8 +1212,6 @@ fn user_claims(
         });
     }
 
-    //Once messages are created, we set user_claims to vec![]
-
     Ok((messages, user_claimables, accrued_interest))
 }
 
@@ -1297,7 +1288,7 @@ fn get_user_claimables(
     Ok((claimables, accrued_interest))
 }
 
-fn get_deposit_claimables(
+pub fn get_deposit_claimables(
     config: Config,
     env: Env,
     fee_events: Vec<FeeEvent>,
@@ -1427,7 +1418,7 @@ pub fn validate_position_owner(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Config {} => to_binary(&query_config(deps)?),
+        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::UserStake { staker } => to_binary(&query_user_stake(deps, staker)?),
         QueryMsg::StakerRewards { staker } => to_binary(&query_staker_rewards(deps, env, staker)?),
         QueryMsg::Staked {
@@ -1448,147 +1439,4 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::TotalStaked {} => to_binary(&query_totals(deps)?),
     }
-}
-
-fn query_config(deps: Deps) -> StdResult<ConfigResponse> {
-    let config = CONFIG.load(deps.storage)?;
-
-    Ok(ConfigResponse {
-        owner: config.owner.to_string(),
-        dex_router: config
-            .dex_router
-            .unwrap_or(Addr::unchecked("None"))
-            .to_string(),
-        max_spread: config.max_spread.unwrap().to_string(),
-        positions_contract: config
-            .positions_contract
-            .unwrap_or(Addr::unchecked("None"))
-            .to_string(),
-        builders_contract: config
-            .builders_contract
-            .unwrap_or(Addr::unchecked("None"))
-            .to_string(),
-        osmosis_proxy: config
-            .osmosis_proxy
-            .unwrap_or(Addr::unchecked("None"))
-            .to_string(),
-        staking_rate: config.staking_rate.to_string(),
-        fee_wait_period: config.fee_wait_period.to_string(),
-        mbrn_denom: config.mbrn_denom.to_string(),
-        unstaking_period: config.unstaking_period.to_string(),
-    })
-}
-
-fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse> {
-    let valid_addr = deps.api.addr_validate(&staker)?;
-
-    let staker_deposits: Vec<StakeDeposit> = STAKED
-        .load(deps.storage)?
-        .into_iter()
-        .filter(|deposit| deposit.staker == valid_addr)
-        .collect::<Vec<StakeDeposit>>();
-
-    let deposit_list = staker_deposits
-        .clone()
-        .into_iter()
-        .map(|deposit| (deposit.amount.to_string(), deposit.stake_time.to_string()))
-        .collect::<Vec<(String, String)>>();
-
-    let total_staker_deposits: Uint128 = staker_deposits
-        .into_iter()
-        .map(|deposit| deposit.amount)
-        .collect::<Vec<Uint128>>()
-        .into_iter()
-        .sum();
-
-    Ok(StakerResponse {
-        staker: valid_addr.to_string(),
-        total_staked: total_staker_deposits,
-        deposit_list,
-    })
-}
-
-fn query_staker_rewards(deps: Deps, env: Env, staker: String) -> StdResult<RewardsResponse> {
-    let config = CONFIG.load(deps.storage)?;
-
-    let valid_addr = deps.api.addr_validate(&staker)?;
-
-    let staker_deposits: Vec<StakeDeposit> = STAKED
-        .load(deps.storage)?
-        .into_iter()
-        .filter(|deposit| deposit.staker == valid_addr)
-        .collect::<Vec<StakeDeposit>>();
-
-    let fee_events = FEE_EVENTS.load(deps.storage)?;
-
-    let mut claimables = vec![];
-    let mut accrued_interest = Uint128::zero();
-    for deposit in staker_deposits {
-        let (claims, incentives) = get_deposit_claimables(config.clone(), env.clone(), fee_events.clone(), deposit)?;
-        claimables.extend(claims);
-        accrued_interest += incentives;
-    }
-
-    Ok(RewardsResponse {
-        claimables,
-        accrued_interest,
-    })
-}
-
-fn query_staked(
-    deps: Deps,
-    env: Env,
-    limit: Option<u32>,
-    start_after: Option<u64>,
-    end_before: Option<u64>,
-    unstaking: bool,
-) -> StdResult<StakedResponse> {
-    let limit = limit.unwrap_or(DEFAULT_LIMIT);
-    let start_after = start_after.unwrap_or(0u64);
-    let end_before = end_before.unwrap_or_else(|| env.block.time.seconds() + 1u64);
-
-    let mut stakers = STAKED
-        .load(deps.storage)?
-        .into_iter()
-        .filter(|deposit| deposit.stake_time >= start_after && deposit.stake_time < end_before)
-        .take(limit as usize)
-        .collect::<Vec<StakeDeposit>>();
-
-    //Filter out unstakers
-    if !unstaking {
-        stakers = stakers
-            .clone()
-            .into_iter()
-            .filter(|deposit| deposit.unstake_start_time.is_none())
-            .collect::<Vec<StakeDeposit>>();
-    }
-
-    Ok(StakedResponse { stakers })
-}
-
-fn query_fee_events(
-    deps: Deps,
-    limit: Option<u32>,
-    start_after: Option<u64>,
-) -> StdResult<FeeEventsResponse> {
-    let limit = limit.unwrap_or(DEFAULT_LIMIT);
-    let start_after = start_after.unwrap_or(0u64);
-
-    let fee_events = FEE_EVENTS
-        .load(deps.storage)?
-        .into_iter()
-        .filter(|event| event.time_of_event >= start_after)
-        .take(limit as usize)
-        .collect::<Vec<FeeEvent>>();
-
-    Ok(FeeEventsResponse { fee_events })
-}
-
-fn query_totals(deps: Deps) -> StdResult<TotalStakedResponse> {
-    let totals = TOTALS.load(deps.storage)?;
-
-    Ok(TotalStakedResponse {
-        total_not_including_builders: totals.stakers.to_string(),
-        builders_total: totals.builders_contract.to_string(),
-    })
 }

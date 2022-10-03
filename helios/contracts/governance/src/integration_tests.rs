@@ -58,7 +58,7 @@ mod tests {
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub struct MockReponse { }
+    pub struct MockResponse { }
 
     pub fn osmosis_proxy_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
@@ -69,7 +69,7 @@ mod tests {
                 Ok(Response::default())
             },
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
-                Ok(to_binary(&MockResponse { }))
+                Ok(to_binary(&MockResponse { })?)
             },
         );
         Box::new(contract)

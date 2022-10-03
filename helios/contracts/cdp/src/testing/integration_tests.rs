@@ -584,6 +584,7 @@ mod tests {
                             user: Addr::unchecked(USER),
                             amount: Decimal::percent(222_00),
                             deposit_time: 0u64,
+                            last_accrued: 0u64,
                             unstake_time: None,
                         }],
                     })?),

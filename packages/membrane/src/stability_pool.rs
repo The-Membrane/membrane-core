@@ -91,7 +91,7 @@ pub enum Cw20HookMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
-    //Get current SP incentive rate
+    //Get current MBRN incentive rate
     Rate {
         asset_info: AssetInfo,
     },

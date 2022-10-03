@@ -1524,9 +1524,9 @@ fn query_staker_rewards(deps: Deps, env: Env, staker: String) -> StdResult<Rewar
     let mut claimables = vec![];
     let mut accrued_interest = Uint128::zero();
     for deposit in staker_deposits {
-        let res = get_deposit_claimables(config.clone(), env.clone(), fee_events.clone(), deposit)?;
-        claimables.extend(res.0);
-        accrued_interest += res.1;
+        let (claims, incentives) = get_deposit_claimables(config.clone(), env.clone(), fee_events.clone(), deposit)?;
+        claimables.extend(claims);
+        accrued_interest += incentives;
     }
 
     Ok(RewardsResponse {

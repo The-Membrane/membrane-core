@@ -73,15 +73,6 @@ pub enum QueryMsg {
     Receivers {},
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct ConfigResponse {
-    pub owner: String,
-    pub initial_allocation: String,
-    pub mbrn_denom: String,
-    pub osmosis_proxy: String,
-    pub staking_contract: String,
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]

@@ -73,6 +73,7 @@ pub enum QueryMsg {
     UserStake {
         staker: String,
     },
+    //Fee claimables && Staking rewards
     StakerRewards {
         staker: String,
     },

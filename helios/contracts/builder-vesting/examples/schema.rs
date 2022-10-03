@@ -5,7 +5,7 @@ use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
 use builder_vesting::state::Config;
 use membrane::builder_vesting::{
-    AllocationResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, QueryMsg, ReceiverResponse,
+    AllocationResponse, ExecuteMsg, InstantiateMsg, QueryMsg, ReceiverResponse,
     UnlockedResponse,
 };
 
@@ -19,7 +19,6 @@ fn main() {
     export_schema(&schema_for!(ExecuteMsg), &out_dir);
     export_schema(&schema_for!(QueryMsg), &out_dir);
     export_schema(&schema_for!(Config), &out_dir);
-    export_schema(&schema_for!(ConfigResponse), &out_dir);
     export_schema(&schema_for!(AllocationResponse), &out_dir);
     export_schema(&schema_for!(ReceiverResponse), &out_dir);
     export_schema(&schema_for!(UnlockedResponse), &out_dir);

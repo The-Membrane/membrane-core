@@ -1923,7 +1923,7 @@ fn check_for_expunged(
         .map(|cAsset| cAsset.asset)
         .collect::<Vec<Asset>>();
 
-    let mut passed = false;
+    let mut passed = true;
 
     let mut invalid_withdraws = vec![];
 

@@ -1,7 +1,5 @@
 ///Expanded Fork of: https://github.com/astroport-fi/astroport-governance/tree/main/contracts/builder_unlock
 
-//use std::error::Error;
-
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
@@ -12,7 +10,7 @@ use cw2::set_contract_version;
 use cw20::Cw20ExecuteMsg;
 
 use membrane::builder_vesting::{
-    AllocationResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, QueryMsg, ReceiverResponse,
+    AllocationResponse, ExecuteMsg, InstantiateMsg, QueryMsg, ReceiverResponse,
     UnlockedResponse,
 };
 use membrane::governance::{ExecuteMsg as GovExecuteMsg, ProposalMessage, ProposalVoteOption};
@@ -24,6 +22,7 @@ use membrane::staking::{
 use membrane::types::{Allocation, Asset, AssetInfo, VestingPeriod};
 
 use crate::error::ContractError;
+use crate::query::{query_allocation, query_unlocked, query_receivers, query_receiver};
 use crate::state::{Config, Receiver, CONFIG, RECEIVERS};
 
 // version info for migration info
@@ -492,7 +491,7 @@ fn withdraw_unlocked(
     }
 }
 
-fn get_unlocked_amount(
+pub fn get_unlocked_amount(
     allocation: Option<Allocation>,
     current_block_time: u64, //in seconds
 ) -> (Uint128, Allocation) {
@@ -554,8 +553,6 @@ fn add_allocation(
     if info.sender != config.owner {
         return Err(ContractError::Unauthorized {});
     }
-
-    //panic!("{:?}", RECEIVERS.load( deps.storage )?);
 
     //Add allocation for receiver
     RECEIVERS.update(
@@ -764,117 +761,6 @@ fn mint_initial_allocation(env: Env, config: Config) -> Result<Response, Contrac
     ]))
 }
 
-#[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
-    match msg {
-        QueryMsg::Config {} => to_binary(&query_config(deps)?),
-        QueryMsg::Allocation { receiver } => to_binary(&query_allocation(deps, receiver)?),
-        QueryMsg::UnlockedTokens { receiver } => to_binary(&query_unlocked(deps, env, receiver)?),
-        QueryMsg::Receivers {} => to_binary(&query_receivers(deps)?),
-        QueryMsg::Receiver { receiver } => to_binary(&query_receiver(deps, receiver)?),
-    }
-}
-
-fn query_config(deps: Deps) -> StdResult<ConfigResponse> {
-    let config = CONFIG.load(deps.storage)?;
-
-    Ok(ConfigResponse {
-        owner: config.owner.to_string(),
-        initial_allocation: config.initial_allocation.to_string(),
-        mbrn_denom: config.mbrn_denom,
-        osmosis_proxy: config.osmosis_proxy.to_string(),
-        staking_contract: config.staking_contract.to_string(),
-    })
-}
-
-fn query_allocation(deps: Deps, receiver: String) -> StdResult<AllocationResponse> {
-    let receiver = match RECEIVERS
-        .load(deps.storage)?
-        .into_iter()
-        .find(|stored_receiver| stored_receiver.receiver == receiver)
-    {
-        Some(receiver) => receiver,
-        None => {
-            return Err(StdError::GenericErr {
-                msg: String::from("Invalid receiver"),
-            })
-        }
-    };
-
-    if receiver.allocation.is_some() {
-        let allocation = receiver.allocation.unwrap();
-        Ok(AllocationResponse {
-            amount: allocation.amount.to_string(),
-            amount_withdrawn: allocation.amount_withdrawn.to_string(),
-            start_time_of_allocation: allocation.start_time_of_allocation.to_string(),
-            vesting_period: allocation.vesting_period,
-        })
-    } else {
-        Err(StdError::GenericErr {
-            msg: String::from("Receiver has no allocation"),
-        })
-    }
-}
-
-fn query_unlocked(deps: Deps, env: Env, receiver: String) -> StdResult<UnlockedResponse> {
-    let receiver = match RECEIVERS
-        .load(deps.storage)?
-        .into_iter()
-        .find(|stored_receiver| stored_receiver.receiver == receiver)
-    {
-        Some(receiver) => receiver,
-        None => {
-            return Err(StdError::GenericErr {
-                msg: String::from("Invalid receiver"),
-            })
-        }
-    };
-
-    if receiver.allocation.is_some() {
-        let unlocked_amount = get_unlocked_amount(receiver.allocation, env.block.time.seconds()).0;
-        Ok(UnlockedResponse { unlocked_amount })
-    } else {
-        Err(StdError::GenericErr {
-            msg: String::from("Receiver has no allocation"),
-        })
-    }
-}
-
-fn query_receivers(deps: Deps) -> StdResult<Vec<ReceiverResponse>> {
-    let receivers = RECEIVERS.load(deps.storage)?;
-
-    let mut resp_list = vec![];
-
-    for receiver in receivers {
-        resp_list.push(ReceiverResponse {
-            receiver: receiver.receiver.to_string(),
-            allocation: receiver.allocation,
-            claimables: receiver.claimables,
-        })
-    }
-
-    Ok(resp_list)
-}
-
-fn query_receiver(deps: Deps, receiver: String) -> StdResult<ReceiverResponse> {
-    let receivers = RECEIVERS.load(deps.storage)?;
-
-    match receivers
-        .into_iter()
-        .find(|stored_receiver| stored_receiver.receiver == receiver)
-    {
-        Some(stored_receiver) => Ok(ReceiverResponse {
-            receiver: stored_receiver.receiver.to_string(),
-            allocation: stored_receiver.allocation,
-            claimables: stored_receiver.claimables,
-        }),
-        None => {
-            Err(StdError::GenericErr {
-                msg: String::from("Invalid receiver"),
-            })
-        }
-    }
-}
 
 pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
     match asset.clone().info {
@@ -927,4 +813,15 @@ pub fn get_contract_mbrn_balance(
             .amount
     )                
 
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
+    match msg {
+        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
+        QueryMsg::Allocation { receiver } => to_binary(&query_allocation(deps, receiver)?),
+        QueryMsg::UnlockedTokens { receiver } => to_binary(&query_unlocked(deps, env, receiver)?),
+        QueryMsg::Receivers {} => to_binary(&query_receivers(deps)?),
+        QueryMsg::Receiver { receiver } => to_binary(&query_receiver(deps, receiver)?),
+    }
 }

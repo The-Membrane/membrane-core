@@ -9,8 +9,6 @@ use membrane::math::{Decimal256, Uint256};
 use membrane::types::{AssetInfo, Bid, PremiumSlot, Queue};
 
 use crate::state::{Config, CONFIG, QUEUES};
-//use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, SlotResponse, ConfigResponse, BidResponse, ClaimsResponse, LiquidatibleResponse, QueueResponse};
-//use crate::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
 use crate::bid::{
     calculate_liquidated_collateral, calculate_remaining_bid, read_bid, read_bids_by_user,
     read_premium_slot,

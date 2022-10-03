@@ -14,15 +14,6 @@ pub struct Config {
     pub bid_asset: AssetInfo,
 }
 
-// #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-// pub struct StoreSum {
-//     pub bid_for: CanonicalAddr,
-//     pub premium: u8,
-//     pub current_epoch: Uint128,
-//     pub current_scale: Uint128,
-//     pub sum_snapshot: Decimal256,
-// }
-
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const QUEUES: Map<String, Queue> = Map::new("queue"); //Each asset (String of AssetInfo) has a list of PremiumSlots that make up its Queue
                                                           //(bid_for, premium, epoch, scale) -> sum_snapshot

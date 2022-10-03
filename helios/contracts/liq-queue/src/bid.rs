@@ -12,13 +12,9 @@ use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::types::{Asset, AssetInfo, Bid, BidInput, PremiumSlot, Queue};
 
 use cw20::Cw20ExecuteMsg;
-//use cw_multi_test::Contract;
 
 use crate::contract::validate_position_owner;
-//use crate::cw20::{Cw20ExecuteMsg, CW20QueryMsg};
 use crate::error::ContractError;
-//use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, SlotResponse, ClaimsResponse};
-//use crate::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
 use crate::state::{Config, CONFIG, QUEUES};
 
 const MAX_LIMIT: u32 = 2147483646;
@@ -346,19 +342,17 @@ pub fn execute_liquidation(
             continue;
         };
 
-        //panic!( "{}", remaining_collateral_to_liquidate.to_string() );
         let (pool_repay_amount, pool_liquidated_collateral) = execute_pool_liquidation(
             deps.storage,
             &mut slot,
             premium as u8,
-            &deps.api.addr_canonicalize(&bid_for.clone().to_string())?, //TODO: If native assets can't be parse through this function, will need to change.
+            &deps.api.addr_canonicalize(&bid_for.clone().to_string())?, 
             remaining_collateral_to_liquidate,
             price,
             credit_price,
             &mut filled,
         )?;
 
-        //panic!("{:?}", slot);
         store_premium_slot(deps.storage, bid_for.clone(), slot.clone())?;
 
         repay_amount += pool_repay_amount;
@@ -370,7 +364,6 @@ pub fn execute_liquidation(
             remaining_collateral_to_liquidate =
                 remaining_collateral_to_liquidate - pool_liquidated_collateral;
         }
-        //panic!( "{}", remaining_collateral_to_liquidate.to_string() );
     }
 
     //Because the Positions contract is querying balances beforehand, this should rarely occur
@@ -562,8 +555,7 @@ fn execute_pool_liquidation(
     let mut pool_required_stable: Uint256 =
         (pool_collateral_to_liquidate) * (premium_price / credit_price);
 
-    //if !(premium_price / credit_price).is_zero(){ panic!( "{}", (premium_price / credit_price).to_string() );}
-
+    
     if pool_required_stable > slot.total_bid_amount {
         pool_required_stable = slot.total_bid_amount;
         //pool_required_stable / premium_price
@@ -588,8 +580,7 @@ fn execute_pool_liquidation(
     slot.sum_snapshot += sum;
     slot.total_bid_amount = slot.total_bid_amount - pool_required_stable;
 
-    //panic!("{}, {}, {}", col_per_bid,  pool_collateral_to_liquidate, slot.total_bid_amount);
-
+    
     // save reward sum for current epoch and scale
     store_epoch_scale_sum(
         deps,
@@ -626,40 +617,6 @@ fn execute_pool_liquidation(
     Ok((pool_required_stable, pool_collateral_to_liquidate))
 }
 
-// fn set_slot_total(
-//     deps: &mut dyn Storage,
-//     mut slot: PremiumSlot,
-//     env: Env,
-//     bid_for: AssetInfo,
-// ) -> StdResult<PremiumSlot>{
-
-//     let queue = QUEUES.load(deps, bid_for.to_string())?;
-
-//     let mut waiting_bids: Vec<Uint128> = vec![];
-
-//     slot.total_bid_amount = slot.bids
-//         .into_iter()
-//         .map(|bid|
-//             if bid.wait_end.unwrap() <= env.block.time.seconds(){
-//                 bid.amount
-//             }else{
-//                 waiting_bids.push( bid.amount );
-//                 Uint128::zero()
-//             }
-//         )
-//         .collect::<Vec<Uint128>>()
-//         .into_iter()
-//         .sum();
-
-//     //If below the bid_threshold then don't filter
-//     if !(slot.total_bid_amount > queue.bid_threshold){
-
-//         let waiting_total: Uint128 = waiting_bids.iter().sum();
-//         slot.total_bid_amount += waiting_total;
-//     }
-
-//     Ok( slot )
-// }
 
 pub(crate) fn set_slot_total(
     deps: &mut dyn Storage,
@@ -1045,17 +1002,6 @@ fn assert_withdraw_amount(
 pub fn read_bid(deps: &dyn Storage, bid_id: Uint128, bid_for: AssetInfo) -> StdResult<Bid> {
     let mut read_bid: Option<Bid> = None;
 
-    // QUEUES.load(deps, bid_for)?
-    //     .slots
-    //     .into_iter()
-    //     .map(|slot| {
-
-    //         match slot.bids.into_iter().find(| bid | bid.id.eq(&bid_id)){
-    //             Some ( bid ) => { read_bid = Some( bid ) },
-    //             None => {  },
-    //         }
-    //     });
-
     let queue = QUEUES.load(deps, bid_for.to_string())?;
 
     let premium_range = 0..(queue.max_premium.u128() as u8 + 1u8);
@@ -1111,7 +1057,6 @@ pub fn read_bids_by_user(
 }
 
 pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> Result<CosmosMsg, ContractError> {
-    //let credit_contract: Addr = basket.credit_contract;
 
     let asset_amount: Uint128 = asset.amount;
 

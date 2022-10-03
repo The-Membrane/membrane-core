@@ -1,9 +1,6 @@
 use crate::contract::{execute, instantiate, query};
 use crate::ContractError;
 
-use bigint::U256;
-
-//use cw_multi_test::Contract;
 use membrane::liq_queue::{
     BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, QueryMsg, QueueResponse, ClaimsResponse,
 };
@@ -264,33 +261,7 @@ fn submit_bid() {
     let wait_end = env.block.time.plus_seconds(60u64);
     execute(deps.as_mut(), env, info, msg).unwrap();
 
-    // let slot_res: SlotResponse = from_binary(
-    //     &query(
-    //         deps.as_ref(),
-    //         mock_env(),
-    //         QueryMsg::PremiumSlot {
-    //             bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() },
-    //             premium: 10u64,
-    //         },
-    //     )
-    //     .unwrap(),
-    // )
-    // .unwrap();
-
-    // assert_eq!(
-    //     slot_res,
-    //     SlotResponse {
-    //         bids: vec![],
-    //         liq_premium: "".to_string(),
-    //         sum_snapshot: "".to_string(),
-    //         product_snapshot: "".to_string(),
-    //         total_bid_amount: "".to_string(),
-    //         current_epoch: Uint128::zero(),
-    //         current_scale: Uint128::zero(),
-    //         residue_collateral: "".to_string(),
-    //         residue_bid: "".to_string() }
-    // );
-
+   
     let bid_response: BidResponse = from_binary(
         &query(
             deps.as_ref(),
@@ -683,14 +654,6 @@ fn update_queue() {
 
     let queue_response: QueueResponse =
         from_binary(&query(deps.as_ref(), mock_env(), query_msg.clone()).unwrap()).unwrap();
-
-    // assert_eq!(
-    //     queue_response, QueueResponse{
-    //         bid_asset: AssetInfo::NativeToken { denom: "cdt".to_string() }.to_string(),
-    //         max_premium: Uint128::new(10u128).to_string(),
-    //         slots: vec![],
-    //         current_bid_id: Uint128::new(10u128).to_string(),
-    //         bid_threshold: Uint256::from(10u128).to_string() });
 
     assert_eq!(queue_response.max_premium, Uint128::new(10u128).to_string());
     assert_eq!(

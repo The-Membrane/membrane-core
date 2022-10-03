@@ -1,9 +1,6 @@
 use crate::contract::{execute, instantiate, query};
 use crate::ContractError;
-//use crate::state::{AssetInfo, BidInput};
 
-//use cw_multi_test::Contract;
-//use cw_multi_test::Contract;
 use membrane::liq_queue::{BidResponse, ExecuteMsg, InstantiateMsg, QueryMsg, SlotResponse};
 use membrane::math::{Decimal256, Uint256};
 use membrane::types::{AssetInfo, BidInput};
@@ -73,11 +70,6 @@ fn one_bidder_distribution() {
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
-
-    // let msg = QueryMsg::PremiumSlot { bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() }, premium: 1u64 };
-    // let res = query( deps.as_ref(), mock_env(), msg).unwrap();
-    // let resp: SlotResponse = from_binary(&res).unwrap();
-    // panic!("{:?}", resp);
 
     let msg = ExecuteMsg::ClaimLiquidations {
         bid_for: AssetInfo::NativeToken {
@@ -879,11 +871,6 @@ fn product_truncated_to_zero() {
         let info = mock_info("positions_contract", &[]);
         execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
     }
-
-    // let msg = QueryMsg::PremiumSlot { bid_for: AssetInfo::NativeToken { denom: "osmo".to_string() }, premium: 1u64 };
-    // let res = query( deps.as_ref(), mock_env(), msg).unwrap();
-    // let resp: SlotResponse = from_binary(&res).unwrap();
-    // panic!("{:?}", resp);
 
     let msg = ExecuteMsg::ClaimLiquidations {
         bid_for: AssetInfo::NativeToken {

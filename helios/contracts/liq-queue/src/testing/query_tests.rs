@@ -1,7 +1,5 @@
 use crate::contract::{execute, instantiate, query};
-//use crate::state::{AssetInfo, BidInput};
 
-//use cw_multi_test::Contract;
 use membrane::liq_queue::{
     BidResponse, ExecuteMsg, InstantiateMsg, LiquidatibleResponse, QueryMsg, QueueResponse,
     SlotResponse,

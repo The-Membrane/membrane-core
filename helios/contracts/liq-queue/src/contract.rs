@@ -8,19 +8,16 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg};
-//use cw_multi_test::Contract;
 use membrane::math::{Decimal256, Uint256};
 use membrane::positions::{BasketResponse, QueryMsg as CDP_QueryMsg};
 use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue};
 
 use crate::bid::{claim_liquidations, execute_liquidation, retract_bid, store_queue, submit_bid};
 use crate::error::ContractError;
-//use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, LiquidatibleResponse, SlotResponse, ClaimsResponse, PositionUserInfo};
 use crate::query::{
     query_bid, query_bids_by_user, query_config, query_liquidatible, query_premium_slot,
     query_premium_slots, query_queue, query_queues, query_user_claims,
 };
-//use crate::positions::{ExecuteMsg as CDP_ExecuteMsg, Cw20HookMsg as CDP_Cw20HookMsg};
 use crate::state::{Config, CONFIG, QUEUES};
 
 // version info for migration info

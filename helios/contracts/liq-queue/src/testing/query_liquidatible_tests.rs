@@ -1,8 +1,5 @@
 use crate::contract::{execute, instantiate, query};
-//use crate::state::{AssetInfo, BidInput};
 
-//use cw_multi_test::Contract;
-//use cw_multi_test::Contract;
 use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, LiquidatibleResponse, QueryMsg};
 use membrane::math::Uint256;
 use membrane::types::{AssetInfo, BidInput};
@@ -149,7 +146,6 @@ fn partial_one_collateral_one_slot_w_fees() {
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
-    //panic!( "{}, {}", resp.leftover_collateral, resp.total_credit_repaid);
     assert_eq!(resp.total_credit_repaid, String::from("999"));
 
     let liq_msg = ExecuteMsg::Liquidate {
@@ -408,7 +404,6 @@ fn two_slot_w_fees() {
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
-    //panic!( "{}, {}", resp.leftover_collateral, resp.total_credit_repaid);
     assert_eq!(resp.total_credit_repaid, String::from("1900"));
 
     let liq_msg = ExecuteMsg::Liquidate {

@@ -556,24 +556,24 @@ pub enum QueryMsg {
     Config {}
 }
 
-pub struct ConfigResponse {
-    pub owner: String,
+pub struct Config {
+    pub owner: Addr,
     pub current_basket_id: Uint128,
-    pub stability_pool: String,
-    pub dex_router: String, //Apollo's router, will need to change msg types if the router changes most likely.
-    pub liq_fee_collector: String,
-    pub interest_revenue_collector: String,
-    pub staking_contract: String,
-    pub oracle_contract: String,
-    pub osmosis_proxy: String,
-    pub debt_auction: String,
-    pub liq_fee: Decimal, // 5 = 5%
-    pub oracle_time_limit: u64,
-    pub debt_minimum: Uint128,
-    pub base_debt_cap_multiplier: Uint128,
-    pub collateral_twap_timeframe: u64,
-    pub credit_twap_timeframe: u64,
+    pub stability_pool: Option<Addr>,
+    pub dex_router: Option<Addr>, 
+    pub interest_revenue_collector: Option<Addr>,
+    pub staking_contract: Option<Addr>,
+    pub osmosis_proxy: Option<Addr>,
+    pub debt_auction: Option<Addr>,
+    pub oracle_contract: Option<Addr>,
+    pub liquidity_contract: Option<Addr>,
+    pub liq_fee: Decimal,              
+    pub collateral_twap_timeframe: u64, 
+    pub credit_twap_timeframe: u64,    
+    pub oracle_time_limit: u64, 
     pub cpc_margin_of_error: Decimal,
+    pub debt_minimum: Uint128, 
+    pub base_debt_cap_multiplier: Uint128,
     pub rate_slope_multiplier: Decimal,
 }
 ```

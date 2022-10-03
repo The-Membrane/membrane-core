@@ -4,8 +4,6 @@ description: Contract that holds logic for vested MBRN in the builder's allocati
 
 # Builder's Vesting
 
-Builder's staked allocations can vote with a Governance determined % of their voting power and receive normal revenue minus **MBRN** inflationary rewards. Voting and proposal creation by allocaiton receivers is done through this contract.
-
 ## InstantiateMsg
 
 ```
@@ -168,66 +166,6 @@ pub enum ExecuteMsg {
 }
 ```
 
-### `SubmitProposal`
-
-Submit MBRN Governance proposal&#x20;
-
-```
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ExecuteMsg {
-    SubmitProposal {
-        title: String,
-        description: String,
-        link: Option<String>,
-        messages: Option<Vec<ProposalMessage>>,
-        expedited: bool,
-    }
-}
-
-pub struct ProposalMessage {
-    /// Order of execution of the message
-    pub order: Uint64,
-    /// Execution message
-    pub msg: CosmosMsg,
-}
-```
-
-| Key           | Type                  | Description                   |
-| ------------- | --------------------- | ----------------------------- |
-| `title`       | String                | Proposal title                |
-| `description` | String                | Proposal description          |
-| `*link`       | String                | Proposal link                 |
-| `*messages`   | Vec\<ProposalMessage> | Proposal executeable messages |
-| `expedited`   | bool                  | Expedited Proposal toggle     |
-
-&#x20;\* = optional
-
-### `CastVote`
-
-Vote for MBRN proposal
-
-```
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ExecuteMsg {
-    CastVote {
-        proposal_id: u64,
-        vote: ProposalVoteOption,
-    }
-}
-
-pub enum ProposalVoteOption {
-    For,
-    Against,
-}
-```
-
-| Key           | Type               | Description          |
-| ------------- | ------------------ | -------------------- |
-| `proposal_id` | u64                | Proposal identifier  |
-| `vote`        | ProposalVoteOption | Proposal vote option |
-
 ### `UpdateConfig`
 
 Update Config if contract owner
@@ -267,12 +205,12 @@ pub enum QueryMsg {
     Config {}
 }
 
-pub struct Config {
-    pub owner: Addr, 
-    pub initial_allocation: Uint128,
+pub struct ConfigResponse {
+    pub owner: String,
+    pub initial_allocation: String,
     pub mbrn_denom: String,
-    pub osmosis_proxy: Addr,
-    pub staking_contract: Addr,
+    pub osmosis_proxy: String,
+    pub staking_contract: String,
 }
 ```
 

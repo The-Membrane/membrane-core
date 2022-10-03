@@ -15,8 +15,7 @@ use membrane::osmosis_proxy::{
 };
 use membrane::positions::{Cw20HookMsg as CDP_Cw20HookMsg, ExecuteMsg as CDP_ExecuteMsg};
 use membrane::stability_pool::{
-    ClaimsResponse, Cw20HookMsg, DepositResponse, ExecuteMsg, InstantiateMsg, LiquidatibleResponse,
-    PoolResponse, QueryMsg,
+    Cw20HookMsg, DepositResponse, ExecuteMsg, InstantiateMsg, QueryMsg,
 };
 use membrane::types::{
     Asset, AssetInfo, AssetPool, Deposit, LiqAsset, PositionUserInfo, User, UserInfo, UserRatio,
@@ -341,30 +340,24 @@ pub fn deposit(
             unstake_time: None,
         };
 
-        match asset_pools
+        if let Some(mut pool) = asset_pools
             .clone()
             .into_iter()
             .find(|x| x.credit_asset.info.equal(&asset.info))
         {
-            Some(mut pool) => {
-                //Add user deposit to Pool totals
-                pool.credit_asset.amount += asset.amount;
-                //Add user deposit to deposits list
-                pool.deposits.push(deposit);
+            //Add user deposit to Pool totals
+            pool.credit_asset.amount += asset.amount;
+            //Add user deposit to deposits list
+            pool.deposits.push(deposit);
 
-                let mut temp_pools: Vec<AssetPool> = asset_pools
-                    .clone()
-                    .into_iter()
-                    .filter(|pool| !pool.credit_asset.info.equal(&asset.info))
-                    .collect::<Vec<AssetPool>>();
+            let mut temp_pools: Vec<AssetPool> = asset_pools
+                .clone()
+                .into_iter()
+                .filter(|pool| !pool.credit_asset.info.equal(&asset.info))
+                .collect::<Vec<AssetPool>>();
 
-                temp_pools.push(pool);
-                ASSETS.save(deps.storage, &temp_pools)?;
-            }
-            None => {
-                //This doesn't get hit bc the asset object is validated beforehand. Instead, an invalid asset just won't get parsed thru.
-                return Err(ContractError::InvalidAsset {});
-            }
+            temp_pools.push(pool);
+            ASSETS.save(deps.storage, &temp_pools)?;            
         }
     }
 
@@ -1096,8 +1089,6 @@ pub fn distribute_funds(
                             )?;
                         }
 
-                        //1697941419
-                        // panic!("{}", deposit.last_accrued);
                     }
                 }
             }
@@ -1131,13 +1122,12 @@ pub fn distribute_funds(
         .filter(|pool| !pool.credit_asset.info.equal(&credit_asset))
         .collect::<Vec<AssetPool>>();
     new_pools.push(asset_pool);
-    //panic!("{:?}", new_pools);
 
     //Save pools w/ edited deposits to state
     ASSETS.save(deps.storage, &new_pools)?;
 
     //create function to find user ratios and distribute collateral based on them
-    //Distribute 1 collateral at a time (not prorata) for gas and UX optimizations (ie if a user wants to sell they won't have to sell on 4 different pairs)
+    //Distribute 1 collateral at a time (not pro-rata) for gas and UX optimizations (ie if a user wants to sell they won't have to sell on 4 different pairs)
     //Also bc native tokens come in batches, CW20s come separately
     let (ratios, user_deposits) = get_distribution_ratios(distribution_list.clone())?;
 
@@ -2249,8 +2239,7 @@ fn get_rate(
 }
 
 pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> Result<CosmosMsg, ContractError> {
-    //let credit_contract: Addr = basket.credit_contract;
-
+    
     match asset.clone().info {
         AssetInfo::Token { address } => {
             let message = CosmosMsg::Wasm(WasmMsg::Execute {

@@ -1,8 +1,5 @@
 use crate::contract::{execute, instantiate, query};
-//use crate::state::{AssetInfo, BidInput};
 
-//use cw_multi_test::Contract;
-//use cw_multi_test::Contract;
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockApi, MockQuerier};
 use cosmwasm_std::{coin, coins, from_binary, Decimal, MemoryStorage, OwnedDeps, Uint128};
 use membrane::stability_pool::{
@@ -117,10 +114,7 @@ fn simulate_bids_with_2_liq_amounts(
                 },
             };
             total_liquidated += liq_amount_1;
-            //total_consumed += decimal_multiplication(Decimal::new(Uint128::new(liq_amount_1)), asset_price);
-
-            //Increment time to unlock the second bid
-            //env.block.time = env.block.time.plus_seconds(70u64);
+            
             execute(deps.as_mut(), mock_env(), info.clone(), liq_msg).unwrap();
 
             //Distribute
@@ -167,10 +161,7 @@ fn simulate_bids_with_2_liq_amounts(
                 },
             };
             total_liquidated += liq_amount_2;
-            //total_consumed += Uint256::from(liq_amount_1 * asset_price.atomics().u128());
-
-            //Increment time to unlock the second bid
-            //env.block.time = env.block.time.plus_seconds(70u64);
+           
             execute(deps.as_mut(), mock_env(), info.clone(), liq_msg).unwrap();
 
             //Distribute

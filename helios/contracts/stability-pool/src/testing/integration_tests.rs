@@ -3,17 +3,14 @@ mod tests {
 
     use crate::helpers::SPContract;
 
-    use cw20::BalanceResponse;
-    use membrane::osmosis_proxy::{GetDenomResponse, TokenInfoResponse};
+    use membrane::osmosis_proxy::{TokenInfoResponse};
     use membrane::stability_pool::{ClaimsResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::staking::RewardsResponse;
     use membrane::types::{Asset, AssetInfo, AssetPool, LiqAsset};
 
     use cosmwasm_std::{
-        attr, coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
+        coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
-    use osmo_bindings::{ArithmeticTwapToNowResponse, PoolStateResponse, SpotPriceResponse};
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 
@@ -281,7 +278,6 @@ mod tests {
 
         use super::*;
         use cosmwasm_std::BlockInfo;
-        use membrane::stability_pool::DepositResponse;
 
         #[test]
         fn accrue_incentives() {

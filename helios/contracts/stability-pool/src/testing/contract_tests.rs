@@ -2412,6 +2412,4 @@ fn capital_ahead_of_deposits() {
             },
         ]
     );
-
-
 }

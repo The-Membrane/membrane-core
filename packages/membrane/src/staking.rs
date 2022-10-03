@@ -95,20 +95,6 @@ pub enum QueryMsg {
 
 // We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct ConfigResponse {
-    pub owner: String,
-    pub positions_contract: String,
-    pub builders_contract: String,
-    pub osmosis_proxy: String,
-    pub staking_rate: String,
-    pub unstaking_period: String,
-    pub fee_wait_period: String,
-    pub mbrn_denom: String,
-    pub dex_router: String,
-    pub max_spread: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct StakerResponse {
     pub staker: String,
     pub total_staked: Uint128,

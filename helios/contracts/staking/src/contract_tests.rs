@@ -12,7 +12,7 @@ use membrane::apollo_router::ExecuteMsg as RouterExecuteMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
     Cw20HookMsg, ExecuteMsg, FeeEventsResponse, InstantiateMsg, QueryMsg, RewardsResponse,
-    StakedResponse, TotalStakedResponse, ConfigResponse, StakerResponse,
+    StakedResponse, TotalStakedResponse, StakerResponse,
 };
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit};
 
@@ -67,21 +67,21 @@ fn update_config(){
         QueryMsg::Config {},
     )
     .unwrap();
-    let config: ConfigResponse = from_binary(&res).unwrap();
+    let config: Config = from_binary(&res).unwrap();
 
     assert_eq!(
         config,
-        ConfigResponse {
-            owner: String::from("new_owner"),
-            unstaking_period: String::from("1"),  
-            osmosis_proxy: String::from("new_op"), 
-            positions_contract: String::from("new_cdp"), 
+        Config {
+            owner: Addr::unchecked("new_owner"),
+            unstaking_period:1,  
+            osmosis_proxy: Some( Addr::unchecked("new_op")), 
+            positions_contract: Some( Addr::unchecked("new_cdp")), 
             mbrn_denom: String::from("new_denom"), 
-            dex_router: String::from("new_router"), 
-            max_spread: String::from("1"), 
-            builders_contract: String::from("new_bv"), 
-            staking_rate: String::from("0.2"), //Capped at 20% that's why it isn't 1
-            fee_wait_period: String::from("1"), 
+            dex_router: Some( Addr::unchecked("new_router")), 
+            max_spread: Some(Decimal::one()), 
+            builders_contract: Some( Addr::unchecked("new_bv")), 
+            staking_rate: Decimal::percent(20), //Capped at 20% that's why it isn't 1
+            fee_wait_period: 1, 
             
         },
     );

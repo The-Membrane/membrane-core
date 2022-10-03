@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use cosmwasm_std::{Addr, Decimal, Uint128};
 use cw_storage_plus::{Item, Map};
 
-//use crate::msg::{AssetInfo, Asset};
 
 use membrane::types::{Asset, Basket, Position, SellWallDistribution, UserInfo};
 
@@ -62,8 +61,8 @@ pub struct WithdrawPropagation {
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const POSITIONS: Map<(String, Addr), Vec<Position>> = Map::new("positions"); //basket_id, owner
-pub const BASKETS: Map<String, Basket> = Map::new("baskets");
-pub const CREDIT_MULTI: Map<String, Decimal> = Map::new("credit_multipliers");
+pub const BASKETS: Map<String, Basket> = Map::new("baskets"); //basket_id Basket
+pub const CREDIT_MULTI: Map<String, Decimal> = Map::new("credit_multipliers"); //basket_id, multiplier
 
 pub const REPAY: Item<RepayPropagation> = Item::new("repay_propagation");
 pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");

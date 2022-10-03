@@ -32,7 +32,7 @@ use membrane::stability_pool::{
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::types::{
     cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, LiqAsset, LiquidityInfo, Position,
-    SellWallDistribution, StoredPrice, SupplyCap, TWAPPoolInfo, UserInfo, PoolInfo,
+    SellWallDistribution, StoredPrice, SupplyCap, TWAPPoolInfo, UserInfo, 
 };
 
 use crate::query::{query_stability_pool_fee, query_stability_pool_liquidatible};
@@ -1104,7 +1104,6 @@ pub fn increase_debt(
         )?
         .0
         {
-            //panic!("{}", );
             return Err(ContractError::PositionInsolvent {});
         } else {
             message = credit_mint_msg(
@@ -1319,7 +1318,7 @@ pub fn liquidate(
     };
 
     // Don't send any funds here, only send UserInfo and repayment amounts.
-    // We want to act on the reply status but since SubMsg state won't   revert if we catch the error,
+    // We want to act on the reply status but since SubMsg state won't revert if we catch the error,
     // assets we send prematurely won't come back.
 
     let res = Response::new();
@@ -1356,7 +1355,7 @@ pub fn liquidate(
             let msg = get_lp_liq_withdraw_msg( storage, querier, env.clone(), config.clone(), basket_id.clone(), position_id.clone(), valid_position_owner.clone(), collateral_assets.clone(), cAsset_ratios.clone(), cAsset_prices.clone(), repay_value.clone(), cAsset.clone(), i.clone()  )?;
 
             //Comment out to pass accrue_debt test
-            //lp_withdraw_messages.push(msg);
+            lp_withdraw_messages.push(msg);
         }
     }
 
@@ -3115,14 +3114,13 @@ pub fn get_avg_LTV(
     let mut avg_borrow_LTV: Decimal = Decimal::zero();
 
     if cAsset_ratios.len() == 0 {
-        //TODO: Change back to no values. This is for testing without oracles
         return Ok((
             Decimal::percent(0),
             Decimal::percent(0),
             Decimal::percent(0),
             vec![],
         ));
-        //return Ok((Decimal::percent(50), Decimal::percent(50), Decimal::percent(100_000_000), vec![Decimal::one()]))
+        
     }
 
     //Skip unecessary calculations if length is 1
@@ -3262,7 +3260,6 @@ pub fn assert_basket_assets(
     assets: Vec<Asset>,
     add_to_cAsset: bool,
 ) -> Result<Vec<cAsset>, ContractError> {
-    //let config: Config = CONFIG.load(deps)?;
 
     let mut basket: Basket = match BASKETS.load(storage, basket_id.to_string()) {
         Err(_) => return Err(ContractError::NonExistentBasket {}),
@@ -3479,7 +3476,7 @@ fn update_basket_tally(
     for (i, ratio) in new_basket_ratios.into_iter().enumerate() {
         if basket.collateral_supply_caps != vec![] {
             if ratio > basket.collateral_supply_caps[i].supply_cap_ratio && add_to_cAsset {
-                //panic!("{}, {}, {}", basket.collateral_supply_caps[i].asset_info, ratio, basket.collateral_supply_caps[i].supply_cap_ratio);
+
                 return Err(ContractError::CustomError {
                     val: format!(
                         "Supply cap ratio for {} is over the limit ({} > {})",
@@ -3501,7 +3498,6 @@ pub fn validate_position_owner(
     info: MessageInfo,
     recipient: Option<String>,
 ) -> StdResult<Addr> {
-    //let r: Option<String> = String::from(00000owner);
 
     let valid_recipient: Addr = if recipient.is_some() {
         deps.addr_validate(&recipient.unwrap())?
@@ -4386,7 +4382,6 @@ fn get_interest_rates(
             ));
         }
     }
-    //panic!("{:?}", rates);
 
     //Get proportion of debt && supply caps filled
     let mut debt_proportions = vec![];

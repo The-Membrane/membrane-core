@@ -25,22 +25,6 @@ impl CDPContract {
         .into())
     }
 
-    // /// Get Count
-    // pub fn count<Q, T, CQ>(&self, querier: &Q) -> StdResult<CountResponse>
-    // where
-    //     Q: Querier,
-    //     T: Into<String>,
-    //     CQ: CustomQuery,
-    // {
-    //     let msg = QueryMsg::GetCount {};
-    //     let query = WasmQuery::Smart {
-    //         contract_addr: self.addr().into(),
-    //         msg: to_binary(&msg)?,
-    //     }
-    //     .into();
-    //     let res: CountResponse = QuerierWrapper::<CQ>::new(querier).query(&query)?;
-    //     Ok(res)
-    // }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -60,21 +44,4 @@ impl LQContract {
         }
         .into())
     }
-
-    // /// Get Count
-    // pub fn count<Q, T, CQ>(&self, querier: &Q) -> StdResult<CountResponse>
-    // where
-    //     Q: Querier,
-    //     T: Into<String>,
-    //     CQ: CustomQuery,
-    // {
-    //     let msg = QueryMsg::GetCount {};
-    //     let query = WasmQuery::Smart {
-    //         contract_addr: self.addr().into(),
-    //         msg: to_binary(&msg)?,
-    //     }
-    //     .into();
-    //     let res: CountResponse = QuerierWrapper::<CQ>::new(querier).query(&query)?;
-    //     Ok(res)
-    // }
 }

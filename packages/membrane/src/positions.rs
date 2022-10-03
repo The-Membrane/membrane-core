@@ -246,27 +246,6 @@ pub struct BasketResponse {
     pub negative_rates: bool, //Allow negative repayment interest or not
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct ConfigResponse {
-    pub owner: String,
-    pub current_basket_id: Uint128,
-    pub stability_pool: String,
-    pub dex_router: String, //Apollo's router, will need to change msg types if the router changes most likely.
-    pub interest_revenue_collector: String,
-    pub staking_contract: String,
-    pub osmosis_proxy: String,
-    pub debt_auction: String,
-    pub oracle_contract: String,
-    pub liquidity_contract: String,
-    pub liq_fee: Decimal, // 5 = 5%
-    pub oracle_time_limit: u64,
-    pub debt_minimum: Uint128,
-    pub base_debt_cap_multiplier: Uint128,
-    pub collateral_twap_timeframe: u64,
-    pub credit_twap_timeframe: u64,
-    pub cpc_margin_of_error: Decimal,
-    pub rate_slope_multiplier: Decimal,
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct PropResponse {

@@ -186,10 +186,7 @@ mod tests {
                             }
 
                             AssetInfo::NativeToken { denom: _ } => {
-                                // if collateral_amount.to_string() != String::from("2000") && collateral_amount.to_string() != String::from("22000") && collateral_amount.to_string() != String::from("4222"){
-                                //     panic!("{}", collateral_amount.to_string());
-                                // }
-
+                                
                                 return Ok(Response::new().add_attributes(vec![
                                     attr("action", "execute_bid"),
                                     attr("denom", bid_with.to_string()),
@@ -481,10 +478,7 @@ mod tests {
             |_, _, _, msg: SP_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
                     SP_MockExecuteMsg::Liquidate { credit_asset: _ } => {
-                        // if credit_asset.to_string() != "222.222225 credit_fulldenom".to_string() && credit_asset.to_string() != "2000 credit_fulldenom".to_string() && credit_asset.to_string() != "22222.22225 credit_fulldenom".to_string() && credit_asset.to_string() != "20222.22225 credit_fulldenom".to_string(){
-                        //     panic!("{}", credit_asset.to_string());
-                        // }
-
+                        
                         Ok(Response::new()
                             .add_attribute("method", "liquidate")
                             .add_attribute("leftover_repayment", "0"))
@@ -985,7 +979,6 @@ mod tests {
                         hook_msg,
                         split,
                     } => {
-                        //Assert hook
                         Ok(Response::default())
                     }
                 }
@@ -1681,11 +1674,13 @@ mod tests {
 
     mod cdp {
 
+        use crate::state::Config;
+
         use super::*;
         use cosmwasm_std::{coins, BlockInfo};
         use cw20::Cw20ReceiveMsg;
         use membrane::positions::{
-            BadDebtResponse, BasketResponse, CollateralInterestResponse, ConfigResponse,
+            BadDebtResponse, BasketResponse, CollateralInterestResponse,
             Cw20HookMsg, DebtCapResponse, ExecuteMsg, InsolvencyResponse, PositionResponse,
             PositionsResponse, InterestResponse,
         };
@@ -1703,11 +1698,7 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, false, false);
 
-            let res: ConfigResponse = app
-                .wrap()
-                .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
-                .unwrap();
-
+            
             //Edit Basket
             let msg = ExecuteMsg::EditBasket {
                 basket_id: Uint128::new(1u128),
@@ -2059,11 +2050,7 @@ mod tests {
         fn withdrawal() {
             let (mut app, cdp_contract, lq_contract, _cw20_addr) =
                 proper_instantiate(false, false, false, false);
-
-            let res: ConfigResponse = app
-                .wrap()
-                .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
-                .unwrap();
+            
 
             //Edit Basket
             let msg = ExecuteMsg::EditBasket {
@@ -2279,11 +2266,6 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, false, false);
 
-            let res: ConfigResponse = app
-                .wrap()
-                .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
-                .unwrap();
-
             //Edit Basket
             let msg = ExecuteMsg::EditBasket {
                 basket_id: Uint128::new(1u128),
@@ -2366,13 +2348,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, false, false);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Edit Basket
             let msg = ExecuteMsg::EditBasket {
@@ -2526,13 +2508,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, true, false);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Add LP pool assets first
             let msg = ExecuteMsg::EditBasket {
@@ -2950,13 +2932,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, true, true);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Edit Basket
             let msg = ExecuteMsg::EditBasket {
@@ -3361,13 +3343,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, true, false);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Edit Basket
             let msg = ExecuteMsg::EditBasket {
@@ -3472,13 +3454,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, true, false, false);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket {
@@ -3599,13 +3581,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, false, false);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket {
@@ -3868,8 +3850,6 @@ mod tests {
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //app.wrap().query_wasm_smart(cdp_contract.addr(),QueryMsg:: )
-
             //Increase Debt
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
@@ -3978,8 +3958,6 @@ mod tests {
                 )
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
-
-            //app.wrap().query_wasm_smart(cdp_contract.addr(),QueryMsg:: )
 
             //Increase Debt
             let msg = ExecuteMsg::IncreaseDebt {
@@ -4098,8 +4076,6 @@ mod tests {
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //app.wrap().query_wasm_smart(cdp_contract.addr(),QueryMsg:: )
-
             //Increase Debt
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
@@ -4165,13 +4141,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, false, true);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket {
@@ -4301,13 +4277,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, true, false);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket {
@@ -4450,13 +4426,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, true, false, false);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Add LP pool assets first
             let msg = ExecuteMsg::EditBasket {
@@ -4699,13 +4675,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, true, false, false);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket {
@@ -4795,13 +4771,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, true, false, false);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket {
@@ -4918,13 +4894,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, true, false, false);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket {
@@ -5026,13 +5002,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, false, false);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket {
@@ -5134,13 +5110,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, false, false);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Add LP pool assets first
             let msg = ExecuteMsg::EditBasket {
@@ -5375,13 +5351,13 @@ mod tests {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, false, false);
 
-            let res: ConfigResponse = app
+            let res: Config = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
                 .unwrap();
-            let sp_addr = res.stability_pool;
-            let router_addr = res.dex_router;
-            let staking_contract = res.staking_contract;
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
 
             //Add LP pool assets first
             let msg = ExecuteMsg::EditBasket {
@@ -5856,8 +5832,6 @@ mod tests {
                 },
             );
 
-            //Quer
-
             //Update Config
             let msg = ExecuteMsg::UpdateConfig { 
                 owner: None, 
@@ -5881,24 +5855,24 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap();
 
-            let resp: ConfigResponse = app
+            let resp: Config = app
             .wrap()
             .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {  }.clone())
             .unwrap();
 
             assert_eq!(
                 resp,
-                ConfigResponse { 
-                    owner: String::from("owner"), 
+                Config { 
+                    owner: Addr::unchecked("owner"), 
                     current_basket_id: Uint128::new(3u128),
-                    stability_pool: String::from("new_sp"), 
-                    dex_router: String::from("new_router"),  
-                    osmosis_proxy: String::from("new_op"),  
-                    debt_auction: String::from("new_auction"),  
-                    staking_contract: String::from("new_staking"),  
-                    oracle_contract: String::from("new_oracle"),  
-                    liquidity_contract: String::from("new_liq_check"),   
-                    interest_revenue_collector: String::from("new_revenue"),   
+                    stability_pool: Some( Addr::unchecked("new_sp")), 
+                    dex_router: Some( Addr::unchecked("new_router")),  
+                    osmosis_proxy: Some( Addr::unchecked("new_op")),  
+                    debt_auction: Some( Addr::unchecked("new_auction")),  
+                    staking_contract: Some( Addr::unchecked("new_staking")),  
+                    oracle_contract: Some( Addr::unchecked("new_oracle")),  
+                    liquidity_contract: Some( Addr::unchecked("new_liq_check")),   
+                    interest_revenue_collector: Some( Addr::unchecked("new_revenue")),   
                     liq_fee: Decimal::percent(13), 
                     debt_minimum: Uint128::zero(), 
                     base_debt_cap_multiplier: Uint128::new(48497), 

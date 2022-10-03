@@ -19,10 +19,9 @@ use membrane::stability_pool::ExecuteMsg as SP_ExecuteMsg;
 use membrane::types::{
     cAsset, Asset, AssetInfo, Basket, LiqAsset, Position, SellWallDistribution, UserInfo,
 };
+use membrane::math::decimal_subtraction;
 
-//use crate::liq_queue::LiquidatibleResponse;
 use crate::error::ContractError;
-use crate::math::decimal_subtraction;
 use crate::positions::{
     assert_basket_assets, assert_sent_native_token_balance, clone_basket, create_basket, deposit,
     edit_basket, edit_contract_owner, get_contract_balances, get_target_position, increase_debt,
@@ -33,7 +32,7 @@ use crate::positions::{
 use crate::query::{
     query_bad_debt, query_basket, query_basket_credit_interest, query_basket_debt_caps,
     query_basket_insolvency, query_basket_positions, query_baskets, query_collateral_rates,
-    query_config, query_position, query_position_insolvency, query_prop,
+    query_position, query_position_insolvency, query_prop,
     query_stability_pool_liquidatible, query_user_positions,
 };
 use crate::state::{
@@ -862,7 +861,7 @@ fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respo
             //Its reply on error only
             Ok(Response::new())
         }
-        //////EDIT/////////////
+        
         Err(string) => {
             //If error, do nothing if the SP was used
             //The SP reply will handle the sell wall
@@ -881,7 +880,7 @@ fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respo
                 sell_wall_in_reply(deps.storage, env.clone(), deps.querier, &mut prop, &mut submessages, repay_amount.clone())?;
 
             } else {                    
-                //Since Error && SP was used (ie there will be a reply later in the esecution)...
+                //Since Error && SP was used (ie there will be a reply later in the execution)...
                 //we add the leftovers to the liq_queue_leftovers so the stability pool reply handles it
                 prop.liq_queue_leftovers += prop.user_repay_amount;
             }
@@ -1146,8 +1145,6 @@ fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                     deps.storage,
                     repay_propagation.clone().basket_id.to_string(),
                 )?;
-
-                //let sp_liq_fee = query_stability_pool_fee( deps.querier, config.clone(), basket.clone() )?;
 
                 //Check for stability pool funds before any liquidation attempts
                 //Sell wall any leftovers
@@ -1492,7 +1489,7 @@ fn sell_wall_in_reply(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Config {} => to_binary(&query_config(deps)?),
+        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::GetPosition {
             position_id,
             basket_id,

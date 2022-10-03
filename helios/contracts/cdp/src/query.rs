@@ -8,7 +8,7 @@ use cw_storage_plus::Bound;
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::{QueryMsg as OsmoQueryMsg, TokenInfoResponse};
 use membrane::positions::{
-    BadDebtResponse, BasketResponse, CollateralInterestResponse, ConfigResponse, DebtCapResponse,
+    BadDebtResponse, BasketResponse, CollateralInterestResponse, DebtCapResponse,
     InsolvencyResponse, InterestResponse, PositionResponse, PositionsResponse, PropResponse,
 };
 use membrane::stability_pool::{
@@ -18,6 +18,7 @@ use membrane::types::{
     cAsset, Asset, AssetInfo, Basket, InsolventPosition, LiqAsset, Position, PositionUserInfo,
     StoredPrice, SupplyCap, UserInfo,
 };
+use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::positions::{
     accumulate_interest, get_LP_pool_cAssets, get_asset_liquidity, get_stability_pool_liquidity,
@@ -28,10 +29,8 @@ use osmo_bindings::PoolStateResponse;
 
 use crate::state::CREDIT_MULTI;
 use crate::{
-    math::{decimal_division, decimal_multiplication, decimal_subtraction},
     positions::read_price,
     state::{Config, BASKETS, CONFIG, POSITIONS, REPAY},
-    ContractError,
 };
 
 const MAX_LIMIT: u32 = 31;
@@ -51,63 +50,6 @@ pub fn query_prop(deps: Deps) -> StdResult<PropResponse> {
     }
 }
 
-pub fn query_config(deps: Deps) -> StdResult<ConfigResponse> {
-    match CONFIG.load(deps.storage) {
-        Ok(config) => Ok(ConfigResponse {
-            owner: config.clone().owner.to_string(),
-            current_basket_id: config.clone().current_basket_id,
-            stability_pool: config
-                .clone()
-                .stability_pool
-                .unwrap_or(Addr::unchecked("None"))
-                .into_string(),
-            dex_router: config
-                .clone()
-                .dex_router
-                .unwrap_or(Addr::unchecked("None"))
-                .into_string(),
-            staking_contract: config
-                .clone()
-                .staking_contract
-                .unwrap_or(Addr::unchecked("None"))
-                .into_string(),
-            interest_revenue_collector: config
-                .clone()
-                .interest_revenue_collector
-                .unwrap_or(Addr::unchecked("None"))
-                .into_string(),
-            osmosis_proxy: config
-                .clone()
-                .osmosis_proxy
-                .unwrap_or(Addr::unchecked("None"))
-                .into_string(),
-            debt_auction: config
-                .clone()
-                .debt_auction
-                .unwrap_or(Addr::unchecked("None"))
-                .into_string(),
-            oracle_contract: config
-                .clone()
-                .oracle_contract
-                .unwrap_or(Addr::unchecked("None"))
-                .into_string(),
-            liquidity_contract: config
-                .clone()
-                .liquidity_contract
-                .unwrap_or(Addr::unchecked("None"))
-                .into_string(),
-            liq_fee: config.clone().liq_fee,
-            oracle_time_limit: config.oracle_time_limit,
-            debt_minimum: config.debt_minimum,
-            base_debt_cap_multiplier: config.base_debt_cap_multiplier,
-            collateral_twap_timeframe: config.collateral_twap_timeframe,
-            credit_twap_timeframe: config.credit_twap_timeframe,
-            cpc_margin_of_error: config.cpc_margin_of_error,
-            rate_slope_multiplier: config.rate_slope_multiplier,
-        }),
-        Err(err) => return Err(err),
-    }
-}
 
 pub fn query_position(
     deps: Deps,
@@ -1019,26 +961,6 @@ fn accrue_imut(
     //Add accrued interest to the position's debt
     position.credit_amount += accrued_interest * Uint128::new(1u128);
 
-    //Add accrued interest to the basket's pending revenue
-    //Okay with rounding down here since the position's credit will round down as well
-    // basket.pending_revenue += accrued_interest * Uint128::new(1u128);
-
-    //Add accrued interest to the basket's debt cap
-    // match update_basket_debt(
-    //     storage,
-    //     env.clone(),
-    //     querier,
-    //     config.clone(),
-    //     basket.basket_id,
-    //     position.clone().collateral_assets,
-    //     accrued_interest * Uint128::new(1u128),
-    //     true,
-    //     true){
-
-    //         Ok( _ok ) => {},
-    //         Err( err ) => { return Err( StdError::GenericErr { msg: err.to_string() } ) }
-    //     };
-
     Ok(())
 }
 
@@ -1681,7 +1603,7 @@ pub fn insolvency_check_imut(
     collateral_assets: Vec<cAsset>,
     credit_amount: Decimal,
     credit_price: Decimal,
-    max_borrow: bool, //Toggle for either over max_borrow or over max_LTV (liquidatable), ie taking the minimum collateral ratio into account.
+    max_borrow: bool, //Toggle for either over max_borrow or over max_LTV (liquidatable)
     config: Config,
 ) -> StdResult<(bool, Decimal, Uint128)> { //insolvent, current_LTV, available_fee
 

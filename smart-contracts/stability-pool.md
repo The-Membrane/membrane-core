@@ -43,6 +43,13 @@ pub struct Asset{
     pub info: AssetInfo,
     pub amount: Uint128,
 }
+
+pub struct Deposit {
+    pub user: Addr,
+    pub amount: Decimal,
+    pub deposit_time: u64,
+    pub unstake_time: Option<u64>,
+}
 ```
 
 | Key                                     | Type      | Description                                       |
@@ -132,7 +139,7 @@ Deposit accepted credit assets to corresponding Asset Pools
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Deposit { 
+    Deposit { //Deposit a list of accepted assets
         user: Option<String>
     }
 }
@@ -381,13 +388,9 @@ pub struct DepositResponse {
     pub deposits: Vec<Deposit>,
 }
 
-
 pub struct Deposit {
     pub user: Addr,
     pub amount: Decimal,
-    pub deposit_time: u64,
-    pub last_accrued: u64,
-    pub unstake_time: Option<u64>,
 }
 ```
 
@@ -440,79 +443,4 @@ pub struct PoolResponse {
 
 | Key          | Type      | Description                                          |
 | ------------ | --------- | ---------------------------------------------------- |
-| `asset_info` | AssetInfo | Asset info corresponding to an available Asset Pool  |
-
-### `Rate`
-
-Returns current MBRN incentive rate
-
-```
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum QueryMsg {
-    Rate {
-        asset_info: AssetInfo,
-    }
-}
-
-//Returns Decimal
-```
-
-| Key          | Type      | Description                                          |
-| ------------ | --------- | ---------------------------------------------------- |
-| `asset_info` | AssetInfo | Asset info corresponding to an available Asset Pool  |
-
-### `UnclaimedIncentives`
-
-Returns unclaimed incentives for a user in an AssetPool
-
-```
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum QueryMsg {
-    UnclaimedIncentives {
-        user: String,
-        asset_info: AssetInfo,
-    }
-}
-
-//Returns Uint128
-```
-
-| Key          | Type      | Description                                          |
-| ------------ | --------- | ---------------------------------------------------- |
-| `user`       | String    | User address                                         |
-| `asset_info` | AssetInfo | Asset info corresponding to an available Asset Pool  |
-
-### `CapitalAheadOfDeposit`
-
-Returns capital ahead of each user Deposit in an AssetPool
-
-```
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum QueryMsg {
-    CapitalAheadOfDeposit {
-        user: String,
-        asset_info: AssetInfo,
-    }
-}
-
-pub struct DepositPositionResponse {
-    pub deposit: Deposit,
-    pub capital_ahead: Decimal,
-}
-
-pub struct Deposit {
-    pub user: Addr,
-    pub amount: Decimal,
-    pub deposit_time: u64,
-    pub last_accrued: u64,
-    pub unstake_time: Option<u64>,
-}
-```
-
-| Key          | Type      | Description                                          |
-| ------------ | --------- | ---------------------------------------------------- |
-| `user`       | String    | User address                                         |
 | `asset_info` | AssetInfo | Asset info corresponding to an available Asset Pool  |

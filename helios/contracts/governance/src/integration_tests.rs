@@ -9,17 +9,15 @@ mod tests {
     use membrane::governance::{
         ExecuteMsg, InstantiateMsg, QueryMsg, STAKE_INTERVAL, VOTING_PERIOD_INTERVAL,
     };
-    use membrane::osmosis_proxy::GetDenomResponse;
     use membrane::staking::{
-        ConfigResponse as StakingConfigResponse, RewardsResponse, StakedResponse,
+        ConfigResponse as StakingConfigResponse, StakedResponse,
     };
-    use membrane::types::{Asset, AssetInfo, StakeDeposit, VestingPeriod};
+    use membrane::types::{StakeDeposit, VestingPeriod};
 
     use cosmwasm_std::{
-        attr, coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
+        coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
-    use osmo_bindings::{ArithmeticTwapToNowResponse, PoolStateResponse, SpotPriceResponse};
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 

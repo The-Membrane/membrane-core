@@ -28,4 +28,4 @@ pub struct Auction {
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const ASSETS: Item<Vec<AssetInfo>> = Item::new("assets");
-pub const ONGOING_AUCTIONS: Map<String, Auction> = Map::new("ongoing_auctions");
+pub const ONGOING_AUCTIONS: Map<String, Auction> = Map::new("ongoing_auctions"); //AssetInfo, Auction

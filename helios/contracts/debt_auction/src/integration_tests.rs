@@ -5,16 +5,14 @@ mod tests {
     use crate::helpers::DebtContract;
 
     use membrane::debt_auction::{ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::oracle::{AssetResponse, PriceResponse};
-    use membrane::osmosis_proxy::GetDenomResponse;
+    use membrane::oracle::{PriceResponse};
     use membrane::positions::BasketResponse;
-    use membrane::types::{Asset, AssetInfo, AssetOracleInfo, TWAPPoolInfo};
+    use membrane::types::{Asset, AssetInfo};
 
     use cosmwasm_std::{
-        attr, coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
+        coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
-    use osmo_bindings::{ArithmeticTwapToNowResponse, PoolStateResponse, SpotPriceResponse};
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 
@@ -595,7 +593,6 @@ mod tests {
             };
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-            //assert_eq!( err.root_cause().to_string(), String::from("Invalid Asset: invalid_asset") );
 
             //Successful RemoveAuction
             let msg = ExecuteMsg::RemoveAuction {

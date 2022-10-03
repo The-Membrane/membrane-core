@@ -1,1 +1,0 @@
-Fork of: https://github.com/astroport-fi/astroport-governance/tree/main/contracts/assembly

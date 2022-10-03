@@ -5,14 +5,13 @@ mod tests {
     use crate::helpers::LiquidityContract;
 
     use membrane::liquidity_check::{ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::osmosis_proxy::GetDenomResponse;
     use membrane::types::AssetInfo;
 
     use cosmwasm_std::{
-        attr, coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
+        coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
-    use osmo_bindings::{ArithmeticTwapToNowResponse, PoolStateResponse, SpotPriceResponse};
+    use osmo_bindings::{PoolStateResponse};
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 

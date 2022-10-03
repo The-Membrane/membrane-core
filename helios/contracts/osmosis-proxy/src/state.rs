@@ -17,4 +17,4 @@ pub struct TokenInfo {
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");
-pub const TOKENS: Map<String, TokenInfo> = Map::new("tokens");
+pub const TOKENS: Map<String, TokenInfo> = Map::new("tokens"); //AssetInfo, TokenInfo

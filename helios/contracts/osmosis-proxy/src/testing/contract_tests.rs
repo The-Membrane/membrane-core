@@ -1,20 +1,18 @@
 #[cfg(test)]
 mod tests {
-    use super::*;
     use cosmwasm_std::testing::{
-        mock_env, mock_info, MockApi, MockQuerier, MockStorage, MOCK_CONTRACT_ADDR,
+        mock_env, mock_info, MockApi, MockStorage, MOCK_CONTRACT_ADDR,
     };
     use cosmwasm_std::{
-        coins, from_binary, Attribute, ContractResult, Uint128, CosmosMsg, OwnedDeps, Querier, StdError,
-        SystemError, SystemResult, to_binary,
+        coins, from_binary, Attribute, Uint128, CosmosMsg, OwnedDeps, Querier, StdError
     };
     use osmo_bindings::{ OsmosisMsg, OsmosisQuery};
     use std::marker::PhantomData;
 
-    use membrane::osmosis_proxy::{ InstantiateMsg, ExecuteMsg, QueryMsg, GetDenomResponse, TokenInfoResponse };
+    use membrane::osmosis_proxy::{ InstantiateMsg, ExecuteMsg, QueryMsg, GetDenomResponse };
 
     use crate::TokenFactoryError;
-    use crate::contract::{instantiate, execute, query, reply};
+    use crate::contract::{instantiate, execute, query};
     use crate::testing::multi_test::OsmosisApp;
 
     const DENOM_NAME: &str = "mydenom";

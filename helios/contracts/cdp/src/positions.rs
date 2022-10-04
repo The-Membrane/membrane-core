@@ -7,7 +7,7 @@ use cosmwasm_std::{
     WasmQuery,
 };
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
-use cw20::{BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg};
+use cw20::{Cw20ExecuteMsg};
 use membrane::oracle::{AssetResponse, PriceResponse};
 use osmo_bindings::PoolStateResponse;
 
@@ -30,6 +30,7 @@ use membrane::types::{
     StoredPrice, SupplyCap, TWAPPoolInfo, UserInfo, 
 };
 
+use crate::contract::get_contract_balances;
 use crate::state::CREDIT_MULTI;
 use crate::{
     state::{
@@ -1272,39 +1273,6 @@ fn check_for_expunged(
 }
 
 
-pub fn get_contract_balances(
-    querier: QuerierWrapper,
-    env: Env,
-    assets: Vec<AssetInfo>,
-) -> Result<Vec<Uint128>, ContractError> {
-    let mut balances = vec![];
-
-    for asset in assets {
-        match asset {
-            AssetInfo::NativeToken { denom } => {
-                balances.push(
-                    querier
-                        .query_balance(env.clone().contract.address, denom)?
-                        .amount,
-                );
-            }
-            AssetInfo::Token { address } => {
-                let res: BalanceResponse =
-                    querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-                        contract_addr: address.to_string(),
-                        msg: to_binary(&Cw20QueryMsg::Balance {
-                            address: env.contract.address.to_string(),
-                        })?,
-                    }))?;
-
-                balances.push(res.balance);
-            }
-        }
-    }
-
-    Ok(balances)
-}
-
 pub fn create_basket(
     deps: DepsMut,
     info: MessageInfo,
@@ -1969,29 +1937,62 @@ pub fn edit_basket(
     Ok(Response::new().add_attributes(attrs).add_messages(msgs))
 }
 
-pub fn edit_contract_owner(
-    deps: DepsMut,
-    info: MessageInfo,
-    owner: String,
-) -> Result<Response, ContractError> {
-    let mut config: Config = CONFIG.load(deps.storage)?;
 
-    if info.sender == config.owner {
-        let valid_owner: Addr = deps.api.addr_validate(&owner)?;
+pub fn clone_basket(deps: DepsMut, basket_id: Uint128) -> Result<Response, ContractError> {
+    let mut config = CONFIG.load(deps.storage)?;
+    //Load basket to clone from
+    let base_basket = BASKETS.load(deps.storage, basket_id.to_string())?;
 
-        config.owner = valid_owner;
+    //Get new credit price using the Oracle's newly upgraded logic
+    let credit_price: Decimal = deps
+        .querier
+        .query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.clone().oracle_contract.unwrap().to_string(),
+            msg: to_binary(&OracleQueryMsg::Price {
+                asset_info: base_basket.clone().credit_asset.info,
+                twap_timeframe: config.clone().credit_twap_timeframe,
+                basket_id: Some(config.clone().current_basket_id),
+            })?,
+        }))?
+        .avg_price;
 
-        CONFIG.save(deps.storage, &config)?;
-    } else {
-        return Err(ContractError::NotContractOwner {});
-    }
+    let new_supply_caps = base_basket
+        .clone()
+        .collateral_supply_caps
+        .into_iter()
+        .map(|cap| SupplyCap {
+            current_supply: Uint128::zero(),
+            supply_cap_ratio: Decimal::zero(),
+            ..cap
+        })
+        .collect::<Vec<SupplyCap>>();
 
-    let response = Response::new()
-        .add_attribute("method", "edit_contract_owner")
-        .add_attribute("new_owner", owner);
+    let new_basket = Basket {
+        basket_id: config.clone().current_basket_id,
+        credit_price,
+        collateral_supply_caps: new_supply_caps,
+        ..base_basket.clone()
+    };
 
-    Ok(response)
+    //Save Config
+    config.current_basket_id += Uint128::new(1u128);
+    CONFIG.save(deps.storage, &config.clone())?;
+
+    //Save new Basket
+    BASKETS.save(
+        deps.storage,
+        new_basket.clone().basket_id.to_string(),
+        &new_basket,
+    )?;
+
+    Ok(Response::new().add_attributes(vec![
+        attr("method", "clone_basket"),
+        attr("cloned_basket_id", base_basket.basket_id),
+        attr("new_basket_id", config.current_basket_id),
+        attr("new_price", credit_price.to_string()),
+    ]))
 }
+
 
 //create_position = check collateral types, create position object
 pub fn create_position(
@@ -2557,38 +2558,6 @@ pub fn validate_position_owner(
     };
 
     Ok(valid_recipient)
-}
-
-//Refactored Terraswap function
-pub fn assert_sent_native_token_balance(
-    asset_info: AssetInfo,
-    message_info: &MessageInfo,
-) -> StdResult<Asset> {
-    let asset: Asset;
-
-    if let AssetInfo::NativeToken { denom } = &asset_info {
-        match message_info.funds.iter().find(|x| x.denom == *denom) {
-            Some(coin) => {
-                if coin.amount > Uint128::zero() {
-                    asset = Asset {
-                        info: asset_info,
-                        amount: coin.amount,
-                    };
-                } else {
-                    return Err(StdError::generic_err("You gave me nothing to deposit"));
-                }
-            }
-            None => {
-                return Err(StdError::generic_err(
-                    "Incorrect denomination, sent asset denom and asset.info.denom differ",
-                ))
-            }
-        }
-    } else {
-        return Err(StdError::generic_err("Asset type not native, check Msg schema and use AssetInfo::NativeToken{ denom: String }"));
-    }
-
-    Ok(asset)
 }
 
 pub fn store_price(
@@ -3955,60 +3924,5 @@ pub fn mint_revenue(
         attr("amount", amount.to_string()),
         attr("repay_for", repay_attr),
         attr("send_to", send_to.unwrap_or(String::from("None"))),
-    ]))
-}
-
-pub fn clone_basket(deps: DepsMut, basket_id: Uint128) -> Result<Response, ContractError> {
-    let mut config = CONFIG.load(deps.storage)?;
-    //Load basket to clone from
-    let base_basket = BASKETS.load(deps.storage, basket_id.to_string())?;
-
-    //Get new credit price using the Oracle's newly upgraded logic
-    let credit_price: Decimal = deps
-        .querier
-        .query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.clone().oracle_contract.unwrap().to_string(),
-            msg: to_binary(&OracleQueryMsg::Price {
-                asset_info: base_basket.clone().credit_asset.info,
-                twap_timeframe: config.clone().credit_twap_timeframe,
-                basket_id: Some(config.clone().current_basket_id),
-            })?,
-        }))?
-        .avg_price;
-
-    let new_supply_caps = base_basket
-        .clone()
-        .collateral_supply_caps
-        .into_iter()
-        .map(|cap| SupplyCap {
-            current_supply: Uint128::zero(),
-            supply_cap_ratio: Decimal::zero(),
-            ..cap
-        })
-        .collect::<Vec<SupplyCap>>();
-
-    let new_basket = Basket {
-        basket_id: config.clone().current_basket_id,
-        credit_price,
-        collateral_supply_caps: new_supply_caps,
-        ..base_basket.clone()
-    };
-
-    //Save Config
-    config.current_basket_id += Uint128::new(1u128);
-    CONFIG.save(deps.storage, &config.clone())?;
-
-    //Save new Basket
-    BASKETS.save(
-        deps.storage,
-        new_basket.clone().basket_id.to_string(),
-        &new_basket,
-    )?;
-
-    Ok(Response::new().add_attributes(vec![
-        attr("method", "clone_basket"),
-        attr("cloned_basket_id", base_basket.basket_id),
-        attr("new_basket_id", config.current_basket_id),
-        attr("new_price", credit_price.to_string()),
     ]))
 }

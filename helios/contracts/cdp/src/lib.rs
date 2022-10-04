@@ -9,6 +9,7 @@ pub mod liquidations;
 pub mod positions;
 pub mod query;
 pub mod state;
+pub mod reply;
 
 pub use crate::error::ContractError;
 

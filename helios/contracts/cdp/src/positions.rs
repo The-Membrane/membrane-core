@@ -31,6 +31,7 @@ use membrane::types::{
 };
 
 use crate::contract::get_contract_balances;
+use crate::liquidations::query_stability_pool_fee;
 use crate::state::CREDIT_MULTI;
 use crate::{
     state::{
@@ -239,7 +240,8 @@ pub fn deposit(
                         )?;
                     }
                 } else {
-                    //If position_ID is passed but no position is found. In case its a mistake, don't want to add a new position.
+                    //If position_ID is passed but no position is found, Error. 
+                    //In case its a mistake, don't want to add assets to a new position.
                     return Err(ContractError::NonExistentPosition {});
                 }
             } else {
@@ -397,7 +399,7 @@ pub fn withdraw(
                     Some(old_positions) => {
                         let new_positions = old_positions
                             .into_iter()
-                            .map(|mut stored_position| {
+                            .map(|stored_position| {
                                 //Find position
                                 if stored_position.position_id == position_id {
                                     //Swap to target_position 
@@ -420,20 +422,21 @@ pub fn withdraw(
             },
         )?;
 
-        //If the cAsset is found in the position, attempt withdrawal
+        //Find cAsset in target_position
         match target_position
             .clone()
             .collateral_assets
             .into_iter()
             .find(|x| x.asset.info.equal(&withdraw_asset.info))
         {
-            //Some cAsset
+            //If the cAsset is found in the position, attempt withdrawal
             Some(position_collateral) => {
                 //Cant withdraw more than the positions amount
                 if withdraw_asset.amount > position_collateral.asset.amount {
                     return Err(ContractError::InvalidWithdrawal {});
                 } else {
                     //Now that its a valid withdrawal and debt has accrued, we can add to tally_update_list
+                    //This will be used to keep track of Basket supply caps
                     tally_update_list.push(cAsset {
                         asset: withdraw_asset.clone(),
                         ..position_collateral.clone()
@@ -547,7 +550,7 @@ pub fn withdraw(
 
     //Push aggregated native coin withdrawal
     if withdraw_coins != vec![] {
-        //Signal withdraw_coin length reply
+        //Save # of native tokens sent for the withdrawal reply propagation 
         reply_order.push(withdraw_coins.len() as usize);
 
         let message = CosmosMsg::Bank(BankMsg::Send {
@@ -557,7 +560,7 @@ pub fn withdraw(
         msgs.push(SubMsg::reply_on_success(message, WITHDRAW_REPLY_ID));
     }
 
-    //We update after all withdrawals to improve UX by smoothing debt_cap restrictions
+    //Update basket supply cap tallies after all withdrawals to improve UX by smoothing debt_cap restrictions
     update_basket_tally(
         deps.storage,
         deps.querier,
@@ -649,7 +652,7 @@ pub fn withdraw(
         )?,
         position_info: UserInfo {
             basket_id,
-            position_id: position_id,
+            position_id,
             position_owner: info.clone().sender.to_string(),
         },
         reply_order,
@@ -675,7 +678,9 @@ pub fn withdraw(
         attrs.push(("assets", &temp[i]));
     }
 
-    Ok(response.add_attributes(attrs).add_submessages(msgs))
+    Ok(response
+        .add_attributes(attrs)
+        .add_submessages(msgs))
 }
 
 pub fn repay(
@@ -696,7 +701,10 @@ pub fn repay(
         Ok(basket) => basket,
     };
 
+    //Validate position owner 
     let valid_owner_addr = validate_position_owner(api, info.clone(), position_owner)?;
+    
+    //Get target_position
     let mut target_position =
         get_target_position(storage, basket_id, valid_owner_addr.clone(), position_id)?;
 
@@ -716,34 +724,16 @@ pub fn repay(
     let mut updated_list: Vec<Position> = vec![];
 
     //Assert that the correct credit_asset was sent
-    //Only one of these match arms will be used once the credit_contract type is decided on
-    match credit_asset.clone().info {
-        AssetInfo::Token {
-            address: submitted_address,
-        } => {
-            if let AssetInfo::Token { address } = basket.clone().credit_asset.info {
-                if submitted_address != address || info.sender.clone() != address {
-                    return Err(ContractError::InvalidCredit {});
-                }
-            };
-        }
-        AssetInfo::NativeToken {
-            denom: submitted_denom,
-        } => {
-            if let AssetInfo::NativeToken { denom } = basket.clone().credit_asset.info {
-                if submitted_denom != denom {
-                    return Err(ContractError::InvalidCredit {});
-                }
-            };
-        }
-    }
+    assert_credit_asset(basket.clone(), credit_asset.clone(), info.clone().sender)?;
 
+    //Attempt position repayment
     POSITIONS.update(
         storage,
         (basket_id.to_string(), valid_owner_addr.clone()),
         |positions: Option<Vec<Position>>| -> Result<Vec<Position>, ContractError> {
             match positions {
                 Some(position_list) => {
+                    //Find target position in the list of user's positions
                     updated_list = match position_list
                         .clone()
                         .into_iter()
@@ -761,7 +751,7 @@ pub fn repay(
                                     && !target_position.credit_amount.is_zero()
                                 {
                                     //Router contract is allowed to.
-                                    //We rather $1 of bad debt than $2000 and bad debt comes from router slippage
+                                    //We rather $1 of bad debt than $2000 and bad debt comes from swap slippage
                                     if let Some(router) = config.clone().dex_router {
                                         if info.sender != router {
                                             return Err(ContractError::BelowMinimumDebt {});
@@ -779,6 +769,7 @@ pub fn repay(
                                 total_loan = target_position.clone().credit_amount;
                             } else {
                                 return Err(ContractError::ExcessRepayment {});
+                                //We don't want to have to send back assets
                             }
 
                             //Create replacement Vec<Position> to update w/
@@ -787,6 +778,7 @@ pub fn repay(
                                 .into_iter()
                                 .filter(|x| x.position_id != position_id.clone())
                                 .collect::<Vec<Position>>();
+
                             update.push(Position {
                                 credit_amount: total_loan.clone(),
                                 ..target_position.clone()
@@ -799,7 +791,7 @@ pub fn repay(
 
                     //Now update w/ the updated_list
                     //The compiler is saying this value is never read so check in tests
-                    //Works fine but won't ignore the warning
+                    //Works fine but will leave the warning
                     Ok(updated_list)
                 }
 
@@ -842,7 +834,10 @@ pub fn liq_repay(
     info: MessageInfo,
     credit_asset: Asset,
 ) -> Result<Response, ContractError> {
+
     let config = CONFIG.load(deps.storage)?;
+    
+    //Fetch position info to repay for
     let repay_propagation = REPAY.load(deps.storage)?;
 
     //Can only be called by the SP contract
@@ -862,28 +857,13 @@ pub fn liq_repay(
         Ok(basket) => basket,
     };
 
-    let positions: Vec<Position> = match POSITIONS.load(
-        deps.storage,
-        (
-            repay_propagation.clone().basket_id.to_string(),
-            repay_propagation.clone().position_owner,
-        ),
-    ) {
-        Err(_) => return Err(ContractError::NoUserPositions {}),
-        Ok(positions) => positions,
-    };
-
-    let target_position = match positions
-        .into_iter()
-        .find(|x| x.position_id == repay_propagation.clone().position_id)
-    {
-        Some(position) => position,
-        None => return Err(ContractError::NonExistentPosition {}),
-    };
-
-    //Fetch position info to repay for
-    let repay_propagation = REPAY.load(deps.storage)?;
-
+    let target_position = get_target_position(
+        deps.storage, 
+        repay_propagation.clone().basket_id,
+        repay_propagation.clone().position_owner,
+        repay_propagation.clone().position_id,
+    )?;
+    
     //Position repayment
     let res = match repay(
         deps.storage,
@@ -900,12 +880,15 @@ pub fn liq_repay(
         Err(e) => return Err(e),
     };
 
+    //Split LP cAssets to their pool assets
     let collateral_assets = get_LP_pool_cAssets(
         deps.querier,
         config.clone(),
         basket.clone(),
         target_position.clone().collateral_assets,
     )?;
+
+    //Get position's cAsset ratios
     let cAsset_ratios = get_cAsset_ratios(
         deps.storage,
         env.clone(),
@@ -913,6 +896,7 @@ pub fn liq_repay(
         collateral_assets.clone(),
         config.clone(),
     )?;
+    //Get cAsset prices
     let (_avg_borrow_LTV, _avg_max_LTV, _total_value, cAsset_prices) = get_avg_LTV(
         deps.storage,
         env.clone(),
@@ -937,13 +921,7 @@ pub fn liq_repay(
     let mut distribution_assets = vec![];
 
     //Query SP liq fee
-    let resp: PoolResponse = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().stability_pool.unwrap().to_string(),
-        msg: to_binary(&SP_QueryMsg::AssetPool {
-            asset_info: basket.clone().credit_asset.info,
-        })?,
-    }))?;
-    let sp_liq_fee = resp.liq_premium;
+    let sp_liq_fee = query_stability_pool_fee(deps.querier, config.clone(), basket.clone())?;
 
     //Calculate distribution of assets to send from the repaid position
     for (num, cAsset) in collateral_assets.clone().into_iter().enumerate() {
@@ -1039,21 +1017,14 @@ pub fn increase_debt(
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
 
+    //Load basket
     let mut basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
         Err(_) => return Err(ContractError::NonExistentBasket {}),
         Ok(basket) => basket,
     };
-    let positions: Vec<Position> =
-        match POSITIONS.load(deps.storage, (basket_id.to_string(), info.sender.clone())) {
-            Err(_) => return Err(ContractError::NoUserPositions {}),
-            Ok(positions) => positions,
-        };
 
-    //Filter position by id
-    let mut target_position = match positions.into_iter().find(|x| x.position_id == position_id) {
-        Some(position) => position,
-        None => return Err(ContractError::NonExistentPosition {}),
-    };
+    //get Target position
+    let mut target_position = get_target_position(deps.storage, basket_id, info.clone().sender, position_id)?;
 
     //Accrue interest
     accrue(
@@ -3925,4 +3896,37 @@ pub fn mint_revenue(
         attr("repay_for", repay_attr),
         attr("send_to", send_to.unwrap_or(String::from("None"))),
     ]))
+}
+
+fn assert_credit_asset(
+    basket: Basket,
+    credit_asset: Asset,
+    msg_sender: Addr,
+)-> Result<(), ContractError>{
+    match credit_asset.clone().info {
+        AssetInfo::Token {
+            address: submitted_address,
+        } => {
+            if let AssetInfo::Token { address } = basket.clone().credit_asset.info {
+                if submitted_address != address || msg_sender.clone() != address {
+                    return Err(ContractError::InvalidCredit {})
+                }
+            } else {
+                return Err(ContractError::InvalidCredit {})
+            }
+        }
+        AssetInfo::NativeToken {
+            denom: submitted_denom,
+        } => {
+            if let AssetInfo::NativeToken { denom } = basket.clone().credit_asset.info {
+                if submitted_denom != denom {
+                    return Err(ContractError::InvalidCredit {})
+                }
+            } else {
+                return Err(ContractError::InvalidCredit {})
+            }
+        }
+    }
+
+    Ok(())
 }

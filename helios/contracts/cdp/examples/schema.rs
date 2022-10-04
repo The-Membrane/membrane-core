@@ -5,7 +5,7 @@ use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
 use cdp::state::{Config, RepayPropagation};
 use membrane::positions::{
-    BadDebtResponse, BasketResponse, CallbackMsg, ConfigResponse, Cw20HookMsg, DebtCapResponse,
+    BadDebtResponse, BasketResponse, CallbackMsg, Cw20HookMsg, DebtCapResponse,
     ExecuteMsg, InsolvencyResponse, InstantiateMsg, PositionResponse, PositionsResponse,
     PropResponse, QueryMsg,
 };
@@ -24,7 +24,6 @@ fn main() {
     export_schema(&schema_for!(PositionsResponse), &out_dir);
     export_schema(&schema_for!(PositionResponse), &out_dir);
     export_schema(&schema_for!(BasketResponse), &out_dir);
-    export_schema(&schema_for!(ConfigResponse), &out_dir);
     export_schema(&schema_for!(PropResponse), &out_dir);
     export_schema(&schema_for!(DebtCapResponse), &out_dir);
     export_schema(&schema_for!(BadDebtResponse), &out_dir);

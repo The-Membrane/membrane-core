@@ -5,7 +5,7 @@
 pub mod contract;
 mod error;
 pub mod helpers;
-pub mod math;
+pub mod liquidations;
 pub mod positions;
 pub mod query;
 pub mod state;

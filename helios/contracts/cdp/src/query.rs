@@ -11,11 +11,9 @@ use membrane::positions::{
     BadDebtResponse, BasketResponse, CollateralInterestResponse, DebtCapResponse,
     InsolvencyResponse, InterestResponse, PositionResponse, PositionsResponse, PropResponse,
 };
-use membrane::stability_pool::{
-    LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse, QueryMsg as SP_QueryMsg,
-};
+
 use membrane::types::{
-    cAsset, Asset, AssetInfo, Basket, InsolventPosition, LiqAsset, Position, PositionUserInfo,
+    cAsset, Asset, AssetInfo, Basket, InsolventPosition, Position, PositionUserInfo,
     StoredPrice, SupplyCap, UserInfo,
 };
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
@@ -363,40 +361,7 @@ pub fn query_basket_positions(
         .collect()
 }
 
-pub fn query_stability_pool_fee(
-    querier: QuerierWrapper,
-    config: Config,
-    basket: Basket,
-) -> StdResult<Decimal> {
-    let resp: PoolResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.stability_pool.unwrap().to_string(),
-        msg: to_binary(&SP_QueryMsg::AssetPool {
-            asset_info: basket.credit_asset.info,
-        })?,
-    }))?;
 
-    Ok(resp.liq_premium)
-}
-
-pub fn query_stability_pool_liquidatible(
-    querier: QuerierWrapper,
-    config: Config,
-    amount: Decimal,
-    info: AssetInfo,
-) -> StdResult<Decimal> {
-    let query_res: SP_LiquidatibleResponse =
-        querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.stability_pool.unwrap().to_string(),
-            msg: to_binary(&SP_QueryMsg::CheckLiquidatible {
-                asset: LiqAsset {
-                    amount: amount,
-                    info,
-                },
-            })?,
-        }))?;
-
-    Ok(query_res.leftover)
-}
 
 //Calculate debt caps
 pub fn query_basket_debt_caps(

@@ -247,7 +247,7 @@ pub fn deposit(
             } else {
                 //If user doesn't pass an ID, we create a new position
                 new_position =
-                    create_position(deps.storage, cAssets.clone(), &mut basket, env.clone())?;
+                    create_position(cAssets.clone(), &mut basket, env.clone())?;
 
                 //Accrue, mainly for repayment price
                 accrue(
@@ -281,7 +281,7 @@ pub fn deposit(
         }
         // If Err() meaning no positions loaded, new Vec<Position> is created
         Err(_) => {
-            new_position = create_position(deps.storage, cAssets.clone(), &mut basket, env.clone())?;
+            new_position = create_position(cAssets.clone(), &mut basket, env.clone())?;
 
             //Accrue, mainly for repayment price
             accrue(
@@ -1967,7 +1967,6 @@ pub fn clone_basket(deps: DepsMut, basket_id: Uint128) -> Result<Response, Contr
 
 //create_position = check collateral types, create position object
 pub fn create_position(
-    deps: &mut dyn Storage,
     cAssets: Vec<cAsset>, //Assets being added into the position
     basket: &mut Basket,
     env: Env,

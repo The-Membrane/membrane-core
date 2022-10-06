@@ -174,6 +174,7 @@ pub fn create_denom(
     if subdenom.eq("") {
         return Err(TokenFactoryError::InvalidSubdenom { subdenom });
     }
+    
 
     let create_denom_msg = SubMsg::reply_on_success(OsmosisMsg::CreateDenom {
         subdenom: subdenom.clone(),
@@ -326,7 +327,7 @@ pub fn mint_tokens(
         },
     )?;
 
-    let mint_tokens_msg = OsmosisMsg::mint_contract_tokens(denom, amount, mint_to_address.clone());
+    let mint_tokens_msg = OsmosisMsg::mint_contract_tokens(denom, amount, mint_to_address.clone());    
 
     let mut res = Response::new()
         .add_attribute("method", "mint_tokens")

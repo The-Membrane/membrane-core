@@ -2829,8 +2829,7 @@ fn get_basket_debt_caps(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
-    //These are Basket specific fields
-    basket: Basket,
+    basket: &mut Basket,
 ) -> Result<Vec<Uint128>, ContractError> {
     let config: Config = CONFIG.load(storage)?;
 
@@ -2897,6 +2896,22 @@ fn get_basket_debt_caps(
     //If debt cap is less than the minimum, set it to the minimum
     if debt_cap < (config.base_debt_cap_multiplier * config.debt_minimum) {
         debt_cap = (config.base_debt_cap_multiplier * config.debt_minimum);
+    }
+
+    //Calc total basket debt
+    let total_debt: Uint128 = basket.clone().collateral_supply_caps
+        .into_iter()
+        .map(|cap| cap.debt_total)
+        .collect::<Vec<Uint128>>()
+        .into_iter()
+        .sum();
+
+    //If the basket's proportion of it's debt cap is >= the desired debt util, negative rates are turned off
+    //This protects against perpetual devaluing of the credit asset as Membrane is disincentivizing new debt w/ high rates
+    //Note: This could be changed to "IF each asset's util is above desired"...
+    //...but the current implementation turns them off faster, might as well be on the safe side
+    if Decimal::from_ratio(total_debt, debt_cap) >= basket.clone().desired_debt_cap_util {
+        basket.negative_rates = false;
     }
 
     let mut per_asset_debt_caps = vec![];
@@ -3121,7 +3136,7 @@ fn update_debt_per_asset_in_position(
     let mut assets_over_cap = vec![];
 
     //Calculate debt per asset caps
-    let cAsset_caps = get_basket_debt_caps(storage, querier, env, basket.clone())?;
+    let cAsset_caps = get_basket_debt_caps(storage, querier, env, &mut basket)?;
 
     for i in 0..old_ratios.len() {
         match old_ratios[i].atomics().checked_sub(new_ratios[i].atomics()) {
@@ -3237,7 +3252,7 @@ fn update_basket_debt(
     let mut assets_over_cap = vec![];
 
     //Calculate debt per asset caps
-    let cAsset_caps = get_basket_debt_caps(storage, querier, env, basket.clone())?;
+    let cAsset_caps = get_basket_debt_caps(storage, querier, env, basket)?;
 
     //Update supply caps w/ new debt distribution
     for (index, cAsset) in collateral_assets.iter().enumerate() {
@@ -3378,7 +3393,7 @@ fn get_interest_rates(
     let mut debt_proportions = vec![];
     let mut supply_proportions = vec![];
 
-    let debt_caps = match get_basket_debt_caps(storage, querier, env.clone(), basket.clone()) {
+    let debt_caps = match get_basket_debt_caps(storage, querier, env.clone(), basket) {
         Ok(caps) => caps,
         Err(err) => {
             return Err(StdError::GenericErr {

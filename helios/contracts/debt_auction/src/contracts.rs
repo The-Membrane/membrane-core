@@ -29,6 +29,7 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
+
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
     let config: Config;
@@ -58,9 +59,10 @@ pub fn instantiate(
         };
     }
 
+    //Save Config
     CONFIG.save(deps.storage, &config)?;
 
-    //Set Assets
+    //Initialize Assets
     ASSETS.save(deps.storage, &vec![])?;
 
     Ok(Response::default())
@@ -105,6 +107,8 @@ pub fn execute(
         ),
     }
 }
+
+
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -160,6 +164,8 @@ fn update_config(
     Ok(Response::new())
 }
 
+//Start Auction 
+//Auctions have set recaptilization limits and will automatically repay for CDP Positions
 fn start_auction(
     deps: DepsMut,
     env: Env,
@@ -235,6 +241,7 @@ fn start_auction(
     Ok(Response::new().add_attributes(attrs))
 }
 
+//Remove Auction 
 fn remove_auction(
     deps: DepsMut,
     info: MessageInfo,
@@ -258,6 +265,7 @@ fn remove_auction(
     Ok(Response::new().add_attributes(attrs))
 }
 
+//Swap the debt asset in an auction for MBRN at a discount
 fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -266,7 +274,10 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
     let mut msgs: Vec<CosmosMsg> = vec![];
     let mut attrs = vec![attr("method", "swap_for_mbrn")];
 
+    //Parse thru all sent assets 
+    //Swap the ones that have auctions open w/ non-zero recapitalization requests
     for coin in info.clone().funds {
+
         //If the asset has an ongoing auction
         if let Ok(mut auction) = ONGOING_AUCTIONS.load(deps.storage, coin.clone().denom) {
             if !auction.remaining_recapitalization.is_zero() {
@@ -277,6 +288,9 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                         auction.remaining_recapitalization,
                         Uint128::new(1u128),
                     );
+
+                    //Calculate the the user's overpayment
+                    //We want to allow  users to focus on speed rather than correctness
                     overpay = coin.amount - auction.remaining_recapitalization;
                 } else {
                     swap_amount = Decimal::from_ratio(coin.amount, Uint128::new(1u128));
@@ -433,44 +447,6 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
     Ok(Response::new().add_messages(msgs))
 }
 
-pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
-    match asset.clone().info {
-        AssetInfo::NativeToken { denom: _ } => {
-            let coin: Coin = asset_to_coin(asset)?;
-            let message = CosmosMsg::Bank(BankMsg::Send {
-                to_address: recipient.to_string(),
-                amount: vec![coin],
-            });
-            Ok(message)
-        }
-        AssetInfo::Token { address } => {
-            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: address.to_string(),
-                msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                    recipient: recipient.to_string(),
-                    amount: asset.amount,
-                })?,
-                funds: vec![],
-            });
-            Ok(message)
-        }
-    }
-}
-
-pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {
-    match asset.info {
-        //
-        AssetInfo::Token { address: _ } => {
-            Err(StdError::GenericErr {
-                msg: "Only native assets can become Coin objects".to_string(),
-            })
-        }
-        AssetInfo::NativeToken { denom } => Ok(Coin {
-            denom,
-            amount: asset.amount,
-        }),
-    }
-}
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
@@ -494,6 +470,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
+//Get Assets that have been used as Auction debt assets
 fn get_valid_assets(
     deps: Deps,
     debt_asset: Option<AssetInfo>,
@@ -533,6 +510,7 @@ fn get_valid_assets(
     }
 }
 
+//Get an AuctionResponse of any Auction w/ a non-zero remaining_recapitalization
 fn get_ongoing_auction(
     deps: Deps,
     debt_asset: Option<AssetInfo>,
@@ -599,5 +577,46 @@ fn get_ongoing_auction(
         }
 
         Ok(resp)
+    }
+}
+
+//Helper functions
+
+pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
+    match asset.clone().info {
+        AssetInfo::NativeToken { denom: _ } => {
+            let coin: Coin = asset_to_coin(asset)?;
+            let message = CosmosMsg::Bank(BankMsg::Send {
+                to_address: recipient.to_string(),
+                amount: vec![coin],
+            });
+            Ok(message)
+        }
+        AssetInfo::Token { address } => {
+            let message = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: address.to_string(),
+                msg: to_binary(&Cw20ExecuteMsg::Transfer {
+                    recipient: recipient.to_string(),
+                    amount: asset.amount,
+                })?,
+                funds: vec![],
+            });
+            Ok(message)
+        }
+    }
+}
+
+pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {
+    match asset.info {
+        //
+        AssetInfo::Token { address: _ } => {
+            Err(StdError::GenericErr {
+                msg: "Only native assets can become Coin objects".to_string(),
+            })
+        }
+        AssetInfo::NativeToken { denom } => Ok(Coin {
+            denom,
+            amount: asset.amount,
+        }),
     }
 }

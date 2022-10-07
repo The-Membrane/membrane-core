@@ -4,7 +4,7 @@ mod tests {
     use crate::helpers::BVContract;
 
     use membrane::builder_vesting::{ExecuteMsg, InstantiateMsg, QueryMsg, ReceiverResponse};
-    use membrane::staking::RewardsResponse;
+    use membrane::staking::{ StakerResponse, RewardsResponse};
     use membrane::types::{Asset, AssetInfo, VestingPeriod};
 
     use cosmwasm_std::{
@@ -93,6 +93,7 @@ mod tests {
     #[serde(rename_all = "snake_case")]
     pub enum Staking_MockQueryMsg {
         StakerRewards { staker: String },
+        UserStake { staker: String },
     }
 
     pub fn staking_contract() -> Box<dyn Contract<Empty>> {
@@ -130,6 +131,13 @@ mod tests {
                                 },
                             ],
                             accrued_interest: Uint128::zero(),
+                        })?)
+                    },
+                    Staking_MockQueryMsg::UserStake { staker } => {
+                        Ok(to_binary(&StakerResponse {
+                            staker,
+                            total_staked: Uint128::new(30_000_000_000_000),
+                            deposit_list: vec![],
                         })?)
                     }
                 }

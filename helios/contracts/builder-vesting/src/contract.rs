@@ -9,15 +9,12 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use cw20::Cw20ExecuteMsg;
 
-use membrane::builder_vesting::{
-    AllocationResponse, ExecuteMsg, InstantiateMsg, QueryMsg, ReceiverResponse,
-    UnlockedResponse,
-};
+use membrane::builder_vesting::{ ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::governance::{ExecuteMsg as GovExecuteMsg, ProposalMessage, ProposalVoteOption};
 use membrane::math::decimal_division;
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
-    ExecuteMsg as StakingExecuteMsg, QueryMsg as StakingQueryMsg, RewardsResponse,
+    ExecuteMsg as StakingExecuteMsg, QueryMsg as StakingQueryMsg, RewardsResponse, StakerResponse,
 };
 use membrane::types::{Allocation, Asset, AssetInfo, VestingPeriod};
 
@@ -124,6 +121,7 @@ pub fn execute(
     }
 }
 
+//Calls the Governance contract SubmitProposalMsg
 fn submit_proposal(
     deps: DepsMut,
     info: MessageInfo,
@@ -166,6 +164,7 @@ fn submit_proposal(
     }
 }
 
+//Calls the Governance contract CastVoteMsg
 fn cast_vote(
     deps: DepsMut,
     info: MessageInfo,
@@ -202,12 +201,16 @@ fn cast_vote(
     }
 }
 
+//Claim a receiver's proportion of staking rewards that were previously claimed using ClaimFeesForContract
 fn claim_fees_for_receiver(deps: DepsMut, info: MessageInfo) -> Result<Response, ContractError> {
+
+    //Load Receivers
     let mut receivers = RECEIVERS.load(deps.storage)?;
 
     let mut messages: Vec<CosmosMsg> = vec![];
     let claimables: Vec<Asset> = vec![];
 
+    //Find Receiver claimables
     match receivers
         .clone()
         .into_iter()
@@ -221,7 +224,7 @@ fn claim_fees_for_receiver(deps: DepsMut, info: MessageInfo) -> Result<Response,
                 });
             }
 
-            //Create withdraw msg for each
+            //Create withdraw msg for each claimable asset
             for claimable in receiver.clone().claimables {
                 messages.push(withdrawal_msg(claimable, receiver.clone().receiver)?);
             }
@@ -246,7 +249,10 @@ fn claim_fees_for_receiver(deps: DepsMut, info: MessageInfo) -> Result<Response,
     ]))
 }
 
+//Claim staking rewards for all contract owned staked MBRN
 fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
+
+    //Load Config
     let config = CONFIG.load(deps.storage)?;
 
     //Query Rewards
@@ -257,7 +263,7 @@ fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, Contract
         })?,
     }))?;
 
-    //Split rewards w/ Receivers
+    //Split rewards w/ Receivers based on allocation amounts
     if res.claimables != vec![] {
         let receivers = RECEIVERS.load(deps.storage)?;
 
@@ -268,9 +274,9 @@ fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, Contract
             .collect::<Vec<Receiver>>();
 
         //Calculate allocation ratios
-        let allocation_ratios = get_allocation_ratios(config.clone(), allocated_receivers.clone())?;
-
-        //Split between receivers
+        let allocation_ratios = get_allocation_ratios(deps.querier, env.clone(), config.clone(), allocated_receivers.clone())?;
+        
+        //Add receiver's ratio of each claim asset to position
         for claim_asset in res.clone().claimables {
             for (i, receiver) in allocated_receivers.clone().into_iter().enumerate() {
                 match receiver
@@ -329,16 +335,26 @@ fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, Contract
     ]))
 }
 
-fn get_allocation_ratios(config: Config, receivers: Vec<Receiver>) -> StdResult<Vec<Decimal>> {
+fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, receivers: Vec<Receiver>) -> StdResult<Vec<Decimal>> {
+
     let mut allocation_ratios: Vec<Decimal> = vec![];
-    for receiver in receivers {
-        //Ratio of allocation.amount to initial_allocation
+
+    //Get Contract's MBRN staked amount
+    let staked_mbrn = querier.query_wasm_smart::<StakerResponse>(
+        config.staking_contract, 
+        &StakingQueryMsg::UserStake { staker: env.contract.address.to_string() }
+    )?
+    .total_staked;
+
+    for receiver in receivers {        
+
+        //Ratio of allocation.amount to total_staked
         allocation_ratios.push(decimal_division(
             Decimal::from_ratio(
                 receiver.clone().allocation.unwrap().amount,
                 Uint128::new(1u128),
             ),
-            Decimal::from_ratio(config.clone().initial_allocation, Uint128::new(1u128)),
+            Decimal::from_ratio(staked_mbrn, Uint128::new(1u128)),
         ))
     }
 
@@ -392,6 +408,9 @@ fn update_config(
     Ok(Response::new().add_attributes(attrs))
 }
 
+
+//Withdraw unvested MBRN
+//If there is none to distribute in the contract, the amount will be unstaked
 fn withdraw_unlocked(
     deps: DepsMut,
     env: Env,
@@ -403,10 +422,11 @@ fn withdraw_unlocked(
 
     let mut message: Option<CosmosMsg> = None;
 
-    let mut unlocked_amount: Uint128;
+    let unlocked_amount: Uint128;
     let mut unstaked_amount: Uint128 = Uint128::zero();
     let new_allocation: Allocation;
 
+    //Find Receiver
     match receivers
         .clone()
         .into_iter()
@@ -428,7 +448,7 @@ fn withdraw_unlocked(
 
                 RECEIVERS.save(deps.storage, &new_receivers)?;
 
-                //If there is enough MBRN to send, sned the unlocked amount
+                //If there is enough MBRN to send, send the unlocked amount
                 //If not, unstake unlocked amount
                 let mbrn_balance = get_contract_mbrn_balance(deps.querier, env, config.clone())?;
                 
@@ -491,8 +511,10 @@ fn withdraw_unlocked(
     }
 }
 
+//Get unvested amount 
 pub fn get_unlocked_amount(
-    allocation: Option<Allocation>,
+    //This is an option bc the receiver's allocation is. Its existence is confirmed beforehand.
+    allocation: Option<Allocation>, 
     current_block_time: u64, //in seconds
 ) -> (Uint128, Allocation) {
     let mut allocation = allocation.unwrap();
@@ -540,6 +562,7 @@ pub fn get_unlocked_amount(
     (unlocked_amount, allocation)
 }
 
+//Add allocation to a receiver
 fn add_allocation(
     deps: DepsMut,
     env: Env,
@@ -554,7 +577,7 @@ fn add_allocation(
         return Err(ContractError::Unauthorized {});
     }
 
-    //Add allocation for receiver
+    //Add allocation to a receiver
     RECEIVERS.update(
         deps.storage,
         |mut receivers| -> Result<Vec<Receiver>, ContractError> {
@@ -600,6 +623,7 @@ fn add_allocation(
     ]))
 }
 
+//Decrease allocation for receiver
 fn decrease_allocation(
     deps: DepsMut,
     info: MessageInfo,
@@ -613,6 +637,7 @@ fn decrease_allocation(
     }
 
     let error: Option<ContractError> = None;
+
     //Decrease allocation for receiver
     //If trying to decrease more than allocation, allocation set to 0
     RECEIVERS.update(
@@ -662,6 +687,7 @@ fn decrease_allocation(
     ]))
 }
 
+//Add new Receiver
 fn add_receiver(
     deps: DepsMut,
     info: MessageInfo,
@@ -704,6 +730,7 @@ fn add_receiver(
     ]))
 }
 
+//Remove existing Receiver
 fn remove_receiver(
     deps: DepsMut,
     info: MessageInfo,
@@ -762,6 +789,19 @@ fn mint_initial_allocation(env: Env, config: Config) -> Result<Response, Contrac
 }
 
 
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
+    match msg {
+        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
+        QueryMsg::Allocation { receiver } => to_binary(&query_allocation(deps, receiver)?),
+        QueryMsg::UnlockedTokens { receiver } => to_binary(&query_unlocked(deps, env, receiver)?),
+        QueryMsg::Receivers {} => to_binary(&query_receivers(deps)?),
+        QueryMsg::Receiver { receiver } => to_binary(&query_receiver(deps, receiver)?),
+    }
+}
+
+
+//Helper functions
 pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
     match asset.clone().info {
         AssetInfo::Token { address } => {
@@ -813,15 +853,4 @@ pub fn get_contract_mbrn_balance(
             .amount
     )                
 
-}
-
-#[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
-    match msg {
-        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::Allocation { receiver } => to_binary(&query_allocation(deps, receiver)?),
-        QueryMsg::UnlockedTokens { receiver } => to_binary(&query_unlocked(deps, env, receiver)?),
-        QueryMsg::Receivers {} => to_binary(&query_receivers(deps)?),
-        QueryMsg::Receiver { receiver } => to_binary(&query_receiver(deps, receiver)?),
-    }
 }

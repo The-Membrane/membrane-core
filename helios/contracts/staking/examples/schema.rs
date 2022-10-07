@@ -4,7 +4,7 @@ use std::fs::create_dir_all;
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
 use membrane::staking::{
-    ConfigResponse, Cw20HookMsg, ExecuteMsg, FeeEventsResponse, InstantiateMsg, QueryMsg,
+    Cw20HookMsg, ExecuteMsg, FeeEventsResponse, InstantiateMsg, QueryMsg,
     RewardsResponse, StakedResponse, StakerResponse, TotalStakedResponse,
 };
 use staking::state::Config;
@@ -20,7 +20,6 @@ fn main() {
     export_schema(&schema_for!(QueryMsg), &out_dir);
     export_schema(&schema_for!(Cw20HookMsg), &out_dir);
     export_schema(&schema_for!(Config), &out_dir);
-    export_schema(&schema_for!(ConfigResponse), &out_dir);
     export_schema(&schema_for!(StakerResponse), &out_dir);
     export_schema(&schema_for!(RewardsResponse), &out_dir);
     export_schema(&schema_for!(StakedResponse), &out_dir);

@@ -95,36 +95,41 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                     });
                 }
 
-                let user_position = match get_target_position(
+                match get_target_position(
                     deps.storage,
                     withdraw_prop.position_info.basket_id,
                     deps.api
                         .addr_validate(&withdraw_prop.position_info.position_owner.clone())?,
                     withdraw_prop.position_info.position_id,
                 ) {
-                    Ok(position) => position,
+                    Ok(user_position) => {
+                        //Assert the withdrawal was correctly saved to state
+                        if let Some(cAsset) = user_position
+                        .collateral_assets
+                        .into_iter()
+                        .find(|cAsset| cAsset.asset.info.equal(&asset_info))
+                        {
+                            if cAsset.asset.amount != (position_amount - withdraw_amount) {
+                                return Err(StdError::GenericErr {
+                                    msg: format!(
+                                        "Conditional 2: Invalid withdrawal, possible bug found by {}",
+                                        withdraw_prop.position_info.position_owner
+                                    ),
+                                });
+                            }
+                        }
+                    },
                     Err(err) => {
-                        return Err(StdError::GenericErr {
-                            msg: err.to_string(),
-                        })
+                        //Error means the position was deleted from state, assert that
+                        if !(position_amount - withdraw_amount).is_zero(){
+                            return Err(StdError::GenericErr {
+                                msg: err.to_string(),
+                            })
+                        }
                     }
                 };
 
-                //Assert the withdrawal was correctly saved to state
-                if let Some(cAsset) = user_position
-                    .collateral_assets
-                    .into_iter()
-                    .find(|cAsset| cAsset.asset.info.equal(&asset_info))
-                {
-                    if cAsset.asset.amount != (position_amount - withdraw_amount) {
-                        return Err(StdError::GenericErr {
-                            msg: format!(
-                                "Conditional 2: Invalid withdrawal, possible bug found by {}",
-                                withdraw_prop.position_info.position_owner
-                            ),
-                        });
-                    }
-                }
+                
 
                 //Add Success attributes
                 attrs.push(attr(

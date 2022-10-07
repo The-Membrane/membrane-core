@@ -510,11 +510,17 @@ pub fn withdraw(
                                             new_assets = updated_cAsset_list.clone();
                                             credit_amount = position.clone().credit_amount;
 
-                                            updated_positions.push(
-                                                Position{
-                                                    collateral_assets: updated_cAsset_list.clone(),
-                                                    ..position
-                                            });
+                                            //If new position is empty, don't push updated_cAsset_list
+                                            if !check_for_empty_position( updated_cAsset_list.clone() )?{
+
+                                                updated_positions.push(
+                                                    Position{
+                                                        collateral_assets: updated_cAsset_list.clone(),
+                                                        ..position
+                                                });
+                                            }
+
+                                            
                                             Ok( updated_positions )
                                         },
                                         None => return Err(ContractError::NonExistentPosition {  })
@@ -547,7 +553,7 @@ pub fn withdraw(
             None => return Err(ContractError::InvalidCollateral {}),
         };
     }
-
+    
     //Push aggregated native coin withdrawal
     if withdraw_coins != vec![] {
         //Save # of native tokens sent for the withdrawal reply propagation 
@@ -3943,4 +3949,20 @@ fn assert_credit_asset(
     }
 
     Ok(())
+}
+
+fn check_for_empty_position(
+    collateral_assets: Vec<cAsset>
+)-> StdResult<bool>{
+
+    let mut all_empty = true;
+
+    //Checks if each cAsset's amount is zero
+    for asset in collateral_assets {    
+        if !asset.asset.amount.is_zero(){
+            all_empty = false;
+        }
+    }
+
+    Ok( all_empty )
 }

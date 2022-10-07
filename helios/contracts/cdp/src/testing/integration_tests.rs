@@ -6685,11 +6685,10 @@ mod tests {
                 basket_id: Uint128::new(1u128),
                 position_owner: USER.to_string(),
             };
-            let res: PositionResponse = app
+            app
                 .wrap()
-                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-                .unwrap();
-            assert_eq!(res.collateral_assets, vec![]);
+                .query_wasm_smart::<PositionResponse>(cdp_contract.addr(), &query_msg.clone())
+                .unwrap_err();
         }
     }
 }

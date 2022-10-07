@@ -1,5 +1,4 @@
 use crate::contract::{execute, instantiate, query};
-use crate::state::Config;
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
 use cosmwasm_std::{
@@ -11,7 +10,7 @@ use cw20::Cw20ReceiveMsg;
 use membrane::apollo_router::ExecuteMsg as RouterExecuteMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
-    Cw20HookMsg, ExecuteMsg, FeeEventsResponse, InstantiateMsg, QueryMsg, RewardsResponse,
+    Config, Cw20HookMsg, ExecuteMsg, FeeEventsResponse, InstantiateMsg, QueryMsg, RewardsResponse,
     StakedResponse, TotalStakedResponse, StakerResponse,
 };
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit};

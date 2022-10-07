@@ -11,13 +11,13 @@ use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
 
 use membrane::apollo_router::{Cw20HookMsg as RouterCw20HookMsg, ExecuteMsg as RouterExecuteMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
-use membrane::staking::{ Cw20HookMsg, ExecuteMsg, InstantiateMsg, QueryMsg };
+use membrane::staking::{ Config, Cw20HookMsg, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit};
 use membrane::math::decimal_division;
 
 use crate::error::ContractError;
 use crate::query::{query_user_stake, query_staker_rewards, query_staked, query_fee_events, query_totals};
-use crate::state::{Config, Totals, CONFIG, FEE_EVENTS, STAKED, TOTALS};
+use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, TOTALS};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:staking";

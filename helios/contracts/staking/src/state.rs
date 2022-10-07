@@ -5,20 +5,7 @@ use serde::{Deserialize, Serialize};
 use cosmwasm_std::{Addr, Decimal, Uint128};
 use cw_storage_plus::Item;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct Config {
-    pub owner: Addr, //MBRN Governance
-    pub mbrn_denom: String,
-    pub staking_rate: Decimal,
-    //Wait period between deposits & ability to earn fee events
-    pub fee_wait_period: u64,  //in days
-    pub unstaking_period: u64, //days
-    pub positions_contract: Option<Addr>,
-    pub builders_contract: Option<Addr>,
-    pub osmosis_proxy: Option<Addr>,
-    pub dex_router: Option<Addr>,
-    pub max_spread: Option<Decimal>, //max_spread for the router, mainly claim_as swaps
-}
+use membrane::staking::Config;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Totals {

@@ -15,7 +15,7 @@ use membrane::governance::{
     UpdateConfig,
 };
 use membrane::staking::{
-    ConfigResponse as StakingConfigResponse, QueryMsg as StakingQueryMsg, StakedResponse,
+    Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse,
 };
 
 use std::str::FromStr;
@@ -43,7 +43,7 @@ pub fn instantiate(
 
     let mbrn_denom = deps
         .querier
-        .query::<StakingConfigResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        .query::<StakingConfig>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: deps
                 .api
                 .addr_validate(&msg.mbrn_staking_contract_addr)?

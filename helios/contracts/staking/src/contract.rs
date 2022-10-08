@@ -906,9 +906,11 @@ fn deposit_fee(
 
     let decimal_total = Decimal::from_ratio(total, Uint128::new(1u128));
 
+    
+    //Add new Fee Event
     for asset in fee_assets.clone() {
         let amount = Decimal::from_ratio(asset.amount, Uint128::new(1u128));
-        //Add new Fee Event
+
         fee_events.push(FeeEvent {
             time_of_event: env.block.time.seconds(),
             fee: LiqAsset {
@@ -918,6 +920,19 @@ fn deposit_fee(
             },
         });
     }
+
+    //Load Stakers
+    let stakers = STAKED.load(deps.storage)?;
+
+    //Filter for fee events that are after the earliest deposit to trim state
+    if stakers != vec![] {
+        fee_events = fee_events.clone()
+            .into_iter()
+            .filter(|event| event.time_of_event > stakers[0].stake_time)
+            .collect::<Vec<FeeEvent>>();
+    }
+    //In a situation where no one is staked the contract will need to be upgraded to handle its assets
+    //This won't happen as long as the builder's allcoaiton is vesting so the functionality isn't necessary rn
 
     //Save new List of Events
     FEE_EVENTS.save(deps.storage, &fee_events)?;

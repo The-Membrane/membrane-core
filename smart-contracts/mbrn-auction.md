@@ -6,7 +6,7 @@ description: >-
 
 # MBRN Auction
 
-Auctions are initialized with a set recapitalization amount and a position to repay. Only the [Positions ](positions.md)contract and [Governance ](governance.md)can start Auctions. The **MBRN** discount increases overtime to ensure the debt gets repaid at a market sourced price.
+Auctions are initialized with a set recapitalization amount and a position to repay. Only the [Positions ](positions.md)contract and [Governance ](gov.md)can start Auctions. The **MBRN** discount increases overtime to ensure the debt gets repaid at a market sourced price.
 
 ## InstantiateMsg
 

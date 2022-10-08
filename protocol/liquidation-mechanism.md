@@ -1,7 +1,7 @@
 ---
 description: >-
   TLDR: Membrane's liquidation mechanism has 3 layers designed to have the least
-  effect on collateral's market price while democratizing the access to the
+  effect on collateral's market price while democratizing access to the
   discounted assets that come from liquidations.
 ---
 
@@ -13,13 +13,13 @@ There are 3 layers to the liquidation mechanism: **Liquidation Queue**, **Stabil
 
 The **SP** acts as a backstop for the entire CDP system, its funds being used to liquidate for any collateral at a set premium.
 
-Then as a final measure, any collateral positions that can't get liquidated by the first 2 steps will be sold on the market to avoid the protocol accruing bad debt. In the case it does, pending revenue is used or there will be MBRN auctions to cover it, similar to MakerDAO's Debt Auctions.\
+As a final measure, any collateral positions that can't get liquidated by the first 2 steps will be sold on the market to avoid the protocol accruing bad debt. In the case it does, pending revenue and MBRN auctions will cover it, similar to [MakerDAO's Debt Auctions](https://docs.makerdao.com/keepers/the-auctions-of-the-maker-protocol).\
 \
 _In the case of errors repaying from the liquidation contracts, the error will trigger the collateral to go through the sell wall to ensure all liquidations can be executed by 1 external call of the initial liquidation function._
 
 Having pools of CDT on standby to liquidate increases the efficiency of the market liquidity in smoothing our liquidation process. Instead of bots having to either hold CDT or buy it on the spot, with slippage relative to the pool, they can simply worry about executing the call. This provides the mechanism a larger buffer for harsh liquidation periods and reduces the effect on the collateral and CDT markets.
 
-**Note:** Any user funds in the Stability Pool will be used to repay said user's positions if liquidated. Meaning depositing in the SP doesn't increase liquidation risk for the user.
+**Note: Any user funds in the Stability Pool will be used to repay said user's positions if liquidated. Meaning depositing in the SP doesn't increase liquidation risk for the user.**
 
 Additional Sources:&#x20;
 

@@ -16,6 +16,8 @@ Pro-rata distributions, like the Liq Queue and Liquity's SP are better than FIFO
 \
 We want this step of the liquidation mechanism to be reactive when low while not taking too much potential capital from the Liq Queue which will likely liquidate collateral for lower premiums a majority of the time, which is better for [user solvency](https://twitter.com/euler\_mab/status/1537091423748517889).
 
+**Note: Any user funds in the Stability Pool will be used to repay said user's positions if liquidated. Meaning depositing in the SP doesn't increase liquidation risk for the user.**
+
 ## InstantiateMsg
 
 ```

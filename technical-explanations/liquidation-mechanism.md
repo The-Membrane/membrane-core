@@ -1,8 +1,8 @@
 ---
 description: >-
   The protocol liquidates what collateral it can through the Liquidation Queue
-  (LQ) then the Stability Pool (SP) before selling the remaining collateral to
-  liquidate on the market.
+  (LQ) then the Stability Pool (SP) before liquidating the remaining collateral
+  on the market.
 ---
 
 # Liquidation Mechanism
@@ -10,7 +10,7 @@ description: >-
 ## &#x20;                        LQ -> SP -> Market Sale
 
 \
-In the case that the modules take too much collateral without fully repaying the liquidation leaving the sell wall (market sale) without enough collateral to sell on the market to recoup debts, the protocol will skip the discounts and sell collateral for the full amount of debt from the start.
+In the case that the modules take too much collateral without fully repaying the liquidation, leaving the router without enough collateral to sell on the market to recoup debts, the protocol will skip the discounts and sell collateral for the full amount of debt from the start.
 
 If either of the modules error or don't repay what was queried beforehand, the submessage reply will catch it and sell the collateral on the market to cover. If the LQ has leftovers it will try to use the SP to cover, but if that also errors it'll use the sell wall for both. \
 \
@@ -18,7 +18,7 @@ The last message that gets executed is the [BadDebtCheck ](../smart-contracts/po
 \
 On success, i.e. bad debt is true, the contract repays the position w/ protocol revenue and/or activates a debt auction through the [Auction ](../smart-contracts/mbrn-auction.md)contract. It being lazy allows it to be added without slowing down liquidation calls and if necessary, auctions can also be initiated by Governance.
 
-**Note:** _Osmosis LP shares get withdrawn into their individual assets to make the LQ and SP pools more effective_&#x20;
+**Note:** _Osmosis LP shares get withdrawn into their individual assets to make the LQ pools more capital efficient_
 
 #### Liquidation Function Walkthrough
 

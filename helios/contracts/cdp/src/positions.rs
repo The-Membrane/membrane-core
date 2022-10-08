@@ -7,7 +7,7 @@ use cosmwasm_std::{
     WasmQuery,
 };
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
-use cw20::{Cw20ExecuteMsg};
+use cw20::Cw20ExecuteMsg;
 use membrane::oracle::{AssetResponse, PriceResponse};
 use osmo_bindings::PoolStateResponse;
 
@@ -20,7 +20,7 @@ use membrane::oracle::{ExecuteMsg as OracleExecuteMsg, QueryMsg as OracleQueryMs
 use membrane::osmosis_proxy::{
     ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg, TokenInfoResponse,
 };
-use membrane::positions::{ExecuteMsg};
+use membrane::positions::{Config, ExecuteMsg};
 use membrane::stability_pool::{
     Cw20HookMsg as SP_Cw20HookMsg, ExecuteMsg as SP_ExecuteMsg, PoolResponse,
     QueryMsg as SP_QueryMsg,
@@ -35,7 +35,7 @@ use crate::liquidations::query_stability_pool_fee;
 use crate::state::CREDIT_MULTI;
 use crate::{
     state::{
-        Config, WithdrawPropagation, BASKETS, CONFIG, POSITIONS, REPAY, WITHDRAW,
+        WithdrawPropagation, BASKETS, CONFIG, POSITIONS, REPAY, WITHDRAW,
     },
     ContractError,
 };

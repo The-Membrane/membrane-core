@@ -281,12 +281,10 @@ mod tests {
 
     mod debt_auction {
 
-        use crate::state::Config;
-
         use super::*;
         use cosmwasm_std::BlockInfo;
         use membrane::{
-            debt_auction::AuctionResponse,
+            debt_auction::{AuctionResponse, Config},
             types::{RepayPosition, UserInfo},
         };
 

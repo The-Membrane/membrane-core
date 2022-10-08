@@ -4,7 +4,7 @@ use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Resp
 use cw20::Cw20ExecuteMsg;
 
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction, Uint256};
-use membrane::positions::{ExecuteMsg, CallbackMsg};
+use membrane::positions::{Config, ExecuteMsg, CallbackMsg};
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg};
 use membrane::stability_pool::{DepositResponse, PoolResponse, LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
@@ -17,7 +17,7 @@ use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
 use crate::error::{ContractError}; 
 use crate::positions::{validate_position_owner, get_target_position, accrue, update_position, insolvency_check, get_avg_LTV, get_cAsset_ratios, get_LP_pool_cAssets, BAD_DEBT_REPLY_ID, update_position_claims, asset_to_coin};
-use crate::state::{Config, CONFIG, BASKETS, REPAY, RepayPropagation, POSITIONS};
+use crate::state::{CONFIG, BASKETS, REPAY, RepayPropagation, POSITIONS};
 
 
 //Liquidation reply ids

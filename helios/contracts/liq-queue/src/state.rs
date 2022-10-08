@@ -1,18 +1,12 @@
+use membrane::liq_queue::Config;
 use membrane::types::{AssetInfo, Queue};
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, Decimal, Uint128};
 use cw_storage_plus::{Item, Map};
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct Config {
-    pub owner: Addr, //Governance
-    pub positions_contract: Addr,
-    pub added_assets: Option<Vec<AssetInfo>>,
-    pub waiting_period: u64, //Wait period is at max doubled due to slot_total calculation
-    pub bid_asset: AssetInfo,
-}
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const QUEUES: Map<String, Queue> = Map::new("queue"); //Each asset (String of AssetInfo) has a list of PremiumSlots that make up its Queue

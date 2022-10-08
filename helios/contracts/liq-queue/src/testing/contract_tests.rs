@@ -2,7 +2,7 @@ use crate::contract::{execute, instantiate, query};
 use crate::ContractError;
 
 use membrane::liq_queue::{
-    BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, QueryMsg, QueueResponse, ClaimsResponse,
+    BidResponse, Config, ExecuteMsg, InstantiateMsg, QueryMsg, QueueResponse, ClaimsResponse,
 };
 use membrane::math::{Decimal256, Uint256};
 use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
@@ -11,7 +11,7 @@ use membrane::types::{AssetInfo, BidInput};
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
 use cosmwasm_std::{
     attr, from_binary, to_binary, BankMsg, Coin, CosmosMsg, Decimal, StdError, SubMsg, Uint128,
-    WasmMsg,
+    WasmMsg, Addr,
 };
 
 #[test]
@@ -35,15 +35,18 @@ fn proper_initialization() {
     assert_eq!(0, res.messages.len());
 
     // it worked, let's query the state
-    let value: ConfigResponse =
+    let value: Config =
         from_binary(&query(deps.as_ref(), mock_env(), QueryMsg::Config {}).unwrap()).unwrap();
     assert_eq!(
         value,
-        ConfigResponse {
-            owner: "addr0000".to_string(),
-            positions_contract: String::from("positions_contract"),
+        Config {
+            owner: Addr::unchecked("addr0000"),
+            positions_contract: Addr::unchecked("positions_contract"),
             waiting_period: 60u64,
-            added_assets: vec![],
+            added_assets: Some(vec![]),
+            bid_asset: AssetInfo::NativeToken {
+                denom: String::from("cdt"),
+            },
         }
     );
 }
@@ -77,15 +80,18 @@ fn update_config() {
     assert_eq!(0, res.messages.len());
 
     // it worked, let's query the state
-    let value: ConfigResponse =
+    let value: Config =
         from_binary(&query(deps.as_ref(), mock_env(), QueryMsg::Config {}).unwrap()).unwrap();
     assert_eq!(
         value,
-        ConfigResponse {
-            owner: "owner0001".to_string(),
-            positions_contract: String::from("positions_contract"),
+        Config {
+            owner: Addr::unchecked("owner0001"),
+            positions_contract: Addr::unchecked("positions_contract"),
             waiting_period: 60u64,
-            added_assets: vec![],
+            added_assets: Some(vec![]),
+            bid_asset: AssetInfo::NativeToken {
+                denom: String::from("cdt"),
+            },
         }
     );
 
@@ -102,15 +108,18 @@ fn update_config() {
     assert_eq!(0, res.messages.len());
 
     // it worked, let's query the state
-    let value: ConfigResponse =
+    let value: Config =
         from_binary(&query(deps.as_ref(), mock_env(), QueryMsg::Config {}).unwrap()).unwrap();
     assert_eq!(
         value,
-        ConfigResponse {
-            owner: "owner0001".to_string(),
-            positions_contract: String::from("positions_contract"),
-            waiting_period: 100u64,
-            added_assets: vec![],
+        Config {
+            owner: Addr::unchecked("owner0001"),
+            positions_contract: Addr::unchecked("positions_contract"),
+            waiting_period: 60u64,
+            added_assets: Some(vec![]),
+            bid_asset: AssetInfo::NativeToken {
+                denom: String::from("cdt"),
+            },
         }
     );
 

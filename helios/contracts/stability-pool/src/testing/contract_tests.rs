@@ -1,5 +1,5 @@
 use crate::contract::{execute, instantiate, query};
-use crate::state::{CONFIG, Config};
+use crate::state::CONFIG;
 use crate::ContractError;
 
 use cosmwasm_std::testing::{
@@ -14,7 +14,7 @@ use cw20::Cw20ReceiveMsg;
 use membrane::apollo_router::ExecuteMsg as RouterExecuteMsg;
 use membrane::positions::{Cw20HookMsg as CDP_Cw20HookMsg, ExecuteMsg as CDP_ExecuteMsg};
 use membrane::stability_pool::{
-    ClaimsResponse, Cw20HookMsg, DepositResponse, ExecuteMsg, InstantiateMsg, LiquidatibleResponse,
+    Config, ClaimsResponse, Cw20HookMsg, DepositResponse, ExecuteMsg, InstantiateMsg, LiquidatibleResponse,
     PoolResponse, QueryMsg, DepositPositionResponse,
 };
 use membrane::types::{Asset, AssetInfo, AssetPool, Deposit, LiqAsset, PositionUserInfo, UserInfo};

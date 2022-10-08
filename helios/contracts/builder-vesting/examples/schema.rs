@@ -3,9 +3,8 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use builder_vesting::state::Config;
 use membrane::builder_vesting::{
-    AllocationResponse, ExecuteMsg, InstantiateMsg, QueryMsg, ReceiverResponse,
+    Config, AllocationResponse, ExecuteMsg, InstantiateMsg, QueryMsg, ReceiverResponse,
     UnlockedResponse,
 };
 

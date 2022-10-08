@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Decimal, Uint128};
+use cosmwasm_std::{Decimal, Uint128, Addr};
 
 use crate::types::{AssetInfo, AssetOracleInfo, PriceInfo};
 
@@ -50,6 +50,14 @@ pub enum QueryMsg {
     Assets {
         asset_infos: Vec<AssetInfo>,
     },
+}
+
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct Config {
+    pub owner: Addr, //MBRN Governance
+    pub osmosis_proxy: Addr,
+    pub positions_contract: Option<Addr>,
 }
 
 // We define a custom struct for each query response

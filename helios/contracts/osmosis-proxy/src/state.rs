@@ -4,11 +4,7 @@ use serde::{Deserialize, Serialize};
 use cosmwasm_std::{Addr, Uint128};
 use cw_storage_plus::{Item, Map};
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct Config {
-    pub owners: Vec<Addr>,
-    pub debt_auction: Option<Addr>,
-}
+use membrane::osmosis_proxy::Config;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct TokenInfo {

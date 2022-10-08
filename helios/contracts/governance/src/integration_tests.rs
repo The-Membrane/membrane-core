@@ -10,7 +10,7 @@ mod tests {
         ExecuteMsg, InstantiateMsg, QueryMsg, STAKE_INTERVAL, VOTING_PERIOD_INTERVAL,
     };
     use membrane::staking::{
-        ConfigResponse as StakingConfigResponse, StakedResponse,
+        Config as StakingConfig, StakedResponse,
     };
     use membrane::types::{StakeDeposit, VestingPeriod};
 
@@ -125,17 +125,17 @@ mod tests {
                             },
                         ],
                     })?),
-                    Staking_MockQueryMsg::Config {} => Ok(to_binary(&StakingConfigResponse {
-                        owner: String::from(""),
-                        positions_contract: String::from(""),
-                        builders_contract: String::from(""),
-                        osmosis_proxy: String::from(""),
-                        staking_rate: String::from(""),
-                        unstaking_period: String::from(""),
-                        fee_wait_period: String::from(""),
+                    Staking_MockQueryMsg::Config {} => Ok(to_binary(&StakingConfig {
+                        owner: Addr::unchecked(""),
+                        positions_contract: Some(Addr::unchecked("")),
+                        builders_contract: Some(Addr::unchecked("")),
+                        osmosis_proxy: Some(Addr::unchecked("")),
+                        staking_rate: Decimal::zero(),
+                        unstaking_period: 0,
+                        fee_wait_period: 0,
                         mbrn_denom: String::from("mbrn_denom"),
-                        dex_router: String::from(""),
-                        max_spread: String::from(""),
+                        dex_router: Some(Addr::unchecked("")),
+                        max_spread: Some(Decimal::zero()),
                     })?),
                 }
             },

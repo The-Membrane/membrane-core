@@ -261,9 +261,7 @@ mod tests {
 
     mod builders {
 
-        use membrane::builder_vesting::{UnlockedResponse};
-
-        use crate::state::Config;
+        use membrane::builder_vesting::{Config, UnlockedResponse};
 
         use super::*;
 

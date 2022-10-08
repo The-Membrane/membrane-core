@@ -9,13 +9,14 @@ use cosmwasm_std::{
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
 use membrane::math::{Decimal256, Uint256};
 use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
+use membrane::liq_queue::Config;
 use membrane::types::{Asset, AssetInfo, Bid, BidInput, PremiumSlot, Queue};
 
 use cw20::Cw20ExecuteMsg;
 
 use crate::contract::validate_position_owner;
 use crate::error::ContractError;
-use crate::state::{Config, CONFIG, QUEUES};
+use crate::state::{CONFIG, QUEUES};
 
 const MAX_LIMIT: u32 = 2147483646;
 
@@ -29,6 +30,7 @@ pub fn submit_bid(
     bid_input: BidInput,
     bid_owner: Option<String>,
 ) -> Result<Response, ContractError> {
+
     let config: Config = CONFIG.load(deps.storage)?;
 
     let valid_owner_addr = validate_position_owner(deps.api, info.clone(), bid_owner)?;
@@ -128,6 +130,7 @@ pub fn assert_bid_asset_from_sent_funds(
     bid_asset: AssetInfo,
     info: &MessageInfo,
 ) -> StdResult<Asset> {
+
     if info.funds.is_empty() {
         return Err(StdError::GenericErr {
             msg: "No asset provided, only bid asset allowed".to_string(),
@@ -160,6 +163,7 @@ pub fn store_queue(
     bid_for: String,
     queue: Queue,
 ) -> Result<(), ContractError> {
+
     QUEUES.update(deps, bid_for, |old_queue| -> Result<Queue, ContractError> {
         match old_queue {
             Some(_old_queue) => Ok(queue),
@@ -178,6 +182,7 @@ pub fn retract_bid(
     bid_for: AssetInfo,
     amount: Option<Uint256>,
 ) -> Result<Response, ContractError> {
+
     let mut bid = read_bid(deps.storage, bid_id, bid_for.clone())?;
 
     //Only owner can withdraw
@@ -302,6 +307,7 @@ pub fn execute_liquidation(
     position_id: Uint128,
     position_owner: String,
 ) -> Result<Response, ContractError> {
+
     let config: Config = CONFIG.load(deps.storage)?;
 
     //Only Positions contract can execute
@@ -436,6 +442,7 @@ pub fn claim_liquidations(
     bid_for: AssetInfo,
     bid_ids: Option<Vec<Uint128>>,
 ) -> Result<Response, ContractError> {
+
     let bids: Vec<Bid> = if let Some(bid_ids) = bid_ids {
         bid_ids
             .into_iter()
@@ -452,6 +459,7 @@ pub fn claim_liquidations(
     };
 
     let mut claim_amount = Uint256::zero();
+
     for bid in bids.into_iter() {
         if bid.user != info.clone().sender {
             return Err(ContractError::Unauthorized {});
@@ -540,6 +548,7 @@ fn execute_pool_liquidation(
     credit_price: Decimal,
     filled: &mut bool,
 ) -> Result<(Uint256, Uint256), ContractError> {
+
     //price * (1- premium)
     let premium_price: Decimal256 = price * (Decimal256::one() - slot.liq_premium);
     let mut pool_collateral_to_liquidate: Uint256 = collateral_to_liquidate;
@@ -624,6 +633,7 @@ pub(crate) fn set_slot_total(
     env: Env,
     bid_for: AssetInfo,
 ) -> Result<PremiumSlot, ContractError> {
+
     let mut queue = QUEUES.load(deps, bid_for.to_string())?;
 
     let block_time = env.block.time.seconds();
@@ -676,7 +686,9 @@ pub(crate) fn set_slot_total(
 }
 
 fn claim_bid_residue(slot: &mut PremiumSlot) -> Uint256 {
+
     let claimable = slot.residue_bid * Uint256::one();
+
     if !claimable.is_zero() {
         slot.residue_bid = slot.residue_bid - Decimal256::from_uint256(claimable);
     }
@@ -684,7 +696,9 @@ fn claim_bid_residue(slot: &mut PremiumSlot) -> Uint256 {
 }
 
 fn claim_col_residue(slot: &mut PremiumSlot) -> Uint256 {
+
     let claimable = slot.residue_collateral * Uint256::one();
+
     if !claimable.is_zero() {
         slot.residue_collateral = slot.residue_collateral - Decimal256::from_uint256(claimable);
     }
@@ -696,6 +710,7 @@ pub fn calculate_liquidated_collateral(
     bid: &Bid,
     bid_for: CanonicalAddr,
 ) -> StdResult<(Uint256, Decimal256)> {
+
     let reference_sum_snapshot = read_epoch_scale_sum(
         deps,
         &bid_for,
@@ -741,6 +756,7 @@ pub fn store_epoch_scale_sum(
     scale: Uint128,
     sum: Decimal256,
 ) -> StdResult<()> {
+
     let mut epoch_scale_sum: Bucket<Decimal256> = Bucket::multilevel(
         deps,
         &[
@@ -760,6 +776,7 @@ pub fn read_epoch_scale_sum(
     epoch: Uint128,
     scale: Uint128,
 ) -> StdResult<Decimal256> {
+
     let epoch_scale_sum: ReadonlyBucket<Decimal256> = ReadonlyBucket::multilevel(
         deps,
         &[
@@ -774,6 +791,7 @@ pub fn read_epoch_scale_sum(
 }
 
 pub fn calculate_remaining_bid(bid: &Bid, slot: &PremiumSlot) -> StdResult<(Uint256, Decimal256)> {
+
     let scale_diff: Uint128 = slot.current_scale.checked_sub(bid.scale_snapshot)?;
     let epoch_diff: Uint128 = slot.current_epoch.checked_sub(bid.epoch_snapshot)?;
 
@@ -804,6 +822,7 @@ pub fn read_premium_slot(
     bid_for: AssetInfo,
     premium: u8,
 ) -> StdResult<PremiumSlot> {
+
     let queue = QUEUES.load(deps, bid_for.to_string())?;
 
     let slot = match queue
@@ -828,6 +847,7 @@ fn store_premium_slot(
     bid_for: AssetInfo,
     slot: PremiumSlot,
 ) -> Result<(), ContractError> {
+
     let mut queue = QUEUES.load(deps, bid_for.to_string())?;
 
     //Filter the old slot out
@@ -859,6 +879,7 @@ fn store_premium_slot(
 }
 
 fn remove_bid(deps: &mut dyn Storage, bid: Bid, bid_for: AssetInfo) -> Result<(), ContractError> {
+
     //load Queue
     let mut queue = QUEUES.load(deps, bid_for.to_string())?;
 
@@ -920,6 +941,7 @@ fn remove_bid(deps: &mut dyn Storage, bid: Bid, bid_for: AssetInfo) -> Result<()
 }
 
 fn store_bid(deps: &mut dyn Storage, bid_for: AssetInfo, bid: Bid) -> Result<(), ContractError> {
+
     //load Queue
     let mut queue = QUEUES.load(deps, bid_for.to_string())?;
 
@@ -1000,6 +1022,7 @@ fn assert_withdraw_amount(
 }
 
 pub fn read_bid(deps: &dyn Storage, bid_id: Uint128, bid_for: AssetInfo) -> StdResult<Bid> {
+
     let mut read_bid: Option<Bid> = None;
 
     let queue = QUEUES.load(deps, bid_for.to_string())?;
@@ -1035,6 +1058,7 @@ pub fn read_bids_by_user(
     limit: Option<u32>,
     start_after: Option<Uint128>, //bid.id
 ) -> StdResult<Vec<Bid>> {
+    
     let mut read_bids: Vec<Bid> = vec![];
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
     let start = start_after.unwrap_or_else(Uint128::zero);

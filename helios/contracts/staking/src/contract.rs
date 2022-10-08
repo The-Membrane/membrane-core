@@ -356,6 +356,7 @@ pub fn stake(
         });
     }
 
+    //Set valid address
     let valid_owner_addr = validate_position_owner(deps.api, info.clone(), user)?;
 
     //Add new deposit to List of StakeDeposit
@@ -395,13 +396,14 @@ pub fn stake(
 }
 
 //First call is an unstake
-//2nd call is a withdrawal
+//2nd call after unstake period is a withdrawal
 pub fn unstake(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
     mbrn_withdraw_amount: Option<Uint128>,
 ) -> Result<Response, ContractError> {
+
     let config = CONFIG.load(deps.storage)?;
 
     let mut msgs = vec![];
@@ -527,6 +529,7 @@ fn restake(
     info: MessageInfo,
     mut restake_amount: Uint128,
 ) -> Result<Response, ContractError> {
+
     let initial_restake = restake_amount;
 
     let restaked_deposits: Vec<StakeDeposit> = STAKED
@@ -571,6 +574,7 @@ fn withdraw_from_state(
     mut withdrawal_amount: Uint128,
     fee_events: Vec<FeeEvent>,
 ) -> StdResult<(Vec<Asset>, Uint128, Uint128)> {
+
     let config = CONFIG.load(storage)?;
 
     let deposits = STAKED.load(storage)?;
@@ -762,6 +766,7 @@ pub fn claim_rewards(
     send_to: Option<String>,
     restake: bool,
 ) -> Result<Response, ContractError> {
+
     let config: Config = CONFIG.load(deps.storage)?;
 
     let mut messages: Vec<CosmosMsg>;
@@ -881,6 +886,7 @@ fn deposit_fee(
     fee_assets: Vec<Asset>,
     cw20_contract: bool,
 ) -> Result<Response, ContractError> {
+
     let config = CONFIG.load(deps.storage)?;
 
     if info.sender != config.positions_contract.unwrap() && !cw20_contract {
@@ -938,6 +944,7 @@ fn user_claims(
     claim_as_cw20: Option<String>,
     send_to: Option<String>,
 ) -> StdResult<(Vec<CosmosMsg>, Vec<Asset>, Uint128)> {
+
     let mut messages: Vec<CosmosMsg> = vec![];
 
     //Can only claim for oneself (info.sender)
@@ -1220,6 +1227,7 @@ fn get_user_claimables(
     env: Env,
     staker: Addr,
 ) -> StdResult<(Vec<Asset>, Uint128)> {
+
     let config = CONFIG.load(storage)?;
 
     let deposits: Vec<StakeDeposit> = STAKED
@@ -1241,6 +1249,7 @@ fn get_user_claimables(
     let mut total_deposits = Uint128::zero();
     let mut accrued_interest = Uint128::zero();
 
+    //Get claimables per deposit
     for deposit in deposits {
         let (deposit_claimables, deposit_interest) = get_deposit_claimables(
             config.clone(),
@@ -1252,7 +1261,7 @@ fn get_user_claimables(
 
         //Condense like Assets
         for claim_asset in deposit_claimables {
-            //Check if asset is already in the list of claimables and add according
+            //Check if asset is already in the list of claimables and add accordingly
             match claimables
                 .clone()
                 .into_iter()
@@ -1288,12 +1297,14 @@ fn get_user_claimables(
     Ok((claimables, accrued_interest))
 }
 
+//Get deposit's claimable fee based on which FeeEvents it experienced
 pub fn get_deposit_claimables(
     config: Config,
     env: Env,
     fee_events: Vec<FeeEvent>,
     deposit: StakeDeposit,
 ) -> StdResult<(Vec<Asset>, Uint128)> {
+
     let mut claimables: Vec<Asset> = vec![];
 
     //Filter for events that the deposit was staked for
@@ -1327,6 +1338,34 @@ pub fn get_deposit_claimables(
 
     Ok((claimables, deposit_interest))
 }
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
+    match msg {
+        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
+        QueryMsg::UserStake { staker } => to_binary(&query_user_stake(deps, staker)?),
+        QueryMsg::StakerRewards { staker } => to_binary(&query_staker_rewards(deps, env, staker)?),
+        QueryMsg::Staked {
+            limit,
+            start_after,
+            end_before,
+            unstaking,
+        } => to_binary(&query_staked(
+            deps,
+            env,
+            limit,
+            start_after,
+            end_before,
+            unstaking,
+        )?),
+        QueryMsg::FeeEvents { limit, start_after } => {
+            to_binary(&query_fee_events(deps, limit, start_after)?)
+        }
+        QueryMsg::TotalStaked {} => to_binary(&query_totals(deps)?),
+    }
+}
+
+
 
 pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
     match asset.clone().info {
@@ -1413,30 +1452,4 @@ pub fn validate_position_owner(
         info.sender
     };
     Ok(valid_recipient)
-}
-
-#[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
-    match msg {
-        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::UserStake { staker } => to_binary(&query_user_stake(deps, staker)?),
-        QueryMsg::StakerRewards { staker } => to_binary(&query_staker_rewards(deps, env, staker)?),
-        QueryMsg::Staked {
-            limit,
-            start_after,
-            end_before,
-            unstaking,
-        } => to_binary(&query_staked(
-            deps,
-            env,
-            limit,
-            start_after,
-            end_before,
-            unstaking,
-        )?),
-        QueryMsg::FeeEvents { limit, start_after } => {
-            to_binary(&query_fee_events(deps, limit, start_after)?)
-        }
-        QueryMsg::TotalStaked {} => to_binary(&query_totals(deps)?),
-    }
 }

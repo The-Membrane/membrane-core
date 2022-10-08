@@ -7,7 +7,7 @@ use cosmwasm_std::{
     StdError, StdResult, Uint128, WasmQuery,
 };
 use cw2::set_contract_version;
-use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use membrane::liq_queue::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::{Decimal256, Uint256};
 use membrane::positions::{BasketResponse, QueryMsg as CDP_QueryMsg};
 use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue};
@@ -15,10 +15,10 @@ use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue};
 use crate::bid::{claim_liquidations, execute_liquidation, retract_bid, store_queue, submit_bid};
 use crate::error::ContractError;
 use crate::query::{
-    query_bid, query_bids_by_user, query_config, query_liquidatible, query_premium_slot,
+    query_bid, query_bids_by_user, query_liquidatible, query_premium_slot,
     query_premium_slots, query_queue, query_queues, query_user_claims,
 };
-use crate::state::{Config, CONFIG, QUEUES};
+use crate::state::{CONFIG, QUEUES};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:liq-queue";
@@ -168,7 +168,9 @@ fn update_config(
     waiting_period: Option<u64>,
     basket_id: Option<Uint128>,
 ) -> Result<Response, ContractError> {
+
     let mut config = CONFIG.load(deps.storage)?;
+
     //Only owner can update
     if info.sender != config.owner {
         return Err(ContractError::Unauthorized {});
@@ -214,6 +216,7 @@ fn edit_queue(
     max_premium: Option<Uint128>,
     bid_threshold: Option<Uint256>,
 ) -> Result<Response, ContractError> {
+
     let config = CONFIG.load(deps.storage)?;
 
     if info.sender != config.owner {
@@ -245,6 +248,7 @@ fn add_queue(
     max_premium: Uint128, //A slot for each premium is created when queue is created
     bid_threshold: Uint256,
 ) -> Result<Response, ContractError> {
+
     let mut config = CONFIG.load(deps.storage)?;
 
     let bid_asset = config.clone().bid_asset;
@@ -312,51 +316,11 @@ fn add_queue(
     ]))
 }
 
-//Refactored Terraswap function
-pub fn assert_sent_native_token_balance(
-    asset: &Asset,
-    message_info: &MessageInfo,
-) -> StdResult<()> {
-    if let AssetInfo::NativeToken { denom } = &asset.info {
-        match message_info.funds.iter().find(|x| x.denom == *denom) {
-            Some(coin) => {
-                if asset.amount == coin.amount {
-                    Ok(())
-                } else {
-                    Err(StdError::generic_err(
-                        "Sent coin.amount is different from asset.amount",
-                    ))
-                }
-            }
-            None => Err(StdError::generic_err(
-                "Incorrect denomination, sent asset denom and asset.info.denom differ",
-            )),
-        }
-    } else {
-        Err(StdError::generic_err(
-            "Asset type not native, check Msg schema and use AssetInfo::Token{ address: Addr }",
-        ))
-    }
-}
-
-//Validate Recipient
-pub fn validate_position_owner(
-    deps: &dyn Api,
-    info: MessageInfo,
-    recipient: Option<String>,
-) -> StdResult<Addr> {
-    let valid_recipient: Addr = if let Some(recipient) = recipient {
-        deps.addr_validate(&recipient)?
-    } else {
-        info.sender
-    };
-    Ok(valid_recipient)
-}
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Config {} => to_binary(&query_config(deps)?),
+        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::CheckLiquidatible {
             bid_for,
             collateral_price,
@@ -398,4 +362,48 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_binary(&query_queues(deps, start_after, limit)?)
         }
     }
+}
+
+//Helper functions
+
+//Refactored Terraswap function
+pub fn assert_sent_native_token_balance(
+    asset: &Asset,
+    message_info: &MessageInfo,
+) -> StdResult<()> {
+    
+    if let AssetInfo::NativeToken { denom } = &asset.info {
+        match message_info.funds.iter().find(|x| x.denom == *denom) {
+            Some(coin) => {
+                if asset.amount == coin.amount {
+                    Ok(())
+                } else {
+                    Err(StdError::generic_err(
+                        "Sent coin.amount is different from asset.amount",
+                    ))
+                }
+            }
+            None => Err(StdError::generic_err(
+                "Incorrect denomination, sent asset denom and asset.info.denom differ",
+            )),
+        }
+    } else {
+        Err(StdError::generic_err(
+            "Asset type not native, check Msg schema and use AssetInfo::Token{ address: Addr }",
+        ))
+    }
+}
+
+//Validate Recipient
+pub fn validate_position_owner(
+    deps: &dyn Api,
+    info: MessageInfo,
+    recipient: Option<String>,
+) -> StdResult<Addr> {
+    let valid_recipient: Addr = if let Some(recipient) = recipient {
+        deps.addr_validate(&recipient)?
+    } else {
+        info.sender
+    };
+    Ok(valid_recipient)
 }

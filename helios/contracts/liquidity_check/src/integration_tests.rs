@@ -18,7 +18,7 @@ mod tests {
     const USER: &str = "user";
     const ADMIN: &str = "admin";
 
-    //Liquity Contract
+    //Liquidity Contract
     pub fn liquidity_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new_with_empty(
             crate::contracts::execute,
@@ -145,7 +145,7 @@ mod tests {
 
     mod liquidity {
 
-        use crate::state::Config;
+        use membrane::liquidity_check::Config;
 
         use super::*;
         use membrane::types::LiquidityInfo;

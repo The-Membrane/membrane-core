@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::Uint128;
+use cosmwasm_std::{Uint128, Addr};
 use cw20::Cw20ReceiveMsg;
 
 use crate::{
@@ -73,6 +73,14 @@ pub enum QueryMsg {
     Receivers {},
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct Config {
+    pub owner: Addr, //Governance Contract
+    pub initial_allocation: Uint128,
+    pub mbrn_denom: String,
+    pub osmosis_proxy: Addr,
+    pub staking_contract: Addr,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]

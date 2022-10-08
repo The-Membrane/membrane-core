@@ -3,28 +3,17 @@ use std::str::FromStr;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::{Decimal, Deps, StdError, StdResult, Uint128};
 use membrane::liq_queue::{
-    BidResponse, ClaimsResponse, ConfigResponse, LiquidatibleResponse, QueueResponse, SlotResponse,
+    Config, BidResponse, ClaimsResponse, LiquidatibleResponse, QueueResponse, SlotResponse,
 };
 use membrane::math::{Decimal256, Uint256};
 use membrane::types::{AssetInfo, Bid, PremiumSlot, Queue};
 
-use crate::state::{Config, CONFIG, QUEUES};
+use crate::state::{CONFIG, QUEUES};
 use crate::bid::{
     calculate_liquidated_collateral, calculate_remaining_bid, read_bid, read_bids_by_user,
     read_premium_slot,
 };
 
-pub fn query_config(deps: Deps) -> StdResult<ConfigResponse> {
-    let config = CONFIG.load(deps.storage)?;
-    let resp = ConfigResponse {
-        owner: config.owner.to_string(),
-        positions_contract: config.positions_contract.to_string(),
-        waiting_period: config.waiting_period,
-        added_assets: config.added_assets.unwrap_or_default(),
-    };
-
-    Ok(resp)
-}
 
 pub fn query_queue(deps: Deps, bid_for: AssetInfo) -> StdResult<QueueResponse> {
     let queue = QUEUES.load(deps.storage, bid_for.to_string())?;

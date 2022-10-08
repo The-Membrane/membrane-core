@@ -3,10 +3,9 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use liq_queue::state::Config;
 use membrane::{
     liq_queue::{
-        BidResponse, ClaimsResponse, ConfigResponse, LiquidatibleResponse, QueueResponse,
+        Config, BidResponse, ClaimsResponse, LiquidatibleResponse, QueueResponse,
         SlotResponse,
     },
     liq_queue::{ExecuteMsg, InstantiateMsg, QueryMsg},
@@ -23,7 +22,7 @@ fn main() {
     export_schema(&schema_for!(QueryMsg), &out_dir);
     export_schema(&schema_for!(Config), &out_dir);
     export_schema(&schema_for!(SlotResponse), &out_dir);
-    export_schema(&schema_for!(ConfigResponse), &out_dir);
+    export_schema(&schema_for!(Config), &out_dir);
     export_schema(&schema_for!(BidResponse), &out_dir);
     export_schema(&schema_for!(ClaimsResponse), &out_dir);
     export_schema(&schema_for!(LiquidatibleResponse), &out_dir);

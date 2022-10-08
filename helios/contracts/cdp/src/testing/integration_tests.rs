@@ -1674,13 +1674,11 @@ mod tests {
 
     mod cdp {
 
-        use crate::state::Config;
-
         use super::*;
         use cosmwasm_std::{coins, BlockInfo};
         use cw20::Cw20ReceiveMsg;
         use membrane::positions::{
-            BadDebtResponse, BasketResponse, CollateralInterestResponse,
+            BadDebtResponse, BasketResponse, CollateralInterestResponse, Config,
             Cw20HookMsg, DebtCapResponse, ExecuteMsg, InsolvencyResponse, PositionResponse,
             PositionsResponse, InterestResponse,
         };

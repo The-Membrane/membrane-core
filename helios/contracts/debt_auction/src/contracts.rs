@@ -6,7 +6,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use cw20::Cw20ExecuteMsg;
 
-use membrane::debt_auction::{AuctionResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
+use membrane::debt_auction::{AuctionResponse, ExecuteMsg, InstantiateMsg, QueryMsg, Config};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
@@ -14,7 +14,7 @@ use membrane::positions::{BasketResponse, ExecuteMsg as CDPExecuteMsg, QueryMsg 
 use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo};
 
 use crate::error::ContractError;
-use crate::state::{Auction, Config, ASSETS, CONFIG, ONGOING_AUCTIONS};
+use crate::state::{Auction, ASSETS, CONFIG, ONGOING_AUCTIONS};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "debt_auction";

@@ -3,9 +3,9 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use cdp::state::{Config, RepayPropagation};
+use cdp::state::RepayPropagation;
 use membrane::positions::{
-    BadDebtResponse, BasketResponse, CallbackMsg, Cw20HookMsg, DebtCapResponse,
+    Config, BadDebtResponse, BasketResponse, CallbackMsg, Cw20HookMsg, DebtCapResponse,
     ExecuteMsg, InsolvencyResponse, InstantiateMsg, PositionResponse, PositionsResponse,
     PropResponse, QueryMsg,
 };

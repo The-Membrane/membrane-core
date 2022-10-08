@@ -144,10 +144,8 @@ mod tests {
     #[cfg(test)]
     mod oracle {
 
-        use crate::state::Config;
-
         use super::*;
-        use membrane::oracle::{AssetResponse, PriceResponse};
+        use membrane::oracle::{Config, AssetResponse, PriceResponse};
 
         #[test]
         fn add_edit() {

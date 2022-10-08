@@ -1,12 +1,14 @@
 use std::str::FromStr;
 
 use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, WasmQuery, QueryRequest, to_binary, WasmMsg, CosmosMsg, Storage, QuerierWrapper};
+
 use membrane::types::{AssetInfo, Asset, Basket, LiqAsset, SellWallDistribution};
 use membrane::osmosis_proxy::{QueryMsg as OsmoQueryMsg, GetDenomResponse};
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
+use membrane::positions::Config;
 use membrane::math::decimal_subtraction;
 
-use crate::state::{RepayPropagation, REPAY, WITHDRAW, Config, CONFIG, BASKETS, CREDIT_MULTI};
+use crate::state::{RepayPropagation, REPAY, WITHDRAW, CONFIG, BASKETS, CREDIT_MULTI};
 use crate::contract::get_contract_balances;
 use crate::positions::{get_target_position, withdrawal_msg, update_position_claims};
 use crate::liquidations::{query_stability_pool_liquidatible, STABILITY_POOL_REPLY_ID, sell_wall_using_ids, SELL_WALL_REPLY_ID};

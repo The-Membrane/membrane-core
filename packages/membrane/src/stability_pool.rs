@@ -2,7 +2,7 @@ use cw20::Cw20ReceiveMsg;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Decimal, Uint128};
+use cosmwasm_std::{Decimal, Uint128, Addr};
 
 use crate::types::{Asset, AssetInfo, AssetPool, Deposit, LiqAsset, PositionUserInfo, UserInfo};
 
@@ -114,6 +114,23 @@ pub enum QueryMsg {
     //Returns asset pool info
     AssetPool { asset_info: AssetInfo },
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct Config {
+    pub owner: Addr, //Governance contract address
+    pub incentive_rate: Decimal,
+    pub max_incentives: Uint128,
+    //% of Supply desired in the SP.
+    //Incentives decrease as it gets closer
+    pub desired_ratio_of_total_credit_supply: Decimal,
+    pub unstaking_period: u64, // in days
+    pub mbrn_denom: String,
+    pub osmosis_proxy: Addr,
+    pub positions_contract: Addr,
+    pub dex_router: Option<Addr>,
+    pub max_spread: Option<Decimal>, //max_spread for the router, mainly claim_as swaps
+}
+
 
 // We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

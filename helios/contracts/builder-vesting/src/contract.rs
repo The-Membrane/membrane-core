@@ -9,7 +9,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use cw20::Cw20ExecuteMsg;
 
-use membrane::builder_vesting::{ ExecuteMsg, InstantiateMsg, QueryMsg };
+use membrane::builder_vesting::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::governance::{ExecuteMsg as GovExecuteMsg, ProposalMessage, ProposalVoteOption};
 use membrane::math::decimal_division;
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
@@ -20,7 +20,7 @@ use membrane::types::{Allocation, Asset, AssetInfo, VestingPeriod};
 
 use crate::error::ContractError;
 use crate::query::{query_allocation, query_unlocked, query_receivers, query_receiver};
-use crate::state::{Config, Receiver, CONFIG, RECEIVERS};
+use crate::state::{Receiver, CONFIG, RECEIVERS};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:builder-vesting";

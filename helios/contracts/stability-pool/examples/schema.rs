@@ -4,10 +4,10 @@ use std::fs::create_dir_all;
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
 use membrane::stability_pool::{
-    ClaimsResponse, Cw20HookMsg, DepositResponse, ExecuteMsg, InstantiateMsg, LiquidatibleResponse,
+    Config, ClaimsResponse, Cw20HookMsg, DepositResponse, ExecuteMsg, InstantiateMsg, LiquidatibleResponse,
     PoolResponse, QueryMsg,
 };
-use stability_pool::state::{Config, Propagation};
+use stability_pool::state::Propagation;
 
 fn main() {
     let mut out_dir = current_dir().unwrap();

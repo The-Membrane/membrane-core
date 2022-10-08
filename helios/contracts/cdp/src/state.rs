@@ -6,35 +6,8 @@ use cw_storage_plus::{Item, Map};
 
 
 use membrane::types::{Asset, Basket, Position, SellWallDistribution, UserInfo};
+use membrane::positions::Config;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct Config {
-    pub owner: Addr,
-    pub current_basket_id: Uint128,
-    pub stability_pool: Option<Addr>,
-    pub dex_router: Option<Addr>, //Apollo's router, will need to change msg types if the router changes most likely.
-    pub interest_revenue_collector: Option<Addr>,
-    pub staking_contract: Option<Addr>,
-    pub osmosis_proxy: Option<Addr>,
-    pub debt_auction: Option<Addr>,
-    pub oracle_contract: Option<Addr>,
-    pub liquidity_contract: Option<Addr>,
-    pub liq_fee: Decimal,               //Enter as percent, 0.01
-    pub collateral_twap_timeframe: u64, //in minutes
-    pub credit_twap_timeframe: u64,     //in minutes
-    pub oracle_time_limit: u64, //in seconds until oracle failure is accepted. Think of it as how many blocks you allow the oracle to fail for.
-    //% difference btwn credit TWAP and repayment price before the interest changes
-    //Set to 100 if you want to turn off the PID
-    pub cpc_margin_of_error: Decimal,
-    //This needs to be large enough so that USDC positions are profitable to liquidate,
-    //1-2% of liquidated debt (max -> borrow_LTV) needs to be more than gas fees assuming ~98% LTV.
-    pub debt_minimum: Uint128, //Debt minimum value per position.
-    //Debt Minimum multiplier for base debt cap
-    //ie; How many users do we want at 0 credit liquidity?
-    pub base_debt_cap_multiplier: Uint128,
-    //Interest rate 2nd Slope multiplier
-    pub rate_slope_multiplier: Decimal,
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct RepayPropagation {

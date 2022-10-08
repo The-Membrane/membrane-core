@@ -2,12 +2,11 @@
 #[cfg(test)]
 mod tests {
     use crate::contract::{query, instantiate, execute};
-    use crate::state::Config;
 
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cosmwasm_std::{from_binary, to_binary, CosmosMsg, SubMsg, Uint128, WasmMsg, Addr, coin, attr};
 
-    use membrane::builder_vesting::{QueryMsg, InstantiateMsg, ExecuteMsg, ReceiverResponse, AllocationResponse, UnlockedResponse};
+    use membrane::builder_vesting::{Config, QueryMsg, InstantiateMsg, ExecuteMsg, ReceiverResponse, AllocationResponse, UnlockedResponse};
     use membrane::staking::ExecuteMsg as StakingExecuteMsg;
     use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
     use membrane::types::VestingPeriod;

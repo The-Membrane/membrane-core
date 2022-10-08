@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Decimal, Uint128};
+use cosmwasm_std::{Decimal, Uint128, Addr};
 
 use crate::types::{Asset, AssetInfo, RepayPosition, UserInfo};
 
@@ -61,6 +61,19 @@ pub enum QueryMsg {
         limit: Option<u64>,
         start_without: Option<AssetInfo>,
     },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct Config {
+    pub owner: Addr,
+    pub oracle_contract: Addr,
+    pub osmosis_proxy: Addr,
+    pub mbrn_denom: String,
+    pub positions_contract: Addr,
+    pub twap_timeframe: u64,
+    pub initial_discount: Decimal,
+    pub discount_increase_timeframe: u64, //in seconds
+    pub discount_increase: Decimal,       //% increase
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

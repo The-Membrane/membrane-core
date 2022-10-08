@@ -7,13 +7,13 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 
 use membrane::math::{decimal_division, decimal_multiplication};
-use membrane::oracle::{AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg};
+use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg};
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::types::{AssetInfo, AssetOracleInfo, PriceInfo};
 use osmo_bindings::ArithmeticTwapToNowResponse;
 
 use crate::error::ContractError;
-use crate::state::{Config, ASSETS, CONFIG};
+use crate::state::{ASSETS, CONFIG};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "oracle";
@@ -86,6 +86,7 @@ fn edit_asset(
     oracle_info: Option<AssetOracleInfo>,
     remove: bool,
 ) -> Result<Response, ContractError> {
+
     let config = CONFIG.load(deps.storage)?;
 
     //Owner or Positions contract can Add_assets
@@ -105,6 +106,7 @@ fn edit_asset(
         attr("removed", remove.to_string()),
     ];
 
+    //Remove or edit 
     if remove {
         ASSETS.remove(deps.storage, asset_info.to_string());
     } else if oracle_info.is_some() {
@@ -146,6 +148,7 @@ fn add_asset(
     asset_info: AssetInfo,
     oracle_info: AssetOracleInfo,
 ) -> Result<Response, ContractError> {
+
     let config = CONFIG.load(deps.storage)?;
 
     let mut attrs = vec![
@@ -216,6 +219,7 @@ pub fn update_config(
     osmosis_proxy: Option<String>,
     positions_contract: Option<String>,
 ) -> Result<Response, ContractError> {
+    
     let mut config = CONFIG.load(deps.storage)?;
 
     //Owner or Positions contract can Add_assets

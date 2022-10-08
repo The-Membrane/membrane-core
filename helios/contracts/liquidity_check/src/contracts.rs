@@ -4,7 +4,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::liquidity_check::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use membrane::liquidity_check::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::types::{AssetInfo, LiquidityInfo};
 
@@ -13,7 +13,7 @@ use osmo_bindings::PoolStateResponse;
 use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
-use crate::state::{Config, ASSETS, CONFIG};
+use crate::state::{ASSETS, CONFIG};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "liquidity_check";
@@ -74,6 +74,7 @@ fn add_asset(
     info: MessageInfo,
     asset: LiquidityInfo,
 ) -> Result<Response, ContractError> {
+
     let config = CONFIG.load(deps.storage)?;
 
     //Assert Authority
@@ -103,6 +104,7 @@ fn edit_asset(
     info: MessageInfo,
     asset: LiquidityInfo,
 ) -> Result<Response, ContractError> {
+
     let config = CONFIG.load(deps.storage)?;
 
     //Assert Authority
@@ -141,6 +143,7 @@ fn remove_asset(
     info: MessageInfo,
     asset: AssetInfo,
 ) -> Result<Response, ContractError> {
+
     let config = CONFIG.load(deps.storage)?;
 
     //Assert Authority
@@ -166,6 +169,7 @@ fn update_config(
     osmosis_proxy: Option<String>,
     positions_contract: Option<String>,
 ) -> Result<Response, ContractError> {
+
     let mut config = CONFIG.load(deps.storage)?;
 
     //Assert authority
@@ -209,6 +213,7 @@ fn get_assets(
     limit: Option<u64>,
     start_after: Option<AssetInfo>,
 ) -> StdResult<Vec<LiquidityInfo>> {
+
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
 
     let start = start_after.map(|start| Bound::exclusive(start.to_string()));
@@ -230,6 +235,7 @@ fn get_assets(
 
 //This only works for native tokens on Osmosis, which is fine for now
 fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<Uint128> {
+    
     let config = CONFIG.load(deps.storage)?;
 
     let denom = asset.to_string();

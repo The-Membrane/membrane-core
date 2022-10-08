@@ -15,7 +15,7 @@ use membrane::osmosis_proxy::{
 };
 use membrane::positions::{Cw20HookMsg as CDP_Cw20HookMsg, ExecuteMsg as CDP_ExecuteMsg};
 use membrane::stability_pool::{
-    Cw20HookMsg, DepositResponse, ExecuteMsg, InstantiateMsg, QueryMsg,
+    Config, Cw20HookMsg, DepositResponse, ExecuteMsg, InstantiateMsg, QueryMsg,
 };
 use membrane::types::{
     Asset, AssetInfo, AssetPool, Deposit, LiqAsset, PositionUserInfo, User, UserInfo, UserRatio,
@@ -24,7 +24,7 @@ use membrane::math::{decimal_division, decimal_multiplication, decimal_subtracti
 
 use crate::error::ContractError;
 use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_deposits, query_user_claims, query_pool, query_capital_ahead_of_deposits};
-use crate::state::{Config, Propagation, ASSETS, CONFIG, INCENTIVES, PROP, USERS};
+use crate::state::{Propagation, ASSETS, CONFIG, INCENTIVES, PROP, USERS};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:stability-pool";
@@ -215,6 +215,7 @@ fn update_config(
     dex_router: Option<String>,
     max_spread: Option<Decimal>,
 ) -> Result<Response, ContractError> {
+
     let mut config = CONFIG.load(deps.storage)?;
 
     //Assert Authority
@@ -290,6 +291,7 @@ pub fn receive_cw20(
     info: MessageInfo,
     cw20_msg: Cw20ReceiveMsg,
 ) -> Result<Response, ContractError> {
+
     let passed_asset: Asset = Asset {
         info: AssetInfo::Token {
             address: info.sender.clone(),
@@ -326,6 +328,7 @@ pub fn deposit(
     position_owner: Option<String>,
     assets: Vec<Asset>,
 ) -> Result<Response, ContractError> {
+
     let valid_owner_addr = validate_position_owner(deps.api, info, position_owner)?;
 
     //Adding to Asset_Pool totals and deposit's list
@@ -425,6 +428,7 @@ fn accrue_incentives(
 }
 
 pub fn accumulate_interest(stake: Uint128, rate: Decimal, time_elapsed: u64) -> StdResult<Uint128> {
+
     let applied_rate = rate.checked_mul(Decimal::from_ratio(
         Uint128::from(time_elapsed),
         Uint128::from(SECONDS_PER_YEAR),
@@ -442,6 +446,7 @@ pub fn withdraw(
     info: MessageInfo,
     assets: Vec<Asset>,
 ) -> Result<Response, ContractError> {
+    
     let config = CONFIG.load(deps.storage)?;
 
     let mut message: CosmosMsg;
@@ -758,10 +763,12 @@ fn restake(
     info: MessageInfo,
     mut restake_asset: LiqAsset,
 ) -> Result<Response, ContractError> {
+
     let initial_restake = restake_asset.amount;
 
     let new_pool: AssetPool;
 
+    //Find the AssetPool to attempt restaking 
     if let Some(mut pool) = ASSETS
         .load(deps.storage)?
         .into_iter()
@@ -823,6 +830,7 @@ pub fn liquidate(
     info: MessageInfo,
     credit_asset: LiqAsset,
 ) -> Result<Response, ContractError> {
+
     let config = CONFIG.load(deps.storage)?;
 
     if info.sender != config.positions_contract {
@@ -916,6 +924,7 @@ pub fn distribute_funds(
     credit_asset: AssetInfo,
     distribute_for: Uint128, //How much repayment is this distributing for
 ) -> Result<Response, ContractError> {
+
     let config = CONFIG.load(deps.storage)?;
 
     //Can only be called by the positions contract
@@ -927,6 +936,7 @@ pub fn distribute_funds(
         return Err(ContractError::Unauthorized {});
     }
 
+    //Assert correct parameters
     if distribution_assets.is_empty() {
         return Err(ContractError::InsufficientFunds {});
     }
@@ -984,6 +994,7 @@ pub fn distribute_funds(
     let mut current_repay_total: Decimal = Decimal::percent(0);
     let repaid_amount_decimal = Decimal::from_ratio(repaid_amount, Uint128::new(1u128));
 
+    //Create distribution list
     while current_repay_total < repaid_amount_decimal {
         match pool_parse.next() {
             Some(mut deposit) => {
@@ -1143,193 +1154,9 @@ pub fn distribute_funds(
     //1) Calc cAsset's ratios of total value
     let mut cAsset_ratios = distribution_asset_ratios;
 
-    //2) Split to users
-    for mut user_ratio in distribution_ratios {
-        for (index, mut cAsset_ratio) in cAsset_ratios.clone().into_iter().enumerate() {
-            if cAsset_ratio == Decimal::zero() {
-                continue;
-            }
+    //2) Split assets to users
+    split_assets_to_users(deps.storage, cAsset_ratios, distribution_assets.clone(), distribution_ratios)?;
 
-            if user_ratio.ratio == cAsset_ratio {
-                //Add all of this asset to existing claims
-                USERS.update(
-                    deps.storage,
-                    user_ratio.user,
-                    |user: Option<User>| -> Result<User, ContractError> {
-                        match user {
-                            Some(mut some_user) => {
-                                //Find Asset in user state
-                                match some_user
-                                    .clone()
-                                    .claimable_assets
-                                    .into_iter()
-                                    .find(|asset| {
-                                        asset.info.equal(&distribution_assets[index].info)
-                                    }) {
-                                    Some(mut asset) => {
-                                        //Add claim amount to the asset object
-                                        asset.amount += distribution_assets[index].amount;
-
-                                        //Create a replacement object for "user" since we can't edit in place
-                                        let mut temp_assets: Vec<Asset> = some_user
-                                            .clone()
-                                            .claimable_assets
-                                            .into_iter()
-                                            .filter(|claim| !claim.info.equal(&asset.info))
-                                            .collect::<Vec<Asset>>();
-                                        temp_assets.push(asset);
-
-                                        some_user.claimable_assets = temp_assets;
-                                    }
-                                    None => {
-                                        some_user.claimable_assets.push(Asset {
-                                            info: distribution_assets[index].clone().info,
-                                            amount: distribution_assets[index].clone().amount,
-                                        });
-                                    }
-                                }
-
-                                Ok(some_user)
-                            }
-                            None => {
-                                //Create object for user
-                                Ok(User {
-                                    claimable_assets: vec![Asset {
-                                        info: distribution_assets[index].clone().info,
-                                        amount: distribution_assets[index].clone().amount,
-                                    }],
-                                })
-                            }
-                        }
-                    },
-                )?;
-
-                //Set cAsset_ratios[index] to 0
-                cAsset_ratios[index] = Decimal::zero();
-
-                break;
-            } else if user_ratio.ratio < cAsset_ratio {
-                //Add full user ratio of the asset
-                let send_ratio = decimal_division(user_ratio.ratio, cAsset_ratio);
-                let send_amount = decimal_multiplication(
-                    send_ratio,
-                    Decimal::from_ratio(distribution_assets[index].amount, Uint128::new(1u128)),
-                ) * Uint128::new(1u128);
-
-                //Add to existing user claims
-                USERS.update(
-                    deps.storage,
-                    user_ratio.clone().user,
-                    |user| -> Result<User, ContractError> {
-                        match user {
-                            Some(mut user) => {
-                                //Find Asset in user state
-                                match user.clone().claimable_assets.into_iter().find(|asset| {
-                                    asset.info.equal(&distribution_assets[index].info)
-                                }) {
-                                    Some(mut asset) => {
-                                        //Add amounts
-                                        asset.amount += send_amount;
-
-                                        //Create a replacement object for "user" since we can't edit in place
-                                        let mut temp_assets: Vec<Asset> = user
-                                            .clone()
-                                            .claimable_assets
-                                            .into_iter()
-                                            .filter(|claim| !claim.info.equal(&asset.info))
-                                            .collect::<Vec<Asset>>();
-                                        temp_assets.push(asset);
-
-                                        user.claimable_assets = temp_assets;
-                                    }
-                                    None => {
-                                        user.claimable_assets.push(Asset {
-                                            amount: send_amount,
-                                            info: distribution_assets[index].clone().info,
-                                        });
-                                    }
-                                }
-
-                                Ok(user)
-                            }
-                            None => {
-                                //Create object for user
-                                Ok(User {
-                                    claimable_assets: vec![Asset {
-                                        amount: send_amount,
-                                        info: distribution_assets[index].clone().info,
-                                    }],
-                                })
-                            }
-                        }
-                    },
-                )?;
-
-                //Set cAsset_ratio to the difference
-                cAsset_ratio = decimal_subtraction(cAsset_ratio, user_ratio.ratio);
-                //This says unread but changing it to cAsset_ratios[index] breaks the functionality
-                //Ignore warning
-
-                break;
-            } else if user_ratio.ratio > cAsset_ratio {
-                //Add all of this asset
-                //Add to existing user claims
-                USERS.update(
-                    deps.storage,
-                    user_ratio.clone().user,
-                    |user| -> Result<User, ContractError> {
-                        match user {
-                            Some(mut user) => {
-                                //Find Asset in user state
-                                match user.clone().claimable_assets.into_iter().find(|asset| {
-                                    asset.info.equal(&distribution_assets[index].info)
-                                }) {
-                                    Some(mut asset) => {
-                                        asset.amount += distribution_assets[index].amount;
-
-                                        //Create a replacement object for "user" since we can't edit in place
-                                        let mut temp_assets: Vec<Asset> = user
-                                            .clone()
-                                            .claimable_assets
-                                            .into_iter()
-                                            .filter(|claim| !claim.info.equal(&asset.info))
-                                            .collect::<Vec<Asset>>();
-                                        temp_assets.push(asset);
-
-                                        user.claimable_assets = temp_assets;
-                                    }
-                                    None => {
-                                        user.claimable_assets.push(Asset {
-                                            info: distribution_assets[index].clone().info,
-                                            amount: distribution_assets[index].clone().amount,
-                                        });
-                                    }
-                                }
-
-                                Ok(user)
-                            }
-                            None => {
-                                //Create object for user
-                                Ok(User {
-                                    claimable_assets: vec![Asset {
-                                        info: distribution_assets[index].clone().info,
-                                        amount: distribution_assets[index].clone().amount,
-                                    }],
-                                })
-                            }
-                        }
-                    },
-                )?;
-
-                //Set user_ratio as leftover
-                user_ratio.ratio = decimal_subtraction(user_ratio.ratio, cAsset_ratio);
-
-                //Set cAsset_ratio to 0
-                cAsset_ratios[index] = Decimal::zero();
-                //continue loop
-            }
-        }
-    }
 
     //Response Builder
     let res = Response::new()
@@ -1605,7 +1432,7 @@ fn user_claims_msgs(
                                 position_id: user_info.position_id,
                             };
 
-                            //Create Cw20 Router SwapMsgs to the position contract (owner) w/ DepositMsgs as the hook
+                            //Create Cw20 Router SwapMsgs to the position contract w/ DepositMsgs as the hook
                             let swap_hook = RouterCw20HookMsg::Swap {
                                 to: AssetInfo::Token {
                                     address: valid_claim_addr,
@@ -1616,7 +1443,7 @@ fn user_claims_msgs(
                                         .max_spread
                                         .unwrap_or_else(|| Decimal::percent(10)),
                                 ),
-                                recipient: Some(config.clone().owner.to_string()),
+                                recipient: Some(config.clone().positions_contract.to_string()),
                                 hook_msg: Some(to_binary(&deposit_msg)?),
                                 split: None,
                             };
@@ -1677,7 +1504,7 @@ fn user_claims_msgs(
                                 position_id: user_info.position_id,
                             };
 
-                            //Create Cw20 Router SwapMsgs to the position contract (owner) w/ DepositMsgs as the hook
+                            //Create Cw20 Router SwapMsgs to the position contract w/ DepositMsgs as the hook
                             let swap_hook = RouterCw20HookMsg::Swap {
                                 to: AssetInfo::NativeToken {
                                     denom: claim_as_native.clone().unwrap(),
@@ -1688,7 +1515,7 @@ fn user_claims_msgs(
                                         .max_spread
                                         .unwrap_or_else(|| Decimal::percent(10)),
                                 ),
-                                recipient: Some(config.clone().owner.to_string()),
+                                recipient: Some(config.clone().positions_contract.to_string()),
                                 hook_msg: Some(to_binary(&deposit_msg)?),
                                 split: None,
                             };
@@ -1768,7 +1595,7 @@ fn user_claims_msgs(
                                     position_id: user_info.position_id,
                                 };
 
-                                //Create Cw20 Router SwapMsgs to the position contract (owner) w/ DepositMsgs as the hook
+                                //Create Cw20 Router SwapMsgs to the position contract w/ DepositMsgs as the hook
                                 let swap_hook = RouterExecuteMsg::SwapFromNative {
                                     to: AssetInfo::Token {
                                         address: valid_claim_addr,
@@ -1779,7 +1606,7 @@ fn user_claims_msgs(
                                             .max_spread
                                             .unwrap_or_else(|| Decimal::percent(10)),
                                     ),
-                                    recipient: Some(config.clone().owner.to_string()),
+                                    recipient: Some(config.clone().positions_contract.to_string()),
                                     hook_msg: Some(to_binary(&deposit_msg)?),
                                     split: None,
                                 };
@@ -1832,7 +1659,7 @@ fn user_claims_msgs(
                                     position_id: user_info.position_id,
                                 };
 
-                                //Create Cw20 Router SwapMsgs to the position contract (owner) w/ DepositMsgs as the hook
+                                //Create Cw20 Router SwapMsgs to the position contract w/ DepositMsgs as the hook
                                 let swap_hook = RouterExecuteMsg::SwapFromNative {
                                     to: AssetInfo::NativeToken {
                                         denom: claim_as_native.clone().unwrap(),
@@ -1843,7 +1670,7 @@ fn user_claims_msgs(
                                             .max_spread
                                             .unwrap_or_else(|| Decimal::percent(10)),
                                     ),
-                                    recipient: Some(config.clone().owner.to_string()),
+                                    recipient: Some(config.clone().positions_contract.to_string()),
                                     hook_msg: Some(to_binary(&deposit_msg)?),
                                     split: None,
                                 };
@@ -1910,19 +1737,222 @@ fn user_claims_msgs(
     Ok(messages)
 }
 
+
+
+fn split_assets_to_users(
+    storage: &mut dyn Storage,
+    mut cAsset_ratios: Vec<Decimal>,
+    distribution_assets: Vec<Asset>,
+    distribution_ratios: Vec<UserRatio>    ,
+) -> Result<(), ContractError>{
+    
+    for mut user_ratio in distribution_ratios {
+        for (index, mut cAsset_ratio) in cAsset_ratios.clone().into_iter().enumerate() {
+            if cAsset_ratio == Decimal::zero() {
+                continue;
+            }
+
+            if user_ratio.ratio == cAsset_ratio {
+                //Add all of this asset to existing claims
+                USERS.update(
+                    storage,
+                    user_ratio.user,
+                    |user: Option<User>| -> Result<User, ContractError> {
+                        match user {
+                            Some(mut some_user) => {
+                                //Find Asset in user state
+                                match some_user
+                                    .clone()
+                                    .claimable_assets
+                                    .into_iter()
+                                    .find(|asset| {
+                                        asset.info.equal(&distribution_assets[index].info)
+                                    }) {
+                                    Some(mut asset) => {
+                                        //Add claim amount to the asset object
+                                        asset.amount += distribution_assets[index].amount;
+
+                                        //Create a replacement object for "user" since we can't edit in place
+                                        let mut temp_assets: Vec<Asset> = some_user
+                                            .clone()
+                                            .claimable_assets
+                                            .into_iter()
+                                            .filter(|claim| !claim.info.equal(&asset.info))
+                                            .collect::<Vec<Asset>>();
+                                        temp_assets.push(asset);
+
+                                        some_user.claimable_assets = temp_assets;
+                                    }
+                                    None => {
+                                        some_user.claimable_assets.push(Asset {
+                                            info: distribution_assets[index].clone().info,
+                                            amount: distribution_assets[index].clone().amount,
+                                        });
+                                    }
+                                }
+
+                                Ok(some_user)
+                            }
+                            None => {
+                                //Create object for user
+                                Ok(User {
+                                    claimable_assets: vec![Asset {
+                                        info: distribution_assets[index].clone().info,
+                                        amount: distribution_assets[index].clone().amount,
+                                    }],
+                                })
+                            }
+                        }
+                    },
+                )?;
+
+                //Set cAsset_ratios[index] to 0
+                cAsset_ratios[index] = Decimal::zero();
+
+                break;
+            } else if user_ratio.ratio < cAsset_ratio {
+                //Add full user ratio of the asset
+                let send_ratio = decimal_division(user_ratio.ratio, cAsset_ratio);
+                let send_amount = decimal_multiplication(
+                    send_ratio,
+                    Decimal::from_ratio(distribution_assets[index].amount, Uint128::new(1u128)),
+                ) * Uint128::new(1u128);
+
+                //Add to existing user claims
+                USERS.update(
+                    storage,
+                    user_ratio.clone().user,
+                    |user| -> Result<User, ContractError> {
+                        match user {
+                            Some(mut user) => {
+                                //Find Asset in user state
+                                match user.clone().claimable_assets.into_iter().find(|asset| {
+                                    asset.info.equal(&distribution_assets[index].info)
+                                }) {
+                                    Some(mut asset) => {
+                                        //Add amounts
+                                        asset.amount += send_amount;
+
+                                        //Create a replacement object for "user" since we can't edit in place
+                                        let mut temp_assets: Vec<Asset> = user
+                                            .clone()
+                                            .claimable_assets
+                                            .into_iter()
+                                            .filter(|claim| !claim.info.equal(&asset.info))
+                                            .collect::<Vec<Asset>>();
+                                        temp_assets.push(asset);
+
+                                        user.claimable_assets = temp_assets;
+                                    }
+                                    None => {
+                                        user.claimable_assets.push(Asset {
+                                            amount: send_amount,
+                                            info: distribution_assets[index].clone().info,
+                                        });
+                                    }
+                                }
+
+                                Ok(user)
+                            }
+                            None => {
+                                //Create object for user
+                                Ok(User {
+                                    claimable_assets: vec![Asset {
+                                        amount: send_amount,
+                                        info: distribution_assets[index].clone().info,
+                                    }],
+                                })
+                            }
+                        }
+                    },
+                )?;
+
+                //Set cAsset_ratio to the difference
+                cAsset_ratio = decimal_subtraction(cAsset_ratio, user_ratio.ratio);
+                //This says unread but changing it to cAsset_ratios[index] breaks the functionality
+                //Ignore warning
+
+                break;
+            } else if user_ratio.ratio > cAsset_ratio {
+                //Add all of this asset
+                //Add to existing user claims
+                USERS.update(
+                    storage,
+                    user_ratio.clone().user,
+                    |user| -> Result<User, ContractError> {
+                        match user {
+                            Some(mut user) => {
+                                //Find Asset in user state
+                                match user.clone().claimable_assets.into_iter().find(|asset| {
+                                    asset.info.equal(&distribution_assets[index].info)
+                                }) {
+                                    Some(mut asset) => {
+                                        asset.amount += distribution_assets[index].amount;
+
+                                        //Create a replacement object for "user" since we can't edit in place
+                                        let mut temp_assets: Vec<Asset> = user
+                                            .clone()
+                                            .claimable_assets
+                                            .into_iter()
+                                            .filter(|claim| !claim.info.equal(&asset.info))
+                                            .collect::<Vec<Asset>>();
+                                        temp_assets.push(asset);
+
+                                        user.claimable_assets = temp_assets;
+                                    }
+                                    None => {
+                                        user.claimable_assets.push(Asset {
+                                            info: distribution_assets[index].clone().info,
+                                            amount: distribution_assets[index].clone().amount,
+                                        });
+                                    }
+                                }
+
+                                Ok(user)
+                            }
+                            None => {
+                                //Create object for user
+                                Ok(User {
+                                    claimable_assets: vec![Asset {
+                                        info: distribution_assets[index].clone().info,
+                                        amount: distribution_assets[index].clone().amount,
+                                    }],
+                                })
+                            }
+                        }
+                    },
+                )?;
+
+                //Set user_ratio as leftover
+                user_ratio.ratio = decimal_subtraction(user_ratio.ratio, cAsset_ratio);
+
+                //Set cAsset_ratio to 0
+                cAsset_ratios[index] = Decimal::zero();
+                //continue loop
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn add_asset_pool(
     deps: DepsMut,
     info: MessageInfo,
     credit_asset: Asset,
     liq_premium: Decimal,
 ) -> Result<Response, ContractError> {
+
     let config = CONFIG.load(deps.storage)?;
+
+    //Assert Authority
     if info.sender != config.owner {
         return Err(ContractError::Unauthorized {});
     }
 
     let mut asset_pools = ASSETS.load(deps.storage)?;
 
+    //Create and Add new pool
     let new_pool = AssetPool {
         credit_asset: credit_asset.clone(),
         liq_premium,
@@ -1931,6 +1961,7 @@ pub fn add_asset_pool(
 
     asset_pools.push(new_pool);
 
+    //Save pool
     ASSETS.save(deps.storage, &asset_pools)?;
 
     let res = Response::new()
@@ -1941,12 +1972,14 @@ pub fn add_asset_pool(
     Ok(res)
 }
 
+//Create CDP deposit message
 pub fn deposit_to_position(
     deps: &mut dyn Storage,
     assets: Vec<Asset>,
     deposit_to: PositionUserInfo,
     user: Addr,
 ) -> Result<Vec<CosmosMsg>, ContractError> {
+
     let mut messages: Vec<CosmosMsg> = vec![];
     let mut coins: Vec<Coin> = vec![];
     let mut native_assets: Vec<Asset> = vec![];
@@ -1971,7 +2004,7 @@ pub fn deposit_to_position(
                     contract_addr: address.to_string(),
                     msg: to_binary(&Cw20ExecuteMsg::Send {
                         amount: asset.amount,
-                        contract: config.clone().owner.to_string(), //Assumption that this is the Positions contract
+                        contract: config.clone().positions_contract.to_string(), 
                         msg: to_binary(&deposit_msg)?,
                     })?,
                     funds: vec![],
@@ -2000,6 +2033,7 @@ pub fn deposit_to_position(
 }
 
 pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal>, Vec<Deposit>)> {
+
     let mut user_deposits: Vec<Deposit> = vec![];
     let mut total_amount: Decimal = Decimal::percent(0);
     let mut new_deposits: Vec<Deposit> = vec![];
@@ -2044,6 +2078,7 @@ pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal
     Ok((user_ratios, user_deposits))
 }
 
+//Calc a user's incentives from each deposit
 fn get_user_incentives(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -2062,6 +2097,8 @@ fn get_user_incentives(
     let mut total_incentives = Uint128::zero();
     let mut error: Option<StdError> = None;
 
+    //Calc and add new_incentives
+    //Update deposit.last_accrued time
     let new_deposits: Vec<Deposit> = asset_pool.deposits.into_iter().map(|mut deposit| {
 
         if deposit.user == user {
@@ -2177,6 +2214,7 @@ pub fn get_user_deposits(
     }
 }
 
+//Get incentive rate based on base rate and % of credit supply in the pool
 fn get_rate(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -2186,6 +2224,7 @@ fn get_rate(
 
     let config = CONFIG.load(storage)?;
 
+    //Get Asset Pool
     let asset_pool = if let Some(pool) = asset_pool {
         pool
     } else if let Some(asset_info) = asset_info{
@@ -2237,6 +2276,24 @@ fn get_rate(
 
     Ok(rate)
 }
+
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
+    match msg {
+        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
+        QueryMsg::Rate { asset_info } => to_binary(&query_rate(deps, asset_info)?),
+        QueryMsg::UnclaimedIncentives { user, asset_info } => to_binary(&query_user_incentives(deps, env, user, asset_info)?),
+        QueryMsg::CapitalAheadOfDeposit { user, asset_info } => to_binary(&query_capital_ahead_of_deposits(deps, asset_info, user)?),
+        QueryMsg::CheckLiquidatible { asset } => to_binary(&query_liquidatible(deps, asset)?),
+        QueryMsg::AssetDeposits { user, asset_info } => {
+            to_binary(&query_deposits(deps, user, asset_info)?)
+        }
+        QueryMsg::UserClaims { user } => to_binary(&query_user_claims(deps, user)?),
+        QueryMsg::AssetPool { asset_info } => to_binary(&query_pool(deps, asset_info)?),
+    }
+}
+
 
 pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> Result<CosmosMsg, ContractError> {
     
@@ -2401,20 +2458,3 @@ pub fn validate_position_owner(
     };
     Ok(valid_recipient)
 }
-
-#[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
-    match msg {
-        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::Rate { asset_info } => to_binary(&query_rate(deps, asset_info)?),
-        QueryMsg::UnclaimedIncentives { user, asset_info } => to_binary(&query_user_incentives(deps, env, user, asset_info)?),
-        QueryMsg::CapitalAheadOfDeposit { user, asset_info } => to_binary(&query_capital_ahead_of_deposits(deps, asset_info, user)?),
-        QueryMsg::CheckLiquidatible { asset } => to_binary(&query_liquidatible(deps, asset)?),
-        QueryMsg::AssetDeposits { user, asset_info } => {
-            to_binary(&query_deposits(deps, user, asset_info)?)
-        }
-        QueryMsg::UserClaims { user } => to_binary(&query_user_claims(deps, user)?),
-        QueryMsg::AssetPool { asset_info } => to_binary(&query_pool(deps, asset_info)?),
-    }
-}
-

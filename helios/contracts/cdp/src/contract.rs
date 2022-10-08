@@ -11,7 +11,7 @@ use cw20::{Cw20ReceiveMsg, Cw20QueryMsg, BalanceResponse};
 
 use membrane::debt_auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
-use membrane::positions::{CallbackMsg, Cw20HookMsg, ExecuteMsg, InstantiateMsg, QueryMsg};
+use membrane::positions::{Config, CallbackMsg, Cw20HookMsg, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::types::{
     cAsset, Asset, AssetInfo, Basket, Position, UserInfo,
 };
@@ -33,7 +33,7 @@ use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID,
     SELL_WALL_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
 use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_sell_wall_reply, handle_create_denom_reply, handle_withdraw_reply, handle_sp_repay_reply};
 use crate::state::{
-    Config, BASKETS, CONFIG, POSITIONS,
+    BASKETS, CONFIG, POSITIONS,
 };
 
 // version info for migration info

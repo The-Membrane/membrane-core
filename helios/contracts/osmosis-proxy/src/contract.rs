@@ -12,9 +12,9 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 
 use crate::error::TokenFactoryError;
-use crate::state::{Config, TokenInfo, CONFIG, TOKENS};
+use crate::state::{TokenInfo, CONFIG, TOKENS};
 use membrane::osmosis_proxy::{
-    ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse,
+    Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse,
 };
 use osmo_bindings::{
     ArithmeticTwapToNowResponse, FullDenomResponse, OsmosisMsg, OsmosisQuerier, OsmosisQuery,
@@ -99,6 +99,7 @@ fn update_config(
     debt_auction: Option<String>,
     add_owner: bool,
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+
     let mut config = CONFIG.load(deps.storage)?;
 
     let mut attrs = vec![
@@ -203,6 +204,7 @@ pub fn change_admin(
     denom: String,
     new_admin_address: String,
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
     if !validate_authority(config, info) {
@@ -233,6 +235,7 @@ fn edit_token_max(
     denom: String,
     max_supply: Uint128,
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
     if !validate_authority(config, info) {
@@ -275,6 +278,7 @@ pub fn mint_tokens(
     amount: Uint128,
     mint_to_address: String,
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
     if !validate_authority(config.clone(), info.clone()) {
@@ -354,6 +358,7 @@ pub fn burn_tokens(
     amount: Uint128,
     burn_from_address: String,
 ) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+    
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
     if !validate_authority(config, info) {

@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Decimal, Uint128};
+use cosmwasm_std::{Decimal, Addr, Uint128};
 use cw20::Cw20ReceiveMsg;
 
 use crate::math::{Decimal256, Uint256};
@@ -109,6 +109,16 @@ pub enum QueryMsg {
     },
 }
 
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct Config {
+    pub owner: Addr, //Governance
+    pub positions_contract: Addr,
+    pub added_assets: Option<Vec<AssetInfo>>,
+    pub waiting_period: u64, //Wait period is at max doubled due to slot_total calculation
+    pub bid_asset: AssetInfo,
+}
+
 // We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct SlotResponse {
@@ -121,14 +131,6 @@ pub struct SlotResponse {
     pub current_scale: Uint128,
     pub residue_collateral: String,
     pub residue_bid: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct ConfigResponse {
-    pub owner: String,
-    pub positions_contract: String,
-    pub waiting_period: u64,
-    pub added_assets: Vec<AssetInfo>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

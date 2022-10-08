@@ -8,7 +8,7 @@ use cw_storage_plus::Bound;
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::{QueryMsg as OsmoQueryMsg, TokenInfoResponse};
 use membrane::positions::{
-    BadDebtResponse, BasketResponse, CollateralInterestResponse, DebtCapResponse,
+    Config, BadDebtResponse, BasketResponse, CollateralInterestResponse, DebtCapResponse,
     InsolvencyResponse, InterestResponse, PositionResponse, PositionsResponse, PropResponse,
 };
 
@@ -28,7 +28,7 @@ use osmo_bindings::PoolStateResponse;
 use crate::state::CREDIT_MULTI;
 use crate::{
     positions::read_price,
-    state::{Config, BASKETS, CONFIG, POSITIONS, REPAY},
+    state::{BASKETS, CONFIG, POSITIONS, REPAY},
 };
 
 const MAX_LIMIT: u32 = 31;

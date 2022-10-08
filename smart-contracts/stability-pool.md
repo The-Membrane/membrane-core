@@ -8,13 +8,13 @@ description: >-
 
 The Stability Pool (SP) is the second line of defense in Positions contract liquidations. It acts as a pool of liquidity that can be used to repay insolvent positions in return for discounted collateral assets. \
 \
-When a position is liquidated, the pool repays its debt in exchange for assets sent by the Positions contract for successful repayments. In contrast to Liquity's pro rata model, this SP is **F**irst In **F**irst **O**ut when it comes to rewarding liquidations to pool liquidity providers.\
+When a position is liquidated, the pool repays its debt in exchange for assets sent by the Positions contract after successful repayments. In contrast to [Liquity's ](https://docs.liquity.org/faq/stability-pool-and-liquidations)pro rata model, this SP is **F**irst In **F**irst **O**ut when it comes to rewarding liquidations to pool liquidity providers.\
 \
-Due to how the liquidation model calculates liquidations, there will always be something for the SP to liquidate, meaning its advantageous for the first bidder at every liquidation and not just the one's the Liq Queue can't fulfill. This has the added benefit of filtering through spam deposits before large liquidatiosn.\
+Due to how the [Liquidation Queue](liquidation-queue.md) calculates liquidations, there will always be something for the SP to liquidate, meaning its advantageous for the first bidder at every liquidation and not just the one's the Liq Queue can't fulfill. This has the added benefit of filtering through spam deposits before large liquidatiosn.\
 \
 Pro-rata distributions, like the Liq Queue and Liquity's SP are better than FIFO at attracting large capital, but FIFO has direct incentives for competitive replenishes which is better for a pool that isn't prioritized but needs quick refills if the situation calls for it.\
 \
-We want this phase of the mechanism to be reactive when low while not taking too much potential capital from the Liq Queue which will likely liquidate collateral for lower premiums a majority of the time, which is better for the users.
+We want this step of the liquidation mechanism to be reactive when low while not taking too much potential capital from the Liq Queue which will likely liquidate collateral for lower premiums a majority of the time, which is better for [user solvency](https://twitter.com/euler\_mab/status/1537091423748517889).
 
 ## InstantiateMsg
 
@@ -42,13 +42,6 @@ pub struct AssetPool {
 pub struct Asset{
     pub info: AssetInfo,
     pub amount: Uint128,
-}
-
-pub struct Deposit {
-    pub user: Addr,
-    pub amount: Decimal,
-    pub deposit_time: u64,
-    pub unstake_time: Option<u64>,
 }
 ```
 
@@ -139,7 +132,7 @@ Deposit accepted credit assets to corresponding Asset Pools
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Deposit { //Deposit a list of accepted assets
+    Deposit { 
         user: Option<String>
     }
 }
@@ -388,9 +381,13 @@ pub struct DepositResponse {
     pub deposits: Vec<Deposit>,
 }
 
+
 pub struct Deposit {
     pub user: Addr,
     pub amount: Decimal,
+    pub deposit_time: u64,
+    pub last_accrued: u64,
+    pub unstake_time: Option<u64>,
 }
 ```
 
@@ -443,4 +440,79 @@ pub struct PoolResponse {
 
 | Key          | Type      | Description                                          |
 | ------------ | --------- | ---------------------------------------------------- |
+| `asset_info` | AssetInfo | Asset info corresponding to an available Asset Pool  |
+
+### `Rate`
+
+Returns current MBRN incentive rate
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMsg {
+    Rate {
+        asset_info: AssetInfo,
+    }
+}
+
+//Returns Decimal
+```
+
+| Key          | Type      | Description                                          |
+| ------------ | --------- | ---------------------------------------------------- |
+| `asset_info` | AssetInfo | Asset info corresponding to an available Asset Pool  |
+
+### `UnclaimedIncentives`
+
+Returns unclaimed incentives for a user in an AssetPool
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMsg {
+    UnclaimedIncentives {
+        user: String,
+        asset_info: AssetInfo,
+    }
+}
+
+//Returns Uint128
+```
+
+| Key          | Type      | Description                                          |
+| ------------ | --------- | ---------------------------------------------------- |
+| `user`       | String    | User address                                         |
+| `asset_info` | AssetInfo | Asset info corresponding to an available Asset Pool  |
+
+### `CapitalAheadOfDeposit`
+
+Returns capital ahead of each user Deposit in an AssetPool
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMsg {
+    CapitalAheadOfDeposit {
+        user: String,
+        asset_info: AssetInfo,
+    }
+}
+
+pub struct DepositPositionResponse {
+    pub deposit: Deposit,
+    pub capital_ahead: Decimal,
+}
+
+pub struct Deposit {
+    pub user: Addr,
+    pub amount: Decimal,
+    pub deposit_time: u64,
+    pub last_accrued: u64,
+    pub unstake_time: Option<u64>,
+}
+```
+
+| Key          | Type      | Description                                          |
+| ------------ | --------- | ---------------------------------------------------- |
+| `user`       | String    | User address                                         |
 | `asset_info` | AssetInfo | Asset info corresponding to an available Asset Pool  |

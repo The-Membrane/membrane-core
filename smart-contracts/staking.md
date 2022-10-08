@@ -4,7 +4,11 @@ description: MBRN Staking contract
 
 # Staking
 
-**Notes:** Rewards are earned in the unstaking period but have no voting power, as its mainly added to restrict sales prompted by an activated Debt Auction.
+* The Positions contract uses this contract's [DepositFee ](staking.md#depositfee)to allocate liquidation fees to stakers staked at the time of the liquidation.&#x20;
+* Rewards are earned in the unstaking period but have no voting power, as its primary use is to restrict sales prompted by an activated Debt Auction.&#x20;
+* Stakers can restake after starting to unstake if **MBRN** hasn't been withdrawn.&#x20;
+* The [Builder's Vesting](<staking (1).md>) contract doesn't receive inflationary **MBRN** rewards.
+* Because [Governance ](governance.md)can submit arbitrary messages, the staking rate is hard capped at 20%&#x20;
 
 ## InstantiateMsg
 

@@ -4,6 +4,8 @@ description: Contract that holds price fetching information for assets
 
 # Oracle
 
+* The v1 Oracle only uses Osmosis TWAPs&#x20;
+
 ## InstantiateMsg
 
 ```

@@ -1,11 +1,8 @@
 # Positions
 
-The Positions contract implements the logic for Collateralized Debt Positions (CDPs), through which users can receive debt tokens against their deposited collateral.\
+The Positions contract implements the logic for Collateralized Debt Positions (CDPs), through which users can receive debt tokens against their deposited collateral.
 
-
-The contract also contains the logic for initiating liquidations of CDPs and the sell wall but external debt repayment logic goes through the **Queue** and **Stability Pool** contracts.
-
-Liquidation queue premiums are automatically changed to the range between 100% and 5% above max LTV of an asset to ensure liquidations run smoothly, otherwise the LQ liquidations would get skipped due to liquidation fulfillment logic and the bidders would be unknowingly missing opportunities.
+The contract also contains the logic for initiating liquidations of CDPs and sending assets to the DEX router but external debt repayment logic goes through the **Queue** and **Stability Pool** contracts.
 
 **Notes:**&#x20;
 
@@ -15,6 +12,7 @@ Liquidation queue premiums are automatically changed to the range between 100% a
 * _Adding collateral assets adds a queue for them in Liq Queue contract and a price feed for them in the Oracle contract_
 * _LP share supply caps are based on its ratio without double counting its assets, though its debt is counted towards its pool assets' caps._
 * _Each credit\_asset has a contract level liquidity multiplier calculated as the sum of all multipliers of basket's with the same credit\_asset_&#x20;
+* _Negative rates are turned off when total basket debt is above the desired debt utilization_
 
 ## InstantiateMsg
 

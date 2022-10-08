@@ -4,6 +4,8 @@ description: Calculates total Osmosis liquidity for its list of assets
 
 # Liquidity Check
 
+Liquidity = # of assets in the pool
+
 ## InstantiateMsg
 
 ```

@@ -33,6 +33,7 @@ const MAX_LIMIT: u32 = 30;
 const DEFAULT_VOTERS_LIMIT: u32 = 100;
 const MAX_VOTERS_LIMIT: u32 = 250;
 
+
 pub fn instantiate(
     deps: DepsMut,
     _env: Env,
@@ -516,6 +517,7 @@ pub fn update_config(
 
 //Calc total voting power at a specific time
 pub fn calc_total_voting_power_at(deps: Deps, start_time: u64) -> StdResult<Uint128> {
+
     let config = CONFIG.load(deps.storage)?;
 
     //Pulls stake from before Proposal's start_time

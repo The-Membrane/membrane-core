@@ -1632,6 +1632,7 @@ mod tests {
                 max_borrow_LTV: Decimal::percent(50),
                 max_LTV: Decimal::percent(70),
                 pool_info: None,
+                rate_index: Decimal::one(),
             }],
             credit_asset: Asset {
                 info: AssetInfo::NativeToken {
@@ -1710,6 +1711,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
@@ -1824,6 +1826,7 @@ mod tests {
                         max_borrow_LTV: Decimal::percent(50),
                         max_LTV: Decimal::percent(70),
                         pool_info: None,  
+                        rate_index: Decimal::one(),
                     },
                     cAsset {
                         asset: Asset {
@@ -1835,6 +1838,7 @@ mod tests {
                         max_borrow_LTV: Decimal::percent(50),
                         max_LTV: Decimal::percent(90),
                         pool_info: None,
+                        rate_index: Decimal::one(),
                     }
                 ]
             );
@@ -1851,6 +1855,7 @@ mod tests {
                         max_borrow_LTV: Decimal::percent(50),
                         max_LTV: Decimal::percent(70),
                         pool_info: None,  
+                        rate_index: Decimal::one(),
                     }
                 ]
             );
@@ -2063,6 +2068,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
@@ -2277,6 +2283,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
@@ -2527,6 +2534,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(40),
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: None,
@@ -2554,6 +2562,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(60),
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: None,
@@ -2599,6 +2608,7 @@ mod tests {
                             },
                         ],
                     }),
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
@@ -2745,7 +2755,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            ///999 leftover + 7291 debt
+            ///999 leftover + 7291 interest
             assert_eq!(res.credit_amount, Uint128::new(8290));
 
             //Insolvent withdrawal error
@@ -2769,7 +2779,7 @@ mod tests {
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap_err();
 
-            //Query to assert new debt amount
+            //Query to assert new debt amount due to the added year
             let query_msg = QueryMsg::GetPosition {
                 position_id: Uint128::new(1u128),
                 basket_id: Uint128::new(1u128),
@@ -2779,7 +2789,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new(8894));
+            assert_eq!(res.credit_amount, Uint128::new(8895));
 
             //Query Rates
             let query_msg = QueryMsg::GetCollateralInterest {
@@ -4445,6 +4455,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(40),
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: None,
@@ -4472,6 +4483,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(40),
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: None,
@@ -4517,6 +4529,7 @@ mod tests {
                             },
                         ],
                     }),
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
@@ -4913,6 +4926,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(40),
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
@@ -5021,6 +5035,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(40),
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
@@ -5129,6 +5144,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(40),
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: None,
@@ -5156,6 +5172,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(40),
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: None,
@@ -5201,6 +5218,7 @@ mod tests {
                             },
                         ],
                     }),
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
@@ -5370,6 +5388,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(40),
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: None,
@@ -5397,6 +5416,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(40),
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: None,
@@ -5442,6 +5462,7 @@ mod tests {
                             },
                         ],
                     }),
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
@@ -5553,6 +5574,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }],
                 credit_asset: Asset {
                     info: AssetInfo::NativeToken {
@@ -5653,6 +5675,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }],
                 credit_asset: Asset {
                     info: AssetInfo::NativeToken {
@@ -5820,6 +5843,7 @@ mod tests {
                             max_borrow_LTV: Decimal::percent(50),
                             max_LTV: Decimal::percent(70),
                             pool_info: None,
+                            rate_index: Decimal::one(),
                         }
                     ], 
                     cAsset_ratios: vec![Decimal::one()], 
@@ -5902,6 +5926,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }],
                 credit_asset: Asset {
                     info: AssetInfo::NativeToken {
@@ -5991,6 +6016,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(70),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: None,
@@ -6374,6 +6400,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(70),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: None,
@@ -6536,6 +6563,7 @@ mod tests {
                     max_borrow_LTV: Decimal::percent(50),
                     max_LTV: Decimal::percent(70),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }),
                 owner: None,
                 liq_queue: None,

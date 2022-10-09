@@ -20,7 +20,7 @@ use membrane::math::{decimal_division, decimal_multiplication, decimal_subtracti
 
 use crate::positions::{
     accumulate_interest, get_LP_pool_cAssets, get_asset_liquidity, get_stability_pool_liquidity,
-    SECONDS_PER_YEAR,
+    SECONDS_PER_YEAR, accumulate_interest_dec,
 };
 
 use osmo_bindings::PoolStateResponse;
@@ -447,6 +447,7 @@ fn get_credit_asset_multiplier_imut(
             max_borrow_LTV: Decimal::zero(),
             max_LTV: Decimal::zero(),
             pool_info: None,
+            rate_index: Decimal::one(),
         })
         .collect::<Vec<cAsset>>();
     let total_collateral_ratios =
@@ -712,6 +713,7 @@ pub fn query_collateral_rates(
             max_borrow_LTV: Decimal::zero(),
             max_LTV: Decimal::zero(),
             pool_info: None,
+            rate_index: Decimal::one(),
         };
         let credit_TWAP_price = get_asset_values_imut(
             deps.storage,
@@ -831,6 +833,7 @@ fn accrue_imut(
             max_borrow_LTV: Decimal::zero(),
             max_LTV: Decimal::zero(),
             pool_info: None,
+            rate_index: Decimal::one(),
         };
         let credit_TWAP_price = get_asset_values_imut(
             storage,
@@ -896,32 +899,28 @@ fn accrue_imut(
         }
     }
 
+    /////Accrue interest to the debt/////
+        
     //Calc time-elapsed
-    let time_elapsed = env.block.time.seconds() - position.last_accrued;
-    //Update last accrued time
-    position.last_accrued = env.block.time.seconds();
+    let time_elapsed = env.block.time.seconds() - basket.rates_last_accrued;
 
-    //Calc avg_rate for the position
-    let mut avg_rate = get_position_avg_rate_imut(
+    //Calc rate_of_change for the position's credit amount
+    let rate_of_change = get_credit_rate_of_change_imut(
         storage,
         querier,
         env.clone(),
         basket,
-        position.clone().collateral_assets,
+        position,
+        negative_rate,
+        price_difference,
     )?;
-
-    //Accrue a year of repayment rate to interest rates
-    if negative_rate {
-        avg_rate = decimal_multiplication(
-            avg_rate,
-            decimal_subtraction(Decimal::one(), price_difference),
-        );
-    } else {
-        avg_rate = decimal_multiplication(avg_rate, (Decimal::one() + price_difference));
-    }
-
-    //Calc accrued interested
-    let accrued_interest = accumulate_interest(position.credit_amount, avg_rate, time_elapsed)?;
+    
+    //Calc accrued interest
+    let accrued_interest = accumulate_interest_dec(
+        Decimal::from_ratio(position.credit_amount,Uint128::new(1)),
+        rate_of_change,
+        time_elapsed,
+    )?;
 
     //Add accrued interest to the position's debt
     position.credit_amount += accrued_interest * Uint128::new(1u128);
@@ -929,35 +928,131 @@ fn accrue_imut(
     Ok(())
 }
 
-fn get_position_avg_rate_imut(
+//Rate of change of a psition's credit_amount due to interest rates
+fn get_credit_rate_of_change_imut(
     storage: &dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     basket: &mut Basket,
-    position_assets: Vec<cAsset>,
+    position: &mut Position,
+    negative_rate: bool,
+    credit_price_difference: Decimal,
 ) -> StdResult<Decimal> {
+
     let config = CONFIG.load(storage)?;
 
-    let new_assets = get_LP_pool_cAssets(querier, config.clone(), basket.clone(), position_assets)?;
+    let ratios = get_cAsset_ratios_imut(storage, env.clone(), querier, position.clone().collateral_assets, config)?;
 
-    let ratios = get_cAsset_ratios_imut(storage, env.clone(), querier, new_assets.clone(), config)?;
+    get_rate_indexes(storage, querier, env, basket, negative_rate, credit_price_difference)?;
 
-    let interest_rates = get_interest_rates_imut(storage, querier, env, basket)?;
+    let mut avg_change_in_index = Decimal::zero();
 
-    let mut avg_rate = Decimal::zero();
-
-    for (i, cAsset) in new_assets.clone().iter().enumerate() {
-        //Match asset and rate
-        if let Some(rate) = interest_rates
+    for (i, cAsset) in position.clone().collateral_assets.iter().enumerate() {
+        //Match asset and rate_index
+        if let Some(basket_asset) = basket.clone().collateral_types
             .clone()
             .into_iter()
-            .find(|rate| rate.0.equal(&cAsset.asset.info))
+            .find(|basket_asset| basket_asset.asset.info.equal(&cAsset.asset.info))
         {
-            avg_rate += decimal_multiplication(ratios[i], rate.1);
+
+            //If an LP, calc the new average index first
+            if cAsset.clone().pool_info.is_some(){
+
+                let pool_info = cAsset.clone().pool_info.unwrap();
+                
+                let mut avg_index = Decimal::zero();
+
+                //Get avg_index
+                for pool_asset in pool_info.asset_infos{
+
+                    ///Find in collateral_types
+                    if let Some(basket_pool_asset) = basket.clone().collateral_types
+                        .clone()
+                        .into_iter()
+                        .find(|basket_pool_asset| basket_pool_asset.asset.info.equal(&pool_asset.info)){
+
+                            //Add proportion to avg_index
+                            avg_index += decimal_multiplication(pool_asset.ratio, basket_pool_asset.rate_index);
+                            
+                        }
+                    
+                }
+
+                //Set LP share rate_index
+                position.collateral_assets[i].rate_index = avg_index.clone();
+
+                ////Add proportionally the change in index
+                // cAsset_ratio * change in index          
+                avg_change_in_index += decimal_multiplication(ratios[i], decimal_subtraction(decimal_division(avg_index, cAsset.rate_index), Decimal::one()));
+            } else {
+
+                ////Add proportionally the change in index
+                // cAsset_ratio * change in index          
+                avg_change_in_index += decimal_multiplication(ratios[i], decimal_subtraction(decimal_division(basket_asset.rate_index, cAsset.rate_index), Decimal::one()));
+
+                /////Update cAsset rate_index
+                position.collateral_assets[i].rate_index = cAsset.rate_index;
+            }
         }
     }
 
-    Ok(avg_rate)
+    //The change in index represents the rate accrued to the cAsset in the time since last accrual
+    Ok(avg_change_in_index)
+}
+
+//Get Basket interests and then accumulate interest to all basket cAsset rate indexes
+fn get_rate_indexes(
+    storage: &dyn Storage,
+    querier: QuerierWrapper,
+    env: Env, 
+    basket: &mut Basket,
+    negative_rate: bool,
+    credit_price_difference: Decimal,
+) -> StdResult<()>{
+
+    //Get basket rates
+    let mut interest_rates = get_interest_rates_imut(storage, querier, env.clone(), basket)?
+        .into_iter()
+        .map(|rate| rate.1)
+        .collect::<Vec<Decimal>>();
+
+    //Accrue a years worth of repayment rate to the rates
+    //These aren't saved so it won't compound
+    interest_rates = interest_rates.clone().into_iter().map(|mut rate| {
+
+        if negative_rate {
+            rate = decimal_multiplication(
+                rate,
+                decimal_subtraction(Decimal::one(), credit_price_difference),
+            );
+        } else {
+            rate = decimal_multiplication(rate, (Decimal::one() + credit_price_difference));
+        }
+
+        rate
+    })
+    .collect::<Vec<Decimal>>();
+    //This allows us to prioritize credit stability over profit/state of the basket
+        
+
+    //Calc time_elapsed
+    let time_elapsed = env.block.time.seconds() - basket.clone().rates_last_accrued;
+
+    //Accumulate rate on each rate_index
+    for (i, basket_asset) in basket.clone().collateral_types.into_iter().enumerate(){
+
+        if basket_asset.pool_info.is_none(){
+            let accrued_rate = accumulate_interest_dec(
+                basket_asset.rate_index,
+                interest_rates[i],
+                time_elapsed.clone(),
+            )?;
+
+            basket.collateral_types[i].rate_index += accrued_rate;
+        }
+    }
+
+    Ok(())
 }
 
 fn get_interest_rates_imut(
@@ -1011,6 +1106,7 @@ fn get_interest_rates_imut(
             max_borrow_LTV: Decimal::zero(),
             max_LTV: Decimal::zero(),
             pool_info: None,
+            rate_index: Decimal::one(),
         })
         .collect::<Vec<cAsset>>();
 
@@ -1149,6 +1245,7 @@ fn get_basket_debt_caps_imut(
                     max_borrow_LTV: Decimal::zero(),
                     max_LTV: Decimal::zero(),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }
             } else {
                 cAsset {
@@ -1159,6 +1256,7 @@ fn get_basket_debt_caps_imut(
                     max_borrow_LTV: Decimal::zero(),
                     max_LTV: Decimal::zero(),
                     pool_info: None,
+                    rate_index: Decimal::one(),
                 }
             }
         })
@@ -1240,6 +1338,7 @@ pub fn query_basket_credit_interest(
             max_borrow_LTV: Decimal::zero(),
             max_LTV: Decimal::zero(),
             pool_info: None,
+            rate_index: Decimal::one(),
         };
 
         let credit_TWAP_price = get_asset_values_imut(

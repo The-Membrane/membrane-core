@@ -224,6 +224,7 @@ pub struct cAsset {
     pub asset: Asset, //amount is 0 when adding to basket_contract config or initiator
     pub max_borrow_LTV: Decimal, //aka what u can bprrpw up to
     pub max_LTV: Decimal, //ie liquidation point
+    pub rate_index: Decimal, //Rate index to smooth rate accrual
     // //Osmosis Pool Info to pull TWAP from
     // pub pool_info_for_price: TWAPPoolInfo,
     // //NOTE: AssetInfo denom for an Osmo LP is the shares_denom
@@ -250,7 +251,6 @@ pub struct Position {
     pub collateral_assets: Vec<cAsset>,
     pub credit_amount: Uint128,
     pub basket_id: Uint128,
-    pub last_accrued: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -266,7 +266,8 @@ pub struct Basket {
     pub liquidity_multiplier: Decimal, //liquidity_multiplier for debt caps
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
     pub pending_revenue: Uint128,
-    pub credit_last_accrued: u64,
+    pub credit_last_accrued: u64, //credit redemption price last_accrued
+    pub rates_last_accrued: u64, //rate_index last_accrued
     pub oracle_set: bool, //If the credit oracle was set. Can't update repayment price without.
     pub negative_rates: bool, //Allow negative repayment interest or not
     //Contracts
@@ -278,7 +279,7 @@ pub struct SupplyCap {
     pub asset_info: AssetInfo,
     pub current_supply: Uint128,
     pub debt_total: Uint128,
-    pub supply_cap_ratio: Decimal,
+    pub supply_cap_ratio: Decimal,    
     pub lp: bool,
 }
 

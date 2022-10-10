@@ -351,7 +351,7 @@ fn get_repay_quantities(
         }
     }
 
-    let mut credit_repay_amount = match decimal_division(repay_value, basket.clone().credit_price) {
+    let credit_repay_amount = match decimal_division(repay_value, basket.clone().credit_price) {
         //Repay amount has to be above 0, or there is nothing to liquidate and there was a mistake prior
         x if x <= Decimal::new(Uint128::zero()) => return Err(ContractError::PositionSolvent {}),
         //No need to repay more than the debt

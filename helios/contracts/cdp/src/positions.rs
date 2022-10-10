@@ -3398,8 +3398,8 @@ pub fn accumulate_interest_dec(decimal: Decimal, rate: Decimal, time_elapsed: u6
     Ok(accrued_interest)
 }
 
-//Get Basket interests and then accumulate interest to all basket cAsset rate indexes
-fn update_rate_indexes(
+//Get Basket interests and then accumulate interest to all basket cAsset rate indices
+fn update_rate_indices(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env, 
@@ -3692,7 +3692,7 @@ fn get_credit_rate_of_change(
 
     let ratios = get_cAsset_ratios(storage, env.clone(), querier, position.clone().collateral_assets, config)?;
 
-    update_rate_indexes(storage, querier, env, basket, negative_rate, credit_price_difference)?;
+    update_rate_indices(storage, querier, env, basket, negative_rate, credit_price_difference)?;
 
 
     let mut avg_change_in_index = Decimal::zero();
@@ -3737,12 +3737,12 @@ fn get_credit_rate_of_change(
 
                 ////Add proportionally the change in index
                 // cAsset_ratio * change in index          
-                avg_change_in_index += decimal_multiplication(ratios[i], decimal_subtraction(decimal_division(avg_index, cAsset.rate_index), Decimal::one()));
+                avg_change_in_index += decimal_multiplication(ratios[i], decimal_division(avg_index, cAsset.rate_index));
             } else {
 
                 ////Add proportionally the change in index
                 // cAsset_ratio * change in index          
-                avg_change_in_index += decimal_multiplication(ratios[i], decimal_subtraction(decimal_division(basket_asset.rate_index, cAsset.rate_index), Decimal::one()));
+                avg_change_in_index += decimal_multiplication(ratios[i], decimal_division(basket_asset.rate_index, cAsset.rate_index));
 
                 /////Update cAsset rate_index
                 position.collateral_assets[i].rate_index = cAsset.rate_index;
@@ -3884,10 +3884,7 @@ pub fn accrue(
     }
 
     /////Accrue interest to the debt/////  
-
-    //Calc time-elapsed
-    let time_elapsed = env.block.time.seconds() - basket.rates_last_accrued;
-
+    
     //Calc rate_of_change for the position's credit amount
     let rate_of_change = get_credit_rate_of_change(
         storage,
@@ -3899,39 +3896,45 @@ pub fn accrue(
         price_difference,
     )?;
 
-    //Calc accrued interest
-    let accrued_interest = accumulate_interest_dec(
-        Decimal::from_ratio(position.credit_amount,Uint128::new(1)),
-        rate_of_change,
-        time_elapsed,
-    )?;
+    //Calc new_credit_amount
+    let new_credit_amount = decimal_multiplication(
+        Decimal::from_ratio(position.credit_amount, Uint128::new(1)), 
+        rate_of_change
+    ) * Uint128::new(1u128);
+    
 
-    //Add accrued interest to the position's debt
-    position.credit_amount += accrued_interest * Uint128::new(1u128);
+    if new_credit_amount > position.credit_amount {
+        //Calc accrued interest
+        let accrued_interest = (new_credit_amount * Uint128::new(1u128)) - position.credit_amount;
 
-    //Add accrued interest to the basket's pending revenue
-    //Okay with rounding down here since the position's credit will round down as well
-    basket.pending_revenue += accrued_interest * Uint128::new(1u128);
+        //Add accrued interest to the basket's pending revenue
+        //Okay with rounding down here since the position's credit will round down as well
+        basket.pending_revenue += accrued_interest;
 
-    //Add accrued interest to the basket's debt cap
-    match update_basket_debt(
-        storage,
-        env.clone(),
-        querier,
-        config.clone(),
-        basket,
-        position.clone().collateral_assets,
-        accrued_interest * Uint128::new(1u128),
-        true,
-        true,
-    ) {
-        Ok(_ok) => {}
-        Err(err) => {
-            return Err(StdError::GenericErr {
-                msg: err.to_string(),
-            })
-        }
-    };
+        //Set position's debt to the debt + accrued_interest
+        position.credit_amount = new_credit_amount;
+
+        //Add accrued interest to the basket's debt cap
+        match update_basket_debt(
+            storage,
+            env.clone(),
+            querier,
+            config.clone(),
+            basket,
+            position.clone().collateral_assets,
+            accrued_interest,
+            true,
+            true,
+        ) {
+            Ok(_ok) => {}
+            Err(err) => {
+                return Err(StdError::GenericErr {
+                    msg: err.to_string(),
+                })
+            }
+        };
+    }
+    
 
     Ok(())
 }

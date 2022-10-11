@@ -2,7 +2,7 @@ use membrane::types::{FeeEvent, StakeDeposit};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Decimal, Uint128};
+use cosmwasm_std::Uint128;
 use cw_storage_plus::Item;
 
 use membrane::staking::Config;

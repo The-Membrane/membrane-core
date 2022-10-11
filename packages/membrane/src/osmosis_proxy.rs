@@ -10,9 +10,10 @@ pub struct InstantiateMsg {}
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     CreateDenom {
-        subdenom: String,
-        basket_id: String,
+        subdenom: String,        
         max_supply: Option<Uint128>,
+        //For response
+        basket_id: String,
         liquidity_multiplier: Option<Decimal>,
     },
     ChangeAdmin {
@@ -73,11 +74,6 @@ pub struct Config {
 }
 
 // We define a custom struct for each query response
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct ConfigResponse {
-    pub owners: Vec<String>,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct GetDenomResponse {
     pub denom: String,

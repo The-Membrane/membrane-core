@@ -924,18 +924,7 @@ fn deposit_fee(
     //Load Stakers
     let stakers = STAKED.load(deps.storage)?;
 
-    //Filter for fee events that are after the earliest deposit to trim state
-    if stakers != vec![] {
-        fee_events = fee_events.clone()
-            .into_iter()
-            .filter(|event| event.time_of_event > stakers[0].stake_time)
-            .collect::<Vec<FeeEvent>>();
-    }
-    //In a situation where no one is staked the contract will need to be upgraded to handle its assets
-    //This won't happen as long as the builder's allcoaiton is vesting so the functionality isn't necessary rn
-
-    //Save new List of Events
-    FEE_EVENTS.save(deps.storage, &fee_events)?;
+    trim_fee_events(deps.storage, fee_events, stakers.clone())?;
 
     let string_fee_assets = fee_assets
         .into_iter()
@@ -1306,10 +1295,35 @@ fn get_user_claimables(
         stake_time: env.block.time.seconds(),
         unstake_start_time: None,
     });
+
+    trim_fee_events(storage, fee_events, new_deposits.clone())?;
+
     //Save new StakeDeposit list
     STAKED.save(storage, &new_deposits)?;
 
     Ok((claimables, accrued_interest))
+}
+
+fn trim_fee_events(
+    storage: &mut dyn Storage,
+    mut fee_events: Vec<FeeEvent>,
+    stakers: Vec<StakeDeposit>,
+) -> StdResult<()>{
+
+    //Filter for fee events that are after the earliest deposit to trim state
+    if stakers != vec![] {
+        fee_events = fee_events.clone()
+            .into_iter()
+            .filter(|event| event.time_of_event > stakers[0].stake_time)
+            .collect::<Vec<FeeEvent>>();
+    }
+    //In a situation where no one is staked the contract will need to be upgraded to handle its assets
+    //This won't happen as long as the builder's allcoaiton is vesting so the functionality isn't necessary rn
+    
+    //Save Fee events
+    FEE_EVENTS.save(storage, &fee_events)?;
+
+    Ok(())
 }
 
 //Get deposit's claimable fee based on which FeeEvents it experienced

@@ -455,7 +455,7 @@ fn deposit_fee() {
         ]
     );
 
-    //Query and Assert totals
+    //Query and Assert totals from FeeEvents
     let res = query(
         deps.as_ref(),
         mock_env(),
@@ -891,7 +891,7 @@ fn claim_rewards() {
     );
 
     //SendTo
-    //Every year's stake was claimed, that's why it mints 1_000_000
+    //Every year's stake was claimed, that's why it only mints 1_000_000
     let msg = ExecuteMsg::ClaimRewards {
         claim_as_cw20: None,
         claim_as_native: None,

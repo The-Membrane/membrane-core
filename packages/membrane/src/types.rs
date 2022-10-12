@@ -250,7 +250,7 @@ pub struct Position {
     pub position_id: Uint128,
     pub collateral_assets: Vec<cAsset>,
     pub credit_amount: Uint128,
-    pub basket_id: Uint128,
+    pub basket_id: Uint128, 
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -281,6 +281,9 @@ pub struct SupplyCap {
     pub debt_total: Uint128,
     pub supply_cap_ratio: Decimal,    
     pub lp: bool,
+    //Optional debt cap ratio based on Stability Pool Liquidity
+    //If None, debt cap is based on proportion of TVL
+    pub stability_pool_ratio_for_debt_cap: Option<Decimal>,     
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

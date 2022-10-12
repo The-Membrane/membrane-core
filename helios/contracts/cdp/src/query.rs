@@ -1289,14 +1289,24 @@ fn get_basket_debt_caps_imut(
         get_asset_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?
             * credit_asset_multiplier;
 
+    //Get SP liquidity
+    let sp_liquidity = get_stability_pool_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?;
+
     //Add SP liquidity to the cap
-    debt_cap +=
-        get_stability_pool_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?;
+    debt_cap += sp_liquidity;
 
 
     //If debt cap is less than the minimum, set it to the minimum
     if debt_cap < (config.base_debt_cap_multiplier * config.debt_minimum) {
         debt_cap = (config.base_debt_cap_multiplier * config.debt_minimum);
+    }
+
+     //Don't double count debt btwn Stability Pool based ratios and TVL based ratios
+     for cap in basket.clone().collateral_supply_caps {
+        //If the cap is based on sp_liquidity, subtract its value from the debt_cap
+        if let Some(sp_ratio) = cap.stability_pool_ratio_for_debt_cap {
+            debt_cap -= decimal_multiplication(Decimal::from_ratio(sp_liquidity, Uint128::new(1)), sp_ratio) * Uint128::new(1);
+        }
     }
 
     let mut per_asset_debt_caps = vec![];
@@ -1310,6 +1320,12 @@ fn get_basket_debt_caps_imut(
                     .is_zero()
                 {
                     per_asset_debt_caps.push(Uint128::zero());
+
+                } else if let Some(sp_ratio) = basket.clone().collateral_supply_caps[i].stability_pool_ratio_for_debt_cap{
+                    //If cap is supposed to be based off of a ratio of SP liquidity, calculate                                
+                    per_asset_debt_caps.push(
+                        decimal_multiplication(Decimal::from_ratio(sp_liquidity, Uint128::new(1)), sp_ratio) * Uint128::new(1)
+                    );
                 } else {
                     per_asset_debt_caps.push(cAsset * debt_cap);
                 }

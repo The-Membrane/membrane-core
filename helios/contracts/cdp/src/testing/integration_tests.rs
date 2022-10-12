@@ -455,7 +455,7 @@ mod tests {
                             info: AssetInfo::NativeToken {
                                 denom: "cdt".to_string(),
                             },
-                            amount: Uint128::zero(),
+                            amount: Uint128::new(50_000),
                         },
                         liq_premium: Decimal::percent(10),
                         deposits: vec![],
@@ -1726,6 +1726,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::Token {
@@ -1735,6 +1736,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
                 base_interest_rate: Some(Decimal::percent(2)),
@@ -2083,6 +2085,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -2092,6 +2095,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
                 base_interest_rate: Some(Decimal::percent(10)),
@@ -2298,6 +2302,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::Token {
@@ -2307,6 +2312,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
                 base_interest_rate: Some(Decimal::percent(10)),
@@ -2377,6 +2383,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -2625,6 +2632,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -2634,6 +2642,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -2643,6 +2652,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -2652,6 +2662,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
                 base_interest_rate: Some(Decimal::percent(10)),
@@ -3054,6 +3065,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -3063,6 +3075,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -3072,6 +3085,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -3081,6 +3095,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
                 base_interest_rate: Some(Decimal::percent(10)),
@@ -3255,6 +3270,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -3429,6 +3445,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -3575,6 +3592,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: Some(Decimal::percent(10)),
                 desired_debt_cap_util: None,
@@ -3754,6 +3772,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -3763,6 +3782,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -3772,6 +3792,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -3781,6 +3802,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
                 base_interest_rate: Some(Decimal::percent(10)),
@@ -3970,6 +3992,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: Some(Decimal::percent(10)),
                 desired_debt_cap_util: None,
@@ -4081,6 +4104,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -4208,6 +4232,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -4299,6 +4324,7 @@ mod tests {
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
                 vec![coin(2000, "debit")]
             );
+        
 
             /////////SP Errors////
             ///
@@ -4321,6 +4347,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -4427,6 +4454,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -4536,6 +4564,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -4653,6 +4682,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -4768,6 +4798,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -4904,6 +4935,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -5139,6 +5171,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -5148,6 +5181,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -5157,6 +5191,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -5166,6 +5201,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
                 base_interest_rate: None,
@@ -5176,7 +5212,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Initial Deposit
+            //1st Deposit
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 basket_id: Uint128::from(1u128),
@@ -5187,7 +5223,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "debit".to_string(),
-                        amount: Uint128::from(10_000_000u128),
+                        amount: Uint128::new(10_000_000),
                     }],
                 )
                 .unwrap();
@@ -5245,7 +5281,7 @@ mod tests {
                 String::from("debit: 83332/83331, base: 83331/83331, quote: 83331/83331, ")
             );
 
-            //Partially withdraw 1st Deposit
+            //Completely withdraw 1st Deposit
             let assets: Vec<Asset> = vec![Asset {
                 info: AssetInfo::NativeToken {
                     denom: "debit".to_string(),
@@ -5277,6 +5313,108 @@ mod tests {
         }
 
         #[test]
+        fn stability_pool_based_debt_caps() {
+            let (mut app, cdp_contract, lq_contract, cw20_addr) =
+                proper_instantiate(false, true, false, false);
+
+            let res: Config = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
+                .unwrap();
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
+
+            //Add general parameters and SupplyCaps
+            let msg = ExecuteMsg::EditBasket {
+                basket_id: Uint128::new(1u128),
+                added_cAsset: Some(cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "double_debit".to_string(),
+                        },
+                        amount: Uint128::zero(),
+                    },
+                    max_borrow_LTV: Decimal::percent(40),
+                    max_LTV: Decimal::percent(60),
+                    pool_info: None,
+                    rate_index: Decimal::one(),
+                }),
+                owner: None,
+                liq_queue: Some(lq_contract.addr().to_string()),
+                liquidity_multiplier: Some(Decimal::percent(500)),
+                credit_pool_ids: Some(vec![1u64]),
+                collateral_supply_caps: Some(vec![
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "debit".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: Some( Decimal::percent(33) ),
+                    },
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "double_debit".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(50),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    }
+                ]),
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Initial Deposit
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some("bigger_bank".to_string()),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg,
+                    vec![Coin {
+                        denom: "debit".to_string(),
+                        amount: Uint128::new(10_000_000),
+                        },
+                        Coin {
+                            denom: "double_debit".to_string(),
+                            amount: Uint128::new(10_000_000),
+                        }
+                        ],
+                )
+                .unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            
+            //Query Basket Debt Caps
+            //Debit is based on SP liquidity
+            //double_debit is half of total debt cap
+            let query_msg = QueryMsg::GetBasketDebtCaps {
+                basket_id: Uint128::new(1u128),
+            };
+            let res: DebtCapResponse = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(
+                res.caps,
+                String::from("debit: 0/16500, double_debit: 0/141747, ")
+            );
+
+        }
+
+        #[test]
         fn bad_debt() {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, true, false, false);
@@ -5305,6 +5443,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -5401,6 +5540,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -5536,6 +5676,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -5545,6 +5686,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
                 base_interest_rate: None,
@@ -5645,6 +5787,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -5654,6 +5797,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
                 base_interest_rate: None,
@@ -5828,6 +5972,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(99),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -5837,6 +5982,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(49),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -5846,6 +5992,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(49),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -5855,6 +6002,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
                 base_interest_rate: None,
@@ -6072,6 +6220,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -6081,6 +6230,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -6090,6 +6240,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -6099,6 +6250,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
                 base_interest_rate: None,
@@ -6203,6 +6355,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -6304,6 +6457,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -6329,6 +6483,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -6626,6 +6781,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -6635,6 +6791,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
                 base_interest_rate: None,
@@ -6739,6 +6896,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -6828,6 +6986,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -6896,6 +7055,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -7010,6 +7170,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -7019,6 +7180,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
                 base_interest_rate: None,
@@ -7073,6 +7235,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -7082,6 +7245,7 @@ mod tests {
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
                         lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
                 base_interest_rate: None,
@@ -7172,6 +7336,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 },
                 SupplyCap {
                     asset_info: AssetInfo::NativeToken {
@@ -7181,6 +7346,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,
@@ -7215,6 +7381,7 @@ mod tests {
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::percent(0),
                     lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 desired_debt_cap_util: None,

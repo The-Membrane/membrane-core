@@ -172,7 +172,7 @@ pub fn liquidate(
 
     //Get amount of repayment user can repay from the Stability Pool
     let user_repay_amount = get_user_repay_amount(querier, config.clone(), basket.clone(), position_id.clone(), position_owner.clone(), &mut credit_repay_amount, &mut submessages)?;
-
+    
     //Track total leftover repayment after the liq_queue
     let mut liq_queue_leftover_credit_repayment: Decimal = credit_repay_amount;
 
@@ -398,7 +398,7 @@ fn get_user_repay_amount(
             .collect::<Vec<Decimal>>()
             .into_iter()
             .sum();
-
+            
         //If the user has funds, tell the SP to repay and subtract from credit_repay_amount
         if !total_user_deposit.is_zero() {
             //Set Repayment amount to what needs to get liquidated or total_deposits

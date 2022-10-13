@@ -2478,7 +2478,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.caps, String::from("debit: 50000/249995, "));
+            assert_eq!(res.caps, String::from("debit: 50000/299995, "));
 
             //Excess Repayment
             let msg = ExecuteMsg::Repay {
@@ -3234,7 +3234,7 @@ mod tests {
             assert_eq!(
                 format!("{:?}", res.rates),
                 String::from(
-                    "[(NativeToken { denom: \"debit\" }, Decimal(Uint128(141428570000000000))), (NativeToken { denom: \"base\" }, Decimal(Uint128(93335573000000000))), (NativeToken { denom: \"quote\" }, Decimal(Uint128(70001680000000000)))]"
+                    "[(NativeToken { denom: \"debit\" }, Decimal(Uint128(142857142000000000))), (NativeToken { denom: \"base\" }, Decimal(Uint128(93335573000000000))), (NativeToken { denom: \"quote\" }, Decimal(Uint128(70001680000000000)))]"
                 )
             );
 
@@ -3325,7 +3325,7 @@ mod tests {
 
             app.set_block(BlockInfo {
                 height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(31536000u64),
+                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
                 chain_id: app.block_info().chain_id,
             });
             app.execute(Addr::unchecked("test"), cosmos_msg)
@@ -3357,7 +3357,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_price.to_string(), String::from("1.020816326"));
+            assert_eq!(res.credit_price.to_string(), String::from("1.040816326"));
 
             let query_msg = QueryMsg::GetPosition {
                 position_id: Uint128::new(1u128),
@@ -3407,7 +3407,7 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Would normally liquidate and leave 98003 "debit"
-            // but w/ accrued interest its leaving 97926
+            // but w/ accrued interest its leaving 97726
             let query_msg = QueryMsg::GetUserPositions {
                 basket_id: None,
                 user: String::from("test"),
@@ -3420,7 +3420,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res[0].collateral_assets[0].asset.amount,
-                Uint128::new(97926)
+                Uint128::new(97726)
             );           
 
             //////////////NEGATIVE RATES///////
@@ -3511,7 +3511,7 @@ mod tests {
 
             //Successful repayment up to the new minimum debt
             //With repayment price decreases, the amount being repaid doesn't change..
-            //..but the amount that results in minimum debt errors increases from 2000
+            //..but the amount that results in minimum debt errors increases from 2000 to 2002
             let msg = ExecuteMsg::Repay {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
@@ -3542,7 +3542,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_price.to_string(), String::from("0.9699"));
+            assert_eq!(res.credit_price.to_string(), String::from("0.94"));
 
             let query_msg = QueryMsg::GetPosition {
                 position_id: Uint128::new(1u128),
@@ -3555,7 +3555,7 @@ mod tests {
                 .unwrap();
             assert_eq!(res.credit_amount, Uint128::new(50001));
 
-            // //Query Redemption Rate/Repayment Interest
+            //Query Redemption Rate/Repayment Interest
             let resp: InterestResponse = app
             .wrap()
             .query_wasm_smart(cdp_contract.addr(), &QueryMsg::GetBasketInterest { basket_id: Uint128::new(1u128) })
@@ -3563,7 +3563,7 @@ mod tests {
 
             assert_eq!(
                 resp.credit_interest.to_string(),
-                String::from("0.041654809"),
+                String::from("0.085106382"),
             );
             assert_eq!(
                 resp.negative_rate,
@@ -3632,7 +3632,7 @@ mod tests {
 
             //Assert interest rates decreased from the negative redemption rate
             //Base rate is 14285714000000000
-            //Accrued rate is 141428570000000000
+            //Accrued rate is 139999999000000000
             let query_msg = QueryMsg::GetCollateralInterest {
                 basket_id: Uint128::new(1u128),
             };
@@ -3648,10 +3648,9 @@ mod tests {
             assert_eq!(
                 format!("{:?}", res.rates),
                 String::from(
-                    "[(NativeToken { denom: \"debit\" }, Decimal(Uint128(141428570000000000)))]"
+                    "[(NativeToken { denom: \"debit\" }, Decimal(Uint128(139999999000000000)))]"
                 )
             );
-
             
         }
 
@@ -5234,7 +5233,7 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(249_996u128),
+                amount: Uint128::from(299_996u128),
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
@@ -5278,7 +5277,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 83332/83331, base: 83331/83331, quote: 83331/83331, ")
+                String::from("debit: 83332/99997, base: 83331/99997, quote: 83331/99997, ")
             );
 
             //Completely withdraw 1st Deposit
@@ -5308,7 +5307,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 0/0, base: 124996/124997, quote: 124996/124997, ")
+                String::from("debit: 0/0, base: 124996/149997, quote: 124996/149997, ")
             );
         }
 
@@ -6086,7 +6085,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 0/83331, base: 0/83331, quote: 0/83331, ")
+                String::from("debit: 0/99997, base: 0/99997, quote: 0/99997, ")
             );
 
             //Successful Withdraw uneffected by caps
@@ -7209,7 +7208,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.caps, String::from("debit: 0/49999, 2nddebit: 0/0, "));
+            assert_eq!(res.caps, String::from("debit: 0/99999, 2nddebit: 0/0, "));
 
             //Clone Basket
             let msg = ExecuteMsg::CloneBasket {
@@ -7288,11 +7287,11 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 0/23696, 2nddebit: 0/23696, ")
+                String::from("debit: 0/47392, 2nddebit: 0/47392, ")
             );
 
             //Query Basket Debt Caps
-            //Has less than minimum, ~2000, so gets 42000
+            //Basket 1 has less than minimum cap, ~2000, so gets 42000
             //Has no 2nddebit collateral so gets no cap
             let query_msg = QueryMsg::GetBasketDebtCaps {
                 basket_id: Uint128::new(1u128),

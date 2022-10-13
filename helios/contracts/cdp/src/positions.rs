@@ -2918,8 +2918,12 @@ fn get_basket_debt_caps(
     //Get SP liquidity
     let sp_liquidity = get_stability_pool_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?;
 
-    //Add SP liquidity to the cap
-    debt_cap += sp_liquidity;
+    //Add basket's ratio of SP liquidity to the cap
+    //Ratio is based off of its ratio of the total credit_asset_multiplier
+    debt_cap += decimal_multiplication(
+        Decimal::from_ratio(sp_liquidity, Uint128::new(1)), 
+        decimal_division(credit_asset_multiplier, CREDIT_MULTI.load(storage, basket.clone().credit_asset.info.to_string())?) 
+    ) * Uint128::new(1);
     
 
     //If debt cap is less than the minimum, set it to the minimum
@@ -3877,8 +3881,6 @@ pub fn accrue(
 
         //Don't accrue interest if price is within the margin of error
         if price_difference > config.clone().cpc_margin_of_error {
-            price_difference =
-                decimal_subtraction(price_difference, config.clone().cpc_margin_of_error);
 
             //Calculate rate of change
             let mut applied_rate: Decimal;

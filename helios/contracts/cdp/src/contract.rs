@@ -251,7 +251,8 @@ pub fn execute(
             basket_id,
             position_id,
             amount,
-        } => increase_debt(deps, env, info, basket_id, position_id, amount),
+            mint_to_addr
+        } => increase_debt(deps, env, info, basket_id, position_id, amount, mint_to_addr),
         ExecuteMsg::Repay {
             basket_id,
             position_id,

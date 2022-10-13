@@ -63,6 +63,7 @@ pub enum ExecuteMsg {
         basket_id: Uint128,
         position_id: Uint128,
         amount: Uint128,
+        mint_to_addr: Option<String>,
     },
     Withdraw {
         basket_id: Uint128,

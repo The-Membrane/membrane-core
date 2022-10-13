@@ -1024,6 +1024,7 @@ pub fn increase_debt(
     basket_id: Uint128,
     position_id: Uint128,
     amount: Uint128,
+    mint_to_addr: Option<String>,
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
 
@@ -1078,10 +1079,18 @@ pub fn increase_debt(
         {
             return Err(ContractError::PositionInsolvent {});
         } else {
+            //Set recipient
+            let recipient = {
+                if let Some(mint_to) = mint_to_addr {
+                    deps.api.addr_validate(&mint_to)?
+                } else {
+                    info.clone().sender
+                }
+            };
             message = credit_mint_msg(
                 config.clone(),
                 basket.clone().credit_asset,
-                info.sender.clone(),
+                recipient,
             )?;
 
             //Add credit amount to the position

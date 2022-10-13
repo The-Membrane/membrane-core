@@ -4961,6 +4961,7 @@ mod tests {
                 collateral_twap_timeframe: None,
                 credit_twap_timeframe: None,
                 cpc_margin_of_error: None,
+                cpc_multiplier: None,
                 rate_slope_multiplier: None,
                 liquidity_contract: None,
             };
@@ -6620,7 +6621,8 @@ mod tests {
                 oracle_time_limit: Some(33u64), 
                 credit_twap_timeframe: Some(33u64), 
                 collateral_twap_timeframe: Some(33u64), 
-                cpc_margin_of_error: Some(Decimal::percent(2)), 
+                cpc_margin_of_error: Some(Decimal::percent(2)),
+                cpc_multiplier: Some(Decimal::percent(50)),
                 rate_slope_multiplier: Some(Decimal::percent(2)), 
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -6651,6 +6653,7 @@ mod tests {
                     credit_twap_timeframe: 33u64, 
                     collateral_twap_timeframe: 33u64, 
                     cpc_margin_of_error: Decimal::percent(2), 
+                    cpc_multiplier: Decimal::percent(50),
                     rate_slope_multiplier: Decimal::percent(2), 
                 }
             );

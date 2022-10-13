@@ -49,6 +49,7 @@ pub enum ExecuteMsg {
         credit_twap_timeframe: Option<u64>,
         collateral_twap_timeframe: Option<u64>,
         cpc_margin_of_error: Option<Decimal>,
+        cpc_multiplier: Option<Decimal>,
         rate_slope_multiplier: Option<Decimal>,
     },
     Receive(Cw20ReceiveMsg),
@@ -228,6 +229,8 @@ pub struct Config {
     //% difference btwn credit TWAP and repayment price before the interest changes
     //Set to 100 if you want to turn off the PID
     pub cpc_margin_of_error: Decimal,
+    //Augment the rate of increase per % difference for the redemption rate
+    pub cpc_multiplier: Decimal,
     //This needs to be large enough so that USDC positions are profitable to liquidate,
     //1-2% of liquidated debt (max -> borrow_LTV) needs to be more than gas fees assuming ~98% LTV.
     pub debt_minimum: Uint128, //Debt minimum value per position.

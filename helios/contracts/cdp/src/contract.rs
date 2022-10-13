@@ -61,6 +61,7 @@ pub fn instantiate(
         liquidity_contract: None,
         oracle_time_limit: msg.oracle_time_limit,
         cpc_margin_of_error: Decimal::percent(1),
+        cpc_multiplier: Decimal::one(),
         rate_slope_multiplier: Decimal::one(),
         debt_minimum: msg.debt_minimum,
         base_debt_cap_multiplier: Uint128::new(21u128),
@@ -168,6 +169,7 @@ pub fn execute(
             collateral_twap_timeframe,
             credit_twap_timeframe,
             cpc_margin_of_error,
+            cpc_multiplier,
             rate_slope_multiplier,
         } => update_config(
             deps,
@@ -188,6 +190,7 @@ pub fn execute(
             collateral_twap_timeframe,
             credit_twap_timeframe,
             cpc_margin_of_error,
+            cpc_multiplier,
             rate_slope_multiplier,
         ),
         ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
@@ -487,6 +490,7 @@ fn update_config(
     collateral_twap_timeframe: Option<u64>,
     credit_twap_timeframe: Option<u64>,
     cpc_margin_of_error: Option<Decimal>,
+    cpc_multiplier: Option<Decimal>,
     rate_slope_multiplier: Option<Decimal>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
@@ -498,152 +502,108 @@ fn update_config(
 
     let mut attrs = vec![attr("method", "update_config")];
 
-    //Match Optionals
-    match owner {
-        Some(owner) => {
-            let valid_addr = deps.api.addr_validate(&owner)?;
-            config.owner = valid_addr.clone();
-            attrs.push(attr("new_owner", valid_addr.to_string()));
-        }
-        None => {}
+    //Set Optionals
+    if let Some(owner) = owner{
+        let valid_addr = deps.api.addr_validate(&owner)?;
+        config.owner = valid_addr.clone();
+        attrs.push(attr("new_owner", valid_addr.to_string()));
     }
-    match stability_pool {
-        Some(stability_pool) => {
-            let valid_addr = deps.api.addr_validate(&stability_pool)?;
-            config.stability_pool = Some(valid_addr.clone());
-            attrs.push(attr("new_stability_pool", valid_addr.to_string()));
-        }
-        None => {}
+    if let Some(stability_pool) = stability_pool {
+        let valid_addr = deps.api.addr_validate(&stability_pool)?;
+        config.stability_pool = Some(valid_addr.clone());
+        attrs.push(attr("new_stability_pool", valid_addr.to_string()));
     }
-    match dex_router {
-        Some(dex_router) => {
-            let valid_addr = deps.api.addr_validate(&dex_router)?;
-            config.dex_router = Some(valid_addr.clone());
-            attrs.push(attr("new_dex_router", valid_addr.to_string()));
-        }
-        None => {}
+    if let Some(dex_router) = dex_router {
+        let valid_addr = deps.api.addr_validate(&dex_router)?;
+        config.dex_router = Some(valid_addr.clone());
+        attrs.push(attr("new_dex_router", valid_addr.to_string()));
     }
-    match osmosis_proxy {
-        Some(osmosis_proxy) => {
-            let valid_addr = deps.api.addr_validate(&osmosis_proxy)?;
-            config.osmosis_proxy = Some(valid_addr.clone());
-            attrs.push(attr("new_osmosis_proxy", valid_addr.to_string()));
-        }
-        None => {}
+    if let Some(osmosis_proxy) = osmosis_proxy {
+        let valid_addr = deps.api.addr_validate(&osmosis_proxy)?;
+        config.osmosis_proxy = Some(valid_addr.clone());
+        attrs.push(attr("new_osmosis_proxy", valid_addr.to_string()));
     }
-    match debt_auction {
-        Some(debt_auction) => {
-            let valid_addr = deps.api.addr_validate(&debt_auction)?;
-            config.debt_auction = Some(valid_addr.clone());
-            attrs.push(attr("new_debt_auction", valid_addr.to_string()));
-        }
-        None => {}
+    if let Some(debt_auction) = debt_auction {
+        let valid_addr = deps.api.addr_validate(&debt_auction)?;
+        config.debt_auction = Some(valid_addr.clone());
+        attrs.push(attr("new_debt_auction", valid_addr.to_string()));
     }
-    match staking_contract {
-        Some(staking_contract) => {
-            let valid_addr = deps.api.addr_validate(&staking_contract)?;
-            config.staking_contract = Some(valid_addr.clone());
-            attrs.push(attr("new_staking_contract", valid_addr.to_string()));
-        }
-        None => {}
+    if let Some(staking_contract) = staking_contract {
+        let valid_addr = deps.api.addr_validate(&staking_contract)?;
+        config.staking_contract = Some(valid_addr.clone());
+        attrs.push(attr("new_staking_contract", valid_addr.to_string()));
     }
-    match oracle_contract {
-        Some(oracle_contract) => {
-            let valid_addr = deps.api.addr_validate(&oracle_contract)?;
-            config.oracle_contract = Some(valid_addr.clone());
-            attrs.push(attr("new_oracle_contract", valid_addr.to_string()));
-        }
-        None => {}
+    if let Some(oracle_contract) = oracle_contract {
+        let valid_addr = deps.api.addr_validate(&oracle_contract)?;
+        config.oracle_contract = Some(valid_addr.clone());
+        attrs.push(attr("new_oracle_contract", valid_addr.to_string()));
     }
-    match liquidity_contract {
-        Some(liquidity_contract) => {
-            let valid_addr = deps.api.addr_validate(&liquidity_contract)?;
-            config.liquidity_contract = Some(valid_addr.clone());
-            attrs.push(attr("new_liquidity_contract", valid_addr.to_string()));
-        }
-        None => {}
+    if let Some(liquidity_contract) = liquidity_contract {
+        let valid_addr = deps.api.addr_validate(&liquidity_contract)?;
+        config.liquidity_contract = Some(valid_addr.clone());
+        attrs.push(attr("new_liquidity_contract", valid_addr.to_string()));
     }
-    match interest_revenue_collector {
-        Some(interest_revenue_collector) => {
-            let valid_addr = deps.api.addr_validate(&interest_revenue_collector)?;
-            config.interest_revenue_collector = Some(valid_addr.clone());
+    if let Some(interest_revenue_collector) = interest_revenue_collector {
+        let valid_addr = deps.api.addr_validate(&interest_revenue_collector)?;
+        config.interest_revenue_collector = Some(valid_addr.clone());
+        attrs.push(attr(
+            "new_interest_revenue_collector",
+            valid_addr.to_string(),
+        ));
+    }
+    if let Some(liq_fee) = liq_fee {
+        config.liq_fee = liq_fee.clone();
+        attrs.push(attr("new_liq_fee", liq_fee.to_string()));
+    }
+    if let Some(debt_minimum) = debt_minimum {
+        config.debt_minimum = debt_minimum.clone();
+        attrs.push(attr("new_debt_minimum", debt_minimum.to_string()));
+    }
+    if let Some(base_debt_cap_multiplier) = base_debt_cap_multiplier {
+        config.base_debt_cap_multiplier = base_debt_cap_multiplier.clone();
+        attrs.push(attr(
+            "new_base_debt_cap_multiplier",
+            base_debt_cap_multiplier.to_string(),
+        ));
+    }
+    if let Some(oracle_time_limit) = oracle_time_limit {
+        config.oracle_time_limit = oracle_time_limit.clone();
+        attrs.push(attr("new_oracle_time_limit", oracle_time_limit.to_string()));
+    }
+    if let Some(collateral_twap_timeframe) = collateral_twap_timeframe {
+        config.collateral_twap_timeframe = collateral_twap_timeframe.clone();
+        attrs.push(attr(
+            "new_collateral_twap_timeframe",
+            collateral_twap_timeframe.to_string(),
+        ));
+    }
+    if let Some(credit_twap_timeframe) = credit_twap_timeframe {
+        config.credit_twap_timeframe = credit_twap_timeframe.clone();
+        attrs.push(attr(
+            "new_credit_twap_timeframe",
+            credit_twap_timeframe.to_string(),
+        ));
+    }
+    if let Some(cpc_margin_of_error) = cpc_margin_of_error {
+        config.cpc_margin_of_error = cpc_margin_of_error.clone();
+        attrs.push(attr(
+            "new_cpc_margin_of_error",
+            cpc_margin_of_error.to_string(),
+        ));
+    }
+    if let Some(cpc_multiplier) = cpc_multiplier {
+        config.cpc_multiplier = cpc_multiplier.clone();
             attrs.push(attr(
-                "new_interest_revenue_collector",
-                valid_addr.to_string(),
+                "new_cpc_multiplier",
+                cpc_multiplier.to_string(),
             ));
-        }
-        None => {}
     }
-    match liq_fee {
-        Some(liq_fee) => {
-            config.liq_fee = liq_fee.clone();
-            attrs.push(attr("new_liq_fee", liq_fee.to_string()));
-        }
-        None => {}
-    }
-    match debt_minimum {
-        Some(debt_minimum) => {
-            config.debt_minimum = debt_minimum.clone();
-            attrs.push(attr("new_debt_minimum", debt_minimum.to_string()));
-        }
-        None => {}
-    }
-    match base_debt_cap_multiplier {
-        Some(base_debt_cap_multiplier) => {
-            config.base_debt_cap_multiplier = base_debt_cap_multiplier.clone();
-            attrs.push(attr(
-                "new_base_debt_cap_multiplier",
-                base_debt_cap_multiplier.to_string(),
-            ));
-        }
-        None => {}
-    }
-    match oracle_time_limit {
-        Some(oracle_time_limit) => {
-            config.oracle_time_limit = oracle_time_limit.clone();
-            attrs.push(attr("new_oracle_time_limit", oracle_time_limit.to_string()));
-        }
-        None => {}
-    }
-    match collateral_twap_timeframe {
-        Some(collateral_twap_timeframe) => {
-            config.collateral_twap_timeframe = collateral_twap_timeframe.clone();
-            attrs.push(attr(
-                "new_collateral_twap_timeframe",
-                collateral_twap_timeframe.to_string(),
-            ));
-        }
-        None => {}
-    }
-    match credit_twap_timeframe {
-        Some(credit_twap_timeframe) => {
-            config.credit_twap_timeframe = credit_twap_timeframe.clone();
-            attrs.push(attr(
-                "new_credit_twap_timeframe",
-                credit_twap_timeframe.to_string(),
-            ));
-        }
-        None => {}
-    }
-    match cpc_margin_of_error {
-        Some(cpc_margin_of_error) => {
-            config.cpc_margin_of_error = cpc_margin_of_error.clone();
-            attrs.push(attr(
-                "new_cpc_margin_of_error",
-                cpc_margin_of_error.to_string(),
-            ));
-        }
-        None => {}
-    }
-    match rate_slope_multiplier {
-        Some(rate_slope_multiplier) => {
-            config.rate_slope_multiplier = rate_slope_multiplier.clone();
-            attrs.push(attr(
-                "new_rate_slope_multiplier",
-                rate_slope_multiplier.to_string(),
-            ));
-        }
-        None => {}
+    if let Some(rate_slope_multiplier) = rate_slope_multiplier {
+        config.rate_slope_multiplier = rate_slope_multiplier.clone();
+        attrs.push(attr(
+            "new_rate_slope_multiplier",
+            rate_slope_multiplier.to_string(),
+        ));
     }
 
     //Save new Config

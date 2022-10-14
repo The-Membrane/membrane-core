@@ -58,6 +58,9 @@ pub enum ExecuteMsg {
     },
     //Position's contract deposits liq_fees
     DepositFee {},
+    //Trim FeeEvent state object
+    TrimFeeEvents {},
+
 }
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]

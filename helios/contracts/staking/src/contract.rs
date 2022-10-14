@@ -194,7 +194,8 @@ pub fn execute(
             };
 
             deposit_fee(deps, env, info, fee_assets, false)
-        }
+        },
+        ExecuteMsg::TrimFeeEvents {  } => trim_fee_events(deps.storage, info),
     }
 }
 
@@ -924,7 +925,7 @@ fn deposit_fee(
     //Load Stakers
     let stakers = STAKED.load(deps.storage)?;
 
-    trim_fee_events(deps.storage, fee_events, stakers.clone())?;
+    FEE_EVENTS.save(deps.storage, &fee_events)?;
 
     let string_fee_assets = fee_assets
         .into_iter()
@@ -1296,7 +1297,6 @@ fn get_user_claimables(
         unstake_start_time: None,
     });
 
-    trim_fee_events(storage, fee_events, new_deposits.clone())?;
 
     //Save new StakeDeposit list
     STAKED.save(storage, &new_deposits)?;
@@ -1306,9 +1306,15 @@ fn get_user_claimables(
 
 fn trim_fee_events(
     storage: &mut dyn Storage,
-    mut fee_events: Vec<FeeEvent>,
-    stakers: Vec<StakeDeposit>,
-) -> StdResult<()>{
+    info: MessageInfo,
+) -> Result<Response, ContractError>{
+
+    let config = CONFIG.load(storage)?;
+
+    if info.sender != config.owner{ return Err( ContractError::Unauthorized {  } )}
+
+    let mut fee_events = FEE_EVENTS.load(storage)?;
+    let stakers = STAKED.load(storage)?;
 
     //Filter for fee events that are after the earliest deposit to trim state
     if stakers != vec![] {
@@ -1323,7 +1329,7 @@ fn trim_fee_events(
     //Save Fee events
     FEE_EVENTS.save(storage, &fee_events)?;
 
-    Ok(())
+    Ok(Response::new().add_attribute("trimmed", "true"))
 }
 
 //Get deposit's claimable fee based on which FeeEvents it experienced

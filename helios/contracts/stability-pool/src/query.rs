@@ -204,7 +204,7 @@ pub fn query_deposits(
 
             if deposits.is_empty() {
                 return Err(StdError::GenericErr {
-                    msg: "User has no open positions in this asset pool or the pool doesn't exist"
+                    msg: "User has no open positions in this asset pool"
                         .to_string(),
                 });
             }
@@ -216,8 +216,7 @@ pub fn query_deposits(
         }
         None => {
             Err(StdError::GenericErr {
-                msg: "User has no open positions in this asset pool or the pool doesn't exist"
-                    .to_string(),
+                msg: format!("{} pool doesn't exist", asset_info),
             })
         }
     }

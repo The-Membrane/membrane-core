@@ -895,6 +895,7 @@ pub fn liquidate(
         .filter(|pool| !(pool.credit_asset.info.equal(&credit_asset.info)))
         .collect::<Vec<AssetPool>>();
     temp_pools.push(asset_pool.clone());
+    
     ASSETS.save(deps.storage, &temp_pools)?;
 
     //Build the response
@@ -1120,6 +1121,7 @@ pub fn distribute_funds(
         .into_iter()
         .filter(|deposit| !deposit.equal(&distribution_list))
         .collect::<Vec<Deposit>>();
+        
     //If there is an overlap between the lists. meaning there was a partial usage
     if distribution_list.len() + edited_deposits.len() > asset_pool.deposits.len() {
         edited_deposits[0].amount -= distribution_list[distribution_list.len() - 1].amount;
@@ -1137,7 +1139,7 @@ pub fn distribute_funds(
     //Save pools w/ edited deposits to state
     ASSETS.save(deps.storage, &new_pools)?;
 
-    //create function to find user ratios and distribute collateral based on them
+    //Calc user ratios and distribute collateral based on them
     //Distribute 1 collateral at a time (not pro-rata) for gas and UX optimizations (ie if a user wants to sell they won't have to sell on 4 different pairs)
     //Also bc native tokens come in batches, CW20s come separately
     let (ratios, user_deposits) = get_distribution_ratios(distribution_list.clone())?;
@@ -1153,7 +1155,7 @@ pub fn distribute_funds(
 
     //1) Calc cAsset's ratios of total value
     let mut cAsset_ratios = distribution_asset_ratios;
-
+    
     //2) Split assets to users
     split_assets_to_users(deps.storage, cAsset_ratios, distribution_assets.clone(), distribution_ratios)?;
 
@@ -1753,13 +1755,22 @@ fn split_assets_to_users(
             }
 
             if user_ratio.ratio == cAsset_ratio {
+
+                //Allocate the full ratio worth of asset to the User
+                let send_ratio = user_ratio.ratio;
+                let send_amount = decimal_multiplication(
+                    send_ratio,
+                    Decimal::from_ratio(distribution_assets[index].amount, Uint128::new(1u128)),
+                ) * Uint128::new(1u128);
+
                 //Add all of this asset to existing claims
                 USERS.update(
                     storage,
-                    user_ratio.user,
+                    user_ratio.clone().user,
                     |user: Option<User>| -> Result<User, ContractError> {
                         match user {
                             Some(mut some_user) => {
+                                
                                 //Find Asset in user state
                                 match some_user
                                     .clone()
@@ -1769,8 +1780,9 @@ fn split_assets_to_users(
                                         asset.info.equal(&distribution_assets[index].info)
                                     }) {
                                     Some(mut asset) => {
+                                        
                                         //Add claim amount to the asset object
-                                        asset.amount += distribution_assets[index].amount;
+                                        asset.amount += send_amount;                                        
 
                                         //Create a replacement object for "user" since we can't edit in place
                                         let mut temp_assets: Vec<Asset> = some_user
@@ -1786,7 +1798,7 @@ fn split_assets_to_users(
                                     None => {
                                         some_user.claimable_assets.push(Asset {
                                             info: distribution_assets[index].clone().info,
-                                            amount: distribution_assets[index].clone().amount,
+                                            amount: send_amount,
                                         });
                                     }
                                 }
@@ -1798,7 +1810,7 @@ fn split_assets_to_users(
                                 Ok(User {
                                     claimable_assets: vec![Asset {
                                         info: distribution_assets[index].clone().info,
-                                        amount: distribution_assets[index].clone().amount,
+                                        amount: send_amount,
                                     }],
                                 })
                             }
@@ -1811,13 +1823,14 @@ fn split_assets_to_users(
 
                 break;
             } else if user_ratio.ratio < cAsset_ratio {
-                //Add full user ratio of the asset
-                let send_ratio = decimal_division(user_ratio.ratio, cAsset_ratio);
+
+                //Allocatie full user ratio of the asset
+                let send_ratio = user_ratio.ratio;
                 let send_amount = decimal_multiplication(
                     send_ratio,
                     Decimal::from_ratio(distribution_assets[index].amount, Uint128::new(1u128)),
                 ) * Uint128::new(1u128);
-
+                                
                 //Add to existing user claims
                 USERS.update(
                     storage,
@@ -1855,6 +1868,7 @@ fn split_assets_to_users(
                                 Ok(user)
                             }
                             None => {
+                                if send_amount == Uint128::new(10_000_000) {panic!("2: {}", user_ratio.clone().user)}
                                 //Create object for user
                                 Ok(User {
                                     claimable_assets: vec![Asset {
@@ -1868,13 +1882,18 @@ fn split_assets_to_users(
                 )?;
 
                 //Set cAsset_ratio to the difference
-                cAsset_ratio = decimal_subtraction(cAsset_ratio, user_ratio.ratio);
-                //This says unread but changing it to cAsset_ratios[index] breaks the functionality
-                //Ignore warning
+                cAsset_ratio = decimal_subtraction(cAsset_ratio, send_ratio);
+                cAsset_ratios[index] = cAsset_ratio;
 
                 break;
             } else if user_ratio.ratio > cAsset_ratio {
-                //Add all of this asset
+                //Allocate all of this ratio of the asset to the User
+                let send_ratio = cAsset_ratio;
+                let send_amount = decimal_multiplication(
+                    send_ratio,
+                    Decimal::from_ratio(distribution_assets[index].amount, Uint128::new(1u128)),
+                ) * Uint128::new(1u128);
+
                 //Add to existing user claims
                 USERS.update(
                     storage,
@@ -1882,12 +1901,13 @@ fn split_assets_to_users(
                     |user| -> Result<User, ContractError> {
                         match user {
                             Some(mut user) => {
+                                
                                 //Find Asset in user state
                                 match user.clone().claimable_assets.into_iter().find(|asset| {
                                     asset.info.equal(&distribution_assets[index].info)
                                 }) {
                                     Some(mut asset) => {
-                                        asset.amount += distribution_assets[index].amount;
+                                        asset.amount += send_amount;
 
                                         //Create a replacement object for "user" since we can't edit in place
                                         let mut temp_assets: Vec<Asset> = user
@@ -1903,7 +1923,7 @@ fn split_assets_to_users(
                                     None => {
                                         user.claimable_assets.push(Asset {
                                             info: distribution_assets[index].clone().info,
-                                            amount: distribution_assets[index].clone().amount,
+                                            amount: send_amount,
                                         });
                                     }
                                 }
@@ -1915,7 +1935,7 @@ fn split_assets_to_users(
                                 Ok(User {
                                     claimable_assets: vec![Asset {
                                         info: distribution_assets[index].clone().info,
-                                        amount: distribution_assets[index].clone().amount,
+                                        amount: send_amount,
                                     }],
                                 })
                             }

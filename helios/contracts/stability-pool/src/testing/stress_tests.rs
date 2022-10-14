@@ -1,47 +1,18 @@
 use crate::contract::{execute, instantiate, query};
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockApi, MockQuerier};
-use cosmwasm_std::{coin, coins, from_binary, Decimal, MemoryStorage, OwnedDeps, Uint128};
+use cosmwasm_std::{ Addr, coin, coins, from_binary, Decimal, MemoryStorage, OwnedDeps, Uint128};
 use membrane::stability_pool::{
-    ClaimsResponse, DepositResponse, ExecuteMsg, InstantiateMsg, QueryMsg,
+    ClaimsResponse, PoolResponse, ExecuteMsg, InstantiateMsg, QueryMsg,
 };
 use membrane::types::{Asset, AssetInfo, AssetPool, LiqAsset};
 
-const ITERATIONS: u32 = 100u32;
+const ITERATIONS: u32 = 1u32;
 
 #[test]
 fn stress_tests() {
-    // submit bids and execute liquidations repeatedly
-    // we can alternate larger and smaller executions to decrease the bid_pool product at different rates
-
-    // with very tight liquidations, constatly resetting product
-    // 1M USD bids
-    simulate_bids_with_2_liq_amounts(ITERATIONS, 1000000000000u128, 49999999999, 49999999990);
-    // 10 USD bids
-    simulate_bids_with_2_liq_amounts(ITERATIONS, 10000000u128, 499999, 499999);
-
-    // with greater asset price (10k USD per collateral)
-    // 1M USD bids
-    simulate_bids_with_2_liq_amounts(ITERATIONS, 1_000_000_000_000_u128, 99999999, 99999999);
-    // 10,001 USD bids
-    simulate_bids_with_2_liq_amounts(ITERATIONS, 10001000000u128, 1000000, 1000000);
-
-    // alternate tight executions
-    // 1M USD bids
-    simulate_bids_with_2_liq_amounts(ITERATIONS, 1000000000000u128, 19999999999, 19900000000);
-    // 100 USD bids
-    simulate_bids_with_2_liq_amounts(ITERATIONS, 100000000u128, 1999999, 1900000);
-
-    // 100k USD bids with very tight liquidations
-    simulate_bids_with_2_liq_amounts(ITERATIONS, 100000000000u128, 999999999, 999999999);
-
-    // 1M USD bids
-    simulate_bids_with_2_liq_amounts(
-        ITERATIONS,
-        1_000_000_000_000_u128,
-        999999999900, // 10 micros of residue
-        999999999999, // no residue
-    );
+    //Submit deposits and distribute for unique users
+    simulate_bids_with_2_liq_amounts(ITERATIONS, 1u128, 1000, 1000);
 }
 
 fn instantiate_and_whitelist(deps: &mut OwnedDeps<MemoryStorage, MockApi, MockQuerier>) {
@@ -89,17 +60,19 @@ fn simulate_bids_with_2_liq_amounts(
     let mut total_bids = 0u128;
 
     for i in 0..iterations {
-        //Bidders
-        let deposit_msg = ExecuteMsg::Deposit {
-            assets: vec![AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            }],
-            user: None,
-        };
-        let bid_info = mock_info("bidder0000", &[coin(bid_amount, "credit")]);
-        execute(deps.as_mut(), mock_env(), bid_info.clone(), deposit_msg).unwrap();
+        for i in 0..liq_amount_1 {
+            //Bidders
+            let deposit_msg = ExecuteMsg::Deposit {
+                assets: vec![AssetInfo::NativeToken {
+                    denom: "credit".to_string(),
+                }],
+                user: None,
+            };
+            let bid_info = mock_info(&format!("bidder{}", i), &[coin(bid_amount, "credit")]);
+            execute(deps.as_mut(), mock_env(), bid_info.clone(), deposit_msg).unwrap();
 
-        total_bids += bid_amount;
+            total_bids += bid_amount;
+        }
 
         if i % 2 == 0 {
             let liq_amount = Decimal::from_ratio(Uint128::new(liq_amount_1), Uint128::new(1u128));
@@ -198,33 +171,41 @@ fn simulate_bids_with_2_liq_amounts(
         }
     }
 
-    //Query and assert User claimables
-    let res = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::UserClaims {
-            user: "bidder0000".to_string(),
-        },
-    )
-    .unwrap();
+    for i in 0..liq_amount_1 {    
+        //Query and assert User claimables
+        let res = query(
+            deps.as_ref(),
+            mock_env(),
+            QueryMsg::UserClaims {
+                user: format!("bidder{}", i),
+            },
+        )
+        .unwrap();
 
-    let resp: ClaimsResponse = from_binary(&res).unwrap();
+        let resp: ClaimsResponse = from_binary(&res).unwrap();
 
-    assert_eq!(
-        resp.claims[0].to_string(),
-        format!("{} debit", total_distributed)
-    );
-    assert_eq!(
-        resp.claims[1].to_string(),
-        format!("{} 2nddebit", total_distributed)
-    );
+        if i < liq_amount_1/2 {
+
+            assert_eq!(
+                resp.claims[0].to_string(),
+                format!("{} debit", total_distributed/Uint128::new(liq_amount_1))
+            );
+
+        } else {
+
+            assert_eq!(
+                resp.claims[0].to_string(),
+                format!("{} 2nddebit", total_distributed/Uint128::new(liq_amount_1))
+            );
+        }
+        
+    }
 
     //Query position data to make sure leftover is leftover
     let res = query(
         deps.as_ref(),
         mock_env(),
-        QueryMsg::AssetDeposits {
-            user: "bidder0000".to_string(),
+        QueryMsg::AssetPool {
             asset_info: AssetInfo::NativeToken {
                 denom: "credit".to_string(),
             },
@@ -232,15 +213,11 @@ fn simulate_bids_with_2_liq_amounts(
     )
     .unwrap();
 
-    let resp: DepositResponse = from_binary(&res).unwrap();
-
-    let mut total_deposits = Decimal::zero();
-    for deposit in resp.deposits {
-        total_deposits += deposit.amount;
-    }
-
+    let resp: PoolResponse = from_binary(&res).unwrap();
+    
     assert_eq!(
-        total_deposits.to_string(),
+        resp.credit_asset.amount.to_string(),
         format!("{}", total_bids - total_liquidated)
     );
+    
 }

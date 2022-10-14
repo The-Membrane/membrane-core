@@ -54,7 +54,7 @@ impl Deposit {
     pub fn equal(&self, deposits: &Vec<Deposit>) -> bool {
         let mut check = false;
         for deposit in deposits.iter() {
-            if self.amount == deposit.amount && self.user == deposit.user {
+            if self.amount == deposit.amount && self.user == deposit.user && self.deposit_time == deposit.deposit_time{
                 check = true;
             }
         }

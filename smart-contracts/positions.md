@@ -192,15 +192,19 @@ pub enum ExecuteMsg {
         basket_id: Uint128,
         position_id: Uint128,
         amount: Uint128,
+        mint_to_addr: Option<String>,
     }, 
 }
 ```
 
-| Key           | Type    | Description                      |
-| ------------- | ------- | -------------------------------- |
-| `basket_id`   | Uint128 | ID of basket the position is in  |
-| `position_id` | Uint128 | ID of position                   |
-| `amount`      | Uint128 | Amount to increase debt by       |
+| Key             | Type    | Description                      |
+| --------------- | ------- | -------------------------------- |
+| `basket_id`     | Uint128 | ID of basket the position is in  |
+| `position_id`   | Uint128 | ID of position                   |
+| `amount`        | Uint128 | Amount to increase debt by       |
+| `*mint_to_addr` | String  | Address to mint credit to        |
+
+&#x20;\* = optional
 
 ### `Withdraw`
 
@@ -225,10 +229,6 @@ pub enum ExecuteMsg {
 | `assets`      | Vec\<Asset> | Assets to withdraw from the position |
 
 ### `Repay`
-
-{% hint style="info" %}
-Used for repaying native assets as collateral. For repaying Cw20 credit assets, you need to use the [Receive Hook variant](positions.md#undefined).
-{% endhint %}
 
 Repay outstanding debt for a position, not exclusive to the position owner.
 

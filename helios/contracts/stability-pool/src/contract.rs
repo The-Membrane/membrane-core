@@ -1744,7 +1744,7 @@ fn user_claims_msgs(
 fn split_assets_to_users(
     storage: &mut dyn Storage,
     mut cAsset_ratios: Vec<Decimal>,
-    distribution_assets: Vec<Asset>,
+    mut distribution_assets: Vec<Asset>,
     distribution_ratios: Vec<UserRatio>    ,
 ) -> Result<(), ContractError>{
     
@@ -1757,11 +1757,10 @@ fn split_assets_to_users(
             if user_ratio.ratio == cAsset_ratio {
 
                 //Allocate the full ratio worth of asset to the User
-                let send_ratio = user_ratio.ratio;
-                let send_amount = decimal_multiplication(
-                    send_ratio,
-                    Decimal::from_ratio(distribution_assets[index].amount, Uint128::new(1u128)),
-                ) * Uint128::new(1u128);
+                let send_amount = distribution_assets[index].amount;
+
+                //Set distribution_asset amount to difference
+                distribution_assets[index].amount -= send_amount;
 
                 //Add all of this asset to existing claims
                 USERS.update(
@@ -1824,12 +1823,15 @@ fn split_assets_to_users(
                 break;
             } else if user_ratio.ratio < cAsset_ratio {
 
-                //Allocatie full user ratio of the asset
-                let send_ratio = user_ratio.ratio;
+                //Allocate full user ratio of the asset
+                let send_ratio = decimal_division(user_ratio.ratio, cAsset_ratio);
                 let send_amount = decimal_multiplication(
                     send_ratio,
                     Decimal::from_ratio(distribution_assets[index].amount, Uint128::new(1u128)),
                 ) * Uint128::new(1u128);
+
+                //Set distribution_asset amount to difference
+                distribution_assets[index].amount -= send_amount;
                                 
                 //Add to existing user claims
                 USERS.update(
@@ -1868,7 +1870,6 @@ fn split_assets_to_users(
                                 Ok(user)
                             }
                             None => {
-                                if send_amount == Uint128::new(10_000_000) {panic!("2: {}", user_ratio.clone().user)}
                                 //Create object for user
                                 Ok(User {
                                     claimable_assets: vec![Asset {
@@ -1882,17 +1883,17 @@ fn split_assets_to_users(
                 )?;
 
                 //Set cAsset_ratio to the difference
-                cAsset_ratio = decimal_subtraction(cAsset_ratio, send_ratio);
+                cAsset_ratio = decimal_subtraction(cAsset_ratio, user_ratio.ratio);
                 cAsset_ratios[index] = cAsset_ratio;
 
                 break;
             } else if user_ratio.ratio > cAsset_ratio {
-                //Allocate all of this ratio of the asset to the User
-                let send_ratio = cAsset_ratio;
-                let send_amount = decimal_multiplication(
-                    send_ratio,
-                    Decimal::from_ratio(distribution_assets[index].amount, Uint128::new(1u128)),
-                ) * Uint128::new(1u128);
+
+                //Allocate the full ratio worth of asset to the User
+                let send_amount = distribution_assets[index].amount;
+
+                //Set distribution_asset amount to difference
+                distribution_assets[index].amount -= send_amount;
 
                 //Add to existing user claims
                 USERS.update(
@@ -1945,6 +1946,7 @@ fn split_assets_to_users(
 
                 //Set user_ratio as leftover
                 user_ratio.ratio = decimal_subtraction(user_ratio.ratio, cAsset_ratio);
+                                
 
                 //Set cAsset_ratio to 0
                 cAsset_ratios[index] = Decimal::zero();

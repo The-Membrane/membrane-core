@@ -183,21 +183,13 @@ fn simulate_bids_with_2_liq_amounts(
         .unwrap();
 
         let resp: ClaimsResponse = from_binary(&res).unwrap();
-
-        if i < liq_amount_1/2 {
-
-            assert_eq!(
-                resp.claims[0].to_string(),
-                format!("{} debit", total_distributed/Uint128::new(liq_amount_1))
-            );
-
-        } else {
-
-            assert_eq!(
-                resp.claims[0].to_string(),
-                format!("{} 2nddebit", total_distributed/Uint128::new(liq_amount_1))
-            );
-        }
+        
+        //+- 2
+        //which is .0001 tolerance
+        if !(resp.claims[0].amount >= total_distributed/Uint128::new(liq_amount_1/2) - Uint128::new(2)
+        && resp.claims[0].amount <= total_distributed/Uint128::new(liq_amount_1/2) + Uint128::new(2)) {
+            panic!("{}, {}", resp.claims[0].amount, total_distributed/Uint128::new(liq_amount_1/2) )
+        }                
         
     }
 

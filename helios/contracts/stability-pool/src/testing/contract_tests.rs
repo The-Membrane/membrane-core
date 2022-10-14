@@ -1829,7 +1829,7 @@ fn claims() {
                     denom: String::from("credit")
                 },
                 max_spread: Some(Decimal::percent(10)),
-                recipient: Some(String::from("owner00")),
+                recipient: Some(String::from("positions_contract")),
                 hook_msg: Some(to_binary(&deposit_msg).unwrap()),
                 split: None,
             })
@@ -1979,7 +1979,7 @@ fn claims() {
                     address: Addr::unchecked("credit")
                 },
                 max_spread: Some(Decimal::percent(10)),
-                recipient: Some(String::from("owner00")),
+                recipient: Some(String::from("positions_contract")),
                 hook_msg: Some(to_binary(&deposit_msg).unwrap()),
                 split: None,
             })

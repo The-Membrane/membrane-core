@@ -3445,7 +3445,7 @@ fn update_rate_indices(
     env: Env, 
     basket: &mut Basket,
     negative_rate: bool,
-    credit_price_difference: Decimal,
+    credit_price_rate: Decimal,
 ) -> StdResult<()>{
 
     //Get basket rates
@@ -3458,10 +3458,10 @@ fn update_rate_indices(
         if negative_rate {
             rate = decimal_multiplication(
                 rate,
-                decimal_subtraction(Decimal::one(), credit_price_difference),
+                decimal_subtraction(Decimal::one(), credit_price_rate),
             );
         } else {
-            rate = decimal_multiplication(rate, (Decimal::one() + credit_price_difference));
+            rate = decimal_multiplication(rate, (Decimal::one() + credit_price_rate));
         }
 
         rate
@@ -3725,14 +3725,14 @@ fn get_credit_rate_of_change(
     basket: &mut Basket,
     position: &mut Position,
     negative_rate: bool,
-    credit_price_difference: Decimal,
+    credit_price_rate: Decimal,
 ) -> StdResult<Decimal> {
 
     let config = CONFIG.load(storage)?;
 
     let ratios = get_cAsset_ratios(storage, env.clone(), querier, position.clone().collateral_assets, config)?;
 
-    update_rate_indices(storage, querier, env, basket, negative_rate, credit_price_difference)?;
+    update_rate_indices(storage, querier, env, basket, negative_rate, credit_price_rate)?;
 
 
     let mut avg_change_in_index = Decimal::zero();
@@ -3810,6 +3810,7 @@ pub fn accrue(
 
     let mut negative_rate: bool = false;
     let mut price_difference: Decimal = Decimal::zero();
+    let mut credit_price_rate: Decimal = Decimal::zero();
 
     ////Controller barriers to reduce risk of manipulation
     //Liquidity above 2M
@@ -3885,15 +3886,17 @@ pub fn accrue(
                 Decimal::zero()
             }
         };
-
-        // /
+       
 
         //Don't accrue interest if price is within the margin of error
         if price_difference > config.clone().cpc_margin_of_error {
 
+            //Multiply price_difference by the cpc_multiplier
+            credit_price_rate = decimal_multiplication(price_difference, config.clone().cpc_multiplier);
+
             //Calculate rate of change
             let mut applied_rate: Decimal;
-            applied_rate = price_difference.checked_mul(Decimal::from_ratio(
+            applied_rate = credit_price_rate.checked_mul(Decimal::from_ratio(
                 Uint128::from(time_elapsed),
                 Uint128::from(SECONDS_PER_YEAR),
             ))?;
@@ -3917,7 +3920,7 @@ pub fn accrue(
 
             basket.credit_price = new_price;
         } else {
-            price_difference = Decimal::zero();
+            credit_price_rate = Decimal::zero();
         }
     }
 
@@ -3931,7 +3934,7 @@ pub fn accrue(
         basket,
         position,
         negative_rate,
-        price_difference,
+        credit_price_rate,
     )?;
 
     //Calc new_credit_amount
@@ -4064,7 +4067,7 @@ pub fn mint_revenue(
         }));
     } else {
         //Mint to the interest collector
-        //or to the basket.owner if not
+        //or to the basket.owner if not initialized
         message.push(credit_mint_msg(
             config.clone(),
             Asset {

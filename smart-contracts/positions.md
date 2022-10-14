@@ -97,6 +97,7 @@ pub enum ExecuteMsg {
         collateral_twap_timeframe: Option<u64>, //in minutes
         credit_twap_timeframe: Option<u64>, //in minutes
         cpc_margin_of_error: Option<Decimal>,     
+        cpc_multiplier: Option<Decimal>,
         rate_slope_multiplier: Option<Decimal>,   
     }
 }
@@ -120,6 +121,7 @@ pub enum ExecuteMsg {
 | `*collateral_twap_timeframe`  | u64     | TWAP length in minutes                                                   |
 | `*credit_twap_timeframe`      | u64     | TWAP length in minutes                                                   |
 | `*cpc_margin_of_error`        | Decimal | Margin of Error before the credit interest is effected by the TWAP price |
+| `*cpc_multiplier`             | Decimal | Multiplier for credit price difference to augment redemption price rate  |
 | `*rate_slope_multiplier`      | Decimal | Multiplier for the 2nd slope in the interest rate formula                |
 
 &#x20;\* = optional
@@ -570,6 +572,7 @@ pub struct Config {
     pub credit_twap_timeframe: u64,    
     pub oracle_time_limit: u64, 
     pub cpc_margin_of_error: Decimal,
+    pub cpc_multiplier: Decimal,
     pub debt_minimum: Uint128, 
     pub base_debt_cap_multiplier: Uint128,
     pub rate_slope_multiplier: Decimal,

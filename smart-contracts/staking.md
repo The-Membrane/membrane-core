@@ -197,6 +197,18 @@ pub enum ExecuteMsg {
 }
 ```
 
+### TrimFeeEvents
+
+Trims the state object containing the list of FeeEvents, callable by owner
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecuteMsg {
+    TrimFeeEvents { }
+}
+```
+
 ## ReceiveHook
 
 ### `DepositFee`

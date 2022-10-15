@@ -208,6 +208,13 @@ impl fmt::Display for TWAPPoolInfo {
 pub struct StoredPrice {
     pub price: Decimal,
     pub last_time_updated: u64,
+    pub price_vol_limiter: PriceVolLimiter,//(Time since save, price)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct PriceVolLimiter {
+    pub price: Decimal,
+    pub last_time_updated: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

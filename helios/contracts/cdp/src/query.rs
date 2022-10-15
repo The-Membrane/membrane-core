@@ -1474,36 +1474,13 @@ fn query_price_imut(
         }
         Err(_err) => {
             //If the query errors, try and use a stored price
-            let stored_price: StoredPrice = match read_price(storage, &asset_info) {
-                Ok(info) => info,
-                Err(_) => {
-                    //Set time to fail in the next check. We don't want the error to stop from querying though
-                    StoredPrice {
-                        price: Decimal::zero(),
-                        last_time_updated: env
-                            .block
-                            .time
-                            .plus_seconds(config.oracle_time_limit + 1u64)
-                            .seconds(),
-                    }
-                }
-            };
+            let stored_price: StoredPrice = read_price(storage, &asset_info)?;
 
-            let time_elapsed: Option<u64> = env
-                .block
-                .time
-                .seconds()
-                .checked_sub(stored_price.last_time_updated);
-            //If its None then the subtraction was negative meaning the initial read_price() errored
-            if time_elapsed.is_some() {
-                if time_elapsed.unwrap() <= config.oracle_time_limit {
-                    stored_price.price
-                } else {
-                    return Err(StdError::GenericErr {
-                        msg: String::from("Oracle price invalid"),
-                    });
-                }
-            }else{
+            let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
+            //Use the stored price if within the oracle_time_limit
+            if time_elapsed <= config.oracle_time_limit {
+                stored_price.price
+            } else {
                 return Err(StdError::GenericErr {
                     msg: String::from("Oracle price invalid"),
                 });

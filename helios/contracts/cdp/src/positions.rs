@@ -27,7 +27,7 @@ use membrane::stability_pool::{
 };
 use membrane::types::{
     cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, LiquidityInfo, Position,
-    StoredPrice, SupplyCap, TWAPPoolInfo, UserInfo, 
+    StoredPrice, SupplyCap, TWAPPoolInfo, UserInfo, PriceVolLimiter, 
 };
 
 use crate::contract::get_contract_balances;
@@ -2564,16 +2564,35 @@ pub fn validate_position_owner(
 
 pub fn store_price(
     storage: &mut dyn Storage,
+    env: Env, 
     asset_token: &AssetInfo,
-    price: &StoredPrice,
+    mut price: &mut StoredPrice,
 ) -> StdResult<()> {
-    let mut price_bucket: Bucket<StoredPrice> = Bucket::new(storage, PREFIX_PRICE);
+    let mut price_bucket: Bucket<StoredPrice> = Bucket::new(storage, PREFIX_PRICE);   
+    
+    //Set price_vol_limiter
+    let time_elapsed = env.block.time.seconds() - price.price_vol_limiter.last_time_updated;
+        
+    //Store prive_vol_limiter if 5 mins have passed
+    if time_elapsed >= 300 {
+
+        price.price_vol_limiter = 
+        PriceVolLimiter {
+                price: price.clone().price,
+                last_time_updated: env.block.time.seconds(),                  
+        };
+    }
+
+    //Save bucket
     price_bucket.save(&to_binary(asset_token)?, price)
 }
 
-pub fn read_price(storage: &dyn Storage, asset_token: &AssetInfo) -> StdResult<StoredPrice> {
+pub fn read_price(
+    storage: &dyn Storage,
+    asset_token: &AssetInfo
+) -> StdResult<StoredPrice> {
     let price_bucket: ReadonlyBucket<StoredPrice> = ReadonlyBucket::new(storage, PREFIX_PRICE);
-    price_bucket.load(&to_binary(asset_token)?)
+    price_bucket.load(&to_binary(asset_token)?)  
 }
 
 fn query_price(
@@ -2605,55 +2624,64 @@ fn query_price(
         })?,
     })) {
         Ok(res) => {
+            //Read price from storage
+            if let Ok(stored_price) = read_price(storage, &asset_info){
+                //Make sure price hasn't changed by 20%+ in a 5 min span, if so Error.
+            
+                //Upside
+                if decimal_multiplication(stored_price.price, Decimal::percent(120)) <= res.avg_price {
+                    return Err(StdError::GenericErr { msg: String::from("Oracle price moved >= 20 to the upside in 5 minutes, possible bug/manipulation") })
+                }//Downside
+                else if decimal_multiplication(stored_price.price, Decimal::percent(80)) >= res.avg_price {
+                    return Err(StdError::GenericErr { msg: String::from("Oracle price moved >= 20 to the downside in 5 minutes, possible bug/manipulation") })
+                }
+                
+                //Store new price
+                store_price(
+                    storage,
+                    env.clone(),
+                    &asset_info,
+                    &mut StoredPrice {
+                        price: res.avg_price,
+                        last_time_updated: env.block.time.seconds(),
+                        ..stored_price
+                    },
+                )?;
+            }
+                        
             //Store new price
             store_price(
                 storage,
+                env.clone(),
                 &asset_info,
-                &StoredPrice {
+                &mut StoredPrice {
                     price: res.avg_price,
                     last_time_updated: env.block.time.seconds(),
+                    price_vol_limiter: PriceVolLimiter { 
+                        price: res.avg_price, 
+                        last_time_updated: env.block.time.seconds(),
+                    }
                 },
             )?;
+            
             //
             res.avg_price
         }
         Err(_err) => {
             //If the query errors, try and use a stored price
-            let stored_price: StoredPrice = match read_price(storage, &asset_info) {
-                Ok(info) => info,
-                Err(_) => {
-                    //Set time to fail in the next check. We don't want the error to stop from querying though
-                    StoredPrice {
-                        price: Decimal::zero(),
-                        last_time_updated: env
-                            .block
-                            .time
-                            .plus_seconds(config.oracle_time_limit + 1u64)
-                            .seconds(),
-                    }
-                }
-            };
+            let stored_price: StoredPrice = read_price(storage, &asset_info)?;
 
-            let time_elapsed: Option<u64> = env
-                .block
-                .time
-                .seconds()
-                .checked_sub(stored_price.last_time_updated);
-            //If its None then the subtraction was negative meaning the initial read_price() errored
-            if time_elapsed.is_some() {
-                if time_elapsed.unwrap() <= config.oracle_time_limit {
-                    stored_price.price
-                } else {
-                    return Err(StdError::GenericErr {
-                        msg: String::from("Oracle price invalid"),
-                    });
-                }
-            }else{
+            let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
+            //Use the stored price if within the oracle_time_limit
+            if time_elapsed <= config.oracle_time_limit {
+                stored_price.price
+            } else {
                 return Err(StdError::GenericErr {
                     msg: String::from("Oracle price invalid"),
                 });
             }
         }
+
     };
 
     Ok(price)

@@ -20,8 +20,8 @@ use membrane::math::{decimal_division, decimal_multiplication, decimal_subtracti
 
 use crate::positions::{
     get_LP_pool_cAssets, get_asset_liquidity, get_stability_pool_liquidity,
-    SECONDS_PER_YEAR, accumulate_interest_dec,
 };
+use crate::rates::{SECONDS_PER_YEAR, accumulate_interest_dec};
 
 use osmo_bindings::PoolStateResponse;
 

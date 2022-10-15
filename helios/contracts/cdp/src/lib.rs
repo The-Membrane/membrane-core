@@ -10,6 +10,7 @@ pub mod positions;
 pub mod query;
 pub mod state;
 pub mod reply;
+pub mod rates;
 
 pub use crate::error::ContractError;
 

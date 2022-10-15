@@ -16,7 +16,8 @@ use osmo_bindings::PoolStateResponse;
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
 use crate::error::ContractError; 
-use crate::positions::{validate_position_owner, get_target_position, accrue, update_position, insolvency_check, get_avg_LTV, get_cAsset_ratios, get_LP_pool_cAssets, BAD_DEBT_REPLY_ID, update_position_claims, asset_to_coin};
+use crate::rates::accrue;
+use crate::positions::{validate_position_owner, get_target_position, update_position, insolvency_check, get_avg_LTV, get_cAsset_ratios, get_LP_pool_cAssets, BAD_DEBT_REPLY_ID, update_position_claims, asset_to_coin};
 use crate::state::{CONFIG, BASKETS, REPAY, RepayPropagation, POSITIONS};
 
 

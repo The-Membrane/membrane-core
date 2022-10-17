@@ -96,33 +96,31 @@ pub enum ExecuteMsg {
         oracle_time_limit: Option<u64>, //in seconds
         collateral_twap_timeframe: Option<u64>, //in minutes
         credit_twap_timeframe: Option<u64>, //in minutes
-        cpc_margin_of_error: Option<Decimal>,     
         cpc_multiplier: Option<Decimal>,
         rate_slope_multiplier: Option<Decimal>,   
     }
 }
 ```
 
-| Key                           | Type    | Description                                                              |
-| ----------------------------- | ------- | ------------------------------------------------------------------------ |
-| `*owner`                      | String  | Owner of contract                                                        |
-| `*stability_pool`             | String  | Stability Pool contract                                                  |
-| `*dex_router`                 | String  | Dex Router contract                                                      |
-| `*osmosis_proxy`              | String  | Osmosis Proxy contract                                                   |
-| `*debt_auction`               | String  | Debt Auction contract                                                    |
-| `*interest_revenue_collector` | String  | CDP interest fee collector address                                       |
-| `*staking_contract`           | String  | MBRN Staking contract                                                    |
-| `*oracle_contract`            | String  | Oracle contract                                                          |
-| `*liquidity_contract`         | String  | Liquidity Check contract                                                 |
-| _`*liq_fee`_                  | Decimal | Liquidation fee                                                          |
-| `*debt_minimum`               | Uint128 | Debt minimum in terms of value                                           |
-| `*base_debt_cap_multiplier`   | Uint128 | Debt Minimum Multiplier for a base debt cap                              |
-| `*oracle_time_limit`          | u64     | Oracle expiration time limit in seconds                                  |
-| `*collateral_twap_timeframe`  | u64     | TWAP length in minutes                                                   |
-| `*credit_twap_timeframe`      | u64     | TWAP length in minutes                                                   |
-| `*cpc_margin_of_error`        | Decimal | Margin of Error before the credit interest is effected by the TWAP price |
-| `*cpc_multiplier`             | Decimal | Multiplier for credit price difference to augment redemption price rate  |
-| `*rate_slope_multiplier`      | Decimal | Multiplier for the 2nd slope in the interest rate formula                |
+| Key                           | Type    | Description                                                             |
+| ----------------------------- | ------- | ----------------------------------------------------------------------- |
+| `*owner`                      | String  | Owner of contract                                                       |
+| `*stability_pool`             | String  | Stability Pool contract                                                 |
+| `*dex_router`                 | String  | Dex Router contract                                                     |
+| `*osmosis_proxy`              | String  | Osmosis Proxy contract                                                  |
+| `*debt_auction`               | String  | Debt Auction contract                                                   |
+| `*interest_revenue_collector` | String  | CDP interest fee collector address                                      |
+| `*staking_contract`           | String  | MBRN Staking contract                                                   |
+| `*oracle_contract`            | String  | Oracle contract                                                         |
+| `*liquidity_contract`         | String  | Liquidity Check contract                                                |
+| _`*liq_fee`_                  | Decimal | Liquidation fee                                                         |
+| `*debt_minimum`               | Uint128 | Debt minimum in terms of value                                          |
+| `*base_debt_cap_multiplier`   | Uint128 | Debt Minimum Multiplier for a base debt cap                             |
+| `*oracle_time_limit`          | u64     | Oracle expiration time limit in seconds                                 |
+| `*collateral_twap_timeframe`  | u64     | TWAP length in minutes                                                  |
+| `*credit_twap_timeframe`      | u64     | TWAP length in minutes                                                  |
+| `*cpc_multiplier`             | Decimal | Multiplier for credit price difference to augment redemption price rate |
+| `*rate_slope_multiplier`      | Decimal | Multiplier for the 2nd slope in the interest rate formula               |
 
 &#x20;\* = optional
 
@@ -376,6 +374,7 @@ pub enum ExecuteMsg {
         desired_debt_cap_util: Option<Decimal>,
         credit_asset_twap_price_source: Option<TWAPPoolInfo>,    
         negative_rates: Option<bool>,
+        cpc_margin_of_error: Option<Decimal>,     
     }
 }
 
@@ -394,19 +393,20 @@ pub struct TWAPPoolInfo {
 }
 ```
 
-| Key                               | Type            | Description                                               |
-| --------------------------------- | --------------- | --------------------------------------------------------- |
-| `basket_id`                       | Uint128         | ID of existing Basket                                     |
-| `*added_cAsset`                   | cAsset          | cAsset object to add to accepted basket objects           |
-| `*owner`                          | String          | New owner of Basket                                       |
-| `*liq_queue`                      | String          | Liq Queue contract for the credit asset                   |
-| `*pool_ids`                       | Vec\<u64>       | Osmosis Pool IDs to query credit liquidity from           |
-| `*liquidity_multiplier`           | Decimal         | Multiplier for credit liquidity to determine debt cap     |
-| `*collateral_supply_caps`         | Vec\<SupplyCap> | Credit collateral ratio caps                              |
-| `*base_interest_rate`             | Decimal         | Base interest rate for collateral types                   |
-| `*desired_debt_cap_util`          | Decimal         | % cap before slope 2 begins in the interest rate equation |
-| `*credit_asset_twap_price_source` | TWAPPoolInfo    | Oracle information to store for credit price queries      |
-| `*negative_rates`                 | bool            | Toggle to allow negative repayment interest               |
+| Key                               | Type            | Description                                                              |
+| --------------------------------- | --------------- | ------------------------------------------------------------------------ |
+| `basket_id`                       | Uint128         | ID of existing Basket                                                    |
+| `*added_cAsset`                   | cAsset          | cAsset object to add to accepted basket objects                          |
+| `*owner`                          | String          | New owner of Basket                                                      |
+| `*liq_queue`                      | String          | Liq Queue contract for the credit asset                                  |
+| `*pool_ids`                       | Vec\<u64>       | Osmosis Pool IDs to query credit liquidity from                          |
+| `*liquidity_multiplier`           | Decimal         | Multiplier for credit liquidity to determine debt cap                    |
+| `*collateral_supply_caps`         | Vec\<SupplyCap> | Credit collateral ratio caps                                             |
+| `*base_interest_rate`             | Decimal         | Base interest rate for collateral types                                  |
+| `*desired_debt_cap_util`          | Decimal         | % cap before slope 2 begins in the interest rate equation                |
+| `*credit_asset_twap_price_source` | TWAPPoolInfo    | Oracle information to store for credit price queries                     |
+| `*negative_rates`                 | bool            | Toggle to allow negative repayment interest                              |
+| `*cpc_margin_of_error`            | Decimal         | Margin of Error before the credit interest is effected by the TWAP price |
 
 \* = optional
 
@@ -704,6 +704,7 @@ pub struct BasketResponse {
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
     pub pending_revenue: Uint128, 
     pub negative_rates: bool,
+    pub cpc_margin_of_error: Decimal,
 }
 ```
 
@@ -740,6 +741,7 @@ pub struct BasketResponse {
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
     pub pending_revenue: Uint128, 
     pub negative_rates: bool,
+    pub cpc_margin_of_error: Decimal,
 }
 ```
 

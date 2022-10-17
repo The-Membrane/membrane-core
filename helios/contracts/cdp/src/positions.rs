@@ -1402,6 +1402,7 @@ pub fn create_basket(
         rates_last_accrued: env.block.time.seconds(),
         liq_queue: new_liq_queue,
         negative_rates: true,
+        cpc_margin_of_error: Decimal::one(),
         oracle_set: false,
     };
 
@@ -1494,6 +1495,7 @@ pub fn edit_basket(
     desired_debt_cap_util: Option<Decimal>,
     credit_asset_twap_price_source: Option<TWAPPoolInfo>,
     negative_rates: Option<bool>,
+    cpc_margin_of_error: Option<Decimal>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -1895,6 +1897,10 @@ pub fn edit_basket(
                         if let Some(toggle) = negative_rates {
                             basket.negative_rates = toggle.clone();
                             attrs.push(attr("new_negative_rates", toggle.to_string()));
+                        }
+                        if let Some(error_margin) = cpc_margin_of_error {
+                            basket.cpc_margin_of_error = error_margin.clone();
+                            attrs.push(attr("new_cpc_margin_of_error", error_margin.to_string()));
                         }
                         //Set basket specific multiplier
                         if let Some(multiplier) = liquidity_multiplier {
@@ -3151,7 +3157,7 @@ fn get_credit_asset_multiplier(
     .into_iter()
     .sum();
 
-    //Find Basket parameter's ratio of total collateral
+    //Find Basket's ratio of total collateral
     let basket_tvl_ratio: Decimal = {
         if !basket_collateral_value.is_zero() {
             decimal_division(total_collateral_value, basket_collateral_value)

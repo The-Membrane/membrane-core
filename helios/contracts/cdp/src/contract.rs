@@ -47,6 +47,7 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
+
     let mut config = Config {
         liq_fee: msg.liq_fee,
         owner: info.sender.clone(),
@@ -60,7 +61,6 @@ pub fn instantiate(
         debt_auction: None,
         liquidity_contract: None,
         oracle_time_limit: msg.oracle_time_limit,
-        cpc_margin_of_error: Decimal::percent(1),
         cpc_multiplier: Decimal::one(),
         rate_slope_multiplier: Decimal::one(),
         debt_minimum: msg.debt_minimum,
@@ -168,7 +168,6 @@ pub fn execute(
             oracle_time_limit,
             collateral_twap_timeframe,
             credit_twap_timeframe,
-            cpc_margin_of_error,
             cpc_multiplier,
             rate_slope_multiplier,
         } => update_config(
@@ -189,7 +188,6 @@ pub fn execute(
             oracle_time_limit,
             collateral_twap_timeframe,
             credit_twap_timeframe,
-            cpc_margin_of_error,
             cpc_multiplier,
             rate_slope_multiplier,
         ),
@@ -308,6 +306,7 @@ pub fn execute(
             desired_debt_cap_util,
             credit_asset_twap_price_source,
             negative_rates,
+            cpc_margin_of_error,
         } => edit_basket(
             deps,
             info,
@@ -322,6 +321,7 @@ pub fn execute(
             desired_debt_cap_util,
             credit_asset_twap_price_source,
             negative_rates,
+            cpc_margin_of_error,
         ),
         ExecuteMsg::CreateBasket {
             owner,
@@ -490,7 +490,6 @@ fn update_config(
     oracle_time_limit: Option<u64>,
     collateral_twap_timeframe: Option<u64>,
     credit_twap_timeframe: Option<u64>,
-    cpc_margin_of_error: Option<Decimal>,
     cpc_multiplier: Option<Decimal>,
     rate_slope_multiplier: Option<Decimal>,
 ) -> Result<Response, ContractError> {
@@ -583,13 +582,6 @@ fn update_config(
         attrs.push(attr(
             "new_credit_twap_timeframe",
             credit_twap_timeframe.to_string(),
-        ));
-    }
-    if let Some(cpc_margin_of_error) = cpc_margin_of_error {
-        config.cpc_margin_of_error = cpc_margin_of_error.clone();
-        attrs.push(attr(
-            "new_cpc_margin_of_error",
-            cpc_margin_of_error.to_string(),
         ));
     }
     if let Some(cpc_multiplier) = cpc_multiplier {

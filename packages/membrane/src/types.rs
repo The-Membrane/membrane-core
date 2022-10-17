@@ -277,6 +277,9 @@ pub struct Basket {
     pub rates_last_accrued: u64, //rate_index last_accrued
     pub oracle_set: bool, //If the credit oracle was set. Can't update repayment price without.
     pub negative_rates: bool, //Allow negative repayment interest or not
+    //% difference btwn credit TWAP and repayment price before the interest changes
+    //Set to 100 if you want to turn off the PID
+    pub cpc_margin_of_error: Decimal,
     //Contracts
     pub liq_queue: Option<Addr>, //Each basket holds its own liq_queue contract
 }

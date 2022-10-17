@@ -749,7 +749,7 @@ pub fn query_collateral_rates(
         };
 
         //Don't accrue interest if price is within the margin of error
-        if price_difference <= config.clone().cpc_margin_of_error {
+        if price_difference <= basket.clone().cpc_margin_of_error {
             price_difference = Decimal::zero();
         }
 
@@ -868,7 +868,7 @@ fn accrue_imut(
 
 
         //Don't accrue interest if price is within the margin of error
-        if price_difference > config.clone().cpc_margin_of_error {
+        if price_difference > basket.clone().cpc_margin_of_error {
             
             //Multiply price_difference by the cpc_multiplier
             credit_price_rate = decimal_multiplication(price_difference, config.clone().cpc_multiplier);
@@ -1396,7 +1396,7 @@ pub fn query_basket_credit_interest(
         };
 
         //Don't set interest if price is within the margin of error
-        if price_difference <= config.clone().cpc_margin_of_error {
+        if price_difference <= basket.clone().cpc_margin_of_error {
             price_difference = Decimal::zero();
         }
     }

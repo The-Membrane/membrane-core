@@ -1665,6 +1665,7 @@ mod tests {
                 quote_asset_denom: String::from("quote"),
             }),
             negative_rates: None,
+                cpc_margin_of_error: None,
             credit_pool_ids: None,
         };
         let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -1743,6 +1744,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2104,6 +2106,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2322,6 +2325,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2392,6 +2396,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2558,6 +2563,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2586,6 +2592,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2675,6 +2682,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2993,6 +3001,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3021,6 +3030,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3110,6 +3120,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3286,6 +3297,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: Some( Decimal::percent(1) ),
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3463,6 +3475,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: Some( Decimal::percent(1) ),
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3612,6 +3625,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: Some( Decimal::percent(1) ),
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3706,6 +3720,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3734,6 +3749,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3823,6 +3839,7 @@ mod tests {
                 desired_debt_cap_util: Some(Decimal::percent(80)),
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4015,6 +4032,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4128,6 +4146,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4257,6 +4276,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4373,6 +4393,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4481,6 +4502,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4592,6 +4614,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4711,6 +4734,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4828,6 +4852,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4966,6 +4991,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4986,7 +5012,6 @@ mod tests {
                 oracle_time_limit: None,
                 collateral_twap_timeframe: None,
                 credit_twap_timeframe: None,
-                cpc_margin_of_error: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
                 liquidity_contract: None,
@@ -5120,6 +5145,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5148,6 +5174,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5235,6 +5262,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5399,6 +5427,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5478,6 +5507,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5576,6 +5606,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5724,6 +5755,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5836,6 +5868,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5927,6 +5960,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5955,6 +5989,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6042,6 +6077,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6175,6 +6211,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6203,6 +6240,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6290,6 +6328,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6396,6 +6435,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6498,6 +6538,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap();
@@ -6524,6 +6565,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap();
@@ -6656,7 +6698,6 @@ mod tests {
                 oracle_time_limit: Some(33u64), 
                 credit_twap_timeframe: Some(33u64), 
                 collateral_twap_timeframe: Some(33u64), 
-                cpc_margin_of_error: Some(Decimal::percent(2)),
                 cpc_multiplier: Some(Decimal::percent(50)),
                 rate_slope_multiplier: Some(Decimal::percent(2)), 
             };
@@ -6687,7 +6728,6 @@ mod tests {
                     oracle_time_limit: 33u64, 
                     credit_twap_timeframe: 33u64, 
                     collateral_twap_timeframe: 33u64, 
-                    cpc_margin_of_error: Decimal::percent(2), 
                     cpc_multiplier: Decimal::percent(50),
                     rate_slope_multiplier: Decimal::percent(2), 
                 }
@@ -6835,6 +6875,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6939,6 +6980,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7029,6 +7071,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7101,6 +7144,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7227,6 +7271,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7292,6 +7337,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7392,6 +7438,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();           
@@ -7427,6 +7474,7 @@ mod tests {
                 desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
+                cpc_margin_of_error: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap(); 

@@ -48,7 +48,6 @@ pub enum ExecuteMsg {
         oracle_time_limit: Option<u64>,
         credit_twap_timeframe: Option<u64>,
         collateral_twap_timeframe: Option<u64>,
-        cpc_margin_of_error: Option<Decimal>,
         cpc_multiplier: Option<Decimal>,
         rate_slope_multiplier: Option<Decimal>,
     },
@@ -110,6 +109,7 @@ pub enum ExecuteMsg {
         desired_debt_cap_util: Option<Decimal>,
         credit_asset_twap_price_source: Option<TWAPPoolInfo>,
         negative_rates: Option<bool>, //Allow negative repayment interest or not
+        cpc_margin_of_error: Option<Decimal>,
     },
     //Clone basket. Reset supply_caps. Sets repayment price to new oracle price.
     //When using this to add a new UoA:
@@ -227,9 +227,6 @@ pub struct Config {
     pub collateral_twap_timeframe: u64, //in minutes
     pub credit_twap_timeframe: u64,     //in minutes
     pub oracle_time_limit: u64, //in seconds until oracle failure is accepted. Think of it as how many blocks you allow the oracle to fail for.
-    //% difference btwn credit TWAP and repayment price before the interest changes
-    //Set to 100 if you want to turn off the PID
-    pub cpc_margin_of_error: Decimal,
     //Augment the rate of increase per % difference for the redemption rate
     pub cpc_multiplier: Decimal,
     //This needs to be large enough so that USDC positions are profitable to liquidate,

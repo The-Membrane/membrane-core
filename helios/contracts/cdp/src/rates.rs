@@ -415,7 +415,7 @@ pub fn accrue(
        
 
         //Don't accrue interest if price is within the margin of error
-        if price_difference > config.clone().cpc_margin_of_error {
+        if price_difference > basket.clone().cpc_margin_of_error {
 
             //Multiply price_difference by the cpc_multiplier
             credit_price_rate = decimal_multiplication(price_difference, config.clone().cpc_multiplier);

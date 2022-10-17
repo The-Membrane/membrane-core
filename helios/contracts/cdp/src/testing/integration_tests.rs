@@ -6376,7 +6376,7 @@ mod tests {
                 .unwrap();
         }
 
-        ///contract_test Migration
+        ///Contract Test Migration
         #[test]
         fn cw20_deposit() {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
@@ -7555,7 +7555,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Query Position assets to assert withdrawal
+            //Query Position assets to assert full withdrawal
             let query_msg = QueryMsg::GetPosition {
                 position_id: Uint128::new(1u128),
                 basket_id: Uint128::new(1u128),

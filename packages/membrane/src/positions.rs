@@ -274,6 +274,7 @@ pub struct BasketResponse {
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
     pub pending_revenue: Uint128,
     pub negative_rates: bool, //Allow negative repayment interest or not
+    pub cpc_margin_of_error: Decimal,
 }
 
 

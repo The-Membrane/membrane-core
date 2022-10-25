@@ -15,10 +15,10 @@ use membrane::liq_queue::{
     ExecuteMsg as LQ_ExecuteMsg,
 };
 use membrane::liquidity_check::{ExecuteMsg as LiquidityExecuteMsg, QueryMsg as LiquidityQueryMsg};
-use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction, Uint256};
+use membrane::math::{decimal_division, decimal_multiplication, Uint256};
 use membrane::oracle::{ExecuteMsg as OracleExecuteMsg, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::{
-    ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg, TokenInfoResponse,
+    ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg,
 };
 use membrane::positions::{Config, ExecuteMsg};
 use membrane::stability_pool::{
@@ -41,8 +41,7 @@ use crate::{
     ContractError,
 };
 
-pub const CREATE_DENOM_REPLY_ID: u64 = 4u64;
-pub const WITHDRAW_REPLY_ID: u64 = 5u64;
+pub const WITHDRAW_REPLY_ID: u64 = 4u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 static PREFIX_PRICE: &[u8] = b"price";
@@ -1022,7 +1021,8 @@ pub fn increase_debt(
     info: MessageInfo,
     basket_id: Uint128,
     position_id: Uint128,
-    amount: Uint128,
+    amount: Option<Uint128>,
+    LTV: Option<Decimal>,
     mint_to_addr: Option<String>,
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
@@ -1044,6 +1044,19 @@ pub fn increase_debt(
         &mut target_position,
         &mut basket,
     )?;
+
+    //Set amount
+    let amount = match amount {
+        Some(amount) => amount,
+        None => {
+            if let Some(LTV) = LTV {
+                get_amount_from_LTV(deps.storage, deps.querier, env.clone(), config.clone(), target_position.clone(), basket.clone(), LTV)?
+            } else {
+                return Err(ContractError::CustomError { val: String::from("If amount isn't passed, LTV must be passed") })
+            }
+            
+        }
+    };
 
     target_position.credit_amount += amount;
 
@@ -1151,9 +1164,64 @@ pub fn increase_debt(
         .add_attribute("method", "increase_debt")
         .add_attribute("basket_id", basket_id.to_string())
         .add_attribute("position_id", position_id.to_string())
-        .add_attribute("total_loan", target_position.credit_amount.to_string());
+        .add_attribute("total_loan", target_position.credit_amount.to_string())
+        .add_attribute("increased_by", amount.to_string());
 
     Ok(response)
+}
+
+fn get_amount_from_LTV(
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    config: Config,
+    position: Position,
+    basket: Basket,
+    target_LTV: Decimal,
+) -> Result<Uint128, ContractError>{
+
+    //Get avg_borrow_LTV & total_value
+    let (avg_borrow_LTV, _avg_max_LTV, total_value, _cAsset_prices) = get_avg_LTV(
+        storage, 
+        env, 
+        querier, 
+        config, 
+        basket, 
+        position.clone().collateral_assets
+    )?;
+
+    //Target LTV can't be greater than possible borrowable LTV for the Position
+    if target_LTV > avg_borrow_LTV {
+        return Err(ContractError::InvalidLTV { target_LTV })
+    }
+
+    //Calc current LTV
+    let current_LTV = {
+        let credit_value = decimal_multiplication(Decimal::from_ratio(position.credit_amount, Uint128::new(1)), basket.credit_price);
+
+        decimal_division(credit_value, total_value)
+    };
+
+    //If target_LTV is <= current_LTV there is no room to increase
+    if target_LTV <= current_LTV {
+        return Err(ContractError::InvalidLTV { target_LTV })
+    }
+
+    //Calculate amount of credit to get to target_LTV
+    let credit_amount: Uint128 = {
+        
+        //Calc spread between current LTV and target_LTV
+        let LTV_spread = target_LTV - current_LTV;
+
+        //Calc the value LTV_spread represents
+        let increased_credit_value = decimal_multiplication(total_value, LTV_spread);
+
+        //Calc credit amount 
+        decimal_division(increased_credit_value, basket.clone().credit_price) * Uint128::new(1)
+    };
+
+    Ok( credit_amount )
+
 }
 
 pub fn update_position(
@@ -1395,7 +1463,7 @@ pub fn create_basket(
         credit_asset: credit_asset.clone(),
         credit_price,
         base_interest_rate,
-        liquidity_multiplier,
+        liquidity_multiplier: liquidity_multiplier.clone(),
         desired_debt_cap_util,
         pending_revenue: Uint128::zero(),
         credit_last_accrued: env.block.time.seconds(),
@@ -1406,19 +1474,11 @@ pub fn create_basket(
         oracle_set: false,
     };
 
-    //CreateDenom Msg
+    //Denom check
     let subdenom: String;
-    let sub_msg: SubMsg;
 
     if let AssetInfo::NativeToken { denom } = credit_asset.clone().info {
-        //Create credit as native token using a tokenfactory proxy
-        sub_msg = create_denom(
-            config.clone(),
-            String::from(denom.clone()),
-            new_basket.basket_id.to_string(),
-            Some(liquidity_multiplier),
-        )?;
-
+        //Denom must be native
         subdenom = denom;
     } else {
         return Err(ContractError::CustomError {
@@ -1452,10 +1512,13 @@ pub fn create_basket(
                     //This is a new basket so there shouldn't already be one made
                     return Err(ContractError::ConfigIDError {});
                 }
-                None => Ok(new_basket),
+                None => Ok(new_basket.clone()),
             }
         },
     )?;
+
+    //Set credit multiplier
+    set_credit_multiplier(deps.storage, config.clone(), new_basket.clone().credit_asset, Some(liquidity_multiplier))?;
 
     config.current_basket_id += Uint128::from(1u128);
     CONFIG.save(deps.storage, &config)?;
@@ -1476,7 +1539,6 @@ pub fn create_basket(
                 liq_queue.unwrap_or_else(|| String::from("None")),
             ),
         ])
-        .add_submessage(sub_msg)
         .add_messages(msgs))
 }
 
@@ -1591,56 +1653,12 @@ pub fn edit_basket(
             };
 
             //Assert Asset order of pool_assets in PoolInfo object
-            //Add assets to supply_caps
-            //Check that assets have oracles
+            //Assert pool_assets are already in the basket, which confirms an oracle and liquidation_queue for them
             for (i, asset) in pool_assets.iter().enumerate() {
                 if asset.denom != pool_info.asset_infos[i].info.to_string() {
                     return Err( ContractError::CustomError { val: format!("cAsset #{}: PoolInfo.asset_denoms must be in the order of osmo-bindings::PoolStateResponse.assets {:?} ", i+1, pool_assets) } );
                 }
-
-                //Push each Pool asset info to collateral_supply_caps if not already found
-                if let None = basket
-                    .clone()
-                    .collateral_supply_caps
-                    .into_iter()
-                    .find(|cap| {
-                        cap.asset_info.equal(&AssetInfo::NativeToken {
-                            denom: asset.clone().denom,
-                        })
-                    })
-                {
-                    basket.collateral_supply_caps.push(SupplyCap {
-                        asset_info: AssetInfo::NativeToken {
-                            denom: asset.clone().denom,
-                        },
-                        current_supply: Uint128::zero(),
-                        supply_cap_ratio: Decimal::zero(),
-                        debt_total: Uint128::zero(),
-                        lp: false,
-                        stability_pool_ratio_for_debt_cap: None,
-                    });
-                }
-
-                //Asserting the Pool Asset has an oracle
-                if config.clone().oracle_contract.is_some() {
-                    //Query Asset Oracle
-                    deps.querier
-                        .query::<AssetResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                            contract_addr: config.clone().oracle_contract.unwrap().to_string(),
-                            msg: to_binary(&OracleQueryMsg::Asset {
-                                asset_info: AssetInfo::NativeToken {
-                                    denom: asset.clone().denom,
-                                },
-                            })?,
-                        }))?;
-
-                    //If it errors it means the oracle doesn't exist
-                } else {
-                    return Err(ContractError::CustomError {
-                        val: String::from("Need to setup oracle contract before adding assets"),
-                    });
-                }
-
+               
                 //Asserting that its pool assets are already added as collateral types
                 if let None = basket.clone().collateral_types.into_iter().find(|cAsset| {
                     cAsset.asset.info.equal(&AssetInfo::NativeToken {
@@ -1653,45 +1671,6 @@ pub fn edit_basket(
                             asset.denom
                         ),
                     });
-                }
-
-                //Create Liquidation Queue for its assets
-                if basket.clone().liq_queue.is_some() {
-                    //Gets Liquidation Queue max premium.
-                    //The premium has to be at most 5% less than the difference between max_LTV and 100%
-                    //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
-                    let max_premium = match Uint128::new(95u128).checked_sub( new_cAsset.max_LTV * Uint128::new(100u128) ){
-                        Ok( diff ) => diff,
-                        //A default to 10 assuming that will be the lowest sp_liq_fee
-                        Err( _err ) => Uint128::new(10u128) 
-                        ,
-                    };
-
-                    msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: basket.clone().liq_queue.unwrap().into_string(),
-                        msg: to_binary(&LQ_ExecuteMsg::AddQueue {
-                            bid_for: new_cAsset.clone().asset.info,
-                            max_premium,
-                            bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
-                        })?,
-                        funds: vec![],
-                    }));
-                } else if new_queue.clone().is_some() {
-                    //Gets Liquidation Queue max premium.
-                    //The premium has to be at most 5% less than the difference between max_LTV and 100%
-                    //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
-                    let max_premium =
-                        Uint128::new(95u128) - new_cAsset.max_LTV * Uint128::new(100u128);
-
-                    msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: new_queue.clone().unwrap().into_string(),
-                        msg: to_binary(&LQ_ExecuteMsg::AddQueue {
-                            bid_for: new_cAsset.clone().asset.info,
-                            max_premium,
-                            bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
-                        })?,
-                        funds: vec![],
-                    }));
                 }
             }
         } else {
@@ -1919,33 +1898,48 @@ pub fn edit_basket(
     )?;
 
     //Set asset specific multiplier
+    set_credit_multiplier(deps.storage, config.clone(), basket.clone().credit_asset, liquidity_multiplier)?;
+
+    Ok(Response::new().add_attributes(attrs).add_messages(msgs))
+}
+
+fn set_credit_multiplier(
+    storage: &mut dyn Storage,
+    config: Config, 
+    credit_asset: Asset,
+    liquidity_multiplier: Option<Decimal>,
+) -> StdResult<()>{
+
+    //Set asset specific multiplier
     if let Some(_multiplier) = liquidity_multiplier {
         let mut credit_asset_multiplier = Decimal::zero();
         //Uint128 to int
         let range: i32 = config.current_basket_id.to_string().parse().unwrap();
 
         for basket_id in 1..range {
-            let stored_basket = BASKETS.load(deps.storage, basket_id.to_string())?;
+            let stored_basket = BASKETS.load(storage, basket_id.to_string())?;
 
             //Add if same credit asset
             if stored_basket
                 .credit_asset
                 .info
-                .equal(&basket.credit_asset.info)
+                .equal(&credit_asset.info)
             {
                 credit_asset_multiplier += stored_basket.liquidity_multiplier;
             }
         }
+        if credit_asset_multiplier.is_zero(){
+            credit_asset_multiplier = Decimal::one();
+        }
         CREDIT_MULTI.save(
-            deps.storage,
-            basket.credit_asset.info.to_string(),
+            storage,
+            credit_asset.info.to_string(),
             &credit_asset_multiplier,
         )?;
     }
 
-    Ok(Response::new().add_attributes(attrs).add_messages(msgs))
+    Ok(())
 }
-
 
 pub fn clone_basket(deps: DepsMut, basket_id: Uint128) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
@@ -2942,7 +2936,7 @@ pub fn get_basket_debt_caps(
         temp_cAssets.clone(),
         config.clone(),
     )?;
-
+    
     //Get credit_asset's liquidity_multiplier
     let credit_asset_multiplier = get_credit_asset_multiplier(
         storage,
@@ -2951,7 +2945,7 @@ pub fn get_basket_debt_caps(
         config.clone(),
         basket.clone(),
     )?;
-
+    
     //Get the base debt cap
     let mut debt_cap =
         get_asset_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?
@@ -3421,32 +3415,6 @@ pub fn get_target_position(
         None => return Err(ContractError::NonExistentPosition {}),
     }
 }
-
-fn create_denom(
-    config: Config,
-    subdenom: String,
-    basket_id: String,
-    liquidity_multiplier: Option<Decimal>,
-) -> StdResult<SubMsg> {
-    if config.osmosis_proxy.is_some() {
-        let message = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.osmosis_proxy.unwrap().to_string(),
-            msg: to_binary(&OsmoExecuteMsg::CreateDenom {
-                subdenom,
-                basket_id,
-                max_supply: Some(Uint128::new(u128::MAX)),
-                liquidity_multiplier,
-            })?,
-            funds: vec![],
-        });
-
-        return Ok(SubMsg::reply_on_success(message, CREATE_DENOM_REPLY_ID));
-    }
-    return Err(StdError::GenericErr {
-        msg: "No osmosis proxy added to the config yet".to_string(),
-    });
-}
-
 
 //If cAssets include an LP, remove the LP share denom and add its paired assets
 pub fn get_LP_pool_cAssets(

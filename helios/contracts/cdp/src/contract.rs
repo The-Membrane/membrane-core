@@ -21,7 +21,7 @@ use crate::positions::{
     assert_basket_assets, clone_basket, create_basket, deposit,
     edit_basket, increase_debt,
     liq_repay, mint_revenue, repay,
-    withdraw, BAD_DEBT_REPLY_ID, CREATE_DENOM_REPLY_ID, WITHDRAW_REPLY_ID,
+    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID,
 };
 use crate::query::{
     query_bad_debt, query_basket, query_basket_credit_interest, query_basket_debt_caps,
@@ -31,7 +31,7 @@ use crate::query::{
 };
 use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID,
     SELL_WALL_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
-use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_sell_wall_reply, handle_create_denom_reply, handle_withdraw_reply, handle_sp_repay_reply};
+use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_sell_wall_reply, handle_withdraw_reply, handle_sp_repay_reply};
 use crate::state::{
     BASKETS, CONFIG, POSITIONS,
 };
@@ -797,7 +797,6 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         LIQ_QUEUE_REPLY_ID => handle_liq_queue_reply(deps, msg, env),
         STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, env, msg),
         SELL_WALL_REPLY_ID => handle_sell_wall_reply(deps, msg, env),
-        CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, msg),
         WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
         USER_SP_REPAY_REPLY_ID => handle_sp_repay_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),

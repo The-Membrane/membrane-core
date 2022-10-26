@@ -15,3 +15,4 @@ pub mod positions;
 pub mod stability_pool;
 pub mod staking;
 pub mod types;
+pub mod margin_proxy;

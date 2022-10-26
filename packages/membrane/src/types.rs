@@ -364,6 +364,7 @@ pub struct LiquidityInfo {
     pub pool_ids: Vec<u64>,
 }
 
+
 //////////Possibly switching to cw-asset//////
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

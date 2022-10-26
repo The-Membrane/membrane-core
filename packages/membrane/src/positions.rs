@@ -57,11 +57,12 @@ pub enum ExecuteMsg {
         position_id: Option<Uint128>, //If the user wants to create a new/separate position, no position id is passed
         position_owner: Option<String>,
     },
+    //Increase debt by an amount or to a LTV
     IncreaseDebt {
-        //only works on open positions
         basket_id: Uint128,
         position_id: Uint128,
-        amount: Uint128,
+        amount: Option<Uint128>,
+        LTV: Option<Decimal>,
         mint_to_addr: Option<String>,
     },
     Withdraw {
@@ -80,12 +81,18 @@ pub enum ExecuteMsg {
         position_id: Uint128,
         position_owner: String,
     },
+    ClosePosition {
+        basket_id: Uint128,
+        position_id: Uint128,
+        send_to: Option<String>,
+    },
     MintRevenue {
         basket_id: Uint128,
         send_to: Option<String>, //Defaults to config.interest_revenue_collector
         repay_for: Option<UserInfo>, //Repay for a position w/ the revenue
         amount: Option<Uint128>,
     },
+    //Non-USD baskets don't work due to the debt minimum
     CreateBasket {
         owner: Option<String>,
         collateral_types: Vec<cAsset>,
@@ -244,7 +251,7 @@ pub struct Config {
 pub struct PositionResponse {
     pub position_id: Uint128,
     pub collateral_assets: Vec<cAsset>,
-    //Allows front ends to get ratios using the smae oracles
+    //Allows front ends to get ratios using the same oracles
     //Useful for users who want to deposit or withdraw at the current ratio
     pub cAsset_ratios: Vec<Decimal>,
     pub credit_amount: Uint128,

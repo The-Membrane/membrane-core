@@ -38,7 +38,7 @@ pub enum QueryMsg {
     Price {
         asset_info: AssetInfo,
         twap_timeframe: u64,        //in minutes
-        basket_id: Option<Uint128>, //To switch oracle sources
+        basket_id: Option<Uint128>, //To switch on oracle sources
     },
     Prices {
         asset_infos: Vec<AssetInfo>,

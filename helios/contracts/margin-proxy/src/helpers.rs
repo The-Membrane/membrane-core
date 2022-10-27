@@ -3,14 +3,14 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{to_binary, Addr, Coin, CosmosMsg, StdResult, WasmMsg};
 
-use membrane::liquidity_check::ExecuteMsg;
+use membrane::margin_proxy::ExecuteMsg;
 
-/// LiquidityContract is a wrapper around Addr that provides a lot of helpers
+/// MarginContract is a wrapper around Addr that provides a lot of helpers
 /// for working with this.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct LiquidityContract(pub Addr);
+pub struct MarginContract(pub Addr);
 
-impl LiquidityContract {
+impl MarginContract {
     pub fn addr(&self) -> Addr {
         self.0.clone()
     }

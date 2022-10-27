@@ -271,7 +271,6 @@ fn deposit_to_cdp(
 
         attrs.push( attr("position_id", unwrapped_id.to_string()) );
 
-        append_to_user_list_of_ids( deps.storage, info.clone().sender, basket_id.clone(), unwrapped_id.clone() )?;
 
         let deposit_msg = CDP_ExecuteMsg::Deposit {
             position_owner: None, //Margin Contract
@@ -316,6 +315,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         EXISTING_DEPOSIT_REPLY_ID => handle_existing_deposit_reply(deps, env, msg),
         NEW_DEPOSIT_REPLY_ID => handle_new_deposit_reply(deps, env, msg),
         LOOP_REPLY_ID => handle_loop_reply(deps, env, msg),
+        CLOSE_POSITION_REPLY_ID => handle_close_position_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 }
@@ -337,7 +337,8 @@ fn handle_loop_reply(
                 .into_iter()
                 .find(|e| e.attributes.iter().any(|attr| attr.key == "total_loan"))
                 .ok_or_else(|| StdError::generic_err(format!("unable to find debt_mint event")))?;
-
+            
+            //Get increased_debt amount
             let increased_debt_amount = &debt_mint_event
                 .attributes
                 .iter()
@@ -345,8 +346,28 @@ fn handle_loop_reply(
                 .unwrap()
                 .value;
 
+            //Get total loan
+            let total_loan = {
+                let string_loan = &debt_mint_event
+                    .attributes
+                    .iter()
+                    .find(|attr| attr.key == "total_loan")
+                    .unwrap()
+                    .value;
+
+                Uint128::from_str(string_loan).unwrap()
+            };
+
             //Get how much credit was minted
             let credit_amount = Decimal::from_str(increased_debt_amount)?;
+
+            //If credit amount is < 2, end loop
+            if credit_amount < Decimal::percent(2_000_000_00){
+
+                return Ok(Response::new()
+                        .add_attribute("loop_finished", "true")
+                        .add_attribute("total_loan", total_loan.to_string()))
+            }
 
             //Load Config
             let config: Config = CONFIG.load(deps.storage)?;
@@ -398,8 +419,10 @@ fn handle_loop_reply(
             //Update number of loops left
             let num_of_loops_left = if let Some(num) = NUM_OF_LOOPS.load(deps.storage)?{
                 //If num_of_loops_left is 0, finish the loop
-                if num == 0 {
-                    return Ok(Response::new().add_attribute("loop_finished", "true"))
+                if num == 0 {                  
+                    return Ok(Response::new()
+                        .add_attribute("loop_finished", "true")
+                        .add_attribute("total_loan", total_loan.to_string()))
                 } else {
                     Some(num - 1u64)
                 }
@@ -423,7 +446,7 @@ fn handle_loop_reply(
             };            
             
             //Push new debt mint messages to the end
-            //collateral sales -> new debt
+            //Credit sales + collateral deposits -> new debt
             messages.extend(res.messages);
 
             
@@ -453,7 +476,7 @@ fn handle_loop_reply(
 
 fn handle_close_position_reply(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     msg: Reply,
 ) -> StdResult<Response>{
     match msg.result.into_result() {
@@ -510,7 +533,9 @@ fn handle_close_position_reply(
             //Save new User list
             USERS.save(deps.storage, user, &updated_positions)?;
 
-            Ok(Response::new().add_attribute("valid_composition", "true"))
+            Ok(Response::new()
+                .add_attribute("position_closed", format!("basket_id: {}, position_id: {}", basket_id, position_id ))
+            )
 
         },
         Err(string) => {
@@ -533,7 +558,7 @@ fn handle_existing_deposit_reply(
 
             //Load Composition Check
             let previous_composition: (PositionResponse, Uint128) = COMPOSITION_CHECK.load(deps.storage)?;
-
+            
             //Confirm cAsset_ratios and cAsset makeup hasn't changed    
             ////Query current Position
             let position_response = deps.querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart {

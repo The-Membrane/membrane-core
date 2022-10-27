@@ -118,7 +118,7 @@ mod tests {
             )
             .unwrap();
 
-        //Instantiate Oracle contract
+        //Instantiate Liquidity contract
         let liquidity_id = app.store_code(liquidity_contract());
 
         let msg = InstantiateMsg {

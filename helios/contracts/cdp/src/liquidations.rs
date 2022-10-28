@@ -5,7 +5,7 @@ use cw20::Cw20ExecuteMsg;
 
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction, Uint256};
 use membrane::positions::{Config, ExecuteMsg, CallbackMsg};
-use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg};
+use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg, SwapToAssetsInput};
 use membrane::stability_pool::{DepositResponse, PoolResponse, LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
@@ -114,7 +114,7 @@ pub fn liquidate(
     let mut lp_withdraw_messages: Vec<CosmosMsg> = vec![];
 
     //Pre-LP Split ratios
-    let cAsset_ratios = get_cAsset_ratios(
+    let (cAsset_ratios, _) = get_cAsset_ratios(
         storage,
         env.clone(),
         querier,
@@ -161,7 +161,7 @@ pub fn liquidate(
     }
 
     //Post-LP Split ratios
-    let cAsset_ratios = get_cAsset_ratios(
+    let (cAsset_ratios, _) = get_cAsset_ratios(
         storage,
         env.clone(),
         querier,
@@ -1057,8 +1057,8 @@ pub fn sell_wall(
 
         match collateral_assets[index].clone().asset.info {
             AssetInfo::NativeToken { denom } => {
-                let router_msg = RouterExecuteMsg::SwapFromNative {
-                    to: credit_info.clone(),
+                let router_msg = RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(credit_info.clone()),
                     max_spread: None, //Max spread doesn't matter bc we want to sell the whole amount no matter what
                     recipient: None,
                     hook_msg: Some(to_binary(&ExecuteMsg::Repay {
@@ -1066,7 +1066,6 @@ pub fn sell_wall(
                         position_id,
                         position_owner: Some(position_owner.clone()),
                     })?),
-                    split: None,
                 };
 
                 let payment = coin(
@@ -1085,7 +1084,7 @@ pub fn sell_wall(
             AssetInfo::Token { address } => {
                 //////////////////////////
                 let router_hook_msg = RouterHookMsg::Swap {
-                    to: credit_info.clone(),
+                    to: SwapToAssetsInput::Single(credit_info.clone()),
                     max_spread: None,
                     recipient: None,
                     hook_msg: Some(to_binary(&ExecuteMsg::Repay {
@@ -1093,7 +1092,6 @@ pub fn sell_wall(
                         position_id,
                         position_owner: Some(position_owner.clone()),
                     })?),
-                    split: None,
                 };
 
                 let msg = CosmosMsg::Wasm(WasmMsg::Execute {

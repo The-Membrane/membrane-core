@@ -1951,7 +1951,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(40_000u128),
+                amount: Some(Uint128::from(40_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -1969,7 +1970,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(2u128),
-                amount: Uint128::from(20_000u128),
+                amount: Some(Uint128::from(20_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -2182,7 +2184,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(5_000u128),
+                amount: Some(Uint128::from(5_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -2422,7 +2425,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(50_001u128),
+                amount: Some(Uint128::from(50_001u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -2433,7 +2437,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(1u128),
+                amount: Some(Uint128::from(1u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -2444,7 +2449,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(50_000u128),
+                amount: Some(Uint128::from(50_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -2711,7 +2717,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(99_999u128),
+                amount: Some(Uint128::from(99_999u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -2736,7 +2743,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(1u128),
+                amount: Some(Uint128::from(1u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -3168,7 +3176,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(40_000u128),
+                amount: Some(Uint128::from(40_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -3201,7 +3210,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(2u128),
-                amount: Uint128::from(100_000u128),
+                amount: Some(Uint128::from(100_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();            
@@ -3323,7 +3333,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(49_999u128),
+                amount: Some(Uint128::from(49_999u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -3342,7 +3353,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(1u128),
+                amount: Some(Uint128::from(1u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -3506,7 +3518,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(49_999u128),
+                amount: Some(Uint128::from(49_999u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -3524,7 +3537,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(2u128),
+                amount: Some(Uint128::from(2u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -3652,7 +3666,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(50_000_000_000u128),
+                amount: Some(Uint128::from(50_000_000_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -3869,7 +3884,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(2_000u128),
+                amount: Some(Uint128::from(2_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -3912,7 +3928,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(197_996u128),
+                amount: Some(Uint128::from(197_996u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -3955,7 +3972,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(49_999u128),
+                amount: Some(Uint128::from(49_999u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -4058,7 +4076,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(49_999u128),
+                amount: Some(Uint128::from(49_999u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -4172,7 +4191,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(50_000u128),
+                amount: Some(Uint128::from(50_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -4302,7 +4322,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(5_000u128),
+                amount: Some(Uint128::from(5_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -4419,7 +4440,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(5_000u128),
+                amount: Some(Uint128::from(5_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -4528,7 +4550,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(5_000u128),
+                amount: Some(Uint128::from(5_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -4640,7 +4663,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(5_000u128),
+                amount: Some(Uint128::from(5_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -4760,7 +4784,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(5_000u128),
+                amount: Some(Uint128::from(5_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -4879,7 +4904,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(5_000_000_000_000u128),
+                amount: Some(Uint128::from(5_000_000_000_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -5044,7 +5070,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(999u128),
+                amount: Some(Uint128::from(999u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -5289,7 +5316,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(299_996u128),
+                amount: Some(Uint128::from(299_996u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -5300,7 +5328,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(249_995u128),
+                amount: Some(Uint128::from(249_995u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -5552,7 +5581,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(50_000u128),
+                amount: Some(Uint128::from(50_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -5651,7 +5681,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(50_000u128),
+                amount: Some(Uint128::from(50_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -5788,7 +5819,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(4999u128),
+                amount: Some(Uint128::from(4999u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -5901,7 +5933,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(249_995u128),
+                amount: Some(Uint128::from(249_995u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -6357,7 +6390,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(80_001u128),
+                amount: Some(Uint128::from(80_001u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -6368,7 +6402,8 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(80_000u128),
+                amount: Some(Uint128::from(80_000u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -7080,7 +7115,8 @@ mod tests {
             let increase_debt_msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(1u128),
+                amount: Some(Uint128::from(1u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(increase_debt_msg, vec![]).unwrap();
@@ -7101,7 +7137,8 @@ mod tests {
             let increase_debt_msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(3u128),
-                amount: Uint128::from(1u128),
+                amount: Some(Uint128::from(1u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(increase_debt_msg, vec![]).unwrap();
@@ -7111,7 +7148,8 @@ mod tests {
             let increase_debt_msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(3u128),
                 position_id: Uint128::from(1u128),
-                amount: Uint128::from(1u128),
+                amount: Some(Uint128::from(1u128)),
+                LTV: None,
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(increase_debt_msg, vec![]).unwrap();

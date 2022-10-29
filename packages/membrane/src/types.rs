@@ -254,7 +254,6 @@ pub struct LPAssetInfo {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Position {
-    pub owner: Addr,
     pub position_id: Uint128,
     pub collateral_assets: Vec<cAsset>,
     pub credit_amount: Uint128,

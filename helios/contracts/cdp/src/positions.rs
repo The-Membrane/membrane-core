@@ -344,6 +344,7 @@ pub fn withdraw(
     position_id: Uint128,
     basket_id: Uint128,
     cAssets: Vec<cAsset>,
+    send_to: Option<String>,
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
 
@@ -354,6 +355,15 @@ pub fn withdraw(
 
     let mut msgs = vec![];
     let response = Response::new();
+
+    //Set receipient
+    let recipient: Addr = {
+        if let Some(string) = send_to {
+            deps.api.addr_validate(&string)?
+        } else {
+            info.clone().sender
+        }
+    };    
 
     //For debt cap updates
     let old_assets =
@@ -541,7 +551,7 @@ pub fn withdraw(
                     match withdraw_asset.clone().info {
                         AssetInfo::Token { address: _ } => {
                             //Create separate withdraw msg
-                            let message = withdrawal_msg(withdraw_asset, info.sender.clone())?;
+                            let message = withdrawal_msg(withdraw_asset, recipient)?;
                             msgs.push(SubMsg::reply_on_success(message, WITHDRAW_REPLY_ID));
 
                             //Signal 1 asset reply
@@ -564,7 +574,7 @@ pub fn withdraw(
         reply_order.push(withdraw_coins.len() as usize);
 
         let message = CosmosMsg::Bank(BankMsg::Send {
-            to_address: info.sender.clone().to_string(),
+            to_address: recipient.to_string(),
             amount: withdraw_coins,
         });
         msgs.push(SubMsg::reply_on_success(message, WITHDRAW_REPLY_ID));
@@ -703,6 +713,7 @@ pub fn repay(
     position_id: Uint128,
     position_owner: Option<String>,
     credit_asset: Asset,
+    send_excess_to: Option<String>,
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(storage)?;
 
@@ -789,15 +800,26 @@ pub fn repay(
 
                             total_loan = target_position.clone().credit_amount;
 
-                            //Send back excess repayment to the POSITION OWNER, NOT THE ADDRESS THAT REPAID
+                            //Send back excess repayment, defaults to the repaying address
                             if !excess_repayment.is_zero() {
 
-                                let msg = withdrawal_msg(Asset {
-                                    amount: excess_repayment,
-                                    ..basket.clone().credit_asset
-                                }, target_position.clone().owner )?;
+                                if let Some(addr) = send_excess_to {
+                                    let valid_addr = api.addr_validate(&addr)?;
 
-                                messages.push(msg);
+                                    let msg = withdrawal_msg(Asset {
+                                        amount: excess_repayment,
+                                        ..basket.clone().credit_asset
+                                    }, valid_addr )?;
+    
+                                    messages.push(msg);
+                                } else {
+                                    let msg = withdrawal_msg(Asset {
+                                        amount: excess_repayment,
+                                        ..basket.clone().credit_asset
+                                    }, info.clone().sender )?;
+    
+                                    messages.push(msg);
+                                }                                
                             }
                             
 
@@ -904,6 +926,7 @@ pub fn liq_repay(
         repay_propagation.clone().position_id,
         Some(repay_propagation.clone().position_owner.to_string()),
         credit_asset.clone(),
+        None,
     ) {
         Ok(res) => res,
         Err(e) => return Err(e),
@@ -1258,6 +1281,7 @@ fn close_position(
                         basket_id,
                         position_id,
                         position_owner: Some(info.clone().sender.to_string()),
+                        send_excess_to: send_to,
                     })?),
                 };
 
@@ -1282,6 +1306,7 @@ fn close_position(
                         basket_id,
                         position_id,
                         position_owner: Some(info.clone().sender.to_string()),
+                        send_excess_to: send_to,
                     })?),
                 };
 
@@ -1320,7 +1345,7 @@ fn close_position(
         attr("position_id", position_id),
         attr("user", info.clone().sender),
     ]))
-    
+
     //On success....
     //Update position claims
     //attempt to withdraw leftover using a WithdrawMsg
@@ -3724,6 +3749,7 @@ pub fn mint_revenue(
             basket_id: repay_for.clone().unwrap().basket_id,
             position_id: repay_for.clone().unwrap().position_id,
             position_owner: Some(repay_for.unwrap().position_owner),
+            send_excess_to: Some(env.contract.address.to_string()),
         };
 
         message.push(CosmosMsg::Wasm(WasmMsg::Execute {

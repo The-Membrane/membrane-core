@@ -8,8 +8,8 @@ use cw2::set_contract_version;
 
 use membrane::margin_proxy::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::decimal_multiplication;
-use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, PositionResponse, PositionsResponse, BasketResponse};
-use membrane::apollo_router::ExecuteMsg as RouterExecuteMsg;
+use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, Cw20HookMsg as CDP_HookMsg, PositionResponse, PositionsResponse, BasketResponse};
+use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::types::{Position, AssetInfo};
 
 use crate::error::ContractError;
@@ -710,31 +710,62 @@ fn create_router_msg(
 ) -> StdResult<CosmosMsg>{
     //We know the credit asset is a native asset
     if let AssetInfo::NativeToken { denom } = asset_to_sell {
+
+        //Match on the Collateral's type
+        match asset_to_buy.clone() {
+            AssetInfo::NativeToken { denom: _ } => {
+                let router_msg = RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(asset_to_buy.clone()), //Buy
+                    max_spread, 
+                    recipient: Some(positions_contract), //Deposit Native to positions contract
+                    hook_msg: Some(to_binary(&CDP_ExecuteMsg::Deposit { 
+                        basket_id, 
+                        position_id, 
+                        position_owner: Some(contract_addr), //Owner is this contract
+                    })?),
+                };
         
-        let router_msg = RouterExecuteMsg::SwapFromNative {
-            to: asset_to_buy.clone(), //Buy
-            max_spread, 
-            recipient: Some(positions_contract), //Deposit to positions contract
-            hook_msg: Some(to_binary(&CDP_ExecuteMsg::Deposit { 
-                basket_id, 
-                position_id, 
-                position_owner: Some(contract_addr), //Owner is this contract
-            })?),
-            split: None,
-        };
-
-        let payment = coin(
-            (amount_to_sell * Uint128::new(1u128)).u128(),
-            denom,
-        );
-
-        let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: apollo_router_addr,
-            msg: to_binary(&router_msg)?,
-            funds: vec![payment],
-        });
-
-        Ok(msg)            
+                let payment = coin(
+                    (amount_to_sell * Uint128::new(1u128)).u128(),
+                    denom,
+                );
+        
+                let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: apollo_router_addr,
+                    msg: to_binary(&router_msg)?,
+                    funds: vec![payment],
+                });
+        
+                Ok(msg)            
+            },
+            AssetInfo::Token { address: _ } => {
+                let router_msg = RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(asset_to_buy.clone()), //Buy
+                    max_spread, 
+                    recipient: Some(positions_contract), //Deposit Cw20 to positions contract
+                    hook_msg: Some(to_binary(&CDP_HookMsg::Deposit { 
+                        basket_id, 
+                        position_id, 
+                        position_owner: Some(contract_addr), //Owner is this contract
+                    })?),
+                };
+        
+                let payment = coin(
+                    (amount_to_sell * Uint128::new(1u128)).u128(),
+                    denom,
+                );
+        
+                let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: apollo_router_addr,
+                    msg: to_binary(&router_msg)?,
+                    funds: vec![payment],
+                });
+        
+                Ok(msg)            
+            },
+        }
+        
+        
     } else {
         return Err(StdError::GenericErr { msg: String::from("Credit assets are supposed to be native") })
     }

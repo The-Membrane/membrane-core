@@ -1212,10 +1212,11 @@ fn close_position(
     let target_position = get_target_position(deps.storage, basket_id, info.clone().sender, position_id)?;
 
     //Calc collateral to sell
+    //credit_amount * credit_price * (1 + max_spread)
     let total_collateral_value_to_sell = {
         decimal_multiplication(
             Decimal::from_ratio(target_position.credit_amount, Uint128::new(1)), 
-            decimal_multiplication(basket.clone().credit_price, max_spread)
+            decimal_multiplication(basket.clone().credit_price, (max_spread + Decimal::one()))
         )
     };
     //Max_spread is added to the collateral amount to ensure enough credit is purchased

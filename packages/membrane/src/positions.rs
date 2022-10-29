@@ -145,8 +145,8 @@ pub enum ExecuteMsg {
 pub enum Cw20HookMsg {
     Deposit {
         basket_id: Uint128,
-        position_owner: Option<String>,
         position_id: Option<Uint128>,
+        position_owner: Option<String>,
     },
 }
 

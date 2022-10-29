@@ -1887,6 +1887,7 @@ mod tests {
                         amount: Uint128::from(10_000u128),
                     },
                 ],
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
@@ -1903,6 +1904,7 @@ mod tests {
                         amount: Uint128::from(10_000u128),
                     },
                 ],
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
@@ -2011,6 +2013,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 position_owner: None,
+                send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
                 .call(repay_msg, vec![coin(40_000, "credit_fulldenom")])
@@ -2209,6 +2212,7 @@ mod tests {
                         amount: Uint128::from(100_000u128),
                     },
                 ],
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
@@ -2231,6 +2235,7 @@ mod tests {
                         amount: Uint128::from(90_000u128),
                     },
                 ],
+                send_to: None,
             };
 
             let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
@@ -2357,6 +2362,7 @@ mod tests {
                     },
                     amount: Uint128::from(1u128),
                 }],
+                send_to: None,
             };
 
             let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
@@ -2469,6 +2475,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 position_owner: None,
+                send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
                 .call(msg, vec![coin(49_901, "credit_fulldenom")])
@@ -2502,6 +2509,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 position_owner: None,
+                send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
                 .call(msg, vec![coin(50_001, "credit_fulldenom")])
@@ -2514,6 +2522,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 position_owner: Some("test".to_string()),
+                send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
                 .call(repay_msg, vec![coin(50_000, "credit_fulldenom")])
@@ -2763,6 +2772,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 position_owner: Some(String::from("bigger_bank")),
+                send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
                 .call(msg, vec![coin(99_000, "credit_fulldenom")])
@@ -2806,6 +2816,7 @@ mod tests {
                     },
                     amount: Uint128::from(93_168u128),
                 }],
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.set_block(BlockInfo {
@@ -2879,6 +2890,7 @@ mod tests {
             basket_id: Uint128::from(1u128),
             position_id: Uint128::from(1u128),
             position_owner: Some(String::from("bigger_bank")),
+            send_excess_to: None,
         };
         let cosmos_msg = cdp_contract
             .call(msg, vec![coin(3_722, "credit_fulldenom")])
@@ -3374,6 +3386,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 position_owner: None,
+                send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
                 .call(msg, vec![coin(48_039, "credit_fulldenom")])
@@ -3418,6 +3431,7 @@ mod tests {
                     },
                     amount: Uint128::from(96_080u128),
                 }],
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.set_block(BlockInfo {
@@ -3557,6 +3571,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 position_owner: None,
+                send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
                 .call(msg, vec![coin(47_999, "credit_fulldenom")])
@@ -4095,6 +4110,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 position_owner: None,
+                send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
                 .call(msg, vec![coin(49_000, "credit_fulldenom")])
@@ -5379,6 +5395,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 assets,
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
@@ -6201,6 +6218,7 @@ mod tests {
                     },
                     amount: Uint128::from(10_000_000_000_000u128),
                 }],
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
@@ -7025,6 +7043,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 position_owner: None,
+                send_excess_to: None,
             };
             let cosmos_msg = cdp_contract.call(repay_msg, vec![]).unwrap();
             let res = app
@@ -7045,6 +7064,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 position_owner: Some(USER.to_string()),
+                send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
                 .call(repay_msg, vec![coin(666, "fake_debit")])
@@ -7058,6 +7078,7 @@ mod tests {
                 basket_id: Uint128::from(3u128),
                 position_id: Uint128::from(1u128),
                 position_owner: Some(USER.to_string()),
+                send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
                 .call(repay_msg, vec![coin(111, "credit_fulldenom")])
@@ -7071,6 +7092,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(3u128),
                 position_owner: Some(USER.to_string()),
+                send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
                 .call(repay_msg, vec![coin(111, "credit_fulldenom")])
@@ -7199,6 +7221,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 assets: valid_assets.clone(),
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
             let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap_err();
@@ -7222,6 +7245,7 @@ mod tests {
                     },
                     amount: Uint128::zero(),
                 }],
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
@@ -7238,6 +7262,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 assets: assets.clone(),
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
@@ -7254,6 +7279,7 @@ mod tests {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
                 assets,
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
@@ -7529,6 +7555,7 @@ mod tests {
                         amount: Uint128::from(11u128),
                     }
                 ],
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
@@ -7551,6 +7578,7 @@ mod tests {
                         amount: Uint128::from(1u128),
                     }
                 ],
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
@@ -7567,6 +7595,7 @@ mod tests {
                         amount: Uint128::from(5u128),
                     }
                 ],
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
@@ -7589,6 +7618,7 @@ mod tests {
                         amount: Uint128::from(6u128),
                     }
                 ],
+                send_to: None,
             };
             let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();

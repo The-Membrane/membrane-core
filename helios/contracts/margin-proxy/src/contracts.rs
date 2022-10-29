@@ -79,8 +79,8 @@ pub fn execute(
         } => {
             loop_leverage(deps.storage, deps.querier, env, info.sender, basket_id, position_id, num_loops, target_LTV)
         },
-        ExecuteMsg::ClosePosition { basket_id, position_id } => {
-            close_posiion(deps, info, basket_id, position_id)
+        ExecuteMsg::ClosePosition { basket_id, position_id, max_spread } => {
+            close_posiion(deps, info, basket_id, position_id, max_spread)
         },
         ExecuteMsg::UpdateConfig {
             owner,
@@ -97,6 +97,7 @@ fn close_posiion(
     info: MessageInfo,
     basket_id: Uint128,
     position_id: Uint128,
+    max_spread: Decimal,
 ) -> Result<Response, ContractError>{
 
     //Load Config
@@ -111,6 +112,7 @@ fn close_posiion(
         msg: to_binary(&CDP_ExecuteMsg::ClosePosition { 
             basket_id, 
             position_id,
+            max_spread: Some(max_spread),
             send_to: Some(info.clone().sender.to_string())
         })?, 
         funds: vec![],

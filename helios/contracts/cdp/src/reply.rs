@@ -1,18 +1,79 @@
 use std::str::FromStr;
 
-use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, WasmQuery, QueryRequest, to_binary, WasmMsg, CosmosMsg, Storage, QuerierWrapper};
+use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, CosmosMsg, Storage, QuerierWrapper};
 
-use membrane::types::{AssetInfo, Asset, Basket, LiqAsset, SellWallDistribution};
-use membrane::osmosis_proxy::{QueryMsg as OsmoQueryMsg, GetDenomResponse};
+use membrane::types::{AssetInfo, Asset, Basket, LiqAsset, SellWallDistribution, Position};
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
-use membrane::positions::Config;
+use membrane::positions::{Config, ExecuteMsg};
 use membrane::math::decimal_subtraction;
 
-use crate::state::{RepayPropagation, REPAY, WITHDRAW, CONFIG, BASKETS, CREDIT_MULTI};
+use crate::state::{RepayPropagation, REPAY, WITHDRAW, CONFIG, BASKETS, CLOSE_POSITION, ClosePositionPropagation};
 use crate::contract::get_contract_balances;
 use crate::positions::{get_target_position, withdrawal_msg, update_position_claims};
 use crate::liquidations::{query_stability_pool_liquidatible, STABILITY_POOL_REPLY_ID, sell_wall_using_ids, SELL_WALL_REPLY_ID};
 
+ //On success....
+//Update position claims
+//attempt to withdraw leftover using a WithdrawMsg
+fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => {
+            //Load Close Position Prop
+            let state_propagation: ClosePositionPropagation = CLOSE_POSITION.load(deps.storage)?;
+            
+            //Create user info variables
+            let valid_position_owner = deps.api.addr_validate(&state_propagation.position_info.position_owner)?;
+            let basket_id = state_propagation.position_info.basket_id; 
+            let position_id = state_propagation.position_info.position_id; 
+            
+            //Update position claims for each withdrawn + sold amount
+            for withdrawn_collateral in state_propagation.withdrawn_assets{
+
+                update_position_claims(
+                    deps.storage, 
+                    deps.querier, 
+                    env.clone(), 
+                    basket_id.clone(), 
+                    position_id.clone(), 
+                    valid_position_owner, 
+                    withdrawn_collateral.info, 
+                    withdrawn_collateral.amount
+                )?;
+            }
+
+            //Load position
+            let target_position = get_target_position(
+                deps.storage, 
+                basket_id.clone(), 
+                valid_position_owner, 
+                position_id.clone(), 
+            )?;
+
+            let assets_to_withdraw: Vec<Asset> = target_position.collateral_assets
+                .into_iter()
+                .map(|cAsset| cAsset.asset)
+                .collect::<Vec<Asset>>();
+
+            //Create WithdrawMsg
+            let withdraw_msg = ExecuteMsg::Withdraw { 
+                basket_id, 
+                position_id, 
+                assets: assets_to_withdraw, 
+                send_to: state_propagation.send_to, 
+            };
+
+            //Response 
+            Ok(Response::new().add_message(withdraw_msg)
+                .add_attribute("sold_assets", format!("{:?}", state_propagation.withdrawn_assets))            
+            )
+        },
+        
+        Err(err) => {
+            //Its reply on success only
+            Ok(Response::new().add_attribute("error", err))
+        }
+    }
+}
 
 pub fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.result.into_result() {

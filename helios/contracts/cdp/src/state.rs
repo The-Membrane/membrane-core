@@ -32,10 +32,19 @@ pub struct WithdrawPropagation {
     pub reply_order: Vec<usize>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct ClosePositionPropagation {
+    pub withdrawn_assets: Vec<Asset>,
+    pub position_info: UserInfo,
+    pub send_to: Option<String>,
+}
+
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const POSITIONS: Map<(String, Addr), Vec<Position>> = Map::new("positions"); //basket_id, owner
 pub const BASKETS: Map<String, Basket> = Map::new("baskets"); //basket_id Basket
 pub const CREDIT_MULTI: Map<String, Decimal> = Map::new("credit_multipliers"); //basket_id, multiplier
 
+//Reply State Propagations
 pub const REPAY: Item<RepayPropagation> = Item::new("repay_propagation");
 pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");
+pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");

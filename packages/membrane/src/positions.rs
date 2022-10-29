@@ -69,11 +69,13 @@ pub enum ExecuteMsg {
         basket_id: Uint128,
         position_id: Uint128,
         assets: Vec<Asset>,
+        send_to: Option<String>, //If not the sender
     },
     Repay {
         basket_id: Uint128,
         position_id: Uint128,
         position_owner: Option<String>, //If not the sender
+        send_excess_to: Option<String>, //If not the sender
     },
     LiqRepay {},
     Liquidate {
@@ -84,6 +86,7 @@ pub enum ExecuteMsg {
     ClosePosition {
         basket_id: Uint128,
         position_id: Uint128,
+        max_spread: Decimal,
         send_to: Option<String>,
     },
     MintRevenue {

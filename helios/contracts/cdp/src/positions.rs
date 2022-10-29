@@ -34,7 +34,7 @@ use membrane::types::{
 use crate::contract::get_contract_balances;
 use crate::liquidations::query_stability_pool_fee;
 use crate::rates::accrue;
-use crate::state::CREDIT_MULTI;
+use crate::state::{CREDIT_MULTI, CLOSE_POSITION, ClosePositionPropagation};
 use crate::{
     state::{
         WithdrawPropagation, BASKETS, CONFIG, POSITIONS, REPAY, WITHDRAW,
@@ -1200,13 +1200,14 @@ fn close_position(
     basket_id: Uint128,
     position_id: Uint128,
     max_spread: Decimal,
+    send_to: Option<String>,
 ) -> Result<Response, ContractError>{
 
     //Load Config
     let config: Config = CONFIG.load(deps.storage)?;
 
     //Load Basket
-    let basket = BASKETS.load(deps.storage, basket_id.to_string())?;
+    let basket: Basket = BASKETS.load(deps.storage, basket_id.to_string())?;
 
     //Load target_position
     let target_position = get_target_position(deps.storage, basket_id, info.clone().sender, position_id)?;
@@ -1226,6 +1227,7 @@ fn close_position(
     let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(deps.storage, env.clone(), deps.querier, target_position.collateral_assets, config)?;
 
     let mut submessages = vec![];
+    let mut withdrawn_assets = vec![];
 
     //Calc collateral_amount_to_sell per asset & create router msg
     for (i, collateral_ratio) in cAsset_ratios.into_iter().enumerate(){
@@ -1235,15 +1237,22 @@ fn close_position(
         
             let collateral_value_to_sell = decimal_multiplication(total_collateral_value_to_sell, cAsset_ratios[i]);
             
-            decimal_division(collateral_value_to_sell, cAsset_prices[i])
+            decimal_division(collateral_value_to_sell, cAsset_prices[i]) * Uint128::new(1u128)
         };
 
-        //Create Router SubMsg
+        //Add collateral_amount to list for propagation
+        withdrawn_assets.push(Asset{
+            amount: collateral_amount_to_sell,
+            ..target_position.clone().collateral_assets[i].asset
+        });
+
+        
+        //Create router subMsg to sell and repay, reply on success
         let router_msg: CosmosMsg = match target_position.clone().collateral_assets[i].asset.info {
             AssetInfo::NativeToken { denom } => {
                 let router_msg = RouterExecuteMsg::Swap {
-                    to: SwapToAssetsInput::Single(target_position.clone().collateral_assets[i].asset.info),
-                    max_spread: None, //Max spread doesn't matter bc we want to sell the whole amount no matter what
+                    to: SwapToAssetsInput::Single(basket.clone().credit_asset.info),
+                    max_spread: Some(max_spread), 
                     recipient: None,
                     hook_msg: Some(to_binary(&ExecuteMsg::Repay {
                         basket_id,
@@ -1253,7 +1262,7 @@ fn close_position(
                 };
 
                 let payment = coin(
-                    (collateral_amount_to_sell * Uint128::new(1u128)).u128(),
+                    (collateral_amount_to_sell).u128(),
                     denom,
                 );
 
@@ -1266,8 +1275,8 @@ fn close_position(
             AssetInfo::Token { address } => {
                 //////////////////////////
                 let router_hook_msg = RouterHookMsg::Swap {
-                    to: SwapToAssetsInput::Single(target_position.clone().collateral_assets[i].asset.info),
-                    max_spread: None,
+                    to: SwapToAssetsInput::Single(basket.clone().credit_asset.info),
+                    max_spread: Some(max_spread), 
                     recipient: None,
                     hook_msg: Some(to_binary(&ExecuteMsg::Repay {
                         basket_id,
@@ -1279,7 +1288,7 @@ fn close_position(
                 CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: address.to_string(),
                     msg: to_binary(&Cw20ExecuteMsg::Send {
-                        amount: collateral_amount_to_sell * Uint128::new(1u128),
+                        amount: collateral_amount_to_sell,
                         contract: config.clone().dex_router.unwrap().to_string(),
                         msg: to_binary(&router_hook_msg)?,
                     })?,
@@ -1287,24 +1296,37 @@ fn close_position(
                 })
             }
         };
-
+        
         let router_sub_msg = SubMsg::reply_on_success(router_msg, CLOSE_POSITION_REPLY_ID);
 
         submessages.push(router_sub_msg);
 
-    }   
+    }
     
-    Ok(Response::new())
+    //Save CLOSE_POSITION_PROPAGATION
+    CLOSE_POSITION.save(deps.storage, &ClosePositionPropagation {
+        withdrawn_assets,
+        position_info: UserInfo { 
+            basket_id: basket_id.clone(), 
+            position_id: position_id.clone(), 
+            position_owner: info.clone().sender.to_string(),
+        },
+        send_to: send_to.clone(),
+    })?;
+    
 
-    //Create router subMsg to sell and repay, reply on success
-
+    Ok(Response::new().add_submessages(submessages).add_attributes(vec![
+        attr("basket_id", basket_id),
+        attr("position_id", position_id),
+        attr("user", info.clone().sender),
+    ]))
+    
     //On success....
     //Update position claims
-    //attempt to withdraw leftover using a WtihdrawMsg
+    //attempt to withdraw leftover using a WithdrawMsg
 
     //If the sale incurred slippage and couldn't repay through the debt minimum, the subsequent withdraw msg will error and revert state
-    
-    
+        
 }
 
 pub fn create_basket(

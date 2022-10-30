@@ -15,7 +15,7 @@ use crate::liquidations::{query_stability_pool_liquidatible, STABILITY_POOL_REPL
  //On success....
 //Update position claims
 //attempt to withdraw leftover using a WithdrawMsg
-fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.result.into_result() {
         Ok(_result) => {
             //Load Close Position Prop

@@ -1250,81 +1250,117 @@ pub fn close_position(
     let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, config.clone())?;
 
     let mut submessages = vec![];
+    let mut lp_withdraw_messages: Vec<CosmosMsg> = vec![];
     let mut withdrawn_assets = vec![];
 
     //Calc collateral_amount_to_sell per asset & create router msg
     for (i, collateral_ratio) in cAsset_ratios.clone().into_iter().enumerate(){
 
         //Calc collateral_amount_to_sell
-        let collateral_amount_to_sell = {
+        let mut collateral_amount_to_sell = {
         
             let collateral_value_to_sell = decimal_multiplication(total_collateral_value_to_sell, cAsset_ratios[i]);
             
             decimal_division(collateral_value_to_sell, cAsset_prices[i]) * Uint128::new(1u128)
         };
 
+        //Collateral to sell can't be more than the position owns
+        if collateral_amount_to_sell > target_position.collateral_assets.clone()[i].asset.amount {
+            collateral_amount_to_sell = target_position.collateral_assets.clone()[i].asset.amount;
+        }
+
+        //Set collateral asset
+        let collateral_asset = target_position.clone().collateral_assets[i].clone().asset;
+
         //Add collateral_amount to list for propagation
         withdrawn_assets.push(Asset{
             amount: collateral_amount_to_sell,
-            ..target_position.clone().collateral_assets[i].clone().asset
+            ..collateral_asset.clone()
         });
 
-        
-        //Create router subMsg to sell and repay, reply on success
-        let router_msg: CosmosMsg = match target_position.clone().collateral_assets[i].clone().asset.info {
-            AssetInfo::NativeToken { denom } => {
-                let router_msg = RouterExecuteMsg::Swap {
-                    to: SwapToAssetsInput::Single(basket.clone().credit_asset.info),
-                    max_spread: Some(max_spread), 
-                    recipient: None,
-                    hook_msg: Some(to_binary(&ExecuteMsg::Repay {
-                        basket_id,
-                        position_id,
-                        position_owner: Some(info.clone().sender.to_string()),
-                        send_excess_to: send_to.clone(),
-                    })?),
-                };
+        //If cAsset is an LP, split into pool assets to sell
+        if  target_position.clone().collateral_assets[i].pool_info.is_some(){
+            //Set pool info
+            let pool_info = target_position.clone().collateral_assets[i].pool_info.unwrap();
+            
+            //Create Router SubMsgs for each pool_asset
+            for pool_asset in pool_info.asset_infos{
 
-                let payment = coin(
-                    (collateral_amount_to_sell).u128(),
-                    denom,
-                );
+                //Get ratio of collateral_amount to sell 
+                let pool_asset_amount_to_sell = decimal_multiplication(
+                    Decimal::from_ratio(collateral_amount_to_sell, Uint128::new(1)), 
+                    pool_asset.ratio) 
+                * Uint128::new(1);
+                
+                let router_msg = create_router_msg_to_buy_credit_and_repay(
+                    env.contract.address.to_string(), 
+                    config.dex_router.unwrap().to_string(), 
+                    basket.clone().credit_asset, 
+                    pool_asset.clone().info, 
+                    pool_asset_amount_to_sell, 
+                    basket_id.clone(),
+                    position_id.clone(), 
+                    info.clone().sender, 
+                    Some(max_spread), 
+                    send_to
+                )?;
 
-                CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: config.clone().dex_router.unwrap().to_string(),
-                    msg: to_binary(&router_msg)?,
-                    funds: vec![payment],
-                })
+                let router_sub_msg = SubMsg::reply_on_success(router_msg, CLOSE_POSITION_REPLY_ID);
+
+                submessages.push(router_sub_msg);
+                
             }
-            AssetInfo::Token { address } => {
-                //////////////////////////
-                let router_hook_msg = RouterHookMsg::Swap {
-                    to: SwapToAssetsInput::Single(basket.clone().credit_asset.info),
-                    max_spread: Some(max_spread), 
-                    recipient: None,
-                    hook_msg: Some(to_binary(&ExecuteMsg::Repay {
-                        basket_id,
-                        position_id,
-                        position_owner: Some(info.clone().sender.to_string()),
-                        send_excess_to: send_to.clone()
-                    })?),
-                };
-
-                CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: address.to_string(),
-                    msg: to_binary(&Cw20ExecuteMsg::Send {
-                        amount: collateral_amount_to_sell,
-                        contract: config.clone().dex_router.unwrap().to_string(),
-                        msg: to_binary(&router_hook_msg)?,
-                    })?,
-                    funds: vec![],
-                })
-            }
-        };
         
-        let router_sub_msg = SubMsg::reply_on_success(router_msg, CLOSE_POSITION_REPLY_ID);
+            //Create LP withdraw msg
+            //Query total share asset amounts
+            let share_asset_amounts = deps.querier
+            .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+                msg: to_binary(&OsmoQueryMsg::PoolState {
+                    id: pool_info.pool_id,
+                })?,
+            }))?
+            .shares_value(collateral_amount_to_sell);
 
-        submessages.push(router_sub_msg);
+            //Push LP Withdrawal Msg
+            let mut token_out_mins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
+            for token in share_asset_amounts {
+                token_out_mins.push(osmosis_std::types::cosmos::base::v1beta1::Coin {
+                    denom: token.denom,
+                    amount: token.amount.to_string(),
+                });
+            }
+
+            let msg: CosmosMsg = MsgExitPool {
+                sender: env.contract.address.to_string(),
+                pool_id: pool_info.pool_id,
+                share_in_amount: collateral_amount_to_sell.to_string(),
+                token_out_mins,
+            }
+            .into();
+
+            lp_withdraw_messages.push(msg);
+
+        } else {
+        
+            //Create router subMsg to sell and repay, reply on success
+            let router_msg: CosmosMsg = create_router_msg_to_buy_credit_and_repay(
+                env.contract.address.to_string(), 
+                config.dex_router.unwrap().to_string(), 
+                basket.clone().credit_asset, 
+                collateral_asset.clone().info, 
+                collateral_amount_to_sell, 
+                basket_id.clone(),
+                position_id.clone(), 
+                info.clone().sender, 
+                Some(max_spread), 
+                send_to
+            )?;
+            
+            let router_sub_msg = SubMsg::reply_on_success(router_msg, CLOSE_POSITION_REPLY_ID);
+
+            submessages.push(router_sub_msg);
+        }
 
     }
     
@@ -1340,7 +1376,9 @@ pub fn close_position(
     })?;
     
 
-    Ok(Response::new().add_submessages(submessages).add_attributes(vec![
+    Ok(Response::new()
+        .add_messages(lp_withdraw_msgs)
+        .add_submessages(submessages).add_attributes(vec![
         attr("basket_id", basket_id),
         attr("position_id", position_id),
         attr("user", info.clone().sender),
@@ -1352,6 +1390,83 @@ pub fn close_position(
 
     //If the sale incurred slippage and couldn't repay through the debt minimum, the subsequent withdraw msg will error and revert state
         
+}
+
+fn create_router_msg_to_buy_credit_and_repay(
+    positions_contract: String,
+    apollo_router_addr: String,
+    credit_asset: AssetInfo, //Credit asset
+    asset_to_sell: AssetInfo, 
+    amount_to_sell: Uint128,
+    basket_id: Uint128,
+    position_id: Uint128,
+    position_owner: Addr,
+    max_spread: Option<Decimal>,
+    send_to: Option<String>,
+) -> StdResult<CosmosMsg>{
+    //We know the credit asset is a native asset
+    match asset_to_sell {
+        AssetInfo::NativeToken { denom } => {
+            //We know the credit asset is a NativeToken
+            if let AssetInfo::NativeToken { denom } = credit_asset.clone() {
+
+                let router_msg = RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(credit_asset.clone()), //Buy
+                    max_spread, 
+                    recipient: Some(positions_contract), //Repay credit to positions contract
+                    hook_msg: Some(to_binary(&ExecuteMsg::Repay {
+                        basket_id,
+                        position_id,
+                        position_owner: Some(position_owner.to_string()),
+                        send_excess_to: send_to.clone()
+                    })?),
+                };
+        
+                let payment = coin(
+                    amount_to_sell.u128(),
+                    denom,
+                );
+        
+                let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: apollo_router_addr,
+                    msg: to_binary(&router_msg)?,
+                    funds: vec![payment],
+                });
+        
+                Ok(msg)            
+            } else {
+                return Err(StdError::GenericErr { msg: String::from("Credit assets are supposed to be native") })
+            }
+        },
+        AssetInfo::Token { address: cw20_Addr } => {
+
+            //HookMsg instead of an ExecuteMsg
+            let router_msg = Router_HookMsg::Swap {
+                to: SwapToAssetsInput::Single(credit_asset.clone()), //Buy
+                max_spread, 
+                recipient: Some(positions_contract), //Repay credit to positions contract
+                hook_msg: Some(to_binary(&ExecuteMsg::Repay {
+                    basket_id,
+                    position_id,
+                    position_owner: Some(position_owner.to_string()),
+                    send_excess_to: send_to.clone()
+                })?),
+            };          
+    
+            let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: cw20_Addr.to_string(),
+                msg: Cw20ExecuteMsg::Send { 
+                    contract: apollo_router_addr, 
+                    amount: amount_to_sell, 
+                    msg: to_binary(&router_msg)?, 
+                },                                
+                funds: vec![],
+            });
+    
+            Ok(msg)
+        }        
+    }
+  
 }
 
 pub fn create_basket(
@@ -2381,6 +2496,8 @@ pub fn get_avg_LTV(
     Ok((avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices))
 }
 
+//Gets position cAsset ratios
+//Doesn't split LP share assets
 pub fn get_cAsset_ratios(
     storage: &mut dyn Storage,
     env: Env,

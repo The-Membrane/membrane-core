@@ -2234,7 +2234,7 @@ mod tests {
                         amount: Uint128::from(90_000u128),
                     },
                 ],
-                send_to: None,
+                send_to: Some(String::from("very_trusted_contract")),
             };
 
             let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
@@ -2253,13 +2253,13 @@ mod tests {
             assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(10000));
             assert_eq!(res.collateral_assets[1].asset.amount, Uint128::new(10000));
 
-            //Assert withdrawal was sent.
+            //Assert withdrawal was sent to sent_to.
             assert_eq!(
-                app.wrap().query_all_balances(USER).unwrap(),
+                app.wrap().query_all_balances("very_trusted_contract").unwrap(),
                 vec![coin(90000, "2nddebit"), coin(90000, "debit")]
             );
 
-            //Assert asset tally and CreateDenom is working
+            //Assert asset tally is working
             let query_msg = QueryMsg::GetBasket {
                 basket_id: Uint128::new(1u128),
             };

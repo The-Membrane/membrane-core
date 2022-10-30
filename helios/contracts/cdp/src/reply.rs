@@ -52,6 +52,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 Err(err) => return Err(StdError::GenericErr { msg: err.to_string() })
             };
 
+            //Withdrawing everything thats left
             let assets_to_withdraw: Vec<Asset> = target_position.collateral_assets
                 .into_iter()
                 .map(|cAsset| cAsset.asset)
@@ -68,6 +69,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 })?, 
                 funds: vec![],
             });
+
 
             //Response 
             Ok(Response::new().add_message(withdraw_msg)

@@ -1382,6 +1382,8 @@ mod tests {
                 &Addr::unchecked("bigger_bank"),
                 vec![
                     coin(100_000_000_000_000, "debit"),
+                    coin(100_000_000_000_000, "quote"),
+                    coin(100_000_000_000_000, "base"),
                     coin(100_000_000_000_000, "double_debit"),
                     coin(100_000_000_000_000, "lp_denom"),
                     coin(100_000_000_000_000, "credit_fulldenom"),
@@ -7689,6 +7691,242 @@ mod tests {
                 .wrap()
                 .query_wasm_smart::<PositionResponse>(cdp_contract.addr(), &query_msg.clone())
                 .unwrap_err();
+        }
+
+        #[test]
+        fn close_position(){
+            let (mut app, cdp_contract, lq_contract, cw20_addr) =
+                proper_instantiate(false, false, false, false);
+
+                let res: Config = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
+                .unwrap();
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
+
+            //Add LP pool assets first: Base
+            let msg = ExecuteMsg::EditBasket {
+                basket_id: Uint128::new(1u128),
+                added_cAsset: Some(cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "base".to_string(),
+                        },
+                        amount: Uint128::zero(),
+                    },
+                    max_borrow_LTV: Decimal::percent(40),
+                    max_LTV: Decimal::percent(60),
+                    pool_info: None,
+                    rate_index: Decimal::one(),
+                }),
+                owner: None,
+                liq_queue: None,
+                credit_pool_ids: None,
+                liquidity_multiplier: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add LP pool assets first: Quote
+            let msg = ExecuteMsg::EditBasket {
+                basket_id: Uint128::new(1u128),
+                added_cAsset: Some(cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "quote".to_string(),
+                        },
+                        amount: Uint128::zero(),
+                    },
+                    max_borrow_LTV: Decimal::percent(60),
+                    max_LTV: Decimal::percent(80),
+                    pool_info: None,
+                    rate_index: Decimal::one(),
+                }),
+                owner: None,
+                liq_queue: None,
+                credit_pool_ids: None,
+                liquidity_multiplier: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add LP asset
+            //Set supply caps
+            //Set general parameters
+            let msg = ExecuteMsg::EditBasket {
+                basket_id: Uint128::new(1u128),
+                added_cAsset: Some(cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "lp_denom".to_string(),
+                        },
+                        amount: Uint128::zero(),
+                    },
+                    max_borrow_LTV: Decimal::percent(40),
+                    max_LTV: Decimal::percent(60),
+                    pool_info: Some(PoolInfo {
+                        pool_id: 99u64,
+                        asset_infos: vec![
+                            LPAssetInfo {
+                                info: AssetInfo::NativeToken {
+                                    denom: String::from("base"),
+                                },
+                                decimals: 6u64,
+                                ratio: Decimal::percent(50),
+                            },
+                            LPAssetInfo {
+                                info: AssetInfo::NativeToken {
+                                    denom: String::from("quote"),
+                                },
+                                decimals: 6u64,
+                                ratio: Decimal::percent(50),
+                            },
+                        ],
+                    }),
+                    rate_index: Decimal::one(),
+                }),
+                owner: None,
+                liq_queue: Some(lq_contract.addr().to_string()),
+                liquidity_multiplier: Some(Decimal::percent(500_000)),
+                credit_pool_ids: Some(vec![1u64]),
+                collateral_supply_caps: Some(vec![
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "debit".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "base".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "quote".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "lp_denom".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
+                ]),
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Initial Deposit
+            //Current Position: 100_000 lp_denom
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some("bigger_bank".to_string()),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg,
+                    vec![Coin {
+                        denom: "lp_denom".to_string(),
+                        amount: Uint128::from(100_000_000u128),
+                    }],
+                )
+                .unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+
+            //Successful Increase
+            //Current Position: 100_000_000 lp_denom -> 100_000_000 credit_fulldenom: 50% LTV
+            let msg = ExecuteMsg::IncreaseDebt {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                amount: Some(Uint128::from(100_000_000u128)),
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+
+            //Close Position: Unauthorized
+            let msg = ExecuteMsg::ClosePosition { 
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                max_spread: Decimal::percent(1),
+                send_to: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("smaller_bank"), cosmos_msg)
+                .unwrap_err();
+
+            //Close Position: Success. WithdrawMsg errors bc Router hasn't repaid the position
+            let msg = ExecuteMsg::ClosePosition { 
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                max_spread: Decimal::percent(1),
+                send_to: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            //Send assets to mimic LP split
+            app.send_tokens(
+                Addr::unchecked("bigger_bank"),
+                cdp_contract.addr(),
+                &[coin(100_000_000, "base"), coin(100_000_000, "quote")],
+            ).unwrap();
+            let err = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("Makes position insolvent"));
+
+            //Close Position: Make sure huge spread doesn't over sell
+            let msg = ExecuteMsg::ClosePosition { 
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                max_spread: Decimal::percent(10000_00),
+                send_to: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            let err = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("Makes position insolvent"));
+
         }
     }
 }

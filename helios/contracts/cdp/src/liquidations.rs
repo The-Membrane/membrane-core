@@ -953,7 +953,7 @@ fn get_lp_liq_withdraw_msg(
         }))?
         .shares_value(lp_liquidate_amount);
 
-    //Push LP Withdrawal Msg
+    //Create LP withdraw msg
     let mut token_out_mins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
     for token in share_asset_amounts {
         token_out_mins.push(osmosis_std::types::cosmos::base::v1beta1::Coin {

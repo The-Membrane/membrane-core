@@ -4,6 +4,7 @@ mod tests {
     use crate::helpers::{CDPContract, LQContract};
 
     use cw20::BalanceResponse;
+    use membrane::apollo_router::SwapToAssetsInput;
     use membrane::liq_queue::LiquidatibleResponse as LQ_LiquidatibleResponse;
     use membrane::math::Uint256;
     use membrane::oracle::{AssetResponse, PriceResponse};
@@ -947,12 +948,11 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Router_MockExecuteMsg {
-        SwapFromNative {
-            to: AssetInfo,
+        Swap {
+            to: SwapToAssetsInput,
             max_spread: Option<Decimal>,
             recipient: Option<String>,
             hook_msg: Option<Binary>,
-            split: Option<bool>,
         },
     }
 
@@ -972,12 +972,11 @@ mod tests {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Router_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
-                    Router_MockExecuteMsg::SwapFromNative {
+                    Router_MockExecuteMsg::Swap {
                         to,
                         max_spread,
                         recipient,
                         hook_msg,
-                        split,
                     } => {
                         Ok(Response::default())
                     }
@@ -1636,7 +1635,7 @@ mod tests {
             }],
             credit_asset: Asset {
                 info: AssetInfo::NativeToken {
-                    denom: "credit".to_string(),
+                    denom: "credit_fulldenom".to_string(),
                 },
                 amount: Uint128::from(0u128),
             },
@@ -2514,20 +2513,19 @@ mod tests {
             let cosmos_msg = cdp_contract
                 .call(msg, vec![coin(50_001, "credit_fulldenom")])
                 .unwrap();
+            //Balance before
+            assert_eq!(
+                app.wrap().query_all_balances(Addr::unchecked("test")).unwrap(),
+                vec![coin(100_001, "credit_fulldenom")]
+            );
+            //Repayment
             app.execute(Addr::unchecked("test"), cosmos_msg)
-                .unwrap_err();
-
-            //Successful repayment
-            let repay_msg = ExecuteMsg::Repay {
-                basket_id: Uint128::from(1u128),
-                position_id: Uint128::from(1u128),
-                position_owner: Some("test".to_string()),
-                send_excess_to: None,
-            };
-            let cosmos_msg = cdp_contract
-                .call(repay_msg, vec![coin(50_000, "credit_fulldenom")])
                 .unwrap();
-            app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
+            //Balance after excess was sent back
+            assert_eq!(
+                app.wrap().query_all_balances(Addr::unchecked("test")).unwrap(),
+                vec![coin(50_001, "credit_fulldenom")]
+            );
 
             let query_msg = QueryMsg::GetPosition {
                 position_id: Uint128::new(1u128),
@@ -7151,7 +7149,7 @@ mod tests {
                 position_id: None,
             };
             let cosmos_msg = cdp_contract
-                .call(exec_msg, vec![coin(11, "debit")])
+                .call(exec_msg, vec![coin(11_000, "debit")])
                 .unwrap();
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
@@ -7176,6 +7174,64 @@ mod tests {
             };
             let cosmos_msg = cdp_contract.call(increase_debt_msg, vec![]).unwrap();
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //Increase_debt by LTV: Insolvent Error
+            let increase_debt_msg = ExecuteMsg::IncreaseDebt {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                amount: None,
+                LTV: Some(Decimal::percent(100)),
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(increase_debt_msg, vec![]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //Increase_debt by LTV: No amount inputs
+            let increase_debt_msg = ExecuteMsg::IncreaseDebt {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                amount: None,
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(increase_debt_msg, vec![]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //Increase_debt by LTV: Success
+            let increase_debt_msg = ExecuteMsg::IncreaseDebt {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                amount: None,
+                LTV: Some(Decimal::percent(40)),
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(increase_debt_msg, vec![]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+           //Query indebted position
+           let query_msg = QueryMsg::GetPositionInsolvency {
+            basket_id: Uint128::new(1),
+            position_id: Uint128::new(1),
+            position_owner: String::from(USER),
+            };
+            let res: InsolvencyResponse = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            //Assert no insolvencies
+            assert_eq!(
+                res.insolvent_positions,
+                vec![InsolventPosition {
+                    insolvent: false,
+                    position_info: UserInfo {
+                        basket_id: Uint128::new(1),
+                        position_id: Uint128::new(1),
+                        position_owner: String::from(USER),
+                    },
+                    current_LTV: Decimal::percent(40),
+                    available_fee: Uint128::zero(),
+                }]
+            );
         }
 
         #[test]

@@ -27,7 +27,7 @@ fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             let position_id = state_propagation.position_info.position_id; 
             
             //Update position claims for each withdrawn + sold amount
-            for withdrawn_collateral in state_propagation.withdrawn_assets{
+            for withdrawn_collateral in state_propagation.clone().withdrawn_assets{
 
                 update_position_claims(
                     deps.storage, 
@@ -35,19 +35,22 @@ fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                     env.clone(), 
                     basket_id.clone(), 
                     position_id.clone(), 
-                    valid_position_owner, 
+                    valid_position_owner.clone(), 
                     withdrawn_collateral.info, 
                     withdrawn_collateral.amount
                 )?;
             }
 
             //Load position
-            let target_position = get_target_position(
+            let target_position = match get_target_position(
                 deps.storage, 
                 basket_id.clone(), 
                 valid_position_owner, 
                 position_id.clone(), 
-            )?;
+            ){
+                Ok(position) => position,
+                Err(err) => return Err(StdError::GenericErr { msg: err.to_string() })
+            };
 
             let assets_to_withdraw: Vec<Asset> = target_position.collateral_assets
                 .into_iter()
@@ -55,12 +58,16 @@ fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
                 .collect::<Vec<Asset>>();
 
             //Create WithdrawMsg
-            let withdraw_msg = ExecuteMsg::Withdraw { 
-                basket_id, 
-                position_id, 
-                assets: assets_to_withdraw, 
-                send_to: state_propagation.send_to, 
-            };
+            let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: env.contract.address.to_string(), 
+                msg: to_binary(& ExecuteMsg::Withdraw { 
+                    basket_id, 
+                    position_id, 
+                    assets: assets_to_withdraw, 
+                    send_to: state_propagation.send_to, 
+                })?, 
+                funds: vec![],
+            });
 
             //Response 
             Ok(Response::new().add_message(withdraw_msg)

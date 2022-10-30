@@ -21,7 +21,7 @@ use crate::positions::{
     assert_basket_assets, clone_basket, create_basket, deposit,
     edit_basket, increase_debt,
     liq_repay, mint_revenue, repay,
-    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID,
+    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position,
 };
 use crate::query::{
     query_bad_debt, query_basket, query_basket_credit_interest, query_basket_debt_caps,
@@ -231,6 +231,7 @@ pub fn execute(
             position_id,
             basket_id,
             assets,
+            send_to,
         } => {
             let cAssets: Vec<cAsset> = assert_basket_assets(
                 deps.storage,
@@ -242,7 +243,7 @@ pub fn execute(
             )?;
             //If there is nothing being withdrawn, error
             if cAssets == vec![] { return Err(ContractError::CustomError { val: String::from("No withdrawal assets passed") }) }
-            withdraw(deps, env, info, position_id, basket_id, cAssets)
+            withdraw(deps, env, info, position_id, basket_id, cAssets, send_to)
         }
 
         ExecuteMsg::IncreaseDebt {
@@ -256,12 +257,13 @@ pub fn execute(
             basket_id,
             position_id,
             position_owner,
+            send_excess_to,
         } => {
             let basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
                 Err(_) => return Err(ContractError::NonExistentBasket {}),
                 Ok(basket) => basket,
             };
-
+                        
             let credit_asset = assert_sent_native_token_balance(basket.credit_asset.info, &info)?;
             repay(
                 deps.storage,
@@ -273,8 +275,25 @@ pub fn execute(
                 position_id,
                 position_owner,
                 credit_asset,
+                send_excess_to,
             )
         }
+        ExecuteMsg::ClosePosition { 
+            basket_id, 
+            position_id, 
+            max_spread, 
+            send_to 
+        } => {
+            close_position(
+                deps, 
+                env, 
+                info, 
+                basket_id, 
+                position_id, 
+                max_spread, 
+                send_to
+            )
+        },
         ExecuteMsg::LiqRepay {} => {
             if info.clone().funds.len() != 0 as usize {
                 let credit_asset = Asset {

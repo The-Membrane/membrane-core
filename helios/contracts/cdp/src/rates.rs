@@ -150,7 +150,7 @@ pub fn get_interest_rates(
         get_LP_pool_cAssets(querier, config.clone(), basket.clone(), caps_to_cAssets)?;
 
     //Get basket cAsset ratios
-    let basket_ratios: Vec<Decimal> =
+    let (basket_ratios, _) =
         get_cAsset_ratios(storage, env.clone(), querier, no_lp_basket, config.clone())?;
 
     let no_lp_caps = basket
@@ -256,7 +256,7 @@ fn get_credit_rate_of_change(
 
     let config = CONFIG.load(storage)?;
 
-    let ratios = get_cAsset_ratios(storage, env.clone(), querier, position.clone().collateral_assets, config)?;
+    let (ratios, _) = get_cAsset_ratios(storage, env.clone(), querier, position.clone().collateral_assets, config)?;
 
     update_rate_indices(storage, querier, env, basket, negative_rate, credit_price_rate)?;
 

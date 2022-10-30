@@ -551,7 +551,7 @@ pub fn withdraw(
                     match withdraw_asset.clone().info {
                         AssetInfo::Token { address: _ } => {
                             //Create separate withdraw msg
-                            let message = withdrawal_msg(withdraw_asset, recipient)?;
+                            let message = withdrawal_msg(withdraw_asset, recipient.clone())?;
                             msgs.push(SubMsg::reply_on_success(message, WITHDRAW_REPLY_ID));
 
                             //Signal 1 asset reply
@@ -1216,7 +1216,7 @@ pub fn increase_debt(
 
 
 //Sell position collateral to repay debts
-fn close_position(
+pub fn close_position(
     deps: DepsMut, 
     env: Env,
     info: MessageInfo,
@@ -1247,13 +1247,13 @@ fn close_position(
     //Excess gets sent back to the position_owner during repayment
 
     //Get cAsset_ratios for the target_position
-    let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(deps.storage, env.clone(), deps.querier, target_position.collateral_assets, config)?;
+    let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, config.clone())?;
 
     let mut submessages = vec![];
     let mut withdrawn_assets = vec![];
 
     //Calc collateral_amount_to_sell per asset & create router msg
-    for (i, collateral_ratio) in cAsset_ratios.into_iter().enumerate(){
+    for (i, collateral_ratio) in cAsset_ratios.clone().into_iter().enumerate(){
 
         //Calc collateral_amount_to_sell
         let collateral_amount_to_sell = {
@@ -1266,12 +1266,12 @@ fn close_position(
         //Add collateral_amount to list for propagation
         withdrawn_assets.push(Asset{
             amount: collateral_amount_to_sell,
-            ..target_position.clone().collateral_assets[i].asset
+            ..target_position.clone().collateral_assets[i].clone().asset
         });
 
         
         //Create router subMsg to sell and repay, reply on success
-        let router_msg: CosmosMsg = match target_position.clone().collateral_assets[i].asset.info {
+        let router_msg: CosmosMsg = match target_position.clone().collateral_assets[i].clone().asset.info {
             AssetInfo::NativeToken { denom } => {
                 let router_msg = RouterExecuteMsg::Swap {
                     to: SwapToAssetsInput::Single(basket.clone().credit_asset.info),
@@ -1281,7 +1281,7 @@ fn close_position(
                         basket_id,
                         position_id,
                         position_owner: Some(info.clone().sender.to_string()),
-                        send_excess_to: send_to,
+                        send_excess_to: send_to.clone(),
                     })?),
                 };
 
@@ -1306,7 +1306,7 @@ fn close_position(
                         basket_id,
                         position_id,
                         position_owner: Some(info.clone().sender.to_string()),
-                        send_excess_to: send_to,
+                        send_excess_to: send_to.clone()
                     })?),
                 };
 
@@ -1998,7 +1998,7 @@ fn get_amount_from_LTV(
         env, 
         querier, 
         config, 
-        basket, 
+        basket.clone(), 
         position.clone().collateral_assets
     )?;
 
@@ -2009,7 +2009,7 @@ fn get_amount_from_LTV(
 
     //Calc current LTV
     let current_LTV = {
-        let credit_value = decimal_multiplication(Decimal::from_ratio(position.credit_amount, Uint128::new(1)), basket.credit_price);
+        let credit_value = decimal_multiplication(Decimal::from_ratio(position.credit_amount, Uint128::new(1)), basket.clone().credit_price);
 
         decimal_division(credit_value, total_value)
     };

@@ -1005,7 +1005,7 @@ pub fn sell_wall_using_ids(
         basket.clone(),
         target_position.clone().collateral_assets,
     )?;
-    let cAsset_ratios = get_cAsset_ratios(
+    let (cAsset_ratios, _) = get_cAsset_ratios(
         storage,
         env.clone(),
         querier,
@@ -1065,6 +1065,7 @@ pub fn sell_wall(
                         basket_id,
                         position_id,
                         position_owner: Some(position_owner.clone()),
+                        send_excess_to: Some(position_owner.clone()),
                     })?),
                 };
 
@@ -1091,6 +1092,7 @@ pub fn sell_wall(
                         basket_id,
                         position_id,
                         position_owner: Some(position_owner.clone()),
+                        send_excess_to: Some(position_owner.clone()),
                     })?),
                 };
 

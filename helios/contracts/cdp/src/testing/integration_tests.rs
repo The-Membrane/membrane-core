@@ -7218,7 +7218,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            //Assert no insolvencies
+            //Assert LTV
             assert_eq!(
                 res.insolvent_positions,
                 vec![InsolventPosition {

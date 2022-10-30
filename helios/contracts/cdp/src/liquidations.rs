@@ -477,12 +477,12 @@ fn per_asset_fulfillments(
 
 
         let collateral_price = cAsset_prices[num];
-        let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num]);
-        let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price);
+        let collateral_repay_value_for_fees = decimal_multiplication(repay_value, cAsset_ratios[num]);
+        let collateral_repay_amount_for_fees = decimal_division(collateral_repay_value_for_fees, collateral_price);
 
         //Subtract Caller fee from Position's claims
         let caller_fee_in_collateral_amount =
-            decimal_multiplication(collateral_repay_amount, caller_fee) * Uint128::new(1u128);
+            decimal_multiplication(collateral_repay_amount_for_fees, caller_fee) * Uint128::new(1u128);
         update_position_claims(
             storage,
             querier,
@@ -496,7 +496,7 @@ fn per_asset_fulfillments(
 
         //Subtract Protocol fee from Position's claims
         let protocol_fee_in_collateral_amount =
-            decimal_multiplication(collateral_repay_amount, config.clone().liq_fee)
+            decimal_multiplication(collateral_repay_amount_for_fees, config.clone().liq_fee)
                 * Uint128::new(1u128);
         update_position_claims(
             storage,

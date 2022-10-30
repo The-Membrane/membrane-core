@@ -31,6 +31,8 @@ use membrane::types::{
     StoredPrice, SupplyCap, TWAPPoolInfo, UserInfo, PriceVolLimiter, 
 };
 
+use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
+
 use crate::contract::get_contract_balances;
 use crate::liquidations::query_stability_pool_fee;
 use crate::rates::accrue;
@@ -1281,7 +1283,7 @@ pub fn close_position(
         //If cAsset is an LP, split into pool assets to sell
         if  target_position.clone().collateral_assets[i].pool_info.is_some(){
             //Set pool info
-            let pool_info = target_position.clone().collateral_assets[i].pool_info.unwrap();
+            let pool_info = target_position.clone().collateral_assets[i].clone().pool_info.unwrap();
             
             //Create Router SubMsgs for each pool_asset
             for pool_asset in pool_info.asset_infos{
@@ -1294,15 +1296,15 @@ pub fn close_position(
                 
                 let router_msg = create_router_msg_to_buy_credit_and_repay(
                     env.contract.address.to_string(), 
-                    config.dex_router.unwrap().to_string(), 
-                    basket.clone().credit_asset, 
+                    config.clone().dex_router.unwrap().to_string(), 
+                    basket.clone().credit_asset.info, 
                     pool_asset.clone().info, 
                     pool_asset_amount_to_sell, 
                     basket_id.clone(),
                     position_id.clone(), 
                     info.clone().sender, 
                     Some(max_spread), 
-                    send_to
+                    send_to.clone()
                 )?;
 
                 let router_sub_msg = SubMsg::reply_on_success(router_msg, CLOSE_POSITION_REPLY_ID);
@@ -1346,15 +1348,15 @@ pub fn close_position(
             //Create router subMsg to sell and repay, reply on success
             let router_msg: CosmosMsg = create_router_msg_to_buy_credit_and_repay(
                 env.contract.address.to_string(), 
-                config.dex_router.unwrap().to_string(), 
-                basket.clone().credit_asset, 
+                config.clone().dex_router.unwrap().to_string(), 
+                basket.clone().credit_asset.info, 
                 collateral_asset.clone().info, 
                 collateral_amount_to_sell, 
                 basket_id.clone(),
                 position_id.clone(), 
                 info.clone().sender, 
                 Some(max_spread), 
-                send_to
+                send_to.clone()
             )?;
             
             let router_sub_msg = SubMsg::reply_on_success(router_msg, CLOSE_POSITION_REPLY_ID);
@@ -1377,7 +1379,7 @@ pub fn close_position(
     
 
     Ok(Response::new()
-        .add_messages(lp_withdraw_msgs)
+        .add_messages(lp_withdraw_messages)
         .add_submessages(submessages).add_attributes(vec![
         attr("basket_id", basket_id),
         attr("position_id", position_id),
@@ -1441,7 +1443,7 @@ fn create_router_msg_to_buy_credit_and_repay(
         AssetInfo::Token { address: cw20_Addr } => {
 
             //HookMsg instead of an ExecuteMsg
-            let router_msg = Router_HookMsg::Swap {
+            let router_msg = RouterHookMsg::Swap {
                 to: SwapToAssetsInput::Single(credit_asset.clone()), //Buy
                 max_spread, 
                 recipient: Some(positions_contract), //Repay credit to positions contract
@@ -1455,11 +1457,11 @@ fn create_router_msg_to_buy_credit_and_repay(
     
             let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: cw20_Addr.to_string(),
-                msg: Cw20ExecuteMsg::Send { 
+                msg: to_binary(&Cw20ExecuteMsg::Send { 
                     contract: apollo_router_addr, 
                     amount: amount_to_sell, 
                     msg: to_binary(&router_msg)?, 
-                },                                
+                })?,                                
                 funds: vec![],
             });
     

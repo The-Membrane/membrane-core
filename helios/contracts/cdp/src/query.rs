@@ -1705,16 +1705,19 @@ pub fn insolvency_check_imut(
     }
 
     let available_fee = if check {
-        match max_borrow {
-            true => {
-                //Checks max_borrow
-                (current_LTV - avg_LTVs.0) * Uint128::new(1)
-            }
-            false => {
-                //Checks max_LTV
-                (current_LTV - avg_LTVs.1) * Uint128::new(1)
-            }
-        }
+    
+        //current_LTV - max_LTV
+        let fee = decimal_subtraction(current_LTV, avg_LTVs.1);
+        //current_LTV - borrow_LTV
+        let liq_range = decimal_subtraction(current_LTV, avg_LTVs.0);
+        //Fee value = repay_amount * fee
+        decimal_multiplication(
+            decimal_multiplication( 
+                decimal_division( liq_range, current_LTV), 
+                decimal_multiplication(credit_amount, credit_price)), 
+            fee) 
+        * Uint128::new(1)
+        
     } else {
         Uint128::zero()
     };

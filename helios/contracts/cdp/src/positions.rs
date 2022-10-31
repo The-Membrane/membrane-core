@@ -1322,7 +1322,7 @@ pub fn close_position(
 
             //Push LP Withdrawal Msg
             //Comment to pass tests
-            //lp_withdraw_messages.push(msg);
+            lp_withdraw_messages.push(msg);
             
             //Create Router SubMsgs for each pool_asset
             for (i, pool_asset) in pool_info.asset_infos.into_iter().enumerate(){
@@ -3656,6 +3656,16 @@ pub fn update_basket_debt(
 
     //Calculate debt per asset caps
     let cAsset_caps = get_basket_debt_caps(storage, querier, env, basket)?;
+
+    //Update basket debt tally
+    if add_to_debt {
+        basket.credit_asset.amount += credit_amount;
+    } else {
+        basket.credit_asset.amount = match basket.credit_asset.amount.checked_sub(credit_amount){
+            Ok(diff) => diff,
+            Err(err) => return Err(ContractError::FaultyCalc {  })
+        };
+    }
 
     //Update supply caps w/ new debt distribution
     for (index, cAsset) in collateral_assets.iter().enumerate() {

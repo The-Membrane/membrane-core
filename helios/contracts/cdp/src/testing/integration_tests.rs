@@ -3389,7 +3389,7 @@ mod tests {
                 send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
-                .call(msg, vec![coin(48_039, "credit_fulldenom")])
+                .call(msg, vec![coin(50_117, "credit_fulldenom")])
                 .unwrap();
             app.set_block(BlockInfo {
                 height: app.block_info().height,
@@ -3417,7 +3417,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new((1960)) );
+            assert_eq!(res.credit_amount, Uint128::new((1922)) );
 
             //Insolvent withdrawal at that brings position to previous debt minimum
             ////This wouldn't be insolvent if there wasn't an increased repayment price
@@ -3456,8 +3456,8 @@ mod tests {
             });
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Would normally liquidate and leave 98003 "debit"
-            // but w/ accrued interest its leaving 97726
+            //Would normally liquidate and leave 97770 "debit"
+            // but w/ accrued interest its leaving 97442
             let query_msg = QueryMsg::GetUserPositions {
                 basket_id: None,
                 user: String::from("test"),
@@ -3470,7 +3470,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res[0].collateral_assets[0].asset.amount,
-                Uint128::new(97726)
+                Uint128::new(97442)
             );           
 
             //////////////NEGATIVE RATES///////

@@ -800,28 +800,26 @@ fn accrue_imut(
     //Liquidity above 2M
     //At least 3% of total supply as liquidity
     let liquidity = get_asset_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?;
+    
     //Now get % of supply
-    if config.clone().osmosis_proxy.is_some() {
-        let current_supply = querier
-            .query::<TokenInfoResponse>(&QueryRequest::Wasm(
-                (WasmQuery::Smart {
-                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-                    msg: to_binary(&OsmoQueryMsg::GetTokenInfo {
-                        denom: basket.clone().credit_asset.info.to_string(),
-                    })?,
-                }),
-            ))?
-            .current_supply;
+    let current_supply = basket.credit_asset.amount;
 
-        let liquidity_ratio = decimal_division(
-            Decimal::from_ratio(liquidity, Uint128::new(1u128)),
-            Decimal::from_ratio(current_supply, Uint128::new(1u128)),
-        );
-        if liquidity_ratio < Decimal::percent(3) {
-            //Set time_elapsed to 0 to skip accrual
-            time_elapsed = 0u64;
-        }
+    let liquidity_ratio = { 
+         if !current_supply.is_zero() {
+             decimal_division(
+                 Decimal::from_ratio(liquidity, Uint128::new(1u128)),
+                 Decimal::from_ratio(current_supply, Uint128::new(1u128)),
+             )
+         } else {
+             Decimal::one()        
+         }
+    };
+
+    if liquidity_ratio < Decimal::percent(3) {
+        //Set time_elapsed to 0 to skip accrual
+        time_elapsed = 0u64;
     }
+    
     if liquidity < Uint128::new(2_000_000_000_000u128) {
         //Set time_elapsed to 0 to skip accrual
         time_elapsed = 0u64;
@@ -995,12 +993,11 @@ fn get_credit_rate_of_change_imut(
                 ////Add proportionally the change in index
                 // cAsset_ratio * change in index          
                 avg_change_in_index += decimal_multiplication(ratios[i], decimal_division(basket_asset.rate_index, cAsset.rate_index) );
-
-                /////Update cAsset rate_index
-                position.collateral_assets[i].rate_index = cAsset.rate_index;
             }
         }
     }
+
+    
 
     //The change in index represents the rate accrued to the cAsset in the time since last accrual
     Ok(avg_change_in_index)
@@ -1022,28 +1019,31 @@ fn get_rate_indices(
         .map(|rate| rate.1)
         .collect::<Vec<Decimal>>();
 
-    //Accrue a years worth of repayment rate to the rates
+    //Add/Sub repayment rate to the rates
     //These aren't saved so it won't compound
     interest_rates = interest_rates.clone().into_iter().map(|mut rate| {
 
         if negative_rate {
-            rate = decimal_multiplication(
-                rate,
-                decimal_subtraction(Decimal::one(), credit_price_rate),
-            );
+            if rate < credit_price_rate {
+                rate = Decimal::zero();
+            } else {
+                rate = decimal_subtraction(rate, credit_price_rate);
+            }            
+            
         } else {
-            rate = decimal_multiplication(rate, (Decimal::one() + credit_price_rate));
+            rate += credit_price_rate;
         }
 
         rate
     })
     .collect::<Vec<Decimal>>();
     //This allows us to prioritize credit stability over profit/state of the basket
-        
+    //This means base rate is the range above (peg + margin of error) before rates go to 0
+
 
     //Calc time_elapsed
     let time_elapsed = env.block.time.seconds() - basket.clone().rates_last_accrued;
-
+    
     //Accumulate rate on each rate_index
     for (i, basket_asset) in basket.clone().collateral_types.into_iter().enumerate(){
 
@@ -1053,7 +1053,7 @@ fn get_rate_indices(
                 interest_rates[i],
                 time_elapsed.clone(),
             )?;
-
+            
             basket.collateral_types[i].rate_index += accrued_rate;
         }
     }

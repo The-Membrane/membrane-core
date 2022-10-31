@@ -24,6 +24,7 @@
 * [MBRN Auction](smart-contracts/mbrn-auction.md)
 * [Osmosis Proxy](smart-contracts/osmosis-proxy.md)
 * [Liquidity Check](smart-contracts/liquidity-check.md)
+* [Margin Proxy](smart-contracts/margin-proxy.md)
 
 ## Technical Explanations
 

@@ -6,7 +6,7 @@ The contract also contains the logic for initiating liquidations of CDPs and sen
 
 **Notes:**&#x20;
 
-* _****_[_**Deposits**_](positions.md#deposit) _take asset data directly from the message to ensure correctness. ****_&#x20;
+* `*send_to`[_**Deposits**_](positions.md#deposit) _take asset data directly from the message to ensure correctness. ****_&#x20;
 * _****_[_**Withdrawals** _ ](positions.md#withdraw)_are checked for validity (in the SubMsg reply) before state is permanently changed._&#x20;
 * _****_[_**Supply caps**_](positions.md#editbasket) _don't affect withdrawals, in otherwords, they only restrict deposits. Can be set to 0 to set the collateral's debt\_cap to 0 which locks mints and spikes interest rates._
 * _Adding collateral assets adds a queue for them in Liq Queue contract and a price feed for them in the Oracle contract_
@@ -190,6 +190,7 @@ pub enum ExecuteMsg {
         basket_id: Uint128,
         position_id: Uint128,
         amount: Uint128,
+        LTV: Option<Decimal>,
         mint_to_addr: Option<String>,
     }, 
 }
@@ -200,6 +201,7 @@ pub enum ExecuteMsg {
 | `basket_id`     | Uint128 | ID of basket the position is in  |
 | `position_id`   | Uint128 | ID of position                   |
 | `amount`        | Uint128 | Amount to increase debt by       |
+| `*LTV`          | Decimal | Increase debt to an LTV          |
 | `*mint_to_addr` | String  | Address to mint credit to        |
 
 &#x20;\* = optional
@@ -216,15 +218,17 @@ pub enum ExecuteMsg {
         basket_id: Uint128,
         position_id: Uint128,
         assets: Vec<Asset>,
+        send_to: Option<String>,
     },
 }
 ```
 
-| Key           | Type        | Description                          |
-| ------------- | ----------- | ------------------------------------ |
-| `basket_id`   | Uint128     | ID of basket the position is in      |
-| `position_id` | Uint128     | ID of position                       |
-| `assets`      | Vec\<Asset> | Assets to withdraw from the position |
+| Key           | Type        | Description                                             |
+| ------------- | ----------- | ------------------------------------------------------- |
+| `basket_id`   | Uint128     | ID of basket the position is in                         |
+| `position_id` | Uint128     | ID of position                                          |
+| `assets`      | Vec\<Asset> | Assets to withdraw from the position                    |
+| `*send_to`    | String      | Address to send withdrawn assets to, defaults to sender |
 
 ### `Repay`
 
@@ -238,19 +242,45 @@ pub enum ExecuteMsg {
         basket_id: Uint128,
         position_id: Uint128,
         position_owner: Option<String>, 
-        credit_asset: Asset,
+        send_excess_to: Option<String>,
     },
 }
 ```
 
-| Key               | Type    | Description                     |
-| ----------------- | ------- | ------------------------------- |
-| `basket_id`       | Uint128 | ID of basket the Position is in |
-| `position_id`     | Uint128 | ID of Position                  |
-| `*position_owner` | String  | Owner of Position to repay      |
-| `credit_asset`    | Asset   | Asset object for repayment info |
+| Key               | Type    | Description                                |
+| ----------------- | ------- | ------------------------------------------ |
+| `basket_id`       | Uint128 | ID of basket the Position is in            |
+| `position_id`     | Uint128 | ID of Position                             |
+| `*position_owner` | String  | Owner of Position to repay                 |
+| `*send_excess_to` | String  | Address to send excess repayment assets to |
 
 \* = optional
+
+### `ClosePosition`
+
+Close position by selling collateral to repay debt
+
+```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecuteMsg {
+    ClosePosition {
+        basket_id: Uint128,
+        position_id: Uint128,
+        max_spread: Decimal,
+        send_to: Option<String>,
+    }
+}
+```
+
+| Key           | Type    | Description                                                  |
+| ------------- | ------- | ------------------------------------------------------------ |
+| `basket_id`   | Uint128 | Basket ID                                                    |
+| `position_id` | Uint128 | Position ID                                                  |
+| `max_spread`  | Decimal | Spread used to ensure collateral sold repays the debt amount |
+| `*send_to`    | String  | Send withdrawn assets to from a closed position              |
+
+&#x20;\* = optional
 
 ### `LiqRepay`
 

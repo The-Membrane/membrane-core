@@ -95,7 +95,7 @@ pub enum ExecuteMsg {
 | ------------- | ------- | ------------------------------------------------------------- |
 | `basket_id`   | Uint128 | Basket ID                                                     |
 | `position_id` | Uint128 | Position ID                                                   |
-| `max_spread`  | Decimal | Spread used to ensure collateral sales repay the debt amount  |
+| `max_spread`  | Decimal | Spread used to ensure collateral sold repays the debt amount  |
 
 ### `UpdateConfig`
 

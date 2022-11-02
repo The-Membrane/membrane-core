@@ -2863,95 +2863,88 @@ mod tests {
                 time: app.block_info().time.plus_seconds(31536000u64), //Added a year
                 chain_id: app.block_info().chain_id,
             });
-            //Send LP assets to the cdp_contract to simulate LP withdrawal for caller_fee + protocol_fee + LQ payment + SP payment
-            app.send_tokens(
-                Addr::unchecked("LP_assets"),
-                cdp_contract.addr(),
-                &[coin(422 + 21 + 1611 + 274, "base"), coin(422 + 21 + 1611 + 274, "quote")],
-            )
-            .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Query Basket Debt Caps
-        let query_msg = QueryMsg::GetBasketDebtCaps {
-            basket_id: Uint128::new(1u128),
-        };
-        let res: DebtCapResponse = app
-            .wrap()
-            .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-            .unwrap();
-        assert_eq!(
-            res.caps,
-            String::from("debit: 0/0, base: 4748/124997, quote: 4748/124997, ")
-        );
+            let query_msg = QueryMsg::GetBasketDebtCaps {
+                basket_id: Uint128::new(1u128),
+            };
+            let res: DebtCapResponse = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(
+                res.caps,
+                String::from("debit: 0/0, base: 4749/124997, quote: 4749/124997, ")
+            );
 
-        //Repay to mimic liquidation repayment - LiqRepay
-        let msg = ExecuteMsg::Repay {
-            basket_id: Uint128::from(1u128),
-            position_id: Uint128::from(1u128),
-            position_owner: Some(String::from("bigger_bank")),
-            send_excess_to: None,
-        };
-        let cosmos_msg = cdp_contract
-            .call(msg, vec![coin(3_722, "credit_fulldenom")])
-            .unwrap();
-        app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-            .unwrap();
+            //Repay to mimic liquidation repayment - LiqRepay
+            let msg = ExecuteMsg::Repay {
+                basket_id: Uint128::from(1u128),
+                position_id: Uint128::from(1u128),
+                position_owner: Some(String::from("bigger_bank")),
+                send_excess_to: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(msg, vec![coin(3_722, "credit_fulldenom")])
+                .unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
 
-        //Query Basket Debt Caps
-        let query_msg = QueryMsg::GetBasketDebtCaps {
-            basket_id: Uint128::new(1u128),
-        };
-        let res: DebtCapResponse = app
-            .wrap()
-            .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-            .unwrap();
-        assert_eq!(
-            res.caps,
-            String::from("debit: 0/0, base: 2887/124997, quote: 2887/124997, ")
-        );
+            //Query Basket Debt Caps
+            let query_msg = QueryMsg::GetBasketDebtCaps {
+                basket_id: Uint128::new(1u128),
+            };
+            let res: DebtCapResponse = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(
+                res.caps,
+                String::from("debit: 0/0, base: 2888/124997, quote: 2888/124997, ")
+            );
 
-        //Successful LiqRepay
-        let msg = ExecuteMsg::LiqRepay {};
-        let cosmos_msg = cdp_contract
-            .call(msg, vec![coin(499, "credit_fulldenom")])
-            .unwrap();
-        app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
-            .unwrap();
-        
-        //Would normally liquidate and leave 96048 "lp_denom"
-        // but w/ accrued interest its leaving 95779
-        let query_msg = QueryMsg::GetUserPositions {
-            basket_id: None,
-            user: String::from("bigger_bank"),
-            limit: None,
-        };
-
-        let res: Vec<PositionResponse> = app
-            .wrap()
-            .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-            .unwrap();
-        assert_eq!(
-            res[0].collateral_assets[0].asset.amount,
-            Uint128::new(95779)
-        );
-        assert_eq!(
-            res[0].credit_amount,
-            Uint128::new(5277)
-        );
+            //Successful LiqRepay
+            let msg = ExecuteMsg::LiqRepay {};
+            let cosmos_msg = cdp_contract
+                .call(msg, vec![coin(499, "credit_fulldenom")])
+                .unwrap();
+            app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
+                .unwrap();
             
-        //Query Basket Debt Caps
-        let query_msg = QueryMsg::GetBasketDebtCaps {
-            basket_id: Uint128::new(1u128),
-        };
-        let res: DebtCapResponse = app
-            .wrap()
-            .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-            .unwrap();
-        assert_eq!(
-            res.caps,
-            String::from("debit: 0/0, base: 2638/124997, quote: 2638/124997, ")
-        );
+            //Would normally liquidate and leave 95169 "lp_denom"
+            // but w/ accrued interest its leaving 94843
+            let query_msg = QueryMsg::GetUserPositions {
+                basket_id: None,
+                user: String::from("bigger_bank"),
+                limit: None,
+            };
+
+            let res: Vec<PositionResponse> = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(
+                res[0].collateral_assets[0].asset.amount,
+                Uint128::new(94843)
+            );
+            assert_eq!(
+                res[0].credit_amount,
+                Uint128::new(5279)
+            );
+                
+            //Query Basket Debt Caps
+            let query_msg = QueryMsg::GetBasketDebtCaps {
+                basket_id: Uint128::new(1u128),
+            };
+            let res: DebtCapResponse = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(
+                res.caps,
+                String::from("debit: 0/0, base: 2639/124997, quote: 2639/124997, ")
+            );
 
             //Assert sell wall wasn't sent Assets
             assert_eq!(
@@ -2964,22 +2957,22 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(21, "base"), coin(21, "quote")]
+                vec![coin(42, "lp_denom")]
             );
-            //The fee is 422
+            //The fee is 844 lp_denom
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(422, "base"), coin(100_000, "debit"),  coin(422, "quote")]
+                vec![coin(100000, "2nddebit"), coin(100_000, "debit"), coin(844, "lp_denom")]
             );
-            //SP is sent 274 of each
+            //SP is sent 548 lp_denom
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![  coin(274, "base"), coin(1726, "credit_fulldenom"), coin(274, "quote")]
+                vec![ coin(1726, "credit_fulldenom"), coin(548, "lp_denom")]
             );
-            //LQ is sent 1_611
+            //LQ is sent 3_722 lp_denom
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(1_611, "base"), coin(1_611, "quote")]
+                vec![coin(3_723, "lp_denom")]
             );
             
         }

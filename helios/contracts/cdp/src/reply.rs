@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, CosmosMsg, Storage, QuerierWrapper};
+use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, Api, CosmosMsg, Storage, QuerierWrapper};
 
 use membrane::types::{AssetInfo, Asset, Basket, LiqAsset, SellWallDistribution, Position};
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
@@ -96,6 +96,7 @@ pub fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
             //The SP reply will handle the sell wall
 
             let mut submessages: Vec<SubMsg> = vec![];
+            let mut messages = vec![];
             let mut repay_amount = Decimal::zero();
 
             let mut prop: RepayPropagation = REPAY.load(deps.storage)?;
@@ -106,7 +107,7 @@ pub fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                 repay_amount = prop.clone().user_repay_amount;
 
                 //Sell wall asset's repayment amount
-                sell_wall_in_reply(deps.storage, env.clone(), deps.querier, &mut prop, &mut submessages, repay_amount.clone())?;
+                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut prop, &mut submessages, repay_amount.clone())?);
 
             } else {                    
                 //Since Error && SP was used (ie there will be a reply later in the execution)...
@@ -118,6 +119,7 @@ pub fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
             REPAY.save(deps.storage, &prop)?;
 
             Ok(Response::new()
+                .add_messages(messages)
                 .add_submessages(submessages)
                 .add_attribute("error", string)
                 .add_attribute("sent_to_sell_wall", repay_amount.to_string()))
@@ -268,6 +270,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
 
             let mut repay_propagation = REPAY.load(deps.storage)?;
             let mut submessages = vec![];
+            let mut messages = vec![];
 
             //Success w/ leftovers: Sell Wall combined leftovers
             //Success w/o leftovers: Send LQ leftovers to the SP
@@ -279,7 +282,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 + Decimal::from_ratio(leftover_amount, Uint128::new(1u128));
 
                 //Sell Wall SP, LQ and User's SP Fund leftovers
-                sell_wall_in_reply(deps.storage, env.clone(), deps.querier, &mut repay_propagation, &mut submessages, repay_amount.clone())?;
+                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut repay_propagation, &mut submessages, repay_amount.clone())?);
 
                 //Save to propagate
                 REPAY.save(deps.storage, &repay_propagation)?;
@@ -310,7 +313,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     ));
                     
                     //Sell wall remaining
-                    sell_wall_in_reply(deps.storage, env.clone(), deps.querier, &mut repay_propagation, &mut submessages, leftover_repayment)?;
+                    messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut repay_propagation, &mut submessages, leftover_repayment)?);
                     
                     REPAY.save(deps.storage, &repay_propagation)?;
                    
@@ -359,12 +362,14 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             }
 
             Ok(Response::new()
+                .add_messages(messages)
                 .add_submessages(submessages)
                 .add_attributes(attrs))
         }
         Err(_) => {
 
             let mut submessages: Vec<SubMsg> = vec![];
+            let mut messages = vec![];
 
             //If error, sell wall the SP repay amount and LQ leftovers
             let mut repay_propagation = REPAY.load(deps.storage)?;
@@ -372,7 +377,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             let repay_amount = repay_propagation.liq_queue_leftovers + repay_propagation.stability_pool;
 
             //Sell wall remaining
-            sell_wall_in_reply(deps.storage, env.clone(), deps.querier, &mut repay_propagation, &mut submessages, repay_amount.clone())?;
+            messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut repay_propagation, &mut submessages, repay_amount.clone())?);
 
             attrs.push(attr(
                 "sent_to_sell_wall",
@@ -387,7 +392,10 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             
             REPAY.save(deps.storage, &repay_propagation)?;
 
-            Ok(Response::new().add_submessages(submessages).add_attributes(attrs))
+            Ok(Response::new()
+                .add_messages(messages)
+                .add_submessages(submessages)
+                .add_attributes(attrs))
         }
     }
 }
@@ -492,6 +500,8 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                     token_info.clone(),
                     send_amount,
                 )?;
+                
+
             }
             //Remove Asset
             prop.per_asset_repayment.remove(0);
@@ -510,6 +520,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             //The SP reply will handle the sell wall
 
             let mut submessages: Vec<SubMsg> = vec![];
+            let mut messages = vec![];
             let mut repay_amount = Decimal::zero();
 
             let mut prop: RepayPropagation = REPAY.load(deps.storage)?;
@@ -521,7 +532,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 repay_amount = prop.clone().per_asset_repayment[0];
 
                 //Sell wall asset's repayment amount
-                sell_wall_in_reply(deps.storage, env.clone(), deps.querier, &mut prop, &mut submessages, repay_amount.clone())?;
+                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut prop, &mut submessages, repay_amount.clone())?);
                
             }
 
@@ -529,6 +540,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             REPAY.save(deps.storage, &prop)?;
 
             Ok(Response::new()
+                .add_messages(messages)
                 .add_submessages(submessages)
                 .add_attribute("error", string)
                 .add_attribute("sent_to_sell_wall", repay_amount.to_string()))
@@ -593,17 +605,19 @@ pub fn handle_sell_wall_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
 //Adds sell wall submessages to list of submessages
 pub fn sell_wall_in_reply(
     storage: &mut dyn Storage,
+    api: &dyn Api,
     env: Env,
     querier: QuerierWrapper,
     prop: &mut RepayPropagation,
     submessages: &mut Vec<SubMsg>,
     repay_amount: Decimal,
-) -> StdResult<()>{
+) -> StdResult<Vec<CosmosMsg>>{
     //Sell wall asset's repayment amount
-    let (sell_wall_msgs, collateral_distributions) = sell_wall_using_ids(
+    let (sell_wall_msgs, collateral_distributions, lp_withdraw_msgs) = sell_wall_using_ids(
         storage,
-        env,
         querier,
+        api,
+        env,
         prop.clone().basket_id,
         prop.clone().position_id,
         prop.clone().position_owner,
@@ -630,5 +644,5 @@ pub fn sell_wall_in_reply(
             .collect::<Vec<SubMsg>>(),
     );
 
-    Ok( () )
+    Ok( lp_withdraw_msgs )
 }

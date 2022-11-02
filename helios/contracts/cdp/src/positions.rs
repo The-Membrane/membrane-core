@@ -941,14 +941,9 @@ pub fn liq_repay(
         Ok(res) => res,
         Err(e) => return Err(e),
     };
-
-    //Split LP cAssets to their pool assets
-    let collateral_assets = get_LP_pool_cAssets(
-        deps.querier,
-        config.clone(),
-        basket.clone(),
-        target_position.clone().collateral_assets,
-    )?;
+   
+    //Set collateral_assets
+    let collateral_assets = target_position.clone().collateral_assets;
 
     //Get position's cAsset ratios
     let (cAsset_ratios, _) = get_cAsset_ratios(

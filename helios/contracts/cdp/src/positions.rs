@@ -1801,7 +1801,7 @@ pub fn edit_basket(
             };
 
             //Assert Asset order of pool_assets in PoolInfo object
-            //Assert pool_assets are already in the basket, which confirms an oracle and liquidation_queue for them
+            //Assert pool_assets are already in the basket, which confirms an oracle and adequate parameters for them
             for (i, asset) in pool_assets.iter().enumerate() {
                 if asset.denom != pool_info.asset_infos[i].info.to_string() {
                     return Err( ContractError::CustomError { val: format!("cAsset #{}: PoolInfo.asset_denoms must be in the order of osmo-bindings::PoolStateResponse.assets {:?} ", i+1, pool_assets) } );
@@ -1839,49 +1839,49 @@ pub fn edit_basket(
                     val: String::from("Need to setup oracle contract before adding assets"),
                 });
             }
+        }
 
-            //Create Liquidation Queue for its assets
-            if basket.clone().liq_queue.is_some() {
-                //Gets Liquidation Queue max premium.
-                //The premium has to be at most 5% less than the difference between max_LTV and 100%
-                //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
-                let max_premium = match Uint128::new(95u128).checked_sub( new_cAsset.max_LTV * Uint128::new(100u128) ){
-                    Ok( diff ) => diff,
-                    //A default to 10 assuming that will be the lowest sp_liq_fee
-                    Err( _err ) => Uint128::new(10u128) 
-                    ,
-                };
+        //Create Liquidation Queue for the asset
+        if basket.clone().liq_queue.is_some() {
+            //Gets Liquidation Queue max premium.
+            //The premium has to be at most 5% less than the difference between max_LTV and 100%
+            //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
+            let max_premium = match Uint128::new(95u128).checked_sub( new_cAsset.max_LTV * Uint128::new(100u128) ){
+                Ok( diff ) => diff,
+                //A default to 10 assuming that will be the lowest sp_liq_fee
+                Err( _err ) => Uint128::new(10u128) 
+                ,
+            };
 
-                msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: basket.clone().liq_queue.unwrap().into_string(),
-                    msg: to_binary(&LQ_ExecuteMsg::AddQueue {
-                        bid_for: new_cAsset.clone().asset.info,
-                        max_premium,
-                        bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
-                    })?,
-                    funds: vec![],
-                }));
-            } else if new_queue.clone().is_some() {
-                //Gets Liquidation Queue max premium.
-                //The premium has to be at most 5% less than the difference between max_LTV and 100%
-                //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
-                let max_premium = match Uint128::new(95u128).checked_sub( new_cAsset.max_LTV * Uint128::new(100u128) ){
-                    Ok( diff ) => diff,
-                    //A default to 10 assuming that will be the lowest sp_liq_fee
-                    Err( _err ) => Uint128::new(10u128) 
-                    ,
-                };
+            msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: basket.clone().liq_queue.unwrap().into_string(),
+                msg: to_binary(&LQ_ExecuteMsg::AddQueue {
+                    bid_for: new_cAsset.clone().asset.info,
+                    max_premium,
+                    bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
+                })?,
+                funds: vec![],
+            }));
+        } else if new_queue.clone().is_some() {
+            //Gets Liquidation Queue max premium.
+            //The premium has to be at most 5% less than the difference between max_LTV and 100%
+            //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
+            let max_premium = match Uint128::new(95u128).checked_sub( new_cAsset.max_LTV * Uint128::new(100u128) ){
+                Ok( diff ) => diff,
+                //A default to 10 assuming that will be the lowest sp_liq_fee
+                Err( _err ) => Uint128::new(10u128) 
+                ,
+            };
 
-                msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: new_queue.clone().unwrap().into_string(),
-                    msg: to_binary(&LQ_ExecuteMsg::AddQueue {
-                        bid_for: new_cAsset.clone().asset.info,
-                        max_premium,
-                        bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
-                    })?,
-                    funds: vec![],
-                }));
-            }
+            msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: new_queue.clone().unwrap().into_string(),
+                msg: to_binary(&LQ_ExecuteMsg::AddQueue {
+                    bid_for: new_cAsset.clone().asset.info,
+                    max_premium,
+                    bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
+                })?,
+                funds: vec![],
+            }));
         }
 
         //..needs minimum viable LTV parameters

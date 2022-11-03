@@ -369,7 +369,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
         Err(_) => {
 
             let mut submessages: Vec<SubMsg> = vec![];
-            let mut messages = vec![];
+            let mut messages: Vec<CosmosMsg> = vec![];
 
             //If error, sell wall the SP repay amount and LQ leftovers
             let mut repay_propagation = REPAY.load(deps.storage)?;
@@ -393,7 +393,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             REPAY.save(deps.storage, &repay_propagation)?;
 
             Ok(Response::new()
-                .add_messages(messages)
+                //.add_messages(messages)
                 .add_submessages(submessages)
                 .add_attributes(attrs))
         }
@@ -612,6 +612,7 @@ pub fn sell_wall_in_reply(
     submessages: &mut Vec<SubMsg>,
     repay_amount: Decimal,
 ) -> StdResult<Vec<CosmosMsg>>{
+    
     //Sell wall asset's repayment amount
     let (sell_wall_msgs, collateral_distributions, lp_withdraw_msgs) = sell_wall_using_ids(
         storage,
@@ -622,8 +623,7 @@ pub fn sell_wall_in_reply(
         prop.clone().position_id,
         prop.clone().position_owner,
         repay_amount,
-    )?;
-    
+    )?;    
 
     //Save new distributions from this liquidation
     prop.sell_wall_distributions = add_distributions(

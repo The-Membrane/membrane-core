@@ -175,7 +175,6 @@ pub fn liquidate(
         position_id.clone(), 
         valid_position_owner.clone(), 
         collateral_assets.clone(), 
-        cAsset_ratios.clone(), 
         &mut liq_queue_leftover_credit_repayment, 
         &mut credit_repay_amount, 
         &mut leftover_position_value, 
@@ -251,7 +250,7 @@ pub fn liquidate(
         REPAY.save(storage, &repay_propagation)?;
 
         Ok(res
-            .add_messages(lp_withdraw_msgs)
+            //.add_messages(lp_withdraw_msgs)
             .add_messages(fee_messages)
             .add_submessages(submessages)
             .add_submessage(call_back)
@@ -267,7 +266,7 @@ pub fn liquidate(
         }
 
         Ok(res
-            .add_messages(lp_withdraw_messages)
+            //.add_messages(lp_withdraw_messages)
             .add_messages(fee_messages)
             .add_submessages(submessages)
             .add_submessage(call_back)
@@ -623,7 +622,6 @@ fn build_sp_sw_submsgs(
     position_id: Uint128,
     valid_position_owner: Addr,
     collateral_assets: Vec<cAsset>,
-    cAsset_ratios: Vec<Decimal>,
     liq_queue_leftover_credit_repayment: &mut Decimal,
     credit_repay_amount: &mut Decimal,
     leftover_position_value: &mut Decimal,
@@ -848,7 +846,6 @@ fn get_lp_liq_withdraw_msg(
             repay_value), 
             cAsset_prices[i])
     * Uint128::new(1u128);
-
     
     update_position_claims(
         storage,
@@ -903,8 +900,7 @@ pub fn sell_wall_using_ids(
     position_owner: Addr,
     repay_amount: Decimal,
 ) -> StdResult<(Vec<CosmosMsg>, Vec<(AssetInfo, Decimal)>, Vec<CosmosMsg>)> {
-    let config: Config = CONFIG.load(storage)?;
-
+    
     let basket: Basket = BASKETS.load(storage, basket_id.to_string())?;
 
     let positions: Vec<Position> =
@@ -918,19 +914,7 @@ pub fn sell_wall_using_ids(
             })
         }
     };
-    let collateral_assets = get_LP_pool_cAssets(
-        querier,
-        config.clone(),
-        basket.clone(),
-        target_position.clone().collateral_assets,
-    )?;
-    let (cAsset_ratios, _) = get_cAsset_ratios(
-        storage,
-        env.clone(),
-        querier,
-        collateral_assets.clone(),
-        config,
-    )?;
+    let collateral_assets = target_position.clone().collateral_assets;
 
     match sell_wall(
         storage,
@@ -964,7 +948,7 @@ pub fn sell_wall(
     position_id: Uint128,
     position_owner: String,
 ) -> Result<(Vec<CosmosMsg>, Vec<(AssetInfo, Decimal)>, Vec<CosmosMsg>), ContractError> {
-    
+
     //Load Config
     let config: Config = CONFIG.load(storage)?;   
 

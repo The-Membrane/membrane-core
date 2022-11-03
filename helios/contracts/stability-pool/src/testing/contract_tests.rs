@@ -11,7 +11,7 @@ use cosmwasm_std::{
 };
 use cw20::Cw20ReceiveMsg;
 
-use membrane::apollo_router::ExecuteMsg as RouterExecuteMsg;
+use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::positions::{Cw20HookMsg as CDP_Cw20HookMsg, ExecuteMsg as CDP_ExecuteMsg};
 use membrane::stability_pool::{
     Config, ClaimsResponse, Cw20HookMsg, DepositResponse, ExecuteMsg, InstantiateMsg, LiquidatibleResponse,
@@ -1773,28 +1773,26 @@ fn claims() {
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("router_addr"),
                 funds: coins(100, "debit"),
-                msg: to_binary(&RouterExecuteMsg::SwapFromNative {
-                    to: AssetInfo::NativeToken {
+                msg: to_binary(&RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                         denom: String::from("credit")
-                    },
+                    }),
                     max_spread: Some(Decimal::percent(10)),
                     recipient: Some(String::from("sender88")),
                     hook_msg: None,
-                    split: None,
                 })
                 .unwrap(),
             })),
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("router_addr"),
                 funds: coins(25, "2nddebit"),
-                msg: to_binary(&RouterExecuteMsg::SwapFromNative {
-                    to: AssetInfo::NativeToken {
+                msg: to_binary(&RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                         denom: String::from("credit")
-                    },
+                    }),
                     max_spread: Some(Decimal::percent(10)),
                     recipient: Some(String::from("sender88")),
                     hook_msg: None,
-                    split: None,
                 })
                 .unwrap(),
             }))
@@ -1824,14 +1822,13 @@ fn claims() {
         vec![SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: String::from("router_addr"),
             funds: coins(75, "2nddebit"),
-            msg: to_binary(&RouterExecuteMsg::SwapFromNative {
-                to: AssetInfo::NativeToken {
+            msg: to_binary(&RouterExecuteMsg::Swap {
+                to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                     denom: String::from("credit")
-                },
+                }),
                 max_spread: Some(Decimal::percent(10)),
                 recipient: Some(String::from("positions_contract")),
                 hook_msg: Some(to_binary(&deposit_msg).unwrap()),
-                split: None,
             })
             .unwrap(),
         }))]
@@ -1923,28 +1920,26 @@ fn claims() {
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("router_addr"),
                 funds: coins(100, "debit"),
-                msg: to_binary(&RouterExecuteMsg::SwapFromNative {
-                    to: AssetInfo::Token {
+                msg: to_binary(&RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(AssetInfo::Token {
                         address: Addr::unchecked("credit")
-                    },
+                    }),
                     max_spread: Some(Decimal::percent(10)),
                     recipient: Some(String::from("sender88")),
                     hook_msg: None,
-                    split: None,
                 })
                 .unwrap(),
             })),
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("router_addr"),
                 funds: coins(25, "2nddebit"),
-                msg: to_binary(&RouterExecuteMsg::SwapFromNative {
-                    to: AssetInfo::Token {
+                msg: to_binary(&RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(AssetInfo::Token {
                         address: Addr::unchecked("credit")
-                    },
+                    }),
                     max_spread: Some(Decimal::percent(10)),
                     recipient: Some(String::from("sender88")),
                     hook_msg: None,
-                    split: None,
                 })
                 .unwrap(),
             }))
@@ -1974,14 +1969,13 @@ fn claims() {
         vec![SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: String::from("router_addr"),
             funds: coins(75, "2nddebit"),
-            msg: to_binary(&RouterExecuteMsg::SwapFromNative {
-                to: AssetInfo::Token {
+            msg: to_binary(&RouterExecuteMsg::Swap {
+                to: SwapToAssetsInput::Single(AssetInfo::Token {
                     address: Addr::unchecked("credit")
-                },
+                }),
                 max_spread: Some(Decimal::percent(10)),
                 recipient: Some(String::from("positions_contract")),
                 hook_msg: Some(to_binary(&deposit_msg).unwrap()),
-                split: None,
             })
             .unwrap(),
         }))]
@@ -2152,6 +2146,7 @@ fn cdp_repay() {
                 basket_id: Uint128::new(1u128),
                 position_id: Uint128::new(1u128),
                 position_owner: Some(String::from("sender88")),
+                send_excess_to: Some(String::from("sender88")),
             })
             .unwrap(),
         }))]

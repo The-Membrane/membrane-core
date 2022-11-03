@@ -1259,7 +1259,7 @@ pub fn close_position(
     let mut withdrawn_assets = vec![];
 
     //Calc collateral_amount_to_sell per asset & create router msg
-    for (i, collateral_ratio) in cAsset_ratios.clone().into_iter().enumerate(){
+    for (i, _collateral_ratio) in cAsset_ratios.clone().into_iter().enumerate(){
 
         //Calc collateral_amount_to_sell
         let mut collateral_amount_to_sell = {
@@ -3658,7 +3658,7 @@ pub fn update_basket_debt(
     } else {
         basket.credit_asset.amount = match basket.credit_asset.amount.checked_sub(credit_amount){
             Ok(diff) => diff,
-            Err(err) => return Err(ContractError::FaultyCalc {  })
+            Err(_err) => return Err(ContractError::FaultyCalc {  })
         };
     }
 

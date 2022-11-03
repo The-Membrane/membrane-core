@@ -1,7 +1,7 @@
 use crate::contract::{execute, instantiate, query};
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockApi, MockQuerier};
-use cosmwasm_std::{ Addr, coin, coins, from_binary, Decimal, MemoryStorage, OwnedDeps, Uint128};
+use cosmwasm_std::{ coin, coins, from_binary, Decimal, MemoryStorage, OwnedDeps, Uint128};
 use membrane::stability_pool::{
     ClaimsResponse, PoolResponse, ExecuteMsg, InstantiateMsg, QueryMsg,
 };

@@ -129,6 +129,7 @@ mod tests {
                         owner: Addr::unchecked(""),
                         positions_contract: Some(Addr::unchecked("")),
                         builders_contract: Some(Addr::unchecked("")),
+                        governance_contract: Some(Addr::unchecked("")),
                         osmosis_proxy: Some(Addr::unchecked("")),
                         staking_rate: Decimal::zero(),
                         unstaking_period: 0,

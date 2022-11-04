@@ -11,6 +11,7 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub positions_contract: Option<String>,
     pub builders_contract: Option<String>,
+    pub governance_contract: Option<String>,
     pub osmosis_proxy: Option<String>,
     pub staking_rate: Option<Decimal>,
     pub fee_wait_period: Option<u64>, //in days
@@ -28,6 +29,7 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         positions_contract: Option<String>,
         builders_contract: Option<String>,
+        governance_contract: Option<String>,
         osmosis_proxy: Option<String>,
         mbrn_denom: Option<String>,
         staking_rate: Option<Decimal>,
@@ -106,6 +108,7 @@ pub struct Config {
     pub unstaking_period: u64, //days
     pub positions_contract: Option<Addr>,
     pub builders_contract: Option<Addr>,
+    pub governance_contract: Option<Addr>,
     pub osmosis_proxy: Option<Addr>,
     pub dex_router: Option<Addr>,
     pub max_spread: Option<Decimal>, //max_spread for the router, mainly claim_as swaps

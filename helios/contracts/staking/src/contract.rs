@@ -4,13 +4,14 @@ use std::env;
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, coin, from_binary, to_binary, Addr, Api, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
-    DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg,
+    DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg, QueryRequest, WasmQuery,
 };
 use cw2::set_contract_version;
 use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
 
 use membrane::apollo_router::{Cw20HookMsg as RouterCw20HookMsg, ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
+use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, ProposalStatus};
 use membrane::staking::{ Config, Cw20HookMsg, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit};
 use membrane::math::decimal_division;
@@ -40,6 +41,7 @@ pub fn instantiate(
             owner: deps.api.addr_validate(&msg.owner.unwrap())?,
             positions_contract: None,
             builders_contract: None,
+            governance_contract: None,
             osmosis_proxy: None,
             staking_rate: msg.staking_rate.unwrap_or_else(|| Decimal::percent(10)),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
@@ -53,6 +55,7 @@ pub fn instantiate(
             owner: info.sender,
             positions_contract: None,
             builders_contract: None,
+            governance_contract: None,
             osmosis_proxy: None,
             staking_rate: msg.staking_rate.unwrap_or_else(|| Decimal::percent(10)),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
@@ -65,34 +68,26 @@ pub fn instantiate(
 
     let mut attrs = vec![];
     // //Set optional config parameters
-    match msg.dex_router {
-        Some(dex_router) => {
-            config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
-            attrs.push(attr("dex_router", dex_router));
-        }
-        None => {}
-    }
-    match msg.builders_contract {
-        Some(builders_contract) => {
-            config.builders_contract = Some(deps.api.addr_validate(&builders_contract)?);
-            attrs.push(attr("builders_contract", builders_contract));
-        }
-        None => {}
-    }
-    match msg.positions_contract {
-        Some(positions_contract) => {
-            config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
-            attrs.push(attr("positions_contract", positions_contract));
-        }
-        None => {}
-    }
-    match msg.osmosis_proxy {
-        Some(osmosis_proxy) => {
-            config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
-            attrs.push(attr("osmosis_proxy", osmosis_proxy));
-        }
-        None => {}
-    }
+    if let Some(dex_router) = msg.dex_router {
+        config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
+        attrs.push(attr("dex_router", dex_router));
+    };
+    if let Some(builders_contract) = msg.builders_contract {
+        config.builders_contract = Some(deps.api.addr_validate(&builders_contract)?);
+        attrs.push(attr("builders_contract", builders_contract));
+    };
+    if let Some(positions_contract) = msg.positions_contract {
+        config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
+        attrs.push(attr("positions_contract", positions_contract));
+    };
+    if let Some(governance_contract) = msg.governance_contract {
+        config.governance_contract = Some(deps.api.addr_validate(&governance_contract)?);
+        attrs.push(attr("governance_contract", governance_contract));
+    };
+    if let Some(osmosis_proxy) = msg.osmosis_proxy {
+        config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
+        attrs.push(attr("osmosis_proxy", osmosis_proxy));
+    };
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
@@ -138,6 +133,7 @@ pub fn execute(
             dex_router,
             max_spread,
             builders_contract,
+            governance_contract,
             osmosis_proxy,
             positions_contract,
             staking_rate,
@@ -149,6 +145,7 @@ pub fn execute(
             owner,
             positions_contract,
             builders_contract,
+            governance_contract,
             osmosis_proxy,
             mbrn_denom,
             staking_rate,
@@ -205,6 +202,7 @@ fn update_config(
     owner: Option<String>,
     positions_contract: Option<String>,
     builders_contract: Option<String>,
+    governance_contract: Option<String>,
     osmosis_proxy: Option<String>,
     mbrn_denom: Option<String>,
     staking_rate: Option<Decimal>,
@@ -223,82 +221,55 @@ fn update_config(
     let mut attrs = vec![attr("method", "update_config")];
 
     //Match Optionals
-    match owner {
-        Some(owner) => {
-            let valid_addr = deps.api.addr_validate(&owner)?;
-            config.owner = valid_addr.clone();
-            attrs.push(attr("new_owner", valid_addr.to_string()));
+    if let Some(owner) = owner {
+        let valid_addr = deps.api.addr_validate(&owner)?;
+        config.owner = valid_addr.clone();
+        attrs.push(attr("new_owner", valid_addr.to_string()));
+    };
+    if let Some(max_spread) = max_spread {
+        config.max_spread = Some(max_spread);
+        attrs.push(attr("new_max_spread", max_spread.to_string()));
+    };
+    if let Some(mut staking_rate) = staking_rate {
+        //Hard code a 20% maximum
+        if staking_rate > Decimal::percent(20) {
+            staking_rate = Decimal::percent(20);
         }
-        None => {}
-    }
-    match dex_router {
-        Some(dex_router) => {
-            let valid_addr = deps.api.addr_validate(&dex_router)?;
-            config.dex_router = Some(valid_addr.clone());
-            attrs.push(attr("new_dex_router", valid_addr.to_string()));
-        }
-        None => {}
-    }
-    match max_spread {
-        Some(max_spread) => {
-            config.max_spread = Some(max_spread);
-            attrs.push(attr("new_max_spread", max_spread.to_string()));
-        }
-        None => {}
-    }
-    match staking_rate {
-        Some(mut staking_rate) => {
-            //Hard code a 20% maximum
-            if staking_rate > Decimal::percent(20) {
-                staking_rate = Decimal::percent(20);
-            }
-            config.staking_rate = staking_rate;
-            attrs.push(attr("new_staking_rate", staking_rate.to_string()));
-        }
-        None => {}
-    }
-    match unstaking_period {
-        Some(unstaking_period) => {
-            config.unstaking_period = unstaking_period;
-            attrs.push(attr("new_unstaking_period", unstaking_period.to_string()));
-        }
-        None => {}
-    }
-    match fee_wait_period {
-        Some(fee_wait_period) => {
-            config.fee_wait_period = fee_wait_period;
-            attrs.push(attr("new_fee_wait_period", fee_wait_period.to_string()));
-        }
-        None => {}
-    }
-    match mbrn_denom {
-        Some(mbrn_denom) => {
-            config.mbrn_denom = mbrn_denom.clone();
-            attrs.push(attr("new_mbrn_denom", mbrn_denom));
-        }
-        None => {}
-    }
-    match builders_contract {
-        Some(builders_contract) => {
+        config.staking_rate = staking_rate;
+        attrs.push(attr("new_staking_rate", staking_rate.to_string()));
+    };
+    if let Some(unstaking_period) = unstaking_period {
+        config.unstaking_period = unstaking_period;
+        attrs.push(attr("new_unstaking_period", unstaking_period.to_string()));
+    };
+    if let Some(fee_wait_period) = fee_wait_period {
+        config.fee_wait_period = fee_wait_period;
+        attrs.push(attr("new_fee_wait_period", fee_wait_period.to_string()));
+    };
+    if let Some(mbrn_denom) = mbrn_denom {
+        config.mbrn_denom = mbrn_denom.clone();
+        attrs.push(attr("new_mbrn_denom", mbrn_denom));
+    };
+    if let Some(dex_router) = dex_router {
+        config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
+        attrs.push(attr("new_dex_router", dex_router));
+    };
+    if let Some(builders_contract) = builders_contract {
             config.builders_contract = Some(deps.api.addr_validate(&builders_contract)?);
             attrs.push(attr("new_builders_contract", builders_contract));
-        }
-        None => {}
-    }
-    match positions_contract {
-        Some(positions_contract) => {
+    };
+    if let Some(positions_contract) = positions_contract {
             config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
             attrs.push(attr("new_positions_contract", positions_contract));
-        }
-        None => {}
-    }
-    match osmosis_proxy {
-        Some(osmosis_proxy) => {
+    };
+    if let Some(governance_contract) = governance_contract {
+        config.governance_contract = Some(deps.api.addr_validate(&governance_contract)?);
+        attrs.push(attr("new_governance_contract", governance_contract));
+    };
+    if let Some(osmosis_proxy) = osmosis_proxy {
             config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
             attrs.push(attr("new_osmosis_proxy", osmosis_proxy));
-        }
-        None => {}
-    }
+    };
 
     //Save new Config
     CONFIG.save(deps.storage, &config)?;
@@ -410,6 +381,17 @@ pub fn unstake(
     let mut msgs = vec![];
 
     let fee_events = FEE_EVENTS.load(deps.storage)?;
+
+    //Can't unstake if there is an active proposal by user
+    let proposal_list = deps.querier.query::<ProposalListResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+        contract_addr: config.clone().governance_contract.unwrap().to_string(), 
+        msg: to_binary(&Gov_QueryMsg::Proposals { start: None, limit: None })?
+    }))?;
+    for proposal in proposal_list.proposal_list {
+        if proposal.submitter == info.sender && proposal.status == ProposalStatus::Active {
+            return Err(ContractError::CustomError { val: String::from("Can't unstake while your proposal is active") })
+        }
+    }
 
     //Get total Stake
     let total_stake = {

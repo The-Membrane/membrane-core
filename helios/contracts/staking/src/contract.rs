@@ -9,7 +9,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
 
-use membrane::apollo_router::{Cw20HookMsg as RouterCw20HookMsg, ExecuteMsg as RouterExecuteMsg};
+use membrane::apollo_router::{Cw20HookMsg as RouterCw20HookMsg, ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{ Config, Cw20HookMsg, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit};
@@ -922,9 +922,6 @@ fn deposit_fee(
         });
     }
 
-    //Load Stakers
-    let stakers = STAKED.load(deps.storage)?;
-
     FEE_EVENTS.save(deps.storage, &fee_events)?;
 
     let string_fee_assets = fee_assets
@@ -981,9 +978,9 @@ fn user_claims(
                             let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
                             //Create Cw20 Router SwapMsgs
                             let swap_hook = RouterCw20HookMsg::Swap {
-                                to: AssetInfo::Token {
+                                to: SwapToAssetsInput::Single(AssetInfo::Token {
                                     address: valid_claim_addr,
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -992,7 +989,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(valid_receipient.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1010,9 +1006,9 @@ fn user_claims(
                             //Send to Staker
                             //Create Cw20 Router SwapMsgs
                             let swap_hook = RouterCw20HookMsg::Swap {
-                                to: AssetInfo::Token {
+                                to: SwapToAssetsInput::Single(AssetInfo::Token {
                                     address: valid_claim_addr,
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -1021,7 +1017,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(info.clone().sender.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1044,9 +1039,9 @@ fn user_claims(
                             let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
                             //Create Cw20 Router SwapMsgs
                             let swap_hook = RouterCw20HookMsg::Swap {
-                                to: AssetInfo::NativeToken {
+                                to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                                     denom: claim_as_native.clone().unwrap(),
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -1055,7 +1050,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(valid_receipient.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1073,9 +1067,9 @@ fn user_claims(
                             //Send to Staker
                             //Create Cw20 Router SwapMsgs
                             let swap_hook = RouterCw20HookMsg::Swap {
-                                to: AssetInfo::NativeToken {
+                                to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                                     denom: claim_as_native.clone().unwrap(),
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -1084,7 +1078,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(info.clone().sender.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1112,10 +1105,10 @@ fn user_claims(
                             //Send to Optional receipient
                             let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
                             //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterExecuteMsg::SwapFromNative {
-                                to: AssetInfo::Token {
+                            let swap_hook = RouterExecuteMsg::Swap {
+                                to: SwapToAssetsInput::Single(AssetInfo::Token {
                                     address: valid_claim_addr,
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -1124,7 +1117,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(valid_receipient.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1136,10 +1128,10 @@ fn user_claims(
                             messages.push(message);
                         } else {
                             //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterExecuteMsg::SwapFromNative {
-                                to: AssetInfo::Token {
+                            let swap_hook = RouterExecuteMsg::Swap {
+                                to: SwapToAssetsInput::Single(AssetInfo::Token {
                                     address: valid_claim_addr,
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -1148,7 +1140,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(info.clone().sender.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1166,10 +1157,10 @@ fn user_claims(
                             //Send to Optional receipient
                             let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
                             //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterExecuteMsg::SwapFromNative {
-                                to: AssetInfo::NativeToken {
+                            let swap_hook = RouterExecuteMsg::Swap {
+                                to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                                     denom: claim_as_native.clone().unwrap(),
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -1178,7 +1169,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(valid_receipient.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1191,10 +1181,10 @@ fn user_claims(
                         } else {
                             //Send to Staker
                             //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterExecuteMsg::SwapFromNative {
-                                to: AssetInfo::NativeToken {
+                            let swap_hook = RouterExecuteMsg::Swap {
+                                to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                                     denom: claim_as_native.clone().unwrap(),
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -1203,7 +1193,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(info.clone().sender.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {

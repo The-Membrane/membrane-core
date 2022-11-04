@@ -126,7 +126,6 @@ mod tests {
                             user: String::from(USER),
                             positions: vec![
                                 Position { 
-                                    owner: Addr::unchecked(USER),
                                     position_id: Uint128::new(1),
                                     collateral_assets: vec![],
                                     credit_amount: Uint128::new(1),
@@ -348,6 +347,7 @@ mod tests {
             let msg = ExecuteMsg::ClosePosition { 
                 basket_id: Uint128::new(1), 
                 position_id: Uint128::new(1), 
+                max_spread: Decimal::percent(2),
             };
             let cosmos_msg = margin_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();

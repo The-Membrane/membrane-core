@@ -176,6 +176,7 @@ mod tests {
                         desired_debt_cap_util: Decimal::zero(),
                         pending_revenue: Uint128::zero(),
                         negative_rates: true,
+                        cpc_margin_of_error: Decimal::zero(),
                     })?),
                 }
             },

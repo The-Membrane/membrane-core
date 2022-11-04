@@ -1,10 +1,7 @@
 use membrane::liq_queue::Config;
-use membrane::types::{AssetInfo, Queue};
+use membrane::types::Queue;
 
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-
-use cosmwasm_std::{Addr, Decimal, Uint128};
+use cosmwasm_std::{Decimal, Uint128};
 use cw_storage_plus::{Item, Map};
 
 

@@ -112,7 +112,7 @@ fn close_posiion(
         msg: to_binary(&CDP_ExecuteMsg::ClosePosition { 
             basket_id, 
             position_id,
-            max_spread: Some(max_spread),
+            max_spread: max_spread,
             send_to: Some(info.clone().sender.to_string())
         })?, 
         funds: vec![],

@@ -7,7 +7,7 @@ use cosmwasm_std::{
 };
 use cw20::Cw20ReceiveMsg;
 
-use membrane::apollo_router::ExecuteMsg as RouterExecuteMsg;
+use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
     Config, Cw20HookMsg, ExecuteMsg, FeeEventsResponse, InstantiateMsg, QueryMsg, RewardsResponse,
@@ -651,14 +651,13 @@ fn claim_rewards() {
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("router_addr"),
                 funds: coins(1_960_784_313, "fee_asset"),
-                msg: to_binary(&RouterExecuteMsg::SwapFromNative {
-                    to: AssetInfo::NativeToken {
+                msg: to_binary(&RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                         denom: String::from("credit")
-                    },
+                    }),
                     max_spread: Some(Decimal::percent(10)),
                     recipient: Some(String::from("user_1")),
                     hook_msg: None,
-                    split: None,
                 })
                 .unwrap()
             })),
@@ -690,14 +689,13 @@ fn claim_rewards() {
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("router_addr"),
                 funds: coins(1_960_784_313, "fee_asset"),
-                msg: to_binary(&RouterExecuteMsg::SwapFromNative {
-                    to: AssetInfo::NativeToken {
+                msg: to_binary(&RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                         denom: String::from("credit")
-                    },
+                    }),
                     max_spread: Some(Decimal::percent(10)),
                     recipient: Some(String::from("receiver")),
                     hook_msg: None,
-                    split: None,
                 })
                 .unwrap()
             })),
@@ -729,14 +727,13 @@ fn claim_rewards() {
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("router_addr"),
                 funds: coins(1_960_784_313, "fee_asset"),
-                msg: to_binary(&RouterExecuteMsg::SwapFromNative {
-                    to: AssetInfo::Token {
+                msg: to_binary(&RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(AssetInfo::Token {
                         address: Addr::unchecked("credit")
-                    },
+                    }),
                     max_spread: Some(Decimal::percent(10)),
                     recipient: Some(String::from("user_3")),
                     hook_msg: None,
-                    split: None,
                 })
                 .unwrap()
             })),
@@ -768,14 +765,13 @@ fn claim_rewards() {
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("router_addr"),
                 funds: coins(1_960_784_313, "fee_asset"),
-                msg: to_binary(&RouterExecuteMsg::SwapFromNative {
-                    to: AssetInfo::Token {
+                msg: to_binary(&RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(AssetInfo::Token {
                         address: Addr::unchecked("credit")
-                    },
+                    }),
                     max_spread: Some(Decimal::percent(10)),
                     recipient: Some(String::from("receiver")),
                     hook_msg: None,
-                    split: None,
                 })
                 .unwrap()
             })),

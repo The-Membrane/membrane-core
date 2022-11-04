@@ -395,6 +395,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                                     position_owner: Some(
                                         position.clone().position_info.position_owner,
                                     ),
+                                    send_excess_to: None,
                                 })?,
                                 funds: coins(repay_amount.u128(), coin.clone().denom),
                             });

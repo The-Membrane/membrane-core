@@ -399,6 +399,7 @@ pub fn execute_liquidation(
         basket_id,
         position_id,
         position_owner: Some(position_owner),
+        send_excess_to: None,
     };
 
     let coin: Coin = asset_to_coin(repay_asset)?;

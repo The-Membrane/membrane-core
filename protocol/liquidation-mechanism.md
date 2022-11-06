@@ -1,7 +1,7 @@
 ---
 description: >-
-  TLDR: Membrane's liquidation mechanism has 3 layers designed to have the least
-  effect on collateral's market price while democratizing access to the
+  TLDR: Membrane's liquidation mechanism has 3 layers designed to have minimal
+  effect on a collateral's market price while democratizing access to the
   discounted assets that come from liquidations.
 ---
 
@@ -27,13 +27,13 @@ Additional Sources:&#x20;
 2\) [https://docs.liquity.org/faq/stability-pool-and-liquidations](https://docs.liquity.org/faq/stability-pool-and-liquidations)\
 3\) [https://docs.anchorprotocol.com/protocol/loan-liquidation](https://docs.anchorprotocol.com/protocol/loan-liquidation)
 
-### Bot Fees
+### Liquidator Fees
 
 Smart contracts aren't autonomous so they need to be called by an external source. These calls will be incentivized by a liquidation fee determined by free market mechanics. The more the target position is insolvent the larger the fee will be to the caller.
 
 _Ex: If a position's liquidation point is 80% LTV and the position gets to 81%, the caller's fee would be 1% of the liquidated collateral._
 
-The fee will keep increasing until a bot deems its profitable/desirable to liquidate, but if 1 bot waits too long it may lose the chance to capture the fee. This mechanism finds the lowest viable liquidation fee which benefits the user and the overall market.&#x20;
+The fee will keep increasing until a liquidator deems its profitable/desirable to liquidate, but if one waits too long it may lose the chance to capture the fee. This mechanism finds the lowest viable liquidation fee which benefits the user and the overall market.&#x20;
 
 **Note: There is a minimum fee that goes to MBRN stakers**\
 

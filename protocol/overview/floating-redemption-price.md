@@ -15,7 +15,7 @@ The redemption price may not directly affect market price, but it increases the 
 \
 In a negative rate environment, users are incentivized to sell their CDT, as the protocol is technically devaluing it over time. In a static redemption price system, Ex 2 would be a normal arb where a user can mint and sell CDT on the market for profit, rebuying to repay the loan as the price falls. The floating rate systems ensures that overtime this arb opportunity increases, independent of continual market price increases.\
 \
-This system ultimately trades small-scale volatility for long-term stability, without the need for centralized collateral (i.e. existential risk).
+This system ultimately trades small-scale volatility for long-term system optimality, decreasing the reliance over centralized collateral (i.e. existential risk).
 
 
 

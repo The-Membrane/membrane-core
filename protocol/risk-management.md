@@ -7,7 +7,7 @@ Each unique asset has a **debt cap** (CDT mint cap) and a **supply cap**. The **
 Collateral deemed riskier will have lower % of TVL supply cap which in turn effects its possible debt cap. As well as having lower minimum collateral ratios (i.e. lower LTVs).\
 \
 Risk type -> Solved By:\
-\- Systemic or Protocol Risk -> Debt Caps\
+\- Systemic or Protocol Risk -> Supply/Debt Caps\
 \- Volatility Risk -> Collateral Ratio\
 \- Liquidity Risk -> Stability Pool\
 \
@@ -21,4 +21,4 @@ While not covering liabilities, it acts as a living safety net to give user extr
 
 ### MBRN Auction
 
-If there is ever a shortfall event that results in more bad debt than pending revenue in the Safety Fund, **MBRN** will be auctioned off for a discount to recapitalize the system.
+If there is ever a shortfall event that results in more bad debt than pending revenue in the Safety Fund, **MBRN** will be auctioned off at a discount to recapitalize the system.

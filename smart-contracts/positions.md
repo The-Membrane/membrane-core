@@ -6,7 +6,7 @@ The contract also contains the logic for initiating liquidations of CDPs and sen
 
 **Notes:**&#x20;
 
-* `*send_to`[_**Deposits**_](positions.md#deposit) _take asset data directly from the message to ensure correctness. ****_&#x20;
+* [_**Deposits**_](positions.md#deposit) _take asset data directly from the message to ensure correctness. ****_&#x20;
 * _****_[_**Withdrawals** _ ](positions.md#withdraw)_are checked for validity (in the SubMsg reply) before state is permanently changed._&#x20;
 * _****_[_**Supply caps**_](positions.md#editbasket) _don't affect withdrawals, in otherwords, they only restrict deposits. Can be set to 0 to set the collateral's debt\_cap to 0 which locks mints and spikes interest rates._
 * _Adding collateral assets adds a queue for them in Liq Queue contract and a price feed for them in the Oracle contract_

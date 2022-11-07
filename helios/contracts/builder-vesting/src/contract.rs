@@ -16,7 +16,7 @@ use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
     ExecuteMsg as StakingExecuteMsg, QueryMsg as StakingQueryMsg, RewardsResponse, StakerResponse,
 };
-use membrane::types::{Allocation, Asset, AssetInfo, VestingPeriod};
+use membrane::types::{Allocation, Asset, AssetInfo, VestingPeriod, SubAllocation};
 
 use crate::error::ContractError;
 use crate::query::{query_allocation, query_unlocked, query_receivers, query_receiver};
@@ -569,50 +569,100 @@ fn add_allocation(
     info: MessageInfo,
     receiver: String,
     allocation: Uint128,
-    vesting_period: VestingPeriod,
+    vesting_period: Option<VestingPeriod>,
 ) -> Result<Response, ContractError> {
-    let config = CONFIG.load(deps.storage)?;
 
-    if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
-    }
+    let config = CONFIG.load(deps.storage)?;    
 
-    //Add allocation to a receiver
-    RECEIVERS.update(
-        deps.storage,
-        |mut receivers| -> Result<Vec<Receiver>, ContractError> {
-            //Add allocation
-            receivers = receivers
-                .into_iter()
-                .map(|mut current_receiver| {
-                    if current_receiver.receiver == receiver {
-                        current_receiver.allocation = Some(Allocation {
-                            amount: allocation,
-                            amount_withdrawn: Uint128::zero(),
-                            start_time_of_allocation: env.block.time.seconds(),
-                            vesting_period: vesting_period.clone(),
-                        });
-                    }
+    match vesting_period {
+        //If Some && from the contract owner, adds new allocation amount to a valid receiver
+        Some(vesting_period) => {
+            //Valid contract caller
+            if info.sender != config.owner {
+                return Err(ContractError::Unauthorized {});
+            }
 
-                    current_receiver
-                })
-                .collect::<Vec<Receiver>>();
+            //Add allocation to a receiver
+            RECEIVERS.update(
+                deps.storage,
+                |mut receivers| -> Result<Vec<Receiver>, ContractError> {
+                    //Add allocation
+                    receivers = receivers
+                        .into_iter()
+                        .map(|mut stored_recipient| {
+                            if stored_recipient.receiver == receiver {
+                                stored_recipient.allocation = Some(Allocation {
+                                    amount: allocation,
+                                    amount_withdrawn: Uint128::zero(),
+                                    start_time_of_allocation: env.block.time.seconds(),
+                                    vesting_period: vesting_period.clone(),
+                                    sub_allocation: vec![],
+                                });
+                            }
 
-            Ok(receivers)
+                            stored_recipient
+                        })
+                        .collect::<Vec<Receiver>>();
+
+                    Ok(receivers)
+                },
+            )?;
+
         },
-    )?;
+        //If None && called by an existing receiver, add a sub_allocation to the allotted new_receiver
+        None => {
+
+            //Set recipient
+            let recipient = deps.api.addr_validate(&receiver)?;
+
+            //Add sub-allocation to a receiver's allocation
+            RECEIVERS.update(
+                deps.storage,
+                |mut receivers| -> Result<Vec<Receiver>, ContractError> {
+                    //Add allocation
+                    receivers = receivers
+                        .into_iter()
+                        .map(|mut stored_recipient| {
+                            //Checking equality to info.sender
+                            if stored_recipient.receiver == info.clone().sender && stored_recipient.allocation.is_some(){
+
+                                //Initialize stored_allocation 
+                                let mut stored_allocation = stored_recipient.allocation.unwrap();
+
+                                //Add sub-allocation
+                                stored_allocation.sub_allocation.push(
+                                    SubAllocation {
+                                        recipient,
+                                        amount: allocation,
+                                        amount_withdrawn: Uint128::zero(),
+                                    });
+                                
+                                stored_recipient.allocation = Some(stored_allocation);
+
+                            }
+
+                            stored_recipient
+                        })
+                        .collect::<Vec<Receiver>>();
+
+                    Ok(receivers)
+                },
+            )?;
+
+        },
+    };
 
     //Get allocation total
     let mut allocation_total: Uint128 = Uint128::zero();
 
     for receiver in RECEIVERS.load(deps.storage)?.into_iter() {
-        if receiver.allocation.is_some() {
-            allocation_total += receiver.allocation.unwrap().amount;
-        }
+         if receiver.allocation.is_some() {
+             allocation_total += receiver.allocation.unwrap().amount;
+         }
     }
 
     //Error if over allocating
-    if allocation_total > config.initial_allocation {
+    if allocation_total > config.total_allocation {
         return Err(ContractError::OverAllocated {});
     }
 
@@ -623,62 +673,68 @@ fn add_allocation(
     ]))
 }
 
-//Decrease allocation for receiver
-fn decrease_allocation(
+//Decrease sub_allocation for receiver's Allocation
+fn decrease_sub_allocation(
     deps: DepsMut,
     info: MessageInfo,
     receiver: String,
     allocation: Uint128,
 ) -> Result<Response, ContractError> {
+   
     let config = CONFIG.load(deps.storage)?;
+   
+    //Set recipient
+    let recipient = deps.api.addr_validate(&receiver)?;
 
-    if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
-    }
-
-    let error: Option<ContractError> = None;
-
-    //Decrease allocation for receiver
-    //If trying to decrease more than allocation, allocation set to 0
+    //Decrease sub_allocation for receiver's Allocation
+    //If trying to decrease more than allocation, amount set to 0
     RECEIVERS.update(
         deps.storage,
         |receivers| -> Result<Vec<Receiver>, ContractError> {
             //Decrease allocation
             Ok(receivers
                 .into_iter()
-                .map(|mut current_receiver| {
-                    if current_receiver.receiver == receiver && current_receiver.allocation.is_some() {
-                        match current_receiver
-                            .allocation
-                            .clone()
-                            .unwrap()
-                            .amount
-                            .checked_sub(allocation)
-                        {
-                            Ok(difference) => {
-                                current_receiver.allocation = Some(Allocation {
-                                    amount: difference,
-                                    ..current_receiver.allocation.clone().unwrap()
-                                });
-                            }
-                            Err(_) => {
-                                current_receiver.allocation = Some(Allocation {
-                                    amount: Uint128::zero(),
-                                    ..current_receiver.allocation.clone().unwrap()
-                                });
-                            }
-                        };
-                    }
+                .map(|mut stored_recipient| {
+                    if stored_recipient.receiver == info.sender && stored_recipient.allocation.is_some() {
+                        
+                        //Initialize stored_allocation
+                        let mut stored_allocation = stored_recipient.allocation.unwrap();
+                        
+                        //Find the sub-allocation recipient
+                        stored_allocation.sub_allocation = stored_allocation.clone().sub_allocation
+                            .into_iter()
+                            .map(|sub_alloc| {
+                                if sub_alloc.recipient == recipient {
+                                    //Try subtraction
+                                    match sub_alloc
+                                        .amount
+                                        .checked_sub(allocation)
+                                    {
+                                        Ok(difference) => {
+                                            sub_alloc.amount = difference;
+                                        }
+                                        Err(_) => {
+                                            sub_alloc.amount = Uint128::zero();
+                                        }
+                                    };
+                                }
 
-                    current_receiver
+                                sub_alloc
+                            })
+                            .collect::<Vec<SubAllocation>>();
+
+                        //Update stored allocation
+                        stored_recipient.allocation = Some(stored_allocation);
+
+                    };                
+                    
+
+                    stored_recipient
                 })
                 .collect::<Vec<Receiver>>())
         },
     )?;
 
-    if error.is_some() {
-        return Err(error.unwrap());
-    }
 
     Ok(Response::new().add_attributes(vec![
         attr("method", "decrease_allocation"),
@@ -749,7 +805,7 @@ fn remove_receiver(
             //Filter out receiver and save
             Ok(receivers
                 .into_iter()
-                .filter(|current_receiver| current_receiver.receiver != receiver)
+                .filter(|stored_recipient| stored_recipient.receiver != receiver)
                 .collect::<Vec<Receiver>>())
         },
     )?;

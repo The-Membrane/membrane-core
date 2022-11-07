@@ -12,7 +12,7 @@ use crate::{
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
-    pub initial_allocation: Uint128,
+    pub total_allocation: Uint128,
     pub mbrn_denom: String,
     pub osmosis_proxy: String,
     pub staking_contract: String,
@@ -31,9 +31,9 @@ pub enum ExecuteMsg {
     AddAllocation {
         receiver: String,
         allocation: Uint128,
-        vesting_period: VestingPeriod,
+        vesting_period: Option<VestingPeriod>, //If an existing receiver is using this to divvy their allocation, the vesting period can't be changed.
     },
-    DecreaseAllocation {
+    DecreaseSubAllocation {
         receiver: String,
         allocation: Uint128,
     },
@@ -76,7 +76,7 @@ pub enum QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Config {
     pub owner: Addr, //Governance Contract
-    pub initial_allocation: Uint128,
+    pub total_allocation: Uint128,
     pub mbrn_denom: String,
     pub osmosis_proxy: Addr,
     pub staking_contract: Addr,

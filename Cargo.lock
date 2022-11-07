@@ -20,6 +20,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "216261ddc8289130e551ddcd5ce8a064710c0d064a4d2895c67151c92b5443f6"
 
 [[package]]
+name = "autocfg"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
+
+[[package]]
 name = "base16ct"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -108,7 +114,7 @@ dependencies = [
  "cw20",
  "membrane",
  "osmo-bindings",
- "osmosis-std",
+ "osmosis-std 0.1.7",
  "schemars",
  "serde",
  "thiserror",
@@ -120,6 +126,16 @@ name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
+
+[[package]]
+name = "chrono"
+version = "0.4.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfd4d1b31faaa3a89d7934dbded3111da0d2ef28e3ebccdb4f0179f5929d1ef1"
+dependencies = [
+ "num-integer",
+ "num-traits",
+]
 
 [[package]]
 name = "const-oid"
@@ -393,7 +409,7 @@ dependencies = [
  "cw20",
  "membrane",
  "osmo-bindings",
- "osmosis-std",
+ "osmosis-std 0.1.7",
  "schemars",
  "serde",
  "thiserror",
@@ -550,7 +566,7 @@ dependencies = [
  "cw20",
  "membrane",
  "osmo-bindings",
- "osmosis-std",
+ "osmosis-std 0.1.7",
  "schemars",
  "serde",
  "thiserror",
@@ -656,7 +672,7 @@ dependencies = [
  "cw20",
  "membrane",
  "osmo-bindings",
- "osmosis-std",
+ "osmosis-std 0.1.7",
  "schemars",
  "serde",
  "thiserror",
@@ -691,11 +707,31 @@ dependencies = [
  "cw-storage-plus 0.13.4",
  "cw2 0.13.4",
  "cw20",
- "prost 0.9.0",
- "prost-types 0.9.0",
+ "osmosis-std 0.12.0",
+ "prost 0.11.2",
+ "prost-types",
  "schemars",
  "serde",
  "thiserror",
+]
+
+[[package]]
+name = "num-integer"
+version = "0.1.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "225d3389fb3509a24c93f5c29eb6bde2586b98d9f016636dff58d7c6f7569cd9"
+dependencies = [
+ "autocfg",
+ "num-traits",
+]
+
+[[package]]
+name = "num-traits"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "578ede34cf02f8924ab9447f50c28075b4d3e5b269972345e7e0372b38c6cdcd"
+dependencies = [
+ "autocfg",
 ]
 
 [[package]]
@@ -723,7 +759,7 @@ dependencies = [
  "cw20",
  "membrane",
  "osmo-bindings",
- "osmosis-std",
+ "osmosis-std 0.1.7",
  "schemars",
  "serde",
  "thiserror",
@@ -748,11 +784,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50fb348fd7aefc37038ba8125e18b360af5bd44c6e007d2b10346777995857e3"
 dependencies = [
  "cosmwasm-std",
- "osmosis-std-derive",
- "prost 0.11.0",
- "prost-types 0.11.1",
+ "osmosis-std-derive 0.1.7",
+ "prost 0.11.2",
+ "prost-types",
  "schemars",
  "serde",
+]
+
+[[package]]
+name = "osmosis-std"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2b3792977036dc49cfc9af9fd7a6c021fd48dfffc8ebf09324201506c65a47a"
+dependencies = [
+ "chrono",
+ "cosmwasm-std",
+ "osmosis-std-derive 0.12.0",
+ "prost 0.11.2",
+ "prost-types",
+ "schemars",
+ "serde",
+ "serde-cw-value",
 ]
 
 [[package]]
@@ -760,6 +812,18 @@ name = "osmosis-std-derive"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743ed6a9bb8d2c210a8c184a874244dbf56ebb2f6062c3848300b7ea9817ca50"
+dependencies = [
+ "itertools",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "osmosis-std-derive"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c501f2b8ff88b1c60ab671d7b808e947f384fa2524fe4ec8c06f63ef4be29979"
 dependencies = [
  "itertools",
  "proc-macro2",
@@ -781,7 +845,8 @@ dependencies = [
  "cw20",
  "itertools",
  "membrane",
- "osmo-bindings",
+ "osmosis-std 0.12.0",
+ "prost 0.11.2",
  "schemars",
  "serde",
  "thiserror",
@@ -818,12 +883,12 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.11.0"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "399c3c31cdec40583bb68f0b18403400d01ec4289c383aa047560439952c4dd7"
+checksum = "a0841812012b2d4a6145fae9a6af1534873c32aa67fff26bd09f8fa42c83f95a"
 dependencies = [
  "bytes",
- "prost-derive 0.11.0",
+ "prost-derive 0.11.2",
 ]
 
 [[package]]
@@ -841,9 +906,9 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.11.0"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7345d5f0e08c0536d7ac7229952590239e77abf0a0100a1b1d890add6ea96364"
+checksum = "164ae68b6587001ca506d3bf7f1000bfa248d0e1217b618108fba4ec1d0cc306"
 dependencies = [
  "anyhow",
  "itertools",
@@ -854,22 +919,12 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.9.0"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "534b7a0e836e3c482d2693070f982e39e7611da9695d4d1f5a4b186b51faef0a"
+checksum = "747761bc3dc48f9a34553bf65605cf6cb6288ba219f3450b4275dbd81539551a"
 dependencies = [
  "bytes",
- "prost 0.9.0",
-]
-
-[[package]]
-name = "prost-types"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4dfaa718ad76a44b3415e6c4d53b17c8f99160dcb3a99b10470fce8ad43f6e3e"
-dependencies = [
- "bytes",
- "prost 0.11.0",
+ "prost 0.11.2",
 ]
 
 [[package]]
@@ -898,9 +953,9 @@ dependencies = [
 
 [[package]]
 name = "rfc6979"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88c86280f057430a52f4861551b092a01b419b8eacefc7c995eacb9dc132fe32"
+checksum = "7743f17af12fa0b03b803ba12cd6a8d9483a587e89c69445e3909655c0b9fabb"
 dependencies = [
  "crypto-bigint",
  "hmac",
@@ -964,6 +1019,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d193d69bae983fc11a79df82342761dfbf28a99fc8d203dca4c3c1b590948965"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde-cw-value"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a75d32da6b8ed758b7d850b6c3c08f1d7df51a4df3cb201296e63e34a78e99d4"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

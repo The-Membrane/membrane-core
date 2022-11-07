@@ -1,11 +1,15 @@
+use prost::Message;
 use core::fmt;
+use std::{str::FromStr, convert::TryFrom};
 
 use crate::math::{Decimal256, Uint256};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Decimal, Uint128};
+use cosmwasm_std::{Addr, Decimal, Uint128, StdError};
+
+use osmosis_std::types::cosmos::base::v1beta1::Coin;
 
 //Stability Pool
 
@@ -424,7 +428,82 @@ impl fmt::Display for Asset {
     }
 }
 
-////////////////////Osmosis binding types
+////////////////////Osmosis-std types
+
+
+pub enum Pool {
+    Balancer(osmosis_std::types::osmosis::gamm::v1beta1::Pool),
+    StableSwap(osmosis_std::types::osmosis::gamm::poolmodels::stableswap::v1beta1::Pool),
+}
+
+impl Pool {
+    pub fn into_pool_state_response(&self) -> PoolStateResponse {
+        
+        match self {
+            Pool::Balancer(pool) => {
+                PoolStateResponse { 
+                    assets: pool.clone().pool_assets.into_iter().map(|pool_asset| pool_asset.token.unwrap_or_default()).collect::<Vec<Coin>>(), 
+                    shares: pool.clone().total_shares.unwrap_or_default(),
+                }
+            },
+            Pool::StableSwap(pool) => {
+                PoolStateResponse { 
+                    assets: pool.clone().pool_liquidity, 
+                    shares: pool.clone().total_shares.unwrap_or_default(),
+                }
+            },
+        }
+    }
+}
+
+impl TryFrom<osmosis_std::shim::Any> for Pool {
+    type Error = StdError;
+
+    fn try_from(value: osmosis_std::shim::Any) -> Result<Self, Self::Error> {
+        if let Ok(pool) = osmosis_std::types::osmosis::gamm::v1beta1::Pool::decode(value.value.as_slice()) {
+            return Ok(Pool::Balancer(pool));
+        }
+        if let Ok(pool) = osmosis_std::types::osmosis::gamm::poolmodels::stableswap::v1beta1::Pool::decode(value.value.as_slice()) {
+            return Ok(Pool::StableSwap(pool));
+        }
+        
+        Err(StdError::ParseErr {
+            target_type: "Pool".to_string(),
+            msg: "Unmatched pool: must be either `Balancer` or `StableSwap`.".to_string(),
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct PoolStateResponse {
+    /// The various assets that be swapped. Including current liquidity.
+    pub assets: Vec<Coin>,
+    /// The number of lp shares and their amount
+    pub shares: Coin,
+}
+
+impl PoolStateResponse {
+    pub fn has_denom(&self, denom: &str) -> bool {
+        self.assets.iter().any(|c| c.denom == denom)
+    }
+
+    pub fn lp_denom(&self) -> &str {
+        &self.shares.denom
+    }
+
+    /// If I hold num_shares of the lp_denom, how many assets does that equate to?
+    pub fn shares_value(&self, num_shares: impl Into<Uint128>) -> Vec<Coin> {
+        let num_shares = num_shares.into();
+        self.assets
+            .iter()
+            .map(|c| Coin {
+                denom: c.denom.clone(),
+                amount: (Uint128::from_str(&c.amount).unwrap() * num_shares / Uint128::from_str(&self.shares.amount).unwrap()).to_string(),
+            })
+            .collect()
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Debug)]
 pub struct Swap {

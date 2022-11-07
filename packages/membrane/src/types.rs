@@ -271,7 +271,7 @@ pub struct Basket {
     pub current_position_id: Uint128,
     pub collateral_types: Vec<cAsset>,
     pub collateral_supply_caps: Vec<SupplyCap>, //Order needs to correlate to collateral_types order
-    pub credit_asset: Asset, //Depending on type of token we use for credit this.info will be an Addr or denom (Cw20 or Native token respectively)
+    pub credit_asset: Asset, 
     pub credit_price: Decimal, //This is credit_repayment_price, not market price
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
     pub liquidity_multiplier: Decimal, //liquidity_multiplier for debt caps
@@ -281,6 +281,7 @@ pub struct Basket {
     pub rates_last_accrued: u64, //rate_index last_accrued
     pub oracle_set: bool, //If the credit oracle was set. Can't update repayment price without.
     pub negative_rates: bool, //Allow negative repayment interest or not
+    pub frozen: bool, //Freeze withdrawals and debt increases to provide time to fix vulnerabilities
     //% difference btwn credit TWAP and repayment price before the interest changes
     //Set to 100 if you want to turn off the PID
     pub cpc_margin_of_error: Decimal,

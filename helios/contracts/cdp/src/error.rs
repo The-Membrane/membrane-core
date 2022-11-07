@@ -15,6 +15,9 @@ pub enum ContractError {
     #[error("Invalid Repayment Asset")]
     InvalidCredit {},
 
+    #[error("Basket withdrawals & debt increases are frozen temporarily")]
+    Frozen {},
+
     #[error("Position is solvent and shouldn't be liquidated")]
     PositionSolvent {},
 

@@ -120,6 +120,7 @@ pub enum ExecuteMsg {
         credit_asset_twap_price_source: Option<TWAPPoolInfo>,
         negative_rates: Option<bool>, //Allow negative repayment interest or not
         cpc_margin_of_error: Option<Decimal>,
+        frozen: Option<bool>,
     },
     //Clone basket. Reset supply_caps. Sets repayment price to new oracle price.
     //When using this to add a new UoA:
@@ -285,6 +286,7 @@ pub struct BasketResponse {
     pub pending_revenue: Uint128,
     pub negative_rates: bool, //Allow negative repayment interest or not
     pub cpc_margin_of_error: Decimal,
+    pub frozen: bool,
 }
 
 

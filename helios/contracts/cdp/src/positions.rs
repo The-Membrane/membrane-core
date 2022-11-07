@@ -355,6 +355,9 @@ pub fn withdraw(
         Ok(basket) => basket,
     };
 
+    //Check if frozen
+    if basket.frozen { return Err(ContractError::Frozen {  }) }
+
     let mut msgs = vec![];
     let response = Response::new();
 
@@ -1082,6 +1085,9 @@ pub fn increase_debt(
         Ok(basket) => basket,
     };
 
+    //Check if frozen
+    if basket.frozen { return Err(ContractError::Frozen {  }) }
+
     //get Target position
     let mut target_position = get_target_position(deps.storage, basket_id, info.clone().sender, position_id)?;
 
@@ -1620,6 +1626,7 @@ pub fn create_basket(
         negative_rates: true,
         cpc_margin_of_error: Decimal::one(),
         oracle_set: false,
+        frozen: false,
     };
 
     //Denom check
@@ -1706,6 +1713,7 @@ pub fn edit_basket(
     credit_asset_twap_price_source: Option<TWAPPoolInfo>,
     negative_rates: Option<bool>,
     cpc_margin_of_error: Option<Decimal>,
+    frozen: Option<bool>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -2023,7 +2031,11 @@ pub fn edit_basket(
                         }
                         if let Some(toggle) = negative_rates {
                             basket.negative_rates = toggle.clone();
-                            attrs.push(attr("new_negative_rates", toggle.to_string()));
+                            attrs.push(attr("negative_rates", toggle.to_string()));
+                        }
+                        if let Some(toggle) = frozen {
+                            basket.frozen = toggle.clone();
+                            attrs.push(attr("frozen", toggle.to_string()));
                         }
                         if let Some(error_margin) = cpc_margin_of_error {
                             basket.cpc_margin_of_error = error_margin.clone();

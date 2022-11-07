@@ -6,7 +6,7 @@ use cosmwasm_std::{
 use cw_storage_plus::Bound;
 
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
-use membrane::osmosis_proxy::{QueryMsg as OsmoQueryMsg, TokenInfoResponse};
+use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::positions::{
     Config, BadDebtResponse, BasketResponse, CollateralInterestResponse, DebtCapResponse,
     InsolvencyResponse, InterestResponse, PositionResponse, PositionsResponse, PropResponse,
@@ -281,7 +281,8 @@ pub fn query_basket(deps: Deps, basket_id: Uint128) -> StdResult<BasketResponse>
             desired_debt_cap_util: basket.desired_debt_cap_util,
             pending_revenue: basket.pending_revenue,
             negative_rates: basket.negative_rates,
-            cpc_margin_of_error: basket.cpc_margin_of_error
+            cpc_margin_of_error: basket.cpc_margin_of_error,
+            frozen: basket.frozen,
         },
         Err(_) => return Err(StdError::generic_err("Invalid basket_id")),
     };
@@ -328,7 +329,8 @@ pub fn query_baskets(
                 desired_debt_cap_util: basket.desired_debt_cap_util,
                 pending_revenue: basket.pending_revenue,
                 negative_rates: basket.negative_rates,
-                cpc_margin_of_error: basket.cpc_margin_of_error
+                cpc_margin_of_error: basket.cpc_margin_of_error,
+                frozen: basket.frozen,
             })
         })
         .collect()

@@ -327,6 +327,7 @@ pub fn execute(
             credit_asset_twap_price_source,
             negative_rates,
             cpc_margin_of_error,
+            frozen,
         } => edit_basket(
             deps,
             info,
@@ -342,6 +343,7 @@ pub fn execute(
             credit_asset_twap_price_source,
             negative_rates,
             cpc_margin_of_error,
+            frozen,
         ),
         ExecuteMsg::CreateBasket {
             owner,

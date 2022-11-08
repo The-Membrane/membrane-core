@@ -4,7 +4,7 @@ use std::fs::create_dir_all;
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
 use membrane::builder_vesting::{
-    Config, AllocationResponse, ExecuteMsg, InstantiateMsg, QueryMsg, ReceiverResponse,
+    Config, AllocationResponse, ExecuteMsg, InstantiateMsg, QueryMsg, RecipientResponse,
     UnlockedResponse,
 };
 
@@ -19,6 +19,6 @@ fn main() {
     export_schema(&schema_for!(QueryMsg), &out_dir);
     export_schema(&schema_for!(Config), &out_dir);
     export_schema(&schema_for!(AllocationResponse), &out_dir);
-    export_schema(&schema_for!(ReceiverResponse), &out_dir);
+    export_schema(&schema_for!(RecipientResponse), &out_dir);
     export_schema(&schema_for!(UnlockedResponse), &out_dir);
 }

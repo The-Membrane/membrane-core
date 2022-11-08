@@ -15,8 +15,8 @@ pub enum ContractError {
     #[error("Receiver allocation doesn't exist")]
     InvalidAllocation {},
 
-    #[error("Info.sender is not a receiver")]
-    InvalidReceiver {},
+    #[error("Info.sender is not a recipient")]
+    InvalidRecipient {},
 
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },

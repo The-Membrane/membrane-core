@@ -3,7 +3,7 @@ mod tests {
 
     use crate::helpers::BVContract;
 
-    use membrane::builder_vesting::{ExecuteMsg, InstantiateMsg, QueryMsg, ReceiverResponse};
+    use membrane::builder_vesting::{ExecuteMsg, InstantiateMsg, QueryMsg, RecipientResponse};
     use membrane::staking::{ StakerResponse, RewardsResponse};
     use membrane::types::{Asset, AssetInfo, VestingPeriod};
 
@@ -248,6 +248,7 @@ mod tests {
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: osmosis_proxy_contract_addr.to_string(),
             staking_contract: staking_contract_addr.to_string(),
+            labs_addr: String::from("labs"),
         };
 
         let bv_contract_addr = app
@@ -255,6 +256,16 @@ mod tests {
             .unwrap();
 
         let builders_contract = BVContract(bv_contract_addr);
+
+        let msg = ExecuteMsg::UpdateConfig { 
+            owner: None, 
+            mbrn_denom: None,
+            osmosis_proxy: None,
+            staking_contract: None,
+            additional_allocation: Some( Uint128::new(20_000_000_000_000) ),
+        };
+        let cosmos_msg = builders_contract.call(msg, vec![]).unwrap();
+        app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
         (app, builders_contract, cw20_contract_addr)
     }
@@ -269,39 +280,39 @@ mod tests {
         fn claim_fees() {
             let (mut app, bv_contract, cw20_addr) = proper_instantiate();
 
-            //Add 2 Receivers
-            let msg = ExecuteMsg::AddReceiver {
-                receiver: String::from("receiver1"),
+            //Add 2 Recipients
+            let msg = ExecuteMsg::AddRecipient {
+                recipient: String::from("recipient1"),
             };
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            let msg = ExecuteMsg::AddReceiver {
-                receiver: String::from("receiver2"),
+            let msg = ExecuteMsg::AddRecipient {
+                recipient: String::from("recipient2"),
             };
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Allocate to 2 Receivers
+            //Allocate to 2 Recipients
             let msg = ExecuteMsg::AddAllocation {
-                receiver: String::from("receiver1"),
+                recipient: String::from("recipient1"),
                 allocation: Uint128::new(10_000_000_000_000u128),
-                vesting_period: VestingPeriod {
+                vesting_period: Some(VestingPeriod {
                     cliff: 365u64,
                     linear: 365u64,
-                },
+                }),
             };
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //----
             let msg = ExecuteMsg::AddAllocation {
-                receiver: String::from("receiver2"),
+                recipient: String::from("recipient2"),
                 allocation: Uint128::new(7_500_000_000_000u128),
-                vesting_period: VestingPeriod {
+                vesting_period: Some(VestingPeriod {
                     cliff: 365u64,
                     linear: 365u64,
-                },
+                }),
             };
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -331,10 +342,10 @@ mod tests {
             .unwrap();
 
             //Query and Assert Claimables
-            let query_msg = QueryMsg::Receiver {
-                receiver: String::from("receiver1"),
+            let query_msg = QueryMsg::Recipient {
+                recipient: String::from("recipient1"),
             };
-            let res: ReceiverResponse = app
+            let res: RecipientResponse = app
                 .wrap()
                 .query_wasm_smart(bv_contract.addr(), &query_msg)
                 .unwrap();
@@ -357,10 +368,10 @@ mod tests {
             );
 
             //Query and Assert Claimables
-            let query_msg = QueryMsg::Receiver {
-                receiver: String::from("receiver2"),
+            let query_msg = QueryMsg::Recipient {
+                recipient: String::from("recipient2"),
             };
-            let res: ReceiverResponse = app
+            let res: RecipientResponse = app
                 .wrap()
                 .query_wasm_smart(bv_contract.addr(), &query_msg)
                 .unwrap();
@@ -382,46 +393,46 @@ mod tests {
                 ]
             );
 
-            //Invalid receiver for ClaimFeesforReceiver
-            let msg = ExecuteMsg::ClaimFeesforReceiver {};
+            //Invalid recipient for ClaimFeesforRecipient
+            let msg = ExecuteMsg::ClaimFeesforRecipient {};
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("not_a_receiver"), cosmos_msg)
+            app.execute(Addr::unchecked("not_a_recipient"), cosmos_msg)
                 .unwrap_err();
 
-            //Claim for each receiver
-            let msg = ExecuteMsg::ClaimFeesforReceiver {};
+            //Claim for each recipient
+            let msg = ExecuteMsg::ClaimFeesforRecipient {};
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("receiver1"), cosmos_msg)
+            app.execute(Addr::unchecked("recipient1"), cosmos_msg)
                 .unwrap();
 
-            let msg = ExecuteMsg::ClaimFeesforReceiver {};
+            let msg = ExecuteMsg::ClaimFeesforRecipient {};
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("receiver2"), cosmos_msg)
+            app.execute(Addr::unchecked("recipient2"), cosmos_msg)
                 .unwrap();
 
             //Query and Assert new balances
             assert_eq!(
                 app.wrap()
-                    .query_all_balances(Addr::unchecked("receiver1"))
+                    .query_all_balances(Addr::unchecked("recipient1"))
                     .unwrap(),
                 vec![coin(666_666, "2nddebit"), coin(666_666, "debit")]
             );
             assert_eq!(
                 app.wrap()
-                    .query_all_balances(Addr::unchecked("receiver2"))
+                    .query_all_balances(Addr::unchecked("recipient2"))
                     .unwrap(),
                 vec![coin(500_000, "2nddebit"), coin(500_000, "debit")]
             );
 
             //Assert there is nothing left to claim
-            let msg = ExecuteMsg::ClaimFeesforReceiver {};
+            let msg = ExecuteMsg::ClaimFeesforRecipient {};
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("receiver1"), cosmos_msg)
+            app.execute(Addr::unchecked("recipient1"), cosmos_msg)
                 .unwrap_err();
 
-            let msg = ExecuteMsg::ClaimFeesforReceiver {};
+            let msg = ExecuteMsg::ClaimFeesforRecipient {};
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("receiver2"), cosmos_msg)
+            app.execute(Addr::unchecked("recipient2"), cosmos_msg)
                 .unwrap_err();
 
         }
@@ -431,27 +442,27 @@ mod tests {
         fn vesting_unlocks() {
             let (mut app, bv_contract, cw20_addr) = proper_instantiate();
         
-            //Add 2 Receivers, 1st doesn't get an allocation
-            let msg = ExecuteMsg::AddReceiver {
-                receiver: String::from("not_an_allocation"),
+            //Add 2 Recipients, 1st doesn't get an allocation
+            let msg = ExecuteMsg::AddRecipient {
+                recipient: String::from("not_an_allocation"),
             };
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            let msg = ExecuteMsg::AddReceiver {
-                receiver: String::from("receiver0000"),
+            let msg = ExecuteMsg::AddRecipient {
+                recipient: String::from("recipient0000"),
             };
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //AddAllocation
             let msg = ExecuteMsg::AddAllocation {
-                receiver: String::from("receiver0000"),
+                recipient: String::from("recipient0000"),
                 allocation: Uint128::new(1_000_000_000u128),
-                vesting_period: VestingPeriod {
+                vesting_period: Some(VestingPeriod {
                     cliff: 365u64,
                     linear: 365u64,
-                },
+                }),
             };
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -459,7 +470,7 @@ mod tests {
         
             //Query Unlocked
             let query_msg = QueryMsg::UnlockedTokens {
-                receiver: String::from("receiver0000"),
+                recipient: String::from("recipient0000"),
             };
             
             app.set_block(BlockInfo {
@@ -473,12 +484,12 @@ mod tests {
                     .unwrap();
             assert_eq!(res.unlocked_amount, Uint128::new(500_000_000u128));
 
-            ///Invalid Receiver withdraw
+            ///Invalid Recipient withdraw
             let withdraw_msg = ExecuteMsg::WithdrawUnlocked {};
             let cosmos_msg = bv_contract.call(withdraw_msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("not_a_receiver"), cosmos_msg).unwrap_err();
+            app.execute(Addr::unchecked("not_a_recipient"), cosmos_msg).unwrap_err();
 
-            ///Receiver w/ no Allocaition 'Withdraw'
+            ///Recipient w/ no Allocaition 'Withdraw'
             let withdraw_msg = ExecuteMsg::WithdrawUnlocked {};
             let cosmos_msg = bv_contract.call(withdraw_msg, vec![]).unwrap();
             app.execute(Addr::unchecked("not_an_allocation"), cosmos_msg).unwrap_err();
@@ -488,9 +499,9 @@ mod tests {
             //..And contract has balance to send after "unstaking"
             let withdraw_msg = ExecuteMsg::WithdrawUnlocked {};
             let cosmos_msg = bv_contract.call(withdraw_msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("receiver0000"), cosmos_msg).unwrap();
+            app.execute(Addr::unchecked("recipient0000"), cosmos_msg).unwrap();
             assert_eq!(
-                app.wrap().query_all_balances(Addr::unchecked("receiver0000")).unwrap(),
+                app.wrap().query_all_balances(Addr::unchecked("recipient0000")).unwrap(),
                 vec![ coin(500_000_000, "mbrn_denom") ]
             );                 
             
@@ -498,9 +509,9 @@ mod tests {
             ///Withdraw unlocked but nothing to withdraw since no time has passed
             let withdraw_msg = ExecuteMsg::WithdrawUnlocked {};
             let cosmos_msg = bv_contract.call(withdraw_msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("receiver0000"), cosmos_msg).unwrap();
+            app.execute(Addr::unchecked("recipient0000"), cosmos_msg).unwrap();
             assert_eq!(
-                app.wrap().query_all_balances(Addr::unchecked("receiver0000")).unwrap(),
+                app.wrap().query_all_balances(Addr::unchecked("recipient0000")).unwrap(),
                 vec![ coin(500_000_000, "mbrn_denom") ]
             );
 
@@ -513,9 +524,9 @@ mod tests {
             //Can now withdraw the rest
             let withdraw_msg = ExecuteMsg::WithdrawUnlocked {};
             let cosmos_msg = bv_contract.call(withdraw_msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("receiver0000"), cosmos_msg).unwrap();
+            app.execute(Addr::unchecked("recipient0000"), cosmos_msg).unwrap();
             assert_eq!(
-                app.wrap().query_all_balances(Addr::unchecked("receiver0000")).unwrap(),
+                app.wrap().query_all_balances(Addr::unchecked("recipient0000")).unwrap(),
                 vec![ coin(1_000_000_000, "mbrn_denom") ]
             );
     
@@ -531,6 +542,7 @@ mod tests {
                 mbrn_denom: None,
                 osmosis_proxy: None,
                 staking_contract: None,
+                additional_allocation: None,
             };
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("not_owner"), cosmos_msg).unwrap_err();
@@ -541,6 +553,7 @@ mod tests {
                 mbrn_denom: Some( String::from("new_denom") ), 
                 osmosis_proxy: Some( cw20_addr.to_string() ), 
                 staking_contract: Some( cw20_addr.to_string() ), 
+                additional_allocation: Some( Uint128::one() ),
             };
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -555,7 +568,7 @@ mod tests {
                 res,
                 Config { 
                     owner: Addr::unchecked("new_owner"), 
-                    initial_allocation: Uint128::new(30_000_000_000_000), 
+                    total_allocation: Uint128::new(50_000_000_000_001), 
                     mbrn_denom: String::from("new_denom"), 
                     osmosis_proxy: cw20_addr.clone(), 
                     staking_contract: cw20_addr, 

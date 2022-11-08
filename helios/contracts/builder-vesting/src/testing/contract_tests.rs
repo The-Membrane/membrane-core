@@ -6,13 +6,13 @@ mod tests {
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cosmwasm_std::{from_binary, to_binary, CosmosMsg, SubMsg, Uint128, WasmMsg, Addr, coin, attr};
 
-    use membrane::builder_vesting::{Config, QueryMsg, InstantiateMsg, ExecuteMsg, ReceiverResponse, AllocationResponse, UnlockedResponse};
+    use membrane::builder_vesting::{Config, QueryMsg, InstantiateMsg, ExecuteMsg, RecipientResponse, AllocationResponse, UnlockedResponse};
     use membrane::staking::ExecuteMsg as StakingExecuteMsg;
     use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
     use membrane::types::VestingPeriod;
 
     #[test]
-    fn receivers() {
+    fn recipients() {
         let mut deps = mock_dependencies();
 
         let msg = InstantiateMsg {
@@ -21,15 +21,16 @@ mod tests {
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: String::from("osmosis_proxy"),
             staking_contract: String::from("staking_contract"),
+            labs_addr: String::from("labs")
         };
 
         //Instantiating contract
         let v_info = mock_info("sender88", &[]);
         let _res = instantiate(deps.as_mut(), mock_env(), v_info, msg).unwrap();
 
-        //AddReceiver
-        let add_msg = ExecuteMsg::AddReceiver {
-            receiver: String::from("receiver0000"),
+        //AddRecipient
+        let add_msg = ExecuteMsg::AddRecipient {
+            recipient: String::from("recipient0000"),
         };
         let _res = execute(
             deps.as_mut(),
@@ -39,9 +40,9 @@ mod tests {
         )
         .unwrap();
 
-        //Error: Duplicate Receiver
-        let add_msg = ExecuteMsg::AddReceiver {
-            receiver: String::from("receiver0000"),
+        //Error: Duplicate Recipient
+        let add_msg = ExecuteMsg::AddRecipient {
+            recipient: String::from("recipient0000"),
         };
         let err = execute(
             deps.as_mut(),
@@ -52,12 +53,12 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err.to_string(),
-            String::from("Custom Error val: \"Duplicate receiver\"")
+            String::from("Custom Error val: \"Duplicate Recipient\"")
         );
 
-        //RemoveReceiver
-        let add_msg = ExecuteMsg::RemoveReceiver {
-            receiver: String::from("receiver0000"),
+        //RemoveRecipient
+        let add_msg = ExecuteMsg::RemoveRecipient {
+            recipient: String::from("recipient0000"),
         };
         let _res = execute(
             deps.as_mut(),
@@ -67,9 +68,9 @@ mod tests {
         )
         .unwrap();
 
-        //AddReceiver
-        let add_msg = ExecuteMsg::AddReceiver {
-            receiver: String::from("receiver0000"),
+        //AddRecipient
+        let add_msg = ExecuteMsg::AddRecipient {
+            recipient: String::from("recipient0000"),
         };
         let _res = execute(
             deps.as_mut(),
@@ -79,13 +80,13 @@ mod tests {
         )
         .unwrap();
 
-        //Query Receivers
-        let msg = QueryMsg::Receivers {};
+        //Query Recipients
+        let msg = QueryMsg::Recipients {};
         let res = query(deps.as_ref(), mock_env(), msg).unwrap();
 
-        let resp: Vec<ReceiverResponse> = from_binary(&res).unwrap();
-        assert_eq!(resp[0].receiver, String::from("receiver0000"));
-        assert_eq!(resp.len().to_string(), String::from("1"));
+        let resp: Vec<RecipientResponse> = from_binary(&res).unwrap();
+        assert_eq!(resp[1].recipient, String::from("recipient0000"));
+        assert_eq!(resp.len().to_string(), String::from("2"));
     }
 
     #[test]
@@ -98,15 +99,27 @@ mod tests {
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: String::from("osmosis_proxy"),
             staking_contract: String::from("staking_contract"),
+            labs_addr: String::from("labs")
         };
 
         //Instantiating contract
         let v_info = mock_info("sender88", &[]);
         let _res = instantiate(deps.as_mut(), mock_env(), v_info, msg).unwrap();
 
-        //AddReceiver
-        let add_msg = ExecuteMsg::AddReceiver {
-            receiver: String::from("receiver0000"),
+        //Update Config: Increase allocations
+        let msg = ExecuteMsg::UpdateConfig { 
+            owner: None, 
+            mbrn_denom: None,
+            osmosis_proxy: None,
+            staking_contract: None,
+            additional_allocation: Some( Uint128::new(1_000_000_000_000u128) ),
+        };
+        let _res = execute( deps.as_mut(),mock_env(), mock_info("owner0000", &[]), msg )
+        .unwrap();
+
+        //AddRecipient
+        let add_msg = ExecuteMsg::AddRecipient {
+            recipient: String::from("recipient0000"),
         };
         let _res = execute(
             deps.as_mut(),
@@ -118,12 +131,12 @@ mod tests {
 
         //AddAllocation: Unauthorized
         let allocation_msg = ExecuteMsg::AddAllocation {
-            receiver: String::from(""),
+            recipient: String::from(""),
             allocation: Uint128::new(0u128),
-            vesting_period: VestingPeriod {
+            vesting_period: Some(VestingPeriod {
                 cliff: 365u64,
                 linear: 365u64,
-            },
+            }),
         };
         execute(
             deps.as_mut(),
@@ -135,12 +148,12 @@ mod tests {
 
         //AddAllocation
         let allocation_msg = ExecuteMsg::AddAllocation {
-            receiver: String::from("receiver0000"),
+            recipient: String::from("recipient0000"),
             allocation: Uint128::new(1_000_000_000_000u128),
-            vesting_period: VestingPeriod {
+            vesting_period: Some(VestingPeriod {
                 cliff: 365u64,
                 linear: 365u64,
-            },
+            }),
         };
         let _res = execute(
             deps.as_mut(),
@@ -149,54 +162,38 @@ mod tests {
             allocation_msg,
         )
         .unwrap();
-        
-        //Decrease Allocation
-        let allocation_msg = ExecuteMsg::DecreaseAllocation {
-            receiver: String::from("receiver0000"),
+
+        //AddAllocation from the latest recipient to divvy their allocation
+        let allocation_msg = ExecuteMsg::AddAllocation {
+            recipient: String::from("sub_recipient"),
             allocation: Uint128::new(500_000_000_000u128),
+            vesting_period: None,
         };
         let _res = execute(
             deps.as_mut(),
             mock_env(),
-            mock_info("owner0000", &[]),
+            mock_info("recipient0000", &[]),
             allocation_msg,
         )
         .unwrap();
 
-        //Query Allocation and assert Decrease
-        let msg = QueryMsg::Allocation {
-            receiver: String::from("receiver0000"),
-        };
-        let res = query(deps.as_ref(), mock_env(), msg).unwrap();
+        //Query Allocation
+        let query_msg = QueryMsg::Allocation { recipient: String::from("sub_recipient") };                                                                   //
+        let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
 
         let resp: AllocationResponse = from_binary(&res).unwrap();
-        assert_eq!(resp.amount, String::from("500000000000"));
+        assert_eq!(resp.amount, Uint128::new(500_000_000_000u128));
 
-        //Decrease Allocation: More than allocation sets it to 0
-        let allocation_msg = ExecuteMsg::DecreaseAllocation {
-            receiver: String::from("receiver0000"),
-            allocation: Uint128::new(999_999_999_999u128),
-        };
-        let _res = execute(
-            deps.as_mut(),
-            mock_env(),
-            mock_info("owner0000", &[]),
-            allocation_msg,
-        )
-        .unwrap();
-
-        //Query Allocation and assert Decrease
-        let msg = QueryMsg::Allocation {
-            receiver: String::from("receiver0000"),
-        };
-        let res = query(deps.as_ref(), mock_env(), msg).unwrap();
+        //Query Allocation
+        let query_msg = QueryMsg::Allocation { recipient: String::from("recipient0000") };                                                                   //
+        let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
 
         let resp: AllocationResponse = from_binary(&res).unwrap();
-        assert_eq!(resp.amount, String::from("0"));
-
-        //AddReceiver
-        let add_msg = ExecuteMsg::AddReceiver {
-            receiver: String::from("receiver1"),
+        assert_eq!(resp.amount, Uint128::new(500_000_000_000u128));
+                
+        //AddRecipient
+        let add_msg = ExecuteMsg::AddRecipient {
+            recipient: String::from("recipient1"),
         };
         let _res = execute(
             deps.as_mut(),
@@ -208,12 +205,12 @@ mod tests {
 
         //Error: AddAllocation over Allocation limit
         let allocation_msg = ExecuteMsg::AddAllocation {
-            receiver: String::from("receiver1"),
+            recipient: String::from("recipient1"),
             allocation: Uint128::new(30_000_000_000_001u128),
-            vesting_period: VestingPeriod {
+            vesting_period: Some(VestingPeriod {
                 cliff: 365u64,
                 linear: 365u64,
-            },
+            }),
         };
         let err = execute(
             deps.as_mut(),
@@ -238,15 +235,16 @@ mod tests {
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: String::from("osmosis_proxy"),
             staking_contract: String::from("staking_contract"),
+            labs_addr: String::from("labs")
         };
 
         //Instantiating contract
         let v_info = mock_info("sender88", &[]);
         let _res = instantiate(deps.as_mut(), mock_env(), v_info, msg).unwrap();
 
-        //AddReceiver that won't get an allocation
-        let add_msg = ExecuteMsg::AddReceiver {
-            receiver: String::from("not_an_allocation"),
+        //AddRecipient that won't get an allocation
+        let add_msg = ExecuteMsg::AddRecipient {
+            recipient: String::from("not_an_allocation"),
         };
         let _res = execute(
             deps.as_mut(),
@@ -256,9 +254,9 @@ mod tests {
         )
         .unwrap();
 
-        //AddReceiver
-        let add_msg = ExecuteMsg::AddReceiver {
-            receiver: String::from("receiver0000"),
+        //AddRecipient
+        let add_msg = ExecuteMsg::AddRecipient {
+            recipient: String::from("recipient0000"),
         };
         let _res = execute(
             deps.as_mut(),
@@ -266,16 +264,27 @@ mod tests {
             mock_info("owner0000", &[]),
             add_msg,
         )
+        .unwrap();
+        
+        //Update Config: Increase allocations
+        let msg = ExecuteMsg::UpdateConfig { 
+            owner: None, 
+            mbrn_denom: None,
+            osmosis_proxy: None,
+            staking_contract: None,
+            additional_allocation: Some( Uint128::new(1_000_000_000_000u128) ),
+        };
+        let _res = execute( deps.as_mut(),mock_env(), mock_info("owner0000", &[]), msg )
         .unwrap();
 
         //AddAllocation
         let allocation_msg = ExecuteMsg::AddAllocation {
-            receiver: String::from("receiver0000"),
+            recipient: String::from("recipient0000"),
             allocation: Uint128::new(1_000_000_000_000u128),
-            vesting_period: VestingPeriod {
+            vesting_period: Some(VestingPeriod {
                 cliff: 365u64,
                 linear: 365u64,
-            },
+            }),
         };
         let _res = execute(
             deps.as_mut(),
@@ -287,7 +296,7 @@ mod tests {
 
         //Query Unlocked
         let query_msg = QueryMsg::UnlockedTokens {
-            receiver: String::from("receiver0000"),
+            recipient: String::from("recipient0000"),
         };
         //
         let mut env = mock_env();
@@ -298,17 +307,17 @@ mod tests {
         let resp: UnlockedResponse = from_binary(&res).unwrap();
         assert_eq!(resp.unlocked_amount, Uint128::new(500_000_000_000u128));
 
-        ///Invalid Receiver withdraw
+        ///Invalid Recipient withdraw
         let withdraw_msg = ExecuteMsg::WithdrawUnlocked {};
         execute(
             deps.as_mut(),
             env.clone(),
-            mock_info("not_a_receiver", &[]),
+            mock_info("not_a_recipient", &[]),
             withdraw_msg,
         )
         .unwrap_err();
 
-        ///Receiver w/ no Allocaition 'Withdraw'
+        ///Recipient w/ no Allocaition 'Withdraw'
         let withdraw_msg = ExecuteMsg::WithdrawUnlocked {};
         execute(
             deps.as_mut(),
@@ -323,7 +332,7 @@ mod tests {
         let res = execute(
             deps.as_mut(),
             env.clone(),
-            mock_info("receiver0000", &[]),
+            mock_info("recipient0000", &[]),
             withdraw_msg,
         )
         .unwrap();
@@ -343,7 +352,7 @@ mod tests {
             res.attributes,
             vec![
                 attr("method", "withdraw_unlocked"),
-                attr("receiver", String::from("receiver0000")),
+                attr("recipient", String::from("recipient0000")),
                 attr("unstaked_amount", String::from("500000000000")),
             ]
         );
@@ -353,7 +362,7 @@ mod tests {
         let res = execute(
             deps.as_mut(),
             env.clone(),
-            mock_info("receiver0000", &[]),
+            mock_info("recipient0000", &[]),
             withdraw_msg,
         )
         .unwrap();
@@ -363,7 +372,7 @@ mod tests {
             res.attributes,
             vec![
                 attr("method", "withdraw_unlocked"),
-                attr("receiver", String::from("receiver0000")),
+                attr("recipient", String::from("recipient0000")),
                 attr("withdrawn_amount", String::from("0")),
             ]
         );
@@ -375,7 +384,7 @@ mod tests {
          let res = execute(
              deps.as_mut(),
              env.clone(),
-             mock_info("receiver0000", &[]),
+             mock_info("recipient0000", &[]),
              withdraw_msg,
          )
          .unwrap();
@@ -395,7 +404,7 @@ mod tests {
             res.attributes,
             vec![
                 attr("method", "withdraw_unlocked"),
-                attr("receiver", String::from("receiver0000")),
+                attr("recipient", String::from("recipient0000")),
                 attr("unstaked_amount", String::from("500000000000")),
             ]
         );
@@ -412,6 +421,7 @@ mod tests {
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: String::from("osmosis_proxy"),
             staking_contract: String::from("staking_contract"),
+            labs_addr: String::from("labs")
         };
 
         //Instantiating contract
@@ -447,7 +457,7 @@ mod tests {
         assert_eq!(resp, 
             Config { 
                 owner: Addr::unchecked("owner0000"),
-                initial_allocation: Uint128::new(30_000_000_000_000), 
+                total_allocation: Uint128::new(30_000_000_000_000), 
                 mbrn_denom: String::from("mbrn_denom"),
                 osmosis_proxy: Addr::unchecked("osmosis_proxy"),
                 staking_contract: Addr::unchecked("staking_contract"),

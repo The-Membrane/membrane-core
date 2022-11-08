@@ -346,19 +346,18 @@ impl VestingPeriod {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct Recipient {
+    pub recipient: Addr,
+    pub allocation: Option<Allocation>,
+    pub claimables: Vec<Asset>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Allocation {
     pub amount: Uint128,
     pub amount_withdrawn: Uint128,
     pub start_time_of_allocation: u64, //block time of allocation in seconds
     pub vesting_period: VestingPeriod, //In days
-    pub sub_allocation: Vec<SubAllocation>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct SubAllocation {
-    pub recipient: Addr,
-    pub amount: Uint128,
-    pub amount_withdrawn: Uint128,
 }
 
 /////Debt Auction

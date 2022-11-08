@@ -12,36 +12,36 @@ use crate::{
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
-    pub total_allocation: Uint128,
+    pub initial_allocation: Uint128,
+    pub labs_addr: String,
     pub mbrn_denom: String,
     pub osmosis_proxy: String,
     pub staking_contract: String,
 }
 
+
+//To decrease Allocations, you need to upgrade the contract
+//This is so there is a level of permanance in the vesting contract
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     Receive(Cw20ReceiveMsg),
-    AddReceiver {
-        receiver: String,
+    AddRecipient {
+        recipient: String,
     },
-    RemoveReceiver {
-        receiver: String,
+    RemoveRecipient {
+        recipient: String,
     },
     AddAllocation {
-        receiver: String,
+        recipient: String,
         allocation: Uint128,
-        vesting_period: Option<VestingPeriod>, //If an existing receiver is using this to divvy their allocation, the vesting period can't be changed.
-    },
-    DecreaseSubAllocation {
-        receiver: String,
-        allocation: Uint128,
+        vesting_period: Option<VestingPeriod>, //If an existing recipient is using this to divvy their allocation, the vesting period can't be changed.
     },
     WithdrawUnlocked {},
     //Claim fees from MBRN staking for contract. This is called to distribute rewards for "ClaimFeesforReceiver".
     ClaimFeesforContract {},
-    //Claim fees pro rata to receiver allcoation.
-    ClaimFeesforReceiver {},
+    //Claim fees pro rata to recipient allcoation.
+    ClaimFeesforRecipient {},
     SubmitProposal {
         title: String,
         description: String,
@@ -60,6 +60,7 @@ pub enum ExecuteMsg {
         mbrn_denom: Option<String>,
         osmosis_proxy: Option<String>,
         staking_contract: Option<String>,
+        additional_allocation: Option<Uint128>,
     },
 }
 
@@ -67,10 +68,10 @@ pub enum ExecuteMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
-    Allocation { receiver: String },
-    UnlockedTokens { receiver: String },
-    Receiver { receiver: String },
-    Receivers {},
+    Allocation { recipient: String },
+    UnlockedTokens { recipient: String },
+    Recipient { recipient: String },
+    Recipients {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -85,9 +86,9 @@ pub struct Config {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct AllocationResponse {
-    pub amount: String,
-    pub amount_withdrawn: String,
-    pub start_time_of_allocation: String, //block time of allocation in seconds
+    pub amount: Uint128,
+    pub amount_withdrawn: Uint128,
+    pub start_time_of_allocation: u64, //block time of allocation in seconds
     pub vesting_period: VestingPeriod,    //In days
 }
 
@@ -99,8 +100,8 @@ pub struct UnlockedResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct ReceiverResponse {
-    pub receiver: String,
+pub struct RecipientResponse {
+    pub recipient: String,
     pub allocation: Option<Allocation>,
     pub claimables: Vec<Asset>,
 }

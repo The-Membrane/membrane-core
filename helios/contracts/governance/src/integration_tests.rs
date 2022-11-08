@@ -5,7 +5,7 @@ mod tests {
 
     use crate::helpers::GovContract;
 
-    use ::membrane::builder_vesting::AllocationResponse;
+    use ::membrane::vesting::AllocationResponse;
     use membrane::governance::{
         ExecuteMsg, InstantiateMsg, QueryMsg, STAKE_INTERVAL, VOTING_PERIOD_INTERVAL,
     };

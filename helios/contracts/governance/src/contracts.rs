@@ -7,7 +7,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use cw_storage_plus::Bound;
 
-use membrane::builder_vesting::{AllocationResponse, QueryMsg as BuildersQueryMsg};
+use membrane::vesting::{AllocationResponse, QueryMsg as BuildersQueryMsg};
 use membrane::governance::helpers::validate_links;
 use membrane::governance::{
     Config, ExecuteMsg, InstantiateMsg, Proposal, ProposalListResponse, ProposalMessage,

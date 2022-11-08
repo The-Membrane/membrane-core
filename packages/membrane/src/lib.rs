@@ -3,7 +3,7 @@
 #![allow(unused_doc_comments)]
 #![allow(non_camel_case_types)]
 pub mod apollo_router;
-pub mod builder_vesting;
+pub mod vesting;
 pub mod debt_auction;
 pub mod governance;
 pub mod liq_queue;

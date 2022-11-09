@@ -21,7 +21,7 @@ use crate::positions::{
     assert_basket_assets, clone_basket, create_basket, deposit,
     edit_basket, increase_debt,
     liq_repay, mint_revenue, repay,
-    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID,
+    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID, get_target_position, update_position,
 };
 use crate::query::{
     query_bad_debt, query_basket, query_basket_credit_interest, query_basket_debt_caps,
@@ -650,23 +650,13 @@ fn check_for_bad_debt(
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
 
-    let basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
+    let mut basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
         Err(_) => return Err(ContractError::NonExistentBasket {}),
         Ok(basket) => basket,
     };
-    let positions: Vec<Position> = match POSITIONS.load(
-        deps.storage,
-        (basket_id.to_string(), position_owner.clone()),
-    ) {
-        Err(_) => return Err(ContractError::NoUserPositions {}),
-        Ok(positions) => positions,
-    };
 
-    //Filter position by id
-    let target_position = match positions.into_iter().find(|x| x.position_id == position_id) {
-        Some(position) => position,
-        None => return Err(ContractError::NonExistentPosition {}),
-    };
+    //Get target Position
+    let mut target_position = get_target_position(deps.storage, basket_id.clone(), position_owner.clone(), position_id.clone())?;
 
     //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
     //This is allowed bc any calls here will be after a liquidation where the sell wall would've sold all it could to cover debts
@@ -683,6 +673,10 @@ fn check_for_bad_debt(
     } else {
         let mut messages: Vec<CosmosMsg> = vec![];
         let mut bad_debt_amount = target_position.credit_amount;
+        let mut attrs = vec![
+            attr("method", "check_for_bad_debt"),
+            attr("bad_debt_amount", bad_debt_amount),
+        ];
 
         //If the basket has revenue, mint and repay the bad debt
         if !basket.pending_revenue.is_zero() {
@@ -706,7 +700,11 @@ fn check_for_bad_debt(
                     funds: vec![],
                 }));
 
+                //Update bad_debt
                 bad_debt_amount -= basket.pending_revenue;
+
+                //Update basket revenue
+                basket.pending_revenue = Uint128::zero();
             } else {
                 //If less than revenue, repay the debt and no auction
                 let mint_msg = ExecuteMsg::MintRevenue {
@@ -725,10 +723,21 @@ fn check_for_bad_debt(
                     msg: to_binary(&mint_msg)?,
                     funds: vec![],
                 }));
+                
+                //Update basket revenue
+                basket.pending_revenue -= bad_debt_amount;
 
+                //Set bad_debt to 0
                 bad_debt_amount = Uint128::zero();
+
             }
         }
+
+        //Set target_position.credit_amount to the leftover bad debt
+        target_position.credit_amount = bad_debt_amount;
+        
+        //Save target_position w/ updated debt
+        update_position(deps.storage, basket_id.clone().to_string(), position_owner.clone(), target_position)?;
 
         //Send bad debt amount to the auction contract if greater than 0
         if config.debt_auction.is_some() && !bad_debt_amount.is_zero() {
@@ -755,10 +764,16 @@ fn check_for_bad_debt(
             });
         }
 
-        return Ok(Response::new().add_messages(messages).add_attributes(vec![
-            attr("method", "check_for_bad_debt"),
-            attr("bad_debt_amount", bad_debt_amount),
-        ]));
+        //Save Basket w/ updated revenue
+        BASKETS.save(deps.storage, basket_id.to_string(), &basket)?;
+        
+        attrs.push(
+            attr("amount_sent_to_auction", bad_debt_amount)
+        );
+
+        return Ok(Response::new()
+            .add_messages(messages)
+            .add_attributes(attrs));
     }
 }
 

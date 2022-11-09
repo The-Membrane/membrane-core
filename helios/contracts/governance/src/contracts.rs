@@ -607,10 +607,10 @@ pub fn calc_voting_power(
             .querier
             .query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.builders_contract_addr.to_string(),
-                msg: to_binary(&BuildersQueryMsg::Allocation { receiver })?,
+                msg: to_binary(&BuildersQueryMsg::Allocation { recipient: receiver })?,
             }))?;
 
-        total = Uint128::from_str(&allocation.amount)? * config.builders_voting_power_multiplier;
+        total = allocation.amount * config.builders_voting_power_multiplier;
     } else if builders {
         //If builder's but receiver isn't passed, use the sender
         let receiver = sender;
@@ -619,10 +619,10 @@ pub fn calc_voting_power(
             .querier
             .query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.builders_contract_addr.to_string(),
-                msg: to_binary(&BuildersQueryMsg::Allocation { receiver })?,
+                msg: to_binary(&BuildersQueryMsg::Allocation { recipient: receiver })?,
             }))?;
 
-        total = Uint128::from_str(&allocation.amount)? * config.builders_voting_power_multiplier;
+        total = allocation.amount * config.builders_voting_power_multiplier;
     } else {
         //This isn't necessary but fulfills the compiler
         total = Uint128::zero();

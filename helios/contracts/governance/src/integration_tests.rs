@@ -171,9 +171,9 @@ mod tests {
                 match msg {
                     BV_MockQueryMsg::Allocation { receiver } => {
                         Ok(to_binary(&AllocationResponse {
-                            amount: String::from("1000000000"),
-                            amount_withdrawn: String::from("0"),
-                            start_time_of_allocation: String::from("0"),
+                            amount: Uint128::new(1000000000),
+                            amount_withdrawn: Uint128::zero(),
+                            start_time_of_allocation: 0,
                             vesting_period: VestingPeriod {
                                 cliff: 0u64,
                                 linear: 0u64,

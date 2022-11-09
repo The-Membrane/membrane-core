@@ -198,7 +198,7 @@ pub fn liquidate(
         funds: vec![],
     });
     //The logic for this will be handled in the callback
-    //Replying on Error is just so an Error doesn't cancel transaction
+    //Replying on Error is just so an Auction error doesn't cancel transaction
     //Don't care about the success case so didnt reply_always
     let call_back = SubMsg::reply_on_error(msg, BAD_DEBT_REPLY_ID);
 

@@ -637,11 +637,11 @@ pub fn callback_handler(
             basket_id,
             position_owner,
             position_id,
-        } => check_for_bad_debt(deps, env, basket_id, position_id, position_owner),
+        } => check_and_fulfill_bad_debt(deps, env, basket_id, position_id, position_owner),
     }
 }
 
-fn check_for_bad_debt(
+fn check_and_fulfill_bad_debt(
     deps: DepsMut,
     env: Env,
     basket_id: Uint128,
@@ -674,7 +674,7 @@ fn check_for_bad_debt(
         let mut messages: Vec<CosmosMsg> = vec![];
         let mut bad_debt_amount = target_position.credit_amount;
         let mut attrs = vec![
-            attr("method", "check_for_bad_debt"),
+            attr("method", "check_and_fulfill_bad_debt"),
             attr("bad_debt_amount", bad_debt_amount),
         ];
 

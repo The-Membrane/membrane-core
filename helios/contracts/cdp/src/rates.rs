@@ -105,18 +105,16 @@ pub fn get_interest_rates(
     let mut rates = vec![];
 
     for asset in basket.clone().collateral_types {
-        //We don't get individual rates for LPs
-        if asset.pool_info.is_none() {
-            //Base_Rate * max collateral_ratio
-            //ex: 2% * 110% = 2.2%
-            //Higher rates for riskier assets
+        //Base_Rate * max collateral_ratio
+        //ex: 2% * 110% = 2.2%
+        //Higher rates for riskier assets
 
-            //base * (1/max_LTV)
-            rates.push(decimal_multiplication(
-                basket.clone().base_interest_rate,
-                decimal_division(Decimal::one(), asset.max_LTV),
-            ));
-        }
+        //base * (1/max_LTV)
+        rates.push(decimal_multiplication(
+            basket.clone().base_interest_rate,
+            decimal_division(Decimal::one(), asset.max_LTV),
+        ));
+        
     }
 
     //Get proportion of debt && supply caps filled
@@ -132,38 +130,13 @@ pub fn get_interest_rates(
         }
     };
 
-    //To include LP assets (but not share tokens) in the ratio calculation
-    let caps_to_cAssets = basket
-        .collateral_supply_caps
-        .clone()
-        .into_iter()
-        .map(|cap| cAsset {
-            asset: Asset {
-                amount: cap.current_supply,
-                info: cap.asset_info,
-            },
-            max_borrow_LTV: Decimal::zero(),
-            max_LTV: Decimal::zero(),
-            pool_info: None,
-            rate_index: Decimal::one(),
-        })
-        .collect::<Vec<cAsset>>();
-
-    let no_lp_basket: Vec<cAsset> =
-        get_LP_pool_cAssets(querier, config.clone(), basket.clone(), caps_to_cAssets)?;
-
+   
     //Get basket cAsset ratios
     let (basket_ratios, _) =
-        get_cAsset_ratios(storage, env.clone(), querier, no_lp_basket, config.clone())?;
+        get_cAsset_ratios(storage, env.clone(), querier, basket.clone().collateral_types, config.clone())?;
+    
 
-    let no_lp_caps = basket
-        .collateral_supply_caps
-        .clone()
-        .into_iter()
-        .filter(|cap| !cap.lp)
-        .collect::<Vec<SupplyCap>>();
-
-    for (i, cap) in no_lp_caps.clone().iter().enumerate() {
+    for (i, cap) in basket.clone().collateral_supply_caps.iter().enumerate() {
         //If there is 0 of an Asset then it's cap is 0 but its proportion is 100%
         if debt_caps[i].is_zero() || cap.supply_cap_ratio.is_zero() {
             debt_proportions.push(Decimal::percent(100));
@@ -184,7 +157,8 @@ pub fn get_interest_rates(
         //Acts as two_slope rate
 
         //The highest proportion is chosen between debt_cap and supply_cap of the asset
-        if debt_proportions[i] > supply_proportions[i] {
+        //A proportion in Slope 2 is prioritized
+        if debt_proportions[i] > supply_proportions[i] || (supply_proportions[i] <= Decimal::one() && debt_proportions[i] > basket.desired_debt_cap_util) {
             //Slope 2
             if debt_proportions[i] > basket.desired_debt_cap_util {
                 //Ex: 91% > 90%
@@ -277,45 +251,13 @@ fn get_credit_rate_of_change(
             .find(|basket_asset| basket_asset.asset.info.equal(&cAsset.asset.info))
         {
 
-            //If an LP, calc the new average index first
-            if cAsset.clone().pool_info.is_some(){
-
-                let pool_info = cAsset.clone().pool_info.unwrap();
-                
-                let mut avg_index = Decimal::zero();
-
-                //Get avg_index
-                for pool_asset in pool_info.asset_infos{
-
-                    ///Find in collateral_types
-                    if let Some(basket_pool_asset) = basket.clone().collateral_types
-                        .clone()
-                        .into_iter()
-                        .find(|basket_pool_asset| basket_pool_asset.asset.info.equal(&pool_asset.info)){
-                            
-                            //Add proportion to avg_index
-                            avg_index += decimal_multiplication(pool_asset.ratio, basket_pool_asset.rate_index);
-                            
-                        }
-                    
-                }
-
-                //Set LP share rate_index
-                position.collateral_assets[i].rate_index = avg_index.clone();
-                
-
-                ////Add proportionally the change in index
-                // cAsset_ratio * change in index          
-                avg_change_in_index += decimal_multiplication(ratios[i], decimal_division(avg_index, cAsset.rate_index));
-            } else {
-
-                ////Add proportionally the change in index
-                // cAsset_ratio * change in index          
-                avg_change_in_index += decimal_multiplication(ratios[i], decimal_division(basket_asset.rate_index, cAsset.rate_index));
-                
-                /////Update cAsset rate_index
-                position.collateral_assets[i].rate_index = basket_asset.rate_index;
-            }
+            ////Add proportionally the change in index
+            // cAsset_ratio * change in index          
+            avg_change_in_index += decimal_multiplication(ratios[i], decimal_division(basket_asset.rate_index, cAsset.rate_index));
+            
+            /////Update cAsset rate_index
+            position.collateral_assets[i].rate_index = basket_asset.rate_index;
+        
         }
     }
 

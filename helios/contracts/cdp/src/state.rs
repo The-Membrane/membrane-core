@@ -5,7 +5,7 @@ use cosmwasm_std::{Addr, Decimal, Uint128};
 use cw_storage_plus::{Item, Map};
 
 
-use membrane::types::{Asset, Basket, Position, SellWallDistribution, UserInfo};
+use membrane::types::{Asset, Basket, Position, UserInfo, AssetInfo};
 use membrane::positions::Config;
 
 
@@ -14,7 +14,7 @@ pub struct RepayPropagation {
     pub per_asset_repayment: Vec<Decimal>,
     pub liq_queue_leftovers: Decimal, //List of repayments
     pub stability_pool: Decimal,      //Value of repayment
-    pub sell_wall_distributions: Vec<SellWallDistribution>,
+    pub sell_wall_distributions: Vec<(AssetInfo, Decimal)>,
     pub user_repay_amount: Decimal,
     pub positions_contract: Addr,
     //So the sell wall knows who to repay to

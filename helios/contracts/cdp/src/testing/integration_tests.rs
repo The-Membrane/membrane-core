@@ -111,6 +111,7 @@ mod tests {
                         AssetInfo::NativeToken { denom: _ } => {
                             if collateral_amount.to_string() != String::from("2000")
                                 && collateral_amount.to_string() != String::from("22000")
+                                && collateral_amount.to_string() != String::from("8728")
                                 && collateral_amount.to_string() != String::from("8666")
                                 && collateral_amount.to_string() != String::from("4222")
                                 && collateral_amount.to_string() != String::from("1778")
@@ -394,6 +395,7 @@ mod tests {
                             && credit_asset.to_string()
                                 != "20222.22225 credit_fulldenom".to_string()
                             && credit_asset.to_string() != "22000 credit_fulldenom".to_string()
+                            && credit_asset.to_string() != "222.222213272 credit_fulldenom".to_string()
                         {
                             panic!("{}", credit_asset.to_string());
                         }
@@ -2570,7 +2572,7 @@ mod tests {
         #[test]
         fn accrue_debt() {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
-                proper_instantiate(false, false, true, false);
+                proper_instantiate(false, false, false, false);
 
             let res: Config = app
                 .wrap()
@@ -2717,7 +2719,7 @@ mod tests {
                         current_supply: Uint128::zero(),
                         debt_total: Uint128::zero(),
                         supply_cap_ratio: Decimal::percent(100),
-                        lp: false,
+                        lp: true,
                         stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
@@ -2773,7 +2775,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 0/0, base: 49999/124997, quote: 49999/124997, ")
+                String::from("debit: 0/0, base: 0/0, quote: 0/0, lp_denom: 99999/299995, ")
             );
 
             //Insolvent position error
@@ -2796,7 +2798,7 @@ mod tests {
                 .unwrap_err();
 
             //Successful repayment that will leave the accrued interest left
-            //Current Position: 100_000 lp_denom -> 8290 credit_fulldenom
+            //Current Position: 100_000 lp_denom -> 15582 credit_fulldenom
             let msg = ExecuteMsg::Repay {
                 basket_id: Uint128::from(1u128),
                 position_id: Uint128::from(1u128),
@@ -2819,7 +2821,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 0/0, base: 4144/124997, quote: 4144/124997, ")
+                String::from("debit: 0/0, base: 0/0, quote: 0/0, lp_denom: 15582/299995, ")
             );
 
             let query_msg = QueryMsg::GetPosition {
@@ -2831,8 +2833,8 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            ///999 leftover + 7291 interest
-            assert_eq!(res.credit_amount, Uint128::new(8290));
+            ///999 leftover + 14583 interest
+            assert_eq!(res.credit_amount, Uint128::new(15582));
 
             //Insolvent withdrawal error
             ////This should be solvent if there wasn't accrued interest
@@ -2843,7 +2845,7 @@ mod tests {
                     info: AssetInfo::NativeToken {
                         denom: "lp_denom".to_string(),
                     },
-                    amount: Uint128::from(93_168u128),
+                    amount: Uint128::from(82_141u128),
                 }],
                 send_to: None,
             };
@@ -2866,21 +2868,21 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new(8895));
+            assert_eq!(res.credit_amount, Uint128::new(17860));
 
             //Query Rates
             let query_msg = QueryMsg::GetCollateralInterest {
-                basket_id: Uint128::new(1u128),
+                basket_id: Uint128::new(1),
             };
             let res: CollateralInterestResponse = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             assert_eq!( format!("{:?}", res.rates), 
-                String::from("[(NativeToken { denom: \"debit\" }, Decimal(Uint128(142857142000000000))), (NativeToken { denom: \"base\" }, Decimal(Uint128(83333333000000000))), (NativeToken { denom: \"quote\" }, Decimal(Uint128(62500000000000000)))]"));
+                String::from("[(NativeToken { denom: \"debit\" }, Decimal(Uint128(142857142000000000))), (NativeToken { denom: \"base\" }, Decimal(Uint128(166666666000000000))), (NativeToken { denom: \"quote\" }, Decimal(Uint128(125000000000000000)))]"));
 
             //Call liquidate on CDP contract
-            //Liquidating 4221 credit_fulldenom
+            //Liquidating 8728 credit_fulldenom
             let msg = ExecuteMsg::Liquidate {
                 basket_id: Uint128::new(1u128),
                 position_id: Uint128::new(1u128),
@@ -2904,7 +2906,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 0/0, base: 4749/124997, quote: 4749/124997, ")
+                String::from("debit: 0/0, base: 0/0, quote: 0/0, lp_denom: 20138/299995, ")
             );
 
             //Repay to mimic liquidation repayment - LiqRepay
@@ -2915,7 +2917,7 @@ mod tests {
                 send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
-                .call(msg, vec![coin(3_722, "credit_fulldenom")])
+                .call(msg, vec![coin(8_506, "credit_fulldenom")])
                 .unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
@@ -2930,19 +2932,19 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 0/0, base: 2888/124997, quote: 2888/124997, ")
+                String::from("debit: 0/0, base: 0/0, quote: 0/0, lp_denom: 11632/299995, ")
             );
 
             //Successful LiqRepay
             let msg = ExecuteMsg::LiqRepay {};
             let cosmos_msg = cdp_contract
-                .call(msg, vec![coin(499, "credit_fulldenom")])
+                .call(msg, vec![coin(222, "credit_fulldenom")])
                 .unwrap();
             app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
                 .unwrap();
             
-            //Would normally liquidate and leave 95169 "lp_denom"
-            // but w/ accrued interest its leaving 94843
+            //Would normally liquidate and leave 90375 "lp_denom"
+            // but w/ accrued interest its leaving 89149
             let query_msg = QueryMsg::GetUserPositions {
                 basket_id: None,
                 user: String::from("bigger_bank"),
@@ -2955,11 +2957,11 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res[0].collateral_assets[0].asset.amount,
-                Uint128::new(94843)
+                Uint128::new(89149)
             );
             assert_eq!(
                 res[0].credit_amount,
-                Uint128::new(5279)
+                Uint128::new(11410)
             );
                 
             //Query Basket Debt Caps
@@ -2972,7 +2974,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 0/0, base: 2639/124997, quote: 2639/124997, ")
+                String::from("debit: 0/0, base: 0/0, quote: 0/0, lp_denom: 11410/299995, ")
             );
 
             //Assert sell wall wasn't sent Assets
@@ -2986,22 +2988,22 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(42, "lp_denom")]
+                vec![coin(89, "lp_denom")]
             );
-            //The fee is 844 lp_denom
+            //The fee is 1790 lp_denom
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(100_000, "debit"), coin(844, "lp_denom")]
+                vec![coin(100000, "2nddebit"), coin(100_000, "debit"), coin(1790, "lp_denom")]
             );
-            //SP is sent 548 lp_denom
+            //SP is sent 244 lp_denom
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![ coin(1726, "credit_fulldenom"), coin(548, "lp_denom")]
+                vec![ coin(2003, "credit_fulldenom"), coin(244, "lp_denom")]
             );
             //LQ is sent 3_722 lp_denom
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(3_723, "lp_denom")]
+                vec![coin(8728, "lp_denom")]
             );
             
         }
@@ -3238,7 +3240,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].rate_index.to_string(), String::from("1.072916666"));
+            assert_eq!(res.collateral_assets[0].rate_index.to_string(), String::from("1.145833333"));
             assert_eq!(res.credit_amount, Uint128::new(40000));
 
           
@@ -3271,13 +3273,13 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].rate_index.to_string(), String::from("1.15125868"));
+            assert_eq!(res.collateral_assets[0].rate_index.to_string(), String::from("1.313368054"));
             assert_eq!(res.credit_amount, Uint128::new(100000));
 
             // Position 1
-            //40_000 -> 42916
-            //7.3% 
-            //Asserting that the credit wasn't accrued ~8.16% for two years 
+            //40_000 -> 45848
+            //14.6% 
+            //Asserting that the credit wasn't accrued ~16.32% for two years 
             let query_msg = QueryMsg::GetPosition {
                 position_id: Uint128::new(1u128),
                 basket_id: Uint128::new(1u128),
@@ -3287,8 +3289,8 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].rate_index.to_string(), String::from("1.15125868"));
-            assert_eq!(res.credit_amount, Uint128::new(42920));
+            assert_eq!(res.collateral_assets[0].rate_index.to_string(), String::from("1.313368054"));
+            assert_eq!(res.credit_amount, Uint128::new(45848));
 
 
             //Check rates to confirm its above 7.3%
@@ -3302,7 +3304,7 @@ mod tests {
             assert_eq!(
                 format!("{:?}", res.rates),
                 String::from(
-                    "[(NativeToken { denom: \"debit\" }, Decimal(Uint128(142857142000000000))), (NativeToken { denom: \"base\" }, Decimal(Uint128(93335573000000000))), (NativeToken { denom: \"quote\" }, Decimal(Uint128(70001680000000000)))]"
+                    "[(NativeToken { denom: \"debit\" }, Decimal(Uint128(142857142000000000))), (NativeToken { denom: \"base\" }, Decimal(Uint128(166666666000000000))), (NativeToken { denom: \"quote\" }, Decimal(Uint128(125000000000000000)))]"
                 )
             );
 
@@ -3948,11 +3950,11 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 0/0, base: 1000/124997, quote: 1000/124997, ")
+                String::from("debit: 0/0, base: 0/0, quote: 0/0, lp_denom: 2000/249995, ")
             );
                              
            
-            //Check pool asset rates are near 0% due to low debt
+            //Checklp_denom rate is near 0% due to low debt
             let query_msg = QueryMsg::GetCollateralInterest {
                 basket_id: Uint128::new(1u128),
             };
@@ -3961,13 +3963,9 @@ mod tests {
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             assert_eq!(
-               res.rates[1].1.to_string(),
-                String::from("0.083333333")
+               res.rates[3].1.to_string(),
+                String::from("0.166666666")
             );
-            assert_eq!(
-                res.rates[2].1.to_string(),
-                 String::from("0.0625")
-             );
 
             //Successful Increase for Position 1
             //Current Position: 1_000_000 lp_denom -> 199_996 credit_fulldenom
@@ -3992,11 +3990,11 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 0/0, base: 99998/124997, quote: 99998/124997, ")
+                String::from("debit: 0/0, base: 0/0, quote: 0/0, lp_denom: 199996/249995, ")
             );
                              
            
-            //Check pool asset rates are at the top of Slope 1 due to debt at the desired_debt_util (80%)
+            //Checklp_Denom rate is at the top of Slope 1 due to debt at the desired_debt_util (80%)
             let query_msg = QueryMsg::GetCollateralInterest {
                 basket_id: Uint128::new(1u128),
             };
@@ -4005,15 +4003,11 @@ mod tests {
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             assert_eq!(
-               res.rates[1].1.to_string(),
-                String::from("0.133376532")
+                res.rates[3].1.to_string(),
+                String::from("0.166666666")
             );
-            assert_eq!(
-                res.rates[2].1.to_string(),
-                 String::from("0.1000324")
-             );
 
-             //Successful Increase for Position 1
+            //Successful Increase for Position 1
             //Current Position: 1_000_000 lp_denom -> 249_995 credit_fulldenom
             let msg = ExecuteMsg::IncreaseDebt {
                 basket_id: Uint128::from(1u128),
@@ -4036,11 +4030,11 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 0/0, base: 124997/124997, quote: 124997/124997, ")
+                String::from("debit: 0/0, base: 0/0, quote: 0/0, lp_denom: 249995/249995, ")
             );
                              
            
-            //Check pool asset rates are at the top of Slope 2 due to debt at the cap (100%)
+            //Check lp_denom rate is at the top of Slope 2 due to debt at the cap (100%)
             let query_msg = QueryMsg::GetCollateralInterest {
                 basket_id: Uint128::new(1u128),
             };
@@ -4049,15 +4043,9 @@ mod tests {
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             assert_eq!(
-               res.rates[1].1.to_string(),
+               res.rates[3].1.to_string(),
                 String::from("3.499999986")
             );
-            assert_eq!(
-                res.rates[2].1.to_string(),
-                 String::from("2.625")
-             );
-
-
 
         }
 
@@ -6399,7 +6387,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 83332/99997, base: 83331/99997, quote: 83331/99997, ")
+                String::from("debit: 83332/99998, base: 0/0, quote: 0/0, lp_denom: 166663/199996, ")
             );
 
             //Completely withdraw 1st Deposit
@@ -7144,7 +7132,7 @@ mod tests {
                         },
                         current_supply: Uint128::zero(),
                         debt_total: Uint128::zero(),
-                        supply_cap_ratio: Decimal::percent(100),
+                        supply_cap_ratio: Decimal::percent(99),
                         lp: false,
                         stability_pool_ratio_for_debt_cap: None,
                     },
@@ -7176,28 +7164,7 @@ mod tests {
                 .unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap_err();
-
-            //Deposit would work if LP assets aren't counted correctly
-            //Bc the individual assets are capped at 49, the LP can't be added alone.
-            let msg = ExecuteMsg::Deposit {
-                position_owner: Some("bigger_bank".to_string()),
-                basket_id: Uint128::from(1u128),
-                position_id: None,
-            };
-            let cosmos_msg = cdp_contract
-                .call(
-                    msg,
-                    vec![Coin {
-                        denom: "lp_denom".to_string(),
-                        amount: Uint128::from(10_000_000_000_000u128),
-                    }],
-                )
-                .unwrap();
-            let err = app
-                .execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap_err();
-            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"Supply cap ratio for base is over the limit (0.5 > 0.49)\""));
-
+            
             //Successful Deposit, user must deposit both to escape caps
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
@@ -7232,7 +7199,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.caps,
-                String::from("debit: 0/99997, base: 0/99997, quote: 0/99997, ")
+                String::from("debit: 0/99998, base: 0/0, quote: 0/0, lp_denom: 0/199996, ")
             );
 
             //Successful Withdraw uneffected by caps

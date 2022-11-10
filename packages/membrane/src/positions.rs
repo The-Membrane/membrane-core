@@ -3,7 +3,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    cAsset, Asset, AssetInfo, InsolventPosition, Position, PositionUserInfo, SellWallDistribution,
+    cAsset, Asset, AssetInfo, InsolventPosition, Position, PositionUserInfo,
     SupplyCap, TWAPPoolInfo, UserInfo,
 };
 
@@ -294,7 +294,7 @@ pub struct BasketResponse {
 pub struct PropResponse {
     pub liq_queue_leftovers: Decimal,
     pub stability_pool: Decimal,
-    pub sell_wall_distributions: Vec<SellWallDistribution>,
+    pub sell_wall_distributions: Vec<(AssetInfo, Decimal)>,
     pub positions_contract: String,
     //So the sell wall knows who to repay to
     pub position_id: Uint128,

@@ -302,11 +302,6 @@ pub struct SupplyCap {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct SellWallDistribution {
-    pub distributions: Vec<(AssetInfo, Decimal)>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UserInfo {
     pub basket_id: Uint128,
     pub position_id: Uint128,

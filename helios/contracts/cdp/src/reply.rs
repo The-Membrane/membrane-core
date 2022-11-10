@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, Api, CosmosMsg, Storage, QuerierWrapper};
 
-use membrane::types::{AssetInfo, Asset, Basket, LiqAsset, SellWallDistribution, Position};
+use membrane::types::{AssetInfo, Asset, Basket, LiqAsset, Position};
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
 use membrane::positions::{Config, ExecuteMsg};
 use membrane::math::decimal_subtraction;
@@ -403,10 +403,10 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
 //Add to the front of the "stack" bc message semantics are depth first
 //LIFO
 fn add_distributions(
-    mut old_distributions: Vec<SellWallDistribution>,
-    new_distrbiutions: SellWallDistribution,
-) -> Vec<SellWallDistribution> {
-    old_distributions.push(new_distrbiutions);
+    mut old_distributions: Vec<(AssetInfo, Decimal)>,
+    new_distributions: Vec<(AssetInfo, Decimal)>,
+) -> Vec<(AssetInfo, Decimal)> {
+    old_distributions.extend(new_distributions);
 
     old_distributions
 }
@@ -556,29 +556,31 @@ pub fn handle_sell_wall_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
 
             let res = Response::new();
             let mut attrs = vec![];
-
+            
             //We use the distribution at the end of the list bc new ones were appended in the SP or LQ replies, and msgs are fulfilled depth first.
+            //1 distribution is for 1 sell wall msg
             match repay_propagation.sell_wall_distributions.pop() {
                 Some(distribution) => {
-                    //Update position claims for each distributed asset
-                    for (asset, amount) in distribution.distributions {
-                        update_position_claims(
-                            deps.storage,
-                            deps.querier,
-                            env.clone(),
-                            repay_propagation.clone().basket_id,
-                            repay_propagation.clone().position_id,
-                            repay_propagation.clone().position_owner,
-                            asset.clone(),
-                            (amount * Uint128::new(1u128)),
-                        )?;
+                    //Update position claims for the sold asset
+                    let (asset, amount) = distribution;
+                    
+                    update_position_claims(
+                        deps.storage,
+                        deps.querier,
+                        env.clone(),
+                        repay_propagation.clone().basket_id,
+                        repay_propagation.clone().position_id,
+                        repay_propagation.clone().position_owner,
+                        asset.clone(),
+                        (amount * Uint128::new(1u128)),
+                    )?;                   
 
-                        let res_asset = LiqAsset {
-                            info: asset,
-                            amount,
-                        };
-                        attrs.push(("distribution", res_asset.to_string()));
-                    }
+                    let res_asset = LiqAsset {
+                        info: asset,
+                        amount,
+                    };
+                    attrs.push(("distribution", res_asset.to_string()));
+                    
                 }
                 None => {
                     //If None it means the distribution wasn't added when the sell wall msg was added which should be impossible
@@ -596,7 +598,7 @@ pub fn handle_sell_wall_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             Ok(res.add_attributes(attrs))
         }
         Err(string) => {
-            //This is only reply_on_success so this shouldn't be reached
+            //On error, simply return it
             Ok(Response::new().add_attribute("error", string))
         }
     }
@@ -628,9 +630,7 @@ pub fn sell_wall_in_reply(
     //Save new distributions from this liquidation
     prop.sell_wall_distributions = add_distributions(
         prop.clone().sell_wall_distributions,
-        SellWallDistribution {
-            distributions: collateral_distributions,
-        },
+        collateral_distributions.clone(),
     );
 
     submessages.extend(
@@ -639,7 +639,7 @@ pub fn sell_wall_in_reply(
             .map(|msg| {
                 //If this succeeds, we update the positions collateral claims
                 //If this fails, revert. Try again isn't a useful alternative.
-                SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
+                SubMsg::reply_always(msg, SELL_WALL_REPLY_ID)
             })
             .collect::<Vec<SubMsg>>(),
     );

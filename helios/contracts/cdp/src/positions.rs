@@ -1699,7 +1699,8 @@ pub fn create_basket(
 }
 
 pub fn edit_basket(
-    //Can't edit basket id, current_position_id or credit_asset. Can only add cAssets. Can edit owner. Credit price can only be changed thru the accrue function.
+    //Can't edit basket id, current_position_id or credit_asset.
+    //Credit price can only be changed thru the accrue function.
     deps: DepsMut,
     info: MessageInfo,
     basket_id: Uint128,
@@ -1777,7 +1778,7 @@ pub fn edit_basket(
 
         if added_cAsset.clone().unwrap().pool_info.is_some() {
             //Query Pool State and Error if assets are out of order
-            let pool_info = added_cAsset.clone().unwrap().pool_info.clone().unwrap();
+            let mut pool_info = added_cAsset.clone().unwrap().pool_info.clone().unwrap();
 
             //Query share asset amount
             let pool_state = match deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
@@ -1812,9 +1813,10 @@ pub fn edit_basket(
             //Assert Asset order of pool_assets in PoolInfo object
             //Assert pool_assets are already in the basket, which confirms an oracle and adequate parameters for them
             for (i, asset) in pool_assets.iter().enumerate() {
-                if asset.denom != pool_info.asset_infos[i].info.to_string() {
-                    return Err( ContractError::CustomError { val: format!("cAsset #{}: PoolInfo.asset_denoms must be in the order of osmo-bindings::PoolStateResponse.assets {:?} ", i+1, pool_assets) } );
-                }
+
+                //Set pool assets 
+                pool_info.asset_infos[i].info = AssetInfo::NativeToken { denom: asset.clone().denom };
+               
                
                 //Asserting that its pool assets are already added as collateral types
                 if let None = basket.clone().collateral_types.into_iter().find(|cAsset| {
@@ -1830,6 +1832,10 @@ pub fn edit_basket(
                     });
                 }
             }
+
+            //Update pool_info
+            new_cAsset.pool_info = Some(pool_info);
+
         } else {
             //Asserting the Collateral Asset has an oracle
             if config.clone().oracle_contract.is_some() {

@@ -1,5 +1,5 @@
 [workspace]
-members = ["helios/contracts/*", "packages/*"]
+members = ["contracts/*", "packages/*"]
 
 exclude = ["my_scripts", "artifacts"]
 

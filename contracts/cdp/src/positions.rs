@@ -3222,7 +3222,13 @@ pub fn mint_revenue(
     let mut basket = BASKETS.load(deps.storage, basket_id.to_string())?;
 
     if info.sender != config.owner && info.sender != basket.owner {
-        return Err(ContractError::Unauthorized {});
+        if let Some(addr) = config.interest_revenue_collector {
+            if info.sender != addr {
+                return Err(ContractError::Unauthorized {});
+            }
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }        
     }
 
     if basket.pending_revenue.is_zero() {

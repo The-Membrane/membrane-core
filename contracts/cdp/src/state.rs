@@ -23,6 +23,7 @@ pub struct LiquidationPropagation {
     pub position_owner: Addr,
 }
 
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct WithdrawPropagation {
     pub positions_prev_collateral: Vec<Asset>, //Amount of collateral in the position before the withdrawal
@@ -45,6 +46,6 @@ pub const BASKETS: Map<String, Basket> = Map::new("baskets"); //basket_id Basket
 pub const CREDIT_MULTI: Map<String, Decimal> = Map::new("credit_multipliers"); //basket_id, multiplier
 
 //Reply State Propagations
-pub const REPAY: Item<LiquidationPropagation> = Item::new("repay_propagation");
 pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");
+pub const LIQUIDATION: Item<LiquidationPropagation> = Item::new("repay_propagation");
 pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");

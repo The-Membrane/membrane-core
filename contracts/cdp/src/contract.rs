@@ -198,7 +198,7 @@ pub fn execute(
             position_id,
             basket_id,
         } => {
-            //Set asset from funds sent
+            //Set valid_assets from funds sent
             let valid_assets = info
                 .clone()
                 .funds

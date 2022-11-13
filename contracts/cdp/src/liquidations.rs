@@ -18,7 +18,7 @@ use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 use crate::error::ContractError; 
 use crate::rates::accrue;
 use crate::positions::{validate_position_owner, get_target_position, update_position, insolvency_check, get_avg_LTV, get_cAsset_ratios, get_LP_pool_cAssets, BAD_DEBT_REPLY_ID, update_position_claims, asset_to_coin};
-use crate::state::{CONFIG, BASKETS, REPAY, LiquidationPropagation, POSITIONS};
+use crate::state::{CONFIG, BASKETS, LIQUIDATION, LiquidationPropagation, POSITIONS};
 
 
 //Liquidation reply ids
@@ -233,7 +233,7 @@ pub fn liquidate(
             .collect::<Vec<SubMsg>>();
 
         // Set repay values for reply msg
-        let repay_propagation = LiquidationPropagation {
+        let liquidation_propagation = LiquidationPropagation {
             per_asset_repayment: vec![],
             liq_queue_leftovers: Decimal::zero(),
             stability_pool: Decimal::zero(),
@@ -245,7 +245,7 @@ pub fn liquidate(
             positions_contract: env.clone().contract.address,
         };
 
-        REPAY.save(storage, &repay_propagation)?;
+        LIQUIDATION.save(storage, &liquidation_propagation)?;
 
         Ok(res
             //.add_messages(lp_withdraw_msgs)
@@ -254,12 +254,12 @@ pub fn liquidate(
             .add_submessage(call_back)
             .add_attributes(vec![
                 attr("method", "liquidate"),
-                attr("propagation_info", format!("{:?}", repay_propagation)),
+                attr("propagation_info", format!("{:?}", liquidation_propagation)),
             ]))
     } else {
-        let mut repay_propagation: Option<String> = None;
-        match REPAY.load(storage) {
-            Ok(repay) => repay_propagation = Some(format!("{:?}", repay)),
+        let mut liquidation_propagation: Option<String> = None;
+        match LIQUIDATION.load(storage) {
+            Ok(repay) => liquidation_propagation = Some(format!("{:?}", repay)),
             Err(_) => {}
         }
 
@@ -272,7 +272,7 @@ pub fn liquidate(
                 attr("method", "liquidate"),
                 attr(
                     "propagation_info",
-                    format!("{:?}", repay_propagation.unwrap_or_default()),
+                    format!("{:?}", liquidation_propagation.unwrap_or_default()),
                 ),
             ]))
     }
@@ -682,7 +682,7 @@ fn build_sp_sw_submsgs(
                 decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment);
 
             // Set repay values for reply msg
-            let repay_propagation = LiquidationPropagation {
+            let liquidation_propagation = LiquidationPropagation {
                 per_asset_repayment,
                 liq_queue_leftovers,
                 stability_pool: Decimal::zero(),
@@ -694,7 +694,7 @@ fn build_sp_sw_submsgs(
                 positions_contract: env.clone().contract.address,
             };
 
-            REPAY.save(storage, &repay_propagation)?;
+            LIQUIDATION.save(storage, &liquidation_propagation)?;
         } else {
             //Check for stability pool funds before any liquidation attempts
             //If no funds, go directly to the sell wall
@@ -745,7 +745,7 @@ fn build_sp_sw_submsgs(
                 decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment);
 
             // Set repay values for reply msg
-            let repay_propagation = LiquidationPropagation {
+            let liquidation_propagation = LiquidationPropagation {
                 per_asset_repayment,
                 liq_queue_leftovers,
                 stability_pool: sp_repay_amount,
@@ -757,7 +757,7 @@ fn build_sp_sw_submsgs(
                 positions_contract: env.clone().contract.address,
             };
 
-            REPAY.save(storage, &repay_propagation)?;
+            LIQUIDATION.save(storage, &liquidation_propagation)?;
 
             ///////////////////
 
@@ -796,7 +796,7 @@ fn build_sp_sw_submsgs(
     } else {
         //In case SP isn't used, we need to set LiquidationPropagation
         // Set repay values for reply msg
-        let repay_propagation = LiquidationPropagation {
+        let liquidation_propagation = LiquidationPropagation {
             per_asset_repayment,
             liq_queue_leftovers: Decimal::zero(),
             stability_pool: Decimal::zero(),
@@ -808,7 +808,7 @@ fn build_sp_sw_submsgs(
             positions_contract: env.clone().contract.address,
         };
 
-        REPAY.save(storage, &repay_propagation)?;
+        LIQUIDATION.save(storage, &liquidation_propagation)?;
     }
 
     Ok((leftover_repayment, lp_withdraw_messages))

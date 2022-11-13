@@ -26,13 +26,13 @@ use osmo_bindings::PoolStateResponse;
 
 use crate::{
     positions::read_price,
-    state::{BASKETS, CONFIG, POSITIONS, REPAY},
+    state::{BASKETS, CONFIG, POSITIONS, LIQUIDATION},
 };
 
 const MAX_LIMIT: u32 = 31;
 
 pub fn query_prop(deps: Deps) -> StdResult<PropResponse> {
-    match REPAY.load(deps.storage) {
+    match LIQUIDATION.load(deps.storage) {
         Ok(prop) => Ok(PropResponse {
             liq_queue_leftovers: prop.clone().liq_queue_leftovers,
             stability_pool: prop.clone().stability_pool,

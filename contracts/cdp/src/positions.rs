@@ -36,7 +36,7 @@ use crate::risk_engine::{update_basket_tally, update_basket_debt, update_debt_pe
 use crate::state::{CREDIT_MULTI, CLOSE_POSITION, ClosePositionPropagation};
 use crate::{
     state::{
-        WithdrawPropagation, BASKETS, CONFIG, POSITIONS, REPAY, WITHDRAW,
+        WithdrawPropagation, BASKETS, CONFIG, POSITIONS, LIQUIDATION, WITHDRAW,
     },
     ContractError,
 };
@@ -60,10 +60,26 @@ pub fn deposit(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
+    //Set deposit_amounts to double check state storage during the reply
+    let deposit_amounts_for_prop: Vec<Uint128> = cAssets.clone()
+        .into_iter()
+        .map(|cAsset| cAsset.asset.amount)
+        .collect::<Vec<Uint128>>();
+
+    //Initialize positions_prev_collateral & position_info for deposited assets
+    //Used for to double check state storage in reply
+    let mut positions_prev_collateral = vec![];
+    let mut position_info = UserInfo {
+        basket_id: Uint128::zero(),
+        position_id: Uint128::zero(),
+        position_owner: "".to_string(),
+    };
+    
+
     //For Response
     let mut new_position_id: Uint128 = Uint128::new(0u128);
 
-    let valid_owner_addr = validate_position_owner(deps.api, info, position_owner)?;
+    let valid_owner_addr = validate_position_owner(deps.api, info.clone(), position_owner)?;
 
     let mut basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
         Err(_) => return Err(ContractError::NonExistentBasket {}),
@@ -103,17 +119,16 @@ pub fn deposit(
 
                         //Have to reload positions each loop or else the state won't be edited for multiple deposits
                         //We can unwrap and ? safety bc of the layered conditionals
-                        let position_s = POSITIONS.load(
-                            deps.storage,
-                            (basket_id.to_string(), valid_owner_addr.clone()),
-                        )?;
-                        let existing_position = position_s
-                            .clone()
-                            .into_iter()
-                            .find(|x| x.position_id == pos_id)
-                            .unwrap();
+                        let existing_position = get_target_position(deps.storage, basket_id.clone(), valid_owner_addr.clone(), pos_id)?;
 
-                        //Search for cAsset in the position then match
+                        //Store position_info for reply
+                        position_info = UserInfo {
+                            basket_id: basket_id.clone(),
+                            position_id: pos_id.clone(),
+                            position_owner: valid_owner_addr.clone().to_string(),
+                        };
+
+                        //Search for cAsset in the position 
                         let temp_cAsset: Option<cAsset> = existing_position
                             .clone()
                             .collateral_assets
@@ -123,6 +138,11 @@ pub fn deposit(
                         match temp_cAsset {
                             //If Some, add amount to cAsset in the position
                             Some(cAsset) => {
+
+                                //Store positions_prev_collateral
+                                positions_prev_collateral.push(cAsset.clone().asset);
+
+                                //Create cAsset w/ increased balance
                                 let new_cAsset = cAsset {
                                     asset: Asset {
                                         amount: cAsset.clone().asset.amount
@@ -166,7 +186,7 @@ pub fn deposit(
                                 )?;
                             }
 
-                            // //if None, add cAsset to Position if in Basket options
+                            // //if None, add cAsset to Position 
                             None => {
                                 let new_cAsset = deposited_cAsset.clone();
 
@@ -174,6 +194,12 @@ pub fn deposit(
                                     deps.storage,
                                     (basket_id.to_string(), valid_owner_addr.clone()),
                                     |positions| -> Result<Vec<Position>, ContractError> {
+
+                                        //Store positions_prev_collateral
+                                        positions_prev_collateral.push(Asset {
+                                            amount: Uint128::zero(),
+                                            ..deposited_asset.clone()
+                                        });
                                         
                                         let temp_positions = positions.unwrap();
 
@@ -252,6 +278,13 @@ pub fn deposit(
                 new_position =
                     create_position(cAssets.clone(), &mut basket)?;
 
+                //Store position_info for reply
+                position_info = UserInfo {
+                    basket_id: basket.clone().basket_id,
+                    position_id: new_position.clone().position_id,
+                    position_owner: valid_owner_addr.clone().to_string(),
+                };
+
                 //Accrue, mainly for repayment price
                 accrue(
                     deps.storage,
@@ -260,7 +293,7 @@ pub fn deposit(
                     &mut new_position,
                     &mut basket,
                 )?;
-                //Save Basket. This only doesn't overwrite the save in update_debt_per_asset_in_position() bc they are certain to never happen at the same time
+                //Save Basket. This doesn't overwrite the save in update_debt_per_asset_in_position()
                 BASKETS.save(deps.storage, basket_id.clone().to_string(), &basket)?;
 
                 //For response
@@ -286,6 +319,13 @@ pub fn deposit(
         Err(_) => {
             new_position = create_position(cAssets.clone(), &mut basket)?;
 
+            //Store position_info for reply
+            position_info = UserInfo {
+                basket_id: basket.clone().basket_id,
+                position_id: new_position.clone().position_id,
+                position_owner: valid_owner_addr.clone().to_string(),
+            };
+
             //Accrue, mainly for repayment price
             accrue(
                 deps.storage,
@@ -308,6 +348,9 @@ pub fn deposit(
             )?;
         }
     };
+
+    //Double check State storage
+    check_deposit_state(deps.storage, deps.api, positions_prev_collateral, deposit_amounts_for_prop, position_info)?;    
 
     //Response build
     let response = Response::new();
@@ -334,6 +377,46 @@ pub fn deposit(
     }
 
     Ok(response.add_attributes(attrs))
+}
+
+fn check_deposit_state(
+    storage: &mut dyn Storage,  
+    api: &dyn Api,   
+    positions_prev_collateral: Vec<Asset>, //Amount of collateral in the position before the deposit
+    deposit_amounts: Vec<Uint128>,
+    position_info: UserInfo,
+) -> Result<(), ContractError>{
+
+    let target_position = get_target_position(
+        storage, 
+        position_info.basket_id, 
+        api.addr_validate(&position_info.position_owner)?, 
+        position_info.position_id
+    )?;
+
+    for (i, asset) in positions_prev_collateral.clone().into_iter().enumerate(){
+
+        if let Some(cAsset) = target_position.clone().collateral_assets
+            .into_iter()
+            .find(|cAsset| cAsset.asset.info.equal(&asset.info)){
+
+            //Assert cAsset total is equal to the amount deposited + prev_asset_amount
+            if cAsset.asset.amount != asset.amount + deposit_amounts[i] {
+                return Err(ContractError::CustomError { val: String::from("Conditional 1: Possible state error") })
+            }
+        }
+    }
+
+    //If a deposit to a new position, asset amounts should be exactly what was deposited
+    if positions_prev_collateral == vec![] {
+        for (i, cAsset) in target_position.clone().collateral_assets.into_iter().enumerate() {
+            if cAsset.asset.amount != deposit_amounts[i] {
+                return Err(ContractError::CustomError { val: String::from("Conditional 2: Possible state error") })
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub fn withdraw(
@@ -899,7 +982,7 @@ pub fn liq_repay(
     let config = CONFIG.load(deps.storage)?;
     
     //Fetch position info to repay for
-    let repay_propagation = REPAY.load(deps.storage)?;
+    let liquidation_propagation = LIQUIDATION.load(deps.storage)?;
 
     //Can only be called by the SP contract
     if config.clone().stability_pool.is_none()
@@ -912,7 +995,7 @@ pub fn liq_repay(
     //Would have to be an issue w/ the repay_progation initialization
     let basket: Basket = match BASKETS.load(
         deps.storage,
-        repay_propagation.clone().basket_id.to_string(),
+        liquidation_propagation.clone().basket_id.to_string(),
     ) {
         Err(_) => return Err(ContractError::NonExistentBasket {}),
         Ok(basket) => basket,
@@ -920,9 +1003,9 @@ pub fn liq_repay(
 
     let target_position = get_target_position(
         deps.storage, 
-        repay_propagation.clone().basket_id,
-        repay_propagation.clone().position_owner,
-        repay_propagation.clone().position_id,
+        liquidation_propagation.clone().basket_id,
+        liquidation_propagation.clone().position_owner,
+        liquidation_propagation.clone().position_id,
     )?;
     
     //Position repayment
@@ -932,9 +1015,9 @@ pub fn liq_repay(
         deps.api,
         env.clone(),
         info.clone(),
-        repay_propagation.clone().basket_id,
-        repay_propagation.clone().position_id,
-        Some(repay_propagation.clone().position_owner.to_string()),
+        liquidation_propagation.clone().basket_id,
+        liquidation_propagation.clone().position_id,
+        Some(liquidation_propagation.clone().position_owner.to_string()),
         credit_asset.clone(),
         None,
     ) {
@@ -997,9 +1080,9 @@ pub fn liq_repay(
             deps.storage,
             deps.querier,
             env.clone(),
-            repay_propagation.clone().basket_id,
-            repay_propagation.clone().position_id,
-            repay_propagation.clone().position_owner,
+            liquidation_propagation.clone().basket_id,
+            liquidation_propagation.clone().position_id,
+            liquidation_propagation.clone().position_owner,
             cAsset.clone().asset.info,
             collateral_w_fee,
         )?;
@@ -1752,7 +1835,7 @@ pub fn edit_basket(
         new_cAsset = added_cAsset.clone().unwrap();
 
         //new_cAsset can't be the basket credit_asset or MBRN 
-        if let Some(staking_contract) = config.staking_contract {
+        if let Some(staking_contract) = config.clone().staking_contract {
             let mbrn_denom = deps.querier.query::<Staking_Config>(&QueryRequest::Wasm(WasmQuery::Smart { 
                 contract_addr: staking_contract.to_string(), 
                 msg: to_binary(&Staking_QueryMsg::Config { })? 
@@ -1766,7 +1849,6 @@ pub fn edit_basket(
         if new_cAsset.asset.info == basket.clone().credit_asset.info {
             return Err(ContractError::InvalidCollateral {  } )
         }
-
         ////
         
         //Each cAsset has to initialize amount as 0..

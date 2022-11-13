@@ -13,6 +13,7 @@ mod tests {
     use membrane::stability_pool::{
         DepositResponse, LiquidatibleResponse as SP_LiquidatibleResponse, PoolResponse,
     };
+    use membrane::staking::Config as Staking_Config;
     use membrane::types::{
         cAsset, Asset, AssetInfo, AssetOracleInfo, Deposit, LiqAsset, LiquidityInfo, TWAPPoolInfo,
         UserInfo,
@@ -1070,7 +1071,9 @@ mod tests {
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Staking_MockQueryMsg {}
+    pub enum Staking_MockQueryMsg {
+        Config { }
+    }
 
     pub fn staking_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
@@ -1083,7 +1086,23 @@ mod tests {
                 Ok(Response::default())
             },
             |_, _, msg: Staking_MockQueryMsg| -> StdResult<Binary> {
-                Ok(to_binary(&MockResponse {})?)
+                match msg {
+                    Staking_MockQueryMsg::Config {  } => {
+                        Ok(to_binary(&Staking_Config {
+                            owner: Addr::unchecked(""),
+                            mbrn_denom: String::from("mbrn_denom"),
+                            staking_rate: Decimal::zero(),
+                            fee_wait_period: 0,
+                            unstaking_period: 0,
+                            positions_contract: None,
+                            vesting_contract: None,
+                            governance_contract: None,
+                            osmosis_proxy: None,
+                            dex_router: None,
+                            max_spread: None,
+                        })?)
+                    }
+                }
             },
         );
         Box::new(contract)

@@ -23,7 +23,6 @@ pub struct LiquidationPropagation {
     pub position_owner: Addr,
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct WithdrawPropagation {
     pub positions_prev_collateral: Vec<Asset>, //Amount of collateral in the position before the withdrawal

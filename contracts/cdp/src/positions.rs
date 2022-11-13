@@ -61,7 +61,7 @@ pub fn deposit(
     let config = CONFIG.load(deps.storage)?;
 
     //Set deposit_amounts to double check state storage during the reply
-    let deposit_amounts_for_prop: Vec<Uint128> = cAssets.clone()
+    let deposit_amounts: Vec<Uint128> = cAssets.clone()
         .into_iter()
         .map(|cAsset| cAsset.asset.amount)
         .collect::<Vec<Uint128>>();
@@ -350,7 +350,7 @@ pub fn deposit(
     };
 
     //Double check State storage
-    check_deposit_state(deps.storage, deps.api, positions_prev_collateral, deposit_amounts_for_prop, position_info)?;    
+    check_deposit_state(deps.storage, deps.api, positions_prev_collateral, deposit_amounts, position_info)?;    
 
     //Response build
     let response = Response::new();
@@ -822,6 +822,9 @@ pub fn repay(
     let mut target_position =
         get_target_position(storage, basket_id, valid_owner_addr.clone(), position_id)?;
 
+    //Set prev_credit_amount
+    let prev_credit_amount = target_position.credit_amount;
+
     //Accrue interest
     accrue(
         storage,
@@ -960,13 +963,41 @@ pub fn repay(
     //Save updated repayment price and debts
     BASKETS.save(storage, basket_id.to_string(), &basket)?;
 
-    //This is a safe unwrap bc the code errors if it is uninitialized
+    //Check that state was saved correctly
+    check_repay_state(
+        storage,
+        credit_asset.amount, 
+        prev_credit_amount, 
+        basket_id, 
+        position_id, 
+        valid_owner_addr
+    )?;
+
+    
     Ok(response.add_messages(messages).add_attributes(vec![
         attr("method", "repay".to_string()),
         attr("basket_id", basket_id.to_string()),
         attr("position_id", position_id.to_string()),
         attr("loan_amount", total_loan.to_string()),
     ]))
+}
+
+fn check_repay_state(
+    storage: &mut dyn Storage,
+    repay_amount: Uint128,
+    prev_credit_amount: Uint128,
+    basket_id: Uint128,
+    position_id: Uint128,
+    position_owner: Addr,
+) -> Result<(), ContractError>{
+
+    let target_position = get_target_position(storage, basket_id.clone(), position_owner.clone(), position_id.clone())?;
+
+    if target_position.credit_amount != prev_credit_amount - repay_amount {
+        return Err(ContractError::CustomError { val: String::from("Conditional 2: Possible state error") })
+    }
+
+    Ok(())
 }
 
 //This is what the stability pool contract will call to repay for a liquidation and get its collateral distribution
@@ -3222,7 +3253,7 @@ pub fn mint_revenue(
     let mut basket = BASKETS.load(deps.storage, basket_id.to_string())?;
 
     if info.sender != config.owner && info.sender != basket.owner {
-        if let Some(addr) = config.interest_revenue_collector {
+        if let Some(addr) = config.clone().interest_revenue_collector {
             if info.sender != addr {
                 return Err(ContractError::Unauthorized {});
             }

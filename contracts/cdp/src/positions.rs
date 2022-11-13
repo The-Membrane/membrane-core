@@ -822,9 +822,6 @@ pub fn repay(
     let mut target_position =
         get_target_position(storage, basket_id, valid_owner_addr.clone(), position_id)?;
 
-    //Set prev_credit_amount
-    let prev_credit_amount = target_position.credit_amount;
-
     //Accrue interest
     accrue(
         storage,
@@ -833,6 +830,9 @@ pub fn repay(
         &mut target_position,
         &mut basket,
     )?;
+    
+    //Set prev_credit_amount
+    let prev_credit_amount = target_position.credit_amount;
     
     let response = Response::new();
     let mut messages = vec![];
@@ -991,10 +991,18 @@ fn check_repay_state(
     position_owner: Addr,
 ) -> Result<(), ContractError>{
 
+    //Get target_position
     let target_position = get_target_position(storage, basket_id.clone(), position_owner.clone(), position_id.clone())?;
 
-    if target_position.credit_amount != prev_credit_amount - repay_amount {
-        return Err(ContractError::CustomError { val: String::from("Conditional 2: Possible state error") })
+    if repay_amount > prev_credit_amount { 
+        if target_position.credit_amount != Uint128::zero() {
+            return Err(ContractError::CustomError { val: String::from("Conditional 1: Possible state error") })
+        }
+    } else {
+        //Assert that credit_amount is equal to the origin - what was repayed
+        if target_position.credit_amount != prev_credit_amount - repay_amount {
+            return Err(ContractError::CustomError { val: String::from("Conditional 2: Possible state error") })
+        }
     }
 
     Ok(())
@@ -1199,7 +1207,7 @@ pub fn increase_debt(
     //Check if frozen
     if basket.frozen { return Err(ContractError::Frozen {  }) }
 
-    //get Target position
+    //Get Target position
     let mut target_position = get_target_position(deps.storage, basket_id, info.clone().sender, position_id)?;
 
     //Accrue interest
@@ -1210,6 +1218,9 @@ pub fn increase_debt(
         &mut target_position,
         &mut basket,
     )?;
+
+    //Set prev_credit_amount
+    let prev_credit_amount = target_position.credit_amount;
 
     //Set amount
     let amount = match amount {
@@ -1224,6 +1235,7 @@ pub fn increase_debt(
         }
     };
 
+    //Add new credit_amount
     target_position.credit_amount += amount;
 
     //Test for minimum debt requirements
@@ -1267,7 +1279,10 @@ pub fn increase_debt(
             };
             message = credit_mint_msg(
                 config.clone(),
-                basket.clone().credit_asset,
+                Asset {
+                    amount,
+                    ..basket.clone().credit_asset
+                },
                 recipient,
             )?;
 
@@ -1325,6 +1340,16 @@ pub fn increase_debt(
         return Err(ContractError::NoRepaymentPrice {});
     }
 
+    //Check state changes
+    check_debt_increase_state(
+        deps.storage, 
+        amount, 
+        prev_credit_amount, 
+        basket_id, 
+        position_id, 
+        info.sender,
+    )?;
+
     let response = Response::new()
         .add_message(message)
         .add_attribute("method", "increase_debt")
@@ -1336,6 +1361,25 @@ pub fn increase_debt(
     Ok(response)
 }
 
+fn check_debt_increase_state(
+    storage: &mut dyn Storage,
+    increase_amount: Uint128,
+    prev_credit_amount: Uint128,
+    basket_id: Uint128,
+    position_id: Uint128,
+    position_owner: Addr,  
+) -> Result<(), ContractError>{
+    
+    //Get target_position
+    let target_position = get_target_position(storage, basket_id.clone(), position_owner.clone(), position_id.clone())?;
+
+    //Assert that credit_amount is equal to the origin + what was added
+    if target_position.credit_amount != prev_credit_amount + increase_amount {
+        return Err(ContractError::CustomError { val: String::from("Conditional 1: Possible state error") })
+    }
+
+    Ok(())
+}
 
 //Sell position collateral to repay debts
 pub fn close_position(

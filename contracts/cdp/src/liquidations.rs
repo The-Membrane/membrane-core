@@ -18,7 +18,7 @@ use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 use crate::error::ContractError; 
 use crate::rates::accrue;
 use crate::positions::{validate_position_owner, get_target_position, update_position, insolvency_check, get_avg_LTV, get_cAsset_ratios, get_LP_pool_cAssets, BAD_DEBT_REPLY_ID, update_position_claims, asset_to_coin};
-use crate::state::{CONFIG, BASKETS, REPAY, RepayPropagation, POSITIONS};
+use crate::state::{CONFIG, BASKETS, REPAY, LiquidationPropagation, POSITIONS};
 
 
 //Liquidation reply ids
@@ -233,7 +233,7 @@ pub fn liquidate(
             .collect::<Vec<SubMsg>>();
 
         // Set repay values for reply msg
-        let repay_propagation = RepayPropagation {
+        let repay_propagation = LiquidationPropagation {
             per_asset_repayment: vec![],
             liq_queue_leftovers: Decimal::zero(),
             stability_pool: Decimal::zero(),
@@ -682,7 +682,7 @@ fn build_sp_sw_submsgs(
                 decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment);
 
             // Set repay values for reply msg
-            let repay_propagation = RepayPropagation {
+            let repay_propagation = LiquidationPropagation {
                 per_asset_repayment,
                 liq_queue_leftovers,
                 stability_pool: Decimal::zero(),
@@ -745,7 +745,7 @@ fn build_sp_sw_submsgs(
                 decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment);
 
             // Set repay values for reply msg
-            let repay_propagation = RepayPropagation {
+            let repay_propagation = LiquidationPropagation {
                 per_asset_repayment,
                 liq_queue_leftovers,
                 stability_pool: sp_repay_amount,
@@ -794,9 +794,9 @@ fn build_sp_sw_submsgs(
             *leftover_position_value = decimal_subtraction(*leftover_position_value, paid_to_sp);
         }
     } else {
-        //In case SP isn't used, we need to set RepayPropagation
+        //In case SP isn't used, we need to set LiquidationPropagation
         // Set repay values for reply msg
-        let repay_propagation = RepayPropagation {
+        let repay_propagation = LiquidationPropagation {
             per_asset_repayment,
             liq_queue_leftovers: Decimal::zero(),
             stability_pool: Decimal::zero(),

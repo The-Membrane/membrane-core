@@ -13,12 +13,13 @@ use membrane::debt_auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::positions::{Config, CallbackMsg, Cw20HookMsg, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::types::{
-    cAsset, Asset, AssetInfo, Basket, Position, UserInfo,
+    cAsset, Asset, AssetInfo, Basket, UserInfo,
 };
 
 use crate::error::ContractError;
+use crate::risk_engine::assert_basket_assets;
 use crate::positions::{
-    assert_basket_assets, clone_basket, create_basket, deposit,
+    clone_basket, create_basket, deposit,
     edit_basket, increase_debt,
     liq_repay, mint_revenue, repay,
     withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID, get_target_position, update_position,
@@ -33,7 +34,7 @@ use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID,
     SELL_WALL_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
 use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_sell_wall_reply, handle_withdraw_reply, handle_sp_repay_reply, handle_close_position_reply};
 use crate::state::{
-    BASKETS, CONFIG, POSITIONS,
+    BASKETS, CONFIG,
 };
 
 // version info for migration info

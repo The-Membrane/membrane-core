@@ -7,24 +7,21 @@ use cosmwasm_std::{
 };
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
 use cw20::Cw20ExecuteMsg;
+
+use membrane::positions::{Config, ExecuteMsg};
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg, SwapToAssetsInput};
 use membrane::oracle::{AssetResponse, PriceResponse};
 use osmo_bindings::PoolStateResponse;
-
-use membrane::liq_queue::{
-    ExecuteMsg as LQ_ExecuteMsg,
-};
+use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::liquidity_check::{ExecuteMsg as LiquidityExecuteMsg, QueryMsg as LiquidityQueryMsg};
-use membrane::math::{decimal_division, decimal_multiplication, Uint256};
+use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config};
 use membrane::oracle::{ExecuteMsg as OracleExecuteMsg, QueryMsg as OracleQueryMsg};
-use membrane::osmosis_proxy::{
-    ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg,
-};
-use membrane::positions::{Config, ExecuteMsg};
+use membrane::osmosis_proxy::{ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg };
 use membrane::stability_pool::{
     Cw20HookMsg as SP_Cw20HookMsg, ExecuteMsg as SP_ExecuteMsg, PoolResponse,
     QueryMsg as SP_QueryMsg,
 };
+use membrane::math::{decimal_division, decimal_multiplication, Uint256};
 use membrane::types::{
     cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, LiquidityInfo, Position,
     StoredPrice, SupplyCap, TWAPPoolInfo, UserInfo, PriceVolLimiter,  
@@ -1753,6 +1750,24 @@ pub fn edit_basket(
     if added_cAsset.is_some() {
         let mut check = true;
         new_cAsset = added_cAsset.clone().unwrap();
+
+        //new_cAsset can't be the basket credit_asset or MBRN 
+        if let Some(staking_contract) = config.staking_contract {
+            let mbrn_denom = deps.querier.query::<Staking_Config>(&QueryRequest::Wasm(WasmQuery::Smart { 
+                contract_addr: staking_contract.to_string(), 
+                msg: to_binary(&Staking_QueryMsg::Config { })? 
+            }))?
+            .mbrn_denom;
+
+            if new_cAsset.asset.info.to_string() == mbrn_denom {
+                return Err(ContractError::InvalidCollateral {  } )
+            }
+        }
+        if new_cAsset.asset.info == basket.clone().credit_asset.info {
+            return Err(ContractError::InvalidCollateral {  } )
+        }
+
+        ////
         
         //Each cAsset has to initialize amount as 0..
         new_cAsset.asset.amount = Uint128::zero();

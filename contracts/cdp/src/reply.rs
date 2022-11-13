@@ -2,12 +2,12 @@ use std::str::FromStr;
 
 use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, Api, CosmosMsg, Storage, QuerierWrapper};
 
-use membrane::types::{AssetInfo, Asset, Basket, LiqAsset, Position};
+use membrane::types::{AssetInfo, Asset, Basket, LiqAsset};
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
 use membrane::positions::{Config, ExecuteMsg};
 use membrane::math::decimal_subtraction;
 
-use crate::state::{RepayPropagation, REPAY, WITHDRAW, CONFIG, BASKETS, CLOSE_POSITION, ClosePositionPropagation};
+use crate::state::{LiquidationPropagation, REPAY, WITHDRAW, CONFIG, BASKETS, CLOSE_POSITION, ClosePositionPropagation};
 use crate::contract::get_contract_balances;
 use crate::positions::{get_target_position, withdrawal_msg, update_position_claims};
 use crate::liquidations::{query_stability_pool_liquidatible, STABILITY_POOL_REPLY_ID, sell_wall_using_ids, SELL_WALL_REPLY_ID};
@@ -99,7 +99,7 @@ pub fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
             let mut messages = vec![];
             let mut repay_amount = Decimal::zero();
 
-            let mut prop: RepayPropagation = REPAY.load(deps.storage)?;
+            let mut prop: LiquidationPropagation = REPAY.load(deps.storage)?;
 
             //If SP wasn't called, meaning User's SP funds can't be handled there, sell wall the leftovers
             if prop.stability_pool == Decimal::zero() {
@@ -434,7 +434,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
 
             let repay_amount = Uint128::from_str(&repay)?;
 
-            let mut prop: RepayPropagation = REPAY.load(deps.storage)?;
+            let mut prop: LiquidationPropagation = REPAY.load(deps.storage)?;
 
             let basket = BASKETS.load(deps.storage, prop.basket_id.to_string())?;
 
@@ -523,7 +523,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             let mut messages = vec![];
             let mut repay_amount = Decimal::zero();
 
-            let mut prop: RepayPropagation = REPAY.load(deps.storage)?;
+            let mut prop: LiquidationPropagation = REPAY.load(deps.storage)?;
 
             //If SP wasn't called, meaning LQ leftovers can't be handled there, sell wall this asset's leftovers
             //Replies are FIFO so we remove from front
@@ -610,7 +610,7 @@ pub fn sell_wall_in_reply(
     api: &dyn Api,
     env: Env,
     querier: QuerierWrapper,
-    prop: &mut RepayPropagation,
+    prop: &mut LiquidationPropagation,
     submessages: &mut Vec<SubMsg>,
     repay_amount: Decimal,
 ) -> StdResult<Vec<CosmosMsg>>{

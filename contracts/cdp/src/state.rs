@@ -10,7 +10,7 @@ use membrane::positions::Config;
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct RepayPropagation {
+pub struct LiquidationPropagation {
     pub per_asset_repayment: Vec<Decimal>,
     pub liq_queue_leftovers: Decimal, //List of repayments
     pub stability_pool: Decimal,      //Value of repayment
@@ -45,6 +45,6 @@ pub const BASKETS: Map<String, Basket> = Map::new("baskets"); //basket_id Basket
 pub const CREDIT_MULTI: Map<String, Decimal> = Map::new("credit_multipliers"); //basket_id, multiplier
 
 //Reply State Propagations
-pub const REPAY: Item<RepayPropagation> = Item::new("repay_propagation");
+pub const REPAY: Item<LiquidationPropagation> = Item::new("repay_propagation");
 pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");
 pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");

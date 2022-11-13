@@ -1122,11 +1122,12 @@ pub fn distribute_funds(
         .filter(|deposit| !deposit.equal(&distribution_list))
         .collect::<Vec<Deposit>>();
         
-    //If there is an overlap between the lists. meaning there was a partial usage
+    //If there is an overlap between the lists, meaning there was a partial usage, account for it
     if distribution_list.len() + edited_deposits.len() > asset_pool.deposits.len() {
         edited_deposits[0].amount -= distribution_list[distribution_list.len() - 1].amount;
     }
 
+    //Set deposits
     asset_pool.deposits = edited_deposits;
 
     let mut new_pools: Vec<AssetPool> = ASSETS
@@ -1732,7 +1733,6 @@ fn user_claims_msgs(
 
     Ok(messages)
 }
-
 
 
 fn split_assets_to_users(

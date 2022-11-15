@@ -307,9 +307,6 @@ pub struct SupplyCap {
 pub struct MultiAssetSupplyCap {
     pub assets: Vec<AssetInfo>,
     pub supply_cap_ratio: Decimal,
-    //Toggle for a debt cap ratio based on Stability Pool Liquidity
-    //If false, debt cap is based on proportion of TVL
-    pub stability_pool_ratio_for_debt_cap: Option<Decimal>,     
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

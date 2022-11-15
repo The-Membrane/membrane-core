@@ -2213,9 +2213,6 @@ pub fn edit_basket(
                                     //Set supply cap ratio
                                     basket.multi_asset_supply_caps[index].supply_cap_ratio =
                                         new_cap.supply_cap_ratio;
-                                    //Set stability pool based ratio
-                                    basket.multi_asset_supply_caps[index].stability_pool_ratio_for_debt_cap =
-                                        new_cap.stability_pool_ratio_for_debt_cap;
                                 } else {
                                     basket.multi_asset_supply_caps.push(new_cap);
                                 }

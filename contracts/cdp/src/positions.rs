@@ -14,7 +14,7 @@ use membrane::oracle::{AssetResponse, PriceResponse};
 use osmo_bindings::PoolStateResponse;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::liquidity_check::{ExecuteMsg as LiquidityExecuteMsg, QueryMsg as LiquidityQueryMsg};
-use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config};
+use membrane::staking::{ExecuteMsg as Staking_ExecuteMsg, QueryMsg as Staking_QueryMsg, Config as Staking_Config};
 use membrane::oracle::{ExecuteMsg as OracleExecuteMsg, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::{ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg };
 use membrane::stability_pool::{
@@ -886,13 +886,14 @@ pub fn repay(
                                 //Even if it does, the subsequent withdrawal would then error
                             }
 
-                            //Burn repayment
-                            let burn_msg = credit_burn_msg(
+                            //Burn repayment & send revenue to stakers
+                            let burn_and_rev_msgs = credit_burn_msg(
                                 config.clone(),
                                 env.clone(),
                                 credit_asset.clone(),
+                                &mut basket,
                             )?;
-                            messages.push(burn_msg);
+                            messages.extend(burn_and_rev_msgs);
 
                             total_loan = target_position.clone().credit_amount;
 
@@ -974,11 +975,13 @@ pub fn repay(
     )?;
 
     
-    Ok(response.add_messages(messages).add_attributes(vec![
-        attr("method", "repay".to_string()),
-        attr("basket_id", basket_id.to_string()),
-        attr("position_id", position_id.to_string()),
-        attr("loan_amount", total_loan.to_string()),
+    Ok(response
+        .add_messages(messages)
+        .add_attributes(vec![
+            attr("method", "repay".to_string()),
+            attr("basket_id", basket_id.to_string()),
+            attr("position_id", position_id.to_string()),
+            attr("loan_amount", total_loan.to_string()),
     ]))
 }
 
@@ -1782,6 +1785,7 @@ pub fn create_basket(
         cpc_margin_of_error: Decimal::one(),
         oracle_set: false,
         frozen: false,
+        rev_to_stakers: true,
     };
 
     //Denom check
@@ -1870,6 +1874,7 @@ pub fn edit_basket(
     negative_rates: Option<bool>,
     cpc_margin_of_error: Option<Decimal>,
     frozen: Option<bool>,
+    rev_to_stakers: Option<bool>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -2215,6 +2220,10 @@ pub fn edit_basket(
                             basket.frozen = toggle.clone();
                             attrs.push(attr("frozen", toggle.to_string()));
                         }
+                        if let Some(toggle) = rev_to_stakers {
+                            basket.rev_to_stakers = toggle.clone();
+                            attrs.push(attr("rev_to_stakers", toggle.to_string()));
+                        }
                         if let Some(error_margin) = cpc_margin_of_error {
                             basket.cpc_margin_of_error = error_margin.clone();
                             attrs.push(attr("new_cpc_margin_of_error", error_margin.to_string()));
@@ -2472,13 +2481,15 @@ fn set_credit_multiplier(
         for basket_id in 1..range {
             let stored_basket = BASKETS.load(storage, basket_id.to_string())?;
 
-            //Add if same credit asset
+            //Get largest multiplier 
             if stored_basket
                 .credit_asset
                 .info
                 .equal(&credit_asset.info)
             {
-                credit_asset_multiplier += stored_basket.liquidity_multiplier;
+                if credit_asset_multiplier < stored_basket.liquidity_multiplier {
+                    credit_asset_multiplier = stored_basket.liquidity_multiplier;
+                }
             }
         }
         if credit_asset_multiplier.is_zero(){
@@ -2550,7 +2561,38 @@ pub fn credit_mint_msg(
     }
 }
 
-pub fn credit_burn_msg(config: Config, env: Env, credit_asset: Asset) -> StdResult<CosmosMsg> {
+pub fn credit_burn_msg(
+    config: Config, 
+    env: Env, 
+    credit_asset: Asset,
+    basket: &mut Basket,
+) -> StdResult<Vec<CosmosMsg>> {
+
+    //Calculate the amount to burn
+    let (burn_amount, revenue_amount) = {
+        //Is revenue being sent to stakers? If so, calculate
+        if !basket.rev_to_stakers {
+            (credit_asset.clone().amount, Uint128::zero())
+        } else if !basket.pending_revenue.is_zero(){
+            
+            if basket.pending_revenue >= credit_asset.amount {
+                (Uint128::zero(), credit_asset.clone().amount)
+            } else {
+                let burn = credit_asset.amount - basket.pending_revenue;
+                (burn, basket.pending_revenue)
+            }
+
+        } else {
+            (credit_asset.clone().amount, Uint128::zero())
+        }
+        
+    };
+    //Update pending_revenue
+    basket.pending_revenue -= revenue_amount;
+
+    //Initialize messages
+    let mut messages = vec![];
+
     match credit_asset.clone().info {
         AssetInfo::Token { address: _ } => {
             return Err(StdError::GenericErr {
@@ -2559,16 +2601,34 @@ pub fn credit_burn_msg(config: Config, env: Env, credit_asset: Asset) -> StdResu
         }
         AssetInfo::NativeToken { denom } => {
             if config.osmosis_proxy.is_some() {
-                let message = CosmosMsg::Wasm(WasmMsg::Execute {
+                //Create burn msg
+                let burn_message = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: config.osmosis_proxy.unwrap().to_string(),
                     msg: to_binary(&OsmoExecuteMsg::BurnTokens {
                         denom,
-                        amount: credit_asset.amount,
+                        amount: burn_amount,
                         burn_from_address: env.contract.address.to_string(),
                     })?,
                     funds: vec![],
                 });
-                Ok(message)
+
+                messages.push(burn_message);
+
+                //Create DepositFee Msg
+                if !revenue_amount.is_zero() && config.staking_contract.is_some(){
+                    let rev_message = CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: config.staking_contract.unwrap().to_string(),
+                        msg: to_binary(&Staking_ExecuteMsg::DepositFee { })?,
+                        funds: vec![ asset_to_coin(Asset {
+                            amount: revenue_amount,
+                            ..credit_asset.clone()
+                        })? ],
+                    });
+
+                    messages.push(rev_message);
+                }
+
+                Ok(messages)
             } else {
                 return Err(StdError::GenericErr {
                     msg: "No proxy contract setup".to_string(),
@@ -2576,6 +2636,7 @@ pub fn credit_burn_msg(config: Config, env: Env, credit_asset: Asset) -> StdResu
             }
         }
     }
+    
 }
 
 pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {

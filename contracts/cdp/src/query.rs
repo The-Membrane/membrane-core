@@ -281,6 +281,7 @@ pub fn query_basket(deps: Deps, basket_id: Uint128) -> StdResult<BasketResponse>
             negative_rates: basket.negative_rates,
             cpc_margin_of_error: basket.cpc_margin_of_error,
             frozen: basket.frozen,
+            rev_to_stakers: basket.rev_to_stakers,
         },
         Err(_) => return Err(StdError::generic_err("Invalid basket_id")),
     };
@@ -329,6 +330,7 @@ pub fn query_baskets(
                 negative_rates: basket.negative_rates,
                 cpc_margin_of_error: basket.cpc_margin_of_error,
                 frozen: basket.frozen,
+                rev_to_stakers: basket.rev_to_stakers,
             })
         })
         .collect()

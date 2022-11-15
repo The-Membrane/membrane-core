@@ -554,6 +554,7 @@ pub fn get_credit_asset_multiplier(
         CREDIT_MULTI.load(storage, basket.clone().credit_asset.info.to_string())?;
 
     //Get Minimum between (ratio * credit_asset's multiplier) and basket's liquidity_multiplier
+    //This gives the set multiplier or the Basket's TVL ratio of the total_multiplier
     let multiplier = min(
         decimal_multiplication(basket_tvl_ratio, credit_asset_liquidity_multiplier),
         basket.liquidity_multiplier,

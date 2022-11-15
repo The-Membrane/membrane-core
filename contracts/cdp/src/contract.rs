@@ -329,6 +329,7 @@ pub fn execute(
             negative_rates,
             cpc_margin_of_error,
             frozen,
+            rev_to_stakers,
         } => edit_basket(
             deps,
             info,
@@ -345,6 +346,7 @@ pub fn execute(
             negative_rates,
             cpc_margin_of_error,
             frozen,
+            rev_to_stakers,
         ),
         ExecuteMsg::CreateBasket {
             owner,

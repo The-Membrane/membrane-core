@@ -282,6 +282,7 @@ pub struct Basket {
     pub oracle_set: bool, //If the credit oracle was set. Can't update repayment price without.
     pub negative_rates: bool, //Allow negative repayment interest or not
     pub frozen: bool, //Freeze withdrawals and debt increases to provide time to fix vulnerabilities
+    pub rev_to_stakers: bool,
     //% difference btwn credit TWAP and repayment price before the interest changes
     //Set to 100 if you want to turn off the PID
     pub cpc_margin_of_error: Decimal,

@@ -121,6 +121,7 @@ pub enum ExecuteMsg {
         negative_rates: Option<bool>, //Allow negative repayment interest or not
         cpc_margin_of_error: Option<Decimal>,
         frozen: Option<bool>,
+        rev_to_stakers: Option<bool>,
     },
     //Clone basket. Reset supply_caps. Sets repayment price to new oracle price.
     //When using this to add a new UoA:
@@ -287,6 +288,7 @@ pub struct BasketResponse {
     pub negative_rates: bool, //Allow negative repayment interest or not
     pub cpc_margin_of_error: Decimal,
     pub frozen: bool,
+    pub rev_to_stakers: bool,
 }
 
 

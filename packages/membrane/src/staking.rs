@@ -58,7 +58,7 @@ pub enum ExecuteMsg {
         send_to: Option<String>,
         restake: bool,
     },
-    //Position's contract deposits liq_fees
+    //Position's contract deposits protocol revenue
     DepositFee {},
     //Trim FeeEvent state object
     TrimFeeEvents {},

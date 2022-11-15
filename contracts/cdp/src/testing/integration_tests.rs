@@ -16,7 +16,7 @@ mod tests {
     use membrane::staking::Config as Staking_Config;
     use membrane::types::{
         cAsset, Asset, AssetInfo, AssetOracleInfo, Deposit, LiqAsset, LiquidityInfo, TWAPPoolInfo,
-        UserInfo,
+        UserInfo, MultiAssetSupplyCap
     };
 
     use cosmwasm_std::{
@@ -1711,6 +1711,7 @@ mod tests {
             cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             credit_pool_ids: None,
         };
         let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -1792,6 +1793,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2161,6 +2163,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2385,6 +2388,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2459,6 +2463,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2633,6 +2638,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2664,6 +2670,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2756,6 +2763,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3075,6 +3083,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3106,6 +3115,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3198,6 +3208,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3383,6 +3394,7 @@ mod tests {
                 cpc_margin_of_error: Some( Decimal::percent(1) ),
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3567,6 +3579,7 @@ mod tests {
                 cpc_margin_of_error: Some( Decimal::percent(1) ),
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3722,6 +3735,7 @@ mod tests {
                 cpc_margin_of_error: Some( Decimal::percent(1) ),
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3820,6 +3834,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3851,6 +3866,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3943,6 +3959,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4127,6 +4144,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: Some(false),
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4245,6 +4263,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4378,6 +4397,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4498,6 +4518,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4610,6 +4631,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4725,6 +4747,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4848,6 +4871,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4971,6 +4995,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5002,6 +5027,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5095,6 +5121,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5216,6 +5243,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5247,6 +5275,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5340,6 +5369,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5461,6 +5491,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5492,6 +5523,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5585,6 +5617,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5707,6 +5740,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5738,6 +5772,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5831,6 +5866,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5957,6 +5993,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6099,6 +6136,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6256,6 +6294,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6287,6 +6326,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6377,6 +6417,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6547,6 +6588,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6629,6 +6671,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6731,6 +6774,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6883,6 +6927,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6999,6 +7044,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7094,6 +7140,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7125,6 +7172,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7215,6 +7263,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7292,6 +7341,282 @@ mod tests {
         }
 
         #[test]
+        fn multi_collateral_caps() {
+            let (mut app, cdp_contract, lq_contract, cw20_addr) =
+                proper_instantiate(false, false, false, false);
+
+            let res: Config = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
+                .unwrap();
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
+
+            //Add LP pool assets first
+            let msg = ExecuteMsg::EditBasket {
+                basket_id: Uint128::new(1u128),
+                added_cAsset: Some(cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "base".to_string(),
+                        },
+                        amount: Uint128::zero(),
+                    },
+                    max_borrow_LTV: Decimal::percent(40),
+                    max_LTV: Decimal::percent(60),
+                    pool_info: None,
+                    rate_index: Decimal::one(),
+                }),
+                owner: None,
+                liq_queue: None,
+                credit_pool_ids: None,
+                liquidity_multiplier: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add LP pool assets first
+            let msg = ExecuteMsg::EditBasket {
+                basket_id: Uint128::new(1u128),
+                added_cAsset: Some(cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "quote".to_string(),
+                        },
+                        amount: Uint128::zero(),
+                    },
+                    max_borrow_LTV: Decimal::percent(40),
+                    max_LTV: Decimal::percent(60),
+                    pool_info: None,
+                    rate_index: Decimal::one(),
+                }),
+                owner: None,
+                liq_queue: None,
+                credit_pool_ids: None,
+                liquidity_multiplier: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Edit initial basket
+            let msg = ExecuteMsg::EditBasket {
+                basket_id: Uint128::new(1u128),
+                added_cAsset: Some(cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "lp_denom".to_string(),
+                        },
+                        amount: Uint128::zero(),
+                    },
+                    max_borrow_LTV: Decimal::percent(40),
+                    max_LTV: Decimal::percent(60),
+                    pool_info: Some(PoolInfo {
+                        pool_id: 99u64,
+                        asset_infos: vec![
+                            LPAssetInfo {
+                                info: AssetInfo::NativeToken {
+                                    denom: String::from("base"),
+                                },
+                                decimals: 6u64,
+                                ratio: Decimal::percent(50),
+                            },
+                            LPAssetInfo {
+                                info: AssetInfo::NativeToken {
+                                    denom: String::from("quote"),
+                                },
+                                decimals: 6u64,
+                                ratio: Decimal::percent(50),
+                            },
+                        ],
+                    }),
+                    rate_index: Decimal::one(),
+                }),
+                owner: None,
+                liq_queue: Some(lq_contract.addr().to_string()),
+                liquidity_multiplier: Some(Decimal::percent(500)),
+                credit_pool_ids: Some(vec![1u64]),
+                collateral_supply_caps: Some(vec![
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "debit".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "base".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(50),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "quote".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(50),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "lp_denom".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
+                ]),
+                base_interest_rate: None,
+                desired_debt_cap_util: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                rev_to_stakers: None,
+                multi_asset_supply_caps: Some(vec![
+                    MultiAssetSupplyCap {
+                        assets: vec![
+                            AssetInfo::NativeToken {denom: "base".to_string()},
+                            AssetInfo::NativeToken {denom: "quote".to_string()},
+                            ],
+                        supply_cap_ratio: Decimal::percent(50),
+                        stability_pool_ratio_for_debt_cap: None,
+                    }
+                ]),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Successful Deposit, over supply cap
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some("bigger_bank".to_string()),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg,
+                    vec![Coin {
+                        denom: "debit".to_string(),
+                        amount: Uint128::from(100u128),
+                    }],
+                )
+                .unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            
+            //Errored Deposit, over multi-asset scap
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some("bigger_bank".to_string()),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg,
+                    vec![
+                        Coin {
+                            denom: "base".to_string(),
+                            amount: Uint128::from(60u128),
+                        },
+                        Coin {
+                            denom: "quote".to_string(),
+                            amount: Uint128::from(60u128),
+                        },
+                    ],
+                )
+                .unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap_err();
+
+            //Successful Deposit to 50% cap
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some("bigger_bank".to_string()),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg,
+                    vec![
+                        Coin {
+                            denom: "base".to_string(),
+                            amount: Uint128::from(100u128),
+                        },
+                    ],
+                )
+                .unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+
+            //Error: Any deposit of either quote or base is over the multi-asset cap
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some("bigger_bank".to_string()),
+                basket_id: Uint128::from(1u128),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg,
+                    vec![
+                        Coin {
+                            denom: "quote".to_string(),
+                            amount: Uint128::new(1),
+                        },
+                    ],
+                )
+                .unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap_err();
+
+            // //Query Basket Debt Caps
+            // let query_msg = QueryMsg::GetBasketDebtCaps {
+            //     basket_id: Uint128::new(1u128),
+            // };
+            // let res: DebtCapResponse = app
+            //     .wrap()
+            //     .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+            //     .unwrap();
+            // assert_eq!(
+            //     res.caps,
+            //     String::from("debit: 0/99998, base: 0/0, quote: 0/0, lp_denom: 0/199996, ")
+            // );
+
+            
+        }
+
+
+        #[test]
         fn LP_oracle() {
             let (mut app, cdp_contract, lq_contract, cw20_addr) =
                 proper_instantiate(false, false, false, false);
@@ -7331,6 +7656,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7362,6 +7688,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7452,6 +7779,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7563,6 +7891,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7668,6 +7997,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap();
@@ -7697,6 +8027,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap();
@@ -8009,6 +8340,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8116,6 +8448,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8213,6 +8546,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8349,6 +8683,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8482,6 +8817,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8550,6 +8886,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8653,6 +8990,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();           
@@ -8691,6 +9029,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap(); 
@@ -8827,6 +9166,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8858,6 +9198,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8950,6 +9291,7 @@ mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                multi_asset_supply_caps: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();

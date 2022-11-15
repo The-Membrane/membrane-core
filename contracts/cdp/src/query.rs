@@ -274,6 +274,7 @@ pub fn query_basket(deps: Deps, basket_id: Uint128) -> StdResult<BasketResponse>
                 .unwrap_or(Addr::unchecked("None"))
                 .to_string(),
             collateral_supply_caps: basket.collateral_supply_caps,
+            multi_asset_supply_caps: basket.multi_asset_supply_caps,
             base_interest_rate: basket.base_interest_rate,
             liquidity_multiplier: basket.liquidity_multiplier,
             desired_debt_cap_util: basket.desired_debt_cap_util,
@@ -323,6 +324,7 @@ pub fn query_baskets(
                     .unwrap_or(Addr::unchecked("None"))
                     .to_string(),
                 collateral_supply_caps: basket.collateral_supply_caps,
+                multi_asset_supply_caps: basket.multi_asset_supply_caps,
                 base_interest_rate: basket.base_interest_rate,
                 liquidity_multiplier: basket.liquidity_multiplier,
                 desired_debt_cap_util: basket.desired_debt_cap_util,

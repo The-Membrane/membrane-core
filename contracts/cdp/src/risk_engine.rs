@@ -133,7 +133,7 @@ pub fn update_basket_tally(
  
     //Assert new ratios aren't above Collateral Supply Caps. If so, error.
     //Only for deposits
-    for (i, ratio) in new_basket_ratios.into_iter().enumerate() {
+    for (i, ratio) in new_basket_ratios.clone().into_iter().enumerate() {
         if basket.collateral_supply_caps != vec![] {
             if ratio > basket.collateral_supply_caps[i].supply_cap_ratio && add_to_cAsset {
 
@@ -146,6 +146,36 @@ pub fn update_basket_tally(
                     ),
                 });
             }
+        }
+    }
+
+    //Assert for Multi-asset caps as well
+    if basket.multi_asset_supply_caps != vec![]{
+        for multi_asset_cap in basket.clone().multi_asset_supply_caps {
+
+            //Initialize total_ratio
+            let mut total_ratio = Decimal::zero();
+
+            
+            //Find & add ratio for each asset
+            for asset in multi_asset_cap.clone().assets{
+                if let Some((i, _cap)) = basket.clone().collateral_supply_caps.into_iter().enumerate().find(|(i, cap)| cap.asset_info.equal(&asset)){
+                    total_ratio += new_basket_ratios[i];
+                }
+            }
+
+            //Error if over cap
+            if total_ratio > multi_asset_cap.supply_cap_ratio {
+                return Err(ContractError::CustomError {
+                    val: format!(
+                        "Supply cap ratio for {:?} is over the limit ({} > {})",
+                        multi_asset_cap.assets,
+                        total_ratio,
+                        multi_asset_cap.supply_cap_ratio,
+                    ),
+                });
+            }
+
         }
     }
 
@@ -250,8 +280,7 @@ pub fn get_basket_debt_caps(
         } else {
             //TVL Ratio * Cap 
             per_asset_debt_caps.push(cAsset_ratio * debt_cap);
-        }
-        
+        }S
     }
     
     Ok(per_asset_debt_caps)

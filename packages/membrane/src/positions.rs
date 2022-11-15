@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{
     cAsset, Asset, AssetInfo, InsolventPosition, Position, PositionUserInfo,
-    SupplyCap, TWAPPoolInfo, UserInfo,
+    SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo,
 };
 
 use cw20::Cw20ReceiveMsg;
@@ -115,6 +115,7 @@ pub enum ExecuteMsg {
         credit_pool_ids: Option<Vec<u64>>, //For liquidity measuring
         liquidity_multiplier: Option<Decimal>,
         collateral_supply_caps: Option<Vec<SupplyCap>>,
+        multi_asset_supply_caps: Option<Vec<MultiAssetSupplyCap>>,
         base_interest_rate: Option<Decimal>,
         desired_debt_cap_util: Option<Decimal>,
         credit_asset_twap_price_source: Option<TWAPPoolInfo>,
@@ -278,6 +279,7 @@ pub struct BasketResponse {
     pub current_position_id: String,
     pub collateral_types: Vec<cAsset>,
     pub collateral_supply_caps: Vec<SupplyCap>,
+    pub multi_asset_supply_caps: Vec<MultiAssetSupplyCap>,
     pub credit_asset: Asset,
     pub credit_price: Decimal,
     pub liq_queue: String,

@@ -330,6 +330,7 @@ pub fn execute(
             cpc_margin_of_error,
             frozen,
             rev_to_stakers,
+            multi_asset_supply_caps,
         } => edit_basket(
             deps,
             info,
@@ -340,6 +341,7 @@ pub fn execute(
             credit_pool_ids,
             liquidity_multiplier,
             collateral_supply_caps,
+            multi_asset_supply_caps,
             base_interest_rate,
             desired_debt_cap_util,
             credit_asset_twap_price_source,

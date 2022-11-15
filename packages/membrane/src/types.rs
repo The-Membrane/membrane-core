@@ -270,7 +270,8 @@ pub struct Basket {
     pub basket_id: Uint128,
     pub current_position_id: Uint128,
     pub collateral_types: Vec<cAsset>,
-    pub collateral_supply_caps: Vec<SupplyCap>, //Order needs to correlate to collateral_types order
+    pub collateral_supply_caps: Vec<SupplyCap>, 
+    pub multi_asset_supply_caps: Vec<MultiAssetSupplyCap>,
     pub credit_asset: Asset, 
     pub credit_price: Decimal, //This is credit_repayment_price, not market price
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
@@ -297,8 +298,17 @@ pub struct SupplyCap {
     pub debt_total: Uint128,
     pub supply_cap_ratio: Decimal,    
     pub lp: bool,
-    //Optional debt cap ratio based on Stability Pool Liquidity
-    //If None, debt cap is based on proportion of TVL
+    //Toggle for a debt cap ratio based on Stability Pool Liquidity
+    //If false, debt cap is based on proportion of TVL
+    pub stability_pool_ratio_for_debt_cap: Option<Decimal>,     
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct MultiAssetSupplyCap {
+    pub assets: Vec<AssetInfo>,
+    pub supply_cap_ratio: Decimal,
+    //Toggle for a debt cap ratio based on Stability Pool Liquidity
+    //If false, debt cap is based on proportion of TVL
     pub stability_pool_ratio_for_debt_cap: Option<Decimal>,     
 }
 
@@ -417,6 +427,21 @@ impl AssetInfo {
             }
         }
     }
+}
+
+pub fn equal(assets_1: &Vec<AssetInfo>, assets_2: &Vec<AssetInfo>) -> bool {
+
+    if assets_1.len() != assets_2.len() {
+        return false
+    }
+
+    for asset in assets_2{
+        if let None = assets_1.into_iter().find(|self_asset| asset.equal(&self_asset)){
+           return false
+        }
+    }
+
+    return true
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

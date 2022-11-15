@@ -24,7 +24,7 @@ use membrane::stability_pool::{
 use membrane::math::{decimal_division, decimal_multiplication, Uint256};
 use membrane::types::{
     cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, LiquidityInfo, Position,
-    StoredPrice, SupplyCap, TWAPPoolInfo, UserInfo, PriceVolLimiter,  
+    StoredPrice, SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PriceVolLimiter, equal,
 };
 
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
@@ -1772,6 +1772,7 @@ pub fn create_basket(
         current_position_id: Uint128::from(1u128),
         collateral_types: new_assets,
         collateral_supply_caps,
+        multi_asset_supply_caps: vec![],
         credit_asset: credit_asset.clone(),
         credit_price,
         base_interest_rate,
@@ -1868,6 +1869,7 @@ pub fn edit_basket(
     pool_ids: Option<Vec<u64>>,
     liquidity_multiplier: Option<Decimal>,
     collateral_supply_caps: Option<Vec<SupplyCap>>,
+    multi_asset_supply_caps: Option<Vec<MultiAssetSupplyCap>>,
     base_interest_rate: Option<Decimal>,
     desired_debt_cap_util: Option<Decimal>,
     credit_asset_twap_price_source: Option<TWAPPoolInfo>,
@@ -2194,6 +2196,28 @@ pub fn edit_basket(
                                     //Set stability pool based ratio
                                     basket.collateral_supply_caps[index].stability_pool_ratio_for_debt_cap =
                                         new_cap.stability_pool_ratio_for_debt_cap;
+                                }
+                            }
+                            attrs.push(attr("new_collateral_supply_caps", String::from("Edited")));
+                        }
+                        if multi_asset_supply_caps.is_some() {
+                            //Set new cap parameters
+                            for new_cap in multi_asset_supply_caps.unwrap() {
+                                if let Some((index, _cap)) = basket
+                                    .clone()
+                                    .multi_asset_supply_caps
+                                    .into_iter()
+                                    .enumerate()
+                                    .find(|(_x, cap)| equal(&cap.assets, &new_cap.assets))
+                                {
+                                    //Set supply cap ratio
+                                    basket.multi_asset_supply_caps[index].supply_cap_ratio =
+                                        new_cap.supply_cap_ratio;
+                                    //Set stability pool based ratio
+                                    basket.multi_asset_supply_caps[index].stability_pool_ratio_for_debt_cap =
+                                        new_cap.stability_pool_ratio_for_debt_cap;
+                                } else {
+                                    basket.multi_asset_supply_caps.push(new_cap);
                                 }
                             }
                             attrs.push(attr("new_collateral_supply_caps", String::from("Edited")));

@@ -1,9 +1,9 @@
-use cosmwasm_std::{Addr, Decimal, Uint128};
+use cosmwasm_std::{Addr, Uint128};
 use cw_storage_plus::{Item, Map};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use membrane::types::{AssetInfo, RepayPosition};
+use membrane::types::{AssetInfo, RepayPosition, AuctionRecipient};
 use membrane::debt_auction::Config;
 
 
@@ -11,6 +11,7 @@ use membrane::debt_auction::Config;
 pub struct Auction {
     pub remaining_recapitalization: Uint128,
     pub repayment_positions: Vec<RepayPosition>, //Repayment amount, Positions info
+    pub send_to: Vec<AuctionRecipient>,
     pub auction_start_time: u64,
     pub basket_id_price_source: Uint128,
 }

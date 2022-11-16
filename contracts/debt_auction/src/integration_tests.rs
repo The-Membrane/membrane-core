@@ -61,7 +61,7 @@ mod tests {
                         amount,
                         mint_to_address,
                     } => {
-                        if amount != Uint128::new(105_319u128) && amount != Uint128::new(1_063u128)
+                        if amount != Uint128::new(105_319u128) && amount != Uint128::new(1_063u128) && amount != Uint128::new(3_191)
                         {
                             panic!("{}", amount)
                         }
@@ -165,7 +165,7 @@ mod tests {
                         collateral_supply_caps: vec![],
                         credit_asset: Asset {
                             info: AssetInfo::NativeToken {
-                                denom: String::from(""),
+                                denom: String::from("credit_fulldenom"),
                             },
                             amount: Uint128::zero(),
                         },
@@ -177,6 +177,9 @@ mod tests {
                         pending_revenue: Uint128::zero(),
                         negative_rates: true,
                         cpc_margin_of_error: Decimal::zero(),
+                        multi_asset_supply_caps: vec![],
+                        frozen: false,
+                        rev_to_stakers: true,
                     })?),
                 }
             },
@@ -203,7 +206,7 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked(USER),
-                vec![coin(99, "error"), coin(101_000, "credit_fulldenom")],
+                vec![coin(99, "error"), coin(201_000, "credit_fulldenom")],
             )
             .unwrap();
 
@@ -286,7 +289,7 @@ mod tests {
         use cosmwasm_std::BlockInfo;
         use membrane::{
             debt_auction::{AuctionResponse, Config},
-            types::{RepayPosition, UserInfo},
+            types::{RepayPosition, UserInfo, AuctionRecipient},
         };
 
         #[test]
@@ -295,11 +298,13 @@ mod tests {
 
             //Unauthorized StartAuction
             let msg = ExecuteMsg::StartAuction {
-                repayment_position_info: UserInfo {
+                repayment_position_info: Some(UserInfo {
                     basket_id: Uint128::new(1u128),
                     position_id: Uint128::new(1u128),
                     position_owner: String::from("owner"),
-                },
+                }),
+                send_to: None,
+                basket_id: Uint128::one(),
                 debt_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
@@ -312,11 +317,13 @@ mod tests {
 
             //Successful StartAuction
             let msg = ExecuteMsg::StartAuction {
-                repayment_position_info: UserInfo {
+                repayment_position_info: Some(UserInfo {
                     basket_id: Uint128::new(1u128),
                     position_id: Uint128::new(1u128),
                     position_owner: String::from("owner"),
-                },
+                }),
+                send_to: None,
+                basket_id: Uint128::one(),
                 debt_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
@@ -358,11 +365,13 @@ mod tests {
 
             //Successful Start adding to existing auction
             let msg = ExecuteMsg::StartAuction {
-                repayment_position_info: UserInfo {
+                repayment_position_info: Some(UserInfo {
                     basket_id: Uint128::new(1u128),
                     position_id: Uint128::new(1u128),
                     position_owner: String::from("owner"),
-                },
+                }),
+                send_to: None,
+                basket_id: Uint128::one(),
                 debt_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
@@ -441,13 +450,15 @@ mod tests {
         fn swap_For_mbrn() {
             let (mut app, debt_contract, cdp_contract) = proper_instantiate();
 
-            //Successful StartAuction
+            //Successful StartAuction: Position Repayment
             let msg = ExecuteMsg::StartAuction {
-                repayment_position_info: UserInfo {
+                repayment_position_info: Some(UserInfo {
                     basket_id: Uint128::new(1u128),
                     position_id: Uint128::new(1u128),
                     position_owner: String::from("owner"),
-                },
+                }),
+                send_to: None,
+                basket_id: Uint128::one(),
                 debt_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
@@ -467,7 +478,7 @@ mod tests {
                 String::from("Invalid Asset: error")
             );
 
-            //Successful Partial Swap
+            //Successful Partial Fill
             let msg = ExecuteMsg::SwapForMBRN {};
             let cosmos_msg = debt_contract
                 .call(msg, vec![coin(99_000, "credit_fulldenom")])
@@ -479,7 +490,7 @@ mod tests {
             });
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            ///Mint amount asserted in the contract definition
+            ///Mint amount asserted in mock contract definition
             //Assert Auction partial fulfillment
             let auction: Vec<AuctionResponse> = app
                 .wrap()
@@ -513,10 +524,80 @@ mod tests {
                 }]
             );
 
+            //Successful StartAuction: Send_to
+            let msg = ExecuteMsg::StartAuction {
+                repayment_position_info: None,
+                send_to: Some(String::from("send_to_me")),
+                basket_id: Uint128::one(),
+                debt_asset: Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("credit_fulldenom"),
+                    },
+                    amount: Uint128::new(100_000u128),
+                },
+            };
+            let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Assert Auction Recap increase
+            let auction: Vec<AuctionResponse> = app
+                .wrap()
+                .query_wasm_smart(
+                    debt_contract.addr(),
+                    &QueryMsg::OngoingAuctions {
+                        debt_asset: Some(AssetInfo::NativeToken {
+                            denom: String::from("credit_fulldenom"),
+                        }),
+                        limit: None,
+                        start_without: None,
+                    },
+                )
+                .unwrap();
+                assert_eq!(
+                    auction[0].remaining_recapitalization,
+                    Uint128::new(101_000u128)
+                );
+
+            //Successful Partial Fill
+            let msg = ExecuteMsg::SwapForMBRN {};
+            let cosmos_msg = debt_contract
+                .call(msg, vec![coin(99_000, "credit_fulldenom")])
+                .unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Assert Auction partial fulfillment
+            let auction: Vec<AuctionResponse> = app
+                .wrap()
+                .query_wasm_smart(
+                    debt_contract.addr(),
+                    &QueryMsg::OngoingAuctions {
+                        debt_asset: Some(AssetInfo::NativeToken {
+                            denom: String::from("credit_fulldenom"),
+                        }),
+                        limit: None,
+                        start_without: None,
+                    },
+                )
+                .unwrap();
+
+            assert_eq!(auction[0].auction_start_time, 1571797419u64);
+            assert_eq!(auction[0].basket_id_price_source, Uint128::new(1u128));
+            assert_eq!(
+                auction[0].remaining_recapitalization,
+                Uint128::new(2_000u128)
+            );
+            assert_eq!(
+                auction[0].send_to,
+                vec![AuctionRecipient {
+                    amount: Uint128::new(2_000),
+                    recipient: Addr::unchecked("send_to_me"),
+                }]
+            );
+
             //Successful Overpay Swap
             let msg = ExecuteMsg::SwapForMBRN {};
             let cosmos_msg = debt_contract
-                .call(msg, vec![coin(2_000, "credit_fulldenom")])
+                .call(msg, vec![coin(3_000, "credit_fulldenom")])
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
@@ -569,11 +650,13 @@ mod tests {
 
             //Successful StartAuction
             let msg = ExecuteMsg::StartAuction {
-                repayment_position_info: UserInfo {
+                repayment_position_info: Some(UserInfo {
                     basket_id: Uint128::new(1u128),
                     position_id: Uint128::new(1u128),
                     position_owner: String::from("owner"),
-                },
+                }),
+                send_to: None,
+                basket_id: Uint128::one(),
                 debt_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),

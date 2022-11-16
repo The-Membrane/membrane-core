@@ -371,6 +371,12 @@ pub struct RepayPosition {
     pub position_info: UserInfo,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct AuctionRecipient {
+    pub amount: Uint128,
+    pub recipient: Addr,
+}
+
 /////////Liquidity Check
 ///
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

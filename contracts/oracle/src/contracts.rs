@@ -1,16 +1,17 @@
+use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cosmwasm_std::{
     attr, entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper,
-    QueryRequest, Response, StdError, StdResult, Storage, Uint128, WasmQuery,
+    Response, StdError, StdResult, Storage, Uint128, 
 };
 use cw2::set_contract_version;
 
+use osmosis_std::types::osmosis::twap::v1beta1 as TWAP;
+
 use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg};
-use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::types::{AssetInfo, AssetOracleInfo, PriceInfo};
-use osmo_bindings::ArithmeticTwapToNowResponse;
 
 use crate::error::ContractError;
 use crate::state::{ASSETS, CONFIG};
@@ -351,20 +352,19 @@ fn get_asset_price(
         //Query price from the TWAP sources
         //This is if we need to use multiple pools to calculate our price
         for pool in oracle_info.osmosis_pools_for_twap {
-            let res = querier.query::<ArithmeticTwapToNowResponse>(&QueryRequest::Wasm(
-                WasmQuery::Smart {
-                    contract_addr: config.clone().osmosis_proxy.to_string(),
-                    msg: to_binary(&OsmoQueryMsg::ArithmeticTwapToNow {
-                        id: pool.clone().pool_id,
-                        quote_asset_denom: pool.clone().quote_asset_denom,
-                        base_asset_denom: pool.clone().base_asset_denom,
-                        start_time,
-                    })?,
-                },
-            ))?;
+
+            let res: TWAP::ArithmeticTwapToNowResponse = TWAP::TwapQuerier::new(&querier).arithmetic_twap_to_now(
+                pool.clone().pool_id, 
+                pool.clone().base_asset_denom, 
+                pool.clone().quote_asset_denom, 
+                Some(osmosis_std::shim::Timestamp {
+                    seconds:  start_time,
+                    nanos: 0,
+                }),
+            )?;
 
             //Push TWAP
-            price_steps.push(res.twap);
+            price_steps.push(Decimal::from_str(&res.arithmetic_twap).unwrap());
         }
 
         //Multiply prices

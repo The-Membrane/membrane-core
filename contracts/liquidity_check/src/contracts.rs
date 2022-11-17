@@ -6,9 +6,7 @@ use cw2::set_contract_version;
 
 use membrane::liquidity_check::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
-use membrane::types::{AssetInfo, LiquidityInfo};
-
-use osmo_bindings::PoolStateResponse;
+use membrane::types::{AssetInfo, LiquidityInfo, PoolStateResponse};
 
 use cw_storage_plus::Bound;
 

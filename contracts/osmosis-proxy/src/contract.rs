@@ -435,18 +435,6 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             subdenom,
         } => to_binary(&get_denom(deps, creator_address, subdenom)?),
         QueryMsg::PoolState { id } => to_binary(&get_pool_state(deps, id)?),
-        // QueryMsg::ArithmeticTwapToNow {
-        //     id,
-        //     quote_asset_denom,
-        //     base_asset_denom,
-        //     start_time,
-        // } => to_binary(&get_arithmetic_twap_to_now(
-        //     deps,
-        //     id,
-        //     quote_asset_denom,
-        //     base_asset_denom,
-        //     start_time,
-        // )?),
         QueryMsg::GetTokenInfo { denom } => to_binary(&get_token_info(deps, denom)?),
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
     }
@@ -460,25 +448,6 @@ fn get_token_info(deps: Deps, denom: String) -> StdResult<TokenInfoResponse> {
         max_supply: token_info.max_supply.unwrap_or_else(Uint128::zero),
     })
 }
-
-// fn get_arithmetic_twap_to_now(
-//     deps: Deps<OsmosisQuery>,
-//     id: u64,
-//     quote_asset_denom: String,
-//     base_asset_denom: String,
-//     start_time: i64,
-// ) -> StdResult<ArithmeticTwapToNowResponse> {
-
-//     osmosis_std::types::osmosis::
-
-//     let msg =
-//         OsmosisQuery::arithmetic_twap_to_now(id, quote_asset_denom, base_asset_denom, start_time);
-//     let request: QueryRequest<OsmosisQuery> = OsmosisQuery::into(msg);
-
-//     let response: ArithmeticTwapToNowResponse = deps.querier.query(&request)?;
-
-//     Ok(response)
-// }
 
 fn get_pool_state(
     deps: Deps,

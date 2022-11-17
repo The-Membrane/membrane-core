@@ -136,6 +136,9 @@ pub fn submit_proposal(
     let mut vesting: bool = false;
     if info.sender == config.vesting_contract_addr {
         vesting = true;
+    } else {
+        //Only Vesting contract can submit expedited proposals
+        expedited = false;
     }
 
     //Validate voting power

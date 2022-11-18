@@ -1,11 +1,15 @@
+use prost::Message;
 use core::fmt;
+use std::{str::FromStr, convert::TryFrom};
 
 use crate::math::{Decimal256, Uint256};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Decimal, Uint128};
+use cosmwasm_std::{Addr, Decimal, Uint128, StdError};
+
+use osmosis_std::types::cosmos::base::v1beta1::Coin;
 
 //Stability Pool
 
@@ -208,6 +212,13 @@ impl fmt::Display for TWAPPoolInfo {
 pub struct StoredPrice {
     pub price: Decimal,
     pub last_time_updated: u64,
+    pub price_vol_limiter: PriceVolLimiter,//(Time since save, price)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct PriceVolLimiter {
+    pub price: Decimal,
+    pub last_time_updated: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -259,8 +270,9 @@ pub struct Basket {
     pub basket_id: Uint128,
     pub current_position_id: Uint128,
     pub collateral_types: Vec<cAsset>,
-    pub collateral_supply_caps: Vec<SupplyCap>, //Order needs to correlate to collateral_types order
-    pub credit_asset: Asset, //Depending on type of token we use for credit this.info will be an Addr or denom (Cw20 or Native token respectively)
+    pub collateral_supply_caps: Vec<SupplyCap>, 
+    pub multi_asset_supply_caps: Vec<MultiAssetSupplyCap>,
+    pub credit_asset: Asset, 
     pub credit_price: Decimal, //This is credit_repayment_price, not market price
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
     pub liquidity_multiplier: Decimal, //liquidity_multiplier for debt caps
@@ -270,6 +282,11 @@ pub struct Basket {
     pub rates_last_accrued: u64, //rate_index last_accrued
     pub oracle_set: bool, //If the credit oracle was set. Can't update repayment price without.
     pub negative_rates: bool, //Allow negative repayment interest or not
+    pub frozen: bool, //Freeze withdrawals and debt increases to provide time to fix vulnerabilities
+    pub rev_to_stakers: bool,
+    //% difference btwn credit TWAP and repayment price before the interest changes
+    //Set to 100 if you want to turn off the PID
+    pub cpc_margin_of_error: Decimal,
     //Contracts
     pub liq_queue: Option<Addr>, //Each basket holds its own liq_queue contract
 }
@@ -281,14 +298,15 @@ pub struct SupplyCap {
     pub debt_total: Uint128,
     pub supply_cap_ratio: Decimal,    
     pub lp: bool,
-    //Optional debt cap ratio based on Stability Pool Liquidity
-    //If None, debt cap is based on proportion of TVL
+    //Toggle for a debt cap ratio based on Stability Pool Liquidity
+    //If false, debt cap is based on proportion of TVL
     pub stability_pool_ratio_for_debt_cap: Option<Decimal>,     
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct SellWallDistribution {
-    pub distributions: Vec<(AssetInfo, Decimal)>,
+pub struct MultiAssetSupplyCap {
+    pub assets: Vec<AssetInfo>,
+    pub supply_cap_ratio: Decimal,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -331,6 +349,13 @@ impl VestingPeriod {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct Recipient {
+    pub recipient: Addr,
+    pub allocation: Option<Allocation>,
+    pub claimables: Vec<Asset>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Allocation {
     pub amount: Uint128,
     pub amount_withdrawn: Uint128,
@@ -346,12 +371,33 @@ pub struct RepayPosition {
     pub position_info: UserInfo,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct AuctionRecipient {
+    pub amount: Uint128,
+    pub recipient: Addr,
+}
+
 /////////Liquidity Check
 ///
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct LiquidityInfo {
     pub asset: AssetInfo,
     pub pool_ids: Vec<u64>,
+}
+
+/////////Incentive Gauge
+///
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct LockUp {
+    pub locked_asset: Asset,
+    pub lock_up_duration: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct DebtTokenAsset {
+    pub info: AssetInfo,
+    pub amount: Uint128,
+    pub basket_id: Uint128,
 }
 
 //////////Possibly switching to cw-asset//////
@@ -400,6 +446,21 @@ impl AssetInfo {
     }
 }
 
+pub fn equal(assets_1: &Vec<AssetInfo>, assets_2: &Vec<AssetInfo>) -> bool {
+
+    if assets_1.len() != assets_2.len() {
+        return false
+    }
+
+    for asset in assets_2{
+        if let None = assets_1.into_iter().find(|self_asset| asset.equal(&self_asset)){
+           return false
+        }
+    }
+
+    return true
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct Asset {
@@ -413,7 +474,82 @@ impl fmt::Display for Asset {
     }
 }
 
-////////////////////Osmosis binding types
+////////////////////Osmosis-std types
+
+
+pub enum Pool {
+    Balancer(osmosis_std::types::osmosis::gamm::v1beta1::Pool),
+    StableSwap(osmosis_std::types::osmosis::gamm::poolmodels::stableswap::v1beta1::Pool),
+}
+
+impl Pool {
+    pub fn into_pool_state_response(&self) -> PoolStateResponse {
+        
+        match self {
+            Pool::Balancer(pool) => {
+                PoolStateResponse { 
+                    assets: pool.clone().pool_assets.into_iter().map(|pool_asset| pool_asset.token.unwrap_or_default()).collect::<Vec<Coin>>(), 
+                    shares: pool.clone().total_shares.unwrap_or_default(),
+                }
+            },
+            Pool::StableSwap(pool) => {
+                PoolStateResponse { 
+                    assets: pool.clone().pool_liquidity, 
+                    shares: pool.clone().total_shares.unwrap_or_default(),
+                }
+            },
+        }
+    }
+}
+
+impl TryFrom<osmosis_std::shim::Any> for Pool {
+    type Error = StdError;
+
+    fn try_from(value: osmosis_std::shim::Any) -> Result<Self, Self::Error> {
+        if let Ok(pool) = osmosis_std::types::osmosis::gamm::v1beta1::Pool::decode(value.value.as_slice()) {
+            return Ok(Pool::Balancer(pool));
+        }
+        if let Ok(pool) = osmosis_std::types::osmosis::gamm::poolmodels::stableswap::v1beta1::Pool::decode(value.value.as_slice()) {
+            return Ok(Pool::StableSwap(pool));
+        }
+        
+        Err(StdError::ParseErr {
+            target_type: "Pool".to_string(),
+            msg: "Unmatched pool: must be either `Balancer` or `StableSwap`.".to_string(),
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct PoolStateResponse {
+    /// The various assets that be swapped. Including current liquidity.
+    pub assets: Vec<Coin>,
+    /// The number of lp shares and their amount
+    pub shares: Coin,
+}
+
+impl PoolStateResponse {
+    pub fn has_denom(&self, denom: &str) -> bool {
+        self.assets.iter().any(|c| c.denom == denom)
+    }
+
+    pub fn lp_denom(&self) -> &str {
+        &self.shares.denom
+    }
+
+    /// If I hold num_shares of the lp_denom, how many assets does that equate to?
+    pub fn shares_value(&self, num_shares: impl Into<Uint128>) -> Vec<Coin> {
+        let num_shares = num_shares.into();
+        self.assets
+            .iter()
+            .map(|c| Coin {
+                denom: c.denom.clone(),
+                amount: (Uint128::from_str(&c.amount).unwrap() * num_shares / Uint128::from_str(&self.shares.amount).unwrap()).to_string(),
+            })
+            .collect()
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, Debug)]
 pub struct Swap {

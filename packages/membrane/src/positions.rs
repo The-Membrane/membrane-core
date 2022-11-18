@@ -3,8 +3,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    cAsset, Asset, AssetInfo, InsolventPosition, Position, PositionUserInfo, SellWallDistribution,
-    SupplyCap, TWAPPoolInfo, UserInfo,
+    cAsset, Asset, AssetInfo, InsolventPosition, Position, PositionUserInfo,
+    SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo,
 };
 
 use cw20::Cw20ReceiveMsg;
@@ -48,7 +48,6 @@ pub enum ExecuteMsg {
         oracle_time_limit: Option<u64>,
         credit_twap_timeframe: Option<u64>,
         collateral_twap_timeframe: Option<u64>,
-        cpc_margin_of_error: Option<Decimal>,
         cpc_multiplier: Option<Decimal>,
         rate_slope_multiplier: Option<Decimal>,
     },
@@ -58,22 +57,25 @@ pub enum ExecuteMsg {
         position_id: Option<Uint128>, //If the user wants to create a new/separate position, no position id is passed
         position_owner: Option<String>,
     },
+    //Increase debt by an amount or to a LTV
     IncreaseDebt {
-        //only works on open positions
         basket_id: Uint128,
         position_id: Uint128,
-        amount: Uint128,
+        amount: Option<Uint128>,
+        LTV: Option<Decimal>,
         mint_to_addr: Option<String>,
     },
     Withdraw {
         basket_id: Uint128,
         position_id: Uint128,
         assets: Vec<Asset>,
+        send_to: Option<String>, //If not the sender
     },
     Repay {
         basket_id: Uint128,
         position_id: Uint128,
         position_owner: Option<String>, //If not the sender
+        send_excess_to: Option<String>, //If not the sender
     },
     LiqRepay {},
     Liquidate {
@@ -81,12 +83,19 @@ pub enum ExecuteMsg {
         position_id: Uint128,
         position_owner: String,
     },
+    ClosePosition {
+        basket_id: Uint128,
+        position_id: Uint128,
+        max_spread: Decimal,
+        send_to: Option<String>,
+    },
     MintRevenue {
         basket_id: Uint128,
         send_to: Option<String>, //Defaults to config.interest_revenue_collector
         repay_for: Option<UserInfo>, //Repay for a position w/ the revenue
         amount: Option<Uint128>,
     },
+    //Non-USD baskets don't work due to the debt minimum
     CreateBasket {
         owner: Option<String>,
         collateral_types: Vec<cAsset>,
@@ -106,10 +115,14 @@ pub enum ExecuteMsg {
         credit_pool_ids: Option<Vec<u64>>, //For liquidity measuring
         liquidity_multiplier: Option<Decimal>,
         collateral_supply_caps: Option<Vec<SupplyCap>>,
+        multi_asset_supply_caps: Option<Vec<MultiAssetSupplyCap>>,
         base_interest_rate: Option<Decimal>,
         desired_debt_cap_util: Option<Decimal>,
         credit_asset_twap_price_source: Option<TWAPPoolInfo>,
         negative_rates: Option<bool>, //Allow negative repayment interest or not
+        cpc_margin_of_error: Option<Decimal>,
+        frozen: Option<bool>,
+        rev_to_stakers: Option<bool>,
     },
     //Clone basket. Reset supply_caps. Sets repayment price to new oracle price.
     //When using this to add a new UoA:
@@ -138,8 +151,8 @@ pub enum ExecuteMsg {
 pub enum Cw20HookMsg {
     Deposit {
         basket_id: Uint128,
-        position_owner: Option<String>,
         position_id: Option<Uint128>,
+        position_owner: Option<String>,
     },
 }
 
@@ -227,9 +240,6 @@ pub struct Config {
     pub collateral_twap_timeframe: u64, //in minutes
     pub credit_twap_timeframe: u64,     //in minutes
     pub oracle_time_limit: u64, //in seconds until oracle failure is accepted. Think of it as how many blocks you allow the oracle to fail for.
-    //% difference btwn credit TWAP and repayment price before the interest changes
-    //Set to 100 if you want to turn off the PID
-    pub cpc_margin_of_error: Decimal,
     //Augment the rate of increase per % difference for the redemption rate
     pub cpc_multiplier: Decimal,
     //This needs to be large enough so that USDC positions are profitable to liquidate,
@@ -247,7 +257,7 @@ pub struct Config {
 pub struct PositionResponse {
     pub position_id: Uint128,
     pub collateral_assets: Vec<cAsset>,
-    //Allows front ends to get ratios using the smae oracles
+    //Allows front ends to get ratios using the same oracles
     //Useful for users who want to deposit or withdraw at the current ratio
     pub cAsset_ratios: Vec<Decimal>,
     pub credit_amount: Uint128,
@@ -269,6 +279,7 @@ pub struct BasketResponse {
     pub current_position_id: String,
     pub collateral_types: Vec<cAsset>,
     pub collateral_supply_caps: Vec<SupplyCap>,
+    pub multi_asset_supply_caps: Vec<MultiAssetSupplyCap>,
     pub credit_asset: Asset,
     pub credit_price: Decimal,
     pub liq_queue: String,
@@ -277,6 +288,9 @@ pub struct BasketResponse {
     pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
     pub pending_revenue: Uint128,
     pub negative_rates: bool, //Allow negative repayment interest or not
+    pub cpc_margin_of_error: Decimal,
+    pub frozen: bool,
+    pub rev_to_stakers: bool,
 }
 
 
@@ -284,7 +298,7 @@ pub struct BasketResponse {
 pub struct PropResponse {
     pub liq_queue_leftovers: Decimal,
     pub stability_pool: Decimal,
-    pub sell_wall_distributions: Vec<SellWallDistribution>,
+    pub sell_wall_distributions: Vec<(AssetInfo, Decimal)>,
     pub positions_contract: String,
     //So the sell wall knows who to repay to
     pub position_id: Uint128,

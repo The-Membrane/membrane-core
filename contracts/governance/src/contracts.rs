@@ -7,7 +7,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use cw_storage_plus::Bound;
 
-use membrane::builder_vesting::{AllocationResponse, QueryMsg as BuildersQueryMsg};
+use membrane::vesting::{AllocationResponse, QueryMsg as VestingQueryMsg};
 use membrane::governance::helpers::validate_links;
 use membrane::governance::{
     Config, ExecuteMsg, InstantiateMsg, Proposal, ProposalListResponse, ProposalMessage,
@@ -56,8 +56,8 @@ pub fn instantiate(
     let config = Config {
         mbrn_denom,
         staking_contract_addr: deps.api.addr_validate(&msg.mbrn_staking_contract_addr)?,
-        builders_contract_addr: deps.api.addr_validate(&msg.builders_contract_addr)?,
-        builders_voting_power_multiplier: msg.builders_voting_power_multiplier,
+        vesting_contract_addr: deps.api.addr_validate(&msg.vesting_contract_addr)?,
+        vesting_voting_power_multiplier: msg.vesting_voting_power_multiplier,
         proposal_voting_period: msg.proposal_voting_period,
         expedited_proposal_voting_period: msg.expedited_proposal_voting_period,
         proposal_effective_delay: msg.proposal_effective_delay,
@@ -90,7 +90,7 @@ pub fn execute(
             description,
             link,
             messages,
-            receiver,
+            recipient,
             expedited,
         } => submit_proposal(
             deps,
@@ -100,14 +100,14 @@ pub fn execute(
             description,
             link,
             messages,
-            receiver,
+            recipient,
             expedited,
         ),
         ExecuteMsg::CastVote {
             proposal_id,
             vote,
-            receiver,
-        } => cast_vote(deps, env, info, proposal_id, vote, receiver),
+            recipient,
+        } => cast_vote(deps, env, info, proposal_id, vote, recipient),
         ExecuteMsg::EndProposal { proposal_id } => end_proposal(deps, env, proposal_id),
         ExecuteMsg::ExecuteProposal { proposal_id } => execute_proposal(deps, env, proposal_id),
         ExecuteMsg::CheckMessages { messages } => check_messages(env, messages),
@@ -127,15 +127,18 @@ pub fn submit_proposal(
     description: String,
     link: Option<String>,
     messages: Option<Vec<ProposalMessage>>,
-    receiver: Option<String>,
+    recipient: Option<String>,
     expedited: bool,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    //If sender is Builder's Contract, toggle
-    let mut builders: bool = false;
-    if info.sender == config.builders_contract_addr {
-        builders = true;
+    //If sender is vesting Contract, toggle
+    let mut vesting: bool = false;
+    if info.sender == config.vesting_contract_addr {
+        vesting = true;
+    } else {
+        //Only Vesting contract can submit expedited proposals
+        expedited = false;
     }
 
     //Validate voting power
@@ -143,8 +146,8 @@ pub fn submit_proposal(
         deps.as_ref(),
         info.sender.to_string(),
         env.block.time.seconds(),
-        builders,
-        receiver.clone(),
+        vesting,
+        recipient.clone(),
     )?;
 
     if voting_power < config.proposal_required_stake {
@@ -157,8 +160,8 @@ pub fn submit_proposal(
     })?;
 
     let mut submitter: Option<Addr> = None;
-    if let Some(receiver) = receiver.clone() {
-        submitter = Some(deps.api.addr_validate(&receiver)?);
+    if let Some(recipient) = recipient.clone() {
+        submitter = Some(deps.api.addr_validate(&recipient)?);
     }
 
     //Set end_block 
@@ -202,7 +205,7 @@ pub fn submit_proposal(
         attr("action", "submit_proposal"),
         attr(
             "submitter",
-            receiver.unwrap_or_else(|| info.sender.to_string()),
+            recipient.unwrap_or_else(|| info.sender.to_string()),
         ),
         attr("proposal_id", count),
         attr(
@@ -218,14 +221,14 @@ pub fn cast_vote(
     info: MessageInfo,
     proposal_id: u64,
     vote_option: ProposalVoteOption,
-    receiver: Option<String>,
+    recipient: Option<String>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    //If sender is Builder's Contract, toggle
-    let mut builders: bool = false;
-    if info.sender == config.builders_contract_addr {
-        builders = true;
+    //If sender is vesting Contract, toggle
+    let mut vesting: bool = false;
+    if info.sender == config.vesting_contract_addr {
+        vesting = true;
     }
 
     let mut proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
@@ -237,10 +240,10 @@ pub fn cast_vote(
     //Can't vote on your own proposal
     if proposal.submitter == info.sender {
         return Err(ContractError::Unauthorized {});
-    } else if let Some(receiver) = receiver.clone() {
-        let receiver = deps.api.addr_validate(&receiver)?;
+    } else if let Some(recipient) = recipient.clone() {
+        let recipient = deps.api.addr_validate(&recipient)?;
 
-        if proposal.submitter == receiver {
+        if proposal.submitter == recipient {
             return Err(ContractError::Unauthorized {});
         }
     }
@@ -258,8 +261,8 @@ pub fn cast_vote(
         deps.as_ref(),
         info.sender.to_string(),
         proposal.clone().start_time,
-        builders,
-        receiver.clone(),
+        vesting,
+        recipient.clone(),
     )?;
 
     if voting_power.is_zero() {
@@ -282,7 +285,7 @@ pub fn cast_vote(
     Ok(Response::new().add_attributes(vec![
         attr("action", "cast_vote"),
         attr("proposal_id", proposal_id.to_string()),
-        attr("voter", receiver.unwrap_or_else(|| info.sender.to_string())),
+        attr("voter", recipient.unwrap_or_else(|| info.sender.to_string())),
         attr("vote", vote_option.to_string()),
         attr("voting_power", voting_power),
     ]))
@@ -448,13 +451,13 @@ pub fn update_config(
         config.staking_contract_addr = deps.api.addr_validate(&staking_contract)?;
     }
 
-    if let Some(builders_contract_addr) = updated_config.builders_contract_addr {
-        config.builders_contract_addr = deps.api.addr_validate(&builders_contract_addr)?;
+    if let Some(vesting_contract_addr) = updated_config.vesting_contract_addr {
+        config.vesting_contract_addr = deps.api.addr_validate(&vesting_contract_addr)?;
     }
 
-    if let Some(builders_voting_power_multiplier) = updated_config.builders_voting_power_multiplier
+    if let Some(vesting_voting_power_multiplier) = updated_config.vesting_voting_power_multiplier
     {
-        config.builders_voting_power_multiplier = builders_voting_power_multiplier;
+        config.vesting_voting_power_multiplier = vesting_voting_power_multiplier;
     }
 
     if let Some(proposal_voting_period) = updated_config.proposal_voting_period {
@@ -542,8 +545,8 @@ pub fn calc_total_voting_power_at(deps: Deps, start_time: u64) -> StdResult<Uint
         total = staked_mbrn
             .into_iter()
             .map(|stake| {
-                if stake.staker == config.builders_contract_addr {
-                    stake.amount * config.builders_voting_power_multiplier
+                if stake.staker == config.vesting_contract_addr {
+                    stake.amount * config.vesting_voting_power_multiplier
                 } else {
                     stake.amount
                 }
@@ -561,8 +564,8 @@ pub fn calc_voting_power(
     deps: Deps,
     sender: String,
     start_time: u64,
-    builders: bool,
-    receiver: Option<String>,
+    vesting: bool,
+    recipient: Option<String>,
 ) -> StdResult<Uint128> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -581,8 +584,8 @@ pub fn calc_voting_power(
         .stakers;
 
     let total: Uint128;
-    //If calculating builder's voting power, we take from receiver's allocation
-    if !builders {
+    //If calculating vesting voting power, we take from recipient's allocation
+    if !vesting {
         //Calc total voting power
         if staked_mbrn == vec![] {
             total = Uint128::zero()
@@ -600,29 +603,29 @@ pub fn calc_voting_power(
                 .into_iter()
                 .sum();
         }
-    } else if receiver.is_some() {
-        let receiver = receiver.unwrap();
+    } else if recipient.is_some() {
+        let recipient = recipient.unwrap();
 
         let allocation = deps
             .querier
             .query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.builders_contract_addr.to_string(),
-                msg: to_binary(&BuildersQueryMsg::Allocation { receiver })?,
+                contract_addr: config.vesting_contract_addr.to_string(),
+                msg: to_binary(&VestingQueryMsg::Allocation { recipient: recipient })?,
             }))?;
 
-        total = Uint128::from_str(&allocation.amount)? * config.builders_voting_power_multiplier;
-    } else if builders {
-        //If builder's but receiver isn't passed, use the sender
-        let receiver = sender;
+        total = allocation.amount * config.vesting_voting_power_multiplier;
+    } else if vesting {
+        //If vesting but recipient isn't passed, use the sender
+        let recipient = sender;
 
         let allocation = deps
             .querier
             .query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.builders_contract_addr.to_string(),
-                msg: to_binary(&BuildersQueryMsg::Allocation { receiver })?,
+                contract_addr: config.vesting_contract_addr.to_string(),
+                msg: to_binary(&VestingQueryMsg::Allocation { recipient: recipient })?,
             }))?;
 
-        total = Uint128::from_str(&allocation.amount)? * config.builders_voting_power_multiplier;
+        total = allocation.amount * config.vesting_voting_power_multiplier;
     } else {
         //This isn't necessary but fulfills the compiler
         total = Uint128::zero();
@@ -643,7 +646,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::UserVotingPower {
             user,
             proposal_id,
-            builders,
+            vesting,
         } => {
             let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
 
@@ -653,7 +656,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 deps,
                 user.to_string(),
                 proposal.start_time,
-                builders,
+                vesting,
                 None,
             )?)
         }

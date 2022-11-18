@@ -13,15 +13,16 @@ use membrane::debt_auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::positions::{Config, CallbackMsg, Cw20HookMsg, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::types::{
-    cAsset, Asset, AssetInfo, Basket, Position, UserInfo,
+    cAsset, Asset, AssetInfo, Basket, UserInfo,
 };
 
 use crate::error::ContractError;
+use crate::risk_engine::assert_basket_assets;
 use crate::positions::{
-    assert_basket_assets, clone_basket, create_basket, deposit,
+    clone_basket, create_basket, deposit,
     edit_basket, increase_debt,
     liq_repay, mint_revenue, repay,
-    withdraw, BAD_DEBT_REPLY_ID, CREATE_DENOM_REPLY_ID, WITHDRAW_REPLY_ID,
+    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID, get_target_position, update_position,
 };
 use crate::query::{
     query_bad_debt, query_basket, query_basket_credit_interest, query_basket_debt_caps,
@@ -31,9 +32,9 @@ use crate::query::{
 };
 use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID,
     SELL_WALL_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
-use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_sell_wall_reply, handle_create_denom_reply, handle_withdraw_reply, handle_sp_repay_reply};
+use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_sell_wall_reply, handle_withdraw_reply, handle_sp_repay_reply, handle_close_position_reply};
 use crate::state::{
-    BASKETS, CONFIG, POSITIONS,
+    BASKETS, CONFIG,
 };
 
 // version info for migration info
@@ -47,6 +48,7 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
+
     let mut config = Config {
         liq_fee: msg.liq_fee,
         owner: info.sender.clone(),
@@ -60,7 +62,6 @@ pub fn instantiate(
         debt_auction: None,
         liquidity_contract: None,
         oracle_time_limit: msg.oracle_time_limit,
-        cpc_margin_of_error: Decimal::percent(1),
         cpc_multiplier: Decimal::one(),
         rate_slope_multiplier: Decimal::one(),
         debt_minimum: msg.debt_minimum,
@@ -168,7 +169,6 @@ pub fn execute(
             oracle_time_limit,
             collateral_twap_timeframe,
             credit_twap_timeframe,
-            cpc_margin_of_error,
             cpc_multiplier,
             rate_slope_multiplier,
         } => update_config(
@@ -189,7 +189,6 @@ pub fn execute(
             oracle_time_limit,
             collateral_twap_timeframe,
             credit_twap_timeframe,
-            cpc_margin_of_error,
             cpc_multiplier,
             rate_slope_multiplier,
         ),
@@ -199,7 +198,7 @@ pub fn execute(
             position_id,
             basket_id,
         } => {
-            //Set asset from funds sent
+            //Set valid_assets from funds sent
             let valid_assets = info
                 .clone()
                 .funds
@@ -233,6 +232,7 @@ pub fn execute(
             position_id,
             basket_id,
             assets,
+            send_to,
         } => {
             let cAssets: Vec<cAsset> = assert_basket_assets(
                 deps.storage,
@@ -244,25 +244,27 @@ pub fn execute(
             )?;
             //If there is nothing being withdrawn, error
             if cAssets == vec![] { return Err(ContractError::CustomError { val: String::from("No withdrawal assets passed") }) }
-            withdraw(deps, env, info, position_id, basket_id, cAssets)
+            withdraw(deps, env, info, position_id, basket_id, cAssets, send_to)
         }
 
         ExecuteMsg::IncreaseDebt {
             basket_id,
             position_id,
             amount,
-            mint_to_addr
-        } => increase_debt(deps, env, info, basket_id, position_id, amount, mint_to_addr),
+            mint_to_addr,
+            LTV,
+        } => increase_debt(deps, env, info, basket_id, position_id, amount, LTV, mint_to_addr),
         ExecuteMsg::Repay {
             basket_id,
             position_id,
             position_owner,
+            send_excess_to,
         } => {
             let basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
                 Err(_) => return Err(ContractError::NonExistentBasket {}),
                 Ok(basket) => basket,
             };
-
+                        
             let credit_asset = assert_sent_native_token_balance(basket.credit_asset.info, &info)?;
             repay(
                 deps.storage,
@@ -274,8 +276,25 @@ pub fn execute(
                 position_id,
                 position_owner,
                 credit_asset,
+                send_excess_to,
             )
         }
+        ExecuteMsg::ClosePosition { 
+            basket_id, 
+            position_id, 
+            max_spread, 
+            send_to 
+        } => {
+            close_position(
+                deps, 
+                env, 
+                info, 
+                basket_id, 
+                position_id, 
+                max_spread, 
+                send_to
+            )
+        },
         ExecuteMsg::LiqRepay {} => {
             if info.clone().funds.len() != 0 as usize {
                 let credit_asset = Asset {
@@ -308,6 +327,10 @@ pub fn execute(
             desired_debt_cap_util,
             credit_asset_twap_price_source,
             negative_rates,
+            cpc_margin_of_error,
+            frozen,
+            rev_to_stakers,
+            multi_asset_supply_caps,
         } => edit_basket(
             deps,
             info,
@@ -318,10 +341,14 @@ pub fn execute(
             credit_pool_ids,
             liquidity_multiplier,
             collateral_supply_caps,
+            multi_asset_supply_caps,
             base_interest_rate,
             desired_debt_cap_util,
             credit_asset_twap_price_source,
             negative_rates,
+            cpc_margin_of_error,
+            frozen,
+            rev_to_stakers,
         ),
         ExecuteMsg::CreateBasket {
             owner,
@@ -490,7 +517,6 @@ fn update_config(
     oracle_time_limit: Option<u64>,
     collateral_twap_timeframe: Option<u64>,
     credit_twap_timeframe: Option<u64>,
-    cpc_margin_of_error: Option<Decimal>,
     cpc_multiplier: Option<Decimal>,
     rate_slope_multiplier: Option<Decimal>,
 ) -> Result<Response, ContractError> {
@@ -585,13 +611,6 @@ fn update_config(
             credit_twap_timeframe.to_string(),
         ));
     }
-    if let Some(cpc_margin_of_error) = cpc_margin_of_error {
-        config.cpc_margin_of_error = cpc_margin_of_error.clone();
-        attrs.push(attr(
-            "new_cpc_margin_of_error",
-            cpc_margin_of_error.to_string(),
-        ));
-    }
     if let Some(cpc_multiplier) = cpc_multiplier {
         config.cpc_multiplier = cpc_multiplier.clone();
             attrs.push(attr(
@@ -623,11 +642,11 @@ pub fn callback_handler(
             basket_id,
             position_owner,
             position_id,
-        } => check_for_bad_debt(deps, env, basket_id, position_id, position_owner),
+        } => check_and_fulfill_bad_debt(deps, env, basket_id, position_id, position_owner),
     }
 }
 
-fn check_for_bad_debt(
+fn check_and_fulfill_bad_debt(
     deps: DepsMut,
     env: Env,
     basket_id: Uint128,
@@ -636,23 +655,13 @@ fn check_for_bad_debt(
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
 
-    let basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
+    let mut basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
         Err(_) => return Err(ContractError::NonExistentBasket {}),
         Ok(basket) => basket,
     };
-    let positions: Vec<Position> = match POSITIONS.load(
-        deps.storage,
-        (basket_id.to_string(), position_owner.clone()),
-    ) {
-        Err(_) => return Err(ContractError::NoUserPositions {}),
-        Ok(positions) => positions,
-    };
 
-    //Filter position by id
-    let target_position = match positions.into_iter().find(|x| x.position_id == position_id) {
-        Some(position) => position,
-        None => return Err(ContractError::NonExistentPosition {}),
-    };
+    //Get target Position
+    let mut target_position = get_target_position(deps.storage, basket_id.clone(), position_owner.clone(), position_id.clone())?;
 
     //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
     //This is allowed bc any calls here will be after a liquidation where the sell wall would've sold all it could to cover debts
@@ -669,6 +678,10 @@ fn check_for_bad_debt(
     } else {
         let mut messages: Vec<CosmosMsg> = vec![];
         let mut bad_debt_amount = target_position.credit_amount;
+        let mut attrs = vec![
+            attr("method", "check_and_fulfill_bad_debt"),
+            attr("bad_debt_amount", bad_debt_amount),
+        ];
 
         //If the basket has revenue, mint and repay the bad debt
         if !basket.pending_revenue.is_zero() {
@@ -692,7 +705,11 @@ fn check_for_bad_debt(
                     funds: vec![],
                 }));
 
+                //Update bad_debt
                 bad_debt_amount -= basket.pending_revenue;
+
+                //Update basket revenue
+                basket.pending_revenue = Uint128::zero();
             } else {
                 //If less than revenue, repay the debt and no auction
                 let mint_msg = ExecuteMsg::MintRevenue {
@@ -711,10 +728,21 @@ fn check_for_bad_debt(
                     msg: to_binary(&mint_msg)?,
                     funds: vec![],
                 }));
+                
+                //Update basket revenue
+                basket.pending_revenue -= bad_debt_amount;
 
+                //Set bad_debt to 0
                 bad_debt_amount = Uint128::zero();
+
             }
         }
+
+        //Set target_position.credit_amount to the leftover bad debt
+        target_position.credit_amount = bad_debt_amount;
+        
+        //Save target_position w/ updated debt
+        update_position(deps.storage, basket_id.clone().to_string(), position_owner.clone(), target_position)?;
 
         //Send bad debt amount to the auction contract if greater than 0
         if config.debt_auction.is_some() && !bad_debt_amount.is_zero() {
@@ -741,10 +769,16 @@ fn check_for_bad_debt(
             });
         }
 
-        return Ok(Response::new().add_messages(messages).add_attributes(vec![
-            attr("method", "check_for_bad_debt"),
-            attr("bad_debt_amount", bad_debt_amount),
-        ]));
+        //Save Basket w/ updated revenue
+        BASKETS.save(deps.storage, basket_id.to_string(), &basket)?;
+        
+        attrs.push(
+            attr("amount_sent_to_auction", bad_debt_amount)
+        );
+
+        return Ok(Response::new()
+            .add_messages(messages)
+            .add_attributes(attrs));
     }
 }
 
@@ -805,9 +839,9 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         LIQ_QUEUE_REPLY_ID => handle_liq_queue_reply(deps, msg, env),
         STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, env, msg),
         SELL_WALL_REPLY_ID => handle_sell_wall_reply(deps, msg, env),
-        CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, msg),
         WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
         USER_SP_REPAY_REPLY_ID => handle_sp_repay_reply(deps, env, msg),
+        CLOSE_POSITION_REPLY_ID => handle_close_position_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }

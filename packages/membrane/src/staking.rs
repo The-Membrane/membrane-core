@@ -10,7 +10,8 @@ use crate::types::{Asset, FeeEvent, StakeDeposit};
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub positions_contract: Option<String>,
-    pub builders_contract: Option<String>,
+    pub vesting_contract: Option<String>,
+    pub governance_contract: Option<String>,
     pub osmosis_proxy: Option<String>,
     pub staking_rate: Option<Decimal>,
     pub fee_wait_period: Option<u64>, //in days
@@ -27,7 +28,8 @@ pub enum ExecuteMsg {
     UpdateConfig {
         owner: Option<String>,
         positions_contract: Option<String>,
-        builders_contract: Option<String>,
+        vesting_contract: Option<String>,
+        governance_contract: Option<String>,
         osmosis_proxy: Option<String>,
         mbrn_denom: Option<String>,
         staking_rate: Option<Decimal>,
@@ -56,7 +58,7 @@ pub enum ExecuteMsg {
         send_to: Option<String>,
         restake: bool,
     },
-    //Position's contract deposits liq_fees
+    //Position's contract deposits protocol revenue
     DepositFee {},
     //Trim FeeEvent state object
     TrimFeeEvents {},
@@ -105,7 +107,8 @@ pub struct Config {
     pub fee_wait_period: u64,  //in days
     pub unstaking_period: u64, //days
     pub positions_contract: Option<Addr>,
-    pub builders_contract: Option<Addr>,
+    pub vesting_contract: Option<Addr>,
+    pub governance_contract: Option<Addr>,
     pub osmosis_proxy: Option<Addr>,
     pub dex_router: Option<Addr>,
     pub max_spread: Option<Decimal>, //max_spread for the router, mainly claim_as swaps
@@ -132,8 +135,8 @@ pub struct StakedResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct TotalStakedResponse {
-    pub total_not_including_builders: String,
-    pub builders_total: String,
+    pub total_not_including_vested: Uint128,
+    pub vested_total: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

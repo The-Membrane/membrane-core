@@ -5,7 +5,7 @@ mod tests {
 
     use crate::helpers::GovContract;
 
-    use ::membrane::builder_vesting::AllocationResponse;
+    use ::membrane::vesting::AllocationResponse;
     use membrane::governance::{
         ExecuteMsg, InstantiateMsg, QueryMsg, STAKE_INTERVAL, VOTING_PERIOD_INTERVAL,
     };
@@ -129,6 +129,7 @@ mod tests {
                         owner: Addr::unchecked(""),
                         positions_contract: Some(Addr::unchecked("")),
                         builders_contract: Some(Addr::unchecked("")),
+                        governance_contract: Some(Addr::unchecked("")),
                         osmosis_proxy: Some(Addr::unchecked("")),
                         staking_rate: Decimal::zero(),
                         unstaking_period: 0,
@@ -170,9 +171,9 @@ mod tests {
                 match msg {
                     BV_MockQueryMsg::Allocation { receiver } => {
                         Ok(to_binary(&AllocationResponse {
-                            amount: String::from("1000000000"),
-                            amount_withdrawn: String::from("0"),
-                            start_time_of_allocation: String::from("0"),
+                            amount: Uint128::new(1000000000),
+                            amount_withdrawn: Uint128::zero(),
+                            start_time_of_allocation: 0,
                             vesting_period: VestingPeriod {
                                 cliff: 0u64,
                                 linear: 0u64,

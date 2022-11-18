@@ -1,25 +1,25 @@
 //Token factory fork
 //https://github.com/osmosis-labs/bindings/blob/main/contracts/tokenfactory
 
+use std::convert::TryInto;
 use std::str::FromStr;
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Addr, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper,
-    QueryRequest, Reply, Response, StdError, StdResult, Uint128, SubMsg,
+    QueryRequest, Reply, Response, StdError, StdResult, Uint128, SubMsg, CosmosMsg, BankMsg, Coin, coins,
 };
 use cw2::set_contract_version;
+use osmosis_std::types::osmosis::gamm::v1beta1::GammQuerier;
 
 use crate::error::TokenFactoryError;
 use crate::state::{TokenInfo, CONFIG, TOKENS};
 use membrane::osmosis_proxy::{
     Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse,
 };
-use osmo_bindings::{
-    ArithmeticTwapToNowResponse, FullDenomResponse, OsmosisMsg, OsmosisQuerier, OsmosisQuery,
-    PoolStateResponse,
-};
+use membrane::types::{Pool, PoolStateResponse};
+use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, QueryDenomsFromCreatorResponse};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:osmosis-proxy";
@@ -29,7 +29,7 @@ const CREATE_DENOM_REPLY_ID: u64 = 1u64;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
-    deps: DepsMut<OsmosisQuery>,
+    deps: DepsMut,
     _env: Env,
     info: MessageInfo,
     _msg: InstantiateMsg,
@@ -48,11 +48,11 @@ pub fn instantiate(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
-    deps: DepsMut<OsmosisQuery>,
-    _env: Env,
+    deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     msg: ExecuteMsg,
-) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+) -> Result<Response, TokenFactoryError> {
     match msg {
         ExecuteMsg::CreateDenom {
             subdenom,
@@ -61,6 +61,7 @@ pub fn execute(
             liquidity_multiplier,
         } => create_denom(
             deps,
+            env,
             info,
             subdenom,
             basket_id,
@@ -70,17 +71,17 @@ pub fn execute(
         ExecuteMsg::ChangeAdmin {
             denom,
             new_admin_address,
-        } => change_admin(deps, info, denom, new_admin_address),
+        } => change_admin(deps, env, info, denom, new_admin_address),
         ExecuteMsg::MintTokens {
             denom,
             amount,
             mint_to_address,
-        } => mint_tokens(deps, info, denom, amount, mint_to_address),
+        } => mint_tokens(deps, env, info, denom, amount, mint_to_address),
         ExecuteMsg::BurnTokens {
             denom,
             amount,
             burn_from_address,
-        } => burn_tokens(deps, info, denom, amount, burn_from_address),
+        } => burn_tokens(deps, env, info, denom, amount, burn_from_address),
         ExecuteMsg::EditTokenMaxSupply { denom, max_supply } => {
             edit_token_max(deps, info, denom, max_supply)
         }
@@ -93,12 +94,12 @@ pub fn execute(
 }
 
 fn update_config(
-    deps: DepsMut<OsmosisQuery>,
+    deps: DepsMut,
     info: MessageInfo,
     owner: Option<String>,
     debt_auction: Option<String>,
     add_owner: bool,
-) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+) -> Result<Response, TokenFactoryError> {
 
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -158,13 +159,14 @@ fn validate_authority(config: Config, info: MessageInfo) -> bool {
 }
 
 pub fn create_denom(
-    deps: DepsMut<OsmosisQuery>,
+    deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     subdenom: String,
     basket_id: String,
     max_supply: Option<Uint128>,
     liquidity_multiplier: Option<Decimal>,
-) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+) -> Result<Response, TokenFactoryError> {
 
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
@@ -174,13 +176,11 @@ pub fn create_denom(
 
     if subdenom.eq("") {
         return Err(TokenFactoryError::InvalidSubdenom { subdenom });
-    }
-    
+    }    
 
-    let create_denom_msg = SubMsg::reply_on_success(OsmosisMsg::CreateDenom {
-        subdenom: subdenom.clone(),
-    }, CREATE_DENOM_REPLY_ID );
+    let msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: subdenom.clone() };
 
+    let create_denom_msg = SubMsg::reply_on_success(msg, CREATE_DENOM_REPLY_ID );
 
     let res = Response::new()
         .add_attribute("method", "create_denom")
@@ -199,11 +199,12 @@ pub fn create_denom(
 }
 
 pub fn change_admin(
-    deps: DepsMut<OsmosisQuery>,
+    deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     denom: String,
     new_admin_address: String,
-) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+) -> Result<Response, TokenFactoryError> {
 
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
@@ -215,9 +216,10 @@ pub fn change_admin(
 
     validate_denom(deps.querier, denom.clone())?;
 
-    let change_admin_msg = OsmosisMsg::ChangeAdmin {
+    let change_admin_msg = TokenFactory::MsgChangeAdmin {
         denom: denom.clone(),
-        new_admin_address: new_admin_address.clone(),
+        sender: env.contract.address.to_string(),
+        new_admin: new_admin_address.clone(),
     };
 
     let res = Response::new()
@@ -230,11 +232,11 @@ pub fn change_admin(
 }
 
 fn edit_token_max(
-    deps: DepsMut<OsmosisQuery>,
+    deps: DepsMut,
     info: MessageInfo,
     denom: String,
     max_supply: Uint128,
-) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+) -> Result<Response, TokenFactoryError> {
 
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
@@ -272,12 +274,13 @@ fn edit_token_max(
 }
 
 pub fn mint_tokens(
-    deps: DepsMut<OsmosisQuery>,
+    deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     denom: String,
     amount: Uint128,
     mint_to_address: String,
-) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+) -> Result<Response, TokenFactoryError> {
 
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
@@ -331,11 +334,25 @@ pub fn mint_tokens(
         },
     )?;
 
-    let mint_tokens_msg = OsmosisMsg::mint_contract_tokens(denom, amount, mint_to_address.clone());    
+    //Create mint msg
+    let mint_tokens_msg = TokenFactory::MsgMint{
+        sender: env.contract.address.to_string(), 
+        amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin{
+            denom: denom.clone(),
+            amount: amount.to_string(),
+        }), 
+    }.into();    
+
+    //Send minted assets to mint_to_address
+    let send_msg = CosmosMsg::Bank(BankMsg::Send { 
+        to_address: mint_to_address.clone(),
+        amount: coins(amount.u128(), denom.clone()),
+    });
 
     let mut res = Response::new()
         .add_attribute("method", "mint_tokens")
         .add_attribute("mint_status", mint_allowed.to_string())
+        .add_attribute("denom", denom.clone())
         .add_attribute("amount", Uint128::zero());
 
     //If a mint was made/allowed
@@ -343,32 +360,29 @@ pub fn mint_tokens(
         res = Response::new()
             .add_attribute("method", "mint_tokens")
             .add_attribute("mint_status", mint_allowed.to_string())
+            .add_attribute("denom", denom)
             .add_attribute("amount", amount)
             .add_attribute("mint_to_address", mint_to_address)
-            .add_message(mint_tokens_msg);
+            .add_messages(vec![mint_tokens_msg, send_msg])
+            ;
     }
 
     Ok(res)
 }
 
 pub fn burn_tokens(
-    deps: DepsMut<OsmosisQuery>,
+    deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     denom: String,
     amount: Uint128,
     burn_from_address: String,
-) -> Result<Response<OsmosisMsg>, TokenFactoryError> {
+) -> Result<Response, TokenFactoryError> {
     
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
     if !validate_authority(config, info) {
         return Err(TokenFactoryError::Unauthorized {});
-    }
-
-    if !burn_from_address.is_empty() {
-        return Result::Err(TokenFactoryError::BurnFromAddressNotSupported {
-            address: burn_from_address,
-        });
     }
 
     if amount.eq(&Uint128::new(0_u128)) {
@@ -396,7 +410,13 @@ pub fn burn_tokens(
         },
     )?;
 
-    let burn_token_msg = OsmosisMsg::burn_contract_tokens(denom, amount, burn_from_address.clone());
+    let burn_token_msg: CosmosMsg = TokenFactory::MsgBurn {
+        sender: env.contract.address.to_string(),
+        amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin{
+            denom,
+            amount: amount.to_string(),
+        }),
+    }.into();
 
     let res = Response::new()
         .add_attribute("method", "burn_tokens")
@@ -408,31 +428,19 @@ pub fn burn_tokens(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps<OsmosisQuery>, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::GetDenom {
             creator_address,
             subdenom,
-        } => to_binary(&get_denom(deps, creator_address, subdenom)),
+        } => to_binary(&get_denom(deps, creator_address, subdenom)?),
         QueryMsg::PoolState { id } => to_binary(&get_pool_state(deps, id)?),
-        QueryMsg::ArithmeticTwapToNow {
-            id,
-            quote_asset_denom,
-            base_asset_denom,
-            start_time,
-        } => to_binary(&get_arithmetic_twap_to_now(
-            deps,
-            id,
-            quote_asset_denom,
-            base_asset_denom,
-            start_time,
-        )?),
         QueryMsg::GetTokenInfo { denom } => to_binary(&get_token_info(deps, denom)?),
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
     }
 }
 
-fn get_token_info(deps: Deps<OsmosisQuery>, denom: String) -> StdResult<TokenInfoResponse> {
+fn get_token_info(deps: Deps, denom: String) -> StdResult<TokenInfoResponse> {
     let token_info = TOKENS.load(deps.storage, denom.clone())?;
     Ok(TokenInfoResponse {
         denom,
@@ -441,42 +449,40 @@ fn get_token_info(deps: Deps<OsmosisQuery>, denom: String) -> StdResult<TokenInf
     })
 }
 
-fn get_arithmetic_twap_to_now(
-    deps: Deps<OsmosisQuery>,
-    id: u64,
-    quote_asset_denom: String,
-    base_asset_denom: String,
-    start_time: i64,
-) -> StdResult<ArithmeticTwapToNowResponse> {
-    let msg =
-        OsmosisQuery::arithmetic_twap_to_now(id, quote_asset_denom, base_asset_denom, start_time);
-    let request: QueryRequest<OsmosisQuery> = OsmosisQuery::into(msg);
+fn get_pool_state(
+    deps: Deps,
+    pool_id: u64,
+) -> StdResult<PoolStateResponse> {
+    let res = GammQuerier::new(&deps.querier).pool(pool_id)?;
+    
+    let pool: Pool = res.pool
+        .ok_or_else(|| StdError::NotFound {
+            kind: "pool".to_string(),
+        })?
+        // convert `Any` to `Pool`
+        .try_into()?;
 
-    let response: ArithmeticTwapToNowResponse = deps.querier.query(&request)?;
-
-    Ok(response)
+    Ok(pool.into_pool_state_response())
+    
 }
 
-fn get_pool_state(deps: Deps<OsmosisQuery>, id: u64) -> StdResult<PoolStateResponse> {
-    let msg = OsmosisQuery::PoolState { id };
-    let request: QueryRequest<OsmosisQuery> = OsmosisQuery::into(msg);
+fn get_denom(deps: Deps, creator_addr: String, subdenom: String) -> StdResult<GetDenomResponse> {
 
-    let response: PoolStateResponse = deps.querier.query(&request)?;
+    let response: QueryDenomsFromCreatorResponse = TokenFactory::TokenfactoryQuerier::new(&deps.querier).denoms_from_creator(creator_addr)?;
 
-    Ok(response)
-}
+    let denom = if let Some(denom) = response.denoms.into_iter().find(|denoms| denoms.contains(&subdenom)){
+        denom
+    } else {
+        return Err(StdError::GenericErr { msg: String::from("Can'r find subdenom in list of contract denoms") })
+    };
 
-fn get_denom(deps: Deps<OsmosisQuery>, creator_addr: String, subdenom: String) -> GetDenomResponse {
-    let querier = OsmosisQuerier::new(&deps.querier);
-    let response = querier.full_denom(creator_addr, subdenom).unwrap();
-
-    GetDenomResponse {
-        denom: response.denom,
-    }
+    Ok(GetDenomResponse {
+        denom,
+    })
 }
 
 pub fn validate_denom(
-    querier: QuerierWrapper<OsmosisQuery>,
+    querier: QuerierWrapper,
     denom: String,
 ) -> Result<(), TokenFactoryError> {
     let denom_to_split = denom.clone();
@@ -503,21 +509,11 @@ pub fn validate_denom(
         });
     }
 
-    // Validate denom by attempting to query for full denom
-    let response = OsmosisQuerier::new(&querier)
-        .full_denom(String::from(creator_address), String::from(subdenom));
-    if response.is_err() {
-        return Result::Err(TokenFactoryError::InvalidDenom {
-            denom,
-            message: response.err().unwrap().to_string(),
-        });
-    }
-
     Result::Ok(())
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn reply(deps: DepsMut<OsmosisQuery>, env: Env, msg: Reply) -> StdResult<Response> {
+pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
@@ -525,7 +521,7 @@ pub fn reply(deps: DepsMut<OsmosisQuery>, env: Env, msg: Reply) -> StdResult<Res
 }
 
 fn handle_create_denom_reply(
-    deps: DepsMut<OsmosisQuery>,
+    deps: DepsMut,
     env: Env,
     msg: Reply,
 ) -> StdResult<Response> {
@@ -553,9 +549,13 @@ fn handle_create_denom_reply(
                 .unwrap()
                 .value;
 
-            //Query fulldenom to save to TOKENS
-            let response: FullDenomResponse = OsmosisQuerier::new(&deps.querier)
-                .full_denom(String::from(env.contract.address), String::from(subdenom))?;
+            /// Query all denoms created by this contract
+            let tq = TokenFactory::TokenfactoryQuerier::new(&deps.querier);
+            let res: QueryDenomsFromCreatorResponse = tq.denoms_from_creator(env.contract.address.into_string())?;
+            let denom = if let Some(denom) = res.denoms.into_iter().find(|denom| denom.contains(subdenom)){
+                denom
+            } else { return Err(StdError::GenericErr { msg: String::from("Cannot find created denom") }) };
+           
 
             let max_supply = {
                 if Uint128::from_str(max_supply)?.is_zero() {
@@ -566,7 +566,7 @@ fn handle_create_denom_reply(
             };
             TOKENS.save(
                 deps.storage,
-                response.denom,
+                denom,
                 &TokenInfo {
                     current_supply: Uint128::zero(),
                     max_supply,

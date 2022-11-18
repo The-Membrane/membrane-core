@@ -4,14 +4,16 @@ use std::env;
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, coin, from_binary, to_binary, Addr, Api, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
-    DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg,
+    DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg, QueryRequest, WasmQuery, QuerierWrapper,
 };
 use cw2::set_contract_version;
 use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
 
-use membrane::apollo_router::{Cw20HookMsg as RouterCw20HookMsg, ExecuteMsg as RouterExecuteMsg};
+use membrane::apollo_router::{Cw20HookMsg as RouterCw20HookMsg, ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
+use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, ProposalStatus};
 use membrane::staking::{ Config, Cw20HookMsg, ExecuteMsg, InstantiateMsg, QueryMsg };
+use membrane::vesting::{QueryMsg as Vesting_QueryMsg, RecipientsResponse};
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit};
 use membrane::math::decimal_division;
 
@@ -39,7 +41,8 @@ pub fn instantiate(
         config = Config {
             owner: deps.api.addr_validate(&msg.owner.unwrap())?,
             positions_contract: None,
-            builders_contract: None,
+            vesting_contract: None,
+            governance_contract: None,
             osmosis_proxy: None,
             staking_rate: msg.staking_rate.unwrap_or_else(|| Decimal::percent(10)),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
@@ -52,7 +55,8 @@ pub fn instantiate(
         config = Config {
             owner: info.sender,
             positions_contract: None,
-            builders_contract: None,
+            vesting_contract: None,
+            governance_contract: None,
             osmosis_proxy: None,
             staking_rate: msg.staking_rate.unwrap_or_else(|| Decimal::percent(10)),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
@@ -64,35 +68,29 @@ pub fn instantiate(
     }
 
     let mut attrs = vec![];
+    let mut total_vesting = Uint128::zero();
+
     // //Set optional config parameters
-    match msg.dex_router {
-        Some(dex_router) => {
-            config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
-            attrs.push(attr("dex_router", dex_router));
-        }
-        None => {}
-    }
-    match msg.builders_contract {
-        Some(builders_contract) => {
-            config.builders_contract = Some(deps.api.addr_validate(&builders_contract)?);
-            attrs.push(attr("builders_contract", builders_contract));
-        }
-        None => {}
-    }
-    match msg.positions_contract {
-        Some(positions_contract) => {
-            config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
-            attrs.push(attr("positions_contract", positions_contract));
-        }
-        None => {}
-    }
-    match msg.osmosis_proxy {
-        Some(osmosis_proxy) => {
-            config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
-            attrs.push(attr("osmosis_proxy", osmosis_proxy));
-        }
-        None => {}
-    }
+    if let Some(dex_router) = msg.dex_router {
+        config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
+        attrs.push(attr("dex_router", dex_router));
+    };
+    if let Some(vesting_contract) = msg.vesting_contract {        
+        config.vesting_contract = Some(deps.api.addr_validate(&vesting_contract)?);
+        attrs.push(attr("vesting_contract", vesting_contract));
+    };
+    if let Some(positions_contract) = msg.positions_contract {
+        config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
+        attrs.push(attr("positions_contract", positions_contract));
+    };
+    if let Some(governance_contract) = msg.governance_contract {
+        config.governance_contract = Some(deps.api.addr_validate(&governance_contract)?);
+        attrs.push(attr("governance_contract", governance_contract));
+    };
+    if let Some(osmosis_proxy) = msg.osmosis_proxy {
+        config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
+        attrs.push(attr("osmosis_proxy", osmosis_proxy));
+    };
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
@@ -106,7 +104,7 @@ pub fn instantiate(
         deps.storage,
         &Totals {
             stakers: Uint128::zero(),
-            builders_contract: Uint128::zero(),
+            vesting_contract: Uint128::zero(),
         },
     )?;
     //Initialize fee events
@@ -123,6 +121,19 @@ pub fn instantiate(
     Ok(res.add_attributes(attrs))
 }
 
+fn get_total_vesting(
+    querier: QuerierWrapper,    
+    vesting_contract: String,
+) -> StdResult<Uint128>{
+
+    let recipients = querier.query::<RecipientsResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+        contract_addr: vesting_contract, 
+        msg: to_binary(&Vesting_QueryMsg::Recipients {  })?
+    }))?;    
+
+    Ok(recipients.get_total_vesting())
+}
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
     deps: DepsMut,
@@ -137,7 +148,8 @@ pub fn execute(
             mbrn_denom,
             dex_router,
             max_spread,
-            builders_contract,
+            vesting_contract,
+            governance_contract,
             osmosis_proxy,
             positions_contract,
             staking_rate,
@@ -148,7 +160,8 @@ pub fn execute(
             info,
             owner,
             positions_contract,
-            builders_contract,
+            vesting_contract,
+            governance_contract,
             osmosis_proxy,
             mbrn_denom,
             staking_rate,
@@ -204,7 +217,8 @@ fn update_config(
     info: MessageInfo,
     owner: Option<String>,
     positions_contract: Option<String>,
-    builders_contract: Option<String>,
+    vesting_contract: Option<String>,
+    governance_contract: Option<String>,
     osmosis_proxy: Option<String>,
     mbrn_denom: Option<String>,
     staking_rate: Option<Decimal>,
@@ -223,82 +237,55 @@ fn update_config(
     let mut attrs = vec![attr("method", "update_config")];
 
     //Match Optionals
-    match owner {
-        Some(owner) => {
-            let valid_addr = deps.api.addr_validate(&owner)?;
-            config.owner = valid_addr.clone();
-            attrs.push(attr("new_owner", valid_addr.to_string()));
+    if let Some(owner) = owner {
+        let valid_addr = deps.api.addr_validate(&owner)?;
+        config.owner = valid_addr.clone();
+        attrs.push(attr("new_owner", valid_addr.to_string()));
+    };
+    if let Some(max_spread) = max_spread {
+        config.max_spread = Some(max_spread);
+        attrs.push(attr("new_max_spread", max_spread.to_string()));
+    };
+    if let Some(mut staking_rate) = staking_rate {
+        //Hard code a 20% maximum
+        if staking_rate > Decimal::percent(20) {
+            staking_rate = Decimal::percent(20);
         }
-        None => {}
-    }
-    match dex_router {
-        Some(dex_router) => {
-            let valid_addr = deps.api.addr_validate(&dex_router)?;
-            config.dex_router = Some(valid_addr.clone());
-            attrs.push(attr("new_dex_router", valid_addr.to_string()));
-        }
-        None => {}
-    }
-    match max_spread {
-        Some(max_spread) => {
-            config.max_spread = Some(max_spread);
-            attrs.push(attr("new_max_spread", max_spread.to_string()));
-        }
-        None => {}
-    }
-    match staking_rate {
-        Some(mut staking_rate) => {
-            //Hard code a 20% maximum
-            if staking_rate > Decimal::percent(20) {
-                staking_rate = Decimal::percent(20);
-            }
-            config.staking_rate = staking_rate;
-            attrs.push(attr("new_staking_rate", staking_rate.to_string()));
-        }
-        None => {}
-    }
-    match unstaking_period {
-        Some(unstaking_period) => {
-            config.unstaking_period = unstaking_period;
-            attrs.push(attr("new_unstaking_period", unstaking_period.to_string()));
-        }
-        None => {}
-    }
-    match fee_wait_period {
-        Some(fee_wait_period) => {
-            config.fee_wait_period = fee_wait_period;
-            attrs.push(attr("new_fee_wait_period", fee_wait_period.to_string()));
-        }
-        None => {}
-    }
-    match mbrn_denom {
-        Some(mbrn_denom) => {
-            config.mbrn_denom = mbrn_denom.clone();
-            attrs.push(attr("new_mbrn_denom", mbrn_denom));
-        }
-        None => {}
-    }
-    match builders_contract {
-        Some(builders_contract) => {
-            config.builders_contract = Some(deps.api.addr_validate(&builders_contract)?);
-            attrs.push(attr("new_builders_contract", builders_contract));
-        }
-        None => {}
-    }
-    match positions_contract {
-        Some(positions_contract) => {
+        config.staking_rate = staking_rate;
+        attrs.push(attr("new_staking_rate", staking_rate.to_string()));
+    };
+    if let Some(unstaking_period) = unstaking_period {
+        config.unstaking_period = unstaking_period;
+        attrs.push(attr("new_unstaking_period", unstaking_period.to_string()));
+    };
+    if let Some(fee_wait_period) = fee_wait_period {
+        config.fee_wait_period = fee_wait_period;
+        attrs.push(attr("new_fee_wait_period", fee_wait_period.to_string()));
+    };
+    if let Some(mbrn_denom) = mbrn_denom {
+        config.mbrn_denom = mbrn_denom.clone();
+        attrs.push(attr("new_mbrn_denom", mbrn_denom));
+    };
+    if let Some(dex_router) = dex_router {
+        config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
+        attrs.push(attr("new_dex_router", dex_router));
+    };
+    if let Some(vesting_contract) = vesting_contract {
+            config.vesting_contract = Some(deps.api.addr_validate(&vesting_contract)?);
+            attrs.push(attr("new_builders_contract", vesting_contract));
+    };
+    if let Some(positions_contract) = positions_contract {
             config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
             attrs.push(attr("new_positions_contract", positions_contract));
-        }
-        None => {}
-    }
-    match osmosis_proxy {
-        Some(osmosis_proxy) => {
+    };
+    if let Some(governance_contract) = governance_contract {
+        config.governance_contract = Some(deps.api.addr_validate(&governance_contract)?);
+        attrs.push(attr("new_governance_contract", governance_contract));
+    };
+    if let Some(osmosis_proxy) = osmosis_proxy {
             config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
             attrs.push(attr("new_osmosis_proxy", osmosis_proxy));
-        }
-        None => {}
-    }
+    };
 
     //Save new Config
     CONFIG.save(deps.storage, &config)?;
@@ -372,18 +359,10 @@ pub fn stake(
 
     //Add to Totals
     let mut totals = TOTALS.load(deps.storage)?;
-    if config.builders_contract.is_some() {
-        if info.sender == config.builders_contract.unwrap() {
-            totals.builders_contract += valid_asset.amount;
-        } else {
-            totals.stakers += valid_asset.amount;
-        }
-        TOTALS.save(deps.storage, &totals)?;
-    } else {
-        return Err(ContractError::CustomError {
-            val: String::from("Builders contract needs to be added to the config"),
-        });
-    }
+    
+    totals.stakers += valid_asset.amount;
+    TOTALS.save(deps.storage, &totals)?;
+    
 
     //Response build
     let response = Response::new();
@@ -410,6 +389,17 @@ pub fn unstake(
     let mut msgs = vec![];
 
     let fee_events = FEE_EVENTS.load(deps.storage)?;
+
+    //Can't unstake if there is an active proposal by user
+    let proposal_list = deps.querier.query::<ProposalListResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+        contract_addr: config.clone().governance_contract.unwrap().to_string(), 
+        msg: to_binary(&Gov_QueryMsg::Proposals { start: None, limit: None })?
+    }))?;
+    for proposal in proposal_list.proposal_list {
+        if proposal.submitter == info.sender && proposal.status == ProposalStatus::Active {
+            return Err(ContractError::CustomError { val: String::from("Can't unstake while your proposal is active") })
+        }
+    }
 
     //Get total Stake
     let total_stake = {
@@ -505,11 +495,8 @@ pub fn unstake(
 
     //Correct Totals
     let mut totals = TOTALS.load(deps.storage)?;
-    if info.sender == config.builders_contract.unwrap() {
-        totals.builders_contract -= withdrawable_amount;
-    } else {
-        totals.stakers -= withdrawable_amount;
-    }
+    totals.stakers -= withdrawable_amount;
+    
     TOTALS.save(deps.storage, &totals)?;
 
     //Response builder
@@ -795,7 +782,7 @@ pub fn claim_rewards(
 
     //Create MBRN Mint Msg
     if config.osmosis_proxy.is_some() {
-        if info.sender != config.clone().builders_contract.unwrap() && !accrued_interest.is_zero() {
+        if info.sender != config.clone().vesting_contract.unwrap_or_else(|| Addr::unchecked("")) && !accrued_interest.is_zero() {
             //Who to send to?
             if send_to.is_some() {
                 let valid_receipient = deps.api.addr_validate(&send_to.clone().unwrap())?;
@@ -898,8 +885,20 @@ fn deposit_fee(
     let mut fee_events = FEE_EVENTS.load(deps.storage)?;
 
     //Load Total staked
-    let totals = TOTALS.load(deps.storage)?;
-    let mut total = totals.builders_contract + totals.stakers;
+    let mut totals = TOTALS.load(deps.storage)?;
+
+    //Update vesting total
+    if let Some(vesting_contract) = config.vesting_contract {
+        
+        let vesting_total = get_total_vesting(deps.querier, vesting_contract.to_string())?;
+
+        totals.vesting_contract = vesting_total;
+        TOTALS.save(deps.storage, &totals)?;
+    }
+
+
+    //Set total
+    let mut total = totals.vesting_contract + totals.stakers;
 
     if total.is_zero() {
         total = Uint128::new(1u128)
@@ -921,9 +920,6 @@ fn deposit_fee(
             },
         });
     }
-
-    //Load Stakers
-    let stakers = STAKED.load(deps.storage)?;
 
     FEE_EVENTS.save(deps.storage, &fee_events)?;
 
@@ -981,9 +977,9 @@ fn user_claims(
                             let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
                             //Create Cw20 Router SwapMsgs
                             let swap_hook = RouterCw20HookMsg::Swap {
-                                to: AssetInfo::Token {
+                                to: SwapToAssetsInput::Single(AssetInfo::Token {
                                     address: valid_claim_addr,
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -992,7 +988,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(valid_receipient.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1010,9 +1005,9 @@ fn user_claims(
                             //Send to Staker
                             //Create Cw20 Router SwapMsgs
                             let swap_hook = RouterCw20HookMsg::Swap {
-                                to: AssetInfo::Token {
+                                to: SwapToAssetsInput::Single(AssetInfo::Token {
                                     address: valid_claim_addr,
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -1021,7 +1016,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(info.clone().sender.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1044,9 +1038,9 @@ fn user_claims(
                             let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
                             //Create Cw20 Router SwapMsgs
                             let swap_hook = RouterCw20HookMsg::Swap {
-                                to: AssetInfo::NativeToken {
+                                to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                                     denom: claim_as_native.clone().unwrap(),
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -1055,7 +1049,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(valid_receipient.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1073,9 +1066,9 @@ fn user_claims(
                             //Send to Staker
                             //Create Cw20 Router SwapMsgs
                             let swap_hook = RouterCw20HookMsg::Swap {
-                                to: AssetInfo::NativeToken {
+                                to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                                     denom: claim_as_native.clone().unwrap(),
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -1084,7 +1077,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(info.clone().sender.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1112,10 +1104,10 @@ fn user_claims(
                             //Send to Optional receipient
                             let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
                             //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterExecuteMsg::SwapFromNative {
-                                to: AssetInfo::Token {
+                            let swap_hook = RouterExecuteMsg::Swap {
+                                to: SwapToAssetsInput::Single(AssetInfo::Token {
                                     address: valid_claim_addr,
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -1124,7 +1116,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(valid_receipient.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1136,10 +1127,10 @@ fn user_claims(
                             messages.push(message);
                         } else {
                             //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterExecuteMsg::SwapFromNative {
-                                to: AssetInfo::Token {
+                            let swap_hook = RouterExecuteMsg::Swap {
+                                to: SwapToAssetsInput::Single(AssetInfo::Token {
                                     address: valid_claim_addr,
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -1148,7 +1139,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(info.clone().sender.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1166,10 +1156,10 @@ fn user_claims(
                             //Send to Optional receipient
                             let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
                             //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterExecuteMsg::SwapFromNative {
-                                to: AssetInfo::NativeToken {
+                            let swap_hook = RouterExecuteMsg::Swap {
+                                to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                                     denom: claim_as_native.clone().unwrap(),
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -1178,7 +1168,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(valid_receipient.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1191,10 +1180,10 @@ fn user_claims(
                         } else {
                             //Send to Staker
                             //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterExecuteMsg::SwapFromNative {
-                                to: AssetInfo::NativeToken {
+                            let swap_hook = RouterExecuteMsg::Swap {
+                                to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                                     denom: claim_as_native.clone().unwrap(),
-                                },
+                                }),
                                 max_spread: Some(
                                     config
                                         .clone()
@@ -1203,7 +1192,6 @@ fn user_claims(
                                 ),
                                 recipient: Some(info.clone().sender.to_string()),
                                 hook_msg: None,
-                                split: None,
                             };
 
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {

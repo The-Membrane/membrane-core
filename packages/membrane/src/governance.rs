@@ -31,10 +31,10 @@ const SAFE_TEXT_CHARS: &str = "!&?#()*+'-./\"";
 pub struct InstantiateMsg {
     /// MBRN Staking contract to query MBRN denom
     pub mbrn_staking_contract_addr: String,
-    /// Address of the builders' contract
-    pub builders_contract_addr: String,
-    ///Multiplier for Builders' allocation voting power
-    pub builders_voting_power_multiplier: Decimal,
+    /// Address of the vesting contract
+    pub vesting_contract_addr: String,
+    ///Multiplier for vesting allocation voting power
+    pub vesting_voting_power_multiplier: Decimal,
     /// Proposal voting period
     pub proposal_voting_period: u64,
     /// Expedited Proposal voting period
@@ -64,7 +64,7 @@ pub enum ExecuteMsg {
         link: Option<String>,
         messages: Option<Vec<ProposalMessage>>,
         //If from the builder's contract
-        receiver: Option<String>,
+        recipient: Option<String>,
         //Expedited toggle
         expedited: bool,
     },
@@ -75,7 +75,7 @@ pub enum ExecuteMsg {
         /// Vote option
         vote: ProposalVoteOption,
         //If from the builder's contract
-        receiver: Option<String>,
+        recipient: Option<String>,
     },
     /// Set the status of a proposal that expired
     EndProposal {
@@ -137,7 +137,7 @@ pub enum QueryMsg {
     UserVotingPower {
         user: String,
         proposal_id: u64,
-        builders: bool,
+        vesting: bool,
     },
     /// Return total voting power for a specific proposal
     TotalVotingPower { proposal_id: u64 },
@@ -150,10 +150,10 @@ pub struct Config {
     pub mbrn_denom: String,
     ///MBRN staking contract
     pub staking_contract_addr: Addr,
-    /// Address of the builder unlock contract
-    pub builders_contract_addr: Addr,
-    ///Multiplier for Builders' allocation voting power
-    pub builders_voting_power_multiplier: Decimal,
+    /// Address of the vesting contract
+    pub vesting_contract_addr: Addr,
+    ///Multiplier for vesting allocation voting power
+    pub vesting_voting_power_multiplier: Decimal,
     /// Proposal voting period
     pub proposal_voting_period: u64,
     /// Expedited Proposal voting period
@@ -240,10 +240,10 @@ pub struct UpdateConfig {
     pub mbrn_denom: Option<String>,
     /// MBRN staking contract
     pub staking_contract: Option<String>,
-    /// Builders' contract address
-    pub builders_contract_addr: Option<String>,
-    /// Multiplier for Builders' allocation voting power
-    pub builders_voting_power_multiplier: Option<Decimal>,
+    /// vesting' contract address
+    pub vesting_contract_addr: Option<String>,
+    /// Multiplier for vesting' allocation voting power
+    pub vesting_voting_power_multiplier: Option<Decimal>,
     /// Proposal voting period
     pub proposal_voting_period: Option<u64>,
     /// Expedited Proposal voting period

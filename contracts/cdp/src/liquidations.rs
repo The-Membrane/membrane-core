@@ -5,12 +5,12 @@ use cw20::Cw20ExecuteMsg;
 
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction, Uint256};
 use membrane::positions::{Config, ExecuteMsg, CallbackMsg};
-use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg};
+use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg, SwapToAssetsInput};
 use membrane::stability_pool::{DepositResponse, PoolResponse, LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
-use membrane::types::{Basket, SellWallDistribution, Position, AssetInfo, UserInfo, Asset, LiqAsset, cAsset};
+use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, LiqAsset, cAsset};
 
 use osmo_bindings::PoolStateResponse;
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
@@ -18,7 +18,7 @@ use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 use crate::error::ContractError; 
 use crate::rates::accrue;
 use crate::positions::{validate_position_owner, get_target_position, update_position, insolvency_check, get_avg_LTV, get_cAsset_ratios, get_LP_pool_cAssets, BAD_DEBT_REPLY_ID, update_position_claims, asset_to_coin};
-use crate::state::{CONFIG, BASKETS, REPAY, RepayPropagation, POSITIONS};
+use crate::state::{CONFIG, BASKETS, LIQUIDATION, LiquidationPropagation, POSITIONS};
 
 
 //Liquidation reply ids
@@ -113,61 +113,17 @@ pub fn liquidate(
     let mut fee_messages: Vec<CosmosMsg> = vec![];
     let mut lp_withdraw_messages: Vec<CosmosMsg> = vec![];
 
-    //Pre-LP Split ratios
-    let cAsset_ratios = get_cAsset_ratios(
+    //cAsset_ratios including LP shares
+    let (cAsset_ratios, _) = get_cAsset_ratios(
         storage,
         env.clone(),
         querier,
         target_position.clone().collateral_assets,
         config.clone(),
     )?;
-    //Post-LP Split assets
-    let collateral_assets = get_LP_pool_cAssets(
-        querier,
-        config.clone(),
-        basket.clone(),
-        target_position.clone().collateral_assets,
-    )?;
+    //Set collateral_assets
+    let collateral_assets = target_position.clone().collateral_assets;
 
-    for (i, cAsset) in target_position
-        .clone()
-        .collateral_assets
-        .into_iter()
-        .enumerate()
-    {
-        //Withdraw the necessary amount of LP shares
-        //Ensures liquidations are on the pooled assets and not the LP share itself for more efficient queue capital
-        if cAsset.clone().pool_info.is_some() {
-
-            let msg = get_lp_liq_withdraw_msg( 
-                storage, 
-                querier, 
-                env.clone(), 
-                config.clone(), 
-                basket_id.clone(), 
-                position_id.clone(), 
-                valid_position_owner.clone(), 
-                collateral_assets.clone(), 
-                cAsset_ratios.clone(), 
-                cAsset_prices.clone(), 
-                repay_value.clone(),
-                cAsset.clone(), 
-                i.clone()  
-            )?;
-
-            //Comment out to pass accrue_debt test
-            lp_withdraw_messages.push(msg);
-        }
-    }
-
-    //Post-LP Split ratios
-    let cAsset_ratios = get_cAsset_ratios(
-        storage,
-        env.clone(),
-        querier,
-        collateral_assets.clone(),
-        config.clone(),
-    )?;
     //Dynamic fee that goes to the caller (info.sender): current_LTV - max_LTV
     let caller_fee = decimal_subtraction(current_LTV, avg_max_LTV);
 
@@ -206,19 +162,19 @@ pub fn liquidate(
         &mut per_asset_repayment
     )?;
     
-
-    //Build SubMsgs to send to the Stability Pool
+    
+    //Build SubMsgs to send to the Stability Pool & Sell Wall
     //This will only run if config.stability_pool.is_some()
-    let ( leftover_repayment ) = build_sp_submsgs(
+    let ( leftover_repayment, lp_withdraw_msgs ) = build_sp_sw_submsgs(
         storage, 
-        querier, 
+        querier,
+        api, 
         env.clone(), 
         config.clone(), 
         basket.clone(), 
         position_id.clone(), 
         valid_position_owner.clone(), 
         collateral_assets.clone(), 
-        cAsset_ratios.clone(), 
         &mut liq_queue_leftover_credit_repayment, 
         &mut credit_repay_amount, 
         &mut leftover_position_value, 
@@ -226,6 +182,9 @@ pub fn liquidate(
         per_asset_repayment, 
         user_repay_amount.clone()
     )?;
+
+    //Extend LP withdraw messages
+    lp_withdraw_messages.extend(lp_withdraw_msgs);
 
 
     //Create the Bad debt callback message to be added as the last SubMsg
@@ -239,7 +198,7 @@ pub fn liquidate(
         funds: vec![],
     });
     //The logic for this will be handled in the callback
-    //Replying on Error is just so an Error doesn't cancel transaction
+    //Replying on Error is just so an Auction error doesn't cancel transaction
     //Don't care about the success case so didnt reply_always
     let call_back = SubMsg::reply_on_error(msg, BAD_DEBT_REPLY_ID);
 
@@ -252,13 +211,14 @@ pub fn liquidate(
     {
         //Sell wall credit_repay_amount
         //The other submessages were for the LQ and SP so we reassign the submessage variable
-        let (sell_wall_msgs, collateral_distributions) = sell_wall(
+        let (sell_wall_msgs, collateral_distributions, lp_withdraw_msgs) = sell_wall(
             storage,
+            querier,
+            api,
+            env.clone(),
             collateral_assets.clone(),
-            cAsset_ratios.clone(),
             credit_repay_amount,
-            basket.clone().credit_asset.info,
-            basket_id,
+            basket.clone(),
             position_id,
             position_owner.clone(),
         )?;
@@ -268,18 +228,16 @@ pub fn liquidate(
             .map(|msg| {
                 //If this succeeds, we update the positions collateral claims
                 //If this fails, do nothing. Try again isn't a useful alternative.
-                SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
+                SubMsg::reply_always(msg, SELL_WALL_REPLY_ID)
             })
             .collect::<Vec<SubMsg>>();
 
         // Set repay values for reply msg
-        let repay_propagation = RepayPropagation {
+        let liquidation_propagation = LiquidationPropagation {
             per_asset_repayment: vec![],
             liq_queue_leftovers: Decimal::zero(),
             stability_pool: Decimal::zero(),
-            sell_wall_distributions: vec![SellWallDistribution {
-                distributions: collateral_distributions,
-            }],
+            sell_wall_distributions: collateral_distributions,
             user_repay_amount,
             basket_id,
             position_id,
@@ -287,26 +245,26 @@ pub fn liquidate(
             positions_contract: env.clone().contract.address,
         };
 
-        REPAY.save(storage, &repay_propagation)?;
+        LIQUIDATION.save(storage, &liquidation_propagation)?;
 
         Ok(res
-            .add_messages(lp_withdraw_messages)
+            //.add_messages(lp_withdraw_msgs)
             .add_messages(fee_messages)
             .add_submessages(submessages)
             .add_submessage(call_back)
             .add_attributes(vec![
                 attr("method", "liquidate"),
-                attr("propagation_info", format!("{:?}", repay_propagation)),
+                attr("propagation_info", format!("{:?}", liquidation_propagation)),
             ]))
     } else {
-        let mut repay_propagation: Option<String> = None;
-        match REPAY.load(storage) {
-            Ok(repay) => repay_propagation = Some(format!("{:?}", repay)),
+        let mut liquidation_propagation: Option<String> = None;
+        match LIQUIDATION.load(storage) {
+            Ok(repay) => liquidation_propagation = Some(format!("{:?}", repay)),
             Err(_) => {}
         }
 
         Ok(res
-            .add_messages(lp_withdraw_messages)
+            //.add_messages(lp_withdraw_messages)
             .add_messages(fee_messages)
             .add_submessages(submessages)
             .add_submessage(call_back)
@@ -314,7 +272,7 @@ pub fn liquidate(
                 attr("method", "liquidate"),
                 attr(
                     "propagation_info",
-                    format!("{:?}", repay_propagation.unwrap_or_default()),
+                    format!("{:?}", liquidation_propagation.unwrap_or_default()),
                 ),
             ]))
     }
@@ -477,12 +435,12 @@ fn per_asset_fulfillments(
 
 
         let collateral_price = cAsset_prices[num];
-        let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num]);
-        let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price);
+        let collateral_repay_value_for_fees = decimal_multiplication(repay_value, cAsset_ratios[num]);
+        let collateral_repay_amount_for_fees = decimal_division(collateral_repay_value_for_fees, collateral_price);
 
         //Subtract Caller fee from Position's claims
         let caller_fee_in_collateral_amount =
-            decimal_multiplication(collateral_repay_amount, caller_fee) * Uint128::new(1u128);
+            decimal_multiplication(collateral_repay_amount_for_fees, caller_fee) * Uint128::new(1u128);
         update_position_claims(
             storage,
             querier,
@@ -496,7 +454,7 @@ fn per_asset_fulfillments(
 
         //Subtract Protocol fee from Position's claims
         let protocol_fee_in_collateral_amount =
-            decimal_multiplication(collateral_repay_amount, config.clone().liq_fee)
+            decimal_multiplication(collateral_repay_amount_for_fees, config.clone().liq_fee)
                 * Uint128::new(1u128);
         update_position_claims(
             storage,
@@ -647,31 +605,32 @@ fn per_asset_fulfillments(
 
             submessages.push(sub_msg);
         }
-    }
+    }  
 
     Ok(())
 }
 
-fn build_sp_submsgs(
+fn build_sp_sw_submsgs(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
+    api: &dyn Api,
     env: Env,
     config: Config,
     basket: Basket,
     position_id: Uint128,
     valid_position_owner: Addr,
     collateral_assets: Vec<cAsset>,
-    cAsset_ratios: Vec<Decimal>,
     liq_queue_leftover_credit_repayment: &mut Decimal,
     credit_repay_amount: &mut Decimal,
     leftover_position_value: &mut Decimal,
     submessages: &mut Vec<SubMsg>,
     per_asset_repayment: Vec<Decimal>,
     user_repay_amount: Decimal,
-) -> Result<Decimal, ContractError>{
+) -> Result<(Decimal, Vec<CosmosMsg>), ContractError>{
     
     let leftover_repayment = Decimal::zero();
     let sell_wall_repayment_amount: Decimal;
+    let mut lp_withdraw_messages = vec![];
     
     if config.clone().stability_pool.is_some() && !liq_queue_leftover_credit_repayment.is_zero() {
         let sp_liq_fee = query_stability_pool_fee(querier, config.clone(), basket.clone())?;
@@ -693,16 +652,18 @@ fn build_sp_submsgs(
             sell_wall_repayment_amount = *liq_queue_leftover_credit_repayment;
 
             //Go straight to sell wall
-            let (sell_wall_msgs, collateral_distributions) = sell_wall(
+            let (sell_wall_msgs, collateral_distributions, lp_withdraw_msgs) = sell_wall(
                 storage,
+                querier,
+                api,
+                env.clone(),
                 collateral_assets.clone(),
-                cAsset_ratios.clone(),
                 sell_wall_repayment_amount,
-                basket.clone().credit_asset.info,
-                basket.clone().basket_id,
+                basket.clone(),
                 position_id,
                 valid_position_owner.clone().to_string(),
             )?;
+            lp_withdraw_messages = lp_withdraw_msgs;
 
             submessages.extend(
                 sell_wall_msgs
@@ -710,7 +671,7 @@ fn build_sp_submsgs(
                     .map(|msg| {
                         //If this succeeds, we update the positions collateral claims
                         //If this fails, error. Try again isn't a useful alternative.
-                        SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
+                        SubMsg::reply_always(msg, SELL_WALL_REPLY_ID)
                     })
                     .collect::<Vec<SubMsg>>(),
             );
@@ -721,13 +682,11 @@ fn build_sp_submsgs(
                 decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment);
 
             // Set repay values for reply msg
-            let repay_propagation = RepayPropagation {
+            let liquidation_propagation = LiquidationPropagation {
                 per_asset_repayment,
                 liq_queue_leftovers,
                 stability_pool: Decimal::zero(),
-                sell_wall_distributions: vec![SellWallDistribution {
-                    distributions: collateral_distributions,
-                }],
+                sell_wall_distributions: collateral_distributions,
                 user_repay_amount,
                 basket_id: basket.clone().basket_id,
                 position_id,
@@ -735,7 +694,7 @@ fn build_sp_submsgs(
                 positions_contract: env.clone().contract.address,
             };
 
-            REPAY.save(storage, &repay_propagation)?;
+            LIQUIDATION.save(storage, &liquidation_propagation)?;
         } else {
             //Check for stability pool funds before any liquidation attempts
             //If no funds, go directly to the sell wall
@@ -752,17 +711,19 @@ fn build_sp_submsgs(
                 sell_wall_repayment_amount = leftover_repayment;
 
                 //Sell wall remaining
-                let (sell_wall_msgs, distributions) = sell_wall(
+                let (sell_wall_msgs, distributions, lp_withdraw_msgs) = sell_wall(
                     storage,
+                    querier,
+                    api,
+                    env.clone(),
                     collateral_assets.clone(),
-                    cAsset_ratios.clone(),
                     sell_wall_repayment_amount,
-                    basket.clone().credit_asset.info,
-                    basket.clone().basket_id,
+                    basket.clone(),
                     position_id,
                     valid_position_owner.clone().to_string(),
                 )?;
                 collateral_distributions = distributions;
+                lp_withdraw_messages = lp_withdraw_msgs;
 
                 submessages.extend(
                     sell_wall_msgs
@@ -770,7 +731,7 @@ fn build_sp_submsgs(
                         .map(|msg| {
                             //If this succeeds, we update the positions collateral claims
                             //If this fails, error. Try again isn't a useful alternative.
-                            SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
+                            SubMsg::reply_always(msg, SELL_WALL_REPLY_ID)
                         })
                         .collect::<Vec<SubMsg>>(),
                 );
@@ -784,13 +745,11 @@ fn build_sp_submsgs(
                 decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment);
 
             // Set repay values for reply msg
-            let repay_propagation = RepayPropagation {
+            let liquidation_propagation = LiquidationPropagation {
                 per_asset_repayment,
                 liq_queue_leftovers,
                 stability_pool: sp_repay_amount,
-                sell_wall_distributions: vec![SellWallDistribution {
-                    distributions: collateral_distributions,
-                }],
+                sell_wall_distributions: collateral_distributions,
                 user_repay_amount,
                 basket_id: basket.clone().basket_id,
                 position_id,
@@ -798,7 +757,7 @@ fn build_sp_submsgs(
                 positions_contract: env.clone().contract.address,
             };
 
-            REPAY.save(storage, &repay_propagation)?;
+            LIQUIDATION.save(storage, &liquidation_propagation)?;
 
             ///////////////////
 
@@ -835,9 +794,9 @@ fn build_sp_submsgs(
             *leftover_position_value = decimal_subtraction(*leftover_position_value, paid_to_sp);
         }
     } else {
-        //In case SP isn't used, we need to set RepayPropagation
+        //In case SP isn't used, we need to set LiquidationPropagation
         // Set repay values for reply msg
-        let repay_propagation = RepayPropagation {
+        let liquidation_propagation = LiquidationPropagation {
             per_asset_repayment,
             liq_queue_leftovers: Decimal::zero(),
             stability_pool: Decimal::zero(),
@@ -849,22 +808,18 @@ fn build_sp_submsgs(
             positions_contract: env.clone().contract.address,
         };
 
-        REPAY.save(storage, &repay_propagation)?;
+        LIQUIDATION.save(storage, &liquidation_propagation)?;
     }
 
-    Ok(leftover_repayment)
+    Ok((leftover_repayment, lp_withdraw_messages))
 }
 
 //Returns LP withdrawal message that is used in liquidations
 fn get_lp_liq_withdraw_msg(
-    storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     config: Config,
-    basket_id: Uint128,
-    position_id: Uint128,
-    valid_position_owner: Addr,
-    collateral_assets: Vec<cAsset>,
+    collateral_distribution: &mut Vec<(AssetInfo, Decimal)>,
     cAsset_ratios: Vec<Decimal>,
     cAsset_prices: Vec<Decimal>,
     repay_value: Decimal,
@@ -874,74 +829,28 @@ fn get_lp_liq_withdraw_msg(
     
     let pool_info = cAsset.clone().pool_info.unwrap();
 
-    //Find cAsset_prices index for both LP assets
-    let mut indexes = vec![];
-
-    for asset in pool_info.asset_infos.clone() {
-        if let Some( (i, _cAsset) ) = collateral_assets.clone().into_iter().enumerate().find(|cAsset| cAsset.1.asset.info.equal(&asset.info)){
-            //Push index
-            indexes.push( i );
-        }
-    }
-    
-    //Query per share asset amounts
-    let share_asset_amounts = querier
-        .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-            msg: to_binary(&OsmoQueryMsg::PoolState {
-                id: pool_info.pool_id,
-            })?,
-        }))?
-        .shares_value(Uint128::new(1u128));
-
-    //Find LP price
-    let lp_price = {
-        //Get asset values
-        let mut per_asset_value = vec![]; 
-        
-        for (i, asset) in share_asset_amounts.clone().into_iter().enumerate() {
-            per_asset_value.push( cAsset_prices[ indexes[i] ] * asset.amount );
-        }
-        //Get value for 1 LPshare
-        let individual_share_value: Uint128 = per_asset_value.clone().into_iter().sum();
-
-        //Get asset ratios
-        let mut per_asset_ratio = vec![]; 
-
-        for value in per_asset_value {
-            per_asset_ratio.push( Decimal::from_ratio(value, individual_share_value) );
-        }
-
-        //Get price
-        let mut lp_price = Decimal::zero();
-
-        for (i, ratio) in per_asset_ratio.into_iter().enumerate() {
-            lp_price += decimal_multiplication(ratio, cAsset_prices[ indexes[i] ] );
-        }
-
-        lp_price
-    };
-
     ////Calculate amount of asset to liquidate
     // Amount to liquidate = cAsset_ratio * % of position insolvent * cAsset amount
     let lp_liquidate_amount = decimal_division( 
         decimal_multiplication(
             cAsset_ratios[i],
             repay_value), 
-        lp_price)
+            cAsset_prices[i])
     * Uint128::new(1u128);
-
     
-    update_position_claims(
-        storage,
-        querier,
-        env.clone(),
-        basket_id,
-        position_id,
-        valid_position_owner.clone(),
+    //Store all collateral_distributions for reply
+    collateral_distribution.push((
         cAsset.clone().asset.info,
-        lp_liquidate_amount,
-    )?;
+        Decimal::from_ratio(lp_liquidate_amount, Uint128::one()),
+    ));
+
+    //Add an additional distribution for the LPs pool assets so that they don't miscount when decreasing position claims
+    for _additional_msg in 0..pool_info.asset_infos.len()-1 {
+        collateral_distribution.push((
+            cAsset.clone().asset.info,
+            Decimal::zero(),
+        ));
+    }
     
     //Query total share asset amounts
     let share_asset_amounts = querier
@@ -953,7 +862,7 @@ fn get_lp_liq_withdraw_msg(
         }))?
         .shares_value(lp_liquidate_amount);
 
-    //Push LP Withdrawal Msg
+    //Create LP withdraw msg
     let mut token_out_mins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
     for token in share_asset_amounts {
         token_out_mins.push(osmosis_std::types::cosmos::base::v1beta1::Coin {
@@ -977,15 +886,15 @@ fn get_lp_liq_withdraw_msg(
 
 pub fn sell_wall_using_ids(
     storage: &mut dyn Storage,
-    env: Env,
     querier: QuerierWrapper,
+    api: &dyn Api,
+    env: Env,
     basket_id: Uint128,
     position_id: Uint128,
     position_owner: Addr,
     repay_amount: Decimal,
-) -> StdResult<(Vec<CosmosMsg>, Vec<(AssetInfo, Decimal)>)> {
-    let config: Config = CONFIG.load(storage)?;
-
+) -> StdResult<(Vec<CosmosMsg>, Vec<(AssetInfo, Decimal)>, Vec<CosmosMsg>)> {
+    
     let basket: Basket = BASKETS.load(storage, basket_id.to_string())?;
 
     let positions: Vec<Position> =
@@ -999,27 +908,16 @@ pub fn sell_wall_using_ids(
             })
         }
     };
-    let collateral_assets = get_LP_pool_cAssets(
-        querier,
-        config.clone(),
-        basket.clone(),
-        target_position.clone().collateral_assets,
-    )?;
-    let cAsset_ratios = get_cAsset_ratios(
-        storage,
-        env.clone(),
-        querier,
-        collateral_assets.clone(),
-        config,
-    )?;
+    let collateral_assets = target_position.clone().collateral_assets;
 
     match sell_wall(
         storage,
+        querier,
+        api,
+        env.clone(),
         collateral_assets.clone(),
-        cAsset_ratios,
         repay_amount,
-        basket.clone().credit_asset.info,
-        basket_id,
+        basket.clone(),
         position_id,
         position_owner.to_string(),
     ) {
@@ -1033,40 +931,118 @@ pub fn sell_wall_using_ids(
 }
 
 pub fn sell_wall(
-    storage: &dyn Storage,
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    api: &dyn Api,
+    env: Env,
     collateral_assets: Vec<cAsset>,
-    cAsset_ratios: Vec<Decimal>,
     repay_amount: Decimal,
-    credit_info: AssetInfo,
+    basket: Basket,
     //For Repay msg
-    basket_id: Uint128,
     position_id: Uint128,
     position_owner: String,
-) -> Result<(Vec<CosmosMsg>, Vec<(AssetInfo, Decimal)>), ContractError> {
-    let config: Config = CONFIG.load(storage)?;
+) -> Result<(Vec<CosmosMsg>, Vec<(AssetInfo, Decimal)>, Vec<CosmosMsg>), ContractError> {
+
+    //Load Config
+    let config: Config = CONFIG.load(storage)?;   
+
+    //Set valid_position_owner
+    let valid_position_owner = api.addr_validate(&position_owner)?;
 
     let mut messages = vec![];
+    let mut lp_withdraw_messages = vec![];
     let mut collateral_distribution = vec![];
+    let mut had_lp = false;
+
+    //Get Pre LP Split cAsset_ratios & prices
+    let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(storage, env.clone(), querier, collateral_assets.clone(), config.clone())?;   
+
+    for (i, cAsset) in collateral_assets
+        .clone()    
+        .into_iter()
+        .enumerate()
+    {
+        //Withdraw the necessary amount of LP shares
+        //Ensures liquidations are on the pooled assets and not the LP share itself
+        if cAsset.clone().pool_info.is_some() {
+
+            had_lp = true;
+
+            let msg = get_lp_liq_withdraw_msg( 
+                querier, 
+                env.clone(), 
+                config.clone(), 
+                &mut collateral_distribution,
+                cAsset_ratios.clone(), 
+                cAsset_prices.clone(), 
+                decimal_multiplication(repay_amount.clone(), basket.clone().credit_price),
+                cAsset.clone(), 
+                i.clone()  
+            )?;
+
+            lp_withdraw_messages.push(msg);
+
+            //Store remaining collateral_distributions for reply
+            for (index, ratio) in cAsset_ratios.clone().into_iter().enumerate() {
+
+                //Calc collateral_repay_amount
+                let collateral_repay_amount = decimal_multiplication(ratio, repay_amount);
+                        
+                if collateral_assets[index].clone().pool_info.is_none(){
+                    collateral_distribution.push((
+                        collateral_assets[index].clone().asset.info,
+                        collateral_repay_amount,
+                    ));
+                }        
+            }
+            
+        }
+    }
+    
+
+    //Split LP into assets
+    let collateral_assets = get_LP_pool_cAssets(
+        querier,
+        config.clone(),
+        basket.clone(),
+        collateral_assets,
+    )?;
+
+    //Post-LP Split ratios
+    let (cAsset_ratios, _) = get_cAsset_ratios(
+        storage,
+        env.clone(),
+        querier,
+        collateral_assets.clone(),
+        config.clone(),
+    )?;
 
     for (index, ratio) in cAsset_ratios.into_iter().enumerate() {
+
+        //Calc collateral_repay_amount
         let collateral_repay_amount = decimal_multiplication(ratio, repay_amount);
-        collateral_distribution.push((
-            collateral_assets[index].clone().asset.info,
-            collateral_repay_amount,
-        ));
+
+        //Only add to collateral_distributions here if there was no previous LP
+        if !had_lp {
+            //Store collateral_distribution for reply
+            collateral_distribution.push((
+                collateral_assets[index].clone().asset.info,
+                collateral_repay_amount,
+            ));
+        }
 
         match collateral_assets[index].clone().asset.info {
             AssetInfo::NativeToken { denom } => {
-                let router_msg = RouterExecuteMsg::SwapFromNative {
-                    to: credit_info.clone(),
+                let router_msg = RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(basket.clone().credit_asset.info),
                     max_spread: None, //Max spread doesn't matter bc we want to sell the whole amount no matter what
                     recipient: None,
                     hook_msg: Some(to_binary(&ExecuteMsg::Repay {
-                        basket_id,
+                        basket_id: basket.clone().basket_id,
                         position_id,
                         position_owner: Some(position_owner.clone()),
+                        send_excess_to: Some(position_owner.clone()),
                     })?),
-                    split: None,
                 };
 
                 let payment = coin(
@@ -1085,15 +1061,15 @@ pub fn sell_wall(
             AssetInfo::Token { address } => {
                 //////////////////////////
                 let router_hook_msg = RouterHookMsg::Swap {
-                    to: credit_info.clone(),
+                    to: SwapToAssetsInput::Single(basket.clone().credit_asset.info),
                     max_spread: None,
                     recipient: None,
                     hook_msg: Some(to_binary(&ExecuteMsg::Repay {
-                        basket_id,
+                        basket_id: basket.clone().basket_id,
                         position_id,
                         position_owner: Some(position_owner.clone()),
+                        send_excess_to: Some(position_owner.clone()),
                     })?),
-                    split: None,
                 };
 
                 let msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1111,7 +1087,7 @@ pub fn sell_wall(
         }
     }
 
-    Ok((messages, collateral_distribution))
+    Ok((messages, collateral_distribution, lp_withdraw_messages))
 }
 
 pub fn query_stability_pool_fee(

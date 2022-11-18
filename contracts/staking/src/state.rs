@@ -10,7 +10,7 @@ use membrane::staking::Config;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Totals {
     pub stakers: Uint128,
-    pub builders_contract: Uint128,
+    pub vesting_contract: Uint128,
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");

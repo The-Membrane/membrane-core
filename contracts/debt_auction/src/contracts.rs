@@ -11,7 +11,7 @@ use membrane::math::{decimal_division, decimal_multiplication, decimal_subtracti
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::positions::{BasketResponse, ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
-use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo};
+use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient};
 
 use crate::error::ContractError;
 use crate::state::{Auction, ASSETS, CONFIG, ONGOING_AUCTIONS};
@@ -78,8 +78,10 @@ pub fn execute(
     match msg {
         ExecuteMsg::StartAuction {
             repayment_position_info,
+            send_to,
             debt_asset,
-        } => start_auction(deps, env, info, repayment_position_info, debt_asset),
+            basket_id,
+        } => start_auction(deps, env, info, repayment_position_info, send_to, debt_asset, basket_id),
         ExecuteMsg::SwapForMBRN {} => swap_for_mbrn(deps, info, env),
         ExecuteMsg::RemoveAuction { debt_asset } => remove_auction(deps, info, debt_asset),
         ExecuteMsg::UpdateConfig {
@@ -170,8 +172,10 @@ fn start_auction(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    user_info: UserInfo,
+    user_info: Option<UserInfo>,
+    send_to: Option<String>,
     debt_asset: Asset,
+    basket_id: Uint128,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -184,6 +188,17 @@ fn start_auction(
         attr("method", "start_auction"),
         attr("debt_asset", debt_asset.to_string()),
     ];
+
+    //Both can't be Some
+    if send_to.is_some() && user_info.is_some(){
+        return Err(ContractError::CustomError { val: String::from("Delegate auction proceeds to one party at a time") })
+    }
+
+    //Set send_to Address
+    let mut send_addr = Addr::unchecked("");
+    if let Some(string) = send_to.clone() {
+        send_addr = deps.api.addr_validate(&string)?;
+    }
 
     //Update Asset list
     ASSETS.update(
@@ -209,12 +224,26 @@ fn start_auction(
             match auction {
                 //Add debt_amount and repayment info to the auction
                 Some(mut auction) => {
+
                     auction.remaining_recapitalization += debt_asset.clone().amount;
 
-                    auction.repayment_positions.push(RepayPosition {
-                        repayment: debt_asset.clone().amount,
-                        position_info: user_info,
-                    });
+                    if send_to.is_some() {
+
+                        auction.send_to.push(
+                            AuctionRecipient {
+                                amount: debt_asset.clone().amount,
+                                recipient: send_addr,
+                            });
+                    }
+
+                    if let Some(user_info) = user_info {
+                        
+                        auction.repayment_positions.push(
+                            RepayPosition {
+                                repayment: debt_asset.clone().amount,
+                                position_info: user_info,
+                            });
+                    }
 
                     attrs.push(attr("auction_status", "added_to"));
 
@@ -224,15 +253,33 @@ fn start_auction(
                 None => {
                     attrs.push(attr("auction_status", "started_anew"));
 
-                    Ok(Auction {
+                    let mut auction = Auction {
                         remaining_recapitalization: debt_asset.clone().amount,
-                        repayment_positions: vec![RepayPosition {
-                            repayment: debt_asset.clone().amount,
-                            position_info: user_info.clone(),
-                        }],
+                        repayment_positions: vec![],
+                        send_to: vec![],
                         auction_start_time: env.block.time.seconds(),
-                        basket_id_price_source: user_info.basket_id,
-                    })
+                        basket_id_price_source: basket_id,
+                    };
+
+                    if send_to.is_some() {
+
+                        auction.send_to.push(
+                            AuctionRecipient {
+                                amount: debt_asset.clone().amount,
+                                recipient: send_addr,
+                            });
+                    }
+
+                    if let Some(user_info) = user_info {
+                        
+                        auction.repayment_positions.push(
+                            RepayPosition {
+                                repayment: debt_asset.clone().amount,
+                                position_info: user_info,
+                            });
+                    }
+
+                    Ok(auction)
                 }
             }
         },
@@ -281,20 +328,9 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
         //If the asset has an ongoing auction
         if let Ok(mut auction) = ONGOING_AUCTIONS.load(deps.storage, coin.clone().denom) {
             if !auction.remaining_recapitalization.is_zero() {
-                let swap_amount: Decimal;
-                //Set swap_amount
-                if coin.amount > auction.remaining_recapitalization {
-                    swap_amount = Decimal::from_ratio(
-                        auction.remaining_recapitalization,
-                        Uint128::new(1u128),
-                    );
 
-                    //Calculate the the user's overpayment
-                    //We want to allow  users to focus on speed rather than correctness
-                    overpay = coin.amount - auction.remaining_recapitalization;
-                } else {
-                    swap_amount = Decimal::from_ratio(coin.amount, Uint128::new(1u128));
-                }
+                let swap_amount = Decimal::from_ratio(coin.amount, Uint128::new(1u128));
+                
 
                 //Get MBRN price
                 let mbrn_price = deps
@@ -364,8 +400,6 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
 
                 let mut swap_amount: Uint128 = swap_amount * Uint128::new(1u128);
 
-                //Update Auction limit
-                auction.remaining_recapitalization -= swap_amount;
 
                 //Calculate what positions can be repaid for
                 for (i, position) in auction.repayment_positions.clone().into_iter().enumerate() {
@@ -395,6 +429,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                                     position_owner: Some(
                                         position.clone().position_info.position_owner,
                                     ),
+                                    send_excess_to: None,
                                 })?,
                                 funds: coins(repay_amount.u128(), coin.clone().denom),
                             });
@@ -410,6 +445,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                             ));
                         }
                     }
+                    
                 }
 
                 //Filter out fully repaid debts
@@ -419,6 +455,68 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                     .into_iter()
                     .filter(|info| !info.repayment.is_zero())
                     .collect::<Vec<RepayPosition>>();
+
+                //Subtract from send_to users if Some
+                for (i, recipient) in auction.clone().send_to.into_iter().enumerate() {
+
+                    if !swap_amount.is_zero() && !recipient.amount.is_zero(){
+
+                        let withdrawal_amount: Uint128;
+
+                        //Calculate amount able to send & update Auction state
+                        if swap_amount >= recipient.amount {
+                            auction.send_to[i].amount = Uint128::zero();
+
+                            swap_amount -= recipient.amount;
+
+                            withdrawal_amount = recipient.amount;
+
+                        } else {
+                            auction.send_to[i].amount -= swap_amount;
+
+                            withdrawal_amount = swap_amount;
+
+                            swap_amount = Uint128::zero();                          
+                        }
+
+                        //Get credit asset info
+                        let credit_asset = deps
+                        .querier
+                        .query::<BasketResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                            contract_addr: config.clone().positions_contract.to_string(),
+                            msg: to_binary(&CDPQueryMsg::GetBasket {
+                                basket_id: auction.basket_id_price_source,
+                            })?,
+                        }))?
+                        .credit_asset.info;
+
+                        //Create withdrawal msg
+                        let msg = withdrawal_msg(
+                            Asset {
+                                amount: withdrawal_amount,
+                                info: credit_asset,
+                            }, recipient.recipient)?;
+                        
+                        //Push msg
+                        msgs.push(msg);
+
+                    }
+                    
+                }
+
+                if swap_amount > Uint128::zero() {
+                            
+                    //Calculate the the user's overpayment
+                    //We want to allow users to focus on speed rather than correctness
+                    overpay = swap_amount;
+                    
+                    //Update Auction limit
+                    auction.remaining_recapitalization -= (coin.clone().amount - overpay);
+                } else {
+                    
+                    //Update Auction limit
+                    auction.remaining_recapitalization -= coin.clone().amount;
+                }
             }
 
             //Send back overpayment
@@ -524,6 +622,7 @@ fn get_ongoing_auction(
                 Ok(vec![AuctionResponse {
                     remaining_recapitalization: auction.remaining_recapitalization,
                     repayment_positions: auction.clone().repayment_positions,
+                    send_to: auction.clone().send_to,
                     auction_start_time: auction.auction_start_time,
                     basket_id_price_source: auction.basket_id_price_source,
                 }])
@@ -565,6 +664,7 @@ fn get_ongoing_auction(
                     resp.push(AuctionResponse {
                         remaining_recapitalization: auction.clone().remaining_recapitalization,
                         repayment_positions: auction.clone().repayment_positions,
+                        send_to: auction.clone().send_to,
                         auction_start_time: auction.clone().auction_start_time,
                         basket_id_price_source: auction.clone().basket_id_price_source,
                     });

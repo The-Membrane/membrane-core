@@ -497,6 +497,7 @@ fn execute_bid() {
                 basket_id: Uint128::new(1u128),
                 position_id: Uint128::new(1u128),
                 position_owner: Some("owner01".to_string()),
+                send_excess_to: None,
             })
             .unwrap(),
             funds: vec![Coin {

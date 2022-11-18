@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Decimal, Uint128, Addr};
 
-use crate::types::{Asset, AssetInfo, RepayPosition, UserInfo};
+use crate::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -24,8 +24,14 @@ pub enum ExecuteMsg {
     //Start or add to ongoing auction
     //Callable by the owner (MBRN Governance) or Positions contract
     StartAuction {
-        repayment_position_info: UserInfo,
-        debt_asset: Asset, //Asset being bought by MBRN
+        //Repay a position
+        repayment_position_info: Option<UserInfo>,
+        //or buy CDT to send somewhere
+        send_to: Option<String>,
+        //Asset being bought by MBRN
+        debt_asset: Asset, 
+        //Basket_id for Bsaket info
+        basket_id: Uint128,
     },
     //Swap for MBRN w/ any open auction's swap_from_asset
     SwapForMBRN {},
@@ -80,6 +86,7 @@ pub struct Config {
 pub struct AuctionResponse {
     pub remaining_recapitalization: Uint128,
     pub repayment_positions: Vec<RepayPosition>, //Repayment amount, Positions info
+    pub send_to: Vec<AuctionRecipient>,
     pub auction_start_time: u64,
     pub basket_id_price_source: Uint128,
 }

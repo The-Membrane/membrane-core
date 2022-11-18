@@ -1,4 +1,4 @@
-use cosmwasm_std::StdError;
+use cosmwasm_std::{StdError, Decimal};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -14,6 +14,9 @@ pub enum ContractError {
 
     #[error("Invalid Repayment Asset")]
     InvalidCredit {},
+
+    #[error("Basket withdrawals & debt increases are frozen temporarily")]
+    Frozen {},
 
     #[error("Position is solvent and shouldn't be liquidated")]
     PositionSolvent {},
@@ -59,6 +62,9 @@ pub enum ContractError {
 
     #[error("This calculation was out of desirable bounds")]
     FaultyCalc {},
+
+    #[error("Invalid target_LTV for debt increase: {target_LTV}")]
+    InvalidLTV { target_LTV: Decimal },
 
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },

@@ -116,7 +116,7 @@ pub fn query_totals(deps: Deps) -> StdResult<TotalStakedResponse> {
     let totals = TOTALS.load(deps.storage)?;
 
     Ok(TotalStakedResponse {
-        total_not_including_builders: totals.stakers.to_string(),
-        builders_total: totals.builders_contract.to_string(),
+        total_not_including_vested: totals.stakers,
+        vested_total: totals.vesting_contract,
     })
 }

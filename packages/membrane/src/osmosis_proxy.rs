@@ -55,12 +55,12 @@ pub enum QueryMsg {
     },
     // Returns the accumulated historical TWAP of the given base asset and quote asset.
     // CONTRACT: start_time should be based on Unix time millisecond.
-    ArithmeticTwapToNow {
-        id: u64,
-        quote_asset_denom: String,
-        base_asset_denom: String,
-        start_time: i64,
-    },
+    // ArithmeticTwapToNow {
+    //     id: u64,
+    //     quote_asset_denom: String,
+    //     base_asset_denom: String,
+    //     start_time: i64,
+    // },
     GetTokenInfo {
         denom: String,
     },

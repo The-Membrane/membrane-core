@@ -37,8 +37,10 @@ pub enum QueryMsg {
     Config {},
     Price {
         asset_info: AssetInfo,
-        twap_timeframe: u64,        //in minutes
-        basket_id: Option<Uint128>, //To switch oracle sources
+        twap_timeframe: u64,    //in minutes
+        //To switch on oracle sources
+        //None defaults to 1, which is assumed the USD basket
+        basket_id: Option<Uint128>,
     },
     Prices {
         asset_infos: Vec<AssetInfo>,
@@ -64,7 +66,7 @@ pub struct Config {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct PriceResponse {
     pub prices: Vec<PriceInfo>,
-    pub avg_price: Decimal,
+    pub price: Decimal,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

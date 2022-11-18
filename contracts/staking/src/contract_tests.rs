@@ -7,7 +7,7 @@ use cosmwasm_std::{
 };
 use cw20::Cw20ReceiveMsg;
 
-use membrane::apollo_router::ExecuteMsg as RouterExecuteMsg;
+use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
     Config, Cw20HookMsg, ExecuteMsg, FeeEventsResponse, InstantiateMsg, QueryMsg, RewardsResponse,
@@ -26,7 +26,8 @@ fn update_config(){
         dex_router: Some(String::from("router_addr")),
         max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
-        builders_contract: Some("builders_contract".to_string()),
+        vesting_contract: Some("vesting_contract".to_string()),
+        governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
         staking_rate: Some(Decimal::percent(10)),
         fee_wait_period: None,
@@ -43,10 +44,11 @@ fn update_config(){
         unstaking_period: Some(1),  
         osmosis_proxy: Some(String::from("new_op")), 
         positions_contract: Some(String::from("new_cdp")), 
+        governance_contract: Some("new_gov".to_string()),
         mbrn_denom: Some(String::from("new_denom")), 
         dex_router: Some(String::from("new_router")), 
         max_spread: Some(Decimal::one()),
-        builders_contract: Some(String::from("new_bv")), 
+        vesting_contract: Some(String::from("new_bv")), 
         staking_rate: Some(Decimal::one()),
         fee_wait_period: Some(1),  
     };
@@ -75,10 +77,11 @@ fn update_config(){
             unstaking_period:1,  
             osmosis_proxy: Some( Addr::unchecked("new_op")), 
             positions_contract: Some( Addr::unchecked("new_cdp")), 
+            governance_contract: Some(Addr::unchecked("new_gov")),
             mbrn_denom: String::from("new_denom"), 
             dex_router: Some( Addr::unchecked("new_router")), 
             max_spread: Some(Decimal::one()), 
-            builders_contract: Some( Addr::unchecked("new_bv")), 
+            vesting_contract: Some( Addr::unchecked("new_bv")), 
             staking_rate: Decimal::percent(20), //Capped at 20% that's why it isn't 1
             fee_wait_period: 1, 
             
@@ -95,7 +98,8 @@ fn stake() {
         dex_router: Some(String::from("router_addr")),
         max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
-        builders_contract: Some("builders_contract".to_string()),
+        vesting_contract: Some("vesting_contract".to_string()),
+        governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
         staking_rate: Some(Decimal::percent(10)),
         fee_wait_period: None,
@@ -129,15 +133,15 @@ fn stake() {
         ]
     );
 
-    //Successful Stake from builders contract
+    //Successful Stake from vesting contract
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("builders_contract", &[coin(11, "mbrn_denom")]);
+    let info = mock_info("vesting_contract", &[coin(11, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "stake"),
-            attr("staker", String::from("builders_contract")),
+            attr("staker", String::from("vesting_contract")),
             attr("amount", String::from("11")),
         ]
     );
@@ -165,7 +169,7 @@ fn stake() {
                 unstake_start_time: None,
             },
             StakeDeposit {
-                staker: Addr::unchecked("builders_contract"),
+                staker: Addr::unchecked("vesting_contract"),
                 amount: Uint128::new(11u128),
                 stake_time: mock_env().block.time.seconds(),
                 unstake_start_time: None,
@@ -178,8 +182,8 @@ fn stake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_builders, String::from("10"));
-    assert_eq!(resp.builders_total, String::from("11"));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(10));
+    assert_eq!(resp.vested_total,  Uint128::new(11));
 
     //Query and Assert User stake
     let res = query(
@@ -209,7 +213,8 @@ fn unstake() {
         dex_router: Some(String::from("router_addr")),
         max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
-        builders_contract: Some("builders_contract".to_string()),
+        vesting_contract: Some("vesting_contract".to_string()),
+        governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
         staking_rate: Some(Decimal::percent(10)),
         fee_wait_period: None,
@@ -234,15 +239,15 @@ fn unstake() {
         ]
     );
 
-    //Successful Stake from builders contract
+    //Successful Stake from vesting contract
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("builders_contract", &[coin(11, "mbrn_denom")]);
+    let info = mock_info("vesting_contract", &[coin(11, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "stake"),
-            attr("staker", String::from("builders_contract")),
+            attr("staker", String::from("vesting_contract")),
             attr("amount", String::from("11")),
         ]
     );
@@ -251,8 +256,8 @@ fn unstake() {
     let res = query(deps.as_ref(), mock_env(), QueryMsg::TotalStaked {}).unwrap();
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.total_not_including_builders, String::from("10000000"));
-    assert_eq!(resp.builders_total, String::from("11"));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(10000000));
+    assert_eq!(resp.vested_total, Uint128::new(11));
 
     //Unstake more than Staked Error
     let msg = ExecuteMsg::Unstake {
@@ -314,17 +319,17 @@ fn unstake() {
         ]
     );
 
-    //Successful Unstake from builders contract w/o withdrawals
+    //Successful Unstake from vesting contract w/o withdrawals
     let msg = ExecuteMsg::Unstake {
         mbrn_amount: Some(Uint128::new(5u128)),
     };
-    let info = mock_info("builders_contract", &[]);
+    let info = mock_info("vesting_contract", &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "unstake"),
-            attr("staker", String::from("builders_contract")),
+            attr("staker", String::from("vesting_contract")),
             attr("unstake_amount", String::from("0")),
         ]
     );
@@ -365,17 +370,17 @@ fn unstake() {
         ]
     );
 
-    //Successful Unstake from builders contract w/ withdrawals after unstaking period
+    //Successful Unstake from vesting contract w/ withdrawals after unstaking period
     let msg = ExecuteMsg::Unstake {
         mbrn_amount: Some(Uint128::new(5u128)),
     };
-    let info = mock_info("builders_contract", &[]);
+    let info = mock_info("vesting_contract", &[]);
     let res = execute(deps.as_mut(), env, info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "unstake"),
-            attr("staker", String::from("builders_contract")),
+            attr("staker", String::from("vesting_contract")),
             attr("unstake_amount", String::from("5")),
         ]
     );
@@ -384,7 +389,7 @@ fn unstake() {
         res.messages,
         vec![
             SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
-                to_address: String::from("builders_contract"),
+                to_address: String::from("vesting_contract"),
                 amount: coins(5, "mbrn_denom"),
             })),
         ]
@@ -395,8 +400,8 @@ fn unstake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_builders, String::from("0"));
-    assert_eq!(resp.builders_total, String::from("6"));
+    assert_eq!(resp.total_not_including_vested, Uint128::zero());
+    assert_eq!(resp.vested_total, Uint128::new(6));
 }
 
 #[test]
@@ -408,7 +413,8 @@ fn deposit_fee() {
         dex_router: Some(String::from("router_addr")),
         max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
-        builders_contract: Some("builders_contract".to_string()),
+        vesting_contract: None,
+        governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
         staking_rate: Some(Decimal::percent(10)),
         fee_wait_period: None,
@@ -502,7 +508,8 @@ fn claim_rewards() {
         dex_router: Some(String::from("router_addr")),
         max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
-        builders_contract: Some("builders_contract".to_string()),
+        vesting_contract: None,
+        governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
         staking_rate: Some(Decimal::percent(10)),
         fee_wait_period: None,
@@ -533,12 +540,7 @@ fn claim_rewards() {
     let msg = ExecuteMsg::Stake { user: None };
     let info = mock_info("user_4", &[coin(10_000_000, "mbrn_denom")]);
     let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-
-    //Successful Stake from builders contract
-    let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("builders_contract", &[coin(11_000_000, "mbrn_denom")]);
-    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-
+    
     //Successful DepositFee
     let msg = ExecuteMsg::DepositFee {};
     let info = mock_info("positions_contract", &[coin(10_000_000_000, "fee_asset")]);
@@ -581,31 +583,11 @@ fn claim_rewards() {
             info: AssetInfo::NativeToken {
                 denom: String::from("fee_asset")
             },
-            amount: Uint128::new(1_960_784_313u128),
+            amount: Uint128::new(2500000000),
         }]
     );
 
-    //Query and Assert Rewards
-    let res = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::StakerRewards {
-            staker: String::from("builders_contract"),
-        },
-    )
-    .unwrap();
-
-    let resp: RewardsResponse = from_binary(&res).unwrap();
-    assert_eq!(
-        resp.claimables,
-        vec![Asset {
-            info: AssetInfo::NativeToken {
-                denom: String::from("fee_asset")
-            },
-            amount: Uint128::new(2_156_862_745u128),
-        }]
-    );
-
+   
     //No stake Error for ClaimRewards
     let msg = ExecuteMsg::ClaimRewards {
         claim_as_cw20: None,
@@ -650,15 +632,14 @@ fn claim_rewards() {
         vec![
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("router_addr"),
-                funds: coins(1_960_784_313, "fee_asset"),
-                msg: to_binary(&RouterExecuteMsg::SwapFromNative {
-                    to: AssetInfo::NativeToken {
+                funds: coins(2500000000, "fee_asset"),
+                msg: to_binary(&RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                         denom: String::from("credit")
-                    },
+                    }),
                     max_spread: Some(Decimal::percent(10)),
                     recipient: Some(String::from("user_1")),
                     hook_msg: None,
-                    split: None,
                 })
                 .unwrap()
             })),
@@ -689,15 +670,14 @@ fn claim_rewards() {
         vec![
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("router_addr"),
-                funds: coins(1_960_784_313, "fee_asset"),
-                msg: to_binary(&RouterExecuteMsg::SwapFromNative {
-                    to: AssetInfo::NativeToken {
+                funds: coins(2500000000, "fee_asset"),
+                msg: to_binary(&RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
                         denom: String::from("credit")
-                    },
+                    }),
                     max_spread: Some(Decimal::percent(10)),
                     recipient: Some(String::from("receiver")),
                     hook_msg: None,
-                    split: None,
                 })
                 .unwrap()
             })),
@@ -728,15 +708,14 @@ fn claim_rewards() {
         vec![
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("router_addr"),
-                funds: coins(1_960_784_313, "fee_asset"),
-                msg: to_binary(&RouterExecuteMsg::SwapFromNative {
-                    to: AssetInfo::Token {
+                funds: coins(2500000000, "fee_asset"),
+                msg: to_binary(&RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(AssetInfo::Token {
                         address: Addr::unchecked("credit")
-                    },
+                    }),
                     max_spread: Some(Decimal::percent(10)),
                     recipient: Some(String::from("user_3")),
                     hook_msg: None,
-                    split: None,
                 })
                 .unwrap()
             })),
@@ -767,15 +746,14 @@ fn claim_rewards() {
         vec![
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("router_addr"),
-                funds: coins(1_960_784_313, "fee_asset"),
-                msg: to_binary(&RouterExecuteMsg::SwapFromNative {
-                    to: AssetInfo::Token {
+                funds: coins(2500000000, "fee_asset"),
+                msg: to_binary(&RouterExecuteMsg::Swap {
+                    to: SwapToAssetsInput::Single(AssetInfo::Token {
                         address: Addr::unchecked("credit")
-                    },
+                    }),
                     max_spread: Some(Decimal::percent(10)),
                     recipient: Some(String::from("receiver")),
                     hook_msg: None,
-                    split: None,
                 })
                 .unwrap()
             })),
@@ -816,7 +794,7 @@ fn claim_rewards() {
         vec![
             SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
                 to_address: String::from("user_1"),
-                amount: coins(1_960_784_313, "fee_asset"),
+                amount: coins(2500000000, "fee_asset"),
             })),
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("osmosis_proxy"),
@@ -834,27 +812,7 @@ fn claim_rewards() {
     //Secondary claim gives nothing
     let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     assert_eq!(res.messages, vec![]);
-
-    //Builders contract claim is only Fee rewards
-    let msg = ExecuteMsg::ClaimRewards {
-        claim_as_cw20: None,
-        claim_as_native: None,
-        send_to: None,
-        restake: false,
-    };
-    let info = mock_info("builders_contract", &[]);
-
-    env.block.time = env.block.time.plus_seconds(31_536_000);
-
-    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
-    assert_eq!(
-        res.messages,
-        vec![SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
-            to_address: String::from("builders_contract"),
-            amount: coins(4_313_725_490, "fee_asset"),
-        })),]
-    );
-
+   
     //Restake
     let msg = ExecuteMsg::ClaimRewards {
         claim_as_cw20: None,
@@ -863,7 +821,7 @@ fn claim_rewards() {
         restake: true,
     };
     let info = mock_info("user_1", &[]);
-    env.block.time = env.block.time.plus_seconds(31_536_000);
+    env.block.time = env.block.time.plus_seconds(31_536_000); //Add a year
 
     let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     assert_eq!(
@@ -874,14 +832,14 @@ fn claim_rewards() {
                 funds: vec![],
                 msg: to_binary(&OsmoExecuteMsg::MintTokens {
                     denom: String::from("mbrn_denom"),
-                    amount: Uint128::new(2_000_000u128),
+                    amount: Uint128::new(1_000_000),
                     mint_to_address: String::from("cosmos2contract")
                 })
                 .unwrap()
             })),
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("cosmos2contract"),
-                funds: vec![coin(2_000_000, "mbrn_denom")],
+                funds: vec![coin(1_000_000, "mbrn_denom")],
                 msg: to_binary(&ExecuteMsg::Stake {
                     user: Some(String::from("user_1")),
                 })

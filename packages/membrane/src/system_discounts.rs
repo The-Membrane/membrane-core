@@ -20,6 +20,7 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     UpdateConfig {
         owner: Option<String>,        
+        basket_id: Option<Uint128>,
         oracle_contract: Option<String>,
         positions_contract: Option<String>,
         staking_contract: Option<String>,
@@ -32,7 +33,9 @@ pub enum ExecuteMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
+    //Returns Config
     Config {},
+    //Returns Decimal
     UserDiscount { user: String },
 }
 
@@ -41,7 +44,7 @@ pub enum QueryMsg {
 pub struct Config {
     pub owner: Addr,
     pub mbrn_denom: String,
-    pub basket_id: Uint128,
+    pub basket_id: Uint128, //Used to find credit price & to query user's outstanding debt
     pub oracle_contract: Addr,
     pub positions_contract: Addr,
     pub staking_contract: Addr,

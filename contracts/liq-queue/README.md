@@ -6,7 +6,7 @@ https://github.com/Anchor-Protocol/money-market-contracts/tree/main/contracts/li
 
 Modifications
 
-- Automatic activation after wait_period elaspes. This increases computation time in return for less reliance on external contract calls.
+- Automatic activation after wait_period elapses. This increases computation time in return for less reliance on external contract calls.
 - Liquidations send the RepayMsg for the position in the Positions contract
 - Prices are taken from input by the Positions contract, the messages are guaranteed the same block so the price will be block_time + Position's config oracle_time_limit second's old.
 - The position is assumed insolvent since called by the Positions contract, ie there is no additional solvency check in this contract.

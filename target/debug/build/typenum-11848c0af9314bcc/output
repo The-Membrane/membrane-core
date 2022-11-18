@@ -1,0 +1,2 @@
+cargo:rustc-env=TYPENUM_BUILD_CONSTS=/home/trix/helios-contracts/target/debug/build/typenum-11848c0af9314bcc/out/consts.rs
+cargo:rustc-env=TYPENUM_BUILD_OP=/home/trix/helios-contracts/target/debug/build/typenum-11848c0af9314bcc/out/op.rs

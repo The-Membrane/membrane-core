@@ -385,6 +385,20 @@ pub struct LiquidityInfo {
     pub pool_ids: Vec<u64>,
 }
 
+/////////Incentive Gauge
+///
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct LockUp {
+    pub locked_asset: Asset,
+    pub lock_up_duration: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct DebtTokenAsset {
+    pub info: AssetInfo,
+    pub amount: Uint128,
+    pub basket_id: Uint128,
+}
 
 //////////Possibly switching to cw-asset//////
 

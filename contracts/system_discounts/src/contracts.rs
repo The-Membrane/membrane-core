@@ -169,6 +169,10 @@ fn get_discount(
     let user_outstanding_debt = //Query Positions
 }
 
+//Get the value of the user's capital in..
+//Stake, SP & Queriable LPs
+fn get
+
 //Returns total_value & credit AssetInfo
 fn get_incentive_guage_value(
     deps: DepsMut,

@@ -10,9 +10,13 @@ Auomated mixed-asset debt market protocol powered by smart contracts on [Osmosis
 | [`positions`](contracts/cdp)                               | Credit position manager                      |
 | [`liquidity queue`](contracts/liq_queue)                   | Debt liquidation queue                       |
 | [`stability pool`](contracts/stability_pool)               | Position stability pool                      |
+| [`debt auction`](contracts/debt_auction)                   | Last-resort MBRN auction for bad debt        |
 | [`oracle`](contracts/oracle)                               | TWAP oracles for approved assets             |
+| [`liquidity check`](contracts/liquidity_check)             | Checks for acceptable AMM liquidity of collateral assets |
+| [`osmosis proxy`](contracts/osmosis-proxy)                 | Proxy to Osmosis SDK module functions        |
 | [`governance`](contracts/governance)                       | Decentralized governance contract for updating protocol params and contract versions |
 | [`staking`](contracts/staking)                             | Manages staked MBRN functionality            |
+| [`vesting`](contracts/vesting)                             | Manages vesting MBRN functionality           |
 
 
 

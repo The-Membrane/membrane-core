@@ -90,28 +90,35 @@ pub enum Cw20HookMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
+    //Returns Config
     Config {},
     //Get current MBRN incentive rate
+    //Returns Decimal
     Rate {
         asset_info: AssetInfo,
     },
     //Query unclaimed incentives for a user
+    //Returns Uint128
     UnclaimedIncentives {
         user: String,
         asset_info: AssetInfo,
     },
-    //Query capital ahead of user deposits
+    //Query capital ahead of frontmost user deposit
+    //Returns DepositPositionResponse
     CapitalAheadOfDeposit {
         user: String,
         asset_info: AssetInfo,
     },
     //Check if the amount of said asset is liquidatible
+    //Returns LiquidatibleResponse
     CheckLiquidatible { asset: LiqAsset },
     //User deposits in 1 AssetPool
+    //Returns DepositResponse
     AssetDeposits { user: String, asset_info: AssetInfo },
     //Check if user has any claimable assets
+    //Returns ClaimsResponse
     UserClaims { user: String },
-    //Returns asset pool info
+    //Returns PoolResponse
     AssetPool { asset_info: AssetInfo },
 }
 

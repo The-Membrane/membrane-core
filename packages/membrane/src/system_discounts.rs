@@ -11,7 +11,7 @@ pub struct InstantiateMsg {
     pub positions_contract: String,
     pub staking_contract: String,
     pub stability_pool_contract: String,
-    pub gauge_vault_contract: String,
+    pub lockdrop_contract: String,
     pub discount_vault_contract: String,
 }
 
@@ -19,13 +19,14 @@ pub struct InstantiateMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     UpdateConfig {
-        owner: Option<String>,        
+        owner: Option<String>,  
+        mbrn_denom: Option<String>,      
         basket_id: Option<Uint128>,
         oracle_contract: Option<String>,
         positions_contract: Option<String>,
         staking_contract: Option<String>,
         stability_pool_contract: Option<String>,
-        gauge_vault_contract: Option<String>,
+        lockdrop_contract: Option<String>,
         discount_vault_contract: Option<String>,
     },
 }
@@ -49,6 +50,6 @@ pub struct Config {
     pub positions_contract: Addr,
     pub staking_contract: Addr,
     pub stability_pool_contract: Addr,
-    pub gauge_vault_contract: Addr,
+    pub lockdrop_contract: Addr,
     pub discount_vault_contract: Addr,
 }

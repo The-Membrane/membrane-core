@@ -1169,23 +1169,23 @@ mod tests {
                             if basket_id.unwrap() == Uint128::new(2u128) {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
-                                    avg_price: Decimal::percent(500),
+                                    price: Decimal::percent(500),
                                 })?)
                             } else if asset_info.to_string() == String::from("credit_fulldenom") {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
-                                    avg_price: Decimal::percent(98),
+                                    price: Decimal::percent(98),
                                 })?)
                             } else {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
-                                    avg_price: Decimal::one(),
+                                    price: Decimal::one(),
                                 })?)
                             }
                         } else {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
-                                avg_price: Decimal::one(),
+                                price: Decimal::one(),
                             })?)
                         }
                     }
@@ -1240,28 +1240,28 @@ mod tests {
                             if basket_id.unwrap() == Uint128::new(2u128) {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
-                                    avg_price: Decimal::percent(500),
+                                    price: Decimal::percent(500),
                                 })?)
                             } else if asset_info.to_string() == String::from("credit_fulldenom") {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
-                                    avg_price: Decimal::percent(102),
+                                    price: Decimal::percent(102),
                                 })?)
                             } else {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
-                                    avg_price: Decimal::one(),
+                                    price: Decimal::one(),
                                 })?)
                             }
                         } else if asset_info.to_string() == String::from("credit_fulldenom") {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
-                                avg_price: Decimal::percent(102),
+                                price: Decimal::percent(102),
                             })?)
                         } else {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
-                                avg_price: Decimal::one(),
+                                price: Decimal::one(),
                             })?)
                         }
                     }
@@ -7510,7 +7510,6 @@ mod tests {
                             AssetInfo::NativeToken {denom: "quote".to_string()},
                             ],
                         supply_cap_ratio: Decimal::percent(50),
-                        stability_pool_ratio_for_debt_cap: None,
                     }
                 ]),
             };

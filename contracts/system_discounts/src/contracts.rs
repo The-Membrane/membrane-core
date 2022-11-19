@@ -6,9 +6,9 @@ use cw2::set_contract_version;
 
 use membrane::math::{decimal_multiplication, decimal_division};
 use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
-use membrane::stability_pool::{QueryMsg as SP_QueryMsg, DepositResponse};
+use membrane::stability_pool::{QueryMsg as SP_QueryMsg, DepositResponse, ClaimsResponse};
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
-use membrane::incentive_gauge_vault::{QueryMsg as IG_QueryMsg, UserResponse};
+use membrane::lp_lockdrop::{QueryMsg as Lockdrop_QueryMsg, UserResponse};
 use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse};
 use membrane::positions::{QueryMsg as CDP_QueryMsg, BasketResponse, PositionsResponse};
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
@@ -54,7 +54,7 @@ pub fn instantiate(
         oracle_contract: deps.api.addr_validate(&msg.oracle_contract)?,
         staking_contract,
         stability_pool_contract: deps.api.addr_validate(&msg.stability_pool_contract)?,
-        gauge_vault_contract: deps.api.addr_validate(&msg.gauge_vault_contract)?,
+        lockdrop_contract: deps.api.addr_validate(&msg.lockdrop_contract)?,
         discount_vault_contract: deps.api.addr_validate(&msg.discount_vault_contract)?,
     };
     
@@ -75,22 +75,24 @@ pub fn execute(
         ExecuteMsg::UpdateConfig {
             owner,
             basket_id,
+            mbrn_denom,
             positions_contract,
             oracle_contract,
             staking_contract,
             stability_pool_contract,
-            gauge_vault_contract,
+            lockdrop_contract,
             discount_vault_contract,
         } => update_config(
             deps, 
             info, 
             owner, 
+            mbrn_denom,
             basket_id,
-            positions_contract,
             oracle_contract,
+            positions_contract,
             staking_contract,
             stability_pool_contract,
-            gauge_vault_contract,
+            lockdrop_contract,
             discount_vault_contract,
         ),
     }
@@ -100,12 +102,13 @@ fn update_config(
     deps: DepsMut,
     info: MessageInfo,
     owner: Option<String>,
+    mbrn_denom: Option<String>,
     basket_id: Option<Uint128>,
     oracle_contract: Option<String>,
     positions_contract: Option<String>,
     staking_contract: Option<String>,
     stability_pool_contract: Option<String>,
-    gauge_vault_contract: Option<String>,
+    lockdrop_contract: Option<String>,
     discount_vault_contract: Option<String>,
 ) -> Result<Response, ContractError> {
 
@@ -123,6 +126,9 @@ fn update_config(
     if let Some(basket_id) = basket_id {
         config.basket_id = basket_id;
     }
+    if let Some(mbrn_denom) = mbrn_denom {
+        config.mbrn_denom = mbrn_denom;
+    }
     if let Some(addr) = positions_contract {
         config.positions_contract = deps.api.addr_validate(&addr)?;
     }
@@ -135,8 +141,8 @@ fn update_config(
     if let Some(addr) = stability_pool_contract {
         config.stability_pool_contract = deps.api.addr_validate(&addr)?;
     }
-    if let Some(addr) = gauge_vault_contract {
-        config.gauge_vault_contract = deps.api.addr_validate(&addr)?;
+    if let Some(addr) = lockdrop_contract {
+        config.lockdrop_contract = deps.api.addr_validate(&addr)?;
     }
     if let Some(addr) = discount_vault_contract {
         config.discount_vault_contract = deps.api.addr_validate(&addr)?;
@@ -197,6 +203,7 @@ fn get_discount(
         }
     };
 
+//468 - 500
     Ok(percent_discount)
 }
 
@@ -229,16 +236,16 @@ fn get_user_value_in_network(
     //Initialize total_value
     let mut total_value = Decimal::zero();
 
-    total_value += get_sp_funds(querier, config.clone(), user.clone(), basket.clone().credit_asset.info)?;
+    total_value += get_sp_value(querier, config.clone(), user.clone(), basket.clone().credit_asset.info, mbrn_price)?;
     total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price.clone())?;
     total_value += get_discounts_vault_value(querier, config.clone(), user.clone())?;
-    total_value += get_incentive_guage_value(querier, config.clone(), user.clone(), credit_price.clone(), mbrn_price.clone())?;
-
+    total_value += get_lockdrop_value(querier, config.clone(), user.clone(), credit_price.clone(), mbrn_price.clone())?;
+    
     Ok( total_value )
 }
 
-//Returns total_value & credit AssetInfo
-fn get_incentive_guage_value(
+//Returns total_value of incentives + LP
+fn get_lockdrop_value(
     querier: QuerierWrapper,
     config: Config,
     user: String,    
@@ -248,8 +255,8 @@ fn get_incentive_guage_value(
     
     //Get user info from the Gauge Vault
     let user = querier.query::<UserResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().gauge_vault_contract.to_string(),
-        msg: to_binary(&IG_QueryMsg::User {
+        contract_addr: config.clone().lockdrop_contract.to_string(),
+        msg: to_binary(&Lockdrop_QueryMsg::User {
             user,
         })?,
     }))?;
@@ -292,9 +299,8 @@ fn get_discounts_vault_value(
             user,
         })?,
     }))?;
-    let total_value = user.premium_user_value;
 
-    Ok( total_value )
+    Ok( user.premium_user_value )
 
 }
 
@@ -353,19 +359,20 @@ fn get_staked_MBRN_value(
 }
 
 //Gets user total Stability Pool funds
-fn get_sp_funds(
+fn get_sp_value(
     querier: QuerierWrapper,
     config: Config,
     user: String,
     asset_info: AssetInfo,
+    mbrn_price: Decimal,
 ) -> StdResult<Decimal>{
 
     //Query Stability Pool to see if the user has funds
     let user_deposits = querier.query::<DepositResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().stability_pool_contract.to_string(),
         msg: to_binary(&SP_QueryMsg::AssetDeposits {
-            user,
-            asset_info,
+            user: user.clone(),
+            asset_info: asset_info.clone(),
         })?,
     }))?
     .deposits;
@@ -377,5 +384,43 @@ fn get_sp_funds(
         .into_iter()
         .sum();
 
-    Ok( total_user_deposit )
+    //Query for user accrued incentives
+    let accrued_incentives = querier.query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.clone().stability_pool_contract.to_string(),
+        msg: to_binary(&SP_QueryMsg::UnclaimedIncentives {
+            user: user.clone(),
+            asset_info: asset_info.clone(),
+        })?,
+    }))?;
+    let incentive_value = decimal_multiplication(mbrn_price, Decimal::from_ratio(accrued_incentives, Uint128::one()));
+
+    //Query for user claimable assets
+    let res = querier.query::<ClaimsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.clone().stability_pool_contract.to_string(),
+        msg: to_binary(&SP_QueryMsg::UserClaims {
+            user: user.clone(),
+        })?,
+    }))?;
+
+    let mut claims_value = Decimal::zero();
+    
+    for asset in res.claims {
+
+        let price = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.clone().oracle_contract.to_string(),
+            msg: to_binary(&Oracle_QueryMsg::Price {
+                asset_info: asset.info,
+                twap_timeframe: 60,
+                basket_id: None,
+            })?,
+        }))?
+        .price;
+
+        let value = decimal_multiplication(price, Decimal::from_ratio(asset.amount, Uint128::one()));
+
+        claims_value += value;
+    }
+
+    //Return total_value
+    Ok( total_user_deposit + incentive_value + claims_value)
 }

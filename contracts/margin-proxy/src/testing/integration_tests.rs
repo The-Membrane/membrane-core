@@ -176,6 +176,9 @@ mod tests {
                             pending_revenue: Uint128::zero(),
                             negative_rates: false,
                             cpc_margin_of_error: Decimal::zero(),
+                            multi_asset_supply_caps: vec![],
+                            frozen: false,
+                            rev_to_stakers: true,
                         })?)
                     },
                 }

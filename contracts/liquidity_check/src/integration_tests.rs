@@ -316,7 +316,7 @@ mod tests {
         fn update_config() {
             let (mut app, liquidity_contract) = proper_instantiate();
 
-            //Successful AddAsset
+            //Successful UpdateConfig
             let msg = ExecuteMsg::UpdateConfig { 
                 owner: Some(String::from("new_owner")), 
                 osmosis_proxy: Some(String::from("new_op_contract")),  
@@ -326,7 +326,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             
-            //Query Liquidity
+            //Query Config
             let config: Config = app
                 .wrap()
                 .query_wasm_smart(

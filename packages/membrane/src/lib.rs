@@ -15,7 +15,7 @@ pub mod stability_pool;
 pub mod staking;
 pub mod margin_proxy;
 pub mod system_discounts;
-pub mod incentive_gauge_vault;
+pub mod lp_lockdrop;
 pub mod discount_vault;
 pub mod types;
 pub mod math;

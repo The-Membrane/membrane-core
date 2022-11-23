@@ -6,7 +6,7 @@ mod tests {
 
     use membrane::positions::{PositionsResponse, BasketResponse};
     use membrane::system_discounts::{ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::lp_lockdrop::UserResponse;
+    use membrane::lockdrop::UserResponse;
     use membrane::stability_pool::{DepositResponse, ClaimsResponse};
     use membrane::staking::{StakerResponse, RewardsResponse, Config as Staking_Config};
     use membrane::oracle::PriceResponse;

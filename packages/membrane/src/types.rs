@@ -385,12 +385,12 @@ pub struct LiquidityInfo {
     pub pool_ids: Vec<u64>,
 }
 
-/////////Incentive Gauge
+/////////Lockdrop
 ///
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct LockUp {
-    pub locked_asset: Asset,
-    pub lock_up_duration: u64,
+pub struct LPPoolInfo {
+    pub share_token: AssetInfo,
+    pub pool_id: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

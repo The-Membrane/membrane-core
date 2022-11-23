@@ -10,9 +10,8 @@ use membrane::stability_pool::{DepositResponse, PoolResponse, LiquidatibleRespon
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
-use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, LiqAsset, cAsset};
+use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, LiqAsset, cAsset, PoolStateResponse};
 
-use osmo_bindings::PoolStateResponse;
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
 use crate::error::ContractError; 

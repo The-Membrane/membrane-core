@@ -747,15 +747,17 @@ fn check_and_fulfill_bad_debt(
         //Send bad debt amount to the auction contract if greater than 0
         if config.debt_auction.is_some() && !bad_debt_amount.is_zero() {
             let auction_msg = AuctionExecuteMsg::StartAuction {
-                repayment_position_info: UserInfo {
+                repayment_position_info: Some(UserInfo {
                     basket_id,
                     position_id,
                     position_owner: position_owner.to_string(),
-                },
+                }),
                 debt_asset: Asset {
                     amount: bad_debt_amount,
                     info: basket.clone().credit_asset.info,
                 },
+                send_to: None,
+                basket_id,
             };
 
             messages.push(CosmosMsg::Wasm(WasmMsg::Execute {

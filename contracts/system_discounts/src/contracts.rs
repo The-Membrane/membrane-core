@@ -8,7 +8,7 @@ use membrane::math::{decimal_multiplication, decimal_division};
 use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::stability_pool::{QueryMsg as SP_QueryMsg, DepositResponse, ClaimsResponse};
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
-use membrane::lp_lockdrop::{QueryMsg as Lockdrop_QueryMsg, UserResponse};
+use membrane::lockdrop::{QueryMsg as Lockdrop_QueryMsg, UserResponse};
 use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse};
 use membrane::positions::{QueryMsg as CDP_QueryMsg, BasketResponse, PositionsResponse};
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
@@ -203,7 +203,6 @@ fn get_discount(
         }
     };
 
-//468 - 500
     Ok(percent_discount)
 }
 

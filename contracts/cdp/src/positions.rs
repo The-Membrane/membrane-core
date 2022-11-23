@@ -2287,7 +2287,7 @@ pub fn clone_basket(deps: DepsMut, basket_id: Uint128) -> Result<Response, Contr
                 basket_id: Some(config.clone().current_basket_id),
             })?,
         }))?
-        .avg_price;
+        .price;
 
     let new_supply_caps = base_basket
         .clone()
@@ -2969,10 +2969,10 @@ fn query_price(
                 //Make sure price hasn't changed by 20%+ in a 5 min span, if so Error.
             
                 //Upside
-                if decimal_multiplication(stored_price.price, Decimal::percent(120)) <= res.avg_price {
+                if decimal_multiplication(stored_price.price, Decimal::percent(120)) <= res.price {
                     return Err(StdError::GenericErr { msg: String::from("Oracle price moved >= 20 to the upside in 5 minutes, possible bug/manipulation") })
                 }//Downside
-                else if decimal_multiplication(stored_price.price, Decimal::percent(80)) >= res.avg_price {
+                else if decimal_multiplication(stored_price.price, Decimal::percent(80)) >= res.price {
                     return Err(StdError::GenericErr { msg: String::from("Oracle price moved >= 20 to the downside in 5 minutes, possible bug/manipulation") })
                 }
                 
@@ -2982,7 +2982,7 @@ fn query_price(
                     env.clone(),
                     &asset_info,
                     &mut StoredPrice {
-                        price: res.avg_price,
+                        price: res.price,
                         last_time_updated: env.block.time.seconds(),
                         ..stored_price
                     },
@@ -2995,17 +2995,17 @@ fn query_price(
                 env.clone(),
                 &asset_info,
                 &mut StoredPrice {
-                    price: res.avg_price,
+                    price: res.price,
                     last_time_updated: env.block.time.seconds(),
                     price_vol_limiter: PriceVolLimiter { 
-                        price: res.avg_price, 
+                        price: res.price, 
                         last_time_updated: env.block.time.seconds(),
                     }
                 },
             )?;
             
             //
-            res.avg_price
+            res.price
         }
         Err(_err) => {
             //If the query errors, try and use a stored price

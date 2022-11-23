@@ -9,7 +9,7 @@ use membrane::math::{decimal_multiplication, decimal_division, decimal_subtracti
 use crate::positions::{get_cAsset_ratios, get_asset_liquidity, get_asset_values};
 use crate::query::{get_asset_values_imut, get_cAsset_ratios_imut};
 use crate::risk_engine::{get_basket_debt_caps_imut, get_basket_debt_caps, update_basket_debt};
-use crate::state::{CONFIG, BASKETS, CREDIT_MULTI};
+use crate::state::{CONFIG, BASKET};
 
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
@@ -330,7 +330,6 @@ pub fn accrue(
             querier,
             vec![credit_asset],
             config.clone(),
-            Some(basket.clone().basket_id),
         )?
         .1[0];
 
@@ -450,119 +449,6 @@ pub fn accrue(
 }
 
 
-pub fn get_credit_asset_multiplier(
-    storage: &mut dyn Storage,
-    querier: QuerierWrapper,
-    env: Env,
-    config: Config,
-    basket: Basket,
-) -> StdResult<Decimal> {
-    //Find Baskets with similar credit_asset
-    let mut baskets: Vec<Basket> = vec![];
-
-    //Has to be done ugly due to an immutable borrow
-    //Uint128 to int
-    let range: i32 = config.current_basket_id.to_string().parse().unwrap();
-
-    for basket_id in 1..range {
-        let stored_basket = BASKETS.load(storage, basket_id.to_string())?;
-
-        if stored_basket
-            .credit_asset
-            .info
-            .equal(&basket.credit_asset.info)
-        {
-            baskets.push(stored_basket);
-        }
-    }
-    
-    //Calc collateral_type totals
-    let mut collateral_totals: Vec<(Asset, Option<PoolInfo>)> = vec![];
-
-    for basket in baskets.clone() {
-        //Find collateral's corresponding total in list
-        for collateral in basket.collateral_types {
-            if let Some((index, _total)) = collateral_totals
-                .clone()
-                .into_iter()
-                .enumerate()
-                .find(|(_i, (asset, _pool))| asset.info.equal(&collateral.asset.info))
-            {
-                //Add to collateral total
-                collateral_totals[index].0.amount += collateral.asset.amount;
-            } else {
-                //Add collateral type to list
-                collateral_totals.push((Asset {
-                    info: collateral.asset.info,
-                    amount: collateral.asset.amount,
-                },
-                    collateral.pool_info,
-                ));
-            }            
-        }
-    }
-
-    //Get total_collateral_value
-    let temp_cAssets: Vec<cAsset> = collateral_totals
-        .clone()
-        .into_iter()
-        .map(|(asset, pool_info)| cAsset {
-            asset,
-            max_borrow_LTV: Decimal::zero(),
-            max_LTV: Decimal::zero(),
-            pool_info,
-            rate_index: Decimal::one(),
-        })
-        .collect::<Vec<cAsset>>();
-
-    let total_collateral_value: Decimal = get_asset_values(
-        storage,
-        env.clone(),
-        querier,
-        temp_cAssets,
-        config.clone(),
-        None,
-    )?
-    .0
-    .into_iter()
-    .sum();
-
-    //Get basket_collateral_value
-    let basket_collateral_value: Decimal = get_asset_values(
-        storage,
-        env.clone(),
-        querier,
-        basket.clone().collateral_types,
-        config.clone(),
-        None,
-    )?
-    .0
-    .into_iter()
-    .sum();
-
-    //Find Basket's ratio of total collateral
-    let basket_tvl_ratio: Decimal = {
-        if !basket_collateral_value.is_zero() {
-            decimal_division(basket_collateral_value, total_collateral_value )
-        } else {
-            Decimal::zero()
-        }
-    };    
-
-    //Get credit_asset's liquidity multiplier
-    let credit_asset_liquidity_multiplier =
-        CREDIT_MULTI.load(storage, basket.clone().credit_asset.info.to_string())?;
-
-    //Get Minimum between (ratio * credit_asset's multiplier) and basket's liquidity_multiplier
-    //This gives the set multiplier or the Basket's TVL ratio of the total_multiplier
-    let multiplier = min(
-        decimal_multiplication(basket_tvl_ratio, credit_asset_liquidity_multiplier),
-        basket.liquidity_multiplier,
-    );
-
-    Ok(multiplier)
-}
-
 ////////////Immutable fns for Queries/////
 pub fn accrue_imut(
     storage: &dyn Storage,
@@ -628,7 +514,6 @@ pub fn accrue_imut(
             querier,
             vec![credit_asset],
             config.clone(),
-            Some(basket.clone().basket_id),
         )?
         .1[0];
         //We divide w/ the greater number first so the quotient is always 1.__

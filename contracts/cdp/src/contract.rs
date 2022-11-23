@@ -34,7 +34,7 @@ use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID,
     SELL_WALL_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
 use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_sell_wall_reply, handle_withdraw_reply, handle_sp_repay_reply, handle_close_position_reply};
 use crate::state::{
-    BASKETS, CONFIG,
+    BASKETS, CONFIG, BASKET,
 };
 
 // version info for migration info
@@ -52,7 +52,6 @@ pub fn instantiate(
     let mut config = Config {
         liq_fee: msg.liq_fee,
         owner: info.sender.clone(),
-        current_basket_id: Uint128::from(1u128),
         stability_pool: None,
         dex_router: None,
         interest_revenue_collector: None,
@@ -784,57 +783,6 @@ fn check_and_fulfill_bad_debt(
     }
 }
 
-//From a receive cw20 hook. Comes from the contract address so easy to validate sent funds.
-//Check if sent funds are equal to amount in msg so we don't have to recheck in the function
-pub fn receive_cw20(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    cw20_msg: Cw20ReceiveMsg,
-) -> Result<Response, ContractError> {
-    let passed_asset: Asset = Asset {
-        info: AssetInfo::Token {
-            address: info.sender.clone(),
-        },
-        amount: cw20_msg.amount,
-    };
-
-    match from_binary(&cw20_msg.msg) {
-        //This only allows 1 cw20 token at a time when opening a position, whereas you can add multiple native assets
-        Ok(Cw20HookMsg::Deposit {
-            position_owner,
-            basket_id,
-            position_id,
-        }) => {
-            let valid_owner_addr: Addr = if let Some(position_owner) = position_owner {
-                deps.api.addr_validate(&position_owner)?
-            } else {
-                deps.api.addr_validate(&cw20_msg.sender.clone())?
-            };
-
-            let cAssets: Vec<cAsset> = assert_basket_assets(
-                deps.storage,
-                deps.querier,
-                env.clone(),
-                basket_id,
-                vec![passed_asset],
-                true,
-            )?;
-
-            deposit(
-                deps,
-                env,
-                info,
-                Some(valid_owner_addr.to_string()),
-                position_id,
-                basket_id,
-                cAssets,
-            )
-        }
-        Err(_) => Err(ContractError::Cw20MsgError {}),
-    }
-}
-
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
@@ -887,38 +835,31 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             start_after,
             limit,
         )?),
-        QueryMsg::GetBasket { basket_id } => to_binary(&query_basket(deps, basket_id)?),
-        QueryMsg::GetAllBaskets { start_after, limit } => {
-            to_binary(&query_baskets(deps, start_after, limit)?)
-        }
+        QueryMsg::GetBasket { } => to_binary(&BASKET.load(deps.storage)?),
         QueryMsg::Propagation {} => to_binary(&query_prop(deps)?),
-        QueryMsg::GetBasketDebtCaps { basket_id } => {
-            to_binary(&query_basket_debt_caps(deps, env, basket_id)?)
+        QueryMsg::GetBasketDebtCaps { } => {
+            to_binary(&query_basket_debt_caps(deps, env)?)
         }
-        QueryMsg::GetBasketBadDebt { basket_id } => to_binary(&query_bad_debt(deps, basket_id)?),
+        QueryMsg::GetBasketBadDebt { } => to_binary(&query_bad_debt(deps)?),
         QueryMsg::GetBasketInsolvency {
-            basket_id,
             start_after,
             limit,
         } => to_binary(&query_basket_insolvency(
             deps,
             env,
-            basket_id,
             start_after,
             limit,
         )?),
         QueryMsg::GetPositionInsolvency {
-            basket_id,
             position_id,
             position_owner,
         } => to_binary(&query_position_insolvency(
             deps,
             env,
-            basket_id,
             position_id,
             position_owner,
         )?),
-        QueryMsg::GetBasketInterest { basket_id } => {
+        QueryMsg::GetCreditRedemptionRate { basket_id } => {
             to_binary(&query_basket_credit_interest(deps, env, basket_id)?)
         }
         QueryMsg::GetCollateralInterest { basket_id } => {

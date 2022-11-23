@@ -5,11 +5,10 @@ use membrane::math::{decimal_multiplication, decimal_division};
 use membrane::positions::Config;
 use membrane::types::{Basket, PoolInfo, Asset, cAsset, SupplyCap, AssetInfo};
 
-use crate::state::{CREDIT_MULTI, CONFIG, BASKETS};
+use crate::state::{CONFIG, BASKET};
 use crate::positions::{get_stability_pool_liquidity, get_asset_liquidity, get_cAsset_ratios};
 use crate::query::{get_cAsset_ratios_imut, get_asset_values_imut};
 use crate::error::ContractError;
-use crate::rates::get_credit_asset_multiplier;
 
 
 
@@ -17,15 +16,10 @@ pub fn assert_basket_assets(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
-    basket_id: Uint128,
     assets: Vec<Asset>,
     add_to_cAsset: bool,
 ) -> Result<Vec<cAsset>, ContractError> {
-
-    let mut basket: Basket = match BASKETS.load(storage, basket_id.to_string()) {
-        Err(_) => return Err(ContractError::NonExistentBasket {}),
-        Ok(basket) => basket,
-    };
+    let mut basket: Basket = BASKET.load(storage)?;
 
     //Checking if Assets for the position are available collateral assets in the basket
     let mut valid = false;
@@ -33,21 +27,7 @@ pub fn assert_basket_assets(
 
     for asset in assets {
         for cAsset in basket.clone().collateral_types {
-            match (asset.clone().info, cAsset.asset.info) {
-                (
-                    AssetInfo::Token { address },
-                    AssetInfo::Token {
-                        address: cAsset_address,
-                    },
-                ) => {
-                    if address == cAsset_address {
-                        valid = true;
-                        collateral_assets.push(cAsset {
-                            asset: asset.clone(),
-                            ..cAsset
-                        });
-                    }
-                }
+            match (asset.clone().info, cAsset.asset.info) {                    
                 (
                     AssetInfo::NativeToken { denom },
                     AssetInfo::NativeToken {
@@ -86,7 +66,7 @@ pub fn assert_basket_assets(
             collateral_assets.clone(),
             add_to_cAsset,
         )?;
-        BASKETS.save(storage, basket_id.to_string(), &basket)?;
+        BASKET.save(storage, &basket)?;
     }
 
     Ok(collateral_assets)
@@ -200,37 +180,23 @@ pub fn get_basket_debt_caps(
         config.clone(),
     )?;
     
-    //Get credit_asset's liquidity_multiplier
-    let credit_asset_multiplier = get_credit_asset_multiplier(
-        storage,
-        querier,
-        env.clone(),
-        config.clone(),
-        basket.clone(),
-    )?;
-    
+
     //Get the base debt cap
     let mut debt_cap =
         get_asset_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?
-            * credit_asset_multiplier;
+            * basket.liquidity_multiplier;
             
 
     //Get SP liquidity
     let sp_liquidity = get_stability_pool_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?;
 
-    //Add basket's ratio of SP liquidity to the cap
-    //Ratio is based off of its ratio of the total credit_asset_multiplier
-    debt_cap += decimal_multiplication(
-        Decimal::from_ratio(sp_liquidity, Uint128::new(1)), 
-        decimal_division(credit_asset_multiplier, CREDIT_MULTI.load(storage, basket.clone().credit_asset.info.to_string())?) 
-    ) * Uint128::new(1);
-    
+    //Add SP liquidity to the cap
+    debt_cap += Decimal::from_ratio(sp_liquidity, Uint128::new(1)) * Uint128::new(1);    
 
     //If debt cap is less than the minimum, set it to the minimum
     if debt_cap < (config.base_debt_cap_multiplier * config.debt_minimum) {
         debt_cap = (config.base_debt_cap_multiplier * config.debt_minimum);
-    }
-    
+    }    
     
     //Don't double count debt btwn Stability Pool based caps and TVL based caps
     for cap in basket.clone().collateral_supply_caps {
@@ -280,7 +246,7 @@ pub fn get_basket_debt_caps(
         } else {
             //TVL Ratio * Cap 
             per_asset_debt_caps.push(cAsset_ratio * debt_cap);
-        }S
+        }
     }
     
     Ok(per_asset_debt_caps)
@@ -292,16 +258,12 @@ pub fn update_debt_per_asset_in_position(
     env: Env,
     querier: QuerierWrapper,
     config: Config,
-    basket_id: Uint128,
     old_assets: Vec<cAsset>,
     new_assets: Vec<cAsset>,
     credit_amount: Decimal,
 ) -> Result<(), ContractError> {
     //Load Basket
-    let mut basket: Basket = match BASKETS.load(storage, basket_id.to_string()) {
-        Err(_) => return Err(ContractError::NonExistentBasket {}),
-        Ok(basket) => basket,
-    };
+    let mut basket: Basket = BASKET.load(storage)?;
 
     //Note: Vec lengths need to match
     let (old_ratios, _) = get_cAsset_ratios(
@@ -392,7 +354,7 @@ pub fn update_debt_per_asset_in_position(
         });
     }
 
-    BASKETS.save(storage, basket_id.to_string(), &basket)?;
+    BASKET.save(storage, &basket)?;
 
     Ok(())
 }
@@ -495,119 +457,6 @@ pub fn update_basket_debt(
 
 ////////////Immutable fns for Queries/////
 
-fn get_credit_asset_multiplier_imut(
-    storage: &dyn Storage,
-    querier: QuerierWrapper,
-    env: Env,
-    config: Config,
-    basket: Basket,
-) -> StdResult<Decimal> {
-    //Find Baskets with similar credit_asset
-    let mut baskets: Vec<Basket> = vec![];
-
-    //Has to be done ugly due to an immutable borrow
-    //Uint128 to int
-    let range: i32 = config.current_basket_id.to_string().parse().unwrap();
-
-    for basket_id in 1..range {
-        let stored_basket = BASKETS.load(storage, basket_id.to_string())?;
-
-        if stored_basket
-            .credit_asset
-            .info
-            .equal(&basket.credit_asset.info)
-        {
-            baskets.push(stored_basket);
-        }
-    }
-
-    //Calc collateral_type totals
-    let mut collateral_totals: Vec<(Asset, Option<PoolInfo>)> = vec![];
-
-    for basket in baskets.clone() {
-        //Find collateral's corresponding total in list
-        for collateral in basket.collateral_types {
-            if let Some((index, _total)) = collateral_totals
-                .clone()
-                .into_iter()
-                .enumerate()
-                .find(|(_i, (asset, _pool))| asset.info.equal(&collateral.asset.info))
-            {
-                //Add to collateral total
-                collateral_totals[index].0.amount += collateral.asset.amount;
-            } else {
-                //Add collateral type to list
-                collateral_totals.push((Asset {
-                    info: collateral.asset.info,
-                    amount: collateral.asset.amount,
-                },
-                    collateral.pool_info,
-                ));
-            }            
-        }
-    }
-
-    //Get total_collateral_value
-    let temp_cAssets: Vec<cAsset> = collateral_totals
-        .clone()
-        .into_iter()
-        .map(|(asset, pool_info)| cAsset {
-            asset,
-            max_borrow_LTV: Decimal::zero(),
-            max_LTV: Decimal::zero(),
-            pool_info,
-            rate_index: Decimal::one(),
-        })
-        .collect::<Vec<cAsset>>();
-        
-        let total_collateral_value: Decimal = get_asset_values_imut(
-            storage,
-            env.clone(),
-            querier,
-            temp_cAssets,
-            config.clone(),
-            None,
-        )?
-        .0
-        .into_iter()
-        .sum();
-    
-        //Get basket_collateral_value   
-        let basket_collateral_value: Decimal = get_asset_values_imut(
-            storage,
-            env.clone(),
-            querier,
-            basket.clone().collateral_types,
-            config.clone(),
-            None,
-        )?
-        .0
-        .into_iter()
-        .sum();
-    
-        //Find Basket's ratio of total collateral
-        let basket_tvl_ratio: Decimal = {
-            if !basket_collateral_value.is_zero() {
-                decimal_division(basket_collateral_value, total_collateral_value )
-            } else {
-                Decimal::zero()
-            }
-        };    
-        
-        //Get credit_asset's liquidity multiplier
-        let credit_asset_liquidity_multiplier =
-            CREDIT_MULTI.load(storage, basket.clone().credit_asset.info.to_string())?;
-    
-        //Get Minimum between (ratio * credit_asset's multiplier) and basket's liquidity_multiplier
-        let multiplier = min(
-            decimal_multiplication(basket_tvl_ratio, credit_asset_liquidity_multiplier),
-            basket.liquidity_multiplier,
-        );
-        
-        Ok(multiplier)
-}
-
-
 pub fn get_basket_debt_caps_imut(
     storage: &dyn Storage,
     querier: QuerierWrapper,
@@ -626,30 +475,17 @@ pub fn get_basket_debt_caps_imut(
         basket.clone().collateral_types,
         config.clone(),
     )?;
-
-    //Get credit_asset's liquidity_multiplier
-    let credit_asset_multiplier = get_credit_asset_multiplier_imut(
-        storage,
-        querier,
-        env.clone(),
-        config.clone(),
-        basket.clone(),
-    )?;
     
     //Get the base debt cap
     let mut debt_cap =
         get_asset_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?
-            * credit_asset_multiplier;
+            * basket.liquidity_multiplier;
 
     //Get SP liquidity
     let sp_liquidity = get_stability_pool_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?;
 
-    //Add basket's ratio of SP liquidity to the cap
-    //Ratio is based off of its ratio of the total credit_asset_multiplier
-    debt_cap += decimal_multiplication(
-        Decimal::from_ratio(sp_liquidity, Uint128::new(1)), 
-        decimal_division(credit_asset_multiplier, CREDIT_MULTI.load(storage, basket.clone().credit_asset.info.to_string())?) 
-    ) * Uint128::new(1);
+    //Add SP liquidity to the cap
+    debt_cap += Decimal::from_ratio(sp_liquidity, Uint128::new(1)) * Uint128::new(1);
 
 
     //If debt cap is less than the minimum, set it to the minimum

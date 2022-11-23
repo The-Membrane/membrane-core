@@ -18,9 +18,7 @@ pub struct LiquidationPropagation {
     pub user_repay_amount: Decimal,
     pub positions_contract: Addr,
     //So the sell wall knows who to repay to
-    pub position_id: Uint128,
-    pub basket_id: Uint128,
-    pub position_owner: Addr,
+    pub position_info: UserInfo,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -40,9 +38,8 @@ pub struct ClosePositionPropagation {
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");
-pub const POSITIONS: Map<(String, Addr), Vec<Position>> = Map::new("positions"); //basket_id, owner
-pub const BASKETS: Map<String, Basket> = Map::new("baskets"); //basket_id Basket
-pub const CREDIT_MULTI: Map<String, Decimal> = Map::new("credit_multipliers"); //basket_id, multiplier
+pub const BASKET: Item<Basket> = Map::new("basket"); 
+pub const POSITIONS: Map<Addr, Vec<Position>> = Map::new("positions"); //owner
 
 //Reply State Propagations
 pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");

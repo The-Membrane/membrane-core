@@ -53,51 +53,44 @@ pub enum ExecuteMsg {
     },
     Receive(Cw20ReceiveMsg),
     Deposit {
-        basket_id: Uint128,
         position_id: Option<Uint128>, //If the user wants to create a new/separate position, no position id is passed
         position_owner: Option<String>,
     },
     //Increase debt by an amount or to a LTV
     IncreaseDebt {
-        basket_id: Uint128,
         position_id: Uint128,
         amount: Option<Uint128>,
         LTV: Option<Decimal>,
         mint_to_addr: Option<String>,
     },
     Withdraw {
-        basket_id: Uint128,
         position_id: Uint128,
         assets: Vec<Asset>,
         send_to: Option<String>, //If not the sender
     },
     Repay {
-        basket_id: Uint128,
         position_id: Uint128,
         position_owner: Option<String>, //If not the sender
         send_excess_to: Option<String>, //If not the sender
     },
     LiqRepay {},
     Liquidate {
-        basket_id: Uint128,
         position_id: Uint128,
         position_owner: String,
     },
     ClosePosition {
-        basket_id: Uint128,
         position_id: Uint128,
         max_spread: Decimal,
         send_to: Option<String>,
     },
     MintRevenue {
-        basket_id: Uint128,
         send_to: Option<String>, //Defaults to config.interest_revenue_collector
         repay_for: Option<UserInfo>, //Repay for a position w/ the revenue
         amount: Option<Uint128>,
     },
-    //Non-USD baskets don't work due to the debt minimum
+    //Non-USD denominated baskets don't work due to the debt minimum
     CreateBasket {
-        owner: Option<String>,
+        basket_id: Uint128,
         collateral_types: Vec<cAsset>,
         credit_asset: Asset, //Creates native denom for Asset
         credit_price: Decimal,
@@ -108,7 +101,6 @@ pub enum ExecuteMsg {
         liq_queue: Option<String>,
     },
     EditBasket {
-        basket_id: Uint128,
         added_cAsset: Option<cAsset>,
         owner: Option<String>,
         liq_queue: Option<String>,
@@ -124,16 +116,7 @@ pub enum ExecuteMsg {
         frozen: Option<bool>,
         rev_to_stakers: Option<bool>,
     },
-    //Clone basket. Reset supply_caps. Sets repayment price to new oracle price.
-    //When using this to add a new UoA:
-    // Add logic to change oracle quote asset in Oracle contract
-    //
-    //Note: Edit pool_ids if desired
-    CloneBasket {
-        basket_id: Uint128,
-    },
     EditcAsset {
-        basket_id: Uint128,
         asset: AssetInfo,
         //Editables
         max_borrow_LTV: Option<Decimal>, //aka what u can borrow up to
@@ -146,15 +129,6 @@ pub enum ExecuteMsg {
     Callback(CallbackMsg),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Cw20HookMsg {
-    Deposit {
-        basket_id: Uint128,
-        position_id: Option<Uint128>,
-        position_owner: Option<String>,
-    },
-}
 
 // NOTE: Since CallbackMsg are always sent by the contract itself, we assume all types are already
 // validated and don't do additional checks. E.g. user addresses are Addr instead of String
@@ -162,7 +136,6 @@ pub enum Cw20HookMsg {
 #[serde(rename_all = "snake_case")]
 pub enum CallbackMsg {
     BadDebtCheck {
-        basket_id: Uint128,
         position_id: Uint128,
         position_owner: Addr,
     },
@@ -174,52 +147,32 @@ pub enum QueryMsg {
     Config {},
     GetUserPositions {
         //All positions from a user
-        basket_id: Option<Uint128>,
         user: String,
         limit: Option<u32>,
     },
     GetPosition {
         //Singular position
-        basket_id: Uint128,
         position_id: Uint128,
         position_owner: String,
     },
     GetBasketPositions {
         //All positions in a basket
-        basket_id: Uint128,
         start_after: Option<String>,
         limit: Option<u32>,
     },
-    GetBasket {
-        basket_id: Uint128,
-    }, //Singular basket
-    GetAllBaskets {
-        //All baskets
-        start_after: Option<Uint128>,
-        limit: Option<u32>,
-    },
-    GetBasketDebtCaps {
-        basket_id: Uint128,
-    },
-    GetBasketBadDebt {
-        basket_id: Uint128,
-    },
+    GetBasket { }, //Singular basket
+    GetBasketDebtCaps { },
+    GetBasketBadDebt { },
     GetBasketInsolvency {
-        basket_id: Uint128,
         start_after: Option<String>,
         limit: Option<u32>,
     },
     GetPositionInsolvency {
-        basket_id: Uint128,
         position_id: Uint128,
         position_owner: String,
     },
-    GetBasketInterest {
-        basket_id: Uint128,
-    },
-    GetCollateralInterest {
-        basket_id: Uint128,
-    },
+    GetCreditRedemptionRate { },
+    GetCollateralInterest { },
     //Used internally to test state propagation
     Propagation {},
 }
@@ -227,7 +180,6 @@ pub enum QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {
     pub owner: Addr,
-    pub current_basket_id: Uint128,
     pub stability_pool: Option<Addr>,
     pub dex_router: Option<Addr>, //Apollo's router, will need to change msg types if the router changes most likely.
     pub interest_revenue_collector: Option<Addr>,
@@ -302,7 +254,6 @@ pub struct PropResponse {
     pub positions_contract: String,
     //So the sell wall knows who to repay to
     pub position_id: Uint128,
-    pub basket_id: Uint128,
     pub position_owner: String,
 }
 

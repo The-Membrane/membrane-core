@@ -61,7 +61,7 @@ pub fn instantiate(
 
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::default())
+    Ok(Response::new().add_attribute("config", format!("{:?}", config)))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -151,7 +151,7 @@ fn update_config(
     //Save Config
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::new())
+    Ok(Response::new().add_attribute("new_config", format!("{:?}", config)))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -260,7 +260,7 @@ fn get_lockdrop_value(
         })?,
     }))?;
     let debt_token: DebtTokenAsset = user.total_debt_token;
-    let accrued_incentives = user.accrued_incentives;
+    let accrued_incentives = user.incentives.amount;
 
     //Calc total value of the LPs
     let mut total_value = 
@@ -276,7 +276,7 @@ fn get_lockdrop_value(
     //Add value of MBRN incentives
     let value = decimal_multiplication(
         mbrn_price, 
-        Decimal::from_ratio(accrued_incentives.amount, Uint128::one())
+        Decimal::from_ratio(accrued_incentives, Uint128::one())
     );
 
     total_value += value;

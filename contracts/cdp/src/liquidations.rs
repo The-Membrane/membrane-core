@@ -17,7 +17,7 @@ use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 use crate::error::ContractError; 
 use crate::rates::accrue;
 use crate::positions::{validate_position_owner, get_target_position, update_position, insolvency_check, get_avg_LTV, get_cAsset_ratios, get_LP_pool_cAssets, BAD_DEBT_REPLY_ID, update_position_claims, asset_to_coin};
-use crate::state::{CONFIG, BASKETS, LIQUIDATION, LiquidationPropagation, POSITIONS};
+use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation, POSITIONS};
 
 
 //Liquidation reply ids
@@ -35,22 +35,17 @@ pub fn liquidate(
     querier: QuerierWrapper,
     env: Env,
     info: MessageInfo,
-    basket_id: Uint128,
     position_id: Uint128,
     position_owner: String,
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(storage)?;
 
-    let mut basket: Basket = match BASKETS.load(storage, basket_id.to_string()) {
-        Err(_) => return Err(ContractError::NonExistentBasket {}),
-        Ok(basket) => basket,
-    };
+    let mut basket: Basket = BASKET.load(storage)?;
     let valid_position_owner =
         validate_position_owner(api, info.clone(), Some(position_owner.clone()))?;
 
     let mut target_position = get_target_position(
         storage,
-        basket_id,
         valid_position_owner.clone(),
         position_id,
     )?;
@@ -63,10 +58,10 @@ pub fn liquidate(
         &mut basket,
     )?;
     //Save updated repayment price and basket debt
-    BASKETS.save(storage, basket_id.to_string(), &basket)?;
+    BASKET.save(storage, &basket)?;
 
     //Save updated position to lock-in credit_amount and last_accrued time
-    update_position(storage, basket_id.clone().to_string(), valid_position_owner.clone(), target_position.clone())?;
+    update_position(storage, valid_position_owner.clone(), target_position.clone())?;
 
     //Check position health compared to max_LTV
     let (insolvent, current_LTV, _available_fee) = insolvency_check(
@@ -190,7 +185,6 @@ pub fn liquidate(
     let msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.clone().contract.address.to_string(),
         msg: to_binary(&ExecuteMsg::Callback(CallbackMsg::BadDebtCheck {
-            basket_id,
             position_id,
             position_owner: valid_position_owner.clone(),
         }))?,
@@ -238,9 +232,10 @@ pub fn liquidate(
             stability_pool: Decimal::zero(),
             sell_wall_distributions: collateral_distributions,
             user_repay_amount,
-            basket_id,
-            position_id,
-            position_owner: valid_position_owner.clone(),
+            position_info: UserInfo {
+                position_id,
+                position_owner: valid_position_owner.clone().to_string()
+            },
             positions_contract: env.clone().contract.address,
         };
 
@@ -372,7 +367,6 @@ fn get_user_repay_amount(
             //Add Repay SubMsg
             let repay_msg = SP_ExecuteMsg::Repay {
                 user_info: UserInfo {
-                    basket_id: basket.clone().basket_id,
                     position_id,
                     position_owner: position_owner.clone(),
                 },
@@ -444,7 +438,6 @@ fn per_asset_fulfillments(
             storage,
             querier,
             env.clone(),
-            basket.clone().basket_id,
             position_id,
             valid_position_owner.clone(),
             cAsset.clone().asset.info,
@@ -459,7 +452,6 @@ fn per_asset_fulfillments(
             storage,
             querier,
             env.clone(),
-            basket.clone().basket_id,
             position_id,
             valid_position_owner.clone(),
             cAsset.clone().asset.info,
@@ -588,7 +580,6 @@ fn per_asset_fulfillments(
                 collateral_amount: Uint256::from(queue_asset_amount_paid.u128()),
                 bid_for: cAsset.clone().asset.info,
                 bid_with: basket.clone().credit_asset.info,
-                basket_id: basket.clone().basket_id,
                 position_id,
                 position_owner: valid_position_owner.clone().to_string(),
             };
@@ -687,9 +678,10 @@ fn build_sp_sw_submsgs(
                 stability_pool: Decimal::zero(),
                 sell_wall_distributions: collateral_distributions,
                 user_repay_amount,
-                basket_id: basket.clone().basket_id,
-                position_id,
-                position_owner: valid_position_owner.clone(),
+                position_info: UserInfo {
+                    position_id,
+                    position_owner: valid_position_owner.clone().to_string()
+                },
                 positions_contract: env.clone().contract.address,
             };
 
@@ -750,9 +742,10 @@ fn build_sp_sw_submsgs(
                 stability_pool: sp_repay_amount,
                 sell_wall_distributions: collateral_distributions,
                 user_repay_amount,
-                basket_id: basket.clone().basket_id,
-                position_id,
-                position_owner: valid_position_owner.clone(),
+                position_info: UserInfo {
+                    position_id,
+                    position_owner: valid_position_owner.clone().to_string()
+                },
                 positions_contract: env.clone().contract.address,
             };
 
@@ -801,9 +794,10 @@ fn build_sp_sw_submsgs(
             stability_pool: Decimal::zero(),
             sell_wall_distributions: vec![],
             user_repay_amount,
-            basket_id: basket.clone().basket_id,
-            position_id,
-            position_owner: valid_position_owner.clone(),
+            position_info: UserInfo {
+                position_id,
+                position_owner: valid_position_owner.clone().to_string()
+            },
             positions_contract: env.clone().contract.address,
         };
 
@@ -888,25 +882,14 @@ pub fn sell_wall_using_ids(
     querier: QuerierWrapper,
     api: &dyn Api,
     env: Env,
-    basket_id: Uint128,
     position_id: Uint128,
     position_owner: Addr,
     repay_amount: Decimal,
 ) -> StdResult<(Vec<CosmosMsg>, Vec<(AssetInfo, Decimal)>, Vec<CosmosMsg>)> {
     
-    let basket: Basket = BASKETS.load(storage, basket_id.to_string())?;
+    let basket: Basket = BASKET.load(storage)?;
 
-    let positions: Vec<Position> =
-        POSITIONS.load(storage, (basket_id.to_string(), position_owner.clone()))?;
-
-    let target_position = match positions.into_iter().find(|x| x.position_id == position_id) {
-        Some(position) => position,
-        None => {
-            return Err(StdError::NotFound {
-                kind: "Position".to_string(),
-            })
-        }
-    };
+    let target_position = get_target_position(storage, valid_position_owner, position_id)?;
     let collateral_assets = target_position.clone().collateral_assets;
 
     match sell_wall(
@@ -1037,7 +1020,6 @@ pub fn sell_wall(
                     max_spread: None, //Max spread doesn't matter bc we want to sell the whole amount no matter what
                     recipient: None,
                     hook_msg: Some(to_binary(&ExecuteMsg::Repay {
-                        basket_id: basket.clone().basket_id,
                         position_id,
                         position_owner: Some(position_owner.clone()),
                         send_excess_to: Some(position_owner.clone()),
@@ -1064,7 +1046,6 @@ pub fn sell_wall(
                     max_spread: None,
                     recipient: None,
                     hook_msg: Some(to_binary(&ExecuteMsg::Repay {
-                        basket_id: basket.clone().basket_id,
                         position_id,
                         position_owner: Some(position_owner.clone()),
                         send_excess_to: Some(position_owner.clone()),

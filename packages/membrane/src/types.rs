@@ -16,7 +16,6 @@ use osmosis_std::types::cosmos::base::v1beta1::Coin;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct PositionUserInfo {
-    pub basket_id: Uint128,
     pub position_id: Option<Uint128>,
     pub position_owner: Option<String>,
 }
@@ -261,12 +260,10 @@ pub struct Position {
     pub position_id: Uint128,
     pub collateral_assets: Vec<cAsset>,
     pub credit_amount: Uint128,
-    pub basket_id: Uint128, 
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Basket {
-    pub owner: Addr,
     pub basket_id: Uint128,
     pub current_position_id: Uint128,
     pub collateral_types: Vec<cAsset>,
@@ -311,7 +308,6 @@ pub struct MultiAssetSupplyCap {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UserInfo {
-    pub basket_id: Uint128,
     pub position_id: Uint128,
     pub position_owner: String,
 }
@@ -320,8 +316,8 @@ impl fmt::Display for UserInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "owner: {}, basket: {}, position: {}",
-            self.position_owner, self.basket_id, self.position_id
+            "owner: {}, position: {}",
+            self.position_owner, self.position_id
         )
     }
 }

@@ -1,23 +1,20 @@
 use std::str::FromStr;
 
-use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Response, Decimal, CosmosMsg, attr, SubMsg, Addr, StdResult, StdError, to_binary, WasmMsg, coin, QueryRequest, WasmQuery, BankMsg, Coin};
-use cw20::Cw20ExecuteMsg;
+use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Response, Decimal, CosmosMsg, attr, SubMsg, Addr, StdResult, StdError, to_binary, WasmMsg, QueryRequest, WasmQuery, BankMsg, Coin};
 
+use membrane::helpers::{router_native_to_native, pool_query_and_exit, query_stability_pool_fee, asset_to_coin, validate_position_owner};
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction, Uint256};
 use membrane::positions::{Config, ExecuteMsg, CallbackMsg};
-use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, Cw20HookMsg as RouterHookMsg, SwapToAssetsInput};
-use membrane::stability_pool::{DepositResponse, PoolResponse, LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
+use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
+use membrane::stability_pool::{DepositResponse, LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
-use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, LiqAsset, cAsset, PoolStateResponse};
-
-use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
 use crate::error::ContractError; 
 use crate::rates::accrue;
-use crate::positions::{validate_position_owner, get_target_position, update_position, insolvency_check, get_avg_LTV, get_cAsset_ratios, get_LP_pool_cAssets, BAD_DEBT_REPLY_ID, update_position_claims, asset_to_coin};
-use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation, POSITIONS};
+use crate::positions::{get_target_position, update_position, insolvency_check, get_avg_LTV, get_cAsset_ratios, BAD_DEBT_REPLY_ID, update_position_claims};
+use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation};
 
 
 //Liquidation reply ids
@@ -156,7 +153,6 @@ pub fn liquidate(
         &mut per_asset_repayment
     )?;
     
-    
     //Build SubMsgs to send to the Stability Pool & Sell Wall
     //This will only run if config.stability_pool.is_some()
     let ( leftover_repayment, lp_withdraw_msgs ) = build_sp_sw_submsgs(
@@ -220,8 +216,7 @@ pub fn liquidate(
             .into_iter()
             .map(|msg| {
                 //If this succeeds, we update the positions collateral claims
-                //If this fails, do nothing. Try again isn't a useful alternative.
-                SubMsg::reply_always(msg, SELL_WALL_REPLY_ID)
+                SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
             })
             .collect::<Vec<SubMsg>>();
 
@@ -477,31 +472,7 @@ fn per_asset_fulfillments(
 
         //Create msgs to caller as well as to liq_queue if.is_some()
         match cAsset.clone().asset.info {
-            AssetInfo::Token { address } => {
-                //Send caller Fee
-                let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: address.to_string(),
-                    msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                        amount: caller_fee_in_collateral_amount,
-                        recipient: fee_recipient.clone(),
-                    })?,
-                    funds: vec![],
-                });
-                fee_messages.push(msg);
-
-                //Send Protocol Fee
-                let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: address.to_string(),
-                    msg: to_binary(&Cw20ExecuteMsg::Send {
-                        contract: config.clone().staking_contract.unwrap().to_string(),
-                        amount: protocol_fee_in_collateral_amount,
-                        msg: to_binary(&StakingExecuteMsg::DepositFee {})?,
-                    })?,
-                    funds: vec![],
-                });
-                fee_messages.push(msg);
-            }
-
+            AssetInfo::Token { address } => { return Err(StdError::GenericErr { msg: "Cw20 assets aren't allowed".to_string() }) },
             AssetInfo::NativeToken { denom: _ } => {
                 let asset = Asset {
                     amount: caller_fee_in_collateral_amount,
@@ -535,7 +506,7 @@ fn per_asset_fulfillments(
 
         /////////////LiqQueue calls//////
         if basket.clone().liq_queue.is_some() {
-            //Push
+            //Store repay amount
             per_asset_repayment.push(repay_amount_per_asset);
 
             let res: LQ_LiquidatibleResponse =
@@ -563,8 +534,7 @@ fn per_asset_fulfillments(
                 Decimal::from_ratio(queue_asset_amount_paid, Uint128::new(1u128)),
                 collateral_price,
             );
-            *leftover_position_value =
-                decimal_subtraction(*leftover_position_value, value_paid_to_queue);
+            *leftover_position_value = decimal_subtraction(*leftover_position_value, value_paid_to_queue);
 
             //Calculate how much the queue repaid in credit
             let queue_credit_repaid = Uint128::from_str(&res.total_credit_repaid)?;
@@ -623,7 +593,7 @@ fn build_sp_sw_submsgs(
     let mut lp_withdraw_messages = vec![];
     
     if config.clone().stability_pool.is_some() && !liq_queue_leftover_credit_repayment.is_zero() {
-        let sp_liq_fee = query_stability_pool_fee(querier, config.clone(), basket.clone())?;
+        let sp_liq_fee = query_stability_pool_fee(querier, config.clone().stability_pool.unwrap().to_string(), basket.clone().credit_asset.info)?;
 
         //If LTV is 90% and the fees are 10%, the position would pay everything to pay the liquidators.
         //So above that, the liquidators are losing the premium guarantee.
@@ -660,16 +630,14 @@ fn build_sp_sw_submsgs(
                     .into_iter()
                     .map(|msg| {
                         //If this succeeds, we update the positions collateral claims
-                        //If this fails, error. Try again isn't a useful alternative.
-                        SubMsg::reply_always(msg, SELL_WALL_REPLY_ID)
+                        SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
                     })
                     .collect::<Vec<SubMsg>>(),
             );
 
             //Leftover's starts as the total LQ is supposed to pay,
             //and is subtracted by every successful LQ reply
-            let liq_queue_leftovers =
-                decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment);
+            let liq_queue_leftovers = decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment);
 
             // Set repay values for reply msg
             let liquidation_propagation = LiquidationPropagation {
@@ -721,8 +689,7 @@ fn build_sp_sw_submsgs(
                         .into_iter()
                         .map(|msg| {
                             //If this succeeds, we update the positions collateral claims
-                            //If this fails, error. Try again isn't a useful alternative.
-                            SubMsg::reply_always(msg, SELL_WALL_REPLY_ID)
+                            SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
                         })
                         .collect::<Vec<SubMsg>>(),
                 );
@@ -750,8 +717,6 @@ fn build_sp_sw_submsgs(
             };
 
             LIQUIDATION.save(storage, &liquidation_propagation)?;
-
-            ///////////////////
 
             //Stability Pool message builder
             let liq_msg = SP_ExecuteMsg::Liquidate {
@@ -818,8 +783,7 @@ fn get_lp_liq_withdraw_msg(
     repay_value: Decimal,
     cAsset: cAsset,
     i: usize,
-) -> StdResult<CosmosMsg>{
-    
+) -> StdResult<CosmosMsg>{    
     let pool_info = cAsset.clone().pool_info.unwrap();
 
     ////Calculate amount of asset to liquidate
@@ -837,43 +801,21 @@ fn get_lp_liq_withdraw_msg(
         Decimal::from_ratio(lp_liquidate_amount, Uint128::one()),
     ));
 
-    //Add an additional distribution for the LPs pool assets so that they don't miscount when decreasing position claims
+    //Add an additional distribution for the LPs pool assets so that it isn't miscounted when updating position claims
     for _additional_msg in 0..pool_info.asset_infos.len()-1 {
         collateral_distribution.push((
             cAsset.clone().asset.info,
             Decimal::zero(),
         ));
     }
-    
-    //Query total share asset amounts
-    let share_asset_amounts = querier
-        .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-            msg: to_binary(&OsmoQueryMsg::PoolState {
-                id: pool_info.pool_id,
-            })?,
-        }))?
-        .shares_value(lp_liquidate_amount);
 
-    //Create LP withdraw msg
-    let mut token_out_mins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
-    for token in share_asset_amounts {
-        token_out_mins.push(osmosis_std::types::cosmos::base::v1beta1::Coin {
-            denom: token.denom,
-            amount: token.amount.to_string(),
-        });
-    }
-
-    let msg: CosmosMsg = MsgExitPool {
-        sender: env.contract.address.to_string(),
-        pool_id: pool_info.pool_id,
-        share_in_amount: lp_liquidate_amount.to_string(),
-        token_out_mins,
-    }
-    .into();
-
-    Ok( msg )
-
+    Ok( pool_query_and_exit(
+        querier, 
+        env, 
+        config.clone().osmosis_proxy.unwrap().to_string(), 
+        pool_info.pool_id, 
+        lp_liquidate_amount
+    )?.0 )
 }
 
 
@@ -889,7 +831,10 @@ pub fn sell_wall_using_ids(
     
     let basket: Basket = BASKET.load(storage)?;
 
-    let target_position = get_target_position(storage, valid_position_owner, position_id)?;
+    let target_position = match get_target_position(storage, position_owner, position_id){
+        Ok(position) => position,
+        Err(err) => return Err(StdError::GenericErr { msg: String::from("Non_existent position") })
+    };    
     let collateral_assets = target_position.clone().collateral_assets;
 
     match sell_wall(
@@ -924,7 +869,6 @@ pub fn sell_wall(
     position_id: Uint128,
     position_owner: String,
 ) -> Result<(Vec<CosmosMsg>, Vec<(AssetInfo, Decimal)>, Vec<CosmosMsg>), ContractError> {
-
     //Load Config
     let config: Config = CONFIG.load(storage)?;   
 
@@ -947,7 +891,6 @@ pub fn sell_wall(
         //Withdraw the necessary amount of LP shares
         //Ensures liquidations are on the pooled assets and not the LP share itself
         if cAsset.clone().pool_info.is_some() {
-
             had_lp = true;
 
             let msg = get_lp_liq_withdraw_msg( 
@@ -979,8 +922,7 @@ pub fn sell_wall(
             }
             
         }
-    }
-    
+    }    
 
     //Split LP into assets
     let collateral_assets = get_LP_pool_cAssets(
@@ -1013,76 +955,23 @@ pub fn sell_wall(
             ));
         }
 
-        match collateral_assets[index].clone().asset.info {
-            AssetInfo::NativeToken { denom } => {
-                let router_msg = RouterExecuteMsg::Swap {
-                    to: SwapToAssetsInput::Single(basket.clone().credit_asset.info),
-                    max_spread: None, //Max spread doesn't matter bc we want to sell the whole amount no matter what
-                    recipient: None,
-                    hook_msg: Some(to_binary(&ExecuteMsg::Repay {
-                        position_id,
-                        position_owner: Some(position_owner.clone()),
-                        send_excess_to: Some(position_owner.clone()),
-                    })?),
-                };
+        let hook_msg = Some(to_binary(&ExecuteMsg::Repay {
+            position_id,
+            position_owner: Some(position_owner.clone()),
+            send_excess_to: Some(position_owner.clone()),
+        })?);
 
-                let payment = coin(
-                    (collateral_repay_amount * Uint128::new(1u128)).u128(),
-                    denom,
-                );
-
-                let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: config.clone().dex_router.unwrap().to_string(),
-                    msg: to_binary(&router_msg)?,
-                    funds: vec![payment],
-                });
-
-                messages.push(msg);
-            }
-            AssetInfo::Token { address } => {
-                //////////////////////////
-                let router_hook_msg = RouterHookMsg::Swap {
-                    to: SwapToAssetsInput::Single(basket.clone().credit_asset.info),
-                    max_spread: None,
-                    recipient: None,
-                    hook_msg: Some(to_binary(&ExecuteMsg::Repay {
-                        position_id,
-                        position_owner: Some(position_owner.clone()),
-                        send_excess_to: Some(position_owner.clone()),
-                    })?),
-                };
-
-                let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: address.to_string(),
-                    msg: to_binary(&Cw20ExecuteMsg::Send {
-                        amount: collateral_repay_amount * Uint128::new(1u128),
-                        contract: config.clone().dex_router.unwrap().to_string(),
-                        msg: to_binary(&router_hook_msg)?,
-                    })?,
-                    funds: vec![],
-                });
-
-                messages.push(msg);
-            }
-        }
+        messages.push(router_native_to_native(
+            config.clone().dex_router.unwrap().into(), 
+            collateral_assets[index].clone().asset.info, 
+            basket.clone().credit_asset.info, 
+            None, 
+            None, 
+            hook_msg, 
+            (collateral_repay_amount * Uint128::new(1u128)).into())?);        
     }
 
     Ok((messages, collateral_distribution, lp_withdraw_messages))
-}
-
-pub fn query_stability_pool_fee(
-    querier: QuerierWrapper,
-    config: Config,
-    basket: Basket,
-) -> StdResult<Decimal> {
-    let resp: PoolResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.stability_pool.unwrap().to_string(),
-        msg: to_binary(&SP_QueryMsg::AssetPool {
-            asset_info: basket.credit_asset.info,
-        })?,
-    }))?;
-
-    Ok(resp.liq_premium)
 }
 
 pub fn query_stability_pool_liquidatible(
@@ -1103,4 +992,73 @@ pub fn query_stability_pool_liquidatible(
         }))?;
 
     Ok(query_res.leftover)
+}
+//If cAssets include an LP, remove the LP share denom and add its paired assets
+pub fn get_LP_pool_cAssets(
+    querier: QuerierWrapper,
+    config: Config,
+    basket: Basket,
+    position_assets: Vec<cAsset>,
+) -> StdResult<Vec<cAsset>> {
+    let mut new_assets = position_assets
+        .clone()
+        .into_iter()
+        .filter(|asset| asset.pool_info.is_none())
+        .collect::<Vec<cAsset>>();
+
+    //Add LP's Assets as cAssets
+    //Remove LP share token
+    for cAsset in position_assets.clone() {
+        if let Some(pool_info) = cAsset.pool_info {
+
+            //Query share asset amount
+            let share_asset_amounts = querier
+                .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+                    msg: to_binary(&OsmoQueryMsg::PoolState {
+                        id: pool_info.pool_id,
+                    })?,
+                }))?
+                .shares_value(cAsset.asset.amount);
+
+            for pool_coin in share_asset_amounts {
+                let info = AssetInfo::NativeToken {
+                    denom: pool_coin.denom,
+                };
+                //Find the coin in the basket
+                if let Some(basket_cAsset) = basket
+                    .clone()
+                    .collateral_types
+                    .into_iter()
+                    .find(|cAsset| cAsset.asset.info.equal(&info))
+                {
+                    //Check if its already in the position asset list
+                    if let Some((i, _cAsset)) =
+                        new_assets
+                            .clone()
+                            .into_iter()
+                            .enumerate()
+                            .find(|(_index, cAsset)| {
+                                cAsset.asset.info.equal(&basket_cAsset.clone().asset.info)
+                            })
+                    {
+                        //Add to assets
+                        new_assets[i].asset.amount += Uint128::from_str(&pool_coin.amount).unwrap();
+                    } else {
+                        //Push to list
+                        new_assets.push(cAsset {
+                            asset: Asset {
+                                amount: Uint128::from_str(&pool_coin.amount).unwrap(),
+                                info,
+                            },
+                            ..basket_cAsset
+                        })
+                    }
+                }
+                //No reason to error bc LPs can't be added if their assets aren't added first
+            }
+        }
+    }
+
+    Ok(new_assets)
 }

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Decimal, Uint128, Addr};
 
-use crate::types::{Asset, AssetInfo, AssetPool, Deposit, LiqAsset, PositionUserInfo, UserInfo};
+use crate::types::{Asset, AssetInfo, AssetPool, Deposit, LiqAsset, UserInfo};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -16,25 +16,12 @@ pub struct InstantiateMsg {
     pub osmosis_proxy: String,
     pub positions_contract: String,
     pub mbrn_denom: String,
-    pub dex_router: Option<String>,
-    pub max_spread: Option<Decimal>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    UpdateConfig {
-        owner: Option<String>,
-        incentive_rate: Option<Decimal>,
-        max_incentives: Option<Uint128>,
-        desired_ratio_of_total_credit_supply: Option<Decimal>,
-        unstaking_period: Option<u64>,
-        osmosis_proxy: Option<String>,
-        positions_contract: Option<String>,
-        mbrn_denom: Option<String>,
-        dex_router: Option<String>,
-        max_spread: Option<Decimal>,
-    },
+    UpdateConfig(UpdateConfig),
     Receive(Cw20ReceiveMsg),
     Deposit {
         //Deposit a list of accepted assets
@@ -49,12 +36,8 @@ pub enum ExecuteMsg {
         //Restake unstak(ed/ing) assets
         restake_asset: LiqAsset,
     },
-    Claim {
-        //Claim ALL liquidation revenue && MBRN incentives
-        claim_as_native: Option<String>,      //Native FullDenom
-        claim_as_cw20: Option<String>,        //Contract Address
-        deposit_to: Option<PositionUserInfo>, //Deposit to Position in CDP contract
-    },
+    //Claim ALL liquidation revenue && MBRN incentives
+    Claim {},
     ////Only callable by the owner////
     AddPool {
         //Adds an asset pool
@@ -75,15 +58,6 @@ pub enum ExecuteMsg {
     Repay {
         user_info: UserInfo,
         repayment: Asset,
-    },
-}
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Cw20HookMsg {
-    Distribute {
-        //Distributes liquidated funds to users
-        credit_asset: AssetInfo,
-        distribute_for: Uint128,
     },
 }
 
@@ -134,10 +108,19 @@ pub struct Config {
     pub mbrn_denom: String,
     pub osmosis_proxy: Addr,
     pub positions_contract: Addr,
-    pub dex_router: Option<Addr>,
-    pub max_spread: Option<Decimal>, //max_spread for the router, mainly claim_as swaps
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct UpdateConfig {
+    owner: Option<String>,
+    incentive_rate: Option<Decimal>,
+    max_incentives: Option<Uint128>,
+    desired_ratio_of_total_credit_supply: Option<Decimal>,
+    unstaking_period: Option<u64>,
+    osmosis_proxy: Option<String>,
+    positions_contract: Option<String>,
+    mbrn_denom: Option<String>,
+}
 
 // We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

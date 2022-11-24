@@ -3,15 +3,16 @@ use std::env;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, from_binary, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
+    attr, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
     MessageInfo, Reply, Response, StdError, StdResult, Uint128, WasmMsg, QuerierWrapper, QueryRequest, WasmQuery,
 };
 use cw2::set_contract_version;
-use cw20::{Cw20ReceiveMsg, Cw20QueryMsg, BalanceResponse};
+use cw20::{Cw20QueryMsg, BalanceResponse};
 
 use membrane::debt_auction::ExecuteMsg as AuctionExecuteMsg;
+use membrane::helpers::assert_sent_native_token_balance;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
-use membrane::positions::{Config, CallbackMsg, Cw20HookMsg, ExecuteMsg, InstantiateMsg, QueryMsg};
+use membrane::positions::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
 use membrane::types::{
     cAsset, Asset, AssetInfo, Basket, UserInfo,
 };
@@ -19,22 +20,22 @@ use membrane::types::{
 use crate::error::ContractError;
 use crate::risk_engine::assert_basket_assets;
 use crate::positions::{
-    clone_basket, create_basket, deposit,
+    create_basket, deposit,
     edit_basket, increase_debt,
     liq_repay, mint_revenue, repay,
     withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID, get_target_position, update_position,
 };
 use crate::query::{
-    query_bad_debt, query_basket, query_basket_credit_interest, query_basket_debt_caps,
-    query_basket_insolvency, query_basket_positions, query_baskets, query_collateral_rates,
-    query_position, query_position_insolvency, query_prop,
+    query_bad_debt, query_basket_credit_interest, query_basket_debt_caps,
+    query_basket_positions, query_collateral_rates,
+    query_position, query_position_insolvency,
     query_user_positions,
 };
 use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID,
     SELL_WALL_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
 use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_sell_wall_reply, handle_withdraw_reply, handle_sp_repay_reply, handle_close_position_reply};
 use crate::state::{
-    BASKETS, CONFIG, BASKET,
+    BASKET, CONFIG, LIQUIDATION,
 };
 
 // version info for migration info
@@ -54,7 +55,6 @@ pub fn instantiate(
         owner: info.sender.clone(),
         stability_pool: None,
         dex_router: None,
-        interest_revenue_collector: None,
         staking_contract: None,
         oracle_contract: None,
         osmosis_proxy: None,
@@ -70,69 +70,31 @@ pub fn instantiate(
     };
 
     //Set optional config parameters
-    match msg.owner {
-        Some(address) => match deps.api.addr_validate(&address) {
-            Ok(addr) => config.owner = addr,
-            Err(_) => {}
-        },
-        None => {}
+    if let Some(address) = msg.owner {
+        config.owner = deps.api.addr_validate(&address)?;
     };
-    match msg.stability_pool {
-        Some(address) => match deps.api.addr_validate(&address) {
-            Ok(addr) => config.stability_pool = Some(addr),
-            Err(_) => {}
-        },
-        None => {}
+    if let Some(address) = msg.stability_pool {
+        config.stability_pool = Some(deps.api.addr_validate(&address)?)
     };
-    match msg.dex_router {
-        Some(address) => match deps.api.addr_validate(&address) {
-            Ok(addr) => config.dex_router = Some(addr),
-            Err(_) => {}
-        },
-        None => {}
+    if let Some(address) = msg.dex_router {
+        config.dex_router = Some(deps.api.addr_validate(&address)?)
     };
-    match msg.staking_contract {
-        Some(address) => match deps.api.addr_validate(&address) {
-            Ok(addr) => config.staking_contract = Some(addr),
-            Err(_) => {}
-        },
-        None => {}
+    if let Some(address) = msg.staking_contract {
+        config.staking_contract = Some(deps.api.addr_validate(&address)?)
     };
-    match msg.oracle_contract {
-        Some(address) => match deps.api.addr_validate(&address) {
-            Ok(addr) => config.oracle_contract = Some(addr),
-            Err(_) => {}
-        },
-        None => {}
+    if let Some(address) = msg.oracle_contract {
+        config.oracle_contract = Some(deps.api.addr_validate(&address)?)
     };
-    match msg.interest_revenue_collector {
-        Some(address) => match deps.api.addr_validate(&address) {
-            Ok(addr) => config.interest_revenue_collector = Some(addr),
-            Err(_) => {}
-        },
-        None => {}
+    if let Some(address) = msg.osmosis_proxy {
+        config.osmosis_proxy = Some(deps.api.addr_validate(&address)?)
     };
-    match msg.osmosis_proxy {
-        Some(address) => match deps.api.addr_validate(&address) {
-            Ok(addr) => config.osmosis_proxy = Some(addr),
-            Err(_) => {}
-        },
-        None => {}
+    if let Some(address) = msg.debt_auction {
+        config.debt_auction = Some(deps.api.addr_validate(&address)?)
     };
-    match msg.debt_auction {
-        Some(address) => match deps.api.addr_validate(&address) {
-            Ok(addr) => config.debt_auction = Some(addr),
-            Err(_) => {}
-        },
-        None => {}
+    if let Some(address) = msg.liquidity_contract {
+        config.liquidity_contract = Some(deps.api.addr_validate(&address)?);
     };
-    if let Some(contract) = msg.liquidity_contract {
-        match deps.api.addr_validate(&contract) {
-            Ok(addr) => config.liquidity_contract = Some(addr),
-            Err(_) => {}
-        }
-    }
-
+    
     CONFIG.save(deps.storage, &config)?;
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
@@ -152,51 +114,8 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig {
-            owner,
-            stability_pool,
-            dex_router,
-            osmosis_proxy,
-            debt_auction,
-            staking_contract,
-            oracle_contract,
-            liquidity_contract,
-            interest_revenue_collector,
-            liq_fee,
-            debt_minimum,
-            base_debt_cap_multiplier,
-            oracle_time_limit,
-            collateral_twap_timeframe,
-            credit_twap_timeframe,
-            cpc_multiplier,
-            rate_slope_multiplier,
-        } => update_config(
-            deps,
-            info,
-            owner,
-            stability_pool,
-            dex_router,
-            osmosis_proxy,
-            debt_auction,
-            staking_contract,
-            oracle_contract,
-            liquidity_contract,
-            interest_revenue_collector,
-            liq_fee,
-            debt_minimum,
-            base_debt_cap_multiplier,
-            oracle_time_limit,
-            collateral_twap_timeframe,
-            credit_twap_timeframe,
-            cpc_multiplier,
-            rate_slope_multiplier,
-        ),
-        ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
-        ExecuteMsg::Deposit {
-            position_owner,
-            position_id,
-            basket_id,
-        } => {
+        ExecuteMsg::UpdateConfig ( update ) => update_config(deps, info, update),
+        ExecuteMsg::Deposit { position_owner, position_id} => {
             //Set valid_assets from funds sent
             let valid_assets = info
                 .clone()
@@ -212,24 +131,14 @@ pub fn execute(
                 deps.storage,
                 deps.querier,
                 env.clone(),
-                basket_id,
                 valid_assets,
                 true,
             )?;
 
-            deposit(
-                deps,
-                env,
-                info,
-                position_owner,
-                position_id,
-                basket_id,
-                cAssets,
-            )
+            deposit(deps, env, info, position_owner, position_id, cAssets )
         }
         ExecuteMsg::Withdraw {
             position_id,
-            basket_id,
             assets,
             send_to,
         } => {
@@ -237,33 +146,26 @@ pub fn execute(
                 deps.storage,
                 deps.querier,
                 env.clone(),
-                basket_id,
                 assets,
                 false,
             )?;
             //If there is nothing being withdrawn, error
             if cAssets == vec![] { return Err(ContractError::CustomError { val: String::from("No withdrawal assets passed") }) }
-            withdraw(deps, env, info, position_id, basket_id, cAssets, send_to)
+            withdraw(deps, env, info, position_id, cAssets, send_to)
         }
 
         ExecuteMsg::IncreaseDebt {
-            basket_id,
             position_id,
             amount,
             mint_to_addr,
             LTV,
-        } => increase_debt(deps, env, info, basket_id, position_id, amount, LTV, mint_to_addr),
+        } => increase_debt(deps, env, info, position_id, amount, LTV, mint_to_addr),
         ExecuteMsg::Repay {
-            basket_id,
             position_id,
             position_owner,
             send_excess_to,
         } => {
-            let basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
-                Err(_) => return Err(ContractError::NonExistentBasket {}),
-                Ok(basket) => basket,
-            };
-                        
+            let basket: Basket = BASKET.load(deps.storage)?;                        
             let credit_asset = assert_sent_native_token_balance(basket.credit_asset.info, &info)?;
             repay(
                 deps.storage,
@@ -271,7 +173,6 @@ pub fn execute(
                 deps.api,
                 env,
                 info,
-                basket_id,
                 position_id,
                 position_owner,
                 credit_asset,
@@ -279,7 +180,6 @@ pub fn execute(
             )
         }
         ExecuteMsg::ClosePosition { 
-            basket_id, 
             position_id, 
             max_spread, 
             send_to 
@@ -288,7 +188,6 @@ pub fn execute(
                 deps, 
                 env, 
                 info, 
-                basket_id, 
                 position_id, 
                 max_spread, 
                 send_to
@@ -303,54 +202,19 @@ pub fn execute(
                     amount: info.clone().funds[0].amount,
                 };
                 liq_repay(deps, env, info, credit_asset)
-            } else {
+            } else { //This is checked more specifcally in repay(). This is solely to guarantee only one asset is checked.
                 return Err(ContractError::InvalidCredit {});
             }
         }
         ExecuteMsg::EditAdmin { owner } => edit_contract_owner(deps, info, owner),
         ExecuteMsg::EditcAsset {
-            basket_id,
             asset,
             max_borrow_LTV,
             max_LTV,
-        } => edit_cAsset(deps, info, basket_id, asset, max_borrow_LTV, max_LTV),
-        ExecuteMsg::EditBasket {
-            basket_id,
-            added_cAsset,
-            owner,
-            liq_queue,
-            credit_pool_ids,
-            liquidity_multiplier,
-            collateral_supply_caps,
-            base_interest_rate,
-            desired_debt_cap_util,
-            credit_asset_twap_price_source,
-            negative_rates,
-            cpc_margin_of_error,
-            frozen,
-            rev_to_stakers,
-            multi_asset_supply_caps,
-        } => edit_basket(
-            deps,
-            info,
-            basket_id,
-            added_cAsset,
-            owner,
-            liq_queue,
-            credit_pool_ids,
-            liquidity_multiplier,
-            collateral_supply_caps,
-            multi_asset_supply_caps,
-            base_interest_rate,
-            desired_debt_cap_util,
-            credit_asset_twap_price_source,
-            negative_rates,
-            cpc_margin_of_error,
-            frozen,
-            rev_to_stakers,
-        ),
+        } => edit_cAsset(deps, info, asset, max_borrow_LTV, max_LTV),
+        ExecuteMsg::EditBasket(edit) => edit_basket(deps, info,edit),
         ExecuteMsg::CreateBasket {
-            owner,
+            basket_id,
             collateral_types,
             credit_asset,
             credit_price,
@@ -363,7 +227,7 @@ pub fn execute(
             deps,
             info,
             env,
-            owner,
+            basket_id,
             collateral_types,
             credit_asset,
             credit_price,
@@ -373,9 +237,7 @@ pub fn execute(
             liquidity_multiplier_for_debt_caps,
             liq_queue,
         ),
-        ExecuteMsg::CloneBasket { basket_id } => clone_basket(deps, basket_id),
         ExecuteMsg::Liquidate {
-            basket_id,
             position_id,
             position_owner,
         } => liquidate(
@@ -384,16 +246,14 @@ pub fn execute(
             deps.querier,
             env,
             info,
-            basket_id,
             position_id,
             position_owner,
         ),
         ExecuteMsg::MintRevenue {
-            basket_id,
             send_to,
             repay_for,
             amount,
-        } => mint_revenue(deps, info, env, basket_id, send_to, repay_for, amount),
+        } => mint_revenue(deps, info, env, send_to, repay_for, amount),
         ExecuteMsg::Callback(msg) => {
             if info.sender == env.contract.address {
                 callback_handler(deps, env, msg)
@@ -407,7 +267,6 @@ pub fn execute(
 fn edit_cAsset(
     deps: DepsMut,
     info: MessageInfo,
-    basket_id: Uint128,
     asset: AssetInfo,
     max_borrow_LTV: Option<Decimal>,
     max_LTV: Option<Decimal>,
@@ -419,14 +278,10 @@ fn edit_cAsset(
         return Err(ContractError::Unauthorized {});
     }
 
-    let mut basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
-        Err(_) => return Err(ContractError::NonExistentBasket {}),
-        Ok(basket) => basket,
-    };
+    let mut basket: Basket = BASKET.load(deps.storage)?;
 
     let mut attrs = vec![
         attr("method", "edit_cAsset"),
-        attr("basket", basket_id.clone().to_string()),
     ];
 
     let new_asset: cAsset;
@@ -476,10 +331,7 @@ fn edit_cAsset(
         }
         None => {
             return Err(ContractError::CustomError {
-                val: format!(
-                    "Collateral type doesn't exist in basket {}",
-                    basket_id.clone().to_string()
-                ),
+                val:String::from("Collateral type doesn't exist in basket"),
             })
         }
     };
@@ -493,7 +345,7 @@ fn edit_cAsset(
 
     basket.collateral_types.push(new_asset);
 
-    BASKETS.save(deps.storage, basket_id.to_string(), &basket)?;
+    BASKET.save(deps.storage, &basket)?;
 
     Ok(Response::new().add_attributes(attrs).add_messages(msgs))
 }
@@ -501,23 +353,7 @@ fn edit_cAsset(
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
-    owner: Option<String>,
-    stability_pool: Option<String>,
-    dex_router: Option<String>,
-    osmosis_proxy: Option<String>,
-    debt_auction: Option<String>,
-    staking_contract: Option<String>,
-    oracle_contract: Option<String>,
-    liquidity_contract: Option<String>,
-    interest_revenue_collector: Option<String>,
-    liq_fee: Option<Decimal>,
-    debt_minimum: Option<Uint128>,
-    base_debt_cap_multiplier: Option<Uint128>,
-    oracle_time_limit: Option<u64>,
-    collateral_twap_timeframe: Option<u64>,
-    credit_twap_timeframe: Option<u64>,
-    cpc_multiplier: Option<Decimal>,
-    rate_slope_multiplier: Option<Decimal>,
+    update: UpdateConfig,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -529,100 +365,69 @@ fn update_config(
     let mut attrs = vec![attr("method", "update_config")];
 
     //Set Optionals
-    if let Some(owner) = owner{
-        let valid_addr = deps.api.addr_validate(&owner)?;
-        config.owner = valid_addr.clone();
-        attrs.push(attr("new_owner", valid_addr.to_string()));
+    if let Some(owner) = update.owner {
+        config.owner = deps.api.addr_validate(&owner)?;
+        attrs.push(attr("new_owner", config.owner.to_string()));
     }
-    if let Some(stability_pool) = stability_pool {
-        let valid_addr = deps.api.addr_validate(&stability_pool)?;
-        config.stability_pool = Some(valid_addr.clone());
-        attrs.push(attr("new_stability_pool", valid_addr.to_string()));
+    if let Some(stability_pool) = update.stability_pool {
+        config.stability_pool = Some(deps.api.addr_validate(&stability_pool)?);
+        attrs.push(attr("new_stability_pool", config.stability_pool.unwrap()));
     }
-    if let Some(dex_router) = dex_router {
-        let valid_addr = deps.api.addr_validate(&dex_router)?;
-        config.dex_router = Some(valid_addr.clone());
-        attrs.push(attr("new_dex_router", valid_addr.to_string()));
+    if let Some(dex_router) = update.dex_router {
+        config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
+        attrs.push(attr("new_dex_router", config.dex_router.unwrap()));
     }
-    if let Some(osmosis_proxy) = osmosis_proxy {
-        let valid_addr = deps.api.addr_validate(&osmosis_proxy)?;
-        config.osmosis_proxy = Some(valid_addr.clone());
-        attrs.push(attr("new_osmosis_proxy", valid_addr.to_string()));
+    if let Some(osmosis_proxy) = update.osmosis_proxy {
+        config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
+        attrs.push(attr("new_osmosis_proxy", config.osmosis_proxy.unwrap()));
     }
-    if let Some(debt_auction) = debt_auction {
-        let valid_addr = deps.api.addr_validate(&debt_auction)?;
-        config.debt_auction = Some(valid_addr.clone());
-        attrs.push(attr("new_debt_auction", valid_addr.to_string()));
+    if let Some(debt_auction) = update.debt_auction {
+        config.debt_auction = Some(deps.api.addr_validate(&debt_auction)?);
+        attrs.push(attr("new_debt_auction", config.debt_auction.unwrap()));
     }
-    if let Some(staking_contract) = staking_contract {
-        let valid_addr = deps.api.addr_validate(&staking_contract)?;
-        config.staking_contract = Some(valid_addr.clone());
-        attrs.push(attr("new_staking_contract", valid_addr.to_string()));
+    if let Some(staking_contract) = update.staking_contract {
+        config.staking_contract = Some(deps.api.addr_validate(&staking_contract)?);
+        attrs.push(attr("new_staking_contract", config.staking_contract.unwrap()));
     }
-    if let Some(oracle_contract) = oracle_contract {
-        let valid_addr = deps.api.addr_validate(&oracle_contract)?;
-        config.oracle_contract = Some(valid_addr.clone());
-        attrs.push(attr("new_oracle_contract", valid_addr.to_string()));
+    if let Some(oracle_contract) = update.oracle_contract {
+        config.oracle_contract = Some(deps.api.addr_validate(&oracle_contract)?);
+        attrs.push(attr("new_oracle_contract", config.oracle_contract.unwrap()));
     }
-    if let Some(liquidity_contract) = liquidity_contract {
-        let valid_addr = deps.api.addr_validate(&liquidity_contract)?;
-        config.liquidity_contract = Some(valid_addr.clone());
-        attrs.push(attr("new_liquidity_contract", valid_addr.to_string()));
+    if let Some(liquidity_contract) = update.liquidity_contract {
+        config.liquidity_contract = Some(deps.api.addr_validate(&liquidity_contract)?);
+        attrs.push(attr("new_liquidity_contract", config.liquidity_contract.unwrap()));
     }
-    if let Some(interest_revenue_collector) = interest_revenue_collector {
-        let valid_addr = deps.api.addr_validate(&interest_revenue_collector)?;
-        config.interest_revenue_collector = Some(valid_addr.clone());
-        attrs.push(attr(
-            "new_interest_revenue_collector",
-            valid_addr.to_string(),
-        ));
-    }
-    if let Some(liq_fee) = liq_fee {
+    if let Some(liq_fee) = update.liq_fee {
         config.liq_fee = liq_fee.clone();
         attrs.push(attr("new_liq_fee", liq_fee.to_string()));
     }
-    if let Some(debt_minimum) = debt_minimum {
+    if let Some(debt_minimum) = update.debt_minimum {
         config.debt_minimum = debt_minimum.clone();
         attrs.push(attr("new_debt_minimum", debt_minimum.to_string()));
     }
-    if let Some(base_debt_cap_multiplier) = base_debt_cap_multiplier {
+    if let Some(base_debt_cap_multiplier) = update.base_debt_cap_multiplier {
         config.base_debt_cap_multiplier = base_debt_cap_multiplier.clone();
-        attrs.push(attr(
-            "new_base_debt_cap_multiplier",
-            base_debt_cap_multiplier.to_string(),
-        ));
+        attrs.push(attr("new_base_debt_cap_multiplier",base_debt_cap_multiplier.to_string()));
     }
-    if let Some(oracle_time_limit) = oracle_time_limit {
+    if let Some(oracle_time_limit) = update.oracle_time_limit {
         config.oracle_time_limit = oracle_time_limit.clone();
         attrs.push(attr("new_oracle_time_limit", oracle_time_limit.to_string()));
     }
-    if let Some(collateral_twap_timeframe) = collateral_twap_timeframe {
+    if let Some(collateral_twap_timeframe) = update.collateral_twap_timeframe {
         config.collateral_twap_timeframe = collateral_twap_timeframe.clone();
-        attrs.push(attr(
-            "new_collateral_twap_timeframe",
-            collateral_twap_timeframe.to_string(),
-        ));
+        attrs.push(attr("new_collateral_twap_timeframe",collateral_twap_timeframe.to_string()));
     }
-    if let Some(credit_twap_timeframe) = credit_twap_timeframe {
+    if let Some(credit_twap_timeframe) = update.credit_twap_timeframe {
         config.credit_twap_timeframe = credit_twap_timeframe.clone();
-        attrs.push(attr(
-            "new_credit_twap_timeframe",
-            credit_twap_timeframe.to_string(),
-        ));
+        attrs.push(attr("new_credit_twap_timeframe",credit_twap_timeframe.to_string()));
     }
-    if let Some(cpc_multiplier) = cpc_multiplier {
+    if let Some(cpc_multiplier) = update.cpc_multiplier {
         config.cpc_multiplier = cpc_multiplier.clone();
-            attrs.push(attr(
-                "new_cpc_multiplier",
-                cpc_multiplier.to_string(),
-            ));
+            attrs.push(attr("new_cpc_multiplier",cpc_multiplier.to_string()));
     }
-    if let Some(rate_slope_multiplier) = rate_slope_multiplier {
+    if let Some(rate_slope_multiplier) = update.rate_slope_multiplier {
         config.rate_slope_multiplier = rate_slope_multiplier.clone();
-        attrs.push(attr(
-            "new_rate_slope_multiplier",
-            rate_slope_multiplier.to_string(),
-        ));
+        attrs.push(attr("new_rate_slope_multiplier",rate_slope_multiplier.to_string()));
     }
 
     //Save new Config
@@ -638,29 +443,24 @@ pub fn callback_handler(
 ) -> Result<Response, ContractError> {
     match msg {
         CallbackMsg::BadDebtCheck {
-            basket_id,
             position_owner,
             position_id,
-        } => check_and_fulfill_bad_debt(deps, env, basket_id, position_id, position_owner),
+        } => check_and_fulfill_bad_debt(deps, env, position_id, position_owner),
     }
 }
 
 fn check_and_fulfill_bad_debt(
     deps: DepsMut,
     env: Env,
-    basket_id: Uint128,
     position_id: Uint128,
     position_owner: Addr,
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
 
-    let mut basket: Basket = match BASKETS.load(deps.storage, basket_id.to_string()) {
-        Err(_) => return Err(ContractError::NonExistentBasket {}),
-        Ok(basket) => basket,
-    };
+    let mut basket: Basket = BASKET.load(deps.storage)?;
 
     //Get target Position
-    let mut target_position = get_target_position(deps.storage, basket_id.clone(), position_owner.clone(), position_id.clone())?;
+    let mut target_position = get_target_position(deps.storage, position_owner.clone(), position_id.clone())?;
 
     //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
     //This is allowed bc any calls here will be after a liquidation where the sell wall would've sold all it could to cover debts
@@ -688,10 +488,8 @@ fn check_and_fulfill_bad_debt(
                 //If bad_debt is greater or equal, mint all revenue to repay
                 //and send the rest to the auction
                 let mint_msg = ExecuteMsg::MintRevenue {
-                    basket_id,
                     send_to: None,
                     repay_for: Some(UserInfo {
-                        basket_id,
                         position_id,
                         position_owner: position_owner.to_string(),
                     }),
@@ -712,10 +510,8 @@ fn check_and_fulfill_bad_debt(
             } else {
                 //If less than revenue, repay the debt and no auction
                 let mint_msg = ExecuteMsg::MintRevenue {
-                    basket_id,
                     send_to: None,
                     repay_for: Some(UserInfo {
-                        basket_id,
                         position_id,
                         position_owner: position_owner.to_string(),
                     }),
@@ -741,13 +537,12 @@ fn check_and_fulfill_bad_debt(
         target_position.credit_amount = bad_debt_amount;
         
         //Save target_position w/ updated debt
-        update_position(deps.storage, basket_id.clone().to_string(), position_owner.clone(), target_position)?;
+        update_position(deps.storage, position_owner.clone(), target_position)?;
 
         //Send bad debt amount to the auction contract if greater than 0
         if config.debt_auction.is_some() && !bad_debt_amount.is_zero() {
             let auction_msg = AuctionExecuteMsg::StartAuction {
                 repayment_position_info: Some(UserInfo {
-                    basket_id,
                     position_id,
                     position_owner: position_owner.to_string(),
                 }),
@@ -756,7 +551,6 @@ fn check_and_fulfill_bad_debt(
                     info: basket.clone().credit_asset.info,
                 },
                 send_to: None,
-                basket_id,
             };
 
             messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
@@ -771,7 +565,7 @@ fn check_and_fulfill_bad_debt(
         }
 
         //Save Basket w/ updated revenue
-        BASKETS.save(deps.storage, basket_id.to_string(), &basket)?;
+        BASKET.save(deps.storage, &basket)?;
         
         attrs.push(
             attr("amount_sent_to_auction", bad_debt_amount)
@@ -803,53 +597,37 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::GetPosition {
             position_id,
-            basket_id,
             position_owner,
         } => {
-            let valid_addr: Addr = deps.api.addr_validate(&position_owner)?;
             to_binary(&query_position(
                 deps,
                 env,
                 position_id,
-                basket_id,
-                valid_addr,
+                deps.api.addr_validate(&position_owner)?
             )?)
         }
         QueryMsg::GetUserPositions {
-            basket_id,
             user,
             limit,
         } => {
-            let valid_addr: Addr = deps.api.addr_validate(&user)?;
             to_binary(&query_user_positions(
-                deps, env, basket_id, valid_addr, limit,
+                deps, env, deps.api.addr_validate(&user)?, limit,
             )?)
         }
         QueryMsg::GetBasketPositions {
-            basket_id,
             start_after,
             limit,
         } => to_binary(&query_basket_positions(
             deps,
-            basket_id,
             start_after,
             limit,
         )?),
         QueryMsg::GetBasket { } => to_binary(&BASKET.load(deps.storage)?),
-        QueryMsg::Propagation {} => to_binary(&query_prop(deps)?),
+        QueryMsg::Propagation {} => to_binary(&LIQUIDATION.load(deps.storage)?),
         QueryMsg::GetBasketDebtCaps { } => {
             to_binary(&query_basket_debt_caps(deps, env)?)
         }
         QueryMsg::GetBasketBadDebt { } => to_binary(&query_bad_debt(deps)?),
-        QueryMsg::GetBasketInsolvency {
-            start_after,
-            limit,
-        } => to_binary(&query_basket_insolvency(
-            deps,
-            env,
-            start_after,
-            limit,
-        )?),
         QueryMsg::GetPositionInsolvency {
             position_id,
             position_owner,
@@ -859,15 +637,14 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             position_id,
             position_owner,
         )?),
-        QueryMsg::GetCreditRedemptionRate { basket_id } => {
-            to_binary(&query_basket_credit_interest(deps, env, basket_id)?)
+        QueryMsg::GetCreditRedemptionRate { } => {
+            to_binary(&query_basket_credit_interest(deps, env)?)
         }
-        QueryMsg::GetCollateralInterest { basket_id } => {
-            to_binary(&query_collateral_rates(deps, env, basket_id)?)
+        QueryMsg::GetCollateralInterest { } => {
+            to_binary(&query_collateral_rates(deps, env)?)
         }
     }
 }
-
 
 pub fn get_contract_balances(
     querier: QuerierWrapper,
@@ -911,7 +688,6 @@ pub fn edit_contract_owner(
 
     if info.sender == config.owner {
         let valid_owner: Addr = deps.api.addr_validate(&owner)?;
-
         config.owner = valid_owner;
 
         CONFIG.save(deps.storage, &config)?;
@@ -924,36 +700,4 @@ pub fn edit_contract_owner(
         .add_attribute("new_owner", owner);
 
     Ok(response)
-}
-
-//Refactored Terraswap function
-pub fn assert_sent_native_token_balance(
-    asset_info: AssetInfo,
-    message_info: &MessageInfo,
-) -> StdResult<Asset> {
-    let asset: Asset;
-
-    if let AssetInfo::NativeToken { denom } = &asset_info {
-        match message_info.funds.iter().find(|x| x.denom == *denom) {
-            Some(coin) => {
-                if coin.amount > Uint128::zero() {
-                    asset = Asset {
-                        info: asset_info,
-                        amount: coin.amount,
-                    };
-                } else {
-                    return Err(StdError::generic_err("You gave me nothing to deposit"));
-                }
-            }
-            None => {
-                return Err(StdError::generic_err(
-                    "Incorrect denomination, sent asset denom and asset.info.denom differ",
-                ))
-            }
-        }
-    } else {
-        return Err(StdError::generic_err("Asset type not native, check Msg schema and use AssetInfo::NativeToken{ denom: String }"));
-    }
-
-    Ok(asset)
 }

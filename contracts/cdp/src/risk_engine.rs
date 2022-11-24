@@ -1,16 +1,13 @@
-use std::cmp::min;
 
 use cosmwasm_std::{Decimal, Uint128, StdResult, Env, QuerierWrapper, Storage};
-use membrane::math::{decimal_multiplication, decimal_division}; 
+use membrane::math::{decimal_multiplication}; 
 use membrane::positions::Config;
-use membrane::types::{Basket, PoolInfo, Asset, cAsset, SupplyCap, AssetInfo};
+use membrane::types::{Basket, Asset, cAsset, SupplyCap, AssetInfo};
 
 use crate::state::{CONFIG, BASKET};
 use crate::positions::{get_stability_pool_liquidity, get_asset_liquidity, get_cAsset_ratios};
-use crate::query::{get_cAsset_ratios_imut, get_asset_values_imut};
+use crate::query::get_cAsset_ratios_imut;
 use crate::error::ContractError;
-
-
 
 pub fn assert_basket_assets(
     storage: &mut dyn Storage,
@@ -81,7 +78,6 @@ pub fn update_basket_tally(
     collateral_assets: Vec<cAsset>,
     add_to_cAsset: bool,
 ) -> Result<(), ContractError> {
-
     let config = CONFIG.load(storage)?;
 
     //Update SupplyCap objects 
@@ -148,7 +144,7 @@ pub fn update_basket_tally(
             if total_ratio > multi_asset_cap.supply_cap_ratio {
                 return Err(ContractError::CustomError {
                     val: format!(
-                        "Supply cap ratio for {:?} is over the limit ({} > {})",
+                        "Multi-Asset supply cap ratio for {:?} is over the limit ({} > {})",
                         multi_asset_cap.assets,
                         total_ratio,
                         multi_asset_cap.supply_cap_ratio,
@@ -179,13 +175,11 @@ pub fn get_basket_debt_caps(
         basket.clone().collateral_types,
         config.clone(),
     )?;
-    
 
     //Get the base debt cap
     let mut debt_cap =
         get_asset_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?
             * basket.liquidity_multiplier;
-            
 
     //Get SP liquidity
     let sp_liquidity = get_stability_pool_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?;
@@ -252,7 +246,6 @@ pub fn get_basket_debt_caps(
     Ok(per_asset_debt_caps)
 }
 
-
 pub fn update_debt_per_asset_in_position(
     storage: &mut dyn Storage,
     env: Env,
@@ -262,7 +255,6 @@ pub fn update_debt_per_asset_in_position(
     new_assets: Vec<cAsset>,
     credit_amount: Decimal,
 ) -> Result<(), ContractError> {
-    //Load Basket
     let mut basket: Basket = BASKET.load(storage)?;
 
     //Note: Vec lengths need to match
@@ -284,32 +276,24 @@ pub fn update_debt_per_asset_in_position(
     for i in 0..old_ratios.len() {
         match old_ratios[i].atomics().checked_sub(new_ratios[i].atomics()) {
             Ok(difference) => {
-                //Old was > than New
-                //So we subtract the % difference in debt from said asset
-
-                basket.collateral_supply_caps = basket
-                    .clone()
-                    .collateral_supply_caps
-                    .into_iter() //We don't take LP supply caps when calculating debt
+                //Old ratio was > than New
+                basket.collateral_supply_caps = basket.clone().collateral_supply_caps
+                    .into_iter() 
                     .map(|mut cap| {
                         if cap.asset_info.equal(&old_assets[i].asset.info) {
-                            match cap.debt_total.checked_sub(
-                                decimal_multiplication(Decimal::new(difference), credit_amount)
-                                    * Uint128::new(1u128),
-                            ) {
+                            //So we subtract the % difference in debt from said asset
+                            match cap.debt_total.checked_sub( decimal_multiplication(Decimal::new(difference), credit_amount) * Uint128::new(1u128)) {
                                 Ok(difference) => {
                                     if cap.current_supply.is_zero() {
                                         //This removes rounding errors that would slowly increase resting interest rates
                                         //Doesn't effect checks for bad debt since its basket debt not position.credit_amount
-                                        //its a .000001 error, so shouldn't effect overall calcs and shouldn't be profitably spammable
+                                        //its a .000001 error, so shouldn't effect overall calcs or be profitably spammable
                                         cap.debt_total = Uint128::zero();
                                     } else {
                                         cap.debt_total = difference;
                                     }
                                 }
-                                Err(_) => {
-                                    //Can't return an Error here without inferring the map return type
-                                }
+                                Err(_) => { }
                             };
                         }
 
@@ -322,15 +306,12 @@ pub fn update_debt_per_asset_in_position(
                 //So we add the % difference in debt to said asset
                 let difference = new_ratios[i] - old_ratios[i];
 
-                basket.collateral_supply_caps = basket
-                    .clone()
-                    .collateral_supply_caps
+                basket.collateral_supply_caps = basket.clone().collateral_supply_caps
                     .into_iter()
-                    .enumerate() //We don't take LP supply caps when calculating debt
+                    .enumerate()
                     .map(|(index, mut cap)| {
                         if cap.asset_info.equal(&old_assets[i].asset.info) {
-                            let asset_debt = decimal_multiplication(difference, credit_amount)
-                                * Uint128::new(1u128);
+                            let asset_debt = decimal_multiplication(difference, credit_amount) * Uint128::new(1u128);
 
                             //Assert its not over the cap
                             if (cap.debt_total + asset_debt) <= cAsset_caps[index] {
@@ -353,7 +334,6 @@ pub fn update_debt_per_asset_in_position(
             val: format!("Assets over debt cap: {:?}", assets_over_cap),
         });
     }
-
     BASKET.save(storage, &basket)?;
 
     Ok(())
@@ -380,8 +360,7 @@ pub fn update_basket_debt(
     )?;
 
     let mut asset_debt = vec![];
-
-    //Save the debt distribution per asset to a Vec
+    //Save the debt distribution per asset to a list
     for asset in cAsset_ratios {
         asset_debt.push(asset * credit_amount);
     }
@@ -404,9 +383,7 @@ pub fn update_basket_debt(
 
     //Update supply caps w/ new debt distribution
     for (index, cAsset) in collateral_assets.iter().enumerate() {
-        basket.collateral_supply_caps = basket
-            .clone()
-            .collateral_supply_caps
+        basket.collateral_supply_caps = basket.clone().collateral_supply_caps
             .into_iter()
             .enumerate()
             .map(|(i, mut cap)| {
@@ -415,9 +392,7 @@ pub fn update_basket_debt(
                     if add_to_debt {
                         //Assert its not over the cap
                         //IF the debt is adding to interest then we allow it to exceed the cap
-                        if (cap.debt_total + asset_debt[index]) <= cAsset_caps[i]
-                            || interest_accrual
-                        {
+                        if (cap.debt_total + asset_debt[index]) <= cAsset_caps[i] || interest_accrual {
                             cap.debt_total += asset_debt[index];
                         } else {
                             over_cap = true;
@@ -456,15 +431,13 @@ pub fn update_basket_debt(
 }
 
 ////////////Immutable fns for Queries/////
-
 pub fn get_basket_debt_caps_imut(
     storage: &dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     //These are Basket specific fields
     basket: Basket,
-) -> StdResult<Vec<Uint128>> {
-    
+) -> StdResult<Vec<Uint128>> {    
     let config: Config = CONFIG.load(storage)?;
     
     //Get the Basket's asset ratios
@@ -501,8 +474,7 @@ pub fn get_basket_debt_caps_imut(
         }
     }
 
-    let mut per_asset_debt_caps = vec![];
-    
+    let mut per_asset_debt_caps = vec![];    
     for (i, cAsset_ratio) in cAsset_ratios.clone().into_iter().enumerate() {
         // If supply cap is 0, then debt cap is 0
         if basket.clone().collateral_supply_caps != vec![] {

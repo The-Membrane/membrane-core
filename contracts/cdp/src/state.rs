@@ -38,7 +38,7 @@ pub struct ClosePositionPropagation {
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");
-pub const BASKET: Item<Basket> = Map::new("basket"); 
+pub const BASKET: Item<Basket> = Item::new("basket"); 
 pub const POSITIONS: Map<Addr, Vec<Position>> = Map::new("positions"); //owner
 
 //Reply State Propagations

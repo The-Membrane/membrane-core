@@ -3,7 +3,7 @@ use membrane::types::{AssetInfo, AssetPool, LiqAsset, Deposit};
 use membrane::stability_pool::{DepositResponse, PoolResponse, LiquidatibleResponse, ClaimsResponse, DepositPositionResponse};
 use membrane::osmosis_proxy::TokenInfoResponse;
 use membrane::math::{decimal_division, decimal_multiplication};
-use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg };
+use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 
 use crate::{contract::accumulate_interest, state::{CONFIG, ASSETS, USERS}};
 
@@ -84,9 +84,7 @@ pub fn query_rate(
     deps: Deps,
     asset_info: AssetInfo,
 ) -> StdResult<Decimal>{
-
     let config = CONFIG.load(deps.storage)?;
-
     let asset_pools: Vec<AssetPool> = ASSETS.load(deps.storage)?;
 
     let asset_pool = match asset_pools.into_iter().find(|pool| pool.credit_asset.info.equal(&asset_info)){

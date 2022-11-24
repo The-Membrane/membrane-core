@@ -6,13 +6,14 @@ use membrane::types::{AssetInfo, Asset, Basket, LiqAsset};
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
 use membrane::positions::{Config, ExecuteMsg};
 use membrane::math::decimal_subtraction;
+use membrane::helpers::withdrawal_msg;
 
 use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, CONFIG, BASKET, CLOSE_POSITION, ClosePositionPropagation};
 use crate::contract::get_contract_balances;
-use crate::positions::{get_target_position, withdrawal_msg, update_position_claims};
+use crate::positions::{get_target_position, update_position_claims};
 use crate::liquidations::{query_stability_pool_liquidatible, STABILITY_POOL_REPLY_ID, sell_wall_using_ids, SELL_WALL_REPLY_ID};
 
- //On success....
+//On success....
 //Update position claims
 //attempt to withdraw leftover using a WithdrawMsg
 pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
@@ -88,11 +89,9 @@ pub fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
         Err(string) => {
             //If error, do nothing if the SP was used
             //The SP reply will handle the sell wall
-
             let mut submessages: Vec<SubMsg> = vec![];
             let mut messages = vec![];
             let mut repay_amount = Decimal::zero();
-
             let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
 
             //If SP wasn't called, meaning User's SP funds can't be handled there, sell wall the leftovers
@@ -149,8 +148,7 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                 };
 
                 //If balance differnce is more than what they tried to withdraw, error
-                if withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance
-                   > withdraw_amount
+                if withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > withdraw_amount
                 {
                     return Err(StdError::GenericErr {
                         msg: format!(
@@ -372,7 +370,6 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             //Set both liq amounts to 0
             liquidation_propagation.liq_queue_leftovers = Decimal::zero();
             liquidation_propagation.stability_pool = Decimal::zero();
-
             
             LIQUIDATION.save(deps.storage, &liquidation_propagation)?;
 
@@ -382,17 +379,6 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 .add_attributes(attrs))
         }
     }
-}
-
-//Add to the front of the "stack" bc message semantics are depth first
-//LIFO
-fn add_distributions(
-    mut old_distributions: Vec<(AssetInfo, Decimal)>,
-    new_distributions: Vec<(AssetInfo, Decimal)>,
-) -> Vec<(AssetInfo, Decimal)> {
-    old_distributions.extend(new_distributions);
-
-    old_distributions
 }
 
 pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Response> {
@@ -608,19 +594,15 @@ pub fn sell_wall_in_reply(
         repay_amount,
     )?;    
 
-    //Save new distributions from this liquidation
-    prop.sell_wall_distributions = add_distributions(
-        prop.clone().sell_wall_distributions,
-        collateral_distributions.clone(),
-    );
+    //Save new distributions from this liquidation. Extend bc its LIFO
+    prop.sell_wall_distributions.extend(collateral_distributions.clone());
 
     submessages.extend(
         sell_wall_msgs
             .into_iter()
             .map(|msg| {
                 //If this succeeds, we update the positions collateral claims
-                //If this fails, revert. Try again isn't a useful alternative.
-                SubMsg::reply_always(msg, SELL_WALL_REPLY_ID)
+                SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
             })
             .collect::<Vec<SubMsg>>(),
     );

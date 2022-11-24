@@ -8,18 +8,19 @@ use cosmwasm_std::{
     Storage, Uint128, WasmMsg, WasmQuery,
 };
 use cw2::set_contract_version;
-use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
+
 use membrane::apollo_router::{Cw20HookMsg as RouterCw20HookMsg, ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::osmosis_proxy::{
     ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg, TokenInfoResponse,
 };
-use membrane::positions::{Cw20HookMsg as CDP_Cw20HookMsg, ExecuteMsg as CDP_ExecuteMsg};
+use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::stability_pool::{
-    Config, Cw20HookMsg, DepositResponse, ExecuteMsg, InstantiateMsg, QueryMsg,
+    Config, Cw20HookMsg, DepositResponse, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig,
 };
 use membrane::types::{
     Asset, AssetInfo, AssetPool, Deposit, LiqAsset, PositionUserInfo, User, UserInfo, UserRatio,
 };
+use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
@@ -31,11 +32,9 @@ const CONTRACT_NAME: &str = "crates.io:stability-pool";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 //Timeframe constants
-const SECONDS_PER_YEAR: u64 = 31_536_000u64;
 const SECONDS_PER_DAY: u64 = 86_400u64;
 
 //FIFO Stability Pool
-
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
@@ -59,8 +58,6 @@ pub fn instantiate(
             mbrn_denom: msg.mbrn_denom,
             osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
-            dex_router: None,
-            max_spread: msg.max_spread,
         };
     } else {
         config = Config {
@@ -76,12 +73,10 @@ pub fn instantiate(
             mbrn_denom: msg.mbrn_denom,
             osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
-            dex_router: None,
-            max_spread: msg.max_spread,
         };
     }
 
-    // //Set optional config parameters
+    //Set optional config parameters
     match msg.dex_router {
         Some(address) => match deps.api.addr_validate(&address) {
             Ok(addr) => config.dex_router = Some(addr),
@@ -113,14 +108,10 @@ pub fn instantiate(
     }
 
     let res = Response::new();
-    let mut attrs = vec![];
-
-    attrs.push(("method", "instantiate"));
-
-    let c = &config.owner.to_string();
-    attrs.push(("owner", c));
-
-    Ok(res.add_attributes(attrs))
+    Ok(res.add_attributes(vec![
+        attr("method", "instantiate"),
+        attr("owner", config.owner.to_string()),
+    ]))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -131,31 +122,7 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig {
-            owner,
-            incentive_rate,
-            max_incentives,
-            desired_ratio_of_total_credit_supply,
-            unstaking_period,
-            mbrn_denom,
-            osmosis_proxy,
-            positions_contract,
-            dex_router,
-            max_spread,
-        } => update_config(
-            deps,
-            info,
-            owner,
-            incentive_rate,
-            max_incentives,
-            desired_ratio_of_total_credit_supply,
-            unstaking_period,
-            mbrn_denom,
-            osmosis_proxy,
-            positions_contract,
-            dex_router,
-            max_spread,
-        ),
+        ExecuteMsg::UpdateConfig(update) => update_config(deps, info, update),
         ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::Deposit { user, assets } => {
             //Outputs asset objects w/ correct amounts
@@ -171,11 +138,7 @@ pub fn execute(
         ExecuteMsg::Withdraw { assets } => withdraw(deps, env, info, assets),
         ExecuteMsg::Restake { restake_asset } => restake(deps, env, info, restake_asset),
         ExecuteMsg::Liquidate { credit_asset } => liquidate(deps, info, credit_asset),
-        ExecuteMsg::Claim {
-            claim_as_native,
-            claim_as_cw20,
-            deposit_to,
-        } => claim(deps, env, info, claim_as_native, claim_as_cw20, deposit_to),
+        ExecuteMsg::Claim {} => claim(deps, env, info),
         ExecuteMsg::AddPool { asset_pool } => {
             add_asset_pool(deps, info, asset_pool.credit_asset, asset_pool.liq_premium)
         }
@@ -187,7 +150,6 @@ pub fn execute(
         } => distribute_funds(
             deps,
             info,
-            None,
             env,
             distribution_assets,
             distribution_asset_ratios,
@@ -204,18 +166,8 @@ pub fn execute(
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
-    owner: Option<String>,
-    incentive_rate: Option<Decimal>,
-    max_incentives: Option<Uint128>,
-    desired_ratio_of_total_credit_supply: Option<Decimal>,
-    unstaking_period: Option<u64>,
-    mbrn_denom: Option<String>,
-    osmosis_proxy: Option<String>,
-    positions_contract: Option<String>,
-    dex_router: Option<String>,
-    max_spread: Option<Decimal>,
+    update: UpdateConfig,
 ) -> Result<Response, ContractError> {
-
     let mut config = CONFIG.load(deps.storage)?;
 
     //Assert Authority
@@ -226,99 +178,43 @@ fn update_config(
     let mut attrs = vec![attr("method", "update_config")];
 
     //Match Optionals
-    if let Some(owner) = owner {
-        let valid_addr = deps.api.addr_validate(&owner)?;
-        config.owner = valid_addr.clone();
-        attrs.push(attr("new_owner", valid_addr.to_string()));
+    if let Some(owner) = update.owner {
+        config.owner = deps.api.addr_validate(&owner)?;
+        attrs.push(attr("new_owner", owner));
     }
-    if let Some(mbrn_denom) = mbrn_denom {
+    if let Some(mbrn_denom) = update.mbrn_denom {
         config.mbrn_denom = mbrn_denom.clone();
         attrs.push(attr("new_mbrn_denom", mbrn_denom));
     }
-    if let Some(osmosis_proxy) = osmosis_proxy {
-        let valid_addr = deps.api.addr_validate(&osmosis_proxy)?;
-        config.osmosis_proxy = valid_addr.clone();
-        attrs.push(attr("new_osmosis_proxy", valid_addr.to_string()));
+    if let Some(osmosis_proxy) = update.osmosis_proxy {
+        config.osmosis_proxy = deps.api.addr_validate(&osmosis_proxy)?;
+        attrs.push(attr("new_osmosis_proxy", osmosis_proxy));
     }
-    if let Some(positions_contract) = positions_contract {
-        let valid_addr = deps.api.addr_validate(&positions_contract)?;
-        config.positions_contract = valid_addr.clone();
-        attrs.push(attr("new_positions_contract", valid_addr.to_string()));
+    if let Some(positions_contract) = update.positions_contract {
+        config.positions_contract = deps.api.addr_validate(&positions_contract)?;
+        attrs.push(attr("new_positions_contract", positions_contract));
     }
-    if let Some(dex_router) = dex_router {
-        let valid_addr = deps.api.addr_validate(&dex_router)?;
-        config.dex_router = Some(valid_addr.clone());
-        attrs.push(attr("new_dex_router", valid_addr.to_string()));
-    }
-    if let Some(max_spread) = max_spread {
-        config.max_spread = Some(max_spread);
-        attrs.push(attr("new_max_spread", max_spread.to_string()));
-    }
-    if let Some(incentive_rate) = incentive_rate {
+    if let Some(incentive_rate) = update.incentive_rate {
         config.incentive_rate = incentive_rate;
         attrs.push(attr("new_incentive_rate", incentive_rate.to_string()));
     }
-    if let Some(max_incentives) = max_incentives {
+    if let Some(max_incentives) = update.max_incentives {
         config.max_incentives = max_incentives;
         attrs.push(attr("new_max_incentives", max_incentives.to_string()));
     }
-    if let Some(desired_ratio_of_total_credit_supply) = desired_ratio_of_total_credit_supply {
+    if let Some(desired_ratio_of_total_credit_supply) = update.desired_ratio_of_total_credit_supply {
         config.desired_ratio_of_total_credit_supply = desired_ratio_of_total_credit_supply;
-        attrs.push(attr(
-            "new_desired_ratio_of_total_credit_supply",
-            desired_ratio_of_total_credit_supply.to_string(),
-        ));
+        attrs.push(attr( "new_desired_ratio_of_total_credit_supply", desired_ratio_of_total_credit_supply.to_string()));
     }
-    if let Some(new_unstaking_period) = unstaking_period {
+    if let Some(new_unstaking_period) = update.unstaking_period {
         config.unstaking_period = new_unstaking_period;
-        attrs.push(attr(
-            "new_unstaking_period",
-            new_unstaking_period.to_string(),
-        ));
+        attrs.push(attr("new_unstaking_period", new_unstaking_period.to_string()));
     }
 
     //Save new Config
     CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new().add_attributes(attrs))
-}
-
-//From a receive cw20 hook. Comes from the contract address so easy to validate sent funds.
-//Check if sent funds are equal to amount in msg so we don't have to recheck in the function
-pub fn receive_cw20(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    cw20_msg: Cw20ReceiveMsg,
-) -> Result<Response, ContractError> {
-
-    let passed_asset: Asset = Asset {
-        info: AssetInfo::Token {
-            address: info.sender.clone(),
-        },
-        amount: cw20_msg.amount,
-    };
-
-    match from_binary(&cw20_msg.msg) {
-        Ok(Cw20HookMsg::Distribute {
-            credit_asset,
-            distribute_for,
-        }) => {
-            let distribution_assets = vec![passed_asset];
-            let distribution_asset_ratios = vec![Decimal::percent(100)];
-            distribute_funds(
-                deps,
-                info,
-                Some(cw20_msg.sender),
-                env,
-                distribution_assets,
-                distribution_asset_ratios,
-                credit_asset,
-                distribute_for,
-            )
-        }
-        Err(_) => Err(ContractError::Cw20MsgError {}),
-    }
 }
 
 pub fn deposit(
@@ -328,7 +224,6 @@ pub fn deposit(
     position_owner: Option<String>,
     assets: Vec<Asset>,
 ) -> Result<Response, ContractError> {
-
     let valid_owner_addr = validate_position_owner(deps.api, info, position_owner)?;
 
     //Adding to Asset_Pool totals and deposit's list
@@ -366,19 +261,11 @@ pub fn deposit(
 
     //Response build
     let response = Response::new();
-    let mut attrs = vec![];
-
-    attrs.push(("method", "deposit"));
-
-    let v = &valid_owner_addr.to_string();
-    attrs.push(("position_owner", v));
-
-    let assets_as_string: Vec<String> = assets.iter().map(|x| x.to_string()).collect();
-    for i in 0..assets.len() {
-        attrs.push(("deposited_assets", &assets_as_string[i]));
-    }
-
-    Ok(response.add_attributes(attrs))
+    Ok(response.add_attributes(vec![
+        attr("method", "deposit"),
+        attr("position_owner", valid_owner_addr.to_string()),
+        attr("deposited_assets", format!("{:?}", assets)),
+    ]))
 }
 
 //Get incentive rate and return accrued amount
@@ -390,8 +277,7 @@ fn accrue_incentives(
     asset_pool: AssetPool,
     stake: Uint128,
     deposit: &mut Deposit,
-) -> StdResult<Uint128> {
-    
+) -> StdResult<Uint128> {    
     //Time elapsed starting from now or unstake time
     let time_elapsed = match deposit.unstake_time {
         Some( unstake_time ) => {
@@ -406,7 +292,6 @@ fn accrue_incentives(
     if time_elapsed == 0 {
         return Ok(Uint128::zero())
     } else {
-        
         rate = get_rate(storage, querier, Some(asset_pool), None)?;
     }
 
@@ -414,8 +299,8 @@ fn accrue_incentives(
     deposit.last_accrued = env.block.time.seconds();
 
     let mut incentives = accumulate_interest(stake, rate, time_elapsed)?;
-
     let mut total_incentives = INCENTIVES.load(storage)?;
+
     //Assert that incentives aren't over max, set 0 if so.
     if total_incentives + incentives > config.max_incentives {
         incentives = Uint128::zero();
@@ -425,18 +310,6 @@ fn accrue_incentives(
     }
 
     Ok(incentives)
-}
-
-pub fn accumulate_interest(stake: Uint128, rate: Decimal, time_elapsed: u64) -> StdResult<Uint128> {
-
-    let applied_rate = rate.checked_mul(Decimal::from_ratio(
-        Uint128::from(time_elapsed),
-        Uint128::from(SECONDS_PER_YEAR),
-    ))?;
-
-    let accrued_interest = stake * applied_rate;
-
-    Ok(accrued_interest)
 }
 
 //Withdraw / Unstake
@@ -455,7 +328,6 @@ pub fn withdraw(
         attr("method", "withdraw"),
         attr("position_owner", info.sender.to_string()),
     ];
-
     duplicate_asset_check(assets.clone())?;
 
     //Each Asset
@@ -570,7 +442,6 @@ fn withdrawal_from_state(
     let mut is_user = false;
     let mut withdrawable = false;
     let mut withdrawable_amount = Uint128::zero();
-
     let mut returning_deposit: Option<Deposit> = None;
 
     let mut new_deposits: Vec<Deposit> = pool
@@ -620,7 +491,6 @@ fn withdrawal_from_state(
                 }
 
                 //Subtract from each deposit until there is none left to withdraw
-
                 //If not withdrawable we only edit withdraw amount to make sure the deposits...
                 //..that would get parsed through in a valid withdrawal get their unstaking_time set/checked
                 if withdrawal_amount != Decimal::zero() && deposit_item.amount > withdrawal_amount {
@@ -629,8 +499,7 @@ fn withdrawal_from_state(
                         withdrawable_amount += withdrawal_amount * Uint128::new(1u128);
 
                         //Subtract from deposit.amount
-                        deposit_item.amount -= withdrawal_amount;
-                        
+                        deposit_item.amount -= withdrawal_amount;                        
                     }
 
                     //Calc incentives
@@ -651,16 +520,11 @@ fn withdrawal_from_state(
                     };
                     mbrn_incentives += accrued_incentives;
                     
-
-                    //////
                     withdrawal_amount = Decimal::zero();
-                    //////
-                } else if withdrawal_amount != Decimal::zero()
-                    && deposit_item.amount <= withdrawal_amount
-                {
+
+                } else if withdrawal_amount != Decimal::zero() && deposit_item.amount <= withdrawal_amount{
                     //If it's less than amount, 0 the deposit and substract it from the withdrawal amount
                     withdrawal_amount -= deposit_item.amount;
-                    //////
 
                     if withdrawable {
                         //Add to withdrawable_amount
@@ -685,8 +549,7 @@ fn withdrawal_from_state(
                             Uint128::zero()
                         }
                     };
-                    mbrn_incentives += accrued_incentives;
-                    
+                    mbrn_incentives += accrued_incentives;                    
                 }
 
                 withdrawable = false;
@@ -701,11 +564,8 @@ fn withdrawal_from_state(
     //Push returning_deposit if some
     if let Some(deposit) = returning_deposit {
         new_deposits.push(deposit);
-    }
-
-    //Set new deposits
+    }//Set new deposits
     pool.deposits = new_deposits;
-
     //Subtract withdrawable from total pool amount
     pool.credit_asset.amount -= withdrawable_amount;
 
@@ -763,9 +623,7 @@ fn restake(
     info: MessageInfo,
     mut restake_asset: LiqAsset,
 ) -> Result<Response, ContractError> {
-
     let initial_restake = restake_asset.amount;
-
     let new_pool: AssetPool;
 
     //Find the AssetPool to attempt restaking 
@@ -821,16 +679,13 @@ fn restake(
     ]))
 }
 
-/*
-- send repayments for the Positions contract
-- Positions contract sends back a distribute msg
-*/
+//- send repayments for the Positions contract
+//- Positions contract sends back a distribute msg
 pub fn liquidate(
     deps: DepsMut,
     info: MessageInfo,
     credit_asset: LiqAsset,
 ) -> Result<Response, ContractError> {
-
     let config = CONFIG.load(deps.storage)?;
 
     if info.sender != config.positions_contract {
@@ -853,7 +708,6 @@ pub fn liquidate(
     validate_liq_assets(deps.storage, vec![credit_asset.clone()], info)?;
 
     let liq_amount = credit_asset.amount;
-
     //Assert repay amount or pay as much as possible
     let mut repay_asset = Asset {
         info: credit_asset.clone().info,
@@ -898,13 +752,7 @@ pub fn liquidate(
     
     ASSETS.save(deps.storage, &temp_pools)?;
 
-    //Build the response
-    //1) Repay message
-    //2) Add position user info to response
-    //3) Add potential leftover funds
-
     let res: Response = Response::new();
-
     Ok(res.add_message(message).add_attributes(vec![
         attr("method", "liquidate"),
         attr(
@@ -918,33 +766,25 @@ pub fn liquidate(
 pub fn distribute_funds(
     deps: DepsMut,
     info: MessageInfo,
-    cw20_sender: Option<String>,
     env: Env,
     mut distribution_assets: Vec<Asset>,
     distribution_asset_ratios: Vec<Decimal>,
     credit_asset: AssetInfo,
     distribute_for: Uint128, //How much repayment is this distributing for
 ) -> Result<Response, ContractError> {
-
     let config = CONFIG.load(deps.storage)?;
 
     //Can only be called by the positions contract
-    if info.sender != config.positions_contract && cw20_sender.is_none() {
-        return Err(ContractError::Unauthorized {});
-    } else if cw20_sender.is_some()
-        && cw20_sender.clone().unwrap() != config.positions_contract
-    {
+    if info.sender != config.positions_contract {
         return Err(ContractError::Unauthorized {});
     }
-
     //Assert correct parameters
     if distribution_assets.is_empty() {
         return Err(ContractError::InsufficientFunds {});
     }
 
     let asset_pools = ASSETS.load(deps.storage)?;
-    let mut asset_pool = match asset_pools
-        
+    let mut asset_pool = match asset_pools        
         .into_iter()
         .find(|pool| pool.credit_asset.info.equal(&credit_asset))
     {
@@ -959,16 +799,14 @@ pub fn distribute_funds(
         .map(|asset| asset.info)
         .collect::<Vec<AssetInfo>>();
 
-    //This check is redundant for Cw20s and will fail bc validate_assets() only validates natives
-    if cw20_sender.is_none() {
-        let valid_assets = validate_assets(deps.storage, assets.clone(), info, false)?;
+    let valid_assets = validate_assets(deps.storage, assets.clone(), info, false)?;
 
-        if valid_assets.len() != distribution_assets.len() {
-            return Err(ContractError::InvalidAssetObject {});
-        }
-        //Set distribution_assets to the valid_assets
-        distribution_assets = valid_assets;
+    if valid_assets.len() != distribution_assets.len() {
+        return Err(ContractError::InvalidAssetObject {});
     }
+    //Set distribution_assets to the valid_assets
+    distribution_assets = valid_assets;
+    
 
     //Load repaid_amount
     //Liquidations are one msg at a time and PROP is always saved to first
@@ -1016,7 +854,7 @@ pub fn distribute_funds(
                     });
 
                     //Calc MBRN incentives
-                    if env.block.time.seconds() > deposit.last_accrued{
+                    if env.block.time.seconds() > deposit.last_accrued {
                         let accrued_incentives = accrue_incentives(
                             deps.storage,
                             deps.querier,
@@ -1027,8 +865,7 @@ pub fn distribute_funds(
                             &mut deposit,
                         )?;
 
-                        if !accrued_incentives.is_zero() {                        
-
+                        if !accrued_incentives.is_zero() {                 
                             //Add incentives to User Claims
                             USERS.update(
                                 deps.storage,
@@ -1056,13 +893,10 @@ pub fn distribute_funds(
                     }
                 } else {
                     //Else, keep adding
-
                     current_repay_total += deposit.amount;
-
                     distribution_list.push(deposit.clone());
-
                     
-                    if env.block.time.seconds() > deposit.last_accrued{
+                    if env.block.time.seconds() > deposit.last_accrued { 
                         //Calc MBRN incentives
                         let accrued_incentives = accrue_incentives(
                             deps.storage,
@@ -1074,8 +908,7 @@ pub fn distribute_funds(
                             &mut deposit,
                         )?;
 
-                        if !accrued_incentives.is_zero() {
-                            
+                        if !accrued_incentives.is_zero() {                            
                             //Add incentives to User Claims
                             USERS.update(
                                 deps.storage,
@@ -1100,7 +933,6 @@ pub fn distribute_funds(
                                 },
                             )?;
                         }
-
                     }
                 }
             }
@@ -1160,19 +992,13 @@ pub fn distribute_funds(
     //2) Split assets to users
     split_assets_to_users(deps.storage, cAsset_ratios, distribution_assets.clone(), distribution_ratios)?;
 
-
     //Response Builder
-    let res = Response::new()
-        .add_attribute("method", "distribute")
-        .add_attribute("credit_asset", credit_asset.to_string());
-
-    let mut attrs = vec![];
-    let assets_as_string: Vec<String> = distribution_assets.iter().map(|x| x.to_string()).collect();
-    for i in 0..assets.len() {
-        attrs.push(("distribution_assets", &assets_as_string[i]));
-    }
-
-    Ok(res.add_attributes(attrs))
+    let res = Response::new();
+    Ok(res.add_attributes(vec![
+        attr("method", "distribute"),
+        attr("credit_asset", credit_asset.to_string()),
+        attr("distribution_assets", format!("{:?}", distribution_assets)),
+    ]))
 }
 
 //Repay for a user in the CDP contract
@@ -1195,7 +1021,6 @@ fn repay(
         attr("method", "repay"),
         attr("user_info", user_info.to_string()),
     ];
-
     let asset_pools = ASSETS.load(deps.storage)?;
 
     if let Some(pool) = asset_pools
@@ -1249,11 +1074,9 @@ fn repay(
             //Update pool
             ASSETS.save(deps.storage, &temp_pools)?;
 
-            /////This is where the function is different from withdraw()
-
+            /////This is where the function differs from withdraw()
             //Add Positions RepayMsg
             let repay_msg = CDP_ExecuteMsg::Repay {
-                basket_id: user_info.basket_id,
                 position_id: user_info.position_id,
                 position_owner: Some(user_info.clone().position_owner),
                 send_excess_to: Some(user_info.position_owner),
@@ -1282,19 +1105,9 @@ pub fn claim(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    claim_as_native: Option<String>,
-    claim_as_cw20: Option<String>,
-    deposit_to: Option<PositionUserInfo>,
 ) -> Result<Response, ContractError> {
-
     let config: Config = CONFIG.load(deps.storage)?;    
 
-    if claim_as_native.is_some() && claim_as_cw20.is_some() {
-        return Err(ContractError::CustomError {
-            val: "Can't claim as multiple assets, if not all claimable assets".to_string(),
-        });
-    }
-    
     let mut accrued_incentives = Uint128::zero();
     //Add newly accrued incentives to claimables
     for asset in ASSETS.load(deps.storage)?{
@@ -1328,32 +1141,17 @@ pub fn claim(
     }
     
     //Create claim msgs
-    let messages: Vec<CosmosMsg> = user_claims_msgs(
+    let (messages, claimables) = user_claims_msgs(
         deps.storage,
         deps.api,
         config.clone(),
         info.clone(),
-        deposit_to.clone(),
-        config.dex_router,
-        claim_as_native.clone(),
-        claim_as_cw20.clone(),
     )?;
-
-    let deposit_attribute = if let Some(position) = deposit_to {
-        format!("{:?}", position)
-    } else {
-        String::from("None")
-    };
-
-    //Error if there is nothing to claim
-    if messages == vec![] {return Err(ContractError::CustomError { val: String::from("Nothing to claim") }) }
 
     let res = Response::new()
         .add_attribute("method", "claim")
         .add_attribute("user", info.sender)
-        .add_attribute("claim_as_native", claim_as_native.unwrap_or_else(|| "None".to_string()))
-        .add_attribute("claim_as_cw20", claim_as_cw20.unwrap_or_else(|| String::from("None")))
-        .add_attribute("deposit_to", deposit_attribute);
+        .add_attribute("claimables", format!("{:?}", claimables));
 
     Ok(res.add_messages(messages))
 }
@@ -1363,353 +1161,24 @@ fn user_claims_msgs(
     api: &dyn Api,
     config: Config,
     info: MessageInfo,
-    deposit_to: Option<PositionUserInfo>,
-    dex_router: Option<Addr>,
-    claim_as_native: Option<String>,
-    claim_as_cw20: Option<String>,
-) -> Result<Vec<CosmosMsg>, ContractError> {
-    let user = match USERS.load(storage, info.clone().sender) {
-        Ok(user) => user,
-        Err(_) => {
-            return Err(ContractError::CustomError {
-                val: "Info.sender is not a user".to_string(),
-            })
-        }
-    };
-
+) -> Result<(Vec<CosmosMsg>, Vec<Asset>), ContractError> {
+    let user = USERS.load(storage, info.clone().sender)?;
     let mut messages: Vec<CosmosMsg> = vec![];
+    let mut native_claims = vec![];
 
-    //If we are claiming the available assets without swaps
-    if claim_as_cw20.is_none() && claim_as_native.is_none() {
-        //If we are depositing to a Position then we don't use a regular withdrawal msg
-        if deposit_to.is_some() {
-            let msgs = deposit_to_position(
-                storage,
-                user.claimable_assets,
-                deposit_to.unwrap(),
-                info.clone().sender,
-            )?;
-            messages.extend(msgs);
-        } else {
-            //List of coins to send
-            let mut native_claims = vec![];
-
-            //Aggregate native token sends
-            for asset in user.claimable_assets {
-                match asset.clone().info {
-                    AssetInfo::Token { address: _ } => {
-                        messages.push(withdrawal_msg(asset, info.clone().sender)?);
-                    }
-                    AssetInfo::NativeToken { denom: _ } => {
-                        native_claims.push(asset_to_coin(asset)?);
-                    }
-                }
-            }
-
-            if native_claims != vec![] {
-                let msg = CosmosMsg::Bank(BankMsg::Send {
-                    to_address: info.sender.to_string(),
-                    amount: native_claims,
-                });
-                messages.push(msg);
-            }
+    //Aggregate native token sends
+    for asset in user.clone().claimable_assets {
+        if let AssetInfo::NativeToken { denom: _ } = asset.clone().info{
+            native_claims.push(asset_to_coin(asset)?);
         }
-    } else if dex_router.is_some() {
-        //Router usage
+    }    
 
-        for asset in user.claimable_assets {
-            match asset.clone().info {
-                AssetInfo::Token { address } => {
-                    //Swap to Cw20 before sending or depositing
-                    if claim_as_cw20.is_some() {
-                        let valid_claim_addr =
-                            api.addr_validate(&claim_as_cw20.clone().unwrap())?;
-
-                        if deposit_to.is_some() {
-                            //Swap and deposit to a Position
-
-                            let user_info = deposit_to.clone().unwrap();
-
-                            //Create deposit msg as a Hook since the Router is sending to a Cw20 contract
-                            let deposit_msg = CDP_Cw20HookMsg::Deposit {
-                                basket_id: user_info.basket_id,
-                                position_owner: user_info.position_owner,
-                                position_id: user_info.position_id,
-                            };
-
-                            //Create Cw20 Router SwapMsgs to the position contract w/ DepositMsgs as the hook
-                            let swap_hook = RouterCw20HookMsg::Swap {
-                                to: SwapToAssetsInput::Single(AssetInfo::Token {
-                                    address: valid_claim_addr,
-                                }),
-                                max_spread: Some(
-                                    config
-                                        .clone()
-                                        .max_spread
-                                        .unwrap_or_else(|| Decimal::percent(10)),
-                                ),
-                                recipient: Some(config.clone().positions_contract.to_string()),
-                                hook_msg: Some(to_binary(&deposit_msg)?),
-                            };
-
-                            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: address.to_string(),
-                                msg: to_binary(&Cw20ExecuteMsg::Send {
-                                    contract: config.clone().dex_router.unwrap().to_string(),
-                                    amount: asset.amount,
-                                    msg: to_binary(&swap_hook)?,
-                                })?,
-                                funds: vec![],
-                            });
-                            messages.push(message);
-                        } else {
-                            //Send straight to User
-
-                            //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterCw20HookMsg::Swap {
-                                to: SwapToAssetsInput::Single(AssetInfo::Token {
-                                    address: valid_claim_addr,
-                                }),
-                                max_spread: Some(
-                                    config
-                                        .clone()
-                                        .max_spread
-                                        .unwrap_or_else(|| Decimal::percent(10)),
-                                ),
-                                recipient: Some(info.clone().sender.to_string()),
-                                hook_msg: None,
-                            };
-
-                            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: address.to_string(),
-                                msg: to_binary(&Cw20ExecuteMsg::Send {
-                                    contract: config.clone().dex_router.unwrap().to_string(),
-                                    amount: asset.amount,
-                                    msg: to_binary(&swap_hook)?,
-                                })?,
-                                funds: vec![],
-                            });
-
-                            messages.push(message);
-                        }
-                    }
-                    //Swap to native before sending or depositing
-                    else if claim_as_native.is_some() {
-                        if deposit_to.is_some() {
-                            //Swap and deposit to a Position
-
-                            let user_info = deposit_to.clone().unwrap();
-
-                            //Create deposit msg
-                            let deposit_msg = CDP_ExecuteMsg::Deposit {
-                                position_owner: user_info.position_owner,
-                                basket_id: user_info.basket_id,
-                                position_id: user_info.position_id,
-                            };
-
-                            //Create Cw20 Router SwapMsgs to the position contract w/ DepositMsgs as the hook
-                            let swap_hook = RouterCw20HookMsg::Swap {
-                                to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
-                                    denom: claim_as_native.clone().unwrap(),
-                                }),
-                                max_spread: Some(
-                                    config
-                                        .clone()
-                                        .max_spread
-                                        .unwrap_or_else(|| Decimal::percent(10)),
-                                ),
-                                recipient: Some(config.clone().positions_contract.to_string()),
-                                hook_msg: Some(to_binary(&deposit_msg)?),
-                            };
-
-                            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: address.to_string(),
-                                msg: to_binary(&Cw20ExecuteMsg::Send {
-                                    contract: config.clone().dex_router.unwrap().to_string(),
-                                    amount: asset.amount,
-                                    msg: to_binary(&swap_hook)?,
-                                })?,
-                                funds: vec![],
-                            });
-                            messages.push(message);
-                        } else {
-                            //Send straight to User
-
-                            //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterCw20HookMsg::Swap {
-                                to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
-                                    denom: claim_as_native.clone().unwrap(),
-                                }),
-                                max_spread: Some(
-                                    config
-                                        .clone()
-                                        .max_spread
-                                        .unwrap_or_else(|| Decimal::percent(10)),
-                                ),
-                                recipient: Some(info.clone().sender.to_string()),
-                                hook_msg: None,
-                            };
-
-                            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: address.to_string(),
-                                msg: to_binary(&Cw20ExecuteMsg::Send {
-                                    contract: config.clone().dex_router.unwrap().to_string(),
-                                    amount: asset.amount,
-                                    msg: to_binary(&swap_hook)?,
-                                })?,
-                                funds: vec![],
-                            });
-
-                            messages.push(message);
-                        }
-                    }
-                }
-                /////Starting token is native so msgs go straight to the router contract
-                AssetInfo::NativeToken { denom } => {
-                    //If the asset is MBRN, mint the incentives and skip everything else
-                    if denom == config.clone().mbrn_denom {
-                        let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                            contract_addr: config.clone().osmosis_proxy.to_string(),
-                            msg: to_binary(&OsmoExecuteMsg::MintTokens {
-                                denom,
-                                amount: asset.amount,
-                                mint_to_address: info.clone().sender.to_string(),
-                            })?,
-                            funds: vec![],
-                        });
-                        messages.push(message);
-                    } else {
-                        //Swap to Cw20 before sending or depositing
-                        if claim_as_cw20.is_some() {
-                            let valid_claim_addr =
-                                api.addr_validate(claim_as_cw20.clone().unwrap().as_ref())?;
-
-                            if deposit_to.is_some() {
-                                //Swap and deposit to a Position
-
-                                let user_info = deposit_to.clone().unwrap();
-
-                                //Create deposit msg as a Hook since the Router is sending to a Cw20 contract
-                                let deposit_msg = CDP_Cw20HookMsg::Deposit {
-                                    basket_id: user_info.basket_id,
-                                    position_owner: user_info.position_owner,
-                                    position_id: user_info.position_id,
-                                };
-
-                                //Create Cw20 Router SwapMsgs to the position contract w/ DepositMsgs as the hook
-                                let swap_hook = RouterExecuteMsg::Swap {
-                                    to: SwapToAssetsInput::Single(AssetInfo::Token {
-                                        address: valid_claim_addr,
-                                    }),
-                                    max_spread: Some(
-                                        config
-                                            .clone()
-                                            .max_spread
-                                            .unwrap_or_else(|| Decimal::percent(10)),
-                                    ),
-                                    recipient: Some(config.clone().positions_contract.to_string()),
-                                    hook_msg: Some(to_binary(&deposit_msg)?),
-                                };
-
-                                let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                    contract_addr: config.clone().dex_router.unwrap().to_string(),
-                                    msg: to_binary(&swap_hook)?,
-                                    funds: vec![asset_to_coin(asset)?],
-                                });
-                                messages.push(message);
-                            } else {
-                                //Send straight to User
-
-                                //Create Cw20 Router SwapMsgs
-                                let swap_hook = RouterExecuteMsg::Swap {
-                                    to: SwapToAssetsInput::Single(AssetInfo::Token {
-                                        address: valid_claim_addr,
-                                    }),
-                                    max_spread: Some(
-                                        config
-                                            .clone()
-                                            .max_spread
-                                            .unwrap_or_else(|| Decimal::percent(10)),
-                                    ),
-                                    recipient: Some(info.clone().sender.to_string()),
-                                    hook_msg: None,
-                                };
-
-                                let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                    contract_addr: config.clone().dex_router.unwrap().to_string(),
-                                    msg: to_binary(&swap_hook)?,
-                                    funds: vec![asset_to_coin(asset)?],
-                                });
-
-                                messages.push(message);
-                            }
-                        }
-                        //Swap to native before sending or depositing
-                        else if claim_as_native.is_some() {
-                            if deposit_to.is_some() {
-                                //Swap and deposit to a Position
-
-                                let user_info = deposit_to.clone().unwrap();
-
-                                //Create deposit msg
-                                let deposit_msg = CDP_ExecuteMsg::Deposit {
-                                    position_owner: user_info.position_owner,
-                                    basket_id: user_info.basket_id,
-                                    position_id: user_info.position_id,
-                                };
-
-                                //Create Cw20 Router SwapMsgs to the position contract w/ DepositMsgs as the hook
-                                let swap_hook = RouterExecuteMsg::Swap {
-                                    to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
-                                        denom: claim_as_native.clone().unwrap(),
-                                    }),
-                                    max_spread: Some(
-                                        config
-                                            .clone()
-                                            .max_spread
-                                            .unwrap_or_else(|| Decimal::percent(10)),
-                                    ),
-                                    recipient: Some(config.clone().positions_contract.to_string()),
-                                    hook_msg: Some(to_binary(&deposit_msg)?),
-                                };
-
-                                let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                    contract_addr: config.clone().dex_router.unwrap().to_string(),
-                                    msg: to_binary(&swap_hook)?,
-                                    funds: vec![asset_to_coin(asset)?],
-                                });
-                                messages.push(message);
-                            } else {
-                                //Send straight to User
-
-                                //Create Cw20 Router SwapMsgs
-                                let swap_hook = RouterExecuteMsg::Swap {
-                                    to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
-                                        denom: claim_as_native.clone().unwrap(),
-                                    }),
-                                    max_spread: Some(
-                                        config
-                                            .clone()
-                                            .max_spread
-                                            .unwrap_or_else(|| Decimal::percent(10)),
-                                    ),
-                                    recipient: Some(info.clone().sender.to_string()),
-                                    hook_msg: None,
-                                };
-
-                                let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                    contract_addr: config.clone().dex_router.unwrap().to_string(),
-                                    msg: to_binary(&swap_hook)?,
-                                    funds: vec![asset_to_coin(asset)?],
-                                });
-
-                                messages.push(message);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if native_claims != vec![] {
+        let msg = CosmosMsg::Bank(BankMsg::Send {
+            to_address: info.sender.to_string(),
+            amount: native_claims,
+        });
+        messages.push(msg);
     }
 
     //Remove User's claims
@@ -1731,7 +1200,7 @@ fn user_claims_msgs(
         },
     )?;
 
-    Ok(messages)
+    Ok((messages, user.claimable_assets))
 }
 
 
@@ -1749,7 +1218,6 @@ fn split_assets_to_users(
             }
 
             if user_ratio.ratio == cAsset_ratio {
-
                 //Allocate the full ratio worth of asset to the User
                 let send_amount = distribution_assets[index].amount;
 
@@ -1939,8 +1407,7 @@ fn split_assets_to_users(
                 )?;
 
                 //Set user_ratio as leftover
-                user_ratio.ratio = decimal_subtraction(user_ratio.ratio, cAsset_ratio);
-                                
+                user_ratio.ratio = decimal_subtraction(user_ratio.ratio, cAsset_ratio);                                
 
                 //Set cAsset_ratio to 0
                 cAsset_ratios[index] = Decimal::zero();
@@ -1965,7 +1432,6 @@ pub fn add_asset_pool(
     if info.sender != config.owner {
         return Err(ContractError::Unauthorized {});
     }
-
     let mut asset_pools = ASSETS.load(deps.storage)?;
 
     //Create and Add new pool
@@ -1974,7 +1440,6 @@ pub fn add_asset_pool(
         liq_premium,
         deposits: vec![],
     };
-
     asset_pools.push(new_pool);
 
     //Save pool
@@ -1988,75 +1453,13 @@ pub fn add_asset_pool(
     Ok(res)
 }
 
-//Create CDP deposit message
-pub fn deposit_to_position(
-    deps: &mut dyn Storage,
-    assets: Vec<Asset>,
-    deposit_to: PositionUserInfo,
-    user: Addr,
-) -> Result<Vec<CosmosMsg>, ContractError> {
-
-    let mut messages: Vec<CosmosMsg> = vec![];
-    let mut coins: Vec<Coin> = vec![];
-    let mut native_assets: Vec<Asset> = vec![];
-
-    let config = CONFIG.load(deps)?;
-
-    for asset in assets.into_iter() {
-        match asset.clone().info {
-            AssetInfo::NativeToken { denom: _ } => {
-                native_assets.push(asset.clone());
-                coins.push(asset_to_coin(asset.clone())?);
-            }
-            AssetInfo::Token { address } => {
-                let deposit_msg = CDP_Cw20HookMsg::Deposit {
-                    position_owner: Some(user.to_string()),
-                    basket_id: deposit_to.clone().basket_id,
-                    position_id: deposit_to.clone().position_id,
-                };
-
-                //CW20 Send
-                let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: address.to_string(),
-                    msg: to_binary(&Cw20ExecuteMsg::Send {
-                        amount: asset.amount,
-                        contract: config.clone().positions_contract.to_string(), 
-                        msg: to_binary(&deposit_msg)?,
-                    })?,
-                    funds: vec![],
-                });
-                messages.push(msg);
-            }
-        };
-    }
-
-    //Adds Native token deposit msg to messages
-    let deposit_msg = CDP_ExecuteMsg::Deposit {
-        position_owner: Some(user.to_string()),
-        basket_id: deposit_to.basket_id,
-        position_id: deposit_to.position_id,
-    };
-
-    let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.positions_contract.to_string(),
-        msg: to_binary(&deposit_msg)?,
-        funds: coins,
-    });
-
-    messages.push(msg);
-
-    Ok(messages)
-}
-
 pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal>, Vec<Deposit>)> {
-
     let mut user_deposits: Vec<Deposit> = vec![];
     let mut total_amount: Decimal = Decimal::percent(0);
     let mut new_deposits: Vec<Deposit> = vec![];
 
     //For each Deposit, create a condensed Deposit for its user.
     //Add to an existing one if found.
-
     for deposit in deposits.into_iter() {
         match user_deposits
             .clone()
@@ -2071,17 +1474,15 @@ pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal
                     .into_iter()
                     .filter(|deposit| deposit.user != user_deposit.user)
                     .collect::<Vec<Deposit>>();
-                new_deposits.push(user_deposit);
 
+                new_deposits.push(user_deposit);
                 total_amount += deposit.amount;
             }
             None => {
                 new_deposits.push(Deposit { ..deposit });
-
                 total_amount += deposit.amount;
             }
         }
-
         user_deposits = new_deposits.clone();
     }
 
@@ -2102,7 +1503,6 @@ fn get_user_incentives(
     user: Addr,
     asset_info: AssetInfo
 ) -> StdResult<Uint128>{
-
     let asset_pools = ASSETS.load(storage)?;
     
     let mut asset_pool = match asset_pools.clone().into_iter().find(|pool| pool.credit_asset.info.equal(&asset_info.clone())){
@@ -2140,8 +1540,7 @@ fn get_user_incentives(
                                 Uint128::zero()
                             },
                         };
-                    }    
-                    
+                    }                    
                     
                     deposit.last_accrued = env.block.time.seconds();
                 },
@@ -2166,8 +1565,7 @@ fn get_user_incentives(
                                 Uint128::zero()
                             },
                         };
-                    }    
-
+                    }
                     
                     deposit.last_accrued = env.block.time.seconds();
                 },
@@ -2195,8 +1593,7 @@ pub fn get_user_deposits(
     storage: &mut dyn Storage,
     valid_user: Addr,
     asset_info: AssetInfo,
-) -> StdResult<DepositResponse> {
-    
+) -> StdResult<DepositResponse> {    
     match ASSETS
         .load(storage)?
         .into_iter()
@@ -2237,7 +1634,6 @@ fn get_rate(
     asset_pool: Option<AssetPool>,
     asset_info: Option<AssetInfo>,
 ) -> StdResult<Decimal>{
-
     let config = CONFIG.load(storage)?;
 
     //Get Asset Pool
@@ -2253,7 +1649,6 @@ fn get_rate(
     } else {
         return Err( StdError::GenericErr { msg: String::from("No parameters passed") } )
     };
-    
 
     let asset_current_supply = querier
     .query::<TokenInfoResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
@@ -2307,43 +1702,6 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::UserClaims { user } => to_binary(&query_user_claims(deps, user)?),
         QueryMsg::AssetPool { asset_info } => to_binary(&query_pool(deps, asset_info)?),
-    }
-}
-
-
-pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> Result<CosmosMsg, ContractError> {
-    
-    match asset.clone().info {
-        AssetInfo::Token { address } => {
-            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: address.to_string(),
-                msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                    recipient: recipient.to_string(),
-                    amount: asset.amount,
-                })?,
-                funds: vec![],
-            });
-            Ok(message)
-        }
-        AssetInfo::NativeToken { denom: _ } => {
-            let coin: Coin = asset_to_coin(asset)?;
-            let message = CosmosMsg::Bank(BankMsg::Send {
-                to_address: recipient.to_string(),
-                amount: vec![coin],
-            });
-            Ok(message)
-        }
-    }
-}
-
-pub fn asset_to_coin(asset: Asset) -> Result<Coin, ContractError> {
-    match asset.info {
-        //
-        AssetInfo::Token { address: _ } => Err(ContractError::InvalidParameters {}),
-        AssetInfo::NativeToken { denom } => Ok(Coin {
-            denom,
-            amount: asset.amount,
-        }),
     }
 }
 
@@ -2425,52 +1783,4 @@ pub fn validate_assets(
     }
 
     Ok(valid_assets)
-}
-
-//Refactored Terraswap function
-pub fn assert_sent_native_token_balance(
-    asset_info: AssetInfo,
-    message_info: &MessageInfo,
-) -> StdResult<Asset> {
-    let asset: Asset;
-
-    if let AssetInfo::NativeToken { denom } = &asset_info {
-        match message_info.funds.iter().find(|x| x.denom == *denom) {
-            Some(coin) => {
-                if coin.amount > Uint128::zero() {
-                    asset = Asset {
-                        info: asset_info,
-                        amount: coin.amount,
-                    };
-                } else {
-                    return Err(StdError::generic_err("You gave me nothing to deposit"));
-                }
-            }
-            None => {
-                return Err(StdError::generic_err(
-                    "Incorrect denomination, sent asset denom and asset.info.denom differ",
-                ))
-            }
-        }
-    } else {
-        return Err(StdError::generic_err(
-            "Asset type not native, check Msg schema and use AssetInfo::Token{ address: Addr }",
-        ));
-    }
-
-    Ok(asset)
-}
-
-//Validate Recipient
-pub fn validate_position_owner(
-    deps: &dyn Api,
-    info: MessageInfo,
-    recipient: Option<String>,
-) -> StdResult<Addr> {
-    let valid_recipient: Addr = if let Some(recipient) = recipient {
-        deps.addr_validate(&recipient)?
-    } else {
-        info.sender
-    };
-    Ok(valid_recipient)
 }

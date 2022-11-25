@@ -3,7 +3,6 @@ use membrane::vesting::{UnlockedResponse, AllocationResponse, RecipientResponse,
 
 use crate::{contract::get_unlocked_amount, state::RECIPIENTS};
 
-
 pub fn query_allocation(deps: Deps, recipient: String) -> StdResult<AllocationResponse> {
     let recipient = match RECIPIENTS
         .load(deps.storage)?
@@ -61,7 +60,6 @@ pub fn query_recipients(deps: Deps) -> StdResult<RecipientsResponse> {
     let recipients = RECIPIENTS.load(deps.storage)?;
 
     let mut resp_list = vec![];
-
     for recipient in recipients {
         resp_list.push(RecipientResponse {
             recipient: recipient.recipient.to_string(),

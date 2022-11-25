@@ -40,17 +40,7 @@ pub enum ExecuteMsg {
     RemoveAuction {
         debt_asset: AssetInfo,
     },
-    UpdateConfig {
-        owner: Option<String>,
-        oracle_contract: Option<String>,
-        osmosis_proxy: Option<String>,
-        mbrn_denom: Option<String>,
-        positions_contract: Option<String>,
-        twap_timeframe: Option<u64>,
-        initial_discount: Option<Decimal>,
-        discount_increase_timeframe: Option<u64>, //in seconds
-        discount_increase: Option<Decimal>,       //% increase
-    },
+    UpdateConfig(UpdateConfig),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -80,6 +70,19 @@ pub struct Config {
     pub initial_discount: Decimal,
     pub discount_increase_timeframe: u64, //in seconds
     pub discount_increase: Decimal,       //% increase
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct UpdateConfig {
+    owner: Option<String>,
+    oracle_contract: Option<String>,
+    osmosis_proxy: Option<String>,
+    mbrn_denom: Option<String>,
+    positions_contract: Option<String>,
+    twap_timeframe: Option<u64>,
+    initial_discount: Option<Decimal>,
+    discount_increase_timeframe: Option<u64>, //in seconds
+    discount_increase: Option<Decimal>,       //% increase
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

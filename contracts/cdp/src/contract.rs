@@ -4,10 +4,9 @@ use std::env;
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
-    MessageInfo, Reply, Response, StdError, StdResult, Uint128, WasmMsg, QuerierWrapper, QueryRequest, WasmQuery,
+    MessageInfo, Reply, Response, StdError, StdResult, Uint128, WasmMsg, QuerierWrapper,
 };
 use cw2::set_contract_version;
-use cw20::{Cw20QueryMsg, BalanceResponse};
 
 use membrane::debt_auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::helpers::assert_sent_native_token_balance;
@@ -654,26 +653,13 @@ pub fn get_contract_balances(
     let mut balances = vec![];
 
     for asset in assets {
-        match asset {
-            AssetInfo::NativeToken { denom } => {
-                balances.push(
-                    querier
-                        .query_balance(env.clone().contract.address, denom)?
-                        .amount,
-                );
-            }
-            AssetInfo::Token { address } => {
-                let res: BalanceResponse =
-                    querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-                        contract_addr: address.to_string(),
-                        msg: to_binary(&Cw20QueryMsg::Balance {
-                            address: env.contract.address.to_string(),
-                        })?,
-                    }))?;
-
-                balances.push(res.balance);
-            }
-        }
+        if let AssetInfo::NativeToken { denom } = asset {
+            balances.push(
+                querier
+                    .query_balance(env.clone().contract.address, denom)?
+                    .amount,
+            );
+        }        
     }
 
     Ok(balances)

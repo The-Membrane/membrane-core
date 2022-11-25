@@ -6,12 +6,13 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use cw20::Cw20ExecuteMsg;
 
-use membrane::debt_auction::{AuctionResponse, ExecuteMsg, InstantiateMsg, QueryMsg, Config};
+use membrane::debt_auction::{AuctionResponse, ExecuteMsg, InstantiateMsg, QueryMsg, Config, UpdateConfig};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::positions::{BasketResponse, ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
 use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient};
+use membrane::helpers::{withdrawal_msg, asset_to_coin};
 
 use crate::error::ContractError;
 use crate::state::{Auction, ASSETS, CONFIG, ONGOING_AUCTIONS};
@@ -29,34 +30,22 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
-
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let config: Config;
+    let mut config = Config {
+        owner: info.sender,
+        oracle_contract: deps.api.addr_validate(&msg.oracle_contract)?,
+        osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
+        mbrn_denom: msg.mbrn_denom,
+        positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
+        twap_timeframe: msg.twap_timeframe,
+        initial_discount: msg.initial_discount,
+        discount_increase_timeframe: msg.discount_increase_timeframe,
+        discount_increase: msg.discount_increase,
+    };
+
     if let Some(owner) = msg.owner {
-        config = Config {
-            owner: deps.api.addr_validate(&owner)?,
-            oracle_contract: deps.api.addr_validate(&msg.oracle_contract)?,
-            osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
-            mbrn_denom: msg.mbrn_denom,
-            positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
-            twap_timeframe: msg.twap_timeframe,
-            initial_discount: msg.initial_discount,
-            discount_increase_timeframe: msg.discount_increase_timeframe,
-            discount_increase: msg.discount_increase,
-        };
-    } else {
-        config = Config {
-            owner: info.sender,
-            oracle_contract: deps.api.addr_validate(&msg.oracle_contract)?,
-            osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
-            mbrn_denom: msg.mbrn_denom,
-            positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
-            twap_timeframe: msg.twap_timeframe,
-            initial_discount: msg.initial_discount,
-            discount_increase_timeframe: msg.discount_increase_timeframe,
-            discount_increase: msg.discount_increase,
-        };
+        config.owner = deps.api.addr_validate(&owner)?
     }
 
     //Save Config
@@ -84,29 +73,7 @@ pub fn execute(
         } => start_auction(deps, env, info, repayment_position_info, send_to, debt_asset, basket_id),
         ExecuteMsg::SwapForMBRN {} => swap_for_mbrn(deps, info, env),
         ExecuteMsg::RemoveAuction { debt_asset } => remove_auction(deps, info, debt_asset),
-        ExecuteMsg::UpdateConfig {
-            owner,
-            oracle_contract,
-            osmosis_proxy,
-            positions_contract,
-            mbrn_denom,
-            twap_timeframe,
-            initial_discount,
-            discount_increase_timeframe,
-            discount_increase,
-        } => update_config(
-            deps,
-            info,
-            owner,
-            oracle_contract,
-            osmosis_proxy,
-            mbrn_denom,
-            positions_contract,
-            twap_timeframe,
-            initial_discount,
-            discount_increase_timeframe,
-            discount_increase,
-        ),
+        ExecuteMsg::UpdateConfig ( update)  => update_config( deps, info, update ),
     }
 }
 
@@ -114,15 +81,7 @@ pub fn execute(
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
-    owner: Option<String>,
-    oracle_contract: Option<String>,
-    osmosis_proxy: Option<String>,
-    mbrn_denom: Option<String>,
-    positions_contract: Option<String>,
-    twap_timeframe: Option<u64>,
-    initial_discount: Option<Decimal>,
-    discount_increase_timeframe: Option<u64>, //in seconds
-    discount_increase: Option<Decimal>,       //% increase
+    update: UpdateConfig,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -132,31 +91,31 @@ fn update_config(
     }
 
     //Save optionals
-    if let Some(addr) = owner {
+    if let Some(addr) = update.owner {
         config.owner = deps.api.addr_validate(&addr)?;
     }
-    if let Some(addr) = oracle_contract {
+    if let Some(addr) = update.oracle_contract {
         config.oracle_contract = deps.api.addr_validate(&addr)?;
     }
-    if let Some(addr) = osmosis_proxy {
+    if let Some(addr) = update.osmosis_proxy {
         config.osmosis_proxy = deps.api.addr_validate(&addr)?;
     }
-    if let Some(addr) = positions_contract {
+    if let Some(addr) = update.positions_contract {
         config.positions_contract = deps.api.addr_validate(&addr)?;
     }
-    if let Some(mbrn_denom) = mbrn_denom {
+    if let Some(mbrn_denom) = update.mbrn_denom {
         config.mbrn_denom = mbrn_denom;
     }
-    if let Some(twap_timeframe) = twap_timeframe {
+    if let Some(twap_timeframe) = update.twap_timeframe {
         config.twap_timeframe = twap_timeframe;
     }
-    if let Some(initial_discount) = initial_discount {
+    if let Some(initial_discount) = update.initial_discount {
         config.initial_discount = initial_discount;
     }
-    if let Some(discount_increase_timeframe) = discount_increase_timeframe {
+    if let Some(discount_increase_timeframe) = update.discount_increase_timeframe {
         config.discount_increase_timeframe = discount_increase_timeframe;
     }
-    if let Some(discount_increase) = discount_increase {
+    if let Some(discount_increase) = update.discount_increase {
         config.discount_increase = discount_increase;
     }
 
@@ -228,7 +187,6 @@ fn start_auction(
                     auction.remaining_recapitalization += debt_asset.clone().amount;
 
                     if send_to.is_some() {
-
                         auction.send_to.push(
                             AuctionRecipient {
                                 amount: debt_asset.clone().amount,
@@ -236,8 +194,7 @@ fn start_auction(
                             });
                     }
 
-                    if let Some(user_info) = user_info {
-                        
+                    if let Some(user_info) = user_info {                        
                         auction.repayment_positions.push(
                             RepayPosition {
                                 repayment: debt_asset.clone().amount,
@@ -262,7 +219,6 @@ fn start_auction(
                     };
 
                     if send_to.is_some() {
-
                         auction.send_to.push(
                             AuctionRecipient {
                                 amount: debt_asset.clone().amount,
@@ -270,8 +226,7 @@ fn start_auction(
                             });
                     }
 
-                    if let Some(user_info) = user_info {
-                        
+                    if let Some(user_info) = user_info {                        
                         auction.repayment_positions.push(
                             RepayPosition {
                                 repayment: debt_asset.clone().amount,
@@ -329,8 +284,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
         if let Ok(mut auction) = ONGOING_AUCTIONS.load(deps.storage, coin.clone().denom) {
             if !auction.remaining_recapitalization.is_zero() {
 
-                let swap_amount = Decimal::from_ratio(coin.amount, Uint128::new(1u128));
-                
+                let swap_amount = Decimal::from_ratio(coin.amount, Uint128::new(1u128));                
 
                 //Get MBRN price
                 let mbrn_price = deps
@@ -352,9 +306,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                     .querier
                     .query::<BasketResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                         contract_addr: config.clone().positions_contract.to_string(),
-                        msg: to_binary(&CDPQueryMsg::GetBasket {
-                            basket_id: auction.basket_id_price_source,
-                        })?,
+                        msg: to_binary(&CDPQueryMsg::GetBasket {})?,
                     }))?
                     .credit_price;
 
@@ -397,9 +349,8 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                         coin.denom, mbrn_mint_amount
                     ),
                 ));
-
+                
                 let mut swap_amount: Uint128 = swap_amount * Uint128::new(1u128);
-
 
                 //Calculate what positions can be repaid for
                 for (i, position) in auction.repayment_positions.clone().into_iter().enumerate() {
@@ -424,7 +375,6 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                             let message = CosmosMsg::Wasm(WasmMsg::Execute {
                                 contract_addr: config.clone().positions_contract.to_string(),
                                 msg: to_binary(&CDPExecuteMsg::Repay {
-                                    basket_id: position.clone().position_info.basket_id,
                                     position_id: position.clone().position_info.position_id,
                                     position_owner: Some(
                                         position.clone().position_info.position_owner,
@@ -444,8 +394,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                                 ),
                             ));
                         }
-                    }
-                    
+                    }                    
                 }
 
                 //Filter out fully repaid debts
@@ -484,9 +433,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                         .querier
                         .query::<BasketResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                             contract_addr: config.clone().positions_contract.to_string(),
-                            msg: to_binary(&CDPQueryMsg::GetBasket {
-                                basket_id: auction.basket_id_price_source,
-                            })?,
+                            msg: to_binary(&CDPQueryMsg::GetBasket {})?,
                         }))?
                         .credit_asset.info;
 
@@ -499,9 +446,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                         
                         //Push msg
                         msgs.push(msg);
-
-                    }
-                    
+                    }                    
                 }
 
                 if swap_amount > Uint128::zero() {
@@ -677,46 +622,5 @@ fn get_ongoing_auction(
         }
 
         Ok(resp)
-    }
-}
-
-//Helper functions
-
-pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
-    match asset.clone().info {
-        AssetInfo::NativeToken { denom: _ } => {
-            let coin: Coin = asset_to_coin(asset)?;
-            let message = CosmosMsg::Bank(BankMsg::Send {
-                to_address: recipient.to_string(),
-                amount: vec![coin],
-            });
-            Ok(message)
-        }
-        AssetInfo::Token { address } => {
-            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: address.to_string(),
-                msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                    recipient: recipient.to_string(),
-                    amount: asset.amount,
-                })?,
-                funds: vec![],
-            });
-            Ok(message)
-        }
-    }
-}
-
-pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {
-    match asset.info {
-        //
-        AssetInfo::Token { address: _ } => {
-            Err(StdError::GenericErr {
-                msg: "Only native assets can become Coin objects".to_string(),
-            })
-        }
-        AssetInfo::NativeToken { denom } => Ok(Coin {
-            denom,
-            amount: asset.amount,
-        }),
     }
 }

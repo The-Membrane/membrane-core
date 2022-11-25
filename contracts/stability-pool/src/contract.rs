@@ -3,7 +3,7 @@ use std::env;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, from_binary, to_binary, Addr, Api, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
+    attr, to_binary, Addr, Api, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
     DepsMut, Env, MessageInfo, QuerierWrapper, QueryRequest, Response, StdError, StdResult,
     Storage, Uint128, WasmMsg, WasmQuery,
 };
@@ -25,7 +25,7 @@ use membrane::math::{decimal_division, decimal_multiplication, decimal_subtracti
 
 use crate::error::ContractError;
 use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_deposits, query_user_claims, query_pool, query_capital_ahead_of_deposits};
-use crate::state::{Propagation, ASSETS, CONFIG, INCENTIVES, PROP, USERS};
+use crate::state::{Propagation, ASSET, CONFIG, INCENTIVES, PROP, USERS};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:stability-pool";
@@ -81,7 +81,7 @@ pub fn instantiate(
 
         pool.deposits = vec![];
 
-        ASSETS.save(deps.storage, &vec![pool])?;
+        ASSET.save(deps.storage, &vec![pool])?;
     }
 
     let res = Response::new();
@@ -100,10 +100,9 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::UpdateConfig(update) => update_config(deps, info, update),
-        ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
-        ExecuteMsg::Deposit { user, assets } => {
+        ExecuteMsg::Deposit { user, asset } => {
             //Outputs asset objects w/ correct amounts
-            let valid_assets = validate_assets(deps.storage, assets, info.clone(), true)?;
+            let valid_assets = validate_assets(deps.storage, vec![asset], info.clone(), true)?;
             if valid_assets.is_empty() {
                 return Err(ContractError::CustomError {
                     val: "No valid assets".to_string(),
@@ -112,13 +111,10 @@ pub fn execute(
 
             deposit(deps, env, info, user, valid_assets)
         }
-        ExecuteMsg::Withdraw { assets } => withdraw(deps, env, info, assets),
+        ExecuteMsg::Withdraw { asset } => withdraw(deps, env, info, asset),
         ExecuteMsg::Restake { restake_asset } => restake(deps, env, info, restake_asset),
         ExecuteMsg::Liquidate { credit_asset } => liquidate(deps, info, credit_asset),
         ExecuteMsg::Claim {} => claim(deps, env, info),
-        ExecuteMsg::AddPool { asset_pool } => {
-            add_asset_pool(deps, info, asset_pool.credit_asset, asset_pool.liq_premium)
-        }
         ExecuteMsg::Distribute {
             distribution_assets,
             distribution_asset_ratios,
@@ -157,7 +153,7 @@ fn update_config(
     //Match Optionals
     if let Some(owner) = update.owner {
         config.owner = deps.api.addr_validate(&owner)?;
-        attrs.push(attr("new_owner", owner));
+        attrs.push(attr("new_owner", config.owner));
     }
     if let Some(mbrn_denom) = update.mbrn_denom {
         config.mbrn_denom = mbrn_denom.clone();
@@ -165,11 +161,11 @@ fn update_config(
     }
     if let Some(osmosis_proxy) = update.osmosis_proxy {
         config.osmosis_proxy = deps.api.addr_validate(&osmosis_proxy)?;
-        attrs.push(attr("new_osmosis_proxy", osmosis_proxy));
+        attrs.push(attr("new_osmosis_proxy", config.osmosis_proxy));
     }
     if let Some(positions_contract) = update.positions_contract {
         config.positions_contract = deps.api.addr_validate(&positions_contract)?;
-        attrs.push(attr("new_positions_contract", positions_contract));
+        attrs.push(attr("new_positions_contract", config.positions_contract));
     }
     if let Some(incentive_rate) = update.incentive_rate {
         config.incentive_rate = incentive_rate;
@@ -199,41 +195,28 @@ pub fn deposit(
     env: Env,
     info: MessageInfo,
     position_owner: Option<String>,
-    assets: Vec<Asset>,
+    asset: Asset,
 ) -> Result<Response, ContractError> {
     let valid_owner_addr = validate_position_owner(deps.api, info, position_owner)?;
 
     //Adding to Asset_Pool totals and deposit's list
-    for asset in assets.clone() {
-        let asset_pools = ASSETS.load(deps.storage)?;
+    let mut asset_pool = ASSET.load(deps.storage)?;
 
-        let deposit = Deposit {
-            user: valid_owner_addr.clone(),
-            amount: Decimal::from_ratio(asset.amount, Uint128::new(1u128)),
-            deposit_time: env.block.time.seconds(),
-            last_accrued: env.block.time.seconds(),
-            unstake_time: None,
-        };
+    let deposit = Deposit {
+        user: valid_owner_addr.clone(),
+        amount: Decimal::from_ratio(asset.amount, Uint128::new(1u128)),
+        deposit_time: env.block.time.seconds(),
+        last_accrued: env.block.time.seconds(),
+        unstake_time: None,
+    };
 
-        if let Some(mut pool) = asset_pools
-            .clone()
-            .into_iter()
-            .find(|x| x.credit_asset.info.equal(&asset.info))
-        {
-            //Add user deposit to Pool totals
-            pool.credit_asset.amount += asset.amount;
-            //Add user deposit to deposits list
-            pool.deposits.push(deposit);
+    if asset_pool.credit_asset.info.equal(&asset.info){
+        //Add user deposit to Pool totals
+        asset_pool.credit_asset.amount += asset.amount;
+        //Add user deposit to deposits list
+        asset_pool.deposits.push(deposit);
 
-            let mut temp_pools: Vec<AssetPool> = asset_pools
-                .clone()
-                .into_iter()
-                .filter(|pool| !pool.credit_asset.info.equal(&asset.info))
-                .collect::<Vec<AssetPool>>();
-
-            temp_pools.push(pool);
-            ASSETS.save(deps.storage, &temp_pools)?;            
-        }
+        ASSET.save(deps.storage, &asset_pool)?;            
     }
 
     //Response build
@@ -241,7 +224,7 @@ pub fn deposit(
     Ok(response.add_attributes(vec![
         attr("method", "deposit"),
         attr("position_owner", valid_owner_addr.to_string()),
-        attr("deposited_assets", format!("{:?}", assets)),
+        attr("deposited_asset", format!("{:?}", asset)),
     ]))
 }
 
@@ -269,7 +252,7 @@ fn accrue_incentives(
     if time_elapsed == 0 {
         return Ok(Uint128::zero())
     } else {
-        rate = get_rate(storage, querier, Some(asset_pool), None)?;
+        rate = get_rate(storage, querier, asset_pool)?;
     }
 
     //Set last_accrued
@@ -294,7 +277,7 @@ pub fn withdraw(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    assets: Vec<Asset>,
+    asset: Asset,
 ) -> Result<Response, ContractError> {
     
     let config = CONFIG.load(deps.storage)?;
@@ -305,101 +288,62 @@ pub fn withdraw(
         attr("method", "withdraw"),
         attr("position_owner", info.sender.to_string()),
     ];
-    duplicate_asset_check(assets.clone())?;
 
-    //Each Asset
-    for asset in assets {
-        //We have to reload after every asset so we are using up to date data
-        //Otherwise multiple withdrawal msgs will pass, being validated by unedited state data
-        let asset_pools = ASSETS.load(deps.storage)?;
-
-        //If the Asset has a pool, act
-        match asset_pools
-            .clone()
+    let mut asset_pool = ASSET.load(deps.storage)?;
+        
+    //If the Asset has a pool, act
+    if asset_pool.credit_asset.info.equal(&asset.info){
+        //This forces withdrawals to be done by the info.sender
+        //so no need to check if the withdrawal is done by the position owner
+        let user_deposits: Vec<Deposit> = asset_pool.clone().deposits
             .into_iter()
-            .find(|asset_pool| asset_pool.credit_asset.info.equal(&asset.info))
-        {
-            //Some Asset
-            Some(pool) => {
-                //This forces withdrawals to be done by the info.sender
-                //so no need to check if the withdrawal is done by the position owner
-                let user_deposits: Vec<Deposit> = pool
-                    .clone()
-                    .deposits
-                    .into_iter()
-                    .filter(|deposit| deposit.user == info.sender)
-                    .collect::<Vec<Deposit>>();
+            .filter(|deposit| deposit.user == info.sender)
+            .collect::<Vec<Deposit>>();
 
-                let total_user_deposits: Decimal = user_deposits
-                    .iter()
-                    .map(|user_deposit| user_deposit.amount)
-                    .collect::<Vec<Decimal>>()
-                    .into_iter()
-                    .sum();
+        let total_user_deposits: Decimal = user_deposits
+            .iter()
+            .map(|user_deposit| user_deposit.amount)
+            .collect::<Vec<Decimal>>()
+            .into_iter()
+            .sum();
 
-                //Cant withdraw more than the total deposit amount
-                if total_user_deposits < Decimal::from_ratio(asset.amount, Uint128::new(1u128)) {
-                    return Err(ContractError::InvalidWithdrawal {});
-                } else {
-                    //Go thru each deposit and withdraw request from state
-                    let (withdrawable, new_pool) = withdrawal_from_state(
-                        deps.storage,
-                        deps.querier,
-                        env.clone(),
-                        config.clone(),
-                        info.clone().sender,
-                        Decimal::from_ratio(asset.amount, Uint128::new(1u128)),
-                        pool,
-                        false,
-                    )?;
+        //Cant withdraw more than the total deposit amount
+        if total_user_deposits < Decimal::from_ratio(asset.amount, Uint128::new(1u128)) {
+            return Err(ContractError::InvalidWithdrawal {});
+        } else {
+            //Go thru each deposit and withdraw request from state
+            let (withdrawable, new_pool) = withdrawal_from_state(
+                deps.storage,
+                deps.querier,
+                env.clone(),
+                config.clone(),
+                info.clone().sender,
+                Decimal::from_ratio(asset.amount, Uint128::new(1u128)),
+                asset_pool,
+                false,
+            )?;
 
-                    let mut temp_pools: Vec<AssetPool> = asset_pools
-                        .clone()
-                        .into_iter()
-                        .filter(|pool| !pool.credit_asset.info.equal(&asset.info))
-                        .collect::<Vec<AssetPool>>();
-                    temp_pools.push(new_pool.clone());
+            //Update pool
+            ASSET.save(deps.storage, &new_pool)?;
 
-                    //Update pool
-                    ASSETS.save(deps.storage, &temp_pools)?;
+            //If there is a withdrwable amount
+            if !withdrawable.is_zero() {
+                let withdrawable_asset = Asset {
+                    amount: withdrawable,
+                    ..asset
+                };
 
-                    //If there is a withdrwable amount
-                    if !withdrawable.is_zero() {
-                        let withdrawable_asset = Asset {
-                            amount: withdrawable,
-                            ..asset
-                        };
+                attrs.push(attr("withdrawn_asset", withdrawable_asset.to_string()));
 
-                        attrs.push(attr("withdrawn_asset", withdrawable_asset.to_string()));
-
-                        //This is here in case there are multiple withdrawal messages created.
-                        message = withdrawal_msg(withdrawable_asset, info.sender.clone())?;
-                        msgs.push(message);
-                    }
-                }
+                //This is here in case there are multiple withdrawal messages created.
+                message = withdrawal_msg(withdrawable_asset, info.sender.clone())?;
+                msgs.push(message);
             }
-            None => return Err(ContractError::InvalidAsset {}),
         }
-    }
+    } else { return Err(ContractError::InvalidAsset {}) }
+    
 
     Ok(Response::new().add_attributes(attrs).add_messages(msgs))
-}
-
-fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
-    //No duplicates
-    for (i, asset) in assets.clone().into_iter().enumerate() {
-        let mut assets_copy = assets.clone();
-        assets_copy.remove(i);
-
-        if let Some(_asset) = assets_copy
-            .into_iter()
-            .find(|asset_clone| asset_clone.info.equal(&asset.info))
-        {
-            return Err(ContractError::DuplicateWithdrawalAssets {});
-        }
-    }
-
-    Ok(())
 }
 
 fn withdrawal_from_state(
@@ -598,57 +542,41 @@ fn restake(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    mut restake_asset: LiqAsset,
+    mut restake_amount: Decimal,
 ) -> Result<Response, ContractError> {
-    let initial_restake = restake_asset.amount;
-    let new_pool: AssetPool;
+    let initial_restake = restake_amount;
 
-    //Find the AssetPool to attempt restaking 
-    if let Some(mut pool) = ASSETS
-        .load(deps.storage)?
+    let mut asset_pool = ASSET.load(deps.storage)?;
+
+    //Attempt restaking 
+    asset_pool.deposits = asset_pool
+        .deposits
         .into_iter()
-        .find(|pool| pool.credit_asset.info.equal(&restake_asset.info))
-    {
-        pool.deposits = pool
-            .deposits
-            .into_iter()
-            .map(|mut deposit| {
-                if deposit.user == info.clone().sender && !restake_asset.amount.is_zero() {
-                    if deposit.amount >= restake_asset.amount {
-                        //Zero restake_amount
-                        restake_asset.amount = Decimal::zero();
+        .map(|mut deposit| {
+            if deposit.user == info.clone().sender && !restake_amount.is_zero() {
+                if deposit.amount >= restake_amount {
+                    //Zero restake_amount
+                    restake_amount = Decimal::zero();
 
-                        //Restake
-                        deposit.unstake_time = None;
-                        deposit.deposit_time = env.block.time.seconds();
-                    } else if deposit.amount < restake_asset.amount {
-                        //Sub from restake_amount
-                        restake_asset.amount -= deposit.amount;
+                    //Restake
+                    deposit.unstake_time = None;
+                    deposit.deposit_time = env.block.time.seconds();
+                } else if deposit.amount < restake_amount {
+                    //Sub from restake_amount
+                    restake_amount -= deposit.amount;
 
-                        //Restake
-                        deposit.unstake_time = None;
-                        deposit.deposit_time = env.block.time.seconds();
-                    }
+                    //Restake
+                    deposit.unstake_time = None;
+                    deposit.deposit_time = env.block.time.seconds();
                 }
-                deposit
-            })
-            .collect::<Vec<Deposit>>();
+            }
+            deposit
+        })
+        .collect::<Vec<Deposit>>();
 
-        new_pool = pool;
-    } else {
-        return Err(ContractError::InvalidAsset {});
-    }
-
-    //Filter for pools other than the restake asset
-    let mut temp_pools: Vec<AssetPool> = ASSETS
-        .load(deps.storage)?
-        .into_iter()
-        .filter(|pool| !pool.credit_asset.info.equal(&restake_asset.info))
-        .collect::<Vec<AssetPool>>();
-    temp_pools.push(new_pool);
 
     //Save new Deposits
-    ASSETS.save(deps.storage, &temp_pools)?;
+    ASSET.save(deps.storage, &asset_pool)?;
 
     Ok(Response::new().add_attributes(vec![
         attr("method", "restake"),
@@ -661,7 +589,7 @@ fn restake(
 pub fn liquidate(
     deps: DepsMut,
     info: MessageInfo,
-    credit_asset: LiqAsset,
+    credit_amount: Decimal,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -669,25 +597,12 @@ pub fn liquidate(
         return Err(ContractError::Unauthorized {});
     }
 
-    let asset_pools = ASSETS.load(deps.storage)?;
-    let mut asset_pool = match asset_pools
-        .clone()
-        .into_iter()
-        .find(|x| x.credit_asset.info.equal(&credit_asset.info))
-    {
-        Some(pool) => pool,
-        None => return Err(ContractError::InvalidAsset {}),
-    };
+    let mut asset_pool = ASSET.load(deps.storage)?;
 
-    //Validate the credit asset
-    //ie: the SP only repays for valid credit assets
-    //The SP will allow any collateral assets
-    validate_assets(deps.storage, vec![credit_asset.clone().info], info, true)?;
-
-    let liq_amount = credit_asset.amount;
+    let liq_amount = credit_amount;
     //Assert repay amount or pay as much as possible
     let mut repay_asset = Asset {
-        info: credit_asset.clone().info,
+        info: asset_pool.credit_asset.info,
         amount: Uint128::new(0u128),
     };
     let mut leftover = Decimal::zero();
@@ -720,21 +635,14 @@ pub fn liquidate(
 
     //Subtract repaid_amount from totals
     asset_pool.credit_asset.amount -= repay_asset.amount;
-    let mut temp_pools: Vec<AssetPool> = asset_pools
-        
-        .into_iter()
-        .filter(|pool| !(pool.credit_asset.info.equal(&credit_asset.info)))
-        .collect::<Vec<AssetPool>>();
-    temp_pools.push(asset_pool.clone());
+    //Save updated Pool
+    ASSET.save(deps.storage, &asset_pool)?;
     
-    ASSETS.save(deps.storage, &temp_pools)?;
-
-    let res: Response = Response::new();
-    Ok(res.add_message(message).add_attributes(vec![
+    Ok(Response::new().add_message(message).add_attributes(vec![
         attr("method", "liquidate"),
         attr(
             "leftover_repayment",
-            format!("{} {}", leftover, credit_asset.info),
+            format!("{} {}", leftover, asset_pool.credit_asset.info),
         ),
     ]))
 }
@@ -760,14 +668,9 @@ pub fn distribute_funds(
         return Err(ContractError::InsufficientFunds {});
     }
 
-    let asset_pools = ASSETS.load(deps.storage)?;
-    let mut asset_pool = match asset_pools        
-        .into_iter()
-        .find(|pool| pool.credit_asset.info.equal(&credit_asset))
-    {
-        Some(pool) => pool,
-        None => return Err(ContractError::InvalidAsset {}),
-    };
+    let mut asset_pool = ASSET.load(deps.storage)?;
+    //Assert pool asset equality 
+    if !asset_pool.credit_asset.info.equal(&credit_asset.info){ return Err(ContractError::InvalidAsset {}) };
 
     //Assert that the distributed assets were sent
     let assets: Vec<AssetInfo> = distribution_assets
@@ -781,7 +684,7 @@ pub fn distribute_funds(
     if valid_assets.len() != distribution_assets.len() {
         return Err(ContractError::InvalidAssetObject {});
     }
-    //Set distribution_assets to the valid_assets
+    //Set distribution_assets to the validated assets
     distribution_assets = valid_assets;
     
 
@@ -939,15 +842,8 @@ pub fn distribute_funds(
     //Set deposits
     asset_pool.deposits = edited_deposits;
 
-    let mut new_pools: Vec<AssetPool> = ASSETS
-        .load(deps.storage)?
-        .into_iter()
-        .filter(|pool| !pool.credit_asset.info.equal(&credit_asset))
-        .collect::<Vec<AssetPool>>();
-    new_pools.push(asset_pool);
-
-    //Save pools w/ edited deposits to state
-    ASSETS.save(deps.storage, &new_pools)?;
+    //Save pool w/ edited deposits to state
+    ASSET.save(deps.storage, &asset_pool)?;
 
     //Calc user ratios and distribute collateral based on them
     //Distribute 1 collateral at a time (not pro-rata) for gas and UX optimizations (ie if a user wants to sell they won't have to sell on 4 different pairs)
@@ -998,18 +894,14 @@ fn repay(
         attr("method", "repay"),
         attr("user_info", user_info.to_string()),
     ];
-    let asset_pools = ASSETS.load(deps.storage)?;
+    let mut asset_pool = ASSET.load(deps.storage)?;
 
-    if let Some(pool) = asset_pools
-        .clone()
-        .into_iter()
-        .find(|asset_pool| asset_pool.credit_asset.info.equal(&repayment.info))
-    {
+    if asset_pool.credit_asset.info.equal(&repayment.info){
         let position_owner = deps.api.addr_validate(&user_info.position_owner)?;
 
         //This forces repayments to be done by the position_owner
         //so no need to check if the withdrawal is done by the position owner
-        let user_deposits: Vec<Deposit> = pool
+        let user_deposits: Vec<Deposit> = asset_pool
             .clone()
             .deposits
             .into_iter()
@@ -1037,19 +929,12 @@ fn repay(
                 config.clone(),
                 position_owner,
                 Decimal::from_ratio(repayment.amount, Uint128::new(1u128)),
-                pool,
+                asset_pool,
                 true,
             )?;
-
-            let mut temp_pools: Vec<AssetPool> = asset_pools
-                
-                .into_iter()
-                .filter(|pool| !pool.credit_asset.info.equal(&repayment.info))
-                .collect::<Vec<AssetPool>>();
-            temp_pools.push(new_pool);
-
+            
             //Update pool
-            ASSETS.save(deps.storage, &temp_pools)?;
+            ASSET.save(deps.storage, &asset_pool)?;
 
             /////This is where the function differs from withdraw()
             //Add Positions RepayMsg
@@ -1087,9 +972,8 @@ pub fn claim(
 
     let mut accrued_incentives = Uint128::zero();
     //Add newly accrued incentives to claimables
-    for asset in ASSETS.load(deps.storage)?{
-        accrued_incentives += get_user_incentives(deps.storage, deps.querier, env.clone(), info.clone().sender, asset.credit_asset.info)?;
-    }
+    accrued_incentives += get_user_incentives(deps.storage, deps.querier, env.clone(), info.clone().sender, ASSET.load(deps.storage)?)?;
+    
 
     if !accrued_incentives.is_zero(){
         //Add incentives to User Claims
@@ -1396,40 +1280,6 @@ fn split_assets_to_users(
     Ok(())
 }
 
-pub fn add_asset_pool(
-    deps: DepsMut,
-    info: MessageInfo,
-    credit_asset: Asset,
-    liq_premium: Decimal,
-) -> Result<Response, ContractError> {
-
-    let config = CONFIG.load(deps.storage)?;
-
-    //Assert Authority
-    if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
-    }
-    let mut asset_pools = ASSETS.load(deps.storage)?;
-
-    //Create and Add new pool
-    let new_pool = AssetPool {
-        credit_asset: credit_asset.clone(),
-        liq_premium,
-        deposits: vec![],
-    };
-    asset_pools.push(new_pool);
-
-    //Save pool
-    ASSETS.save(deps.storage, &asset_pools)?;
-
-    let res = Response::new()
-        .add_attribute("method", "add_asset_pool")
-        .add_attribute("asset", credit_asset.to_string())
-        .add_attribute("premium", liq_premium.to_string());
-
-    Ok(res)
-}
-
 pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal>, Vec<Deposit>)> {
     let mut user_deposits: Vec<Deposit> = vec![];
     let mut total_amount: Decimal = Decimal::percent(0);
@@ -1478,15 +1328,8 @@ fn get_user_incentives(
     querier: QuerierWrapper,
     env: Env,
     user: Addr,
-    asset_info: AssetInfo
+    mut asset_pool: AssetPool
 ) -> StdResult<Uint128>{
-    let asset_pools = ASSETS.load(storage)?;
-    
-    let mut asset_pool = match asset_pools.clone().into_iter().find(|pool| pool.credit_asset.info.equal(&asset_info.clone())){
-        Some(pool) => pool,
-        None => return Err( StdError::GenericErr { msg: String::from("Invalid asset") } ),
-    };
-
     let mut total_incentives = Uint128::zero();
     let mut error: Option<StdError> = None;
 
@@ -1502,7 +1345,7 @@ fn get_user_incentives(
     
                     if time_elapsed != 0 {
                         //Get incentive Rate
-                        let rate = match get_rate(storage, querier, None, Some(asset_info.clone())){
+                        let rate = match get_rate(storage, querier, asset_pool){
                             Ok(rate) => rate,
                             Err(err) => {
                                 error = Some(err);
@@ -1527,7 +1370,7 @@ fn get_user_incentives(
     
                     if time_elapsed != 0 {
                         //Get incentive Rate
-                        let rate = match get_rate(storage, querier, None, Some(asset_info.clone())){
+                        let rate = match get_rate(storage, querier, asset_pool){
                             Ok(rate) => rate,
                             Err(err) => {
                                 error = Some(err);
@@ -1554,79 +1397,20 @@ fn get_user_incentives(
     //Set new deposits
     asset_pool.deposits = new_deposits;
 
-    //Filter out this pool
-    let mut temp_pools: Vec<AssetPool>  = asset_pools.into_iter().filter(|pool| !pool.credit_asset.info.equal(&asset_info)).collect::<Vec<AssetPool>>();
-
-    //Add edited pool
-    temp_pools.push( asset_pool );
-
-    //Save pools
-    ASSETS.save( storage, &temp_pools )?;
+    //Save pool
+    ASSET.save( storage, &asset_pool )?;
 
     Ok(total_incentives)
-}
-
-pub fn get_user_deposits(
-    storage: &mut dyn Storage,
-    valid_user: Addr,
-    asset_info: AssetInfo,
-) -> StdResult<DepositResponse> {    
-    match ASSETS
-        .load(storage)?
-        .into_iter()
-        .find(|pool| pool.credit_asset.info.equal(&asset_info))
-    {
-        Some(pool) => {
-            let deposits: Vec<Deposit> = pool
-                .deposits
-                .into_iter()
-                .filter(|deposit| deposit.user == valid_user)
-                .collect::<Vec<Deposit>>();
-
-            if deposits.is_empty() {
-                return Err(StdError::GenericErr {
-                    msg: "User has no open positions in this asset pool or the pool doesn't exist"
-                        .to_string(),
-                });
-            }
-
-            Ok(DepositResponse {
-                asset: asset_info,
-                deposits,
-            })
-        }
-        None => {
-            Err(StdError::GenericErr {
-                msg: "User has no open positions in this asset pool or the pool doesn't exist"
-                    .to_string(),
-            })
-        }
-    }
 }
 
 //Get incentive rate based on base rate and % of credit supply in the pool
 fn get_rate(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
-    asset_pool: Option<AssetPool>,
-    asset_info: Option<AssetInfo>,
+    asset_pool: AssetPool,
 ) -> StdResult<Decimal>{
     let config = CONFIG.load(storage)?;
-
-    //Get Asset Pool
-    let asset_pool = if let Some(pool) = asset_pool {
-        pool
-    } else if let Some(asset_info) = asset_info{
-        let asset_pools: Vec<AssetPool> = ASSETS.load(storage)?;
-
-        match asset_pools.into_iter().find(|pool| pool.credit_asset.info.equal(&asset_info)){
-            Some(pool) => pool,
-            None => return Err( StdError::GenericErr { msg: String::from("Invalid asset") } ),
-        }
-    } else {
-        return Err( StdError::GenericErr { msg: String::from("No parameters passed") } )
-    };
-
+    
     let asset_current_supply = querier
     .query::<TokenInfoResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.osmosis_proxy.to_string(),
@@ -1670,15 +1454,15 @@ fn get_rate(
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::Rate { asset_info } => to_binary(&query_rate(deps, asset_info)?),
-        QueryMsg::UnclaimedIncentives { user, asset_info } => to_binary(&query_user_incentives(deps, env, user, asset_info)?),
-        QueryMsg::CapitalAheadOfDeposit { user, asset_info } => to_binary(&query_capital_ahead_of_deposits(deps, asset_info, user)?),
-        QueryMsg::CheckLiquidatible { asset } => to_binary(&query_liquidatible(deps, asset)?),
-        QueryMsg::AssetDeposits { user, asset_info } => {
-            to_binary(&query_deposits(deps, user, asset_info)?)
+        QueryMsg::Rate { } => to_binary(&query_rate(deps)?),
+        QueryMsg::UnclaimedIncentives { user } => to_binary(&query_user_incentives(deps, env, user)?),
+        QueryMsg::CapitalAheadOfDeposit { user } => to_binary(&query_capital_ahead_of_deposits(deps, user)?),
+        QueryMsg::CheckLiquidatible { amount } => to_binary(&query_liquidatible(deps, amount)?),
+        QueryMsg::AssetDeposits { user } => {
+            to_binary(&query_deposits(deps, user)?)
         }
         QueryMsg::UserClaims { user } => to_binary(&query_user_claims(deps, user)?),
-        QueryMsg::AssetPool { asset_info } => to_binary(&query_pool(deps, asset_info)?),
+        QueryMsg::AssetPool { } => to_binary(&ASSET.load(deps.storage)?),
     }
 }
 
@@ -1693,14 +1477,11 @@ pub fn validate_assets(
 
     if in_pool {
         //Validate sent assets against accepted assets
-        let asset_pools = ASSETS.load(deps)?;
+        let asset_pool = ASSET.load(deps)?;
 
         for asset in assets {
-            //If the asset has a pool, validate its balance
-            if let Some(_pool) = asset_pools
-                .iter()
-                .find(|x| x.credit_asset.info.equal(&asset))
-            {
+            //Validate its balance
+            if asset_pool.credit_asset.info.equal(&asset){
                 if let Ok(valid_asset) = assert_sent_native_token_balance(asset, &info) {
                     valid_assets.push(valid_asset);
                 }

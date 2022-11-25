@@ -15,7 +15,7 @@ pub struct Propagation {
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");
-pub const ASSETS: Item<Vec<AssetPool>> = Item::new("assets"); //Acts as the asset WL and the sum of all deposits for said asset
+pub const ASSET: Item<AssetPool> = Item::new("asset"); //Acts as the asset WL and the sum of all deposits for said asset
 pub const PROP: Item<Propagation> = Item::new("propagation");
 pub const INCENTIVES: Item<Uint128> = Item::new("incentives_total");
 pub const USERS: Map<Addr, User> = Map::new("users"); //Used to map claims to users

@@ -1,10 +1,9 @@
-use cw20::Cw20ReceiveMsg;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Decimal, Uint128, Addr};
 
-use crate::types::{Asset, AssetInfo, AssetPool, Deposit, LiqAsset, UserInfo};
+use crate::types::{Asset, AssetInfo, AssetPool, Deposit, UserInfo};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -22,30 +21,24 @@ pub struct InstantiateMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     UpdateConfig(UpdateConfig),
-    Receive(Cw20ReceiveMsg),
     Deposit {
-        //Deposit a list of accepted assets
+        //Deposit the pool asset
         user: Option<String>,
-        assets: Vec<AssetInfo>,
+        asset: AssetInfo,
     },
     Withdraw {
         // Unstake/Withdraw a list of accepted assets
-        assets: Vec<Asset>,
+        asset: Asset,
     },
     Restake {
         //Restake unstak(ed/ing) assets
-        restake_asset: LiqAsset,
+        restake_asset: Decimal,
     },
     //Claim ALL liquidation revenue && MBRN incentives
     Claim {},
-    ////Only callable by the owner////
-    AddPool {
-        //Adds an asset pool
-        asset_pool: AssetPool,
-    },
     Liquidate {
         //Use assets from an Asset pool to liquidate for a Position (Positions Contract)
-        credit_asset: LiqAsset,
+        credit_asset: Decimal,
     },
     Distribute {
         //Distributes liquidated funds to users
@@ -68,32 +61,24 @@ pub enum QueryMsg {
     Config {},
     //Get current MBRN incentive rate
     //Returns Decimal
-    Rate {
-        asset_info: AssetInfo,
-    },
+    Rate { },
     //Query unclaimed incentives for a user
     //Returns Uint128
-    UnclaimedIncentives {
-        user: String,
-        asset_info: AssetInfo,
-    },
+    UnclaimedIncentives { user: String },
     //Query capital ahead of frontmost user deposit
     //Returns DepositPositionResponse
-    CapitalAheadOfDeposit {
-        user: String,
-        asset_info: AssetInfo,
-    },
+    CapitalAheadOfDeposit { user: String },
     //Check if the amount of said asset is liquidatible
     //Returns LiquidatibleResponse
-    CheckLiquidatible { asset: LiqAsset },
-    //User deposits in 1 AssetPool
-    //Returns DepositResponse
-    AssetDeposits { user: String, asset_info: AssetInfo },
+    CheckLiquidatible { amount: Decimal },
+    //User deposits in the AssetPool
+    //Returns Vec<Deposit>
+    AssetDeposits { user: String },
     //Check if user has any claimable assets
     //Returns ClaimsResponse
     UserClaims { user: String },
-    //Returns PoolResponse
-    AssetPool { asset_info: AssetInfo },
+    //Returns AssetPool
+    AssetPool { },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -129,21 +114,8 @@ pub struct LiquidatibleResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct DepositResponse {
-    pub asset: AssetInfo,
-    pub deposits: Vec<Deposit>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct ClaimsResponse {
     pub claims: Vec<Asset>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct PoolResponse {
-    pub credit_asset: Asset,
-    pub liq_premium: Decimal,
-    pub deposits: Vec<Deposit>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

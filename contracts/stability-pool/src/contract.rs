@@ -77,12 +77,8 @@ pub fn instantiate(
     }
 
     //Set optional config parameters
-    match msg.dex_router {
-        Some(address) => match deps.api.addr_validate(&address) {
-            Ok(addr) => config.dex_router = Some(addr),
-            Err(_) => {}
-        },
-        None => {}
+    if let Some(address) = msg.dex_router {
+        config.dex_router = deps.api.addr_validate(&address)?;
     }
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;

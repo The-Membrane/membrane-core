@@ -29,10 +29,6 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 //Constants
 const SECONDS_IN_A_DAY: u64 = 86400u64;
 
-/////////////////////
-///**Make sure everything is allocated before fees are sent**
-/////////////////////
-
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
@@ -262,7 +258,6 @@ fn claim_fees_for_recipient(deps: DepsMut, info: MessageInfo) -> Result<Response
 
 //Claim staking rewards for all contract owned staked MBRN
 fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
-
     //Load Config
     let config = CONFIG.load(deps.storage)?;
 
@@ -347,7 +342,6 @@ fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, Contract
 }
 
 fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, recipients: &mut Vec<Recipient>) -> StdResult<Vec<Decimal>> {
-
     let mut allocation_ratios: Vec<Decimal> = vec![];
 
     //Get Contract's MBRN staked amount
@@ -357,8 +351,7 @@ fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, reci
     )?
     .total_staked;
 
-    for recipient in recipients.clone() {        
-
+    for recipient in recipients.clone() {
         //Initialize allocation 
         let allocation = recipient.clone().allocation.unwrap();
         

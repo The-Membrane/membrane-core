@@ -42,43 +42,24 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
-    let mut config: Config;
-
-    if msg.owner.is_some() {
-        config = Config {
-            owner: deps.api.addr_validate(&msg.owner.unwrap())?,
-            incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(10)),
-            max_incentives: msg
-                .max_incentives
-                .unwrap_or_else(|| Uint128::new(10_000_000_000_000)),
-            desired_ratio_of_total_credit_supply: msg
-                .desired_ratio_of_total_credit_supply
-                .unwrap_or_else(|| Decimal::percent(20)),
-            unstaking_period: 1u64,
-            mbrn_denom: msg.mbrn_denom,
-            osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
-            positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
-        };
-    } else {
-        config = Config {
-            owner: info.sender,
-            incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(10)),
-            max_incentives: msg
-                .max_incentives
-                .unwrap_or_else(|| Uint128::new(10_000_000_000_000)),
-            desired_ratio_of_total_credit_supply: msg
-                .desired_ratio_of_total_credit_supply
-                .unwrap_or_else(|| Decimal::percent(20)),
-            unstaking_period: 1u64,
-            mbrn_denom: msg.mbrn_denom,
-            osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
-            positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
-        };
-    }
+    let mut config = Config {
+        owner: info.sender,
+        incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(10)),
+        max_incentives: msg
+            .max_incentives
+            .unwrap_or_else(|| Uint128::new(10_000_000_000_000)),
+        desired_ratio_of_total_credit_supply: msg
+            .desired_ratio_of_total_credit_supply
+            .unwrap_or_else(|| Decimal::percent(20)),
+        unstaking_period: 1u64,
+        mbrn_denom: msg.mbrn_denom,
+        osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
+        positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
+    };
 
     //Set optional config parameters
-    if let Some(address) = msg.dex_router {
-        config.dex_router = deps.api.addr_validate(&address)?;
+    if let Some(owner) = msg.owner {
+        config.owner = deps.api.addr_validate(&owner)?;
     }
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
@@ -701,7 +682,7 @@ pub fn liquidate(
     //Validate the credit asset
     //ie: the SP only repays for valid credit assets
     //The SP will allow any collateral assets
-    validate_liq_assets(deps.storage, vec![credit_asset.clone()], info)?;
+    validate_assets(deps.storage, vec![credit_asset.clone().info], info, true)?;
 
     let liq_amount = credit_asset.amount;
     //Assert repay amount or pay as much as possible
@@ -1701,28 +1682,6 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-pub fn validate_liq_assets(
-    deps: &dyn Storage,
-    liq_assets: Vec<LiqAsset>,
-    _info: MessageInfo,
-) -> Result<(), ContractError> {
-    //Validate sent assets against accepted assets
-    let asset_pools = ASSETS.load(deps)?;
-
-    for asset in liq_assets {
-        //Check if the asset has a pool
-        match asset_pools
-            .iter()
-            .find(|x| x.credit_asset.info.equal(&asset.info))
-        {
-            Some(_a) => {}
-            None => return Err(ContractError::InvalidAsset {}),
-        }
-    }
-
-    Ok(())
-}
-
 //Note: This fails if an asset total is sent in two separate Asset objects. Both will be invalidated.
 pub fn validate_assets(
     deps: &dyn Storage,
@@ -1738,43 +1697,22 @@ pub fn validate_assets(
 
         for asset in assets {
             //If the asset has a pool, validate its balance
-            match asset_pools
+            if let Some(_pool) = asset_pools
                 .iter()
                 .find(|x| x.credit_asset.info.equal(&asset))
             {
-                Some(_a) => {
-                    match asset {
-                        AssetInfo::NativeToken { denom: _ } => {
-                            match assert_sent_native_token_balance(asset, &info) {
-                                Ok(valid_asset) => {
-                                    valid_assets.push(valid_asset);
-                                }
-                                Err(_) => {}
-                            }
-                        }
-                        AssetInfo::Token { address: _ } => {
-                            //Functions assume Cw20 asset amounts are taken from Messageinfo
-                        }
-                    }
+                if let Ok(valid_asset) = assert_sent_native_token_balance(asset, &info) {
+                    valid_assets.push(valid_asset);
                 }
-                None => {}
-            };
-        }
+            }                
+        };
     } else {
         for asset in assets {
-            match asset {
-                AssetInfo::NativeToken { denom: _ } => {
-                    match assert_sent_native_token_balance(asset, &info) {
-                        Ok(valid_asset) => {
-                            valid_assets.push(valid_asset);
-                        }
-                        Err(_) => {}
-                    }
+            if let AssetInfo::NativeToken { denom: _ } = asset {
+                if let Ok(valid_asset) = assert_sent_native_token_balance(asset, &info) {
+                    valid_assets.push(valid_asset);
                 }
-                AssetInfo::Token { address: _ } => {
-                    //Functions assume Cw20 asset amounts are taken from Messageinfo
-                }
-            }
+            }            
         }
     }
 

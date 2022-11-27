@@ -6,15 +6,17 @@ on:
       - main
       - release
 
+# Allows a subsequently queued workflow run to interrupt previous runs
+concurrency:
+  group: "${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}"
+  cancel-in-progress: true
+
 jobs:
   code-coverage:
     name: Code coverage
     runs-on: ubuntu-latest
 
     steps:
-      - name: Cancel Previous Runs
-        uses: styfle/cancel-workflow-action@0.11.0
-
       - name: Checkout repository
         uses: actions/checkout@v2
       - uses: actions/cache@v2

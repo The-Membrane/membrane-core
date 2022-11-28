@@ -30,8 +30,6 @@ pub enum ExecuteMsg {
         send_to: Option<String>,
         //Asset being bought by MBRN
         debt_asset: Asset, 
-        //Basket_id for Bsaket info
-        basket_id: Uint128,
     },
     //Swap for MBRN w/ any open auction's swap_from_asset
     SwapForMBRN {},

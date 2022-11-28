@@ -24,7 +24,7 @@ use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_nat
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
-use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_deposits, query_user_claims, query_pool, query_capital_ahead_of_deposits};
+use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_deposits, query_user_claims, query_capital_ahead_of_deposits};
 use crate::state::{Propagation, ASSET, CONFIG, INCENTIVES, PROP, USERS};
 
 // version info for migration info

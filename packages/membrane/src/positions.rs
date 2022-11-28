@@ -219,27 +219,6 @@ pub struct PositionsResponse {
     pub positions: Vec<Position>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct BasketResponse {
-    pub owner: String,
-    pub basket_id: String,
-    pub current_position_id: String,
-    pub collateral_types: Vec<cAsset>,
-    pub collateral_supply_caps: Vec<SupplyCap>,
-    pub multi_asset_supply_caps: Vec<MultiAssetSupplyCap>,
-    pub credit_asset: Asset,
-    pub credit_price: Decimal,
-    pub liq_queue: String,
-    pub base_interest_rate: Decimal, //Enter as percent, 0.02
-    pub liquidity_multiplier: Decimal,
-    pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
-    pub pending_revenue: Uint128,
-    pub negative_rates: bool, //Allow negative repayment interest or not
-    pub cpc_margin_of_error: Decimal,
-    pub frozen: bool,
-    pub rev_to_stakers: bool,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct BadDebtResponse {
     pub has_bad_debt: Vec<(PositionUserInfo, Uint128)>,

@@ -38,7 +38,7 @@ pub fn query_position(
 
     let mut basket = BASKET.load(deps.storage)?;
 
-    let position = match get_target_position(deps.storage, user, position_id.clone()){
+    let (_i, mut position) = match get_target_position(deps.storage, user, position_id.clone()){
         Ok(position) => position,
         Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
     };
@@ -244,7 +244,7 @@ pub fn query_position_insolvency(
     let valid_owner_addr = deps.api.addr_validate(&position_owner)?;
     let mut basket: Basket = BASKET.load(deps.storage)?;
 
-    let mut target_position = match get_target_position(deps.storage, valid_owner_addr, position_id.clone()){
+    let (_i, mut target_position) = match get_target_position(deps.storage, valid_owner_addr, position_id.clone()){
         Ok(position) => position,
         Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
     };
@@ -467,6 +467,9 @@ pub fn get_cAsset_ratios_imut(
     Ok(cAsset_ratios)
 }
 
+//This returns the most update to date price
+//The mutable version returns a price within a 10 min timespan
+//Accuracy priority for queries, runtime priority for execution
 fn query_price_imut(
     storage: &dyn Storage,
     querier: QuerierWrapper,
@@ -481,9 +484,8 @@ fn query_price_imut(
     //if AssetInfo is the basket.credit_asset
     if asset_info.equal(&basket.credit_asset.info) {
         twap_timeframe = config.credit_twap_timeframe;
-    }
+    }    
     
-
     //Query Price
     let price = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().oracle_contract.unwrap().to_string(),

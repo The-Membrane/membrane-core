@@ -2,7 +2,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Decimal, Addr, Uint128};
-use cw20::Cw20ReceiveMsg;
 
 use crate::math::{Decimal256, Uint256};
 use crate::types::{AssetInfo, Bid, BidInput};
@@ -19,7 +18,6 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Receive(Cw20ReceiveMsg),
     SubmitBid {
         //Deposit a list of accepted assets
         bid_input: BidInput,
@@ -38,7 +36,6 @@ pub enum ExecuteMsg {
         collateral_amount: Uint256,
         bid_for: AssetInfo,
         bid_with: AssetInfo,
-        basket_id: Uint128,
         position_id: Uint128,
         position_owner: String,
     },

@@ -99,7 +99,6 @@ fn close_posiion(
     position_id: Uint128,
     max_spread: Decimal,
 ) -> Result<Response, ContractError>{
-
     //Load Config
     let config: Config = CONFIG.load(deps.storage)?;
 
@@ -110,7 +109,6 @@ fn close_posiion(
     let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
         contract_addr: config.clone().positions_contract.to_string(), 
         msg: to_binary(&CDP_ExecuteMsg::ClosePosition { 
-            basket_id, 
             position_id,
             max_spread: max_spread,
             send_to: Some(info.clone().sender.to_string())
@@ -153,7 +151,6 @@ fn loop_leverage(
     let position_response = querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().positions_contract.to_string(), 
         msg: to_binary(&CDP_QueryMsg::GetPosition {
-            basket_id: basket_id.clone(),        
             position_id, 
             position_owner: env.contract.address.to_string(), 
         })?
@@ -172,7 +169,6 @@ fn loop_leverage(
     let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
         contract_addr: config.clone().positions_contract.to_string(), 
         msg: to_binary(&CDP_ExecuteMsg::IncreaseDebt { 
-            basket_id: basket_id.clone(), 
             position_id: position_id.clone(), 
             amount: None, 
             LTV: Some(target_LTV), 
@@ -251,7 +247,6 @@ fn deposit_to_cdp(
         let deposit_msg = CDP_ExecuteMsg::Deposit {
             position_owner: None, //Margin Contract
             position_id: None, //New position
-            basket_id: basket_id.clone(),        
         };
     
         let msg = CosmosMsg::Wasm(WasmMsg::Execute {

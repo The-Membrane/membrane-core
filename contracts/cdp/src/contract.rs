@@ -141,6 +141,7 @@ pub fn execute(
             assets,
             send_to,
         } => {
+            duplicate_asset_check(assets.clone())?;
             let cAssets: Vec<cAsset> = assert_basket_assets(
                 deps.storage,
                 deps.querier,
@@ -366,35 +367,35 @@ fn update_config(
     //Set Optionals
     if let Some(owner) = update.owner {
         config.owner = deps.api.addr_validate(&owner)?;
-        attrs.push(attr("new_owner", config.owner.to_string()));
+        attrs.push(attr("new_owner", config.clone().owner.to_string()));
     }
     if let Some(stability_pool) = update.stability_pool {
         config.stability_pool = Some(deps.api.addr_validate(&stability_pool)?);
-        attrs.push(attr("new_stability_pool", config.stability_pool.unwrap()));
+        attrs.push(attr("new_stability_pool", config.clone().stability_pool.unwrap()));
     }
     if let Some(dex_router) = update.dex_router {
         config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
-        attrs.push(attr("new_dex_router", config.dex_router.unwrap()));
+        attrs.push(attr("new_dex_router", config.clone().dex_router.unwrap()));
     }
     if let Some(osmosis_proxy) = update.osmosis_proxy {
         config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
-        attrs.push(attr("new_osmosis_proxy", config.osmosis_proxy.unwrap()));
+        attrs.push(attr("new_osmosis_proxy", config.clone().osmosis_proxy.unwrap()));
     }
     if let Some(debt_auction) = update.debt_auction {
         config.debt_auction = Some(deps.api.addr_validate(&debt_auction)?);
-        attrs.push(attr("new_debt_auction", config.debt_auction.unwrap()));
+        attrs.push(attr("new_debt_auction", config.clone().debt_auction.unwrap()));
     }
     if let Some(staking_contract) = update.staking_contract {
         config.staking_contract = Some(deps.api.addr_validate(&staking_contract)?);
-        attrs.push(attr("new_staking_contract", config.staking_contract.unwrap()));
+        attrs.push(attr("new_staking_contract", config.clone().staking_contract.unwrap()));
     }
     if let Some(oracle_contract) = update.oracle_contract {
         config.oracle_contract = Some(deps.api.addr_validate(&oracle_contract)?);
-        attrs.push(attr("new_oracle_contract", config.oracle_contract.unwrap()));
+        attrs.push(attr("new_oracle_contract", config.clone().oracle_contract.unwrap()));
     }
     if let Some(liquidity_contract) = update.liquidity_contract {
         config.liquidity_contract = Some(deps.api.addr_validate(&liquidity_contract)?);
-        attrs.push(attr("new_liquidity_contract", config.liquidity_contract.unwrap()));
+        attrs.push(attr("new_liquidity_contract", config.clone().liquidity_contract.unwrap()));
     }
     if let Some(liq_fee) = update.liq_fee {
         config.liq_fee = liq_fee.clone();
@@ -459,7 +460,7 @@ fn check_and_fulfill_bad_debt(
     let mut basket: Basket = BASKET.load(deps.storage)?;
 
     //Get target Position
-    let mut target_position = get_target_position(deps.storage, position_owner.clone(), position_id.clone())?;
+    let (_i, mut target_position) = get_target_position(deps.storage, position_owner.clone(), position_id.clone())?;
 
     //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
     //This is allowed bc any calls here will be after a liquidation where the sell wall would've sold all it could to cover debts
@@ -686,4 +687,21 @@ pub fn edit_contract_owner(
         .add_attribute("new_owner", owner);
 
     Ok(response)
+}
+
+fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
+    //No duplicates
+    for (i, asset) in assets.clone().into_iter().enumerate() {
+        let mut assets_copy = assets.clone();
+        assets_copy.remove(i);
+
+        if let Some(_asset) = assets_copy
+            .into_iter()
+            .find(|asset_clone| asset_clone.info.equal(&asset.info))
+        {
+            return Err(ContractError::CustomError { val: String::from("No duplicate assets in Asset object lists") } );
+        }
+    }
+
+    Ok(())
 }

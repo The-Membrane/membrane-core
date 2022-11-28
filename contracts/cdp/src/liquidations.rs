@@ -6,10 +6,10 @@ use membrane::helpers::{router_native_to_native, pool_query_and_exit, query_stab
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction, Uint256};
 use membrane::positions::{Config, ExecuteMsg, CallbackMsg};
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
-use membrane::stability_pool::{DepositResponse, LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
+use membrane::stability_pool::{LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
-use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, LiqAsset, cAsset, PoolStateResponse};
+use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, LiqAsset, cAsset, PoolStateResponse, Deposit};
 
 use crate::error::ContractError; 
 use crate::rates::accrue;
@@ -41,7 +41,7 @@ pub fn liquidate(
     let valid_position_owner =
         validate_position_owner(api, info.clone(), Some(position_owner.clone()))?;
 
-    let mut target_position = get_target_position(
+    let (_i, mut target_position) = get_target_position(
         storage,
         valid_position_owner.clone(),
         position_id,
@@ -81,7 +81,7 @@ pub fn liquidate(
     }
 
     //Send liquidation amounts and info to the modules
-    //1) We need to calculate how much needs to be liquidated (down to max_borrow_LTV):
+    //Calculate how much needs to be liquidated (down to max_borrow_LTV):
 
     let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices) = get_avg_LTV(
         storage,
@@ -331,14 +331,12 @@ fn get_user_repay_amount(
     if config.clone().stability_pool.is_some() {
         //Query Stability Pool to see if the user has funds
         let user_deposits = querier
-            .query::<DepositResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            .query::<Vec<Deposit>>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.clone().stability_pool.unwrap().to_string(),
                 msg: to_binary(&SP_QueryMsg::AssetDeposits {
                     user: position_owner.clone(),
-                    asset_info: basket.clone().credit_asset.info,
                 })?,
-            }))?
-            .deposits;
+            }))?;
 
         let total_user_deposit: Decimal = user_deposits
             .iter()
@@ -379,7 +377,6 @@ fn get_user_repay_amount(
 
             //Convert to submsg
             let sub_msg: SubMsg = SubMsg::reply_on_error(msg, USER_SP_REPAY_REPLY_ID);
-
             submessages.push(sub_msg);
 
             //Subtract Repay amount from credit_repay_amount for the liquidation
@@ -562,7 +559,6 @@ fn per_asset_fulfillments(
 
             //Convert to submsg
             let sub_msg: SubMsg = SubMsg::reply_always(msg, LIQ_QUEUE_REPLY_ID);
-
             submessages.push(sub_msg);
         }
     }  
@@ -720,10 +716,7 @@ fn build_sp_sw_submsgs(
 
             //Stability Pool message builder
             let liq_msg = SP_ExecuteMsg::Liquidate {
-                credit_asset: LiqAsset {
-                    amount: sp_repay_amount,
-                    info: basket.clone().credit_asset.info,
-                },
+                liq_amount: sp_repay_amount
             };
 
             let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -831,7 +824,7 @@ pub fn sell_wall_using_ids(
     
     let basket: Basket = BASKET.load(storage)?;
 
-    let target_position = match get_target_position(storage, position_owner, position_id){
+    let (_i, target_position) = match get_target_position(storage, position_owner.clone(), position_id){
         Ok(position) => position,
         Err(err) => return Err(StdError::GenericErr { msg: String::from("Non_existent position") })
     };    
@@ -984,10 +977,7 @@ pub fn query_stability_pool_liquidatible(
         querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.stability_pool.unwrap().to_string(),
             msg: to_binary(&SP_QueryMsg::CheckLiquidatible {
-                asset: LiqAsset {
-                    amount: amount,
-                    info,
-                },
+                amount
             })?,
         }))?;
 

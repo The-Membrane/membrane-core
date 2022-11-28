@@ -38,7 +38,7 @@ pub enum ExecuteMsg {
     Claim {},
     Liquidate {
         //Use assets from an Asset pool to liquidate for a Position (Positions Contract)
-        credit_asset: Decimal,
+        liq_amount: Decimal,
     },
     Distribute {
         //Distributes liquidated funds to users

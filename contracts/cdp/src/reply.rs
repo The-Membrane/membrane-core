@@ -41,7 +41,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             }
 
             //Load position
-            let target_position = match get_target_position(
+            let (_i, target_position) = match get_target_position(
                 deps.storage, 
                 valid_position_owner, 
                 position_id.clone(), 
@@ -148,8 +148,7 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                 };
 
                 //If balance differnce is more than what they tried to withdraw, error
-                if withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > withdraw_amount
-                {
+                if withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > withdraw_amount {
                     return Err(StdError::GenericErr {
                         msg: format!(
                             "Conditional 1: Invalid withdrawal, possible bug found by {}",
@@ -160,11 +159,10 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
 
                 match get_target_position(
                     deps.storage,
-                    deps.api
-                        .addr_validate(&withdraw_prop.position_info.position_owner.clone())?,
+                    deps.api.addr_validate(&withdraw_prop.position_info.position_owner.clone())?,
                     withdraw_prop.position_info.position_id,
-                ) {
-                    Ok(user_position) => {
+                ){
+                    Ok((_i, user_position)) => {
                         //Assert the withdrawal was correctly saved to state
                         if let Some(cAsset) = user_position
                         .collateral_assets
@@ -182,7 +180,7 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                         }
                     },
                     Err(err) => {
-                        //Error means the position was deleted from state, assert that
+                        //Error means the position was deleted from state, assert that collateral was supposed to be completely withdrawn
                         if !(position_amount - withdraw_amount).is_zero(){
                             return Err(StdError::GenericErr {
                                 msg: err.to_string(),
@@ -214,7 +212,6 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
             WITHDRAW.save(deps.storage, &withdraw_prop)?;
 
             //We can go by first entries for these fields bc the replies will come in FIFO in terms of assets sent
-            //The reply_order numbers are used to loop the logic on the list of native assets whenever it arrives while still allowing Cw20s to work in the reply
         } //We only reply on success
         Err(err) => return Err(StdError::GenericErr { msg: err }),
     }
@@ -312,10 +309,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
 
                     //Stability Pool message builder
                     let liq_msg = SP_ExecuteMsg::Liquidate {
-                        credit_asset: LiqAsset {
-                            amount: sp_repay_amount,
-                            info: basket.clone().credit_asset.info,
-                        },
+                            liq_amount: sp_repay_amount
                     };
 
                     let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -401,11 +395,9 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 .find(|attr| attr.key == "repay_amount")
                 .unwrap()
                 .value;
-
             let repay_amount = Uint128::from_str(&repay)?;
 
             let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
-
             let basket = BASKET.load(deps.storage)?;
 
             //Send successfully liquidated amount

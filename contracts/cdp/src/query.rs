@@ -60,7 +60,7 @@ pub fn query_position(
         &mut position,
         &mut basket,
     )?;
-
+    
     Ok(PositionResponse {
         position_id: position.position_id,
         collateral_assets: position.clone().collateral_assets,

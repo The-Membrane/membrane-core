@@ -230,13 +230,11 @@ pub fn deposit(
     //Double check State storage
     check_deposit_state(deps.storage, deps.api, positions_prev_collateral, deposit_amounts, position_info.clone())?;    
 
-    //Response build
-    let response = Response::new();
-    
-    Ok(response.add_attributes(vec![
-        attr("method", "withdraw"),
+    Ok(Response::new().add_attributes(vec![
+        attr("method", "deposit"),
+        attr("position_owner", position_info.position_owner),
         attr("position_id", position_info.position_id),
-        attr("assets", format!("{:?}", cAssets)),
+        attr("assets", format!("{:?}", cAssets.into_iter().map(|a|a.asset).collect::<Vec<Asset>>())),
     ]))
 }
 
@@ -594,8 +592,8 @@ pub fn repay(
     //Update Position
     POSITIONS.update(storage, valid_owner_addr.clone(), |positions: Option<Vec<Position>>| -> Result<Vec<Position>, ContractError> {
         let mut updating_positions = positions.unwrap();
-        updating_positions[position_index].credit_amount = target_position.credit_amount;
-
+        updating_positions[position_index] = target_position.clone();
+        
         Ok(updating_positions)
     })?;
 
@@ -922,7 +920,7 @@ pub fn increase_debt(
             //Update Position
             POSITIONS.update(deps.storage, info.clone().sender, |positions: Option<Vec<Position>>| -> Result<Vec<Position>, ContractError> {
                 let mut updating_positions = positions.unwrap();
-                updating_positions[position_index].credit_amount = target_position.credit_amount;
+                updating_positions[position_index] = target_position.clone();
 
                 Ok(updating_positions)
             })?;
@@ -2116,7 +2114,7 @@ pub fn insolvency_check(
 
     let available_fee = if check {
         //Checks max_LTV
-        (current_LTV - avg_LTVs.1) * Uint128::new(1u128)
+        current_LTV.checked_sub(avg_LTVs.1).unwrap_or_else(|_| Decimal::zero()) * Uint128::new(1u128)
     } else {
         Uint128::zero()
     };
@@ -2179,7 +2177,7 @@ fn query_price(
 
     if let Ok(stored_price) = res {
         let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
-        if time_elapsed <= config.oracle_time_limit { 
+        if time_elapsed <= config.oracle_time_limit {
             return Ok( stored_price.price )
         } 
     } 
@@ -2503,7 +2501,7 @@ pub fn mint_revenue(
     //Can't send_to and repay_for at the same time
     if send_to.is_some() && repay_for.is_some() || send_to.is_none() && repay_for.is_none(){
         return Err(ContractError::CustomError {
-            val: String::from("Can only send to at least one address at a time"),
+            val: String::from("Destination address is required"),
         });
     }
 

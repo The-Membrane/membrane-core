@@ -4,10 +4,11 @@ use std::fs::create_dir_all;
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
 use membrane::positions::{
-    Config, BadDebtResponse, BasketResponse, CallbackMsg,
+    Config, BadDebtResponse, CallbackMsg,
     ExecuteMsg, InsolvencyResponse, InstantiateMsg, PositionResponse, PositionsResponse,
     QueryMsg, InterestResponse, CollateralInterestResponse
 };
+use membrane::types::Basket;
 
 fn main() {
     let mut out_dir = current_dir().unwrap();
@@ -22,7 +23,7 @@ fn main() {
     export_schema(&schema_for!(Config), &out_dir);
     export_schema(&schema_for!(PositionsResponse), &out_dir);
     export_schema(&schema_for!(PositionResponse), &out_dir);
-    export_schema(&schema_for!(BasketResponse), &out_dir);
+    export_schema(&schema_for!(Basket), &out_dir);
     export_schema(&schema_for!(BadDebtResponse), &out_dir);
     export_schema(&schema_for!(InsolvencyResponse), &out_dir);
     export_schema(&schema_for!(InterestResponse), &out_dir);

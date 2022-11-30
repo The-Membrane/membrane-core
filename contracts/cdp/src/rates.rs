@@ -68,7 +68,7 @@ pub fn update_rate_indices(
         basket.collateral_types[i].rate_index += accrued_rate;        
     }
 
-    //update rates_last_accrued
+    //Update rates_last_accrued
     basket.rates_last_accrued = env.block.time.seconds();
     
     Ok(())
@@ -224,7 +224,7 @@ fn get_credit_rate_of_change(
             /////Update cAsset rate_index
             position.collateral_assets[i].rate_index = basket_asset.rate_index;        
         }
-    }
+    }    
     //The change in index represents the rate accrued to the cAsset in the time since last accrual
     Ok(avg_change_in_index)
 }
@@ -309,7 +309,7 @@ pub fn accrue(
                 Decimal::zero()
             }
         };
-       
+
         //Don't accrue repayment interest if price is within the margin of error
         if price_difference > basket.clone().cpc_margin_of_error {
 
@@ -434,13 +434,8 @@ pub fn accrue_imut(
          }
     };
 
-    if liquidity_ratio < Decimal::percent(3) {
-        //Set time_elapsed to 0 to skip accrual
-        time_elapsed = 0u64;
-    }
-    
-    if liquidity < Uint128::new(2_000_000_000_000u128) {
-        //Set time_elapsed to 0 to skip accrual
+    if liquidity_ratio < Decimal::percent(3) || liquidity < Uint128::new(2_000_000_000_000u128){
+        //Set time_elapsed to 0 to skip repayment accrual
         time_elapsed = 0u64;
     }
 
@@ -576,6 +571,7 @@ pub fn get_credit_rate_of_change_imut(
             position.collateral_assets[i].rate_index = basket_asset.rate_index;
         }
     }    
+    
     //The change in index represents the rate accrued to the cAsset in the time since last accrual
     Ok(avg_change_in_index)
 }
@@ -594,7 +590,7 @@ pub fn get_rate_indices(
         .into_iter()
         .map(|rate| rate.1)
         .collect::<Vec<Decimal>>();
-
+    
     //Add/Sub repayment rate to the rates
     //These aren't saved so it won't compound
     interest_rates = interest_rates.clone().into_iter().map(|mut rate| {
@@ -615,7 +611,7 @@ pub fn get_rate_indices(
     .collect::<Vec<Decimal>>();
     //This allows us to prioritize credit stability over profit/state of the basket
     //This means base rate is the range above (peg + margin of error) before rates go to 0
-
+    
     //Calc time_elapsed
     let time_elapsed = env.block.time.seconds() - basket.clone().rates_last_accrued;
     

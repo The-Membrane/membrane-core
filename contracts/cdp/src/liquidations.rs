@@ -172,7 +172,7 @@ pub fn liquidate(
         per_asset_repayment, 
         user_repay_amount.clone()
     )?;
-
+    
     //Extend LP withdraw messages
     lp_withdraw_messages.extend(lp_withdraw_msgs);
 
@@ -435,7 +435,7 @@ fn per_asset_fulfillments(
             cAsset.clone().asset.info,
             caller_fee_in_collateral_amount,
         )?;
-
+        
         //Subtract Protocol fee from Position's claims
         let protocol_fee_in_collateral_amount =
             decimal_multiplication(collateral_repay_amount_for_fees, config.clone().liq_fee)
@@ -469,7 +469,7 @@ fn per_asset_fulfillments(
 
         //Create msgs to caller as well as to liq_queue if.is_some()
         match cAsset.clone().asset.info {
-            AssetInfo::Token { address } => { return Err(StdError::GenericErr { msg: "Cw20 assets aren't allowed".to_string() }) },
+            AssetInfo::Token { address: _ } => { return Err(StdError::GenericErr { msg: "Cw20 assets aren't allowed".to_string() }) },
             AssetInfo::NativeToken { denom: _ } => {
                 let asset = Asset {
                     amount: caller_fee_in_collateral_amount,
@@ -492,13 +492,13 @@ fn per_asset_fulfillments(
             amount: caller_coins,
         });
         fee_messages.push(msg);
-
+        
         //Create Msg to send all native token liq fees for MBRN to the staking contract
         let msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.clone().staking_contract.unwrap().to_string(),
             msg: to_binary(&StakingExecuteMsg::DepositFee {})?,
             funds: protocol_coins,
-        });
+        }); 
         fee_messages.push(msg);
 
         /////////////LiqQueue calls//////
@@ -697,7 +697,7 @@ fn build_sp_sw_submsgs(
             //Leftover's starts as the total LQ is supposed to pay, and is subtracted by every successful LQ reply
             let liq_queue_leftovers =
                 decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment);
-
+            
             // Set repay values for reply msg
             let liquidation_propagation = LiquidationPropagation {
                 per_asset_repayment,
@@ -864,9 +864,6 @@ pub fn sell_wall(
 ) -> Result<(Vec<CosmosMsg>, Vec<(AssetInfo, Decimal)>, Vec<CosmosMsg>), ContractError> {
     //Load Config
     let config: Config = CONFIG.load(storage)?;   
-
-    //Set valid_position_owner
-    let valid_position_owner = api.addr_validate(&position_owner)?;
 
     let mut messages = vec![];
     let mut lp_withdraw_messages = vec![];

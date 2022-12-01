@@ -14,7 +14,7 @@ use cw2::set_contract_version;
 use osmosis_std::types::osmosis::gamm::v1beta1::GammQuerier;
 
 use crate::error::TokenFactoryError;
-use crate::state::{TokenInfo, CONFIG, TOKENS};
+use crate::state::{TokenInfo, CONFIG, TOKENS, PENDING, PendingTokenInfo};
 use membrane::osmosis_proxy::{
     Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse,
 };
@@ -56,17 +56,13 @@ pub fn execute(
     match msg {
         ExecuteMsg::CreateDenom {
             subdenom,
-            basket_id,
             max_supply,
-            liquidity_multiplier,
         } => create_denom(
             deps,
             env,
             info,
             subdenom,
-            basket_id,
             max_supply,
-            liquidity_multiplier,
         ),
         ExecuteMsg::ChangeAdmin {
             denom,
@@ -163,12 +159,10 @@ pub fn create_denom(
     env: Env,
     info: MessageInfo,
     subdenom: String,
-    basket_id: String,
     max_supply: Option<Uint128>,
-    liquidity_multiplier: Option<Decimal>,
 ) -> Result<Response, TokenFactoryError> {
-
     let config = CONFIG.load(deps.storage)?;
+    
     //Assert Authority
     if !validate_authority(config, info) {
         return Err(TokenFactoryError::Unauthorized {});
@@ -178,21 +172,17 @@ pub fn create_denom(
         return Err(TokenFactoryError::InvalidSubdenom { subdenom });
     }    
 
+    //Create Msg
     let msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: subdenom.clone() };
-
     let create_denom_msg = SubMsg::reply_on_success(msg, CREATE_DENOM_REPLY_ID );
+
+    //Save PendingTokenInfo
+    PENDING.save(deps.storage, &PendingTokenInfo { subdenom: subdenom.clone(), max_supply })?;
 
     let res = Response::new()
         .add_attribute("method", "create_denom")
         .add_attribute("sub_denom", subdenom)
         .add_attribute("max_supply", max_supply.unwrap_or_else(Uint128::zero))
-        .add_attribute("basket_id", basket_id)
-        .add_attribute(
-            "liquidity_multiplier",
-            liquidity_multiplier
-                .unwrap_or_else(Decimal::zero)
-                .to_string(),
-        )
         .add_submessage(create_denom_msg);
 
     Ok(res)
@@ -527,43 +517,17 @@ fn handle_create_denom_reply(
 ) -> StdResult<Response> {
     match msg.result.into_result() {
         Ok(result) => {
-            let instantiate_event = result
-                .events
-                .into_iter()
-                .find(|e| e.attributes.iter().any(|attr| attr.key == "subdenom"))
-                .ok_or_else(|| {
-                    StdError::generic_err("unable to find create_denom event".to_string())
-                })?;
-
-            let subdenom = &instantiate_event
-                .attributes
-                .iter()
-                .find(|attr| attr.key == "subdenom")
-                .unwrap()
-                .value;
-
-            let max_supply = &instantiate_event
-                .attributes
-                .iter()
-                .find(|attr| attr.key == "max_supply")
-                .unwrap()
-                .value;
+            //Load Pending TokenInfo
+            let PendingTokenInfo { subdenom, max_supply} = PENDING.load(deps.storage)?;
 
             /// Query all denoms created by this contract
             let tq = TokenFactory::TokenfactoryQuerier::new(&deps.querier);
             let res: QueryDenomsFromCreatorResponse = tq.denoms_from_creator(env.contract.address.into_string())?;
-            let denom = if let Some(denom) = res.denoms.into_iter().find(|denom| denom.contains(subdenom)){
+            let denom = if let Some(denom) = res.denoms.into_iter().find(|denom| denom.contains(&subdenom)){
                 denom
             } else { return Err(StdError::GenericErr { msg: String::from("Cannot find created denom") }) };
            
-
-            let max_supply = {
-                if Uint128::from_str(max_supply)?.is_zero() {
-                    None
-                } else {
-                    Some(Uint128::from_str(max_supply)?)
-                }
-            };
+            //Save Denom Info
             TOKENS.save(
                 deps.storage,
                 denom,

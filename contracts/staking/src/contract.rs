@@ -25,6 +25,7 @@ use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, TOTALS};
 const CONTRACT_NAME: &str = "crates.io:staking";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+//Constants
 const SECONDS_PER_YEAR: u64 = 31_536_000u64;
 const SECONDS_PER_DAY: u64 = 86_400u64;
 

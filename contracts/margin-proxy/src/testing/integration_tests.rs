@@ -129,7 +129,6 @@ mod tests {
                                     position_id: Uint128::new(1),
                                     collateral_assets: vec![],
                                     credit_amount: Uint128::new(1),
-                                    basket_id: Uint128::new(1),
                                 }
                             ],
                         })?)
@@ -162,7 +161,6 @@ mod tests {
                     },
                     CDP_MockQueryMsg::GetBasket { basket_id } => {
                         Ok(to_binary(&Basket {
-                            owner: String::from(""),
                             basket_id: String::from(""),
                             current_position_id: String::from(""),
                             collateral_types: vec![],
@@ -178,6 +176,9 @@ mod tests {
                             multi_asset_supply_caps: vec![],
                             frozen: false,
                             rev_to_stakers: true,
+                            credit_last_accrued: 0,
+                            rates_last_accrued: 0,
+                            oracle_set: true,
                         })?)
                     },
                 }

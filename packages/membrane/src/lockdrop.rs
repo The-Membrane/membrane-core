@@ -53,6 +53,7 @@ pub enum QueryMsg {
     //Returns UserResponse
     User { 
         user: String,
+        minimum_lock: Option<u64>,
     },
     //Returns Uint128
     TotalDeposits { },

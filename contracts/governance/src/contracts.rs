@@ -128,7 +128,7 @@ pub fn submit_proposal(
     link: Option<String>,
     messages: Option<Vec<ProposalMessage>>,
     recipient: Option<String>,
-    expedited: bool,
+    mut expedited: bool,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 

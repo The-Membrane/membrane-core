@@ -6,8 +6,8 @@ mod tests {
 
     use membrane::apollo_router::SwapToAssetsInput;
     use membrane::margin_proxy::{ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::positions::{PositionsResponse, PositionResponse, BasketResponse};
-    use membrane::types::{AssetInfo, Position, cAsset, Asset};
+    use membrane::positions::{PositionsResponse, PositionResponse};
+    use membrane::types::{AssetInfo, Position, cAsset, Asset, Basket};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal, attr,
@@ -161,7 +161,7 @@ mod tests {
                         })?)
                     },
                     CDP_MockQueryMsg::GetBasket { basket_id } => {
-                        Ok(to_binary(&BasketResponse {
+                        Ok(to_binary(&Basket {
                             owner: String::from(""),
                             basket_id: String::from(""),
                             current_position_id: String::from(""),
@@ -172,7 +172,6 @@ mod tests {
                             liq_queue: String::from(""),
                             base_interest_rate: Decimal::zero(),
                             liquidity_multiplier: Decimal::zero(),
-                            desired_debt_cap_util: Decimal::zero(),
                             pending_revenue: Uint128::zero(),
                             negative_rates: false,
                             cpc_margin_of_error: Decimal::zero(),

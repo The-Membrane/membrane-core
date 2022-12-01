@@ -372,6 +372,14 @@ pub struct AuctionRecipient {
     pub recipient: Addr,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct Auction {
+    pub remaining_recapitalization: Uint128,
+    pub repayment_positions: Vec<RepayPosition>, //Repayment amount, Positions info
+    pub send_to: Vec<AuctionRecipient>,
+    pub auction_start_time: u64,
+}
+
 /////////Liquidity Check
 ///
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

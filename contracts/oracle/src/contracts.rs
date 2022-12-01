@@ -303,8 +303,6 @@ fn get_asset_price(
     twap_timeframe: u64, //in minutes
     basket_id_field: Option<Uint128>,
 ) -> StdResult<PriceResponse> {
-    let config = CONFIG.load(storage)?;
-
     //Load Asset Info
     let asset_oracle_info = ASSETS.load(storage, asset_info.to_string())?;
 
@@ -398,7 +396,6 @@ fn get_asset_price(
         oracle_prices[median_index].price
     };
 
-    
 
     Ok(PriceResponse {
         prices: oracle_prices,

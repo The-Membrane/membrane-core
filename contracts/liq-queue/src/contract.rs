@@ -9,8 +9,8 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use membrane::liq_queue::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::{Decimal256, Uint256};
-use membrane::positions::{BasketResponse, QueryMsg as CDP_QueryMsg};
-use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue};
+use membrane::positions::QueryMsg as CDP_QueryMsg;
+use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue, Basket};
 
 use crate::bid::{claim_liquidations, execute_liquidation, retract_bid, store_queue, submit_bid};
 use crate::error::ContractError;
@@ -34,26 +34,16 @@ pub fn instantiate(
     let config: Config;
 
     let positions_contract = deps.api.addr_validate(&msg.positions_contract)?;
-
-    //Set Bid Asset
-    let bid_asset: AssetInfo;
-    if let Some(basket_id) = msg.basket_id {
-        //Get bid_asset from Basket
-        bid_asset = deps
-            .querier
-            .query::<BasketResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: positions_contract.to_string(),
-                msg: to_binary(&CDP_QueryMsg::GetBasket { basket_id })?,
-            }))?
-            .credit_asset
-            .info;
-    } else if let Some(asset) = msg.bid_asset {
-        bid_asset = asset;
-    } else {
-        return Err(ContractError::CustomError {
-            val: String::from("Need a bid_asset"),
-        });
-    };
+    
+    //Get bid_asset from Basket
+    let bid_asset = deps
+        .querier
+        .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: positions_contract.to_string(),
+            msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
+        }))?
+        .credit_asset
+        .info;
 
     if msg.owner.is_some() {
         config = Config {
@@ -95,11 +85,6 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        //Receive but don't act upon
-        ExecuteMsg::Receive(Cw20ReceiveMsg) => Ok(Response::new().add_attribute(
-            "asset_received",
-            format!("{} {}", Cw20ReceiveMsg.amount, info.sender),
-        )),
         ExecuteMsg::SubmitBid {
             bid_input,
             bid_owner,
@@ -115,7 +100,6 @@ pub fn execute(
             collateral_amount,
             bid_for,
             bid_with,
-            basket_id,
             position_id,
             position_owner,
         } => execute_liquidation(
@@ -127,7 +111,6 @@ pub fn execute(
             collateral_price,
             credit_price,
             bid_with,
-            basket_id,
             position_id,
             position_owner,
         ),
@@ -148,14 +131,12 @@ pub fn execute(
             owner,
             positions_contract,
             waiting_period,
-            basket_id,
         } => update_config(
             deps,
             info,
             owner,
             positions_contract,
             waiting_period,
-            basket_id,
         ),
     }
 } //Functions assume Cw20 asset amounts are taken from Messageinfo
@@ -166,7 +147,6 @@ fn update_config(
     owner: Option<String>,
     positions_contract: Option<String>,
     waiting_period: Option<u64>,
-    basket_id: Option<Uint128>,
 ) -> Result<Response, ContractError> {
 
     let mut config = CONFIG.load(deps.storage)?;
@@ -181,22 +161,21 @@ fn update_config(
     }
     if positions_contract.is_some() {
         config.positions_contract = deps.api.addr_validate(&positions_contract.unwrap())?;
-    }
-    if waiting_period.is_some() {
-        config.waiting_period = waiting_period.unwrap();
-    }
-    if let Some(basket_id) = basket_id {
+
         //Get bid_asset from Basket
         let bid_asset = deps
             .querier
-            .query::<BasketResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.clone().positions_contract.to_string(),
-                msg: to_binary(&CDP_QueryMsg::GetBasket { basket_id })?,
+                msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
             }))?
             .credit_asset
             .info;
 
         config.bid_asset = bid_asset;
+    }
+    if waiting_period.is_some() {
+        config.waiting_period = waiting_period.unwrap();
     }
 
     CONFIG.save(deps.storage, &config)?;
@@ -205,7 +184,6 @@ fn update_config(
         attr("method", "update_config"),
         attr("owner", config.owner.to_string()),
         attr("waiting_period", config.waiting_period.to_string()),
-        attr("basket_id", config.bid_asset.to_string()),
     ]))
 }
 

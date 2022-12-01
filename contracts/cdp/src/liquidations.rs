@@ -9,7 +9,7 @@ use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::stability_pool::{LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
-use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, LiqAsset, cAsset, PoolStateResponse, Deposit};
+use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, LiqAsset, cAsset, PoolStateResponse, Deposit, AssetPool};
 
 use crate::error::ContractError; 
 use crate::rates::accrue;
@@ -331,12 +331,14 @@ fn get_user_repay_amount(
     if config.clone().stability_pool.is_some() {
         //Query Stability Pool to see if the user has funds
         let user_deposits = querier
-            .query::<Vec<Deposit>>(&QueryRequest::Wasm(WasmQuery::Smart {
+            .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.clone().stability_pool.unwrap().to_string(),
-                msg: to_binary(&SP_QueryMsg::AssetDeposits {
-                    user: position_owner.clone(),
-                })?,
-            }))?;
+                msg: to_binary(&SP_QueryMsg::AssetPool {  })?,
+            }))?
+            .deposits
+            .into_iter()
+            .filter(|deposits| deposits.user.to_string() == position_owner.clone())
+            .collect::<Vec<Deposit>>();
 
         let total_user_deposit: Decimal = user_deposits
             .iter()
@@ -589,7 +591,7 @@ fn build_sp_sw_submsgs(
     let mut lp_withdraw_messages = vec![];
     
     if config.clone().stability_pool.is_some() && !liq_queue_leftover_credit_repayment.is_zero() {
-        let sp_liq_fee = query_stability_pool_fee(querier, config.clone().stability_pool.unwrap().to_string(), basket.clone().credit_asset.info)?;
+        let sp_liq_fee = query_stability_pool_fee(querier, config.clone().stability_pool.unwrap().to_string())?;
 
         //If LTV is 90% and the fees are 10%, the position would pay everything to pay the liquidators.
         //So above that, the liquidators are losing the premium guarantee.

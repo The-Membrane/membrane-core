@@ -1,21 +1,20 @@
 use cosmwasm_std::{
-    attr, coins, entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
+    attr, coins, entry_point, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps,
     DepsMut, Env, MessageInfo, QueryRequest, Response, StdError, StdResult, Uint128, WasmMsg,
     WasmQuery,
 };
 use cw2::set_contract_version;
-use cw20::Cw20ExecuteMsg;
 
-use membrane::debt_auction::{AuctionResponse, ExecuteMsg, InstantiateMsg, QueryMsg, Config, UpdateConfig};
+use membrane::debt_auction::{ExecuteMsg, InstantiateMsg, QueryMsg, Config, UpdateConfig};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
-use membrane::positions::{BasketResponse, ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
-use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient};
-use membrane::helpers::{withdrawal_msg, asset_to_coin};
+use membrane::positions::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
+use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient, Basket, Auction};
+use membrane::helpers::withdrawal_msg;
 
 use crate::error::ContractError;
-use crate::state::{Auction, ASSETS, CONFIG, ONGOING_AUCTIONS};
+use crate::state::{ASSETS, CONFIG, ONGOING_AUCTIONS};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "debt_auction";
@@ -69,8 +68,7 @@ pub fn execute(
             repayment_position_info,
             send_to,
             debt_asset,
-            basket_id,
-        } => start_auction(deps, env, info, repayment_position_info, send_to, debt_asset, basket_id),
+        } => start_auction(deps, env, info, repayment_position_info, send_to, debt_asset),
         ExecuteMsg::SwapForMBRN {} => swap_for_mbrn(deps, info, env),
         ExecuteMsg::RemoveAuction { debt_asset } => remove_auction(deps, info, debt_asset),
         ExecuteMsg::UpdateConfig ( update)  => update_config( deps, info, update ),
@@ -134,7 +132,6 @@ fn start_auction(
     user_info: Option<UserInfo>,
     send_to: Option<String>,
     debt_asset: Asset,
-    basket_id: Uint128,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -215,7 +212,6 @@ fn start_auction(
                         repayment_positions: vec![],
                         send_to: vec![],
                         auction_start_time: env.block.time.seconds(),
-                        basket_id_price_source: basket_id,
                     };
 
                     if send_to.is_some() {
@@ -296,17 +292,17 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                                 denom: config.clone().mbrn_denom,
                             },
                             twap_timeframe: config.clone().twap_timeframe,
-                            basket_id: Some(auction.basket_id_price_source),
+                            basket_id: None,
                         })?,
                     }))?
-                    .avg_price;
+                    .price;
 
                 //Get credit price from Positions contract to further incentivize recapitalization
                 let basket_credit_price = deps
                     .querier
-                    .query::<BasketResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                    .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
                         contract_addr: config.clone().positions_contract.to_string(),
-                        msg: to_binary(&CDPQueryMsg::GetBasket {})?,
+                        msg: to_binary(&CDPQueryMsg::GetBasket { })?,
                     }))?
                     .credit_price;
 
@@ -431,9 +427,9 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                         //Get credit asset info
                         let credit_asset = deps
                         .querier
-                        .query::<BasketResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                        .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
                             contract_addr: config.clone().positions_contract.to_string(),
-                            msg: to_binary(&CDPQueryMsg::GetBasket {})?,
+                            msg: to_binary(&CDPQueryMsg::GetBasket { })?,
                         }))?
                         .credit_asset.info;
 
@@ -559,18 +555,12 @@ fn get_ongoing_auction(
     debt_asset: Option<AssetInfo>,
     limit: Option<u64>,
     start_without: Option<AssetInfo>,
-) -> StdResult<Vec<AuctionResponse>> {
+) -> StdResult<Vec<Auction>> {
     if let Some(debt_asset) = debt_asset {
         if let Ok(auction) = ONGOING_AUCTIONS.load(deps.storage, debt_asset.to_string()) {
             //Skip zeroed auctions
             if !auction.remaining_recapitalization.is_zero() {
-                Ok(vec![AuctionResponse {
-                    remaining_recapitalization: auction.remaining_recapitalization,
-                    repayment_positions: auction.clone().repayment_positions,
-                    send_to: auction.clone().send_to,
-                    auction_start_time: auction.auction_start_time,
-                    basket_id_price_source: auction.basket_id_price_source,
-                }])
+                Ok(vec![auction.clone()])
             } else {
                 Err(StdError::GenericErr {
                     msg: String::from("Auction recapitalization amount empty"),
@@ -606,13 +596,7 @@ fn get_ongoing_auction(
                 //Add Response
                 //Skip zeroed aucitons
                 if !auction.remaining_recapitalization.is_zero() {
-                    resp.push(AuctionResponse {
-                        remaining_recapitalization: auction.clone().remaining_recapitalization,
-                        repayment_positions: auction.clone().repayment_positions,
-                        send_to: auction.clone().send_to,
-                        auction_start_time: auction.clone().auction_start_time,
-                        basket_id_price_source: auction.clone().basket_id_price_source,
-                    });
+                    resp.push( auction.clone() );
                 }
             } else {
                 return Err(StdError::GenericErr {

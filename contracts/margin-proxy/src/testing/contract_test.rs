@@ -44,7 +44,6 @@ mod tests {
                 SubMsg::reply_on_success(CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: String::from("positions_contract"),
                     msg: to_binary(&CDP_ExecuteMsg::Deposit {
-                        basket_id: Uint128::new(1),
                         position_id: None,
                         position_owner: None,
                     })

@@ -8,9 +8,9 @@ use cw2::set_contract_version;
 
 use membrane::margin_proxy::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::decimal_multiplication;
-use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, Cw20HookMsg as CDP_HookMsg, PositionResponse, PositionsResponse, BasketResponse};
+use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, PositionResponse, PositionsResponse};
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
-use membrane::types::{Position, AssetInfo};
+use membrane::types::{Position, AssetInfo, Basket};
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, COMPOSITION_CHECK, USERS, NEW_POSITION_INFO, NUM_OF_LOOPS, LOOP_PARAMETERS};
@@ -272,7 +272,6 @@ fn deposit_to_cdp(
         let deposit_msg = CDP_ExecuteMsg::Deposit {
             position_owner: None, //Margin Contract
             position_id: position_id.clone(), 
-            basket_id: basket_id.clone(),        
         };
     
         let msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -288,7 +287,6 @@ fn deposit_to_cdp(
         let position_response = deps.querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.clone().positions_contract.to_string(), 
             msg: to_binary(&CDP_QueryMsg::GetPosition {
-                basket_id: basket_id.clone(),        
                 position_id: unwrapped_id, 
                 position_owner: env.contract.address.to_string(), 
             })?
@@ -381,9 +379,9 @@ fn handle_loop_reply(
                 .collect::<Vec<(AssetInfo, Decimal)>>();
 
             //Query Basket credit asset
-            let credit_asset = deps.querier.query::<BasketResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+            let credit_asset = deps.querier.query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart { 
                 contract_addr: config.clone().positions_contract.to_string(), 
-                msg: to_binary(&CDP_QueryMsg::GetBasket { basket_id: basket_id.clone() })?
+                msg: to_binary(&CDP_QueryMsg::GetBasket { })?
             }))?
             .credit_asset;
 
@@ -561,7 +559,6 @@ fn handle_existing_deposit_reply(
             let position_response = deps.querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.clone().positions_contract.to_string(), 
                 msg: to_binary(&CDP_QueryMsg::GetPosition {
-                    basket_id: previous_composition.1, 
                     position_id: previous_composition.0.position_id, 
                     position_owner: env.contract.address.to_string(), 
                 })?
@@ -622,7 +619,6 @@ fn handle_new_deposit_reply(
             let mut positions_response = deps.querier.query::<PositionsResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
                 contract_addr: config.clone().positions_contract.to_string(), 
                 msg: to_binary(&CDP_QueryMsg::GetUserPositions {
-                    basket_id: Some(new_position_info.1),
                     user: env.contract.address.to_string(),
                     limit: None,
                 })?
@@ -662,7 +658,6 @@ fn query_user_positions(
     env: Env,
     user: String,
 )-> StdResult<Vec<PositionResponse>>{
-
     //Load Config
     let config: Config = CONFIG.load(deps.storage)?;
 
@@ -679,7 +674,6 @@ fn query_user_positions(
         let position_resp = deps.querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
             contract_addr: config.clone().positions_contract.to_string(), 
             msg: to_binary(&CDP_QueryMsg::GetPosition { 
-                basket_id: position.0, 
                 position_id: position.1, 
                 position_owner: env.contract.address.to_string(),
             })?
@@ -693,7 +687,6 @@ fn query_user_positions(
 }
 
 ////Helpers///
-
 fn create_router_msg(
     contract_addr: String, //Margin contract
     positions_contract: String,
@@ -705,66 +698,34 @@ fn create_router_msg(
     position_id: Option<Uint128>,
     max_spread: Option<Decimal>,
 ) -> StdResult<CosmosMsg>{
-    //We know the credit asset is a native asset
+    //We know the credit asset & collateral asset is native
     if let AssetInfo::NativeToken { denom } = asset_to_sell {
-
-        //Match on the Collateral's type
-        match asset_to_buy.clone() {
-            AssetInfo::NativeToken { denom: _ } => {
-                let router_msg = RouterExecuteMsg::Swap {
-                    to: SwapToAssetsInput::Single(asset_to_buy.clone()), //Buy
-                    max_spread, 
-                    recipient: Some(positions_contract), //Deposit Native to positions contract
-                    hook_msg: Some(to_binary(&CDP_ExecuteMsg::Deposit { 
-                        basket_id, 
-                        position_id, 
-                        position_owner: Some(contract_addr), //Owner is this contract
-                    })?),
-                };
-        
-                let payment = coin(
-                    (amount_to_sell * Uint128::new(1u128)).u128(),
-                    denom,
-                );
-        
-                let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: apollo_router_addr,
-                    msg: to_binary(&router_msg)?,
-                    funds: vec![payment],
-                });
-        
-                Ok(msg)            
-            },
-            AssetInfo::Token { address: _ } => {
-                let router_msg = RouterExecuteMsg::Swap {
-                    to: SwapToAssetsInput::Single(asset_to_buy.clone()), //Buy
-                    max_spread, 
-                    recipient: Some(positions_contract), //Deposit Cw20 to positions contract
-                    hook_msg: Some(to_binary(&CDP_HookMsg::Deposit { 
-                        basket_id, 
-                        position_id, 
-                        position_owner: Some(contract_addr), //Owner is this contract
-                    })?),
-                };
-        
-                let payment = coin(
-                    (amount_to_sell * Uint128::new(1u128)).u128(),
-                    denom,
-                );
-        
-                let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: apollo_router_addr,
-                    msg: to_binary(&router_msg)?,
-                    funds: vec![payment],
-                });
-        
-                Ok(msg)            
-            },
-        }
-        
-        
+        if let AssetInfo::NativeToken { denom: _ } = asset_to_buy.clone() {
+            let router_msg = RouterExecuteMsg::Swap {
+                to: SwapToAssetsInput::Single(asset_to_buy.clone()), //Buy
+                max_spread, 
+                recipient: Some(positions_contract), //Deposit Native to positions contract
+                hook_msg: Some(to_binary(&CDP_ExecuteMsg::Deposit { 
+                    position_id, 
+                    position_owner: Some(contract_addr), //Owner is this contract
+                })?),
+            };
+    
+            let payment = coin(
+                (amount_to_sell * Uint128::new(1u128)).u128(),
+                denom,
+            );
+    
+            let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: apollo_router_addr,
+                msg: to_binary(&router_msg)?,
+                funds: vec![payment],
+            });
+    
+            Ok(msg)            
+        } else { return Err(StdError::GenericErr { msg: String::from("Assets are supposed to be native") }) }
     } else {
-        return Err(StdError::GenericErr { msg: String::from("Credit assets are supposed to be native") })
+        return Err(StdError::GenericErr { msg: String::from("Assets are supposed to be native") })
     }
 
 }

@@ -11,8 +11,6 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub positions_contract: String,
     pub waiting_period: u64, //seconds
-    pub basket_id: Option<Uint128>,
-    pub bid_asset: Option<AssetInfo>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -57,7 +55,6 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         positions_contract: Option<String>,
         waiting_period: Option<u64>,
-        basket_id: Option<Uint128>,
     },
 }
 

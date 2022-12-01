@@ -303,7 +303,6 @@ pub fn execute_liquidation(
     credit_price: Decimal,
     bid_with: AssetInfo,
     //For Repayment
-    basket_id: Uint128,
     position_id: Uint128,
     position_owner: String,
 ) -> Result<Response, ContractError> {
@@ -396,7 +395,6 @@ pub fn execute_liquidation(
     store_queue(deps.storage, bid_for.to_string(), queue.clone())?;
 
     let repay_msg = CDP_ExecuteMsg::Repay {
-        basket_id,
         position_id,
         position_owner: Some(position_owner),
         send_excess_to: None,

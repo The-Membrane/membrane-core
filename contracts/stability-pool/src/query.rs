@@ -1,6 +1,6 @@
 use cosmwasm_std::{Deps, Env, StdResult, Uint128, Decimal, StdError, WasmQuery, QueryRequest, to_binary};
-use membrane::types::{AssetInfo, AssetPool, LiqAsset, Deposit};
-use membrane::stability_pool::{DepositResponse, PoolResponse, LiquidatibleResponse, ClaimsResponse, DepositPositionResponse};
+use membrane::types::{AssetPool, Deposit};
+use membrane::stability_pool::{LiquidatibleResponse, ClaimsResponse, DepositPositionResponse};
 use membrane::osmosis_proxy::TokenInfoResponse;
 use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
@@ -117,14 +117,14 @@ pub fn query_liquidatible(deps: Deps, amount: Decimal) -> StdResult<Liquidatible
     
     let asset_pool = ASSET.load(deps.storage)?;
     let asset_amount_uint128 = amount * Uint128::new(1u128);
-    let liquidatible_amount = pool.credit_asset.amount;
+    let liquidatible_amount = asset_pool.credit_asset.amount;
 
     if liquidatible_amount > asset_amount_uint128 {
         Ok(LiquidatibleResponse {
             leftover: Decimal::percent(0),
         })
     } else {
-        let leftover = asset_amount_uint128 - pool.credit_asset.amount;
+        let leftover = asset_amount_uint128 - asset_pool.credit_asset.amount;
         Ok(LiquidatibleResponse {
             leftover: Decimal::from_ratio(leftover, Uint128::new(1u128)),
         })

@@ -139,14 +139,14 @@ pub fn get_interest_rates(
         
         //The debt_proportion is used unless the supply proportion is over 1 or the farthest into slope 2 
         //A proportion in Slope 2 is prioritized        
-        if supply_proportions[i] <= Decimal::one() || ((supply_proportions[i] > Decimal::one() && debt_proportions[i] > basket.desired_debt_cap_util) && supply_proportions[i] - Decimal::one() < debt_proportions[i] - basket.desired_debt_cap_util) {
+        if supply_proportions[i] <= Decimal::one() || ((supply_proportions[i] > Decimal::one() && debt_proportions[i] > Decimal::one()) && supply_proportions[i] - Decimal::one() < debt_proportions[i] - Decimal::one()) {
             //Slope 2
-            if debt_proportions[i] > basket.desired_debt_cap_util {
+            if debt_proportions[i] > Decimal::one() {
                 //Ex: 91% > 90%
                 ////0.01 * 100 = 1
                 //1% = 1
                 let percent_over_desired = decimal_multiplication(
-                    decimal_subtraction(debt_proportions[i], basket.desired_debt_cap_util),
+                    decimal_subtraction(debt_proportions[i], Decimal::one()),
                     Decimal::percent(100_00),
                 );
                 let multiplier = percent_over_desired + Decimal::one();
@@ -692,14 +692,14 @@ pub fn get_interest_rates_imut(
     for (i, _rate) in rates.iter().enumerate() {
         //The debt_proportion is used unless the supply proportion is over 1 or the farthest into slope 2 
         //A proportion in Slope 2 is prioritized        
-        if supply_proportions[i] <= Decimal::one() || ((supply_proportions[i] > Decimal::one() && debt_proportions[i] > basket.desired_debt_cap_util) && supply_proportions[i] - Decimal::one() < debt_proportions[i] - basket.desired_debt_cap_util) {
+        if supply_proportions[i] <= Decimal::one() || ((supply_proportions[i] > Decimal::one() && debt_proportions[i] > Decimal::one()) && supply_proportions[i] - Decimal::one() < debt_proportions[i] - Decimal::one()) {
             //Slope 2
-            if debt_proportions[i] > basket.desired_debt_cap_util {
+            if debt_proportions[i] > Decimal::one() {
                 //Ex: 91% > 90%
                 ////0.01 * 100 = 1
                 //1% = 1
                 let percent_over_desired = decimal_multiplication(
-                    decimal_subtraction(debt_proportions[i], basket.desired_debt_cap_util),
+                    decimal_subtraction(debt_proportions[i], Decimal::one()),
                     Decimal::percent(100_00),
                 );
                 let multiplier = percent_over_desired + Decimal::one();

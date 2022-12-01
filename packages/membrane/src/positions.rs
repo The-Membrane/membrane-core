@@ -73,7 +73,6 @@ pub enum ExecuteMsg {
         credit_asset: Asset, //Creates native denom for Asset
         credit_price: Decimal,
         base_interest_rate: Option<Decimal>,
-        desired_debt_cap_util: Option<Decimal>,
         credit_pool_ids: Vec<u64>, //For liquidity measuring
         liquidity_multiplier_for_debt_caps: Option<Decimal>, //Ex: 5 = debt cap at 5x liquidity
         liq_queue: Option<String>,
@@ -191,7 +190,6 @@ pub struct EditBasket {
     pub collateral_supply_caps: Option<Vec<SupplyCap>>,
     pub multi_asset_supply_caps: Option<Vec<MultiAssetSupplyCap>>,
     pub base_interest_rate: Option<Decimal>,
-    pub desired_debt_cap_util: Option<Decimal>,
     pub credit_asset_twap_price_source: Option<TWAPPoolInfo>,
     pub negative_rates: Option<bool>, //Allow negative repayment interest or not
     pub cpc_margin_of_error: Option<Decimal>,

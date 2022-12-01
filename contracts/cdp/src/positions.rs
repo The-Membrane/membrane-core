@@ -764,7 +764,7 @@ pub fn liq_repay(
     let mut distribution_assets = vec![];
 
     //Query SP liq fee
-    let sp_liq_fee = query_stability_pool_fee(deps.querier, config.clone().stability_pool.unwrap().to_string(), basket.clone().credit_asset.info)?;
+    let sp_liq_fee = query_stability_pool_fee(deps.querier, config.clone().stability_pool.unwrap().to_string())?;
 
     //Calculate distribution of assets to send from the repaid position
     for (num, cAsset) in collateral_assets.clone().into_iter().enumerate() {
@@ -808,7 +808,6 @@ pub fn liq_repay(
     let distribution_msg = SP_ExecuteMsg::Distribute {
         distribution_assets: distribution_assets.clone(),
         distribution_asset_ratios: cAsset_ratios, //The distributions are based off cAsset_ratios so they shouldn't change
-        credit_asset: credit_asset.info,
         distribute_for: native_repayment.clone(),
     };
     //Build the Execute msg w/ the full list of native tokens
@@ -1158,7 +1157,6 @@ pub fn create_basket(
     credit_asset: Asset,
     credit_price: Decimal,
     base_interest_rate: Option<Decimal>,
-    desired_debt_cap_util: Option<Decimal>,
     credit_pool_ids: Vec<u64>,
     liquidity_multiplier_for_debt_caps: Option<Decimal>,
     liq_queue: Option<String>,
@@ -1267,7 +1265,6 @@ pub fn create_basket(
 
     //Set Basket fields
     let base_interest_rate = base_interest_rate.unwrap_or_else(|| Decimal::percent(0));
-    let desired_debt_cap_util = desired_debt_cap_util.unwrap_or_else(|| Decimal::percent(100));
     let liquidity_multiplier = liquidity_multiplier_for_debt_caps.unwrap_or_else(|| Decimal::one());
 
     let new_basket: Basket = Basket {
@@ -1280,7 +1277,6 @@ pub fn create_basket(
         credit_price,
         base_interest_rate,
         liquidity_multiplier: liquidity_multiplier.clone(),
-        desired_debt_cap_util,
         pending_revenue: Uint128::zero(),
         credit_last_accrued: env.block.time.seconds(),
         rates_last_accrued: env.block.time.seconds(),
@@ -1658,10 +1654,6 @@ pub fn edit_basket(
             if let Some(base_interest_rate) = editable_parameters.clone().base_interest_rate {
                 basket.base_interest_rate = base_interest_rate.clone();
                 attrs.push(attr("new_base_interest_rate",base_interest_rate.clone().to_string()));
-            }
-            if let Some(desired_debt_cap_util) = editable_parameters.clone().desired_debt_cap_util {
-                basket.desired_debt_cap_util = desired_debt_cap_util.clone();
-                attrs.push(attr("new_desired_debt_cap_util", desired_debt_cap_util.clone().to_string()));
             }
             if let Some(toggle) = editable_parameters.clone().negative_rates {
                 basket.negative_rates = toggle.clone();

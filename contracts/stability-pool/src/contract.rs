@@ -9,13 +9,10 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::apollo_router::{Cw20HookMsg as RouterCw20HookMsg, ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
-use membrane::osmosis_proxy::{
-    ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg, TokenInfoResponse,
-};
+use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, TokenInfoResponse };
 use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::stability_pool::{
-    Config, Cw20HookMsg, DepositResponse, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig,
+    Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig,
 };
 use membrane::types::{
     Asset, AssetInfo, AssetPool, Deposit, LiqAsset, PositionUserInfo, User, UserInfo, UserRatio,
@@ -24,7 +21,7 @@ use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_nat
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
-use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_deposits, query_user_claims, query_capital_ahead_of_deposits};
+use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_user_claims, query_capital_ahead_of_deposits};
 use crate::state::{Propagation, ASSET, CONFIG, INCENTIVES, PROP, USERS};
 
 // version info for migration info
@@ -76,16 +73,13 @@ pub fn instantiate(
     //Initialize Incentive Total
     INCENTIVES.save(deps.storage, &Uint128::zero())?;
 
-    if msg.asset_pool.is_some() {
-        let mut pool = msg.asset_pool.unwrap();
+    //Initialize Asset Pool
+    let mut pool = msg.asset_pool;
+    pool.deposits = vec![];
 
-        pool.deposits = vec![];
+    ASSET.save(deps.storage, &pool)?;
 
-        ASSET.save(deps.storage, &vec![pool])?;
-    }
-
-    let res = Response::new();
-    Ok(res.add_attributes(vec![
+    Ok(Response::new().add_attributes(vec![
         attr("method", "instantiate"),
         attr("owner", config.owner.to_string()),
     ]))
@@ -109,16 +103,15 @@ pub fn execute(
                 });
             }
 
-            deposit(deps, env, info, user, valid_assets)
+            deposit(deps, env, info, user, valid_assets[0].clone())
         }
         ExecuteMsg::Withdraw { asset } => withdraw(deps, env, info, asset),
-        ExecuteMsg::Restake { restake_asset } => restake(deps, env, info, restake_asset),
-        ExecuteMsg::Liquidate { credit_asset } => liquidate(deps, info, credit_asset),
+        ExecuteMsg::Restake { restake_amount } => restake(deps, env, info, restake_amount),
+        ExecuteMsg::Liquidate { liq_amount } => liquidate(deps, info, liq_amount),
         ExecuteMsg::Claim {} => claim(deps, env, info),
         ExecuteMsg::Distribute {
             distribution_assets,
             distribution_asset_ratios,
-            credit_asset,
             distribute_for,
         } => distribute_funds(
             deps,
@@ -126,7 +119,6 @@ pub fn execute(
             env,
             distribution_assets,
             distribution_asset_ratios,
-            credit_asset,
             distribute_for,
         ),
         ExecuteMsg::Repay {
@@ -153,7 +145,7 @@ fn update_config(
     //Match Optionals
     if let Some(owner) = update.owner {
         config.owner = deps.api.addr_validate(&owner)?;
-        attrs.push(attr("new_owner", config.owner));
+        attrs.push(attr("new_owner", owner));
     }
     if let Some(mbrn_denom) = update.mbrn_denom {
         config.mbrn_denom = mbrn_denom.clone();
@@ -161,11 +153,11 @@ fn update_config(
     }
     if let Some(osmosis_proxy) = update.osmosis_proxy {
         config.osmosis_proxy = deps.api.addr_validate(&osmosis_proxy)?;
-        attrs.push(attr("new_osmosis_proxy", config.osmosis_proxy));
+        attrs.push(attr("new_osmosis_proxy", osmosis_proxy));
     }
     if let Some(positions_contract) = update.positions_contract {
         config.positions_contract = deps.api.addr_validate(&positions_contract)?;
-        attrs.push(attr("new_positions_contract", config.positions_contract));
+        attrs.push(attr("new_positions_contract", positions_contract));
     }
     if let Some(incentive_rate) = update.incentive_rate {
         config.incentive_rate = incentive_rate;
@@ -602,7 +594,7 @@ pub fn liquidate(
     let liq_amount = credit_amount;
     //Assert repay amount or pay as much as possible
     let mut repay_asset = Asset {
-        info: asset_pool.credit_asset.info,
+        info: asset_pool.credit_asset.info.clone(),
         amount: Uint128::new(0u128),
     };
     let mut leftover = Decimal::zero();
@@ -654,7 +646,6 @@ pub fn distribute_funds(
     env: Env,
     mut distribution_assets: Vec<Asset>,
     distribution_asset_ratios: Vec<Decimal>,
-    credit_asset: AssetInfo,
     distribute_for: Uint128, //How much repayment is this distributing for
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
@@ -669,8 +660,6 @@ pub fn distribute_funds(
     }
 
     let mut asset_pool = ASSET.load(deps.storage)?;
-    //Assert pool asset equality 
-    if !asset_pool.credit_asset.info.equal(&credit_asset.info){ return Err(ContractError::InvalidAsset {}) };
 
     //Assert that the distributed assets were sent
     let assets: Vec<AssetInfo> = distribution_assets
@@ -869,7 +858,7 @@ pub fn distribute_funds(
     let res = Response::new();
     Ok(res.add_attributes(vec![
         attr("method", "distribute"),
-        attr("credit_asset", credit_asset.to_string()),
+        attr("credit_asset", asset_pool.credit_asset.info.to_string()),
         attr("distribution_assets", format!("{:?}", distribution_assets)),
     ]))
 }
@@ -934,7 +923,7 @@ fn repay(
             )?;
             
             //Update pool
-            ASSET.save(deps.storage, &asset_pool)?;
+            ASSET.save(deps.storage, &new_pool)?;
 
             /////This is where the function differs from withdraw()
             //Add Positions RepayMsg
@@ -971,8 +960,9 @@ pub fn claim(
     let config: Config = CONFIG.load(deps.storage)?;    
 
     let mut accrued_incentives = Uint128::zero();
+    let asset_pool = ASSET.load(deps.storage)?;
     //Add newly accrued incentives to claimables
-    accrued_incentives += get_user_incentives(deps.storage, deps.querier, env.clone(), info.clone().sender, ASSET.load(deps.storage)?)?;
+    accrued_incentives += get_user_incentives(deps.storage, deps.querier, env.clone(), info.clone().sender, asset_pool)?;
     
 
     if !accrued_incentives.is_zero(){
@@ -1335,7 +1325,7 @@ fn get_user_incentives(
 
     //Calc and add new_incentives
     //Update deposit.last_accrued time
-    let new_deposits: Vec<Deposit> = asset_pool.deposits.into_iter().map(|mut deposit| {
+    let new_deposits: Vec<Deposit> = asset_pool.clone().deposits.into_iter().map(|mut deposit| {
 
         if deposit.user == user {
             match deposit.unstake_time {
@@ -1345,7 +1335,7 @@ fn get_user_incentives(
     
                     if time_elapsed != 0 {
                         //Get incentive Rate
-                        let rate = match get_rate(storage, querier, asset_pool){
+                        let rate = match get_rate(storage, querier, asset_pool.clone()){
                             Ok(rate) => rate,
                             Err(err) => {
                                 error = Some(err);
@@ -1370,7 +1360,7 @@ fn get_user_incentives(
     
                     if time_elapsed != 0 {
                         //Get incentive Rate
-                        let rate = match get_rate(storage, querier, asset_pool){
+                        let rate = match get_rate(storage, querier, asset_pool.clone()){
                             Ok(rate) => rate,
                             Err(err) => {
                                 error = Some(err);
@@ -1458,9 +1448,6 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::UnclaimedIncentives { user } => to_binary(&query_user_incentives(deps, env, user)?),
         QueryMsg::CapitalAheadOfDeposit { user } => to_binary(&query_capital_ahead_of_deposits(deps, user)?),
         QueryMsg::CheckLiquidatible { amount } => to_binary(&query_liquidatible(deps, amount)?),
-        QueryMsg::AssetDeposits { user } => {
-            to_binary(&query_deposits(deps, user)?)
-        }
         QueryMsg::UserClaims { user } => to_binary(&query_user_claims(deps, user)?),
         QueryMsg::AssetPool { } => to_binary(&ASSET.load(deps.storage)?),
     }

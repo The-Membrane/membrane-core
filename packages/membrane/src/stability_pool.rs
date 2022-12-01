@@ -8,7 +8,7 @@ use crate::types::{Asset, AssetInfo, AssetPool, Deposit, UserInfo};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
-    pub asset_pool: Option<AssetPool>,
+    pub asset_pool: AssetPool,
     pub incentive_rate: Option<Decimal>,
     pub max_incentives: Option<Uint128>,
     pub desired_ratio_of_total_credit_supply: Option<Decimal>,
@@ -32,7 +32,7 @@ pub enum ExecuteMsg {
     },
     Restake {
         //Restake unstak(ed/ing) assets
-        restake_asset: Decimal,
+        restake_amount: Decimal,
     },
     //Claim ALL liquidation revenue && MBRN incentives
     Claim {},
@@ -44,7 +44,6 @@ pub enum ExecuteMsg {
         //Distributes liquidated funds to users
         distribution_assets: Vec<Asset>,
         distribution_asset_ratios: Vec<Decimal>,
-        credit_asset: AssetInfo,
         distribute_for: Uint128,
     },
     //Allow the Positions contract to use user funds to repay for themselves
@@ -71,9 +70,6 @@ pub enum QueryMsg {
     //Check if the amount of said asset is liquidatible
     //Returns LiquidatibleResponse
     CheckLiquidatible { amount: Decimal },
-    //User deposits in the AssetPool
-    //Returns Vec<Deposit>
-    AssetDeposits { user: String },
     //Check if user has any claimable assets
     //Returns ClaimsResponse
     UserClaims { user: String },
@@ -97,14 +93,14 @@ pub struct Config {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UpdateConfig {
-    owner: Option<String>,
-    incentive_rate: Option<Decimal>,
-    max_incentives: Option<Uint128>,
-    desired_ratio_of_total_credit_supply: Option<Decimal>,
-    unstaking_period: Option<u64>,
-    osmosis_proxy: Option<String>,
-    positions_contract: Option<String>,
-    mbrn_denom: Option<String>,
+    pub owner: Option<String>,
+    pub incentive_rate: Option<Decimal>,
+    pub max_incentives: Option<Uint128>,
+    pub desired_ratio_of_total_credit_supply: Option<Decimal>,
+    pub unstaking_period: Option<u64>,
+    pub osmosis_proxy: Option<String>,
+    pub positions_contract: Option<String>,
+    pub mbrn_denom: Option<String>,
 }
 
 // We define a custom struct for each query response

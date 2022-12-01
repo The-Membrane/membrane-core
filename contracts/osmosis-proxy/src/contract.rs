@@ -137,7 +137,7 @@ fn update_config(
 }
 
 fn validate_authority(config: Config, info: MessageInfo) -> bool {
-    //Owners or Debt Auction have contract authority
+    //Owners && Debt Auction have contract authority
     match config
         .owners
         .into_iter()
@@ -162,7 +162,7 @@ pub fn create_denom(
     max_supply: Option<Uint128>,
 ) -> Result<Response, TokenFactoryError> {
     let config = CONFIG.load(deps.storage)?;
-    
+
     //Assert Authority
     if !validate_authority(config, info) {
         return Err(TokenFactoryError::Unauthorized {});

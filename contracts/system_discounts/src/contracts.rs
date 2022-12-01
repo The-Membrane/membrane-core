@@ -6,13 +6,13 @@ use cw2::set_contract_version;
 
 use membrane::math::{decimal_multiplication, decimal_division};
 use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
-use membrane::stability_pool::{QueryMsg as SP_QueryMsg, DepositResponse, ClaimsResponse};
+use membrane::stability_pool::{QueryMsg as SP_QueryMsg, ClaimsResponse};
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
 use membrane::lockdrop::{QueryMsg as Lockdrop_QueryMsg, UserResponse};
 use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse};
-use membrane::positions::{QueryMsg as CDP_QueryMsg, BasketResponse, PositionsResponse};
+use membrane::positions::{QueryMsg as CDP_QueryMsg, PositionsResponse};
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
-use membrane::types::{AssetInfo, DebtTokenAsset, Position};
+use membrane::types::{AssetInfo, DebtTokenAsset, Position, Basket, Deposit, AssetPool};
 
 use crate::error::ContractError;
 use crate::state::CONFIG;
@@ -180,7 +180,6 @@ fn get_discount(
     let user_positions: Vec<Position> = deps.querier.query::<PositionsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().positions_contract.to_string(),
         msg: to_binary(&CDP_QueryMsg::GetUserPositions {
-            basket_id: Some(config.clone().basket_id),
             user: user.clone(),
             limit: None,
         })?,
@@ -214,11 +213,9 @@ fn get_user_value_in_network(
     user: String,
 )-> StdResult<Decimal>{
 
-    let basket: BasketResponse = querier.query::<BasketResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    let basket: Basket = querier.query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().positions_contract.to_string(),
-        msg: to_binary(&CDP_QueryMsg::GetBasket {
-            basket_id: config.clone().basket_id,
-        })?,
+        msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
     }))?;
     let credit_price = basket.clone().credit_price;
 
@@ -367,14 +364,14 @@ fn get_sp_value(
 ) -> StdResult<Decimal>{
 
     //Query Stability Pool to see if the user has funds
-    let user_deposits = querier.query::<DepositResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    let user_deposits = querier.query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().stability_pool_contract.to_string(),
-        msg: to_binary(&SP_QueryMsg::AssetDeposits {
-            user: user.clone(),
-            asset_info: asset_info.clone(),
-        })?,
+        msg: to_binary(&SP_QueryMsg::AssetPool {  })?,
     }))?
-    .deposits;
+    .deposits
+    .into_iter()
+    .filter(|deposit| deposit.user.to_string() == user)
+    .collect::<Vec<Deposit>>();
 
     let total_user_deposit: Decimal = user_deposits
         .iter()
@@ -388,7 +385,6 @@ fn get_sp_value(
         contract_addr: config.clone().stability_pool_contract.to_string(),
         msg: to_binary(&SP_QueryMsg::UnclaimedIncentives {
             user: user.clone(),
-            asset_info: asset_info.clone(),
         })?,
     }))?;
     let incentive_value = decimal_multiplication(mbrn_price, Decimal::from_ratio(accrued_incentives, Uint128::one()));

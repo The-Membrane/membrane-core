@@ -11,7 +11,7 @@ pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse>
     let config = CONFIG.load(deps.storage)?;    
     let valid_addr = deps.api.addr_validate(&staker)?;
 
-    if valid_addr == config.vesting_contract {
+    if valid_addr == config.vesting_contract.unwrap() {
         return Ok(StakerResponse {
             staker: valid_addr.to_string(),
             total_staked: TOTALS.load(deps.storage)?.vesting_contract,

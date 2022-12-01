@@ -94,9 +94,9 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::UpdateConfig(update) => update_config(deps, info, update),
-        ExecuteMsg::Deposit { user, asset } => {
+        ExecuteMsg::Deposit { user } => {
             //Outputs asset objects w/ correct amounts
-            let valid_assets = validate_assets(deps.storage, vec![asset], info.clone(), true)?;
+            let valid_assets = validate_assets(deps.storage, vec![AssetInfo::NativeToken { denom: info.clone().funds[0].clone().denom }], info.clone(), true)?;
             if valid_assets.is_empty() {
                 return Err(ContractError::CustomError {
                     val: "No valid assets".to_string(),

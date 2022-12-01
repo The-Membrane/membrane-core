@@ -24,7 +24,6 @@ pub enum ExecuteMsg {
     Deposit {
         //Deposit the pool asset
         user: Option<String>,
-        asset: AssetInfo,
     },
     Withdraw {
         // Unstake/Withdraw a list of accepted assets

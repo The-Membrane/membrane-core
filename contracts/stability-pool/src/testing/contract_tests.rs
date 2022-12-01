@@ -55,13 +55,7 @@ fn deposit() {
     );
 
     //Depositing an invalid asset
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "notcredit".to_string(),
-            },
-        user: None,
-    };
-
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
     let mut coinz = coins(10, "notcredit");
     coinz.extend(coins(10, "notnotnotcredit"));
 
@@ -83,12 +77,7 @@ fn deposit() {
     }
 
     //Successful attempt
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: None,
-    };
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
 
     let res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
@@ -97,7 +86,7 @@ fn deposit() {
         vec![
             attr("method", "deposit"),
             attr("position_owner", "sender88"),
-            attr("deposited_assets", "11 credit"),
+            attr("deposited_asset", "Asset { info: NativeToken { denom: \"credit\" }, amount: Uint128(11) }"),
         ]
     );
 
@@ -140,29 +129,17 @@ fn withdrawal() {
         max_incentives: None,
     };
 
-    let mut coin = coins(11, "credit");
-    coin.append(&mut coins(11, "2ndcredit"));
     //Instantiating contract
-    let info = mock_info("sender88", &coin);
+    let info = mock_info("sender88", &vec![]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
-    //Successful asset deposit
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: None,
-    };
-
+    //Successful "credit" deposit
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
+    let info = mock_info("sender88", &coins(11, "credit"));
     let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //Successful "credit" deposit
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: None,
-    };
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
     let info = mock_info("sender88", &coins(11, "credit"));
     let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
 
@@ -198,7 +175,6 @@ fn withdrawal() {
     };
 
     let withdraw_msg = ExecuteMsg::Withdraw { asset };
-
     let empty_info = mock_info("sender88", &[]);
     let res = execute(deps.as_mut(), mock_env(), empty_info, withdraw_msg);
 
@@ -293,8 +269,8 @@ fn withdrawal() {
 
     let mut env = mock_env();
     env.block.time = env.block.time.plus_seconds(86400u64); //Added a day
-                                                            //Second msg to withdraw
-    let res = execute(deps.as_mut(), env, info, withdraw_msg).unwrap();
+    //Second msg to withdraw
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), withdraw_msg).unwrap();
 
     assert_eq!(
         res.attributes,
@@ -312,7 +288,6 @@ fn withdrawal() {
         QueryMsg::AssetPool {  }
     )
     .unwrap();
-
     let resp: AssetPool = from_binary(&res).unwrap();
     assert_eq!(resp.deposits[0].to_string(), "sender88 10".to_string());
 
@@ -324,6 +299,7 @@ fn withdrawal() {
         amount: Uint128::from(10u128),
     };
     let withdraw_msg = ExecuteMsg::Withdraw { asset };
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), withdraw_msg.clone()).unwrap();
 
     //Query position data to make sure it was deleted from state
     let res = query(
@@ -332,7 +308,7 @@ fn withdrawal() {
         QueryMsg::AssetPool {  }
     ).unwrap();
     let resp: AssetPool = from_binary(&res).unwrap();
-
+    
     if resp.deposits.into_iter().any(|deposit| deposit.user.to_string() == String::from("sender88")){
         panic!("State wasn't deleted correctly");
     }
@@ -369,13 +345,7 @@ fn liquidate() {
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     //Successful attempt
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: None,
-    };
-
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
     let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //Unauthorized Sender
@@ -463,13 +433,7 @@ fn liquidate_bignums() {
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     //Successful attempt
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: None,
-    };
-
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
     let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
     
     //CheckLiquidatible
@@ -561,26 +525,14 @@ fn distribute() {
     
 
     //Deposit for first user
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: None,
-    };
-
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
     let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
 
     //Deposit for second user
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: Some("2nduser".to_string()),
-    };
-
+    let deposit_msg = ExecuteMsg::Deposit { user: Some(String::from("2nduser")) };
     let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
-    //Succesfful attempt
+    //Successful attempt
     //Liquidation
     let liq_msg = ExecuteMsg::Liquidate { liq_amount: Decimal::from_ratio(8u128, 1u128) };
     let cdp_info = mock_info("positions_contract", &vec![]);
@@ -618,8 +570,7 @@ fn distribute() {
         vec![
             attr("method", "distribute"),
             attr("credit_asset", "credit"),
-            attr("distribution_assets", "100 debit"),
-            attr("distribution_assets", "100 2nddebit"),
+            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100) }, Asset { info: NativeToken { denom: \"2nddebit\" }, amount: Uint128(100) }]"),
         ]
     );
 
@@ -712,8 +663,7 @@ fn distribute() {
         vec![
             attr("method", "distribute"),
             attr("credit_asset", "credit"),
-            attr("distribution_assets", "100 debit"),
-            attr("distribution_assets", "100 2nddebit"),
+            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100) }, Asset { info: NativeToken { denom: \"2nddebit\" }, amount: Uint128(100) }]"),
         ]
     );
 
@@ -798,23 +748,11 @@ fn distribute_bignums() {
     }
 
     //Deposit for first user
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: None,
-    };
-
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
     let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
 
     //Deposit for second user
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: Some("2nduser".to_string()),
-    };
-
+    let deposit_msg = ExecuteMsg::Deposit { user: Some("2nduser".to_string()) };
     let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //Succesfful attempt
@@ -855,8 +793,7 @@ fn distribute_bignums() {
         vec![
             attr("method", "distribute"),
             attr("credit_asset", "credit"),
-            attr("distribution_assets", "100000000000000 debit"),
-            attr("distribution_assets", "100000000000000 2nddebit"),
+            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100000000000000) }, Asset { info: NativeToken { denom: \"2nddebit\" }, amount: Uint128(100000000000000) }]"),
         ]
     );
 
@@ -947,22 +884,11 @@ fn claims() {
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     //Deposit for first user
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: Some("sender88".to_string()),
-    };
-
+    let deposit_msg = ExecuteMsg::Deposit { user: Some("sender88".to_string()) };
     let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
 
     //Deposit for second user
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: Some("2nduser".to_string()),
-    };
+    let deposit_msg = ExecuteMsg::Deposit { user: Some("2nduser".to_string()) };
     let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //Liquidation
@@ -1010,7 +936,7 @@ fn claims() {
             },
             Coin {
                 denom: "2nddebit".to_string(),
-                amount: Uint128::new(100u128)
+                amount: Uint128::new(25u128)
             }],
         }))
     ]);
@@ -1018,7 +944,23 @@ fn claims() {
     //Claim: Error, nothing to claim
     let claim_msg = ExecuteMsg::Claim {};
     let info = mock_info("sender88", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap_err();
+    let res = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap();
+    assert_eq!(res.attributes[2].value, "[]".to_string());
+
+    //Claim
+    let claim_msg = ExecuteMsg::Claim {};
+    let info = mock_info("2nduser", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap();
+
+    assert_eq!(res.messages, vec![
+        SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
+            to_address: "2nduser".to_string(),
+            amount: vec![Coin {
+                denom: "2nddebit".to_string(),
+                amount: Uint128::new(75u128)
+            }],
+        }))
+    ]);
 }
 
 #[test]
@@ -1050,12 +992,7 @@ fn cdp_repay() {
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Successful Deposit
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-            denom: "credit".to_string(),
-        },
-        user: None,
-    };
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
     let info = mock_info("sender88", &coins(5_000_000_000_000, "credit"));
     let res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
@@ -1292,42 +1229,22 @@ fn capital_ahead_of_deposits() {
    
 
     //Successful Deposit by user 1
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: None,
-    };
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
     let info = mock_info("user1", &coins(11, "credit"));
     let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //Successful Deposit by user 2
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: None,
-    };
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
     let info = mock_info("user2", &coins(11, "credit"));
     let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
 
     //2nd Deposit by user 1
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: None,
-    };
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
     let info = mock_info("user1", &coins(11, "credit"));
     let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     //2nd Deposit by user 2
-    let deposit_msg = ExecuteMsg::Deposit {
-        asset: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        user: None,
-    };
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
     let info = mock_info("user2", &coins(11, "credit"));
     let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
 

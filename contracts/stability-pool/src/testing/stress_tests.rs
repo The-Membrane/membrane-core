@@ -60,12 +60,7 @@ fn simulate_bids_with_2_liq_amounts(
     for i in 0..iterations {
         for i in 0..liq_amount_1 {
             //Bidders
-            let deposit_msg = ExecuteMsg::Deposit {
-                asset: AssetInfo::NativeToken {
-                    denom: "credit".to_string(),
-                },
-                user: None,
-            };
+            let deposit_msg = ExecuteMsg::Deposit { user: None };
             let bid_info = mock_info(&format!("bidder{}", i), &[coin(bid_amount, "credit")]);
             execute(deps.as_mut(), mock_env(), bid_info.clone(), deposit_msg).unwrap();
 

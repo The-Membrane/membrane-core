@@ -284,12 +284,7 @@ mod tests {
             //Incentives during withdrawals
 
             //Deposit credit to AssetPool
-            let deposit_msg = ExecuteMsg::Deposit {
-                user: None,
-                asset: AssetInfo::NativeToken {
-                    denom: "credit".to_string(),
-                },
-            };
+            let deposit_msg = ExecuteMsg::Deposit { user: None };
             let cosmos_msg = sp_contract
                 .call(deposit_msg, vec![coin(100_000, "credit")])
                 .unwrap();
@@ -360,12 +355,7 @@ mod tests {
             //Incentives during distributions
 
             //Deposit to AssetPool
-            let deposit_msg = ExecuteMsg::Deposit {
-                user: None,
-                asset: AssetInfo::NativeToken {
-                    denom: "credit".to_string(),
-                },
-            };
+            let deposit_msg = ExecuteMsg::Deposit { user: None };
             let cosmos_msg = sp_contract
                 .call(deposit_msg, vec![coin(100_000, "credit")])
                 .unwrap();
@@ -457,7 +447,8 @@ mod tests {
             //Claim but get nothing
             let claim_msg = ExecuteMsg::Claim { };
             let cosmos_msg = sp_contract.call(claim_msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            assert_eq!(res.events[1].attributes[3].value, "[]".to_string());
 
         }
     }

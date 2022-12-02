@@ -245,7 +245,7 @@ mod tests {
 
         let msg = InstantiateMsg {
             owner: None,
-            asset_pool: Some(AssetPool {
+            asset_pool: AssetPool {
                 credit_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: "credit".to_string(),
@@ -254,9 +254,7 @@ mod tests {
                 },
                 liq_premium: Decimal::zero(),
                 deposits: vec![],
-            }),
-            dex_router: Some(String::from("router_addr")),
-            max_spread: Some(Decimal::percent(10)),
+            },
             desired_ratio_of_total_credit_supply: Some(Decimal::percent(80)),
             osmosis_proxy: osmosis_proxy_contract_addr.to_string(),
             mbrn_denom: String::from("mbrn_denom"),
@@ -286,12 +284,7 @@ mod tests {
             //Incentives during withdrawals
 
             //Deposit credit to AssetPool
-            let deposit_msg = ExecuteMsg::Deposit {
-                user: None,
-                assets: vec![AssetInfo::NativeToken {
-                    denom: "credit".to_string(),
-                }],
-            };
+            let deposit_msg = ExecuteMsg::Deposit { user: None };
             let cosmos_msg = sp_contract
                 .call(deposit_msg, vec![coin(100_000, "credit")])
                 .unwrap();
@@ -304,10 +297,7 @@ mod tests {
             });
 
             //Query Incentives
-            let query_msg = QueryMsg::UnclaimedIncentives {
-                user: String::from(USER),
-                asset_info: AssetInfo::NativeToken { denom: String::from("credit") }
-            };
+            let query_msg = QueryMsg::UnclaimedIncentives { user: String::from(USER) };
             let total_incentives: Uint128 = app
                 .wrap()
                 .query_wasm_smart(sp_contract.addr(), &query_msg)
@@ -315,14 +305,14 @@ mod tests {
             assert_eq!(total_incentives, Uint128::new(8800));
 
             //Initial withdrawal to start unstaking
-            let assets: Vec<Asset> = vec![Asset {
+            let asset = Asset {
                 info: AssetInfo::NativeToken {
                     denom: "credit".to_string(),
                 },
                 amount: Uint128::from(100_000u128),
-            }];
+            };
 
-            let withdraw_msg = ExecuteMsg::Withdraw { assets };
+            let withdraw_msg = ExecuteMsg::Withdraw { asset };
 
             let cosmos_msg = sp_contract.call(withdraw_msg.clone(), vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
@@ -346,10 +336,7 @@ mod tests {
             );
 
             //Query Incentives and assert that there are none after being added to claimables
-            let query_msg = QueryMsg::UnclaimedIncentives {
-                user: String::from(USER),
-                asset_info: AssetInfo::NativeToken { denom: String::from("credit") }
-            };
+            let query_msg = QueryMsg::UnclaimedIncentives { user: String::from(USER) };
             let total_incentives: Uint128 = app
                 .wrap()
                 .query_wasm_smart(sp_contract.addr(), &query_msg)
@@ -368,21 +355,14 @@ mod tests {
             //Incentives during distributions
 
             //Deposit to AssetPool
-            let deposit_msg = ExecuteMsg::Deposit {
-                user: None,
-                assets: vec![AssetInfo::NativeToken {
-                    denom: "credit".to_string(),
-                }],
-            };
+            let deposit_msg = ExecuteMsg::Deposit { user: None };
             let cosmos_msg = sp_contract
                 .call(deposit_msg, vec![coin(100_000, "credit")])
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
             
             //QueryRate
-            let query_msg = QueryMsg::Rate {
-                asset_info: AssetInfo::NativeToken { denom: String::from("credit") }
-            };
+            let query_msg = QueryMsg::Rate { };
             let rate: Decimal = app
                 .wrap()
                 .query_wasm_smart(sp_contract.addr(), &query_msg)
@@ -390,11 +370,7 @@ mod tests {
             assert_eq!(rate.to_string(), String::from("0.088"));
 
             //Claim accrued incentives 
-            let claim_msg = ExecuteMsg::Claim {
-                claim_as_native: None,
-                claim_as_cw20: None,
-                deposit_to: None,
-            };
+            let claim_msg = ExecuteMsg::Claim { };
             let cosmos_msg = sp_contract.call(claim_msg, vec![]).unwrap();
             app.set_block(BlockInfo {
                 height: app.block_info().height,
@@ -405,14 +381,7 @@ mod tests {
           
 
             //Liquidate
-            let liq_msg = ExecuteMsg::Liquidate {
-                credit_asset: LiqAsset {
-                    info: AssetInfo::NativeToken {
-                        denom: "credit".to_string(),
-                    },
-                    amount: Decimal::from_ratio(100_000u128, 1u128),
-                },
-            };
+            let liq_msg = ExecuteMsg::Liquidate { liq_amount: Decimal::from_ratio(100_000u128, 1u128) };
             let cosmos_msg = sp_contract.call(liq_msg, vec![]).unwrap();
             app.execute(cdp_contract_addr.clone(), cosmos_msg).unwrap();
 
@@ -425,9 +394,6 @@ mod tests {
                     amount: Uint128::new(100u128),
                 }],
                 distribution_asset_ratios: vec![Decimal::percent(100)],
-                credit_asset: AssetInfo::NativeToken {
-                    denom: "credit".to_string(),
-                },
                 distribute_for: Uint128::new(100_000),
             };
             let cosmos_msg = sp_contract
@@ -474,22 +440,15 @@ mod tests {
             );
 
             //Claim 
-            let claim_msg = ExecuteMsg::Claim {
-                claim_as_native: None,
-                claim_as_cw20: None,
-                deposit_to: None,
-            };
+            let claim_msg = ExecuteMsg::Claim { };
             let cosmos_msg = sp_contract.call(claim_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Claim but get nothing
-            let claim_msg = ExecuteMsg::Claim {
-                claim_as_native: None,
-                claim_as_cw20: None,
-                deposit_to: None,
-            };
+            let claim_msg = ExecuteMsg::Claim { };
             let cosmos_msg = sp_contract.call(claim_msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            assert_eq!(res.events[1].attributes[3].value, "[]".to_string());
 
         }
     }

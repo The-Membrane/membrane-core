@@ -303,8 +303,6 @@ fn get_asset_price(
     twap_timeframe: u64, //in minutes
     basket_id_field: Option<Uint128>,
 ) -> StdResult<PriceResponse> {
-    let config = CONFIG.load(storage)?;
-
     //Load Asset Info
     let asset_oracle_info = ASSETS.load(storage, asset_info.to_string())?;
 
@@ -387,21 +385,21 @@ fn get_asset_price(
 
     //////If AssetOracleInfo gets more fields we can just push those prices here////
 
-    //Get Average price
-    let mut price_sum = Decimal::zero();
+    //Get Median price
+    let price = if oracle_prices.len() % 2 == 0 {
+        let median_index = oracle_prices.len() / 2;
 
-    for price_info in oracle_prices.clone() {
-        price_sum += price_info.price;
-    }
-    let decimal_len = Decimal::from_ratio(
-        Uint128::new(oracle_prices.len() as u128),
-        Uint128::new(1u128),
-    );
-    let avg_price = decimal_division(price_sum, decimal_len);
+        decimal_division(oracle_prices[median_index].price + oracle_prices[median_index+1].price, Decimal::percent(2_00))
+        
+    } else {
+        let median_index = oracle_prices.len() / 2;
+        oracle_prices[median_index].price
+    };
+
 
     Ok(PriceResponse {
         prices: oracle_prices,
-        avg_price,
+        price,
     })
 }
 

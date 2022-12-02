@@ -3,7 +3,7 @@ use crate::contract::{execute, instantiate, query};
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockApi, MockQuerier};
 use cosmwasm_std::{ coin, coins, from_binary, Decimal, MemoryStorage, OwnedDeps, Uint128};
 use membrane::stability_pool::{
-    ClaimsResponse, PoolResponse, ExecuteMsg, InstantiateMsg, QueryMsg,
+    ClaimsResponse, ExecuteMsg, InstantiateMsg, QueryMsg,
 };
 use membrane::types::{Asset, AssetInfo, AssetPool, LiqAsset};
 
@@ -18,7 +18,7 @@ fn stress_tests() {
 fn instantiate_and_whitelist(deps: &mut OwnedDeps<MemoryStorage, MockApi, MockQuerier>) {
     let msg = InstantiateMsg {
         owner: Some("sender88".to_string()),
-        asset_pool: Some(AssetPool {
+        asset_pool: AssetPool {
             credit_asset: Asset {
                 info: AssetInfo::NativeToken {
                     denom: "credit".to_string(),
@@ -27,9 +27,7 @@ fn instantiate_and_whitelist(deps: &mut OwnedDeps<MemoryStorage, MockApi, MockQu
             },
             liq_premium: Decimal::percent(10),
             deposits: vec![],
-        }),
-        dex_router: Some(String::from("router_addr")),
-        max_spread: Some(Decimal::percent(10)),
+        },
         desired_ratio_of_total_credit_supply: None,
         osmosis_proxy: String::from("osmosis_proxy"),
         positions_contract: String::from("positions_contract"),
@@ -62,12 +60,7 @@ fn simulate_bids_with_2_liq_amounts(
     for i in 0..iterations {
         for i in 0..liq_amount_1 {
             //Bidders
-            let deposit_msg = ExecuteMsg::Deposit {
-                assets: vec![AssetInfo::NativeToken {
-                    denom: "credit".to_string(),
-                }],
-                user: None,
-            };
+            let deposit_msg = ExecuteMsg::Deposit { user: None };
             let bid_info = mock_info(&format!("bidder{}", i), &[coin(bid_amount, "credit")]);
             execute(deps.as_mut(), mock_env(), bid_info.clone(), deposit_msg).unwrap();
 
@@ -79,12 +72,7 @@ fn simulate_bids_with_2_liq_amounts(
 
             // EXECUTE ALL EXCEPT 1uusd
             let liq_msg = ExecuteMsg::Liquidate {
-                credit_asset: LiqAsset {
-                    info: AssetInfo::NativeToken {
-                        denom: "credit".to_string(),
-                    },
-                    amount: liq_amount,
-                },
+                liq_amount,               
             };
             total_liquidated += liq_amount_1;
             
@@ -110,9 +98,6 @@ fn simulate_bids_with_2_liq_amounts(
                     },
                 ],
                 distribution_asset_ratios: vec![Decimal::percent(50), Decimal::percent(50)],
-                credit_asset: AssetInfo::NativeToken {
-                    denom: "credit".to_string(),
-                },
                 distribute_for: Uint128::new(liq_amount_1),
             };
 
@@ -126,12 +111,7 @@ fn simulate_bids_with_2_liq_amounts(
 
             // EXECUTE ALL EXCEPT 1uusd
             let liq_msg = ExecuteMsg::Liquidate {
-                credit_asset: LiqAsset {
-                    info: AssetInfo::NativeToken {
-                        denom: "credit".to_string(),
-                    },
-                    amount: liq_amount,
-                },
+                liq_amount,               
             };
             total_liquidated += liq_amount_2;
            
@@ -157,9 +137,6 @@ fn simulate_bids_with_2_liq_amounts(
                     },
                 ],
                 distribution_asset_ratios: vec![Decimal::percent(50), Decimal::percent(50)],
-                credit_asset: AssetInfo::NativeToken {
-                    denom: "credit".to_string(),
-                },
                 distribute_for: Uint128::new(liq_amount_2),
             };
 
@@ -197,15 +174,11 @@ fn simulate_bids_with_2_liq_amounts(
     let res = query(
         deps.as_ref(),
         mock_env(),
-        QueryMsg::AssetPool {
-            asset_info: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-        },
+        QueryMsg::AssetPool { },
     )
     .unwrap();
 
-    let resp: PoolResponse = from_binary(&res).unwrap();
+    let resp: AssetPool = from_binary(&res).unwrap();
     
     assert_eq!(
         resp.credit_asset.amount.to_string(),

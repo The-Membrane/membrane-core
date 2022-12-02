@@ -1,5 +1,7 @@
+use std::str::FromStr;
+
 use cosmwasm_std::{
-    attr, entry_point, to_binary, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Order,
+    attr, entry_point, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Order,
     QueryRequest, Response, StdResult, Uint128, WasmQuery,
 };
 use cw2::set_contract_version;
@@ -9,6 +11,7 @@ use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::types::{AssetInfo, LiquidityInfo, PoolStateResponse};
 
 use cw_storage_plus::Bound;
+use osmosis_std::types::cosmos::base::v1beta1::Coin;
 
 use crate::error::ContractError;
 use crate::state::{ASSETS, CONFIG};
@@ -248,12 +251,14 @@ fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<Uint128> {
             msg: to_binary(&OsmoQueryMsg::PoolState { id })?,
         }))?;
 
-        let pooled_amount = res
+        let pooled_amount = if let Some(pooled_asset) = res
             .assets
             .into_iter()
-            .filter(|coin| coin.denom == denom)
-            .collect::<Vec<Coin>>()[0]
-            .amount;
+            .find(|coin| coin.denom == denom){
+                Uint128::from_str(&pooled_asset.amount).unwrap()
+            } else {
+                return Err(cosmwasm_std::StdError::GenericErr { msg: format!("This LP doesn't contain {}", denom) })
+            };
 
         total_pooled += pooled_amount;
     }

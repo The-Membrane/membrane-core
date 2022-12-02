@@ -233,7 +233,7 @@ impl Config {
     }
 }
 
-/// This structure sotres the params used when updating the main Governance contract params.
+/// This structure stores the params used when updating the main Governance contract params.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UpdateConfig {
     /// MBRN native token fulldenom

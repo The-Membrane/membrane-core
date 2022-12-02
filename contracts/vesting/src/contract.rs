@@ -17,6 +17,7 @@ use membrane::staking::{
     ExecuteMsg as StakingExecuteMsg, QueryMsg as StakingQueryMsg, RewardsResponse, StakerResponse,
 };
 use membrane::types::{Allocation, Asset, AssetInfo, VestingPeriod, Recipient};
+use membrane::helpers::{withdrawal_msg, asset_to_coin};
 
 use crate::error::ContractError;
 use crate::query::{query_allocation, query_unlocked, query_recipients, query_recipient};
@@ -28,10 +29,6 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 //Constants
 const SECONDS_IN_A_DAY: u64 = 86400u64;
-
-/////////////////////
-///**Make sure everything is allocated before fees are sent**
-/////////////////////
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -49,12 +46,8 @@ pub fn instantiate(
     };
 
     //Set Optionals
-    match msg.owner {
-        Some(address) => match deps.api.addr_validate(&address) {
-            Ok(addr) => config.owner = addr,
-            Err(_) => {}
-        },
-        None => {}
+    if let Some(address) = msg.owner{
+        config.owner = deps.api.addr_validate(&address)?;
     };
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
@@ -74,17 +67,13 @@ pub fn instantiate(
         }
     ])?;
 
-    let mut res = mint_initial_allocation(env.clone(), config.clone())?;
-
     let mut attrs = vec![
         attr("method", "instantiate"),
         attr("owner", config.owner.to_string()),
         attr("owner", env.contract.address.to_string()),
     ];
-    attrs.extend(res.attributes);
-    res.attributes = attrs;
 
-    Ok(res)
+    Ok(Response::new().add_attributes(attrs))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -146,7 +135,6 @@ fn submit_proposal(
     let recipients = RECIPIENTS.load(deps.storage)?;
 
     match recipients
-        
         .into_iter()
         .find(|recipient| recipient.recipient == info.sender)
     {
@@ -262,7 +250,6 @@ fn claim_fees_for_recipient(deps: DepsMut, info: MessageInfo) -> Result<Response
 
 //Claim staking rewards for all contract owned staked MBRN
 fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
-
     //Load Config
     let config = CONFIG.load(deps.storage)?;
 
@@ -347,7 +334,6 @@ fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, Contract
 }
 
 fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, recipients: &mut Vec<Recipient>) -> StdResult<Vec<Decimal>> {
-
     let mut allocation_ratios: Vec<Decimal> = vec![];
 
     //Get Contract's MBRN staked amount
@@ -357,8 +343,7 @@ fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, reci
     )?
     .total_staked;
 
-    for recipient in recipients.clone() {        
-
+    for recipient in recipients.clone() {
         //Initialize allocation 
         let allocation = recipient.clone().allocation.unwrap();
         
@@ -420,21 +405,17 @@ fn update_config(
 }
 
 
-//Withdraw unvested MBRN
-//If there is none to distribute in the contract, the amount will be unstaked
+//Withdraw unvested MBRN by minting the unlocked quantity
 fn withdraw_unlocked(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-
     let recipients = RECIPIENTS.load(deps.storage)?;
 
     let mut message: CosmosMsg;
-
     let unlocked_amount: Uint128;
-    let mut unstaked_amount: Uint128 = Uint128::zero();
     let new_allocation: Allocation;
 
     //Find Recipient
@@ -470,8 +451,6 @@ fn withdraw_unlocked(
                     })?, 
                     funds: vec![], 
                 });
-                    
-                
                 
             } else {
                 return Err(ContractError::InvalidAllocation {});
@@ -479,8 +458,6 @@ fn withdraw_unlocked(
         }
         None => return Err(ContractError::InvalidRecipient {}),
     };
-
-
     
     Ok(Response::new()
         .add_message(message)
@@ -500,18 +477,15 @@ pub fn get_unlocked_amount(
     current_block_time: u64, //in seconds
 ) -> (Uint128, Allocation) {
     let mut allocation = allocation.unwrap();
-
     let mut unlocked_amount = Uint128::zero();
 
     //Calculate unlocked amount
     let time_passed = current_block_time - allocation.clone().start_time_of_allocation;
-
     let cliff_in_seconds = allocation.clone().vesting_period.cliff * SECONDS_IN_A_DAY;
 
     //If cliff has been passed then calculate linear unlock
     if time_passed >= cliff_in_seconds {
         let time_passed_cliff = time_passed - cliff_in_seconds;
-
         let linear_in_seconds = allocation.clone().vesting_period.linear * SECONDS_IN_A_DAY;
 
         if time_passed_cliff < linear_in_seconds {
@@ -536,7 +510,6 @@ pub fn get_unlocked_amount(
         } else {
             //Unlock full amount
             unlocked_amount += allocation.clone().amount - allocation.clone().amount_withdrawn;
-
             allocation.amount_withdrawn += allocation.clone().amount;
         }
     }
@@ -553,7 +526,6 @@ fn add_allocation(
     allocation: Uint128,
     vesting_period: Option<VestingPeriod>,
 ) -> Result<Response, ContractError> {
-
     let config = CONFIG.load(deps.storage)?;    
 
     match vesting_period {
@@ -580,7 +552,6 @@ fn add_allocation(
                                     vesting_period: vesting_period.clone(),
                                 });
                             }
-
                             stored_recipient
                         })
                         .collect::<Vec<Recipient>>();
@@ -588,12 +559,10 @@ fn add_allocation(
                     Ok(recipients)
                 },
             )?;
-
         },
         //If None && called by an existing Recipient, subtract & delegate part of the allocation to the allotted recipient
         //Add new Recipient object for the new recipient 
         None => {
-
             //Validate recipient
             let valid_recipient = deps.api.addr_validate(&recipient)?;
 
@@ -603,8 +572,7 @@ fn add_allocation(
             //Add Recipient
             RECIPIENTS.update(
                 deps.storage,
-                |mut recipients| -> Result<Vec<Recipient>, ContractError> {
-                    
+                |mut recipients| -> Result<Vec<Recipient>, ContractError> {                    
                     //Divvy info.sender's allocation
                     recipients = recipients
                         .into_iter()
@@ -642,17 +610,14 @@ fn add_allocation(
                                     
                                         Uint128::zero()
                                     }
-                                };
-                                                                
+                                };                                                                
                                 
                                 stored_recipient.allocation = Some(stored_allocation);
-
                             }
 
                             stored_recipient
                         })
                         .collect::<Vec<Recipient>>();
-
                     
                     if recipients
                         .iter()
@@ -671,14 +636,12 @@ fn add_allocation(
 
                     Ok(recipients)
                 },
-            )?;
-            
+            )?;            
         },
     };
 
     //Get allocation total
     let mut allocation_total: Uint128 = Uint128::zero();
-
     for recipient in RECIPIENTS.load(deps.storage)?.into_iter() {
          if recipient.allocation.is_some() {
              allocation_total += recipient.allocation.unwrap().amount;
@@ -711,7 +674,6 @@ fn add_recipient(
     }
 
     let valid_recipient = deps.api.addr_validate(&recipient)?;
-
     //Add new Recipient
     RECIPIENTS.update(
         deps.storage,
@@ -771,35 +733,6 @@ fn remove_recipient(
     ]))
 }
 
-//Mint and stake initial allocation
-fn mint_initial_allocation(env: Env, config: Config) -> Result<Response, ContractError> {
-    let mut messages: Vec<CosmosMsg> = vec![];
-
-    //Mint token msg in Osmosis Proxy
-    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.osmosis_proxy.to_string(),
-        msg: to_binary(&OsmoExecuteMsg::MintTokens {
-            denom: config.clone().mbrn_denom,
-            amount: config.total_allocation,
-            mint_to_address: env.contract.address.to_string(),
-        })?,
-        funds: vec![],
-    }));
-
-    //Stake msg to Staking contract
-    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.staking_contract.to_string(),
-        msg: to_binary(&StakingExecuteMsg::Stake { user: None })?,
-        funds: vec![coin(config.total_allocation.u128(), config.mbrn_denom)],
-    }));
-
-    Ok(Response::new().add_messages(messages).add_attributes(vec![
-        attr("action", "mint_initial_allocation"),
-        attr("allocation", config.total_allocation.to_string()),
-    ]))
-}
-
-
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
@@ -808,46 +741,5 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::UnlockedTokens { recipient } => to_binary(&query_unlocked(deps, env, recipient)?),
         QueryMsg::Recipients {} => to_binary(&query_recipients(deps)?),
         QueryMsg::Recipient { recipient } => to_binary(&query_recipient(deps, recipient)?),
-    }
-}
-
-
-//Helper functions
-pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
-    match asset.clone().info {
-        AssetInfo::Token { address } => {
-            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: address.to_string(),
-                msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                    recipient: recipient.to_string(),
-                    amount: asset.amount,
-                })?,
-                funds: vec![],
-            });
-            Ok(message)
-        }
-        AssetInfo::NativeToken { denom: _ } => {
-            let coin: Coin = asset_to_coin(asset)?;
-            let message = CosmosMsg::Bank(BankMsg::Send {
-                to_address: recipient.to_string(),
-                amount: vec![coin],
-            });
-            Ok(message)
-        }
-    }
-}
-
-pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {
-    match asset.info {
-        //
-        AssetInfo::Token { address: _ } => {
-            Err(StdError::GenericErr {
-                msg: String::from("CW20 Assets can't be converted into Coin"),
-            })
-        }
-        AssetInfo::NativeToken { denom } => Ok(Coin {
-            denom,
-            amount: asset.amount,
-        }),
     }
 }

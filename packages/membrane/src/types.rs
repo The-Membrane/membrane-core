@@ -16,7 +16,6 @@ use osmosis_std::types::cosmos::base::v1beta1::Coin;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct PositionUserInfo {
-    pub basket_id: Uint128,
     pub position_id: Option<Uint128>,
     pub position_owner: Option<String>,
 }
@@ -261,12 +260,10 @@ pub struct Position {
     pub position_id: Uint128,
     pub collateral_assets: Vec<cAsset>,
     pub credit_amount: Uint128,
-    pub basket_id: Uint128, 
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Basket {
-    pub owner: Addr,
     pub basket_id: Uint128,
     pub current_position_id: Uint128,
     pub collateral_types: Vec<cAsset>,
@@ -276,7 +273,6 @@ pub struct Basket {
     pub credit_price: Decimal, //This is credit_repayment_price, not market price
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
     pub liquidity_multiplier: Decimal, //liquidity_multiplier for debt caps
-    pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
     pub pending_revenue: Uint128,
     pub credit_last_accrued: u64, //credit redemption price last_accrued
     pub rates_last_accrued: u64, //rate_index last_accrued
@@ -311,7 +307,6 @@ pub struct MultiAssetSupplyCap {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UserInfo {
-    pub basket_id: Uint128,
     pub position_id: Uint128,
     pub position_owner: String,
 }
@@ -320,8 +315,8 @@ impl fmt::Display for UserInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "owner: {}, basket: {}, position: {}",
-            self.position_owner, self.basket_id, self.position_id
+            "owner: {}, position: {}",
+            self.position_owner, self.position_id
         )
     }
 }
@@ -377,6 +372,14 @@ pub struct AuctionRecipient {
     pub recipient: Addr,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct Auction {
+    pub remaining_recapitalization: Uint128,
+    pub repayment_positions: Vec<RepayPosition>, //Repayment amount, Positions info
+    pub send_to: Vec<AuctionRecipient>,
+    pub auction_start_time: u64,
+}
+
 /////////Liquidity Check
 ///
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -385,12 +388,12 @@ pub struct LiquidityInfo {
     pub pool_ids: Vec<u64>,
 }
 
-/////////Incentive Gauge
+/////////Lockdrop
 ///
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct LockUp {
-    pub locked_asset: Asset,
-    pub lock_up_duration: u64,
+pub struct LPPoolInfo {
+    pub share_token: AssetInfo,
+    pub pool_id: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

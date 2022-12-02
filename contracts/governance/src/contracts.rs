@@ -128,7 +128,7 @@ pub fn submit_proposal(
     link: Option<String>,
     messages: Option<Vec<ProposalMessage>>,
     recipient: Option<String>,
-    expedited: bool,
+    mut expedited: bool,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -446,44 +446,34 @@ pub fn update_config(
     if let Some(mbrn_denom) = updated_config.mbrn_denom {
         config.mbrn_denom = mbrn_denom;
     }
-
     if let Some(staking_contract) = updated_config.staking_contract {
         config.staking_contract_addr = deps.api.addr_validate(&staking_contract)?;
     }
-
     if let Some(vesting_contract_addr) = updated_config.vesting_contract_addr {
         config.vesting_contract_addr = deps.api.addr_validate(&vesting_contract_addr)?;
     }
-
     if let Some(vesting_voting_power_multiplier) = updated_config.vesting_voting_power_multiplier
     {
         config.vesting_voting_power_multiplier = vesting_voting_power_multiplier;
     }
-
     if let Some(proposal_voting_period) = updated_config.proposal_voting_period {
         config.proposal_voting_period = proposal_voting_period;
     }
-
     if let Some(expedited_proposal_voting_period) = updated_config.expedited_proposal_voting_period {
         config.expedited_proposal_voting_period = expedited_proposal_voting_period;
     }
-
     if let Some(proposal_effective_delay) = updated_config.proposal_effective_delay {
         config.proposal_effective_delay = proposal_effective_delay;
     }
-
     if let Some(proposal_expiration_period) = updated_config.proposal_expiration_period {
         config.proposal_expiration_period = proposal_expiration_period;
     }
-
     if let Some(proposal_required_stake) = updated_config.proposal_required_stake {
         config.proposal_required_stake = Uint128::from(proposal_required_stake);
     }
-
     if let Some(proposal_required_quorum) = updated_config.proposal_required_quorum {
         config.proposal_required_quorum = Decimal::from_str(&proposal_required_quorum)?;
     }
-
     if let Some(proposal_required_threshold) = updated_config.proposal_required_threshold {
         config.proposal_required_threshold = Decimal::from_str(&proposal_required_threshold)?;
     }
@@ -639,7 +629,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::Proposals { start, limit } => to_binary(&query_proposals(deps, start, limit)?),
-        QueryMsg::Proposal { proposal_id } => to_binary(&query_proposal(deps, proposal_id)?),
+        QueryMsg::Proposal { proposal_id } => to_binary(&PROPOSALS.load(deps.storage, proposal_id.to_string())?),
         QueryMsg::ProposalVotes { proposal_id } => {
             to_binary(&query_proposal_votes(deps, proposal_id)?)
         }
@@ -677,27 +667,6 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             limit,
         )?),
     }
-}
-
-pub fn query_proposal(deps: Deps, proposal_id: u64) -> StdResult<ProposalResponse> {
-    let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
-
-    Ok(ProposalResponse {
-        proposal_id: proposal.proposal_id,
-        submitter: proposal.submitter,
-        status: proposal.status,
-        for_power: proposal.for_power,
-        against_power: proposal.against_power,
-        start_block: proposal.start_block,
-        start_time: proposal.start_time,
-        end_block: proposal.end_block,
-        delayed_end_block: proposal.delayed_end_block,
-        expiration_block: proposal.expiration_block,
-        title: proposal.title,
-        description: proposal.description,
-        link: proposal.link,
-        messages: proposal.messages,
-    })
 }
 
 pub fn query_proposals(

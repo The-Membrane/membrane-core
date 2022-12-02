@@ -7,9 +7,6 @@ use crate::types::{
     SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo,
 };
 
-use cw20::Cw20ReceiveMsg;
-
-//Msg Start
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
@@ -32,108 +29,56 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    UpdateConfig {
-        owner: Option<String>,
-        stability_pool: Option<String>,
-        dex_router: Option<String>,
-        osmosis_proxy: Option<String>,
-        debt_auction: Option<String>,
-        staking_contract: Option<String>,
-        oracle_contract: Option<String>,
-        liquidity_contract: Option<String>,
-        interest_revenue_collector: Option<String>,
-        liq_fee: Option<Decimal>,
-        debt_minimum: Option<Uint128>,
-        base_debt_cap_multiplier: Option<Uint128>,
-        oracle_time_limit: Option<u64>,
-        credit_twap_timeframe: Option<u64>,
-        collateral_twap_timeframe: Option<u64>,
-        cpc_multiplier: Option<Decimal>,
-        rate_slope_multiplier: Option<Decimal>,
-    },
-    Receive(Cw20ReceiveMsg),
+    UpdateConfig(UpdateConfig),
     Deposit {
-        basket_id: Uint128,
         position_id: Option<Uint128>, //If the user wants to create a new/separate position, no position id is passed
         position_owner: Option<String>,
     },
     //Increase debt by an amount or to a LTV
     IncreaseDebt {
-        basket_id: Uint128,
         position_id: Uint128,
         amount: Option<Uint128>,
         LTV: Option<Decimal>,
         mint_to_addr: Option<String>,
     },
     Withdraw {
-        basket_id: Uint128,
         position_id: Uint128,
         assets: Vec<Asset>,
         send_to: Option<String>, //If not the sender
     },
     Repay {
-        basket_id: Uint128,
         position_id: Uint128,
         position_owner: Option<String>, //If not the sender
         send_excess_to: Option<String>, //If not the sender
     },
     LiqRepay {},
     Liquidate {
-        basket_id: Uint128,
         position_id: Uint128,
         position_owner: String,
     },
     ClosePosition {
-        basket_id: Uint128,
         position_id: Uint128,
         max_spread: Decimal,
         send_to: Option<String>,
     },
     MintRevenue {
-        basket_id: Uint128,
         send_to: Option<String>, //Defaults to config.interest_revenue_collector
         repay_for: Option<UserInfo>, //Repay for a position w/ the revenue
         amount: Option<Uint128>,
     },
-    //Non-USD baskets don't work due to the debt minimum
+    //Non-USD denominated baskets don't work due to the debt minimum
     CreateBasket {
-        owner: Option<String>,
+        basket_id: Uint128,
         collateral_types: Vec<cAsset>,
         credit_asset: Asset, //Creates native denom for Asset
         credit_price: Decimal,
         base_interest_rate: Option<Decimal>,
-        desired_debt_cap_util: Option<Decimal>,
         credit_pool_ids: Vec<u64>, //For liquidity measuring
         liquidity_multiplier_for_debt_caps: Option<Decimal>, //Ex: 5 = debt cap at 5x liquidity
         liq_queue: Option<String>,
     },
-    EditBasket {
-        basket_id: Uint128,
-        added_cAsset: Option<cAsset>,
-        owner: Option<String>,
-        liq_queue: Option<String>,
-        credit_pool_ids: Option<Vec<u64>>, //For liquidity measuring
-        liquidity_multiplier: Option<Decimal>,
-        collateral_supply_caps: Option<Vec<SupplyCap>>,
-        multi_asset_supply_caps: Option<Vec<MultiAssetSupplyCap>>,
-        base_interest_rate: Option<Decimal>,
-        desired_debt_cap_util: Option<Decimal>,
-        credit_asset_twap_price_source: Option<TWAPPoolInfo>,
-        negative_rates: Option<bool>, //Allow negative repayment interest or not
-        cpc_margin_of_error: Option<Decimal>,
-        frozen: Option<bool>,
-        rev_to_stakers: Option<bool>,
-    },
-    //Clone basket. Reset supply_caps. Sets repayment price to new oracle price.
-    //When using this to add a new UoA:
-    // Add logic to change oracle quote asset in Oracle contract
-    //
-    //Note: Edit pool_ids if desired
-    CloneBasket {
-        basket_id: Uint128,
-    },
+    EditBasket(EditBasket),
     EditcAsset {
-        basket_id: Uint128,
         asset: AssetInfo,
         //Editables
         max_borrow_LTV: Option<Decimal>, //aka what u can borrow up to
@@ -146,15 +91,6 @@ pub enum ExecuteMsg {
     Callback(CallbackMsg),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Cw20HookMsg {
-    Deposit {
-        basket_id: Uint128,
-        position_id: Option<Uint128>,
-        position_owner: Option<String>,
-    },
-}
 
 // NOTE: Since CallbackMsg are always sent by the contract itself, we assume all types are already
 // validated and don't do additional checks. E.g. user addresses are Addr instead of String
@@ -162,7 +98,6 @@ pub enum Cw20HookMsg {
 #[serde(rename_all = "snake_case")]
 pub enum CallbackMsg {
     BadDebtCheck {
-        basket_id: Uint128,
         position_id: Uint128,
         position_owner: Addr,
     },
@@ -174,52 +109,28 @@ pub enum QueryMsg {
     Config {},
     GetUserPositions {
         //All positions from a user
-        basket_id: Option<Uint128>,
         user: String,
         limit: Option<u32>,
     },
     GetPosition {
         //Singular position
-        basket_id: Uint128,
         position_id: Uint128,
         position_owner: String,
     },
     GetBasketPositions {
         //All positions in a basket
-        basket_id: Uint128,
         start_after: Option<String>,
         limit: Option<u32>,
     },
-    GetBasket {
-        basket_id: Uint128,
-    }, //Singular basket
-    GetAllBaskets {
-        //All baskets
-        start_after: Option<Uint128>,
-        limit: Option<u32>,
-    },
-    GetBasketDebtCaps {
-        basket_id: Uint128,
-    },
-    GetBasketBadDebt {
-        basket_id: Uint128,
-    },
-    GetBasketInsolvency {
-        basket_id: Uint128,
-        start_after: Option<String>,
-        limit: Option<u32>,
-    },
+    GetBasket { }, //Singular basket
+    GetBasketDebtCaps { },
+    GetBasketBadDebt { },
     GetPositionInsolvency {
-        basket_id: Uint128,
         position_id: Uint128,
         position_owner: String,
     },
-    GetBasketInterest {
-        basket_id: Uint128,
-    },
-    GetCollateralInterest {
-        basket_id: Uint128,
-    },
+    GetCreditRedemptionRate { },
+    GetCollateralInterest { },
     //Used internally to test state propagation
     Propagation {},
 }
@@ -227,10 +138,8 @@ pub enum QueryMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {
     pub owner: Addr,
-    pub current_basket_id: Uint128,
     pub stability_pool: Option<Addr>,
-    pub dex_router: Option<Addr>, //Apollo's router, will need to change msg types if the router changes most likely.
-    pub interest_revenue_collector: Option<Addr>,
+    pub dex_router: Option<Addr>, //Apollo's router, will need to change msg types if the router changes
     pub staking_contract: Option<Addr>,
     pub osmosis_proxy: Option<Addr>,
     pub debt_auction: Option<Addr>,
@@ -252,6 +161,42 @@ pub struct Config {
     pub rate_slope_multiplier: Decimal,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct UpdateConfig {
+    pub owner: Option<String>,
+    pub stability_pool: Option<String>,
+    pub dex_router: Option<String>,
+    pub osmosis_proxy: Option<String>,
+    pub debt_auction: Option<String>,
+    pub staking_contract: Option<String>,
+    pub oracle_contract: Option<String>,
+    pub liquidity_contract: Option<String>,
+    pub liq_fee: Option<Decimal>,
+    pub debt_minimum: Option<Uint128>,
+    pub base_debt_cap_multiplier: Option<Uint128>,
+    pub oracle_time_limit: Option<u64>,
+    pub credit_twap_timeframe: Option<u64>,
+    pub collateral_twap_timeframe: Option<u64>,
+    pub cpc_multiplier: Option<Decimal>,
+    pub rate_slope_multiplier: Option<Decimal>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct EditBasket {
+    pub added_cAsset: Option<cAsset>,
+    pub liq_queue: Option<String>,
+    pub credit_pool_ids: Option<Vec<u64>>, //For liquidity measuring
+    pub liquidity_multiplier: Option<Decimal>,
+    pub collateral_supply_caps: Option<Vec<SupplyCap>>,
+    pub multi_asset_supply_caps: Option<Vec<MultiAssetSupplyCap>>,
+    pub base_interest_rate: Option<Decimal>,
+    pub credit_asset_twap_price_source: Option<TWAPPoolInfo>,
+    pub negative_rates: Option<bool>, //Allow negative repayment interest or not
+    pub cpc_margin_of_error: Option<Decimal>,
+    pub frozen: Option<bool>,
+    pub rev_to_stakers: Option<bool>,
+}
+
 // We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct PositionResponse {
@@ -270,45 +215,6 @@ pub struct PositionResponse {
 pub struct PositionsResponse {
     pub user: String,
     pub positions: Vec<Position>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct BasketResponse {
-    pub owner: String,
-    pub basket_id: String,
-    pub current_position_id: String,
-    pub collateral_types: Vec<cAsset>,
-    pub collateral_supply_caps: Vec<SupplyCap>,
-    pub multi_asset_supply_caps: Vec<MultiAssetSupplyCap>,
-    pub credit_asset: Asset,
-    pub credit_price: Decimal,
-    pub liq_queue: String,
-    pub base_interest_rate: Decimal, //Enter as percent, 0.02
-    pub liquidity_multiplier: Decimal,
-    pub desired_debt_cap_util: Decimal, //Enter as percent, 0.90
-    pub pending_revenue: Uint128,
-    pub negative_rates: bool, //Allow negative repayment interest or not
-    pub cpc_margin_of_error: Decimal,
-    pub frozen: bool,
-    pub rev_to_stakers: bool,
-}
-
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct PropResponse {
-    pub liq_queue_leftovers: Decimal,
-    pub stability_pool: Decimal,
-    pub sell_wall_distributions: Vec<(AssetInfo, Decimal)>,
-    pub positions_contract: String,
-    //So the sell wall knows who to repay to
-    pub position_id: Uint128,
-    pub basket_id: Uint128,
-    pub position_owner: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct DebtCapResponse {
-    pub caps: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

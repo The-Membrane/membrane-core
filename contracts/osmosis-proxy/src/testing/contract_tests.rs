@@ -101,9 +101,7 @@ mod tests {
 
         let msg = ExecuteMsg::CreateDenom { 
             subdenom, 
-            basket_id: String::from("1"),
             max_supply: Some(Uint128::new(10)), 
-            liquidity_multiplier: None, 
         };
         let info = mock_info("creator", &coins(2, "token"));
         let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -139,9 +137,7 @@ mod tests {
 
         let msg = ExecuteMsg::CreateDenom { 
             subdenom, 
-            basket_id: String::from("1"),
             max_supply: Some(Uint128::new(10)), 
-            liquidity_multiplier: None, 
         };
         let info = mock_info("creator", &coins(2, "token"));
         let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();

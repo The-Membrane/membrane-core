@@ -6,8 +6,8 @@ mod tests {
 
     use membrane::apollo_router::SwapToAssetsInput;
     use membrane::margin_proxy::{ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::positions::{PositionsResponse, PositionResponse, BasketResponse};
-    use membrane::types::{AssetInfo, Position, cAsset, Asset};
+    use membrane::positions::{PositionsResponse, PositionResponse};
+    use membrane::types::{AssetInfo, Position, cAsset, Asset, Basket};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal, attr,
@@ -129,7 +129,6 @@ mod tests {
                                     position_id: Uint128::new(1),
                                     collateral_assets: vec![],
                                     credit_amount: Uint128::new(1),
-                                    basket_id: Uint128::new(1),
                                 }
                             ],
                         })?)
@@ -161,8 +160,7 @@ mod tests {
                         })?)
                     },
                     CDP_MockQueryMsg::GetBasket { basket_id } => {
-                        Ok(to_binary(&BasketResponse {
-                            owner: String::from(""),
+                        Ok(to_binary(&Basket {
                             basket_id: String::from(""),
                             current_position_id: String::from(""),
                             collateral_types: vec![],
@@ -172,10 +170,15 @@ mod tests {
                             liq_queue: String::from(""),
                             base_interest_rate: Decimal::zero(),
                             liquidity_multiplier: Decimal::zero(),
-                            desired_debt_cap_util: Decimal::zero(),
                             pending_revenue: Uint128::zero(),
                             negative_rates: false,
                             cpc_margin_of_error: Decimal::zero(),
+                            multi_asset_supply_caps: vec![],
+                            frozen: false,
+                            rev_to_stakers: true,
+                            credit_last_accrued: 0,
+                            rates_last_accrued: 0,
+                            oracle_set: true,
                         })?)
                     },
                 }

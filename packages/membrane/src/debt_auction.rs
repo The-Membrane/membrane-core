@@ -1,9 +1,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Decimal, Uint128, Addr};
+use cosmwasm_std::{Decimal, Addr};
 
-use crate::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient};
+use crate::types::{Asset, AssetInfo, UserInfo};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -30,8 +30,6 @@ pub enum ExecuteMsg {
         send_to: Option<String>,
         //Asset being bought by MBRN
         debt_asset: Asset, 
-        //Basket_id for Bsaket info
-        basket_id: Uint128,
     },
     //Swap for MBRN w/ any open auction's swap_from_asset
     SwapForMBRN {},
@@ -40,17 +38,7 @@ pub enum ExecuteMsg {
     RemoveAuction {
         debt_asset: AssetInfo,
     },
-    UpdateConfig {
-        owner: Option<String>,
-        oracle_contract: Option<String>,
-        osmosis_proxy: Option<String>,
-        mbrn_denom: Option<String>,
-        positions_contract: Option<String>,
-        twap_timeframe: Option<u64>,
-        initial_discount: Option<Decimal>,
-        discount_increase_timeframe: Option<u64>, //in seconds
-        discount_increase: Option<Decimal>,       //% increase
-    },
+    UpdateConfig(UpdateConfig),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -83,10 +71,14 @@ pub struct Config {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct AuctionResponse {
-    pub remaining_recapitalization: Uint128,
-    pub repayment_positions: Vec<RepayPosition>, //Repayment amount, Positions info
-    pub send_to: Vec<AuctionRecipient>,
-    pub auction_start_time: u64,
-    pub basket_id_price_source: Uint128,
+pub struct UpdateConfig {
+    pub owner: Option<String>,
+    pub oracle_contract: Option<String>,
+    pub osmosis_proxy: Option<String>,
+    pub mbrn_denom: Option<String>,
+    pub positions_contract: Option<String>,
+    pub twap_timeframe: Option<u64>,
+    pub initial_discount: Option<Decimal>,
+    pub discount_increase_timeframe: Option<u64>, //in seconds
+    pub discount_increase: Option<Decimal>,       //% increase
 }

@@ -25,6 +25,7 @@ use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, TOTALS};
 const CONTRACT_NAME: &str = "crates.io:staking";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+//Constants
 const SECONDS_PER_YEAR: u64 = 31_536_000u64;
 const SECONDS_PER_DAY: u64 = 86_400u64;
 
@@ -70,7 +71,7 @@ pub fn instantiate(
     let mut attrs = vec![];
     let mut total_vesting = Uint128::zero();
 
-    // //Set optional config parameters
+    //Set optional config parameters
     if let Some(dex_router) = msg.dex_router {
         config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
         attrs.push(attr("dex_router", dex_router));
@@ -96,8 +97,7 @@ pub fn instantiate(
     CONFIG.save(deps.storage, &config)?;
 
     //Initialize StakeDeposit List
-    let vec: Vec<StakeDeposit> = vec![];
-    STAKED.save(deps.storage, &vec)?;
+    STAKED.save(deps.storage, &vec![])?;
 
     //Initialize stake Totals
     TOTALS.save(
@@ -108,17 +108,13 @@ pub fn instantiate(
         },
     )?;
     //Initialize fee events
-    let vec: Vec<FeeEvent> = vec![];
-    FEE_EVENTS.save(deps.storage, &vec)?;
+    FEE_EVENTS.save(deps.storage, &vec![])?;
 
     let res = Response::new();
-
-    attrs.push(attr("method", "instantiate"));
-
-    let c = &config.owner.to_string();
-    attrs.push(attr("owner", c));
-
-    Ok(res.add_attributes(attrs))
+    Ok(res.add_attributes(vec![
+        attr("method", "instantiate"),
+        attr("owner", config.owner.to_string()),
+    ]))
 }
 
 fn get_total_vesting(
@@ -888,8 +884,7 @@ fn deposit_fee(
     let mut totals = TOTALS.load(deps.storage)?;
 
     //Update vesting total
-    if let Some(vesting_contract) = config.vesting_contract {
-        
+    if let Some(vesting_contract) = config.vesting_contract {        
         let vesting_total = get_total_vesting(deps.querier, vesting_contract.to_string())?;
 
         totals.vesting_contract = vesting_total;

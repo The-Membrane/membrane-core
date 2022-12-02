@@ -6,13 +6,14 @@ use membrane::types::{AssetInfo, Asset, Basket, LiqAsset};
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
 use membrane::positions::{Config, ExecuteMsg};
 use membrane::math::decimal_subtraction;
+use membrane::helpers::withdrawal_msg;
 
-use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, CONFIG, BASKETS, CLOSE_POSITION, ClosePositionPropagation};
+use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, CONFIG, BASKET, CLOSE_POSITION, ClosePositionPropagation};
 use crate::contract::get_contract_balances;
-use crate::positions::{get_target_position, withdrawal_msg, update_position_claims};
+use crate::positions::{get_target_position, update_position_claims};
 use crate::liquidations::{query_stability_pool_liquidatible, STABILITY_POOL_REPLY_ID, sell_wall_using_ids, SELL_WALL_REPLY_ID};
 
- //On success....
+//On success....
 //Update position claims
 //attempt to withdraw leftover using a WithdrawMsg
 pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
@@ -23,7 +24,6 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             
             //Create user info variables
             let valid_position_owner = deps.api.addr_validate(&state_propagation.position_info.position_owner)?;
-            let basket_id = state_propagation.position_info.basket_id; 
             let position_id = state_propagation.position_info.position_id; 
             
             //Update position claims for each withdrawn + sold amount
@@ -33,7 +33,6 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     deps.storage, 
                     deps.querier, 
                     env.clone(), 
-                    basket_id.clone(), 
                     position_id.clone(), 
                     valid_position_owner.clone(), 
                     withdrawn_collateral.info, 
@@ -42,9 +41,8 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             }
 
             //Load position
-            let target_position = match get_target_position(
+            let (_i, target_position) = match get_target_position(
                 deps.storage, 
-                basket_id.clone(), 
                 valid_position_owner, 
                 position_id.clone(), 
             ){
@@ -62,14 +60,12 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: env.contract.address.to_string(), 
                 msg: to_binary(& ExecuteMsg::Withdraw { 
-                    basket_id, 
                     position_id, 
                     assets: assets_to_withdraw, 
                     send_to: state_propagation.send_to, 
                 })?, 
                 funds: vec![],
             });
-
 
             //Response 
             Ok(Response::new().add_message(withdraw_msg)
@@ -89,16 +85,13 @@ pub fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
         Ok(_result) => {
             //Its reply on error only
             Ok(Response::new())
-        }
-        
+        }        
         Err(string) => {
             //If error, do nothing if the SP was used
             //The SP reply will handle the sell wall
-
             let mut submessages: Vec<SubMsg> = vec![];
             let mut messages = vec![];
             let mut repay_amount = Decimal::zero();
-
             let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
 
             //If SP wasn't called, meaning User's SP funds can't be handled there, sell wall the leftovers
@@ -114,7 +107,6 @@ pub fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                 //we add the leftovers to the liq_queue_leftovers so the stability pool reply handles it
                 prop.liq_queue_leftovers += prop.user_repay_amount;
             }
-
 
             LIQUIDATION.save(deps.storage, &prop)?;
 
@@ -156,9 +148,7 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                 };
 
                 //If balance differnce is more than what they tried to withdraw, error
-                if withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance
-                   > withdraw_amount
-                {
+                if withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > withdraw_amount {
                     return Err(StdError::GenericErr {
                         msg: format!(
                             "Conditional 1: Invalid withdrawal, possible bug found by {}",
@@ -169,12 +159,10 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
 
                 match get_target_position(
                     deps.storage,
-                    withdraw_prop.position_info.basket_id,
-                    deps.api
-                        .addr_validate(&withdraw_prop.position_info.position_owner.clone())?,
+                    deps.api.addr_validate(&withdraw_prop.position_info.position_owner.clone())?,
                     withdraw_prop.position_info.position_id,
-                ) {
-                    Ok(user_position) => {
+                ){
+                    Ok((_i, user_position)) => {
                         //Assert the withdrawal was correctly saved to state
                         if let Some(cAsset) = user_position
                         .collateral_assets
@@ -192,16 +180,14 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                         }
                     },
                     Err(err) => {
-                        //Error means the position was deleted from state, assert that
+                        //Error means the position was deleted from state, assert that collateral was supposed to be completely withdrawn
                         if !(position_amount - withdraw_amount).is_zero(){
                             return Err(StdError::GenericErr {
                                 msg: err.to_string(),
                             })
                         }
                     }
-                };
-
-                
+                };                
 
                 //Add Success attributes
                 attrs.push(attr(
@@ -226,7 +212,6 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
             WITHDRAW.save(deps.storage, &withdraw_prop)?;
 
             //We can go by first entries for these fields bc the replies will come in FIFO in terms of assets sent
-            //The reply_order numbers are used to loop the logic on the list of native assets whenever it arrives while still allowing Cw20s to work in the reply
         } //We only reply on success
         Err(err) => return Err(StdError::GenericErr { msg: err }),
     }
@@ -289,10 +274,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 //This is an SP reply so we don't have to check if the SP is okay to call
                 let config: Config = CONFIG.load(deps.storage)?;
 
-                let basket: Basket = BASKETS.load(
-                    deps.storage,
-                    liquidation_propagation.clone().basket_id.to_string(),
-                )?;
+                let basket: Basket = BASKET.load(deps.storage)?;
 
                 //Check for stability pool funds before any liquidation attempts
                 //Sell wall any leftovers
@@ -313,8 +295,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     //Sell wall remaining
                     messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut liquidation_propagation, &mut submessages, leftover_repayment)?);
                     
-                    LIQUIDATION.save(deps.storage, &liquidation_propagation)?;
-                   
+                    LIQUIDATION.save(deps.storage, &liquidation_propagation)?;                   
                 }
 
                 //Send whatever is able to the Stability Pool
@@ -328,10 +309,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
 
                     //Stability Pool message builder
                     let liq_msg = SP_ExecuteMsg::Liquidate {
-                        credit_asset: LiqAsset {
-                            amount: sp_repay_amount,
-                            info: basket.clone().credit_asset.info,
-                        },
+                            liq_amount: sp_repay_amount
                     };
 
                     let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -386,7 +364,6 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             //Set both liq amounts to 0
             liquidation_propagation.liq_queue_leftovers = Decimal::zero();
             liquidation_propagation.stability_pool = Decimal::zero();
-
             
             LIQUIDATION.save(deps.storage, &liquidation_propagation)?;
 
@@ -396,17 +373,6 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 .add_attributes(attrs))
         }
     }
-}
-
-//Add to the front of the "stack" bc message semantics are depth first
-//LIFO
-fn add_distributions(
-    mut old_distributions: Vec<(AssetInfo, Decimal)>,
-    new_distributions: Vec<(AssetInfo, Decimal)>,
-) -> Vec<(AssetInfo, Decimal)> {
-    old_distributions.extend(new_distributions);
-
-    old_distributions
 }
 
 pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Response> {
@@ -429,12 +395,10 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 .find(|attr| attr.key == "repay_amount")
                 .unwrap()
                 .value;
-
             let repay_amount = Uint128::from_str(&repay)?;
 
             let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
-
-            let basket = BASKETS.load(deps.storage, prop.basket_id.to_string())?;
+            let basket = BASKET.load(deps.storage)?;
 
             //Send successfully liquidated amount
             let amount = &liq_event
@@ -492,9 +456,8 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                     deps.storage,
                     deps.querier,
                     env,
-                    prop.basket_id,
-                    prop.clone().position_id,
-                    prop.clone().position_owner,
+                    prop.clone().position_info.position_id,
+                    deps.api.addr_validate(&prop.clone().position_info.position_owner)?,
                     token_info.clone(),
                     send_amount,
                 )?;
@@ -566,9 +529,8 @@ pub fn handle_sell_wall_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                         deps.storage,
                         deps.querier,
                         env.clone(),
-                        liquidation_propagation.clone().basket_id,
-                        liquidation_propagation.clone().position_id,
-                        liquidation_propagation.clone().position_owner,
+                        liquidation_propagation.clone().position_info.position_id,
+                        deps.api.addr_validate(&liquidation_propagation.clone().position_info.position_owner)?,
                         asset.clone(),
                         (amount * Uint128::new(1u128)),
                     )?;                   
@@ -619,25 +581,20 @@ pub fn sell_wall_in_reply(
         querier,
         api,
         env,
-        prop.clone().basket_id,
-        prop.clone().position_id,
-        prop.clone().position_owner,
+        prop.clone().position_info.position_id,
+        api.addr_validate(&prop.clone().position_info.position_owner)?,
         repay_amount,
     )?;    
 
-    //Save new distributions from this liquidation
-    prop.sell_wall_distributions = add_distributions(
-        prop.clone().sell_wall_distributions,
-        collateral_distributions.clone(),
-    );
+    //Save new distributions from this liquidation. Extend bc its LIFO
+    prop.sell_wall_distributions.extend(collateral_distributions.clone());
 
     submessages.extend(
         sell_wall_msgs
             .into_iter()
             .map(|msg| {
                 //If this succeeds, we update the positions collateral claims
-                //If this fails, revert. Try again isn't a useful alternative.
-                SubMsg::reply_always(msg, SELL_WALL_REPLY_ID)
+                SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
             })
             .collect::<Vec<SubMsg>>(),
     );

@@ -8,7 +8,16 @@ use crate::state::{TOTALS, FEE_EVENTS, STAKED, CONFIG};
 const DEFAULT_LIMIT: u32 = 32u32;
 
 pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse> {
+    let config = CONFIG.load(deps.storage)?;    
     let valid_addr = deps.api.addr_validate(&staker)?;
+
+    if valid_addr == config.vesting_contract.unwrap() {
+        return Ok(StakerResponse {
+            staker: valid_addr.to_string(),
+            total_staked: TOTALS.load(deps.storage)?.vesting_contract,
+            deposit_list: vec![],
+        })
+    }
 
     let staker_deposits: Vec<StakeDeposit> = STAKED
         .load(deps.storage)?

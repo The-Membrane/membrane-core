@@ -38,7 +38,7 @@ pub fn query_position(
 
     let mut basket = BASKET.load(deps.storage)?;
 
-    let (_i, mut position) = match get_target_position(deps.storage, user, position_id.clone()){
+    let (_i, mut position) = match get_target_position(deps.storage, user.clone(), position_id.clone()){
         Ok(position) => position,
         Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
     };
@@ -59,6 +59,7 @@ pub fn query_position(
         env.clone(),
         &mut position,
         &mut basket,
+        user.to_string(),
     )?;
     
     Ok(PositionResponse {
@@ -119,6 +120,7 @@ pub fn query_user_positions(
             env.clone(),
             &mut position,
             &mut basket,
+            user.to_string(),
         ) {
             Ok(()) => {}
             Err(err) => error = Some(err),
@@ -255,6 +257,7 @@ pub fn query_position_insolvency(
         env.clone(),
         &mut target_position,
         &mut basket,
+        position_owner.clone(),
     )?;
 
     ///

@@ -59,6 +59,7 @@ pub fn instantiate(
         osmosis_proxy: None,
         debt_auction: None,
         liquidity_contract: None,
+        discounts_contract: None,
         oracle_time_limit: msg.oracle_time_limit,
         cpc_multiplier: Decimal::one(),
         rate_slope_multiplier: Decimal::one(),
@@ -394,6 +395,10 @@ fn update_config(
     if let Some(liquidity_contract) = update.liquidity_contract {
         config.liquidity_contract = Some(deps.api.addr_validate(&liquidity_contract)?);
         attrs.push(attr("new_liquidity_contract", config.clone().liquidity_contract.unwrap()));
+    }
+    if let Some(discounts_contract) = update.discounts_contract {
+        config.discounts_contract = Some(deps.api.addr_validate(&discounts_contract)?);
+        attrs.push(attr("new_discounts_contract", config.clone().discounts_contract.unwrap()));
     }
     if let Some(liq_fee) = update.liq_fee {
         config.liq_fee = liq_fee.clone();

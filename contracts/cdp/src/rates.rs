@@ -1,7 +1,7 @@
 use cosmwasm_std::{Uint128, Decimal, Storage, QuerierWrapper, Env, StdResult, StdError};
 
+use membrane::system_discounts::QueryMsg as DiscountQueryMsg;
 use membrane::types::{Basket, cAsset, SupplyCap, Position, AssetInfo, };
-use membrane::helpers::accumulate_interest;
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 
 use crate::positions::{get_cAsset_ratios, get_asset_liquidity, get_asset_values};
@@ -235,6 +235,7 @@ pub fn accrue(
     env: Env,
     position: &mut Position,
     basket: &mut Basket,
+    user: String,
 ) -> StdResult<()> {
     let config = CONFIG.load(storage)?;
 
@@ -364,7 +365,12 @@ pub fn accrue(
     
     if new_credit_amount > position.credit_amount {
         //Calc accrued interest
-        let accrued_interest = new_credit_amount - position.credit_amount;
+        let mut accrued_interest = new_credit_amount - position.credit_amount;
+
+        if let Some(contract) = config.clone().discounts_contract {
+             //Get User's discounted interest
+            accrued_interest = get_discounted_interest(querier, contract.to_string(), user, accrued_interest.clone())?;
+        }
 
         //Add accrued interest to the basket's pending revenue
         basket.pending_revenue += accrued_interest;
@@ -396,6 +402,23 @@ pub fn accrue(
     Ok(())
 }
 
+fn get_discounted_interest(
+    querier: QuerierWrapper,
+    discounts_contract: String,
+    user: String,
+    nondiscounted_interest: Uint128,
+) -> StdResult<Uint128>{
+    //Get discount
+    let discount = querier.query_wasm_smart::<Decimal>(discounts_contract, &DiscountQueryMsg::UserDiscount { user })?;
+
+    let discounted_interest = {
+        let percent_of_interest = decimal_subtraction(Decimal::one(), discount);
+        decimal_multiplication(Decimal::from_ratio(nondiscounted_interest, Uint128::one()), percent_of_interest)
+    } * Uint128::one();
+
+    Ok(discounted_interest)
+}
+
 ////////////Immutable fns for Queries/////
 pub fn accrue_imut(
     storage: &dyn Storage,
@@ -403,6 +426,7 @@ pub fn accrue_imut(
     env: Env,
     position: &mut Position,
     basket: &mut Basket,
+    user: String,
 ) -> StdResult<()> {
     let config = CONFIG.load(storage)?;
 
@@ -526,12 +550,20 @@ pub fn accrue_imut(
     )?;
     
      //Calc new_credit_amount
-     let new_credit_amount = decimal_multiplication(
+     let mut new_credit_amount = decimal_multiplication(
         Decimal::from_ratio(position.credit_amount, Uint128::new(1)), 
         rate_of_change
     ) * Uint128::new(1u128);    
     
     if new_credit_amount > position.credit_amount {
+
+        if let Some(contract) = config.clone().discounts_contract {
+            let mut accrued_interest = new_credit_amount - position.credit_amount;
+            accrued_interest = get_discounted_interest(querier, contract.to_string(), user, accrued_interest)?;
+
+            new_credit_amount = position.credit_amount + accrued_interest;
+        }        
+
         //Set position's debt to the debt + accrued_interest
         position.credit_amount = new_credit_amount;
     }    

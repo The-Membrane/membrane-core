@@ -137,6 +137,7 @@ pub fn deposit(
                     env.clone(),
                     &mut position.clone(),
                     &mut basket,
+                    valid_owner_addr.clone().to_string(),
                 )?;
                 //Save Basket
                 BASKET.save(deps.storage, &basket)?;
@@ -175,6 +176,7 @@ pub fn deposit(
                 env.clone(),
                 &mut new_position,
                 &mut basket,
+                valid_owner_addr.clone().to_string(),
             )?;
             //Save Basket. This doesn't overwrite the save in update_debt_per_asset_in_position()
             BASKET.save(deps.storage, &basket)?;
@@ -212,6 +214,7 @@ pub fn deposit(
             env.clone(),
             &mut new_position,
             &mut basket,
+            valid_owner_addr.clone().to_string(),
         )?;
         //Save Basket. This only doesn't overwrite the save in update_debt_per_asset_in_position() bc they are certain to never happen at the same time
         BASKET.save(deps.storage, &basket)?;
@@ -312,6 +315,7 @@ pub fn withdraw(
         env.clone(),
         &mut target_position,
         &mut basket,
+        valid_position_owner.clone().to_string()
     )?;
 
     //For debt cap updates
@@ -551,6 +555,7 @@ pub fn repay(
         env.clone(),
         &mut target_position,
         &mut basket,
+        valid_owner_addr.clone().to_string(),
     )?;
     
     //Set prev_credit_amount
@@ -851,6 +856,7 @@ pub fn increase_debt(
         env.clone(),
         &mut target_position,
         &mut basket,
+        info.clone().sender.to_string(),
     )?;
 
     //Set prev_credit_amount

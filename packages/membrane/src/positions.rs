@@ -24,6 +24,7 @@ pub struct InstantiateMsg {
     pub osmosis_proxy: Option<String>,
     pub debt_auction: Option<String>,
     pub liquidity_contract: Option<String>,
+    pub discounts_contract: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -145,6 +146,7 @@ pub struct Config {
     pub debt_auction: Option<Addr>,
     pub oracle_contract: Option<Addr>,
     pub liquidity_contract: Option<Addr>,
+    pub discounts_contract: Option<Addr>,
     pub liq_fee: Decimal,               //Enter as percent, 0.01
     pub collateral_twap_timeframe: u64, //in minutes
     pub credit_twap_timeframe: u64,     //in minutes
@@ -171,6 +173,7 @@ pub struct UpdateConfig {
     pub staking_contract: Option<String>,
     pub oracle_contract: Option<String>,
     pub liquidity_contract: Option<String>,
+    pub discounts_contract: Option<String>,
     pub liq_fee: Option<Decimal>,
     pub debt_minimum: Option<Uint128>,
     pub base_debt_cap_multiplier: Option<Uint128>,

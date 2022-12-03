@@ -9,7 +9,7 @@ use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::stability_pool::{LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
-use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, LiqAsset, cAsset, PoolStateResponse, Deposit, AssetPool};
+use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, PoolStateResponse, Deposit, AssetPool};
 
 use crate::error::ContractError; 
 use crate::rates::accrue;
@@ -53,6 +53,7 @@ pub fn liquidate(
         env.clone(),
         &mut target_position,
         &mut basket,
+        position_owner.clone(),
     )?;
     //Save updated repayment price and basket debt
     BASKET.save(storage, &basket)?;

@@ -680,25 +680,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lockdrop"
-version = "0.1.0"
-dependencies = [
- "cosmwasm-schema",
- "cosmwasm-std",
- "cosmwasm-storage",
- "cw-multi-test 0.13.4",
- "cw-storage-plus 0.13.4",
- "cw2 0.13.4",
- "cw20",
- "membrane",
- "osmosis-std 0.12.0",
- "schemars",
- "serde",
- "thiserror",
- "wasm",
-]
-
-[[package]]
 name = "margin-proxy"
 version = "0.1.0"
 dependencies = [

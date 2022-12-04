@@ -349,7 +349,6 @@ mod tests {
         Distribute {
             distribution_assets: Vec<Asset>,
             distribution_asset_ratios: Vec<Decimal>,
-            credit_asset: AssetInfo,
             distribute_for: Uint128,
         },
         Repay {
@@ -388,7 +387,7 @@ mod tests {
                             && liq_amount.to_string() != "22000".to_string()
                             && liq_amount.to_string() != "222.777774844".to_string()
                         {
-                          //  panic!("{}", liq_amount.to_string());
+                            //panic!("{}", liq_amount.to_string());
                         }
 
                         Ok(Response::new()
@@ -398,7 +397,6 @@ mod tests {
                     SP_MockExecuteMsg::Distribute {
                         distribution_assets,
                         distribution_asset_ratios: _,
-                        credit_asset: _,
                         distribute_for: _,
                     } => {
                         if distribution_assets
@@ -497,7 +495,6 @@ mod tests {
                     SP_MockExecuteMsg::Distribute {
                         distribution_assets: _,
                         distribution_asset_ratios: _,
-                        credit_asset: _,
                         distribute_for: _,
                     } => Ok(Response::new()
                         .add_attribute("method", "distribute")
@@ -545,7 +542,6 @@ mod tests {
                     SP_MockExecuteMsg::Distribute {
                         distribution_assets: _,
                         distribution_asset_ratios: _,
-                        credit_asset: _,
                         distribute_for: _,
                     } => Ok(Response::new()
                         .add_attribute("method", "distribute")
@@ -574,7 +570,13 @@ mod tests {
                             amount: Uint128::zero(),
                         },
                         liq_premium: Decimal::percent(10),
-                        deposits: vec![],
+                        deposits: vec![Deposit {
+                            user: Addr::unchecked(USER),
+                            amount: Decimal::percent(222_00),
+                            deposit_time: 0u64,
+                            last_accrued: 0u64,
+                            unstake_time: None,
+                        }],
                     })?),
                     SP_MockQueryMsg::AssetDeposits {
                         user: _,
@@ -602,7 +604,6 @@ mod tests {
                     SP_MockExecuteMsg::Distribute {
                         distribution_assets: _,
                         distribution_asset_ratios: _,
-                        credit_asset: _,
                         distribute_for: _,
                     } => Ok(Response::new()
                         .add_attribute("method", "distribute")
@@ -650,7 +651,6 @@ mod tests {
                     SP_MockExecuteMsg::Distribute {
                         distribution_assets: _,
                         distribution_asset_ratios: _,
-                        credit_asset: _,
                         distribute_for: _,
                     } => Ok(Response::new()
                         .add_attribute("method", "distribute")
@@ -1065,6 +1065,46 @@ mod tests {
                             dex_router: None,
                             max_spread: None,
                         })?)
+                    }
+                }
+            },
+        );
+        Box::new(contract)
+    }
+
+    //Mock Discounts Contract
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Discounts_MockExecuteMsg {}
+
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub struct Discounts_MockInstantiateMsg {}
+
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Discounts_MockQueryMsg {
+        UserDiscount { user: String }
+    }
+
+    pub fn discounts_contract() -> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: Discounts_MockExecuteMsg| -> StdResult<Response> {
+                Ok(Response::default())
+            },
+            |_, _, _, _: Discounts_MockInstantiateMsg| -> StdResult<Response> {
+                Ok(Response::default())
+            },
+            |_, _, msg: Discounts_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    Discounts_MockQueryMsg::UserDiscount { user } => {
+
+                        if user == String::from("discounty"){
+                            Ok(to_binary(&Decimal::percent(90))?)
+                        } else {
+                            Ok(to_binary(&Decimal::zero())?)
+                        }
+                        
                     }
                 }
             },
@@ -1555,6 +1595,20 @@ mod tests {
             )
             .unwrap();
 
+        //Instaniate Discounts Contract
+        let dc_id: u64 = app.store_code(discounts_contract());        
+
+        let discounts_contract_addr = app
+            .instantiate_contract(
+                dc_id,
+                Addr::unchecked(ADMIN),
+                &Discounts_MockInstantiateMsg {},
+                &[],
+                "test",
+                None,
+            )
+            .unwrap();
+
         //Instantiate CDP contract
         let cdp_id = app.store_code(cdp_contract());
 
@@ -1569,10 +1623,11 @@ mod tests {
             osmosis_proxy: Some(osmosis_proxy_contract_addr.to_string()),
             debt_auction: Some(auction_contract_addr.to_string()),
             liquidity_contract: Some(liquidity_contract_addr.to_string()),
+            discounts_contract: Some(discounts_contract_addr.to_string()),
             oracle_time_limit: 60u64,
             debt_minimum: Uint128::new(2000u128),
             collateral_twap_timeframe: 60u64,
-            credit_twap_timeframe: 90u64,
+            credit_twap_timeframe: 480u64,
         };
 
         let cdp_contract_addr = app
@@ -1603,7 +1658,6 @@ mod tests {
             },
             credit_price: Decimal::percent(100),
             base_interest_rate: None,
-            desired_debt_cap_util: None,
             credit_pool_ids: vec![],
             liquidity_multiplier_for_debt_caps: None,
             liq_queue: None,
@@ -1617,7 +1671,6 @@ mod tests {
             liquidity_multiplier: None,
             collateral_supply_caps: None,
             base_interest_rate: None,
-            desired_debt_cap_util: None,
             credit_asset_twap_price_source: Some(TWAPPoolInfo {
                 pool_id: 0u64,
                 base_asset_denom: String::from("base"),
@@ -1678,7 +1731,6 @@ mod tests {
                     }
                 ]),
                 base_interest_rate: Some(Decimal::percent(2)),
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -1992,7 +2044,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: Some(Decimal::percent(10)),
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -2190,7 +2241,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -2353,7 +2403,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -2383,7 +2432,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -2474,7 +2522,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: Some(Decimal::percent(10)),
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -2769,7 +2816,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -2799,7 +2845,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -2890,7 +2935,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: Some(Decimal::percent(10)),
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -3034,6 +3078,228 @@ mod tests {
         }
 
         #[test]
+        fn accrue_discounted_debt() {
+            let (mut app, cdp_contract, lq_contract) =
+                proper_instantiate(false, false, false, false);
+
+            let res: Config = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
+                .unwrap();
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
+
+            //Add LP pool assets first: Base
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                added_cAsset: Some(cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "base".to_string(),
+                        },
+                        amount: Uint128::zero(),
+                    },
+                    max_borrow_LTV: Decimal::percent(40),
+                    max_LTV: Decimal::percent(60),
+                    pool_info: None,
+                    rate_index: Decimal::one(),
+                }),
+                liq_queue: None,
+                credit_pool_ids: None,
+                liquidity_multiplier: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add LP pool assets first: Quote
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                added_cAsset: Some(cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "quote".to_string(),
+                        },
+                        amount: Uint128::zero(),
+                    },
+                    max_borrow_LTV: Decimal::percent(60),
+                    max_LTV: Decimal::percent(80),
+                    pool_info: None,
+                    rate_index: Decimal::one(),
+                }),
+                liq_queue: None,
+                credit_pool_ids: None,
+                liquidity_multiplier: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add LP asset
+            //Set supply caps
+            //Set general parameters
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                added_cAsset: Some(cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "lp_denom".to_string(),
+                        },
+                        amount: Uint128::zero(),
+                    },
+                    max_borrow_LTV: Decimal::percent(50),
+                    max_LTV: Decimal::percent(70),
+                    pool_info: Some(PoolInfo {
+                        pool_id: 99u64,
+                        asset_infos: vec![
+                            LPAssetInfo {
+                                info: AssetInfo::NativeToken {
+                                    denom: String::from("base"),
+                                },
+                                decimals: 6u64,
+                                ratio: Decimal::percent(50),
+                            },
+                            LPAssetInfo {
+                                info: AssetInfo::NativeToken {
+                                    denom: String::from("quote"),
+                                },
+                                decimals: 6u64,
+                                ratio: Decimal::percent(50),
+                            },
+                        ],
+                    }),
+                    rate_index: Decimal::one(),
+                }),
+                liq_queue: Some(lq_contract.addr().to_string()),
+                liquidity_multiplier: Some(Decimal::percent(500)),
+                credit_pool_ids: Some(vec![1u64]),
+                collateral_supply_caps: Some(vec![
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "debit".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "base".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "quote".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "lp_denom".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: true,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
+                ]),
+                base_interest_rate: Some(Decimal::percent(10)),
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Initial Deposit
+            //Current Position: 100_000 lp_denom
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some("discounty".to_string()),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg,
+                    vec![Coin {
+                        denom: "lp_denom".to_string(),
+                        amount: Uint128::from(100_000u128),
+                    }],
+                )
+                .unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+
+            //Successful Increase
+            //Current Position: 100_000 lp_denom -> 99_999 credit_fulldenom
+            let msg = ExecuteMsg::IncreaseDebt {
+                position_id: Uint128::from(1u128),
+                amount: Some(Uint128::from(99_999u128)),
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("discounty"), cosmos_msg)
+                .unwrap();
+
+            //Check interest rates
+            //4.7% rate
+            let query_msg = QueryMsg::GetCollateralInterest { };
+            let res: CollateralInterestResponse = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(
+                format!("{:?}", res.rates),
+                String::from(
+                    "[(NativeToken { denom: \"debit\" }, Decimal(Uint128(0))), (NativeToken { denom: \"base\" }, Decimal(Uint128(0))), (NativeToken { denom: \"quote\" }, Decimal(Uint128(0))), (NativeToken { denom: \"lp_denom\" }, Decimal(Uint128(47619364000000000)))]"
+                )
+            );
+
+            //Assert the 90% discount on rates
+            let query_msg = QueryMsg::GetPosition {
+                position_id: Uint128::new(1u128),
+                position_owner: "discounty".to_string(),
+            };            
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
+                chain_id: app.block_info().chain_id,
+            });
+            let res: PositionResponse = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(res.credit_amount, Uint128::new((100475)) );
+        }
+
+        #[test]
         fn accrue_credit_repayment_price() {
             let (mut app, cdp_contract, lq_contract) =
                 proper_instantiate(false, false, true, true);
@@ -3063,7 +3329,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: Some( Decimal::percent(1) ),
@@ -3235,7 +3500,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: Some( Decimal::percent(1) ),
@@ -3382,7 +3646,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: Some(Decimal::percent(10)),
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: Some( Decimal::percent(1) ),
@@ -3475,7 +3738,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -3505,7 +3767,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -3596,7 +3857,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: Some(Decimal::percent(10)),
-                desired_debt_cap_util: Some(Decimal::percent(80)),
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -3718,9 +3978,26 @@ mod tests {
                 res,
                 String::from("debit: 0/0, base: 0/0, quote: 0/0, lp_denom: 249995/249995, ")
             );
-                             
+              
+            //Lower debt cap to test Slope 2
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_ids: None,
+                liquidity_multiplier: Some(Decimal::percent(400)),
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
            
-            //Check lp_denom rate is at the top of Slope 2 due to debt at the cap (100%)
+            //Check lp_denom rate is in Slope 2 due to debt above the cap
             let query_msg = QueryMsg::GetCollateralInterest { };
             let res: CollateralInterestResponse = app
                 .wrap()
@@ -3728,7 +4005,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                res.rates[3].1.to_string(),
-                String::from("3.499999986")
+                String::from("5.416666632")
             );
 
         }
@@ -3763,7 +4040,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: Some(Decimal::percent(10)),
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -3874,7 +4150,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -4001,7 +4276,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -4116,7 +4390,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -4223,7 +4496,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -4334,7 +4606,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -4450,7 +4721,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -4568,7 +4838,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -4598,7 +4867,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -4690,7 +4958,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: Some(Decimal::percent(10)),
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -4807,7 +5074,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -4837,7 +5103,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -4929,7 +5194,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: Some(Decimal::percent(10)),
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -4989,12 +5253,12 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97655));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97600));
 
             //Assert sell wall was sent assets
             assert_eq!(
                 app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-                vec![coin(861, "base"), coin(861, "quote")]
+                vec![coin(805, "base"), coin(805, "quote")]
             );
 
             //Assert 1% fee was sent.
@@ -5015,7 +5279,7 @@ mod tests {
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(1055, "lp_denom")]
+                vec![coin(1166, "lp_denom")]
             );            
             //Assert SP wasn't sent any due to the Error
             assert_eq!(
@@ -5047,7 +5311,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -5077,7 +5340,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -5169,7 +5431,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: Some(Decimal::percent(10)),
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -5287,7 +5548,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -5317,7 +5577,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -5409,7 +5668,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: Some(Decimal::percent(10)),
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -5531,7 +5789,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -5668,7 +5925,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -5688,6 +5944,8 @@ mod tests {
                 debt_auction: None,
                 staking_contract: None,
                 oracle_contract: None,
+                liquidity_contract: None,
+                discounts_contract: None,
                 liq_fee: None,
                 debt_minimum: Some(Uint128::new(500u128)),
                 base_debt_cap_multiplier: None,
@@ -5696,7 +5954,6 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-                liquidity_contract: None,
             });
 
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -5819,7 +6076,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -5849,7 +6105,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -5938,7 +6193,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -6098,7 +6352,6 @@ mod tests {
                     }
                 ]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -6176,7 +6429,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -6272,7 +6524,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -6405,7 +6656,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -6517,7 +6767,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -6608,7 +6857,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -6638,7 +6886,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -6727,7 +6974,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -6837,7 +7083,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -6867,7 +7112,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -6956,7 +7200,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -7088,7 +7331,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -7118,7 +7360,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -7207,7 +7448,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -7290,7 +7530,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -7379,6 +7618,7 @@ mod tests {
                 staking_contract: Some(String::from("new_staking")),  
                 oracle_contract: Some(String::from("new_oracle")),  
                 liquidity_contract: Some(String::from("new_liq_check")),
+                discounts_contract: Some( String::from("new_dc")),
                 liq_fee: Some(Decimal::percent(13)), 
                 debt_minimum: Some(Uint128::zero()), 
                 base_debt_cap_multiplier: Some(Uint128::new(48497)), 
@@ -7407,6 +7647,7 @@ mod tests {
                     staking_contract: Some( Addr::unchecked("new_staking")),  
                     oracle_contract: Some( Addr::unchecked("new_oracle")),  
                     liquidity_contract: Some( Addr::unchecked("new_liq_check")),
+                    discounts_contract: Some( Addr::unchecked("new_dc")),
                     liq_fee: Decimal::percent(13), 
                     debt_minimum: Uint128::zero(), 
                     base_debt_cap_multiplier: Uint128::new(48497), 
@@ -7508,7 +7749,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -7609,7 +7849,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -7687,7 +7926,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -7803,7 +8041,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -7928,7 +8165,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -7964,7 +8200,6 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -8094,7 +8329,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -8124,7 +8358,6 @@ mod tests {
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
@@ -8215,7 +8448,6 @@ mod tests {
                     },
                 ]),
                 base_interest_rate: None,
-                desired_debt_cap_util: None,
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,

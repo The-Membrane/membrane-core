@@ -362,13 +362,13 @@ pub fn accrue(
         Decimal::from_ratio(position.credit_amount, Uint128::new(1)), 
         rate_of_change
     ) * Uint128::new(1u128);
-    
+        
     if new_credit_amount > position.credit_amount {
         //Calc accrued interest
         let mut accrued_interest = new_credit_amount - position.credit_amount;
 
         if let Some(contract) = config.clone().discounts_contract {
-             //Get User's discounted interest
+            //Get User's discounted interest
             accrued_interest = get_discounted_interest(querier, contract.to_string(), user, accrued_interest.clone())?;
         }
 
@@ -415,7 +415,7 @@ fn get_discounted_interest(
         let percent_of_interest = decimal_subtraction(Decimal::one(), discount);
         decimal_multiplication(Decimal::from_ratio(nondiscounted_interest, Uint128::one()), percent_of_interest)
     } * Uint128::one();
-
+    
     Ok(discounted_interest)
 }
 

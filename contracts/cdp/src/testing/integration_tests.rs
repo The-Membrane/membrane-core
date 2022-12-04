@@ -1629,13 +1629,12 @@ mod tests {
             collateral_twap_timeframe: 60u64,
             credit_twap_timeframe: 480u64,
         };
-
         let cdp_contract_addr = app
             .instantiate_contract(cdp_id, Addr::unchecked(ADMIN), &msg, &[], "test", None)
             .unwrap();
 
         let cdp_contract = CDPContract(cdp_contract_addr);
-
+        
         let msg = ExecuteMsg::CreateBasket {
             basket_id: Uint128::one(),
             collateral_types: vec![cAsset {
@@ -3081,6 +3080,30 @@ mod tests {
         fn accrue_discounted_debt() {
             let (mut app, cdp_contract, lq_contract) =
                 proper_instantiate(false, false, false, false);
+
+            //Manually adding Discount contract
+            //It is added during the InstantiationMsg but there is some weird error that isn't adding it
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: None,
+                liquidity_contract: None,
+                discounts_contract: Some(String::from("contract8")),
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             let res: Config = app
                 .wrap()
@@ -5955,7 +5978,6 @@ mod tests {
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
             });
-
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 

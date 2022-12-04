@@ -805,7 +805,7 @@ pub fn liq_repay(
                 distribution_assets.push(asset.clone());
                 coins.push(asset_to_coin(asset)?);
             },            
-            AssetInfo::Token { address } => { return Err(ContractError::CustomError { val: String::from("Collateral assets are supposed to be native") }) }
+            AssetInfo::Token { address: _ } => { return Err(ContractError::CustomError { val: String::from("Collateral assets are supposed to be native") }) }
         }
     }
 

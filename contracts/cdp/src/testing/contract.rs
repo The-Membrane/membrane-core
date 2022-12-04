@@ -48,7 +48,7 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
-
+    
     let mut config = Config {
         liq_fee: msg.liq_fee,
         owner: info.sender.clone(),
@@ -68,7 +68,6 @@ pub fn instantiate(
         collateral_twap_timeframe: msg.collateral_twap_timeframe,
         credit_twap_timeframe: msg.credit_twap_timeframe,
     };
-
     //Set optional config parameters
     if let Some(address) = msg.owner {
         config.owner = deps.api.addr_validate(&address)?;
@@ -97,7 +96,6 @@ pub fn instantiate(
     if let Some(address) = msg.discounts_contract {
         config.discounts_contract = Some(deps.api.addr_validate(&address)?);
     };
-    
     CONFIG.save(deps.storage, &config)?;
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;

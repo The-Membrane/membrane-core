@@ -72,9 +72,7 @@ mod tests {
             position_id: Uint128,
             position_owner: String,
         },
-        GetBasket {
-            basket_id: Uint128,
-        },
+        GetBasket {},
     }
 
     pub fn cdp_contract() -> Box<dyn Contract<Empty>> {
@@ -159,15 +157,15 @@ mod tests {
                             avg_max_LTV: Decimal::zero(),
                         })?)
                     },
-                    CDP_MockQueryMsg::GetBasket { basket_id } => {
+                    CDP_MockQueryMsg::GetBasket { } => {
                         Ok(to_binary(&Basket {
-                            basket_id: String::from(""),
-                            current_position_id: String::from(""),
+                            basket_id: Uint128::zero(),
+                            current_position_id: Uint128::zero(),
                             collateral_types: vec![],
                             collateral_supply_caps: vec![],
                             credit_asset: Asset { info: AssetInfo::NativeToken { denom: String::from("credit") }, amount: Uint128::zero() },
                             credit_price: Decimal::zero(),
-                            liq_queue: String::from(""),
+                            liq_queue: None,
                             base_interest_rate: Decimal::zero(),
                             liquidity_multiplier: Decimal::zero(),
                             pending_revenue: Uint128::zero(),

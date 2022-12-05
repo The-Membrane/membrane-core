@@ -5,6 +5,7 @@
 pub mod contract;
 mod error;
 pub mod state;
+mod helpers;
 
 #[cfg(test)]
 #[allow(unused_variables)]

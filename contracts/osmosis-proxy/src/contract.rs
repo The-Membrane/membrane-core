@@ -98,6 +98,7 @@ pub fn execute(
             positions_contract,
             liquidity_contract,
         } => update_config(deps, info, owner, debt_auction, positions_contract, liquidity_contract, add_owner),
+        ExecuteMsg::EditOwner { owner, liquidity_multiplier, non_token_contract_auth } => Ok(Response::new())
     }
 }
 
@@ -205,14 +206,19 @@ pub fn create_denom(
     let msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: subdenom.clone() };
     let create_denom_msg = SubMsg::reply_on_success(msg, CREATE_DENOM_REPLY_ID );
 
+    
+            //Comment for production
+            TOKENS.save(deps.storage, String::from("factory/cdt/#1"), 
+            &TokenInfo { current_supply: Uint128::zero(), max_supply: None })?;
+    
     //Save PendingTokenInfo
     PENDING.save(deps.storage, &PendingTokenInfo { subdenom: subdenom.clone(), max_supply })?;
 
     let res = Response::new()
         .add_attribute("method", "create_denom")
         .add_attribute("sub_denom", subdenom)
-        .add_attribute("max_supply", max_supply.unwrap_or_else(Uint128::zero))
-        .add_submessage(create_denom_msg);
+        .add_attribute("max_supply", max_supply.unwrap_or_else(Uint128::zero));
+        //.add_submessage(create_denom_msg);
 
     Ok(res)
 }
@@ -394,7 +400,7 @@ pub fn mint_tokens(
     )?;
 
     //Create mint msg
-    let mint_tokens_msg = TokenFactory::MsgMint{
+    let mint_tokens_msg: CosmosMsg = TokenFactory::MsgMint{
         sender: env.contract.address.to_string(), 
         amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin{
             denom: denom.clone(),
@@ -403,7 +409,7 @@ pub fn mint_tokens(
     }.into();    
 
     //Send minted assets to mint_to_address
-    let send_msg = CosmosMsg::Bank(BankMsg::Send { 
+    let send_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send { 
         to_address: mint_to_address.clone(),
         amount: coins(amount.u128(), denom.clone()),
     });
@@ -422,7 +428,7 @@ pub fn mint_tokens(
             .add_attribute("denom", denom)
             .add_attribute("amount", amount)
             .add_attribute("mint_to_address", mint_to_address)
-            .add_messages(vec![mint_tokens_msg, send_msg])
+            //.add_messages(vec![mint_tokens_msg, send_msg])
             ;
     }
 
@@ -600,6 +606,7 @@ fn handle_create_denom_reply(
                 denom
             } else { return Err(StdError::GenericErr { msg: String::from("Cannot find created denom") }) };
            
+
             //Save Denom Info
             TOKENS.save(
                 deps.storage,

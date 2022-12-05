@@ -2,9 +2,10 @@ use cosmwasm_std::{Uint128, Decimal, Storage, QuerierWrapper, Env, StdResult, St
 
 use membrane::system_discounts::QueryMsg as DiscountQueryMsg;
 use membrane::types::{Basket, cAsset, SupplyCap, Position, AssetInfo, };
+use membrane::helpers::get_asset_liquidity;
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 
-use crate::positions::{get_cAsset_ratios, get_asset_liquidity, get_asset_values};
+use crate::positions::{get_cAsset_ratios, get_asset_values};
 use crate::query::{get_asset_values_imut, get_cAsset_ratios_imut};
 use crate::risk_engine::{get_basket_debt_caps_imut, get_basket_debt_caps, update_basket_debt};
 use crate::state::CONFIG;
@@ -250,7 +251,7 @@ pub fn accrue(
     ////Controller barriers to reduce risk of manipulation///
     //Liquidity above 2M
     //At least 3% of total supply as liquidity
-    let liquidity = get_asset_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?;
+    let liquidity = get_asset_liquidity(querier, config.clone().liquidity_contract.unwrap().to_string(), basket.clone().credit_asset.info)?;
     
     //Now get % of supply
     let current_supply = basket.credit_asset.amount;
@@ -442,7 +443,7 @@ pub fn accrue_imut(
     ////Controller barriers to reduce risk of manipulation
     //Liquidity above 2M
     //At least 3% of total supply as liquidity
-    let liquidity = get_asset_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?;
+    let liquidity = get_asset_liquidity(querier, config.clone().liquidity_contract.unwrap().to_string(), basket.clone().credit_asset.info)?;
     
     //Now get % of supply
     let current_supply = basket.credit_asset.amount;

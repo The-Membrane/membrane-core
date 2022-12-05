@@ -13,7 +13,7 @@ use membrane::positions::{Config, ExecuteMsg, EditBasket};
 use membrane::oracle::{AssetResponse, PriceResponse};
 use osmo_bindings::PoolStateResponse;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
-use membrane::liquidity_check::{ExecuteMsg as LiquidityExecuteMsg, QueryMsg as LiquidityQueryMsg};
+use membrane::liquidity_check::ExecuteMsg as LiquidityExecuteMsg;
 use membrane::staking::{ExecuteMsg as Staking_ExecuteMsg, QueryMsg as Staking_QueryMsg, Config as Staking_Config};
 use membrane::oracle::{ExecuteMsg as OracleExecuteMsg, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::{ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg };
@@ -2447,25 +2447,6 @@ pub fn get_stability_pool_liquidity(
             .amount)
     } else {
         Ok(Uint128::zero())
-    }
-}
-
-pub fn get_asset_liquidity(
-    querier: QuerierWrapper,
-    config: Config,
-    asset_info: AssetInfo,
-) -> StdResult<Uint128> {
-    if config.clone().liquidity_contract.is_some() {
-        let total_pooled: Uint128 = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.clone().liquidity_contract.unwrap().to_string(),
-            msg: to_binary(&LiquidityQueryMsg::Liquidity { asset: asset_info })?,
-        }))?;
-
-        Ok(total_pooled)
-    } else {
-        return Err(StdError::GenericErr {
-            msg: "No proxy contract setup".to_string(),
-        });
     }
 }
 

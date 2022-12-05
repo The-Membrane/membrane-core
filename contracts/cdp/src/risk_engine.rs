@@ -1,11 +1,13 @@
 
 use cosmwasm_std::{Decimal, Uint128, StdResult, Env, QuerierWrapper, Storage};
-use membrane::math::{decimal_multiplication}; 
+
 use membrane::positions::Config;
 use membrane::types::{Basket, Asset, cAsset, SupplyCap, AssetInfo};
+use membrane::helpers::get_asset_liquidity;
+use membrane::math::decimal_multiplication; 
 
 use crate::state::{CONFIG, BASKET};
-use crate::positions::{get_stability_pool_liquidity, get_asset_liquidity, get_cAsset_ratios};
+use crate::positions::{get_stability_pool_liquidity, get_cAsset_ratios};
 use crate::query::get_cAsset_ratios_imut;
 use crate::error::ContractError;
 
@@ -88,7 +90,7 @@ pub fn update_basket_tally(
             .collateral_supply_caps
             .into_iter()
             .enumerate()
-            .find(|(x, cap)| cap.asset_info.equal(&cAsset.asset.info))
+            .find(|(_x, cap)| cap.asset_info.equal(&cAsset.asset.info))
         {
             if add_to_cAsset {
                 cap.current_supply += cAsset.asset.amount;
@@ -103,7 +105,7 @@ pub fn update_basket_tally(
     
     }
     
-    let (mut new_basket_ratios, _) =
+    let (new_basket_ratios, _) =
         get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config.clone())?;
 
  
@@ -135,7 +137,7 @@ pub fn update_basket_tally(
             
             //Find & add ratio for each asset
             for asset in multi_asset_cap.clone().assets{
-                if let Some((i, _cap)) = basket.clone().collateral_supply_caps.into_iter().enumerate().find(|(i, cap)| cap.asset_info.equal(&asset)){
+                if let Some((i, _cap)) = basket.clone().collateral_supply_caps.into_iter().enumerate().find(|(_i, cap)| cap.asset_info.equal(&asset)){
                     total_ratio += new_basket_ratios[i];
                 }
             }
@@ -178,7 +180,7 @@ pub fn get_basket_debt_caps(
 
     //Get the base debt cap
     let mut debt_cap =
-        get_asset_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?
+        get_asset_liquidity(querier, config.clone().liquidity_contract.unwrap().to_string(), basket.clone().credit_asset.info)?
             * basket.liquidity_multiplier;
 
     //Get SP liquidity
@@ -451,7 +453,7 @@ pub fn get_basket_debt_caps_imut(
     
     //Get the base debt cap
     let mut debt_cap =
-        get_asset_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?
+        get_asset_liquidity(querier, config.clone().liquidity_contract.unwrap().to_string(), basket.clone().credit_asset.info)?
             * basket.liquidity_multiplier;
 
     //Get SP liquidity

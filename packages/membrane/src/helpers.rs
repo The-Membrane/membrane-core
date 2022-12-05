@@ -4,8 +4,22 @@ use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool}; 
 use crate::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use crate::osmosis_proxy::QueryMsg as OsmoQueryMsg;
+use crate::liquidity_check::QueryMsg as LiquidityQueryMsg;
 use crate::stability_pool::QueryMsg as SP_QueryMsg;
 
+pub fn get_asset_liquidity(
+    querier: QuerierWrapper,
+    liquidity_contract: String,
+    asset_info: AssetInfo,
+) -> StdResult<Uint128> {
+    let total_pooled: Uint128 = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: liquidity_contract,
+        msg: to_binary(&LiquidityQueryMsg::Liquidity { asset: asset_info })?,
+    }))?;
+
+    Ok(total_pooled)
+   
+}
 
 pub fn pool_query_and_exit(
     querier: QuerierWrapper,

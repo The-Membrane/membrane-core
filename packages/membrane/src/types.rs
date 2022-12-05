@@ -403,6 +403,15 @@ pub struct DebtTokenAsset {
     pub basket_id: Uint128,
 }
 
+///////Token Handler
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct Owner {
+    pub owner: Addr,
+    pub total_minted: Uint128, //for CDP mints
+    pub liquidity_multiplier: Option<Decimal>, //for CDP mints
+    pub non_token_contract_auth: bool,
+}
+
 //////////Possibly switching to cw-asset//////
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

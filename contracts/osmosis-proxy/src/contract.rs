@@ -2,15 +2,16 @@
 //https://github.com/osmosis-labs/bindings/blob/main/contracts/tokenfactory
 
 use std::convert::TryInto;
-use std::str::FromStr;
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Addr, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper,
-    QueryRequest, Reply, Response, StdError, StdResult, Uint128, SubMsg, CosmosMsg, BankMsg, Coin, coins,
+    attr, to_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo,
+    Reply, Response, StdError, StdResult, Uint128, SubMsg, CosmosMsg, BankMsg, coins, Decimal,
 };
 use cw2::set_contract_version;
+use membrane::helpers::get_asset_liquidity;
+use membrane::math::decimal_multiplication;
 use osmosis_std::types::osmosis::gamm::v1beta1::GammQuerier;
 
 use crate::error::TokenFactoryError;
@@ -18,7 +19,8 @@ use crate::state::{TokenInfo, CONFIG, TOKENS, PENDING, PendingTokenInfo};
 use membrane::osmosis_proxy::{
     Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse,
 };
-use membrane::types::{Pool, PoolStateResponse};
+use membrane::positions::{QueryMsg as CDPQueryMsg};
+use membrane::types::{Pool, PoolStateResponse, Basket, Owner};
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, QueryDenomsFromCreatorResponse};
 
 // version info for migration info
@@ -35,8 +37,16 @@ pub fn instantiate(
     _msg: InstantiateMsg,
 ) -> Result<Response, TokenFactoryError> {
     let config = Config {
-        owners: vec![info.sender.clone()],
+        owners: vec![
+            Owner {
+                owner: info.sender.clone(),
+                total_minted: Uint128::zero(),
+                liquidity_multiplier: Some(Decimal::zero()),
+                non_token_contract_auth: true, 
+            }],
         debt_auction: None,
+        positions_contract: None,
+        liquidity_contract: None,
     };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
@@ -85,70 +95,88 @@ pub fn execute(
             owner,
             add_owner,
             debt_auction,
-        } => update_config(deps, info, owner, debt_auction, add_owner),
+            positions_contract,
+            liquidity_contract,
+        } => update_config(deps, info, owner, debt_auction, positions_contract, liquidity_contract, add_owner),
     }
 }
 
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
-    owner: Option<String>,
+    owners: Option<Vec<String>>,
     debt_auction: Option<String>,
+    positions_contract: Option<String>,
+    liquidity_contract: Option<String>,
     add_owner: bool,
 ) -> Result<Response, TokenFactoryError> {
-
     let mut config = CONFIG.load(deps.storage)?;
 
-    let mut attrs = vec![
-        attr("method", "edit_owners"),
-        attr("add_owner", add_owner.to_string()),
-    ];
-
-    if !validate_authority(config.clone(), info) {
+    let (authorized, owner_index) = validate_authority(config.clone(), info.clone());
+    if !authorized || !config.owners[owner_index].non_token_contract_auth {
         return Err(TokenFactoryError::Unauthorized {});
     }
 
     //Edit Owner
-    if let Some(owner) = owner {
+    if let Some(owners) = owners {
         if add_owner {
-            config.owners.push(deps.api.addr_validate(&owner)?);
+            //Add all new owners
+            for owner in owners {
+                config.owners.push( Owner {
+                    owner: deps.api.addr_validate(&owner)?,
+                    total_minted: Uint128::zero(),
+                    liquidity_multiplier: Some(Decimal::zero()),
+                    non_token_contract_auth: true,
+                });
+            }
         } else {
-            deps.api.addr_validate(&owner)?;
-            //Filter out owner
-            config.owners = config
-                .clone()
-                .owners
-                .into_iter()
-                .filter(|stored_owner| *stored_owner != owner)
-                .collect::<Vec<Addr>>();
+            //Filter out owners
+            for owner in owners {
+                deps.api.addr_validate(&owner)?;
+                config.owners = config
+                    .clone()
+                    .owners
+                    .into_iter()
+                    .filter(|stored_owner| stored_owner.owner.to_string() != owner)
+                    .collect::<Vec<Owner>>();
+            }
         }
-        attrs.push(attr("owner", owner));
     }
 
-    //Edit Debt Auction
+    //Edit Contracts
     if let Some(debt_auction) = debt_auction {
         config.debt_auction = Some(deps.api.addr_validate(&debt_auction)?);
+    }
+    if let Some(positions_contract) = positions_contract {
+        config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
+    }
+    if let Some(liquidity_contract) = liquidity_contract {
+        config.liquidity_contract = Some(deps.api.addr_validate(&liquidity_contract)?);
     }
 
     //Save Config
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::new().add_attributes(attrs))
+    Ok(Response::new().add_attributes(vec![
+        attr("method", "update_config"),
+        attr("updated_config", format!("{:?}", config)),
+        ]))
 }
 
-fn validate_authority(config: Config, info: MessageInfo) -> bool {
+fn validate_authority(config: Config, info: MessageInfo) -> (bool, usize) {
     //Owners && Debt Auction have contract authority
     match config
         .owners
         .into_iter()
-        .find(|owner| *owner == info.sender)
+        .enumerate()
+        .find(|(_i, owner)| owner.owner == info.sender)
     {
-        Some(_owner) => true,
+        Some((index, _owner)) => (true, index),
         None => {
             if let Some(debt_auction) = config.debt_auction {
-                info.sender == debt_auction
+                (info.sender == debt_auction, 0)
             } else {
-                false
+                (false, 0)
             }
         }
     }
@@ -164,7 +192,8 @@ pub fn create_denom(
     let config = CONFIG.load(deps.storage)?;
 
     //Assert Authority
-    if !validate_authority(config, info) {
+    let (authorized, owner_index) = validate_authority(config.clone(), info.clone());
+    if !authorized || !config.owners[owner_index].non_token_contract_auth {
         return Err(TokenFactoryError::Unauthorized {});
     }
 
@@ -198,13 +227,14 @@ pub fn change_admin(
 
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
-    if !validate_authority(config, info) {
+    let (authorized, owner_index) = validate_authority(config.clone(), info.clone());
+    if !authorized || !config.owners[owner_index].non_token_contract_auth {
         return Err(TokenFactoryError::Unauthorized {});
     }
 
     deps.api.addr_validate(&new_admin_address)?;
 
-    validate_denom(deps.querier, denom.clone())?;
+    validate_denom(denom.clone())?;
 
     let change_admin_msg = TokenFactory::MsgChangeAdmin {
         denom: denom.clone(),
@@ -230,7 +260,8 @@ fn edit_token_max(
 
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
-    if !validate_authority(config, info) {
+    let (authorized, owner_index) = validate_authority(config.clone(), info.clone());
+    if !authorized || !config.owners[owner_index].non_token_contract_auth {
         return Err(TokenFactoryError::Unauthorized {});
     }
 
@@ -271,12 +302,14 @@ pub fn mint_tokens(
     amount: Uint128,
     mint_to_address: String,
 ) -> Result<Response, TokenFactoryError> {
+    let mut config = CONFIG.load(deps.storage)?;
 
-    let config = CONFIG.load(deps.storage)?;
     //Assert Authority
-    if !validate_authority(config.clone(), info.clone()) {
+    let (authorized, owner_index) = validate_authority(config.clone(), info.clone());
+    if !authorized {
         return Err(TokenFactoryError::Unauthorized {});
     }
+    
 
     deps.api.addr_validate(&mint_to_address)?;
 
@@ -284,15 +317,51 @@ pub fn mint_tokens(
         return Result::Err(TokenFactoryError::ZeroAmount {});
     }
 
-    validate_denom(deps.querier, denom.clone())?;
+    validate_denom(denom.clone())?;
 
     //Debt Auction can mint over max supply
     let mut mint_allowed = false;
-    if let Some(debt_auction) = config.debt_auction {
+    if let Some(debt_auction) = config.clone().debt_auction {
         if info.sender == debt_auction {
             mint_allowed = true;
         }
     };
+
+    if let Some(positions_contract) = config.clone().positions_contract { 
+        //Set owner
+        let mut owner = config.clone().owners[owner_index].clone();
+        //Get CDP denom
+        let basket = deps.querier.query_wasm_smart::<Basket>(positions_contract, &CDPQueryMsg::GetBasket {  })?;
+
+        //If minting the CDP asset
+        if denom == basket.clone().credit_asset.info.to_string() {            
+            //If there is a mint limit on the owner
+            if let Some(liquidity_multiplier) = owner.liquidity_multiplier {
+
+                //Get liquidity 
+                let cdp_liquidity = get_asset_liquidity(
+                    deps.querier, 
+                    config.clone().liquidity_contract.unwrap().to_string(), 
+                    basket.clone().credit_asset.info)?;
+                
+                //Calculate Owner's cap 
+                let cap = decimal_multiplication(liquidity_multiplier,  Decimal::from_ratio(cdp_liquidity, Uint128::one()))
+                * Uint128::one();
+
+                //Assert mints are below the owner's LM * liquidity
+                if owner.total_minted + amount <= cap {
+                    //Update total_minted
+                    owner.total_minted += amount;
+                } else { return Err(TokenFactoryError::MintCapped {  }) }
+            } else {
+                owner.total_minted += amount;
+            }
+        }
+        //Save Owner
+        config.owners[owner_index] = owner;
+        CONFIG.save(deps.storage, &config)?;
+    }
+   
 
     //Update Token Supply
     TOKENS.update(
@@ -367,11 +436,12 @@ pub fn burn_tokens(
     denom: String,
     amount: Uint128,
     burn_from_address: String,
-) -> Result<Response, TokenFactoryError> {
-    
-    let config = CONFIG.load(deps.storage)?;
+) -> Result<Response, TokenFactoryError> {    
+    let mut config = CONFIG.load(deps.storage)?;
+
     //Assert Authority
-    if !validate_authority(config, info) {
+    let (authorized, owner_index) = validate_authority(config.clone(), info.clone());
+    if !authorized {
         return Err(TokenFactoryError::Unauthorized {});
     }
 
@@ -379,7 +449,15 @@ pub fn burn_tokens(
         return Result::Err(TokenFactoryError::ZeroAmount {});
     }
 
-    validate_denom(deps.querier, denom.clone())?;
+    validate_denom(denom.clone())?;
+
+    //Update Owner total_mints
+    config.owners[owner_index].total_minted = match config.owners[owner_index].total_minted.checked_sub(amount){
+        Ok(diff) => diff,
+        Err(err) => return Err(TokenFactoryError::CustomError { val: err.to_string() })
+    };
+    CONFIG.save(deps.storage, &config)?;
+
 
     //Update Token Supply
     TOKENS.update(
@@ -471,10 +549,7 @@ fn get_denom(deps: Deps, creator_addr: String, subdenom: String) -> StdResult<Ge
     })
 }
 
-pub fn validate_denom(
-    querier: QuerierWrapper,
-    denom: String,
-) -> Result<(), TokenFactoryError> {
+pub fn validate_denom( denom: String ) -> Result<(), TokenFactoryError> {
     let denom_to_split = denom.clone();
     let tokenfactory_denom_parts: Vec<&str> = denom_to_split.split('/').collect();
 
@@ -489,8 +564,6 @@ pub fn validate_denom(
     }
 
     let prefix = tokenfactory_denom_parts[0];
-    let creator_address = tokenfactory_denom_parts[1];
-    let subdenom = tokenfactory_denom_parts[2];
 
     if !prefix.eq_ignore_ascii_case("factory") {
         return Result::Err(TokenFactoryError::InvalidDenom {
@@ -516,7 +589,7 @@ fn handle_create_denom_reply(
     msg: Reply,
 ) -> StdResult<Response> {
     match msg.result.into_result() {
-        Ok(result) => {
+        Ok(_result) => {
             //Load Pending TokenInfo
             let PendingTokenInfo { subdenom, max_supply} = PENDING.load(deps.storage)?;
 

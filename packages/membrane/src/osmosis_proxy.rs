@@ -11,6 +11,7 @@ pub struct InstantiateMsg {}
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
+    ///Osmosis Msgs
     CreateDenom {
         subdenom: String,        
         max_supply: Option<Uint128>,
@@ -29,6 +30,7 @@ pub enum ExecuteMsg {
         amount: Uint128,
         burn_from_address: String,
     },
+    ///
     EditTokenMaxSupply {
         denom: String,
         max_supply: Uint128,

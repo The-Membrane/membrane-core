@@ -209,7 +209,7 @@ mod tests {
         use super::*;
 
         #[test]
-        fn mint_burn_with_owner_limits() {
+        fn mint_with_owner_limits() {
             let (mut app, op_contract) = proper_instantiate();
 
             //Create Denom
@@ -225,16 +225,22 @@ mod tests {
             let cosmos_msg = op_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap_err();
 
-            ///
-            /// //
-            /// 
+            //Edit Owner's liquidity multipler
+            let msg = ExecuteMsg::EditOwner { owner: String::from(ADMIN), liquidity_multiplier: Some(Decimal::one()), non_token_contract_auth: None };
+            let cosmos_msg = op_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Mint tokens as ADMIN: Success
+            let msg = ExecuteMsg::MintTokens { denom: String::from("factory/cdt/#1"), amount: 100u128.into(), mint_to_address: String::from("creator") };
+            let cosmos_msg = op_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Assert Config
             let expected_config = Config {
                 owners: vec![ Owner {
                     owner: Addr::unchecked(ADMIN),
-                    total_minted: Uint128::zero(),
-                    liquidity_multiplier: Some(Decimal::zero()),
+                    total_minted: Uint128::new(100),
+                    liquidity_multiplier: Some(Decimal::one()),
                     non_token_contract_auth: true, 
                 }],
                 debt_auction: Some(Addr::unchecked("debt_auction")),
@@ -253,7 +259,7 @@ mod tests {
                 expected_config
             );
 
-            //Query contract to assert position_info was saved to the User
+            
             
         }
     }

@@ -98,7 +98,9 @@ pub fn execute(
             positions_contract,
             liquidity_contract,
         } => update_config(deps, info, owner, debt_auction, positions_contract, liquidity_contract, add_owner),
-        ExecuteMsg::EditOwner { owner, liquidity_multiplier, non_token_contract_auth } => Ok(Response::new())
+        ExecuteMsg::EditOwner { owner, liquidity_multiplier, non_token_contract_auth } => {
+            edit_owner(deps, info, owner, liquidity_multiplier, non_token_contract_auth)
+        }
     }
 }
 
@@ -162,6 +164,45 @@ fn update_config(
         attr("method", "update_config"),
         attr("updated_config", format!("{:?}", config)),
         ]))
+}
+
+fn edit_owner(
+    deps: DepsMut,
+    info: MessageInfo,
+    owner: String,
+    liquidity_multiplier: Option<Decimal>,
+    non_token_contract_auth: Option<bool>,
+) -> Result<Response, TokenFactoryError>{
+    let mut config = CONFIG.load(deps.storage)?;
+
+    //Assert Authority
+    let (authorized, owner_index) = validate_authority(config.clone(), info.clone());
+    if !authorized || !config.owners[owner_index].non_token_contract_auth {
+        return Err(TokenFactoryError::Unauthorized {});
+    }
+    let valid_owner_addr = deps.api.addr_validate(&owner)?;
+
+    //Find Owner to edit
+    if let Some((owner_index, mut owner)) = config.clone().owners
+        .into_iter()
+        .enumerate()
+        .find(|(_i, owner)| owner.owner == valid_owner_addr){
+        //Update Optionals
+        if liquidity_multiplier.clone().is_some() {
+            owner.liquidity_multiplier = liquidity_multiplier;
+        }
+        if let Some(toggle) = non_token_contract_auth.clone() {
+            owner.non_token_contract_auth = toggle;
+        }
+
+        //Update Owner
+        config.owners[owner_index] = owner;
+    } else { return Err(TokenFactoryError::CustomError { val: String::from("Non-existent owner address") }) }
+
+    //Save edited Owner
+    CONFIG.save(deps.storage, &config)?;
+
+    Ok(Response::new().add_attribute("edited_owner", format!("{:?}", config.owners[owner_index])))
 }
 
 fn validate_authority(config: Config, info: MessageInfo) -> (bool, usize) {

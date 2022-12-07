@@ -130,7 +130,6 @@ pub fn query_liquidatible(deps: Deps, amount: Decimal) -> StdResult<Liquidatible
         })
     }
     
-    
 }
 
 pub fn query_deposits(

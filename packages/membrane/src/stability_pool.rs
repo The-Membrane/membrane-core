@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Decimal, Uint128, Addr};
 
-use crate::types::{Asset, AssetInfo, AssetPool, Deposit, UserInfo};
+use crate::types::{Asset, AssetPool, Deposit, UserInfo};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {

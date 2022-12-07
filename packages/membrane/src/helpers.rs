@@ -7,6 +7,9 @@ use crate::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use crate::liquidity_check::QueryMsg as LiquidityQueryMsg;
 use crate::stability_pool::QueryMsg as SP_QueryMsg;
 
+//Constants
+pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
+
 pub fn get_asset_liquidity(
     querier: QuerierWrapper,
     liquidity_contract: String,
@@ -17,8 +20,7 @@ pub fn get_asset_liquidity(
         msg: to_binary(&LiquidityQueryMsg::Liquidity { asset: asset_info })?,
     }))?;
 
-    Ok(total_pooled)
-   
+    Ok(total_pooled)   
 }
 
 pub fn pool_query_and_exit(
@@ -183,4 +185,13 @@ pub fn validate_position_owner(
         info.sender
     };
     Ok(valid_recipient)
+}
+
+pub fn accumulate_interest(base: Uint128, rate: Decimal, time_elapsed: u64) -> StdResult<Uint128> {
+    let applied_rate = rate.checked_mul(Decimal::from_ratio(
+        Uint128::from(time_elapsed),
+        Uint128::from(SECONDS_PER_YEAR),
+    ))?;
+
+    Ok(base * applied_rate)
 }

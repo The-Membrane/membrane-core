@@ -1214,8 +1214,8 @@ pub fn create_basket(
                 deps.querier
                     .query::<AssetResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                         contract_addr: config.clone().oracle_contract.unwrap().to_string(),
-                        msg: to_binary(&OracleQueryMsg::Asset {
-                            asset_info: asset.clone().asset.info,
+                        msg: to_binary(&OracleQueryMsg::Assets {
+                            asset_infos: vec![asset.clone().asset.info],
                         })?,
                     }))?;
 
@@ -1476,8 +1476,8 @@ pub fn edit_basket(
                 deps.querier
                     .query::<AssetResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                         contract_addr: config.clone().oracle_contract.unwrap().to_string(),
-                        msg: to_binary(&OracleQueryMsg::Asset {
-                            asset_info: new_cAsset.clone().asset.info,
+                        msg: to_binary(&OracleQueryMsg::Assets {
+                            asset_infos: vec![asset.clone().asset.info],
                         })?,
                     }))?;
 

@@ -1477,7 +1477,7 @@ pub fn edit_basket(
                     .query::<AssetResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                         contract_addr: config.clone().oracle_contract.unwrap().to_string(),
                         msg: to_binary(&OracleQueryMsg::Assets {
-                            asset_infos: vec![asset.clone().asset.info],
+                            asset_infos: vec![new_cAsset.clone().asset.info],
                         })?,
                     }))?;
 

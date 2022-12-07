@@ -108,30 +108,30 @@ pub enum CallbackMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
-    GetUserPositions {
-        //All positions from a user
-        user: String,
-        limit: Option<u32>,
-    },
-    GetPosition {
-        //Singular position
-        position_id: Uint128,
-        position_owner: String,
-    },
-    GetBasketPositions {
-        //All positions in a basket
-        start_after: Option<String>,
-        limit: Option<u32>,
-    },
+    // GetUserPositions {
+    //     //All positions from a user
+    //     user: String,
+    //     limit: Option<u32>,
+    // },
+    // GetPosition {
+    //     //Singular position
+    //     position_id: Uint128,
+    //     position_owner: String,
+    // },
+    // GetBasketPositions {
+    //     //All positions in a basket
+    //     start_after: Option<String>,
+    //     limit: Option<u32>,
+    // },
     GetBasket { }, //Singular basket
-    GetBasketDebtCaps { },
-    GetBasketBadDebt { },
-    GetPositionInsolvency {
-        position_id: Uint128,
-        position_owner: String,
-    },
-    GetCreditRedemptionRate { },
-    GetCollateralInterest { },
+    //GetBasketDebtCaps { },
+    //GetBasketBadDebt { },
+    // GetPositionInsolvency {
+    //     position_id: Uint128,
+    //     position_owner: String,
+    // },
+    //GetCreditRate { },
+    //GetCollateralInterest { },
     //Used internally to test state propagation
     Propagation {},
 }

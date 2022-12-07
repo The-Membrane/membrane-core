@@ -469,7 +469,7 @@ pub fn mint_tokens(
             .add_attribute("denom", denom)
             .add_attribute("amount", amount)
             .add_attribute("mint_to_address", mint_to_address)
-            //.add_messages(vec![mint_tokens_msg, send_msg])
+            .add_messages(vec![mint_tokens_msg, send_msg])
             ;
     }
 

@@ -257,9 +257,7 @@ mod tests {
             assert_eq!(
                 config,
                 expected_config
-            );
-
-            
+            );           
             
         }
     }

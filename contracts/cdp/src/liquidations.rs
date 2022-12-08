@@ -763,6 +763,17 @@ fn get_lp_liq_withdraw_msg(
             cAsset_prices[i])
     * Uint128::new(1u128);
 
+    //Remove asset from Position claims
+    update_position_claims(
+        storage,
+        querier,
+        env.clone(),
+        position_id,
+        position_owner_addr.clone(),
+        cAsset.clone().asset.info,
+        lp_liquidate_amount,
+    )?;   
+
     Ok( pool_query_and_exit(
         querier, 
         env, 
@@ -859,6 +870,24 @@ pub fn sell_wall(
             )?;
 
             lp_withdraw_messages.push(msg);            
+        } else {
+
+            //Calc collateral_repay_amount        
+            let collateral_price = cAsset_prices[i];
+            let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[i]);
+            let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price);  
+            //The repay_amount after the split may be greater so the amount used to update claims isn't necessary the same amount that'll get sold
+
+            //Remove assets from Position claims before spliting the LP cAsset to ensure excess claims aren't removed
+            update_position_claims(
+                storage,
+                querier,
+                env.clone(),
+                position_id,
+                position_owner_addr.clone(),
+                cAsset.clone().asset.info,
+                collateral_repay_amount * Uint128::one(),
+            )?;    
         }
     }    
 
@@ -880,24 +909,13 @@ pub fn sell_wall(
     )?;
 
     //Create Router Msgs for each asset
-    //The LP will be sold as pool assets
+    //The LP will be sold as pool assets sp individual ratios may increase
     for (index, ratio) in cAsset_ratios.into_iter().enumerate() {
 
         //Calc collateral_repay_amount        
         let collateral_price = cAsset_prices[index];
         let collateral_repay_value = decimal_multiplication(repay_value, ratio);
-        let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price);
-
-        //Remove assets from Position claims
-        update_position_claims(
-            storage,
-            querier,
-            env.clone(),
-            position_id,
-            position_owner_addr.clone(),
-            collateral_assets[index].clone().asset.info,
-            collateral_repay_amount * Uint128::one(),
-        )?;             
+        let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price);                
 
         let hook_msg = Some(to_binary(&ExecuteMsg::Repay {
             position_id,

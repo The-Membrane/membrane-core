@@ -1,6 +1,6 @@
 # Positions Contract
 
-The Positions contract is used to create multi-collateral backed positions to take out debt & hosts the logic to partially liquidate when insolvent
+The Positions contract is used to create multi-collateral backed positions to take out debt & hosts the logic to liquidate when insolvent
 
 ---
 

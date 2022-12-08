@@ -832,7 +832,7 @@ pub fn sell_wall(
 
     let repay_value = decimal_multiplication(repay_amount.clone(), basket.clone().credit_price);
 
-    //Get cAsset_ratios & prices
+    //Get Pre-Split cAsset_ratios & prices
     let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(storage, env.clone(), querier, collateral_assets.clone(), config.clone())?;   
 
     for (i, cAsset) in collateral_assets
@@ -862,6 +862,25 @@ pub fn sell_wall(
         }
     }    
 
+    //Split LP into assets
+    let collateral_assets = get_LP_pool_cAssets(
+        querier,
+        config.clone(),
+        basket.clone(),
+        collateral_assets,
+    )?;
+
+    //Post-LP Split ratios
+    let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(
+        storage,
+        env.clone(),
+        querier,
+        collateral_assets.clone(),
+        config.clone(),
+    )?;
+
+    //Create Router Msgs for each asset
+    //The LP will be sold as pool assets
     for (index, ratio) in cAsset_ratios.into_iter().enumerate() {
 
         //Calc collateral_repay_amount        

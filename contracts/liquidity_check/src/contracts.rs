@@ -156,7 +156,7 @@ fn remove_asset(
         attr("removed_asset", asset.to_string()),
     ];
 
-    //Add onto object
+    //Remove asset info
     ASSETS.remove(deps.storage, asset.to_string());
 
     Ok(Response::new().add_attributes(attrs))

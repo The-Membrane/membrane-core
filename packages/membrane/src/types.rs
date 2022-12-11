@@ -305,6 +305,13 @@ pub struct MultiAssetSupplyCap {
     pub supply_cap_ratio: Decimal,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct DebtCap {
+    pub collateral: AssetInfo,
+    pub debt_total: Uint128,
+    pub cap: Uint128,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UserInfo {
     pub position_id: Uint128,

@@ -73,7 +73,10 @@ pub enum QueryMsg {
     //Returns ClaimsResponse
     UserClaims { user: String },
     //Returns AssetPool
-    AssetPool { deposit_limit: Option<u32> },
+    AssetPool { 
+        user: Option<String>, 
+        deposit_limit: Option<u32>
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

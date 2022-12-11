@@ -1448,8 +1448,27 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::CapitalAheadOfDeposit { user } => to_binary(&query_capital_ahead_of_deposits(deps, user)?),
         QueryMsg::CheckLiquidatible { amount } => to_binary(&query_liquidatible(deps, amount)?),
         QueryMsg::UserClaims { user } => to_binary(&query_user_claims(deps, user)?),
-        QueryMsg::AssetPool { } => to_binary(&ASSET.load(deps.storage)?),
+        QueryMsg::AssetPool { user, deposit_limit } => to_binary(&query_asset_pool(deps, user, deposit_limit)?),
     }
+}
+
+pub fn query_asset_pool(
+    deps: &dyn Storage,
+    user: Option<String>,
+    deposit_limit: Option<u32>,
+) -> StdResult<AssetPool>{    
+    let mut asset_pool = ASSET.load(deps.storage)?;
+    
+    if let Some(limit) = deposit_limit {
+        asset_pool.deposits = asset_pool.deposits[0..limit];
+    } else if let Some(user) = user {
+        asset_pool.deposits = asset_pool.clone().deposits
+            .into_iter
+            .filter(|deposit| deposit.user.to_string() == user)
+            .collect::Vec<Deposit>();
+    }
+    
+    Ok(asset_pool)    
 }
 
 //Note: This fails if an asset total is sent in two separate Asset objects. Both will be invalidated.

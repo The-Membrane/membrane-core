@@ -20,7 +20,6 @@ pub struct InstantiateMsg {
     pub dex_router: Option<String>,
     pub staking_contract: Option<String>,
     pub oracle_contract: Option<String>,
-    pub interest_revenue_collector: Option<String>,
     pub osmosis_proxy: Option<String>,
     pub debt_auction: Option<String>,
     pub liquidity_contract: Option<String>,
@@ -63,7 +62,7 @@ pub enum ExecuteMsg {
         send_to: Option<String>,
     },
     MintRevenue {
-        send_to: Option<String>, //Defaults to config.interest_revenue_collector
+        send_to: Option<String>, 
         repay_for: Option<UserInfo>, //Repay for a position w/ the revenue
         amount: Option<Uint128>,
     },
@@ -126,7 +125,7 @@ pub enum QueryMsg {
     GetBasket { }, //Singular basket
     //GetBasketDebtCaps { },
     //GetBasketBadDebt { },
-    // GetPositionInsolvency {
+    //GetPositionInsolvency {
     //     position_id: Uint128,
     //     position_owner: String,
     // },

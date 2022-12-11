@@ -2519,7 +2519,7 @@ pub fn mint_revenue(
             Asset {
                 amount,
                 ..basket.credit_asset.clone()
-            }, //Send_to or interest_collector or config.owner
+            }, 
             deps.api.addr_validate(&send_to.clone())?
         )?);
     } else if let Some(repay_for) = repay_for {

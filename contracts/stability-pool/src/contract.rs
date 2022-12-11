@@ -105,7 +105,7 @@ pub fn execute(
 
             deposit(deps, env, info, user, valid_assets[0].clone())
         }
-        ExecuteMsg::Withdraw { asset } => withdraw(deps, env, info, asset),
+        ExecuteMsg::Withdraw { amount } => withdraw(deps, env, info, amount),
         ExecuteMsg::Restake { restake_amount } => restake(deps, env, info, restake_amount),
         ExecuteMsg::Liquidate { liq_amount } => liquidate(deps, info, liq_amount),
         ExecuteMsg::Claim {} => claim(deps, env, info),
@@ -269,7 +269,7 @@ pub fn withdraw(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    asset: Asset,
+    amount: Uint128,
 ) -> Result<Response, ContractError> {
     
     let config = CONFIG.load(deps.storage)?;
@@ -283,56 +283,55 @@ pub fn withdraw(
 
     let mut asset_pool = ASSET.load(deps.storage)?;
         
-    //If the Asset has a pool, act
-    if asset_pool.credit_asset.info.equal(&asset.info){
-        //This forces withdrawals to be done by the info.sender
-        //so no need to check if the withdrawal is done by the position owner
-        let user_deposits: Vec<Deposit> = asset_pool.clone().deposits
-            .into_iter()
-            .filter(|deposit| deposit.user == info.sender)
-            .collect::<Vec<Deposit>>();
+    
+    //This forces withdrawals to be done by the info.sender
+    //so no need to check if the withdrawal is done by the position owner
+    let user_deposits: Vec<Deposit> = asset_pool.clone().deposits
+        .into_iter()
+        .filter(|deposit| deposit.user == info.sender)
+        .collect::<Vec<Deposit>>();
 
-        let total_user_deposits: Decimal = user_deposits
-            .iter()
-            .map(|user_deposit| user_deposit.amount)
-            .collect::<Vec<Decimal>>()
-            .into_iter()
-            .sum();
+    let total_user_deposits: Decimal = user_deposits
+        .iter()
+        .map(|user_deposit| user_deposit.amount)
+        .collect::<Vec<Decimal>>()
+        .into_iter()
+        .sum();
 
-        //Cant withdraw more than the total deposit amount
-        if total_user_deposits < Decimal::from_ratio(asset.amount, Uint128::new(1u128)) {
-            return Err(ContractError::InvalidWithdrawal {});
-        } else {
-            //Go thru each deposit and withdraw request from state
-            let (withdrawable, new_pool) = withdrawal_from_state(
-                deps.storage,
-                deps.querier,
-                env.clone(),
-                config.clone(),
-                info.clone().sender,
-                Decimal::from_ratio(asset.amount, Uint128::new(1u128)),
-                asset_pool,
-                false,
-            )?;
+    //Cant withdraw more than the total deposit amount
+    if total_user_deposits < Decimal::from_ratio(amount, Uint128::new(1u128)) {
+        return Err(ContractError::InvalidWithdrawal {});
+    } else {
+        //Go thru each deposit and withdraw request from state
+        let (withdrawable, new_pool) = withdrawal_from_state(
+            deps.storage,
+            deps.querier,
+            env.clone(),
+            config.clone(),
+            info.clone().sender,
+            Decimal::from_ratio(amount, Uint128::new(1u128)),
+            asset_pool,
+            false,
+        )?;
 
-            //Update pool
-            ASSET.save(deps.storage, &new_pool)?;
+        //Update pool
+        ASSET.save(deps.storage, &new_pool)?;
 
-            //If there is a withdrwable amount
-            if !withdrawable.is_zero() {
-                let withdrawable_asset = Asset {
-                    amount: withdrawable,
-                    ..asset
-                };
+        //If there is a withdrwable amount
+        if !withdrawable.is_zero() {
+            let withdrawable_asset = Asset {
+                amount: withdrawable,
+                ..asset
+            };
 
-                attrs.push(attr("withdrawn_asset", withdrawable_asset.to_string()));
+            attrs.push(attr("withdrawn_asset", withdrawable_asset.to_string()));
 
-                //This is here in case there are multiple withdrawal messages created.
-                message = withdrawal_msg(withdrawable_asset, info.sender.clone())?;
-                msgs.push(message);
-            }
+            //This is here in case there are multiple withdrawal messages created.
+            message = withdrawal_msg(withdrawable_asset, info.sender.clone())?;
+            msgs.push(message);
         }
-    } else { return Err(ContractError::InvalidAsset {}) }
+    }
+    
     
 
     Ok(Response::new().add_attributes(attrs).add_messages(msgs))

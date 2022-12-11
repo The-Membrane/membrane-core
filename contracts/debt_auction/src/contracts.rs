@@ -247,7 +247,7 @@ fn remove_auction(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    //Only positions contract or owner can start auctions
+    //Only positions contract or owner can remove auctions
     if info.sender != config.owner && info.sender != config.positions_contract {
         return Err(ContractError::Unauthorized {});
     }

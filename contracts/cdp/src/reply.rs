@@ -282,7 +282,6 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     deps.querier,
                     config.clone(),
                     liquidation_propagation.clone().liq_queue_leftovers,
-                    basket.clone().credit_asset.info,
                 )?;
 
                 //If there are leftovers, send to sell wall

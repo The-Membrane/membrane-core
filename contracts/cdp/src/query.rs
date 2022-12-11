@@ -16,7 +16,7 @@ use membrane::positions::{
 
 use membrane::types::{
     cAsset, AssetInfo, Basket, InsolventPosition, Position, PositionUserInfo,
-    StoredPrice, UserInfo, PoolStateResponse
+    StoredPrice, UserInfo, PoolStateResponse, DebtCap
 };
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
@@ -188,18 +188,21 @@ const MAX_LIMIT: u32 = 31;
 // }
 
 // //Calculate debt caps
-// pub fn query_basket_debt_caps(deps: Deps, env: Env) -> StdResult<String> {    
+// pub fn query_basket_debt_caps(deps: Deps, env: Env) -> StdResult<Vec<DebtCap>> {    
 //     let basket: Basket = BASKET.load(deps.storage)?;
 
 //     let asset_caps = get_basket_debt_caps_imut(deps.storage, deps.querier, env, basket.clone())?;
 
-//     let mut res = String::from("");
-//     //Append caps and asset_infos
+//     let mut res = vec![];
+//     //Append DebtCap
 //     for (index, cap) in basket.collateral_supply_caps.iter().enumerate() {        
-//         res += &format!(
-//             "{}: {}/{}, ",
-//             cap.asset_info, cap.debt_total, asset_caps[index]
-//         );        
+//         res.push(
+            //     DebtCap{
+            //         collateral: cap.asset_info,
+            //         debt_total: cap.debt_total,
+            //         cap: asset_caps[index],
+            //     }
+            // );
 //     }
 
 //     Ok( res )

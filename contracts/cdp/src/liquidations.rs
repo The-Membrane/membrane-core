@@ -643,7 +643,6 @@ fn build_sp_sw_submsgs(
                 querier,
                 config.clone(),
                 *liq_queue_leftover_credit_repayment,
-                basket.clone().credit_asset.info,
             )?;
 
             if leftover_repayment > Decimal::zero() {
@@ -769,7 +768,7 @@ fn get_lp_liq_withdraw_msg(
         querier,
         env.clone(),
         position_id,
-        position_owner_addr.clone(),
+        position_owner.clone(),
         cAsset.clone().asset.info,
         lp_liquidate_amount,
     )?;   
@@ -879,6 +878,7 @@ pub fn sell_wall(
             //The repay_amount after the split may be greater so the amount used to update claims isn't necessary the same amount that'll get sold
 
             //Remove assets from Position claims before spliting the LP cAsset to ensure excess claims aren't removed
+            //Avoid a situation where the user's LP token claims are reduced && it's pool asset claims are reduced, doubling the "loss" of funds due to state mismanagement
             update_position_claims(
                 storage,
                 querier,
@@ -909,7 +909,7 @@ pub fn sell_wall(
     )?;
 
     //Create Router Msgs for each asset
-    //The LP will be sold as pool assets sp individual ratios may increase
+    //The LP will be sold as pool assets so individual ratios may increase
     for (index, ratio) in cAsset_ratios.into_iter().enumerate() {
 
         //Calc collateral_repay_amount        
@@ -940,7 +940,6 @@ pub fn query_stability_pool_liquidatible(
     querier: QuerierWrapper,
     config: Config,
     amount: Decimal,
-    info: AssetInfo,
 ) -> StdResult<Decimal> {
     let query_res: SP_LiquidatibleResponse =
         querier.query(&QueryRequest::Wasm(WasmQuery::Smart {

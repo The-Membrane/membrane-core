@@ -138,7 +138,6 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::UpdateConfig {
             owner,
             mbrn_denom,
@@ -289,33 +288,6 @@ fn update_config(
     Ok(Response::new().add_attributes(attrs))
 }
 
-//From a receive cw20 hook. Comes from the contract address so easy to validate sent funds.
-//Check if sent funds are equal to amount in msg so we don't have to recheck in the function
-pub fn receive_cw20(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    cw20_msg: Cw20ReceiveMsg,
-) -> Result<Response, ContractError> {
-    let passed_asset: Asset = Asset {
-        info: AssetInfo::Token {
-            address: info.sender.clone(),
-        },
-        amount: cw20_msg.amount,
-    };
-
-    match from_binary(&cw20_msg.msg) {
-        Ok(Cw20HookMsg::DepositFee {}) => {
-            let config = CONFIG.load(deps.storage)?;
-
-            if cw20_msg.sender != config.positions_contract.unwrap() {
-                return Err(ContractError::Unauthorized {});
-            }
-            deposit_fee(deps, env, info, vec![passed_asset], true)
-        }
-        Err(_) => Err(ContractError::Cw20MsgError {}),
-    }
-}
 
 pub fn stake(
     deps: DepsMut,

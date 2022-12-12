@@ -63,7 +63,7 @@ pub enum ExecuteMsg {
         description: String,
         link: Option<String>,
         messages: Option<Vec<ProposalMessage>>,
-        //If from the builder's contract
+        //If from the vesting contract
         recipient: Option<String>,
         //Expedited toggle
         expedited: bool,
@@ -74,7 +74,7 @@ pub enum ExecuteMsg {
         proposal_id: u64,
         /// Vote option
         vote: ProposalVoteOption,
-        //If from the builder's contract
+        //If from the vesting contract
         recipient: Option<String>,
     },
     /// Set the status of a proposal that expired

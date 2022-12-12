@@ -24,7 +24,6 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Receive(Cw20ReceiveMsg),
     UpdateConfig {
         owner: Option<String>,
         positions_contract: Option<String>,
@@ -103,7 +102,7 @@ pub struct Config {
     pub owner: Addr, //MBRN Governance
     pub mbrn_denom: String,
     pub staking_rate: Decimal,
-    //Wait period between deposits & ability to earn fee events
+    //Wait period between deposit & ability to earn fee events
     pub fee_wait_period: u64,  //in days
     pub unstaking_period: u64, //days
     pub positions_contract: Option<Addr>,

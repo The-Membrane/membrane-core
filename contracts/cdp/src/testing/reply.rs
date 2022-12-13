@@ -11,7 +11,7 @@ use membrane::helpers::withdrawal_msg;
 use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, CONFIG, BASKET, CLOSE_POSITION, ClosePositionPropagation};
 use crate::contract::get_contract_balances;
 use crate::positions::{get_target_position, update_position_claims};
-use crate::liquidations::{query_stability_pool_liquidatible, STABILITY_POOL_REPLY_ID, sell_wall_using_ids};
+use crate::liquidations::{query_stability_pool_liquidatible, STABILITY_POOL_REPLY_ID, sell_wall_using_ids, SELL_WALL_REPLY_ID};
 
 //On success....
 //Update position claims
@@ -282,6 +282,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     deps.querier,
                     config.clone(),
                     liquidation_propagation.clone().liq_queue_leftovers,
+                    basket.clone().credit_asset.info,
                 )?;
 
                 //If there are leftovers, send to sell wall
@@ -350,7 +351,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;
 
             let repay_amount = liquidation_propagation.liq_queue_leftovers + liquidation_propagation.stability_pool;
-
+            
             //Sell wall remaining
             messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut liquidation_propagation, &mut submessages, repay_amount.clone())?);
 
@@ -508,6 +509,61 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
     }
 }
 
+pub fn handle_sell_wall_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => {
+            //On success we update the position owner's claims bc it means the protocol sent assets on their behalf
+            let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;
+
+            let res = Response::new();
+            let mut attrs = vec![];
+            
+            //We use the distribution at the end of the list bc new ones were appended in the SP or LQ replies, and msgs are fulfilled depth first.
+            //1 distribution is for 1 sell wall msg
+            match liquidation_propagation.sell_wall_distributions.pop() {
+                Some(distribution) => {
+                    //Update position claims for the sold asset
+                    let (asset, amount) = distribution;
+                    
+                    update_position_claims(
+                        deps.storage,
+                        deps.querier,
+                        env.clone(),
+                        liquidation_propagation.clone().position_info.position_id,
+                        deps.api.addr_validate(&liquidation_propagation.clone().position_info.position_owner)?,
+                        asset.clone(),
+                        (amount * Uint128::new(1u128)),
+                    )?;                   
+
+                    let res_asset = LiqAsset {
+                        info: asset,
+                        amount,
+                    };
+                    attrs.push(("distribution", res_asset.to_string()));
+                    
+                }
+                None => {
+                    //If None it means the distribution wasn't added when the sell wall msg was added which should be impossible
+                    //Either way, Error
+                    return Err(StdError::GenericErr {
+                        msg: "Distributions were added to the state propagation incorrectly"
+                            .to_string(),
+                    });
+                }
+            }
+
+            //Save propagation w/ removed tail
+            LIQUIDATION.save(deps.storage, &liquidation_propagation)?;
+
+            Ok(res.add_attributes(attrs))
+        }
+        Err(string) => {
+            //On error, simply return it
+            Ok(Response::new().add_attribute("error", string))
+        }
+    }
+}
+
 //Adds sell wall submessages to list of submessages
 pub fn sell_wall_in_reply(
     storage: &mut dyn Storage,
@@ -520,7 +576,7 @@ pub fn sell_wall_in_reply(
 ) -> StdResult<Vec<CosmosMsg>>{
     
     //Sell wall asset's repayment amount
-    let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall_using_ids(
+    let (sell_wall_msgs, collateral_distributions, lp_withdraw_msgs) = sell_wall_using_ids(
         storage,
         querier,
         api,
@@ -529,6 +585,19 @@ pub fn sell_wall_in_reply(
         api.addr_validate(&prop.clone().position_info.position_owner)?,
         repay_amount,
     )?;    
+
+    //Save new distributions from this liquidation. Extend bc its LIFO
+    prop.sell_wall_distributions.extend(collateral_distributions.clone());
+
+    submessages.extend(
+        sell_wall_msgs
+            .into_iter()
+            .map(|msg| {
+                //If this succeeds, we update the positions collateral claims
+                SubMsg::reply_on_success(msg, SELL_WALL_REPLY_ID)
+            })
+            .collect::<Vec<SubMsg>>(),
+    );
 
     Ok( lp_withdraw_msgs )
 }

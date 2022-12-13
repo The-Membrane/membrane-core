@@ -24,14 +24,15 @@ use crate::positions::{
     liq_repay, mint_revenue, repay,
     withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID, get_target_position, update_position,
 };
-// use crate::query::{
-//     query_bad_debt, query_basket_credit_interest, query_basket_debt_caps,
-//     query_basket_positions, query_collateral_rates,
-//     query_position, query_position_insolvency,
-//     query_user_positions,
-// };
-use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
-use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_sp_repay_reply, handle_close_position_reply};
+use crate::query::{
+    query_bad_debt, query_basket_credit_interest, query_basket_debt_caps,
+    query_basket_positions, query_collateral_rates,
+    query_position, query_position_insolvency,
+    query_user_positions,
+};
+use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID,
+    SELL_WALL_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
+use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_sell_wall_reply, handle_withdraw_reply, handle_sp_repay_reply, handle_close_position_reply};
 use crate::state::{
     BASKET, CONFIG, LIQUIDATION,
 };
@@ -47,7 +48,7 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
-
+    
     let mut config = Config {
         liq_fee: msg.liq_fee,
         owner: info.sender.clone(),
@@ -67,7 +68,6 @@ pub fn instantiate(
         collateral_twap_timeframe: msg.collateral_twap_timeframe,
         credit_twap_timeframe: msg.credit_twap_timeframe,
     };
-
     //Set optional config parameters
     if let Some(address) = msg.owner {
         config.owner = deps.api.addr_validate(&address)?;
@@ -93,7 +93,9 @@ pub fn instantiate(
     if let Some(address) = msg.liquidity_contract {
         config.liquidity_contract = Some(deps.api.addr_validate(&address)?);
     };
-    
+    if let Some(address) = msg.discounts_contract {
+        config.discounts_contract = Some(deps.api.addr_validate(&address)?);
+    };
     CONFIG.save(deps.storage, &config)?;
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
@@ -584,6 +586,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         LIQ_QUEUE_REPLY_ID => handle_liq_queue_reply(deps, msg, env),
         STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, env, msg),
+        SELL_WALL_REPLY_ID => handle_sell_wall_reply(deps, msg, env),
         WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
         USER_SP_REPAY_REPLY_ID => handle_sp_repay_reply(deps, env, msg),
         CLOSE_POSITION_REPLY_ID => handle_close_position_reply(deps, env, msg),
@@ -596,54 +599,54 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        // QueryMsg::GetPosition {
-        //     position_id,
-        //     position_owner,
-        // } => {
-        //     to_binary(&query_position(
-        //         deps,
-        //         env,
-        //         position_id,
-        //         deps.api.addr_validate(&position_owner)?
-        //     )?)
-        // }
-        // QueryMsg::GetUserPositions {
-        //     user,
-        //     limit,
-        // } => {
-        //     to_binary(&query_user_positions(
-        //         deps, env, deps.api.addr_validate(&user)?, limit,
-        //     )?)
-        // }
-        // QueryMsg::GetBasketPositions {
-        //     start_after,
-        //     limit,
-        // } => to_binary(&query_basket_positions(
-        //     deps,
-        //     start_after,
-        //     limit,
-        // )?),
+        QueryMsg::GetPosition {
+            position_id,
+            position_owner,
+        } => {
+            to_binary(&query_position(
+                deps,
+                env,
+                position_id,
+                deps.api.addr_validate(&position_owner)?
+            )?)
+        }
+        QueryMsg::GetUserPositions {
+            user,
+            limit,
+        } => {
+            to_binary(&query_user_positions(
+                deps, env, deps.api.addr_validate(&user)?, limit,
+            )?)
+        }
+        QueryMsg::GetBasketPositions {
+            start_after,
+            limit,
+        } => to_binary(&query_basket_positions(
+            deps,
+            start_after,
+            limit,
+        )?),
         QueryMsg::GetBasket { } => to_binary(&BASKET.load(deps.storage)?),
         QueryMsg::Propagation {} => to_binary(&LIQUIDATION.load(deps.storage)?),
-        // QueryMsg::GetBasketDebtCaps { } => {
-        //     to_binary(&query_basket_debt_caps(deps, env)?)
-        // }
-        // QueryMsg::GetBasketBadDebt { } => to_binary(&query_bad_debt(deps)?),
-        // QueryMsg::GetPositionInsolvency {
-        //     position_id,
-        //     position_owner,
-        // } => to_binary(&query_position_insolvency(
-        //     deps,
-        //     env,
-        //     position_id,
-        //     position_owner,
-        // )?),
-        // QueryMsg::GetCreditRate { } => {
-        //     to_binary(&query_basket_credit_interest(deps, env)?)
-        // }
-        // QueryMsg::GetCollateralInterest { } => {
-        //     to_binary(&query_collateral_rates(deps, env)?)
-        // }
+        QueryMsg::GetBasketDebtCaps { } => {
+            to_binary(&query_basket_debt_caps(deps, env)?)
+        }
+        QueryMsg::GetBasketBadDebt { } => to_binary(&query_bad_debt(deps)?),
+        QueryMsg::GetPositionInsolvency {
+            position_id,
+            position_owner,
+        } => to_binary(&query_position_insolvency(
+            deps,
+            env,
+            position_id,
+            position_owner,
+        )?),
+        QueryMsg::GetCreditRedemptionRate { } => {
+            to_binary(&query_basket_credit_interest(deps, env)?)
+        }
+        QueryMsg::GetCollateralInterest { } => {
+            to_binary(&query_collateral_rates(deps, env)?)
+        }
     }
 }
 

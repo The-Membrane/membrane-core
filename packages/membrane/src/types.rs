@@ -305,6 +305,13 @@ pub struct MultiAssetSupplyCap {
     pub supply_cap_ratio: Decimal,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct DebtCap {
+    pub collateral: AssetInfo,
+    pub debt_total: Uint128,
+    pub cap: Uint128,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UserInfo {
     pub position_id: Uint128,
@@ -401,6 +408,15 @@ pub struct DebtTokenAsset {
     pub info: AssetInfo,
     pub amount: Uint128,
     pub basket_id: Uint128,
+}
+
+///////Token Handler
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct Owner {
+    pub owner: Addr,
+    pub total_minted: Uint128, //for CDP mints
+    pub liquidity_multiplier: Option<Decimal>, //for CDP mints
+    pub non_token_contract_auth: bool,
 }
 
 //////////Possibly switching to cw-asset//////

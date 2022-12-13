@@ -268,18 +268,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             asset_infos,
             twap_timeframe,
         } => to_binary(&get_asset_prices(deps, asset_infos, twap_timeframe)?),
-        QueryMsg::Asset { asset_info } => to_binary(&get_asset(deps, asset_info)?),
         QueryMsg::Assets { asset_infos } => to_binary(&get_assets(deps, asset_infos)?),
     }
-}
-
-fn get_asset(deps: Deps, asset_info: AssetInfo) -> StdResult<AssetResponse> {
-    let asset_oracle = ASSETS.load(deps.storage, asset_info.to_string())?;
-
-    Ok(AssetResponse {
-        asset_info,
-        oracle_info: asset_oracle,
-    })
 }
 
 fn get_assets(deps: Deps, asset_infos: Vec<AssetInfo>) -> StdResult<Vec<AssetResponse>> {
@@ -393,7 +383,7 @@ fn get_asset_price(
         
     } else {
         let median_index = oracle_prices.len() / 2;
-        oracle_prices[median_index].price
+        oracle_prices[median_index + 1].price
     };
 
 

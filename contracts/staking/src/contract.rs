@@ -3,13 +3,14 @@ use std::env;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, coin, from_binary, to_binary, Addr, Api, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
+    attr, coin, from_binary, to_binary, Addr, Api, BankMsg, Binary, CosmosMsg, Decimal, Deps,
     DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg, QueryRequest, WasmQuery, QuerierWrapper,
 };
 use cw2::set_contract_version;
 use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
 
 use membrane::apollo_router::{Cw20HookMsg as RouterCw20HookMsg, ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
+use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, withdrawal_msg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, ProposalStatus};
 use membrane::staking::{ Config, Cw20HookMsg, ExecuteMsg, InstantiateMsg, QueryMsg };
@@ -69,7 +70,6 @@ pub fn instantiate(
     }
 
     let mut attrs = vec![];
-    let mut total_vesting = Uint128::zero();
 
     //Set optional config parameters
     if let Some(dex_router) = msg.dex_router {
@@ -138,7 +138,6 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
         ExecuteMsg::UpdateConfig {
             owner,
             mbrn_denom,
@@ -289,33 +288,6 @@ fn update_config(
     Ok(Response::new().add_attributes(attrs))
 }
 
-//From a receive cw20 hook. Comes from the contract address so easy to validate sent funds.
-//Check if sent funds are equal to amount in msg so we don't have to recheck in the function
-pub fn receive_cw20(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    cw20_msg: Cw20ReceiveMsg,
-) -> Result<Response, ContractError> {
-    let passed_asset: Asset = Asset {
-        info: AssetInfo::Token {
-            address: info.sender.clone(),
-        },
-        amount: cw20_msg.amount,
-    };
-
-    match from_binary(&cw20_msg.msg) {
-        Ok(Cw20HookMsg::DepositFee {}) => {
-            let config = CONFIG.load(deps.storage)?;
-
-            if cw20_msg.sender != config.positions_contract.unwrap() {
-                return Err(ContractError::Unauthorized {});
-            }
-            deposit_fee(deps, env, info, vec![passed_asset], true)
-        }
-        Err(_) => Err(ContractError::Cw20MsgError {}),
-    }
-}
 
 pub fn stake(
     deps: DepsMut,
@@ -1383,91 +1355,3 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-
-
-pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
-    match asset.clone().info {
-        AssetInfo::Token { address } => {
-            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: address.to_string(),
-                msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                    recipient: recipient.to_string(),
-                    amount: asset.amount,
-                })?,
-                funds: vec![],
-            });
-            Ok(message)
-        }
-        AssetInfo::NativeToken { denom: _ } => {
-            let coin: Coin = asset_to_coin(asset)?;
-            let message = CosmosMsg::Bank(BankMsg::Send {
-                to_address: recipient.to_string(),
-                amount: vec![coin],
-            });
-            Ok(message)
-        }
-    }
-}
-
-pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {
-    match asset.info {
-        //
-        AssetInfo::Token { address: _ } => {
-            Err(StdError::GenericErr {
-                msg: String::from("CW20 Assets can't be converted into Coin"),
-            })
-        }
-        AssetInfo::NativeToken { denom } => Ok(Coin {
-            denom,
-            amount: asset.amount,
-        }),
-    }
-}
-
-//Refactored Terraswap function
-pub fn assert_sent_native_token_balance(
-    asset_info: AssetInfo,
-    message_info: &MessageInfo,
-) -> StdResult<Asset> {
-    let asset: Asset;
-
-    if let AssetInfo::NativeToken { denom } = &asset_info {
-        match message_info.funds.iter().find(|x| x.denom == *denom) {
-            Some(coin) => {
-                if coin.amount > Uint128::zero() {
-                    asset = Asset {
-                        info: asset_info,
-                        amount: coin.amount,
-                    };
-                } else {
-                    return Err(StdError::generic_err("You gave me nothing to deposit"));
-                }
-            }
-            None => {
-                return Err(StdError::generic_err(
-                    "Incorrect denomination, sent asset denom and asset.info.denom differ",
-                ))
-            }
-        }
-    } else {
-        return Err(StdError::generic_err(
-            "Asset type not native, check Msg schema and use AssetInfo::Token{ address: Addr }",
-        ));
-    }
-
-    Ok(asset)
-}
-
-//Validate Recipient
-pub fn validate_position_owner(
-    deps: &dyn Api,
-    info: MessageInfo,
-    recipient: Option<String>,
-) -> StdResult<Addr> {
-    let valid_recipient: Addr = if let Some(recipient) = recipient {
-        deps.addr_validate(&recipient)?
-    } else {
-        info.sender
-    };
-    Ok(valid_recipient)
-}

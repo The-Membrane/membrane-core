@@ -16,19 +16,16 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     //Deposits asset into a new Position in the Positions contract
     Deposit {
-        basket_id: Uint128,
         position_id: Option<Uint128>, //If the user wants to create a new/separate position, no position id is passed
     }, 
     //Looped leverage
     Loop {
-        basket_id: Uint128,
         position_id: Uint128,
         num_loops: Option<u64>,
         target_LTV: Decimal,
     },
     //Closes position
     ClosePosition {
-        basket_id: Uint128,
         position_id: Uint128,
         max_spread: Decimal,
     },

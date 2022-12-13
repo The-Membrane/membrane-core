@@ -10,8 +10,8 @@ pub struct InstantiateMsg {
     pub positions_contract: String,
     pub staking_contract: String,
     pub stability_pool_contract: String,
-    pub lockdrop_contract: String,
-    pub discount_vault_contract: String,
+    pub lockdrop_contract: Option<String>,
+    pub discount_vault_contract: Option<String>,
     pub minimum_time_in_network: u64, //in days
 }
 
@@ -38,8 +38,8 @@ pub struct Config {
     pub positions_contract: Addr,
     pub staking_contract: Addr,
     pub stability_pool_contract: Addr,
-    pub lockdrop_contract: Addr,
-    pub discount_vault_contract: Addr,
+    pub lockdrop_contract: Option<Addr>,
+    pub discount_vault_contract: Option<Addr>,
     pub minimum_time_in_network: u64, //in days
 }
 

@@ -24,6 +24,9 @@ pub enum TokenFactoryError {
     #[error("amount was zero, must be positive")]
     ZeroAmount {},
 
+    #[error("Mint sends address over its unique cap")]
+    MintCapped {},
+
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },
 }

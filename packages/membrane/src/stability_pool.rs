@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Decimal, Uint128, Addr};
 
-use crate::types::{Asset, AssetInfo, AssetPool, Deposit, UserInfo};
+use crate::types::{Asset, AssetPool, Deposit, UserInfo};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -26,8 +26,8 @@ pub enum ExecuteMsg {
         user: Option<String>,
     },
     Withdraw {
-        // Unstake/Withdraw a list of accepted assets
-        asset: Asset,
+        // Unstake/Withdraw
+        amount: Uint128,
     },
     Restake {
         //Restake unstak(ed/ing) assets
@@ -59,7 +59,7 @@ pub enum QueryMsg {
     Config {},
     //Get current MBRN incentive rate
     //Returns Decimal
-    Rate { },
+    Rate {},
     //Query unclaimed incentives for a user
     //Returns Uint128
     UnclaimedIncentives { user: String },
@@ -73,7 +73,10 @@ pub enum QueryMsg {
     //Returns ClaimsResponse
     UserClaims { user: String },
     //Returns AssetPool
-    AssetPool { },
+    AssetPool { //Either or
+        user: Option<String>, 
+        deposit_limit: Option<u32>, 
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

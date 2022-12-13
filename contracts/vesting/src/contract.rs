@@ -84,7 +84,6 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::Receive(_msg) => Ok(Response::new()),
         ExecuteMsg::AddRecipient { recipient } => add_recipient(deps, info, recipient),
         ExecuteMsg::RemoveRecipient { recipient } => remove_recipient(deps, info, recipient),
         ExecuteMsg::AddAllocation {

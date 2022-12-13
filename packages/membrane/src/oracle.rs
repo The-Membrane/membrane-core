@@ -46,12 +46,7 @@ pub enum QueryMsg {
         asset_infos: Vec<AssetInfo>,
         twap_timeframe: u64, //in minutes
     },
-    Asset {
-        asset_info: AssetInfo,
-    },
-    Assets {
-        asset_infos: Vec<AssetInfo>,
-    },
+    Assets { asset_infos: Vec<AssetInfo> },
 }
 
 

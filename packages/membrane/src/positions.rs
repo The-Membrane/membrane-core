@@ -20,10 +20,10 @@ pub struct InstantiateMsg {
     pub dex_router: Option<String>,
     pub staking_contract: Option<String>,
     pub oracle_contract: Option<String>,
-    pub interest_revenue_collector: Option<String>,
     pub osmosis_proxy: Option<String>,
     pub debt_auction: Option<String>,
     pub liquidity_contract: Option<String>,
+    pub discounts_contract: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -62,7 +62,7 @@ pub enum ExecuteMsg {
         send_to: Option<String>,
     },
     MintRevenue {
-        send_to: Option<String>, //Defaults to config.interest_revenue_collector
+        send_to: Option<String>, 
         repay_for: Option<UserInfo>, //Repay for a position w/ the revenue
         amount: Option<Uint128>,
     },
@@ -107,30 +107,30 @@ pub enum CallbackMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
-    GetUserPositions {
-        //All positions from a user
-        user: String,
-        limit: Option<u32>,
-    },
-    GetPosition {
-        //Singular position
-        position_id: Uint128,
-        position_owner: String,
-    },
-    GetBasketPositions {
-        //All positions in a basket
-        start_after: Option<String>,
-        limit: Option<u32>,
-    },
+    // GetUserPositions {
+    //     //All positions from a user
+    //     user: String,
+    //     limit: Option<u32>,
+    // },
+    // GetPosition {
+    //     //Singular position
+    //     position_id: Uint128,
+    //     position_owner: String,
+    // },
+    // GetBasketPositions {
+    //     //All positions in a basket
+    //     start_after: Option<String>,
+    //     limit: Option<u32>,
+    // },
     GetBasket { }, //Singular basket
-    GetBasketDebtCaps { },
-    GetBasketBadDebt { },
-    GetPositionInsolvency {
-        position_id: Uint128,
-        position_owner: String,
-    },
-    GetCreditRedemptionRate { },
-    GetCollateralInterest { },
+    //GetBasketDebtCaps { },
+    //GetBasketBadDebt { },
+    //GetPositionInsolvency {
+    //     position_id: Uint128,
+    //     position_owner: String,
+    // },
+    //GetCreditRate { },
+    //GetCollateralInterest { },
     //Used internally to test state propagation
     Propagation {},
 }
@@ -145,6 +145,7 @@ pub struct Config {
     pub debt_auction: Option<Addr>,
     pub oracle_contract: Option<Addr>,
     pub liquidity_contract: Option<Addr>,
+    pub discounts_contract: Option<Addr>,
     pub liq_fee: Decimal,               //Enter as percent, 0.01
     pub collateral_twap_timeframe: u64, //in minutes
     pub credit_twap_timeframe: u64,     //in minutes
@@ -171,6 +172,7 @@ pub struct UpdateConfig {
     pub staking_contract: Option<String>,
     pub oracle_contract: Option<String>,
     pub liquidity_contract: Option<String>,
+    pub discounts_contract: Option<String>,
     pub liq_fee: Option<Decimal>,
     pub debt_minimum: Option<Uint128>,
     pub base_debt_cap_multiplier: Option<Uint128>,

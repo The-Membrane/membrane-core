@@ -305,14 +305,7 @@ mod tests {
             assert_eq!(total_incentives, Uint128::new(8800));
 
             //Initial withdrawal to start unstaking
-            let asset = Asset {
-                info: AssetInfo::NativeToken {
-                    denom: "credit".to_string(),
-                },
-                amount: Uint128::from(100_000u128),
-            };
-
-            let withdraw_msg = ExecuteMsg::Withdraw { asset };
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::from(100_000u128) };
 
             let cosmos_msg = sp_contract.call(withdraw_msg.clone(), vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();

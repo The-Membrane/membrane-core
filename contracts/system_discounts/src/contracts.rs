@@ -33,7 +33,7 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let config: Config;
+    let mut config: Config;
     let owner = if let Some(owner) = msg.owner {
         deps.api.addr_validate(&owner)?
     } else {
@@ -56,11 +56,17 @@ pub fn instantiate(
         oracle_contract: deps.api.addr_validate(&msg.oracle_contract)?,
         staking_contract,
         stability_pool_contract: deps.api.addr_validate(&msg.stability_pool_contract)?,
-        lockdrop_contract: deps.api.addr_validate(&msg.lockdrop_contract)?,
-        discount_vault_contract: deps.api.addr_validate(&msg.discount_vault_contract)?,
+        lockdrop_contract: None,
+        discount_vault_contract: None,
         minimum_time_in_network: msg.minimum_time_in_network,
     };
-    
+    //Store optionals
+    if let Some(lockdrop_contract) = msg.lockdrop_contract{
+        config.lockdrop_contract = Some(deps.api.addr_validate(&lockdrop_contract)?);
+    }
+    if let Some(discount_vault_contract) = msg.discount_vault_contract{
+        config.discount_vault_contract = Some(deps.api.addr_validate(&discount_vault_contract)?);
+    }
 
     CONFIG.save(deps.storage, &config)?;
 
@@ -112,10 +118,10 @@ fn update_config(
         config.stability_pool_contract = deps.api.addr_validate(&addr)?;
     }
     if let Some(addr) = update.lockdrop_contract {
-        config.lockdrop_contract = deps.api.addr_validate(&addr)?;
+        config.lockdrop_contract = Some(deps.api.addr_validate(&addr)?);
     }
     if let Some(addr) = update.discount_vault_contract {
-        config.discount_vault_contract = deps.api.addr_validate(&addr)?;
+        config.discount_vault_contract = Some(deps.api.addr_validate(&addr)?);
     }
     if let Some(time) = update.minimum_time_in_network {
         config.minimum_time_in_network = time;
@@ -209,8 +215,13 @@ fn get_user_value_in_network(
 
     total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone(), basket.clone().credit_asset.info, mbrn_price)?;
     total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price.clone())?;
-    total_value += get_discounts_vault_value(querier, config.clone(), user.clone())?;
-    total_value += get_lockdrop_value(querier, config.clone(), user.clone(), credit_price.clone(), mbrn_price.clone())?;
+
+    if config.discount_vault_contract.is_some(){
+        total_value += get_discounts_vault_value(querier, config.clone(), user.clone())?;
+    }
+    if config.lockdrop_contract.is_some(){
+        total_value += get_lockdrop_value(querier, config.clone(), user.clone(), credit_price.clone(), mbrn_price.clone())?;
+    }    
     
     Ok( total_value )
 }
@@ -226,7 +237,7 @@ fn get_lockdrop_value(
     
     //Get user info from the Gauge Vault
     let user = querier.query::<UserResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().lockdrop_contract.to_string(),
+        contract_addr: config.clone().lockdrop_contract.unwrap().to_string(),
         msg: to_binary(&Lockdrop_QueryMsg::User {
             user,
             minimum_lock: config.minimum_time_in_network.into(),
@@ -266,7 +277,7 @@ fn get_discounts_vault_value(
 
      //Get user info from the Gauge Vault
      let user = querier.query::<Discount_UserResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().discount_vault_contract.to_string(),
+        contract_addr: config.clone().discount_vault_contract.unwrap().to_string(),
         msg: to_binary(&Discount_QueryMsg::User {
             user,
         })?,
@@ -343,7 +354,7 @@ fn get_sp_value(
     //Query Stability Pool to see if the user has funds
     let user_deposits = querier.query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().stability_pool_contract.to_string(),
-        msg: to_binary(&SP_QueryMsg::AssetPool {  })?,
+        msg: to_binary(&SP_QueryMsg::AssetPool { user: user.into(), deposit_limit: None })?,
     }))?
     .deposits
         .into_iter()

@@ -15,13 +15,13 @@ use membrane::stability_pool::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig,
 };
 use membrane::types::{
-    Asset, AssetInfo, AssetPool, Deposit, LiqAsset, PositionUserInfo, User, UserInfo, UserRatio,
+    Asset, AssetInfo, AssetPool, Deposit, User, UserInfo, UserRatio,
 };
 use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
-use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_user_claims, query_capital_ahead_of_deposits};
+use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_user_claims, query_capital_ahead_of_deposits, query_asset_pool};
 use crate::state::{Propagation, ASSET, CONFIG, INCENTIVES, PROP, USERS};
 
 // version info for migration info
@@ -105,7 +105,7 @@ pub fn execute(
 
             deposit(deps, env, info, user, valid_assets[0].clone())
         }
-        ExecuteMsg::Withdraw { asset } => withdraw(deps, env, info, asset),
+        ExecuteMsg::Withdraw { amount } => withdraw(deps, env, info, amount),
         ExecuteMsg::Restake { restake_amount } => restake(deps, env, info, restake_amount),
         ExecuteMsg::Liquidate { liq_amount } => liquidate(deps, info, liq_amount),
         ExecuteMsg::Claim {} => claim(deps, env, info),
@@ -269,70 +269,68 @@ pub fn withdraw(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    asset: Asset,
+    amount: Uint128,
 ) -> Result<Response, ContractError> {
     
     let config = CONFIG.load(deps.storage)?;
 
-    let mut message: CosmosMsg;
+    let message: CosmosMsg;
     let mut msgs = vec![];
     let mut attrs = vec![
         attr("method", "withdraw"),
         attr("position_owner", info.sender.to_string()),
     ];
 
-    let mut asset_pool = ASSET.load(deps.storage)?;
-        
-    //If the Asset has a pool, act
-    if asset_pool.credit_asset.info.equal(&asset.info){
-        //This forces withdrawals to be done by the info.sender
-        //so no need to check if the withdrawal is done by the position owner
-        let user_deposits: Vec<Deposit> = asset_pool.clone().deposits
-            .into_iter()
-            .filter(|deposit| deposit.user == info.sender)
-            .collect::<Vec<Deposit>>();
+    let asset_pool = ASSET.load(deps.storage)?;        
+    
+    //This forces withdrawals to be done by the info.sender
+    //so no need to check if the withdrawal is done by the position owner
+    let user_deposits: Vec<Deposit> = asset_pool.clone().deposits
+        .into_iter()
+        .filter(|deposit| deposit.user == info.sender)
+        .collect::<Vec<Deposit>>();
 
-        let total_user_deposits: Decimal = user_deposits
-            .iter()
-            .map(|user_deposit| user_deposit.amount)
-            .collect::<Vec<Decimal>>()
-            .into_iter()
-            .sum();
+    let total_user_deposits: Decimal = user_deposits
+        .iter()
+        .map(|user_deposit| user_deposit.amount)
+        .collect::<Vec<Decimal>>()
+        .into_iter()
+        .sum();
 
-        //Cant withdraw more than the total deposit amount
-        if total_user_deposits < Decimal::from_ratio(asset.amount, Uint128::new(1u128)) {
-            return Err(ContractError::InvalidWithdrawal {});
-        } else {
-            //Go thru each deposit and withdraw request from state
-            let (withdrawable, new_pool) = withdrawal_from_state(
-                deps.storage,
-                deps.querier,
-                env.clone(),
-                config.clone(),
-                info.clone().sender,
-                Decimal::from_ratio(asset.amount, Uint128::new(1u128)),
-                asset_pool,
-                false,
-            )?;
+    //Cant withdraw more than the total deposit amount
+    if total_user_deposits < Decimal::from_ratio(amount, Uint128::new(1u128)) {
+        return Err(ContractError::InvalidWithdrawal {});
+    } else {
+        //Go thru each deposit and withdraw request from state
+        let (withdrawable, new_pool) = withdrawal_from_state(
+            deps.storage,
+            deps.querier,
+            env.clone(),
+            config.clone(),
+            info.clone().sender,
+            Decimal::from_ratio(amount, Uint128::new(1u128)),
+            asset_pool.clone(),
+            false,
+        )?;
 
-            //Update pool
-            ASSET.save(deps.storage, &new_pool)?;
+        //Update pool
+        ASSET.save(deps.storage, &new_pool)?;
 
-            //If there is a withdrwable amount
-            if !withdrawable.is_zero() {
-                let withdrawable_asset = Asset {
-                    amount: withdrawable,
-                    ..asset
-                };
+        //If there is a withdrwable amount
+        if !withdrawable.is_zero() {
+            let withdrawable_asset = Asset {
+                amount: withdrawable,
+                ..asset_pool.clone().credit_asset
+            };
 
-                attrs.push(attr("withdrawn_asset", withdrawable_asset.to_string()));
+            attrs.push(attr("withdrawn_asset", withdrawable_asset.to_string()));
 
-                //This is here in case there are multiple withdrawal messages created.
-                message = withdrawal_msg(withdrawable_asset, info.sender.clone())?;
-                msgs.push(message);
-            }
+            //Create withdrawal msg
+            message = withdrawal_msg(withdrawable_asset, info.sender.clone())?;
+            msgs.push(message);
         }
-    } else { return Err(ContractError::InvalidAsset {}) }
+    }
+    
     
 
     Ok(Response::new().add_attributes(attrs).add_messages(msgs))
@@ -883,7 +881,7 @@ fn repay(
         attr("method", "repay"),
         attr("user_info", user_info.to_string()),
     ];
-    let mut asset_pool = ASSET.load(deps.storage)?;
+    let asset_pool = ASSET.load(deps.storage)?;
 
     if asset_pool.credit_asset.info.equal(&repayment.info){
         let position_owner = deps.api.addr_validate(&user_info.position_owner)?;
@@ -994,8 +992,6 @@ pub fn claim(
     //Create claim msgs
     let (messages, claimables) = user_claims_msgs(
         deps.storage,
-        deps.api,
-        config.clone(),
         info.clone(),
     )?;
 
@@ -1009,8 +1005,6 @@ pub fn claim(
 
 fn user_claims_msgs(
     storage: &mut dyn Storage,
-    api: &dyn Api,
-    config: Config,
     info: MessageInfo,
 ) -> Result<(Vec<CosmosMsg>, Vec<Asset>), ContractError> {
     let user = USERS.load(storage, info.clone().sender)?;
@@ -1449,7 +1443,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::CapitalAheadOfDeposit { user } => to_binary(&query_capital_ahead_of_deposits(deps, user)?),
         QueryMsg::CheckLiquidatible { amount } => to_binary(&query_liquidatible(deps, amount)?),
         QueryMsg::UserClaims { user } => to_binary(&query_user_claims(deps, user)?),
-        QueryMsg::AssetPool { } => to_binary(&ASSET.load(deps.storage)?),
+        QueryMsg::AssetPool { user, deposit_limit } => to_binary(&query_asset_pool(deps, user, deposit_limit)?),
     }
 }
 

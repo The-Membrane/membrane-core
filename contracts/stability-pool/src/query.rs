@@ -8,6 +8,25 @@ use membrane::helpers::accumulate_interest;
 
 use crate::state::{CONFIG, ASSET, USERS};
 
+pub fn query_asset_pool(
+    deps: Deps,
+    user: Option<String>,
+    deposit_limit: Option<u32>,
+) -> StdResult<AssetPool>{    
+    let mut asset_pool = ASSET.load(deps.storage)?;
+    
+    if let Some(limit) = deposit_limit {
+        asset_pool.deposits = asset_pool.deposits[0..limit as usize].to_vec();
+    } else if let Some(user) = user {
+        asset_pool.deposits = asset_pool.clone().deposits
+            .into_iter()
+            .filter(|deposit| deposit.user.to_string() == user)
+            .collect::<Vec<Deposit>>();
+    }
+    
+    Ok(asset_pool)    
+}
+
 pub fn query_capital_ahead_of_deposits(
     deps: Deps,
     user: String,
@@ -129,7 +148,6 @@ pub fn query_liquidatible(deps: Deps, amount: Decimal) -> StdResult<Liquidatible
             leftover: Decimal::from_ratio(leftover, Uint128::new(1u128)),
         })
     }
-    
     
 }
 

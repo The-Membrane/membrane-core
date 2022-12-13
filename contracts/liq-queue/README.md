@@ -1,8 +1,12 @@
 Fork of Anchor Protocol's implementation with slight modifications
 
-Source
+Source: 
 https://docs.anchorprotocol.com/smart-contracts/liquidations/liquidation-queue-contract
 https://github.com/Anchor-Protocol/money-market-contracts/tree/main/contracts/liquidation_queue
+
+# Liquidation Queue Contract
+
+The Liquidation Queue contract is used to pool debt tokens used to liquidate specific collateral assets, acting as the first layer in the liquidation system
 
 Modifications
 

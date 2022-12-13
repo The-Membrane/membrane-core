@@ -11,7 +11,6 @@ use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::types::{AssetInfo, LiquidityInfo, PoolStateResponse};
 
 use cw_storage_plus::Bound;
-use osmosis_std::types::cosmos::base::v1beta1::Coin;
 
 use crate::error::ContractError;
 use crate::state::{ASSETS, CONFIG};
@@ -157,7 +156,7 @@ fn remove_asset(
         attr("removed_asset", asset.to_string()),
     ];
 
-    //Add onto object
+    //Remove asset info
     ASSETS.remove(deps.storage, asset.to_string());
 
     Ok(Response::new().add_attributes(attrs))

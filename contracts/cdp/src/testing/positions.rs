@@ -13,7 +13,7 @@ use membrane::positions::{Config, ExecuteMsg, EditBasket};
 use membrane::oracle::{AssetResponse, PriceResponse};
 use osmo_bindings::PoolStateResponse;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
-use membrane::liquidity_check::ExecuteMsg as LiquidityExecuteMsg;
+use membrane::liquidity_check::{ExecuteMsg as LiquidityExecuteMsg, QueryMsg as LiquidityQueryMsg};
 use membrane::staking::{ExecuteMsg as Staking_ExecuteMsg, QueryMsg as Staking_QueryMsg, Config as Staking_Config};
 use membrane::oracle::{ExecuteMsg as OracleExecuteMsg, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::{ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg };
@@ -805,7 +805,7 @@ pub fn liq_repay(
                 distribution_assets.push(asset.clone());
                 coins.push(asset_to_coin(asset)?);
             },            
-            AssetInfo::Token { address: _ } => { return Err(ContractError::CustomError { val: String::from("Collateral assets are supposed to be native") }) }
+            AssetInfo::Token { address } => { return Err(ContractError::CustomError { val: String::from("Collateral assets are supposed to be native") }) }
         }
     }
 
@@ -1214,8 +1214,8 @@ pub fn create_basket(
                 deps.querier
                     .query::<AssetResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                         contract_addr: config.clone().oracle_contract.unwrap().to_string(),
-                        msg: to_binary(&OracleQueryMsg::Assets {
-                            asset_infos: vec![asset.clone().asset.info],
+                        msg: to_binary(&OracleQueryMsg::Asset {
+                            asset_info: asset.clone().asset.info,
                         })?,
                     }))?;
 
@@ -1476,8 +1476,8 @@ pub fn edit_basket(
                 deps.querier
                     .query::<AssetResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                         contract_addr: config.clone().oracle_contract.unwrap().to_string(),
-                        msg: to_binary(&OracleQueryMsg::Assets {
-                            asset_infos: vec![new_cAsset.clone().asset.info],
+                        msg: to_binary(&OracleQueryMsg::Asset {
+                            asset_info: new_cAsset.clone().asset.info,
                         })?,
                     }))?;
 
@@ -2430,6 +2430,45 @@ pub fn update_position_claims(
     Ok(())
 }
 
+//Get total pooled amount for an asset
+pub fn get_stability_pool_liquidity(
+    querier: QuerierWrapper,
+    config: Config,
+    pool_asset: AssetInfo,
+) -> StdResult<Uint128> {
+    if let Some(sp_addr) = config.clone().stability_pool {
+        //Query the SP Asset Pool
+        Ok(querier
+            .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: sp_addr.to_string(),
+                msg: to_binary(&SP_QueryMsg::AssetPool { })?,
+            }))?
+            .credit_asset
+            .amount)
+    } else {
+        Ok(Uint128::zero())
+    }
+}
+
+pub fn get_asset_liquidity(
+    querier: QuerierWrapper,
+    config: Config,
+    asset_info: AssetInfo,
+) -> StdResult<Uint128> {
+    if config.clone().liquidity_contract.is_some() {
+        let total_pooled: Uint128 = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.clone().liquidity_contract.unwrap().to_string(),
+            msg: to_binary(&LiquidityQueryMsg::Liquidity { asset: asset_info })?,
+        }))?;
+
+        Ok(total_pooled)
+    } else {
+        return Err(StdError::GenericErr {
+            msg: "No proxy contract setup".to_string(),
+        });
+    }
+}
+
 pub fn get_target_position(
     storage: &dyn Storage,
     valid_position_owner: Addr,
@@ -2499,7 +2538,7 @@ pub fn mint_revenue(
             Asset {
                 amount,
                 ..basket.credit_asset.clone()
-            }, 
+            }, //Send_to or interest_collector or config.owner
             deps.api.addr_validate(&send_to.clone())?
         )?);
     } else if let Some(repay_for) = repay_for {

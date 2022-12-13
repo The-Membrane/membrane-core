@@ -2,14 +2,14 @@ use std::str::FromStr;
 
 use cosmwasm_std::{
     attr, entry_point, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, 
-    Response, StdResult, Uint128, WasmQuery, SubMsg, Storage, Addr, CosmosMsg, WasmMsg, Reply, StdError, QueryRequest, Decimal, coin, QuerierWrapper, Attribute,
+    Response, StdResult, Uint128, WasmQuery, SubMsg, Storage, Addr, CosmosMsg, WasmMsg, Reply, StdError, QueryRequest, Decimal, QuerierWrapper, Attribute,
 };
 use cw2::set_contract_version;
 
+use membrane::helpers::router_native_to_native;
 use membrane::margin_proxy::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::decimal_multiplication;
 use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, PositionResponse, PositionsResponse};
-use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::types::{Position, AssetInfo, Basket};
 
 use crate::error::ContractError;
@@ -65,22 +65,18 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::Deposit {
-            basket_id,
-            position_id,
-         } => {
-            deposit_to_cdp( deps, env, info, basket_id, position_id )
+        ExecuteMsg::Deposit { position_id } => {
+            deposit_to_cdp( deps, env, info, position_id )
         },
         ExecuteMsg::Loop { 
-            basket_id,
             position_id, 
             num_loops,
             target_LTV 
         } => {
-            loop_leverage(deps.storage, deps.querier, env, info.sender, basket_id, position_id, num_loops, target_LTV)
+            loop_leverage(deps.storage, deps.querier, env, info.sender, position_id, num_loops, target_LTV)
         },
-        ExecuteMsg::ClosePosition { basket_id, position_id, max_spread } => {
-            close_posiion(deps, info, basket_id, position_id, max_spread)
+        ExecuteMsg::ClosePosition { position_id, max_spread } => {
+            close_posiion(deps, info, position_id, max_spread)
         },
         ExecuteMsg::UpdateConfig {
             owner,
@@ -95,7 +91,6 @@ pub fn execute(
 fn close_posiion(
     deps: DepsMut,
     info: MessageInfo,
-    basket_id: Uint128,
     position_id: Uint128,
     max_spread: Decimal,
 ) -> Result<Response, ContractError>{
@@ -103,7 +98,7 @@ fn close_posiion(
     let config: Config = CONFIG.load(deps.storage)?;
 
     //Validate Position ownership
-    validate_user_ownership(deps.storage, info.clone().sender, basket_id.clone(), position_id.clone())?;
+    validate_user_ownership(deps.storage, info.clone().sender, position_id.clone())?;
 
     //Create SubMsg, reply_on_success
     let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
@@ -121,7 +116,6 @@ fn close_posiion(
     Ok(Response::new()
         .add_attributes(vec![
             attr("user", info.clone().sender.to_string()),
-            attr("basket_id", basket_id.to_string()),
             attr("position_id", position_id.to_string()),
         ])
         .add_submessage(sub_msg)
@@ -135,7 +129,6 @@ fn loop_leverage(
     querier: QuerierWrapper,
     env: Env,
     sender: Addr,
-    basket_id: Uint128,
     position_id: Uint128,
     num_loops: Option<u64>,
     target_LTV: Decimal,
@@ -145,7 +138,7 @@ fn loop_leverage(
     let config = CONFIG.load(storage)?;
 
     //Validate Position ownership
-    validate_user_ownership(storage, sender.clone(), basket_id.clone(), position_id.clone())?;
+    validate_user_ownership(storage, sender.clone(), position_id.clone())?;
 
     //Query Collateral Composition so we know what ratios to loop w/
     let position_response = querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
@@ -157,7 +150,7 @@ fn loop_leverage(
     }))?;
 
     //Save Position Info
-    COMPOSITION_CHECK.save(storage, &(position_response, basket_id))?;
+    COMPOSITION_CHECK.save(storage, &position_response)?;
 
     //Save NUM_OF_LOOPS
     NUM_OF_LOOPS.save(storage, &num_loops)?;
@@ -182,7 +175,6 @@ fn loop_leverage(
     //Response Builder
     let mut attrs = vec![
         attr("method", "looped_leverage"),
-        attr("basket_id", basket_id),
         attr("position_id", position_id)
     ];
 
@@ -202,12 +194,11 @@ fn loop_leverage(
 fn validate_user_ownership(
     storage: &mut dyn Storage,
     user: Addr,
-    basket_id: Uint128,
     position_id: Uint128,
 ) -> Result<(), ContractError>{
     
     //If id isn't found in the list for the User, error
-    if let None = USERS.load(storage, user )?.into_iter().find(|ids| ids == &(basket_id, position_id)){
+    if let None = USERS.load(storage, user )?.into_iter().find(|id| id == &position_id){
         return Err(ContractError::InvalidID { id: position_id })
     }
     //If the user owns the position outside of the contract..
@@ -220,7 +211,6 @@ fn deposit_to_cdp(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,    
-    basket_id: Uint128,
     position_id: Option<Uint128>,
 ) -> Result<Response, ContractError>{
 
@@ -229,7 +219,7 @@ fn deposit_to_cdp(
 
     //If there is a position_id, make sure the current user is the owner of that position
     if let Some(position_id) = position_id {
-        validate_user_ownership(deps.storage, info.clone().sender, basket_id.clone(), position_id.clone())?;        
+        validate_user_ownership(deps.storage, info.clone().sender, position_id.clone())?;        
     };
    
     //Create Reponse objects
@@ -237,7 +227,6 @@ fn deposit_to_cdp(
     let mut attrs: Vec<Attribute> = vec![
         attr("user", info.clone().sender),
         attr("deposited_funds", format!("{:?}", info.clone().funds)),
-        attr("basket_id", basket_id.clone().to_string()),
     ];
 
     //Create Deposit Msg
@@ -260,7 +249,7 @@ fn deposit_to_cdp(
         sub_msg = SubMsg::reply_on_success(msg, NEW_DEPOSIT_REPLY_ID);
 
         //Save User so the contract knows who to save the new position id under
-        NEW_POSITION_INFO.save(deps.storage, &(info.clone().sender, basket_id))?;
+        NEW_POSITION_INFO.save(deps.storage, &info.clone().sender)?;
 
     } else {
         //Adding Position_id to User's list        
@@ -293,7 +282,7 @@ fn deposit_to_cdp(
         }))?;
 
         //Save Position Info
-        COMPOSITION_CHECK.save(deps.storage, &(position_response, basket_id))?;
+        COMPOSITION_CHECK.save(deps.storage, &position_response)?;
     }
     
     
@@ -369,13 +358,12 @@ fn handle_loop_reply(
 
             //Load Previous Composition
             let previous_composition = COMPOSITION_CHECK.load(deps.storage)?;
-            let basket_id = previous_composition.1;
             
             //Create (AssetInfo, ratio) tuple list
-            let composition_to_loop = previous_composition.0.clone().cAsset_ratios
+            let composition_to_loop = previous_composition.clone().cAsset_ratios
                 .into_iter()
                 .enumerate()
-                .map(|(i, ratio)| (previous_composition.clone().0.collateral_assets[i].clone().asset.info, ratio) )
+                .map(|(i, ratio)| (previous_composition.clone().collateral_assets[i].clone().asset.info, ratio) )
                 .collect::<Vec<(AssetInfo, Decimal)>>();
 
             //Query Basket credit asset
@@ -393,16 +381,19 @@ fn handle_loop_reply(
                 
                 let credit_to_sell = decimal_multiplication(credit_amount, ratio);
 
-                let msg = create_router_msg( 
-                    env.contract.address.to_string(),
-                    config.clone().positions_contract.to_string(),
-                    config.clone().apollo_router_contract.to_string(),
-                    collateral,
+                let hook_msg = Some(to_binary(&CDP_ExecuteMsg::Deposit { 
+                    position_id: Some(previous_composition.clone().position_id),
+                    position_owner: Some(env.contract.address.to_string()), //Owner is this contract
+                })?);
+
+                let msg = router_native_to_native(                    
+                    config.clone().apollo_router_contract.to_string(),                    
                     credit_asset.clone().info,
-                    credit_to_sell,
-                    basket_id,
-                    Some(previous_composition.clone().0.position_id),
-                    Some(config.clone().max_slippage),
+                    collateral,
+                    Some(config.clone().max_slippage),                     
+                    Some(config.clone().positions_contract.to_string()),
+                    hook_msg, 
+                    (credit_to_sell * Uint128::new(1u128)).u128(),
                 )?;
 
                 messages.push(SubMsg::new(msg));
@@ -431,8 +422,7 @@ fn handle_loop_reply(
                 deps.querier, 
                 env, 
                 loop_parameters.0, 
-                basket_id, 
-                previous_composition.clone().0.position_id, 
+                previous_composition.clone().position_id, 
                 num_of_loops_left, 
                 loop_parameters.1
             ){
@@ -522,14 +512,14 @@ fn handle_close_position_reply(
 
             let updated_positions = user_positions
                 .into_iter()
-                .filter(|position| position.0 != basket_id && position.1 != position_id)
-                .collect::<Vec<(Uint128, Uint128)>>();
+                .filter(|position| position != position_id)
+                .collect::<Vec<Uint128>>();
 
             //Save new User list
             USERS.save(deps.storage, user, &updated_positions)?;
 
             Ok(Response::new()
-                .add_attribute("position_closed", format!("basket_id: {}, position_id: {}", basket_id, position_id ))
+                .add_attribute("position_closed", format!("position_id: {}", position_id ))
             )
 
         },
@@ -552,27 +542,27 @@ fn handle_existing_deposit_reply(
             let config = CONFIG.load(deps.storage)?;
 
             //Load Composition Check
-            let previous_composition: (PositionResponse, Uint128) = COMPOSITION_CHECK.load(deps.storage)?;
+            let previous_composition: PositionResponse = COMPOSITION_CHECK.load(deps.storage)?;
             
             //Confirm cAsset_ratios and cAsset makeup hasn't changed    
             ////Query current Position
             let position_response = deps.querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.clone().positions_contract.to_string(), 
                 msg: to_binary(&CDP_QueryMsg::GetPosition {
-                    position_id: previous_composition.0.position_id, 
+                    position_id: previous_composition.position_id, 
                     position_owner: env.contract.address.to_string(), 
                 })?
             }))?;
 
             //Create (AssetInfo, ratio) tuple list
-            let composition = previous_composition.0.clone().cAsset_ratios
+            let composition = previous_composition.clone().cAsset_ratios
                 .into_iter()
                 .enumerate()
-                .map(|(i, ratio)| (previous_composition.0.clone().collateral_assets[i].clone().asset.info, ratio) )
+                .map(|(i, ratio)| (previous_composition.clone().collateral_assets[i].clone().asset.info, ratio) )
                 .collect::<Vec<(AssetInfo, Decimal)>>();
 
             //Create lists for both previous and current position asset_infos
-            let previous_assets = previous_composition.0.clone().collateral_assets
+            let previous_assets = previous_composition.clone().collateral_assets
                 .into_iter()
                 .map(|cAsset| cAsset.asset.info )
                 .collect::<Vec<AssetInfo>>();
@@ -583,7 +573,7 @@ fn handle_existing_deposit_reply(
                 .collect::<Vec<AssetInfo>>();
 
             //Assert ratio equality & cAsset equality
-            if previous_composition.0.cAsset_ratios != position_response.cAsset_ratios 
+            if previous_composition.cAsset_ratios != position_response.cAsset_ratios 
                || 
                previous_assets != current_assets{                
                 return Err(StdError::GenericErr { msg: format!("Can only deposit more of the current position composition: {:?}", composition) })
@@ -612,7 +602,7 @@ fn handle_new_deposit_reply(
             let config = CONFIG.load(deps.storage)?;
 
             //Load NEW_POSITION_INFO
-            let new_position_info = NEW_POSITION_INFO.load(deps.storage)?;
+            let new_position_user = NEW_POSITION_INFO.load(deps.storage)?;
 
             //Get new Position_ID
             ////Query Positions contract for all positions from this contract and save last id to the user
@@ -628,13 +618,13 @@ fn handle_new_deposit_reply(
             let latest_position: Position = positions_response.positions.pop().unwrap();
 
             //Save ID to User
-            if let Err(err) = append_to_user_list_of_ids( deps.storage, new_position_info.0.clone(), new_position_info.1, latest_position.position_id){
+            if let Err(err) = append_to_user_list_of_ids(deps.storage, new_position_user.clone(), latest_position.position_id){
                 return Err(StdError::GenericErr { msg: err.to_string() })
             };
 
             Ok(Response::new()
                 .add_attributes(vec![
-                    attr("user", new_position_info.0),
+                    attr("user", new_position_user),
                     attr("new_id",  latest_position.position_id),
             ]))
         },
@@ -674,7 +664,7 @@ fn query_user_positions(
         let position_resp = deps.querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
             contract_addr: config.clone().positions_contract.to_string(), 
             msg: to_binary(&CDP_QueryMsg::GetPosition { 
-                position_id: position.1, 
+                position_id: position, 
                 position_owner: env.contract.address.to_string(),
             })?
         }))?;
@@ -687,66 +677,21 @@ fn query_user_positions(
 }
 
 ////Helpers///
-fn create_router_msg(
-    contract_addr: String, //Margin contract
-    positions_contract: String,
-    apollo_router_addr: String,
-    asset_to_buy: AssetInfo,
-    asset_to_sell: AssetInfo, //Credit asset
-    amount_to_sell: Decimal,
-    basket_id: Uint128,
-    position_id: Option<Uint128>,
-    max_spread: Option<Decimal>,
-) -> StdResult<CosmosMsg>{
-    //We know the credit asset & collateral asset is native
-    if let AssetInfo::NativeToken { denom } = asset_to_sell {
-        if let AssetInfo::NativeToken { denom: _ } = asset_to_buy.clone() {
-            let router_msg = RouterExecuteMsg::Swap {
-                to: SwapToAssetsInput::Single(asset_to_buy.clone()), //Buy
-                max_spread, 
-                recipient: Some(positions_contract), //Deposit Native to positions contract
-                hook_msg: Some(to_binary(&CDP_ExecuteMsg::Deposit { 
-                    position_id, 
-                    position_owner: Some(contract_addr), //Owner is this contract
-                })?),
-            };
-    
-            let payment = coin(
-                (amount_to_sell * Uint128::new(1u128)).u128(),
-                denom,
-            );
-    
-            let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: apollo_router_addr,
-                msg: to_binary(&router_msg)?,
-                funds: vec![payment],
-            });
-    
-            Ok(msg)            
-        } else { return Err(StdError::GenericErr { msg: String::from("Assets are supposed to be native") }) }
-    } else {
-        return Err(StdError::GenericErr { msg: String::from("Assets are supposed to be native") })
-    }
-
-}
-
-
 fn append_to_user_list_of_ids(
     storage: &mut dyn Storage,
     user: Addr,
-    basket_id: Uint128,
     position_id: Uint128,
 ) -> Result<(), ContractError>{
 
-    USERS.update( storage, user, |list_of_ids| -> Result<Vec<(Uint128, Uint128)>, ContractError> {
+    USERS.update( storage, user, |list_of_ids| -> Result<Vec<Uint128>, ContractError> {
         match list_of_ids {
             Some(mut list) => {
-                list.push( (basket_id, position_id) );
+                list.push( position_id );
 
                 Ok(list)
             },
             None => {
-                Ok(vec![ (basket_id, position_id) ])
+                Ok(vec![ position_id ])
             }
         }
     })?;

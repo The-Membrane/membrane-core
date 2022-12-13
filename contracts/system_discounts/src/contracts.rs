@@ -354,7 +354,7 @@ fn get_sp_value(
     //Query Stability Pool to see if the user has funds
     let user_deposits = querier.query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().stability_pool_contract.to_string(),
-        msg: to_binary(&SP_QueryMsg::AssetPool {  })?,
+        msg: to_binary(&SP_QueryMsg::AssetPool { user: user.into(), deposit_limit: None })?,
     }))?
     .deposits
         .into_iter()

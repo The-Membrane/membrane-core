@@ -2430,26 +2430,6 @@ pub fn update_position_claims(
     Ok(())
 }
 
-//Get total pooled amount for an asset
-pub fn get_stability_pool_liquidity(
-    querier: QuerierWrapper,
-    config: Config,
-    pool_asset: AssetInfo,
-) -> StdResult<Uint128> {
-    if let Some(sp_addr) = config.clone().stability_pool {
-        //Query the SP Asset Pool
-        Ok(querier
-            .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: sp_addr.to_string(),
-                msg: to_binary(&SP_QueryMsg::AssetPool { })?,
-            }))?
-            .credit_asset
-            .amount)
-    } else {
-        Ok(Uint128::zero())
-    }
-}
-
 pub fn get_target_position(
     storage: &dyn Storage,
     valid_position_owner: Addr,

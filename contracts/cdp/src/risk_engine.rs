@@ -1,13 +1,14 @@
 
-use cosmwasm_std::{Decimal, Uint128, StdResult, Env, QuerierWrapper, Storage};
+use cosmwasm_std::{Decimal, Uint128, Env, QuerierWrapper, Storage, to_binary, QueryRequest, WasmQuery, StdResult};
 
 use membrane::positions::Config;
-use membrane::types::{Basket, Asset, cAsset, SupplyCap, AssetInfo};
+use membrane::stability_pool::QueryMsg as SP_QueryMsg;
+use membrane::types::{Basket, Asset, cAsset, SupplyCap, AssetInfo, AssetPool};
 use membrane::helpers::get_asset_liquidity;
 use membrane::math::decimal_multiplication; 
 
 use crate::state::{CONFIG, BASKET};
-use crate::positions::{get_stability_pool_liquidity, get_cAsset_ratios};
+use crate::positions::get_cAsset_ratios;
 //use crate::query::get_cAsset_ratios_imut;
 use crate::error::ContractError;
 
@@ -184,7 +185,7 @@ pub fn get_basket_debt_caps(
             * basket.liquidity_multiplier;
 
     //Get SP liquidity
-    let sp_liquidity = get_stability_pool_liquidity(querier, config.clone(), basket.clone().credit_asset.info)?;
+    let sp_liquidity = get_stability_pool_liquidity(querier, config.clone())?;
 
     //Add SP liquidity to the cap
     debt_cap += Decimal::from_ratio(sp_liquidity, Uint128::new(1)) * Uint128::new(1);    
@@ -430,6 +431,25 @@ pub fn update_basket_debt(
     }
 
     Ok(())
+}
+
+//Get total pooled amount for the debt token
+pub fn get_stability_pool_liquidity(
+    querier: QuerierWrapper,
+    config: Config,
+) -> StdResult<Uint128> {
+    if let Some(sp_addr) = config.clone().stability_pool {
+        //Query the SP Asset Pool
+        Ok(querier
+            .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: sp_addr.to_string(),
+                msg: to_binary(&SP_QueryMsg::AssetPool { user: None, deposit_limit: 1.into() })?,
+            }))?
+            .credit_asset
+            .amount)
+    } else {
+        Ok(Uint128::zero())
+    }
 }
 
 ////////////Immutable fns for Queries/////

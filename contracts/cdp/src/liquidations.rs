@@ -326,12 +326,9 @@ fn get_user_repay_amount(
         let user_deposits = querier
             .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.clone().stability_pool.unwrap().to_string(),
-                msg: to_binary(&SP_QueryMsg::AssetPool {  })?,
+                msg: to_binary(&SP_QueryMsg::AssetPool { user: position_owner.clone().into(), deposit_limit: None })?,
             }))?
-            .deposits
-            .into_iter()
-            .filter(|deposits| deposits.user.to_string() == position_owner.clone())
-            .collect::<Vec<Deposit>>();
+            .deposits;
 
         let total_user_deposit: Decimal = user_deposits
             .iter()

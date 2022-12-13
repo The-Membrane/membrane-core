@@ -15,13 +15,13 @@ use membrane::stability_pool::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig,
 };
 use membrane::types::{
-    Asset, AssetInfo, AssetPool, Deposit, LiqAsset, PositionUserInfo, User, UserInfo, UserRatio,
+    Asset, AssetInfo, AssetPool, Deposit, User, UserInfo, UserRatio,
 };
 use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
-use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_user_claims, query_capital_ahead_of_deposits};
+use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_user_claims, query_capital_ahead_of_deposits, query_asset_pool};
 use crate::state::{Propagation, ASSET, CONFIG, INCENTIVES, PROP, USERS};
 
 // version info for migration info
@@ -274,15 +274,14 @@ pub fn withdraw(
     
     let config = CONFIG.load(deps.storage)?;
 
-    let mut message: CosmosMsg;
+    let message: CosmosMsg;
     let mut msgs = vec![];
     let mut attrs = vec![
         attr("method", "withdraw"),
         attr("position_owner", info.sender.to_string()),
     ];
 
-    let mut asset_pool = ASSET.load(deps.storage)?;
-        
+    let asset_pool = ASSET.load(deps.storage)?;        
     
     //This forces withdrawals to be done by the info.sender
     //so no need to check if the withdrawal is done by the position owner
@@ -310,7 +309,7 @@ pub fn withdraw(
             config.clone(),
             info.clone().sender,
             Decimal::from_ratio(amount, Uint128::new(1u128)),
-            asset_pool,
+            asset_pool.clone(),
             false,
         )?;
 
@@ -321,12 +320,12 @@ pub fn withdraw(
         if !withdrawable.is_zero() {
             let withdrawable_asset = Asset {
                 amount: withdrawable,
-                ..asset
+                ..asset_pool.clone().credit_asset
             };
 
             attrs.push(attr("withdrawn_asset", withdrawable_asset.to_string()));
 
-            //This is here in case there are multiple withdrawal messages created.
+            //Create withdrawal msg
             message = withdrawal_msg(withdrawable_asset, info.sender.clone())?;
             msgs.push(message);
         }
@@ -882,7 +881,7 @@ fn repay(
         attr("method", "repay"),
         attr("user_info", user_info.to_string()),
     ];
-    let mut asset_pool = ASSET.load(deps.storage)?;
+    let asset_pool = ASSET.load(deps.storage)?;
 
     if asset_pool.credit_asset.info.equal(&repayment.info){
         let position_owner = deps.api.addr_validate(&user_info.position_owner)?;
@@ -993,8 +992,6 @@ pub fn claim(
     //Create claim msgs
     let (messages, claimables) = user_claims_msgs(
         deps.storage,
-        deps.api,
-        config.clone(),
         info.clone(),
     )?;
 
@@ -1008,8 +1005,6 @@ pub fn claim(
 
 fn user_claims_msgs(
     storage: &mut dyn Storage,
-    api: &dyn Api,
-    config: Config,
     info: MessageInfo,
 ) -> Result<(Vec<CosmosMsg>, Vec<Asset>), ContractError> {
     let user = USERS.load(storage, info.clone().sender)?;
@@ -1450,25 +1445,6 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::UserClaims { user } => to_binary(&query_user_claims(deps, user)?),
         QueryMsg::AssetPool { user, deposit_limit } => to_binary(&query_asset_pool(deps, user, deposit_limit)?),
     }
-}
-
-pub fn query_asset_pool(
-    deps: &dyn Storage,
-    user: Option<String>,
-    deposit_limit: Option<u32>,
-) -> StdResult<AssetPool>{    
-    let mut asset_pool = ASSET.load(deps.storage)?;
-    
-    if let Some(limit) = deposit_limit {
-        asset_pool.deposits = asset_pool.deposits[0..limit];
-    } else if let Some(user) = user {
-        asset_pool.deposits = asset_pool.clone().deposits
-            .into_iter
-            .filter(|deposit| deposit.user.to_string() == user)
-            .collect::Vec<Deposit>();
-    }
-    
-    Ok(asset_pool)    
 }
 
 //Note: This fails if an asset total is sent in two separate Asset objects. Both will be invalidated.

@@ -73,9 +73,9 @@ pub enum QueryMsg {
     //Returns ClaimsResponse
     UserClaims { user: String },
     //Returns AssetPool
-    AssetPool { 
+    AssetPool { //Either or
         user: Option<String>, 
-        deposit_limit: Option<u32>
+        deposit_limit: Option<u32>, 
     },
 }
 

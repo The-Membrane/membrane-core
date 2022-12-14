@@ -43,7 +43,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -98,11 +98,11 @@ pub fn instantiate(
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let mut attrs = vec![];
-    attrs.push(attr("method", "instantiate"));
-    attrs.push(attr("owner", info.sender.to_string()));
-
-    Ok(Response::new().add_attributes(attrs))
+    Ok(Response::new()
+        .add_attribute("method", "instantiate")
+        .add_attribute("config", format!("{:?}", config))
+        .add_attribute("contract_address", env.contract.address)
+    )
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

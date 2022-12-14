@@ -36,7 +36,7 @@ const MAX_VOTERS_LIMIT: u32 = 250;
 
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -74,7 +74,10 @@ pub fn instantiate(
 
     PROPOSAL_COUNT.save(deps.storage, &Uint64::zero())?;
 
-    Ok(Response::default())
+    Ok(Response::new()    
+        .add_attribute("config", format!("{:?}", config))
+        .add_attribute("contract_address", env.contract.address)
+    )
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

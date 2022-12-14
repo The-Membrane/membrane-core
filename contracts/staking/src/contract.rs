@@ -3,17 +3,17 @@ use std::env;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, coin, from_binary, to_binary, Addr, Api, BankMsg, Binary, CosmosMsg, Decimal, Deps,
+    attr, coin, to_binary, Addr, Api, BankMsg, Binary, CosmosMsg, Decimal, Deps,
     DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg, QueryRequest, WasmQuery, QuerierWrapper,
 };
 use cw2::set_contract_version;
-use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
+use cw20::Cw20ExecuteMsg;
 
 use membrane::apollo_router::{Cw20HookMsg as RouterCw20HookMsg, ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, withdrawal_msg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, ProposalStatus};
-use membrane::staking::{ Config, Cw20HookMsg, ExecuteMsg, InstantiateMsg, QueryMsg };
+use membrane::staking::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::vesting::{QueryMsg as Vesting_QueryMsg, RecipientsResponse};
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit};
 use membrane::math::decimal_division;
@@ -33,7 +33,7 @@ const SECONDS_PER_DAY: u64 = 86_400u64;
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -110,11 +110,11 @@ pub fn instantiate(
     //Initialize fee events
     FEE_EVENTS.save(deps.storage, &vec![])?;
 
-    let res = Response::new();
-    Ok(res.add_attributes(vec![
-        attr("method", "instantiate"),
-        attr("owner", config.owner.to_string()),
-    ]))
+    
+    Ok(Response::new()
+        .add_attribute("method", "instantiate")
+        .add_attribute("config", format!("{:?}", config))
+        .add_attribute("contract_address", env.contract.address))
 }
 
 fn get_total_vesting(

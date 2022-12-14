@@ -3,11 +3,10 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, coin, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env,
-    MessageInfo, QueryRequest, Response, StdError, StdResult, Uint128, WasmMsg, WasmQuery, QuerierWrapper, Storage,
+    attr, to_binary, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
+    MessageInfo, QueryRequest, Response, StdResult, Uint128, WasmMsg, WasmQuery, QuerierWrapper,
 };
 use cw2::set_contract_version;
-use cw20::Cw20ExecuteMsg;
 
 use membrane::vesting::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::governance::{ExecuteMsg as GovExecuteMsg, ProposalMessage, ProposalVoteOption};
@@ -16,8 +15,8 @@ use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
     ExecuteMsg as StakingExecuteMsg, QueryMsg as StakingQueryMsg, RewardsResponse, StakerResponse,
 };
-use membrane::types::{Allocation, Asset, AssetInfo, VestingPeriod, Recipient};
-use membrane::helpers::{withdrawal_msg, asset_to_coin};
+use membrane::types::{Allocation, Asset, VestingPeriod, Recipient};
+use membrane::helpers::withdrawal_msg;
 
 use crate::error::ContractError;
 use crate::query::{query_allocation, query_unlocked, query_recipients, query_recipient};
@@ -67,13 +66,11 @@ pub fn instantiate(
         }
     ])?;
 
-    let mut attrs = vec![
-        attr("method", "instantiate"),
-        attr("owner", config.owner.to_string()),
-        attr("owner", env.contract.address.to_string()),
-    ];
-
-    Ok(Response::new().add_attributes(attrs))
+    Ok(Response::new()
+        .add_attribute("method", "instantiate")
+        .add_attribute("config", format!("{:?}", config))
+        .add_attribute("contract_address", env.contract.address)
+    )
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

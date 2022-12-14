@@ -25,7 +25,7 @@ const MAX_LIMIT: u64 = 31u64;
 
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -53,7 +53,10 @@ pub fn instantiate(
     //Initialize Assets
     ASSETS.save(deps.storage, &vec![])?;
 
-    Ok(Response::default())
+    Ok(Response::new()    
+        .add_attribute("config", format!("{:?}", config))
+        .add_attribute("contract_address", env.contract.address)
+    )
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

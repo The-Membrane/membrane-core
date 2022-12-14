@@ -3,7 +3,7 @@ use std::env;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Addr, Api, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
+    attr, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
     DepsMut, Env, MessageInfo, QuerierWrapper, QueryRequest, Response, StdError, StdResult,
     Storage, Uint128, WasmMsg, WasmQuery,
 };
@@ -35,7 +35,7 @@ const SECONDS_PER_DAY: u64 = 86_400u64;
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -81,8 +81,10 @@ pub fn instantiate(
 
     Ok(Response::new().add_attributes(vec![
         attr("method", "instantiate"),
-        attr("owner", config.owner.to_string()),
-    ]))
+        attr("config", format!("{:?}", config)),
+    ])
+    .add_attribute("contract_address", env.contract.address)
+)
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

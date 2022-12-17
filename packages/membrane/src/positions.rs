@@ -61,6 +61,7 @@ pub enum ExecuteMsg {
         max_spread: Decimal,
         send_to: Option<String>,
     },
+    Accrue { position_id: Uint128 },
     MintRevenue {
         send_to: Option<String>, 
         repay_for: Option<UserInfo>, //Repay for a position w/ the revenue

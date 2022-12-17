@@ -1742,6 +1742,7 @@ fn get_amount_from_LTV(
     Ok( credit_amount )
 }
 
+//Update Position in state
 pub fn update_position(
     storage: &mut dyn Storage,
     valid_position_owner: Addr,
@@ -1762,7 +1763,7 @@ pub fn update_position(
                                 //Swap to target_position 
                                 new_position.clone()
                             } else {
-                                //Save stored_positon
+                                //Don't override
                                 stored_position
                             }
                         })
@@ -2430,6 +2431,7 @@ pub fn update_position_claims(
     Ok(())
 }
 
+//Returns Position & index of Position in User's list
 pub fn get_target_position(
     storage: &dyn Storage,
     valid_position_owner: Addr,

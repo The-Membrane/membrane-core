@@ -17,6 +17,7 @@ use membrane::types::{
 };
 
 use crate::error::ContractError;
+use crate::rates::external_accrue_call;
 use crate::risk_engine::assert_basket_assets;
 use crate::positions::{
     create_basket, deposit,
@@ -178,7 +179,8 @@ pub fn execute(
                 credit_asset,
                 send_excess_to,
             )
-        }
+        },
+        ExecuteMsg::Accrue { position_id } => { external_accrue_call(deps, info, env, position_id) },
         ExecuteMsg::ClosePosition { 
             position_id, 
             max_spread, 

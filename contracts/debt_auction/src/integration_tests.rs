@@ -114,7 +114,7 @@ mod tests {
                         basket_id,
                     } => Ok(to_binary(&PriceResponse {
                         prices: vec![],
-                        avg_price: Decimal::one(),
+                        price: Decimal::one(),
                     })?)
                 }
             },

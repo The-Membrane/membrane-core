@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, Api, CosmosMsg, Storage, QuerierWrapper};
 
-use membrane::types::{AssetInfo, Asset, Basket, LiqAsset};
+use membrane::types::{AssetInfo, Asset, Basket};
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
 use membrane::positions::{Config, ExecuteMsg};
 use membrane::math::decimal_subtraction;

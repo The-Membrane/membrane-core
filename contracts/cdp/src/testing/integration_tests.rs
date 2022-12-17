@@ -1619,7 +1619,6 @@ mod tests {
             dex_router: Some(router_contract_addr.to_string()),
             staking_contract: Some(staking_contract_addr.to_string()),
             oracle_contract: Some(oracle_contract_addr.to_string()),
-            interest_revenue_collector: Some("fee_collector".to_string()),
             osmosis_proxy: Some(osmosis_proxy_contract_addr.to_string()),
             debt_auction: Some(auction_contract_addr.to_string()),
             liquidity_contract: Some(liquidity_contract_addr.to_string()),

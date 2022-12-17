@@ -95,10 +95,6 @@ fn instantiate_and_whitelist(deps: &mut OwnedDeps<MemoryStorage, MockApi, MockQu
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -162,7 +158,6 @@ fn simulate_bids_with_2_liq_amounts(
                 bid_with: AssetInfo::NativeToken {
                     denom: "cdt".to_string(),
                 },
-                basket_id: Uint128::new(1u128),
                 position_id: Uint128::new(1u128),
                 position_owner: "owner01".to_string(),
             };
@@ -183,7 +178,6 @@ fn simulate_bids_with_2_liq_amounts(
                 bid_with: AssetInfo::NativeToken {
                     denom: "cdt".to_string(),
                 },
-                basket_id: Uint128::new(1u128),
                 position_id: Uint128::new(1u128),
                 position_owner: "owner01".to_string(),
             };

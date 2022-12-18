@@ -647,6 +647,7 @@ dependencies = [
  "cw2 0.13.4",
  "cw20",
  "membrane",
+ "osmosis-std 0.1.7",
  "schemars",
  "serde",
  "thiserror",

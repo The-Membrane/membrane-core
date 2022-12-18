@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
-    pub mbrn_denom: String,    
-    pub credit_denom: String,
     pub labs_addr: String,
     pub apollo_router: String,    
     //Collateral info    
@@ -49,6 +47,7 @@ pub struct Config {
     pub credit_denom: String,
     pub labs_addr: Addr,
     pub apollo_router: Addr,
+    pub mbrn_launch_amount: Uint128,
     //Collateral info    
     pub atom_denom: String,
     pub osmo_denom: String,

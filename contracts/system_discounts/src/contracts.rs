@@ -217,7 +217,7 @@ fn get_user_value_in_network(
     let mut total_value = Decimal::zero();
 
     total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone(), basket.clone().credit_asset.info, mbrn_price)?;
-    total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price.clone())?;
+    total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price.clone(), credit_price.clone())?;
 
     if config.discount_vault_contract.is_some(){
         total_value += get_discounts_vault_value(querier, config.clone(), user.clone())?;
@@ -296,6 +296,7 @@ fn get_staked_MBRN_value(
     config: Config,
     user: String,
     mbrn_price: Decimal,
+    credit_price: Decimal,
 ) -> StdResult<Decimal>{
 
     let mut user_stake = querier.query::<StakerResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
@@ -330,6 +331,8 @@ fn get_staked_MBRN_value(
             })?,
         }))?
         .price;
+
+        if price < credit_price { price = credit_price }
 
         let value = decimal_multiplication(price, Decimal::from_ratio(asset.amount, Uint128::one()));
 

@@ -410,7 +410,7 @@ pub struct DebtTokenAsset {
     pub basket_id: Uint128,
 }
 
-///////Token Handler
+///////Osmosis Proxy
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Owner {
     pub owner: Addr,

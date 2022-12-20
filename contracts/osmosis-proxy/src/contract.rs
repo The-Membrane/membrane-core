@@ -7,7 +7,7 @@ use std::convert::TryInto;
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Binary, Deps, DepsMut, Env, MessageInfo,
-    Reply, Response, StdError, StdResult, Uint128, SubMsg, CosmosMsg, BankMsg, coins, Decimal,
+    Reply, Response, StdError, StdResult, Uint128, SubMsg, CosmosMsg, BankMsg, coins, Decimal, Order,
 };
 use cw2::set_contract_version;
 use membrane::helpers::get_asset_liquidity;
@@ -26,6 +26,9 @@ use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, Q
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:osmosis-proxy";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+//Constants
+const MAX_LIMIT: u32 = 64;
 
 const CREATE_DENOM_REPLY_ID: u64 = 1u64;
 
@@ -551,6 +554,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             creator_address,
             subdenom,
         } => to_binary(&get_denom(deps, creator_address, subdenom)?),
+        QueryMsg::GetContractDenoms { limit } => to_binary(&get_contract_denoms(deps, limit)?),
         QueryMsg::PoolState { id } => to_binary(&get_pool_state(deps, id)?),
         QueryMsg::GetTokenInfo { denom } => to_binary(&get_token_info(deps, denom)?),
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
@@ -559,11 +563,29 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 fn get_token_info(deps: Deps, denom: String) -> StdResult<TokenInfoResponse> {
     let token_info = TOKENS.load(deps.storage, denom.clone())?;
+    
     Ok(TokenInfoResponse {
         denom,
         current_supply: token_info.current_supply,
         max_supply: token_info.max_supply.unwrap_or_else(Uint128::zero),
     })
+    
+}
+
+fn get_contract_denoms(deps: Deps, limit: Option<u32>) -> StdResult<Vec<String>> {
+    let limit = limit.unwrap_or_else(|| MAX_LIMIT);
+
+    Ok(
+        TOKENS
+            .range(deps.storage, None, None, Order::Ascending)
+            .take(limit as usize)
+            .map(|info|{
+                if let Ok(info) = info {
+                    info.0
+                } else { String::from("error") }
+            })
+            .collect::<Vec<String>>()
+    )
 }
 
 fn get_pool_state(

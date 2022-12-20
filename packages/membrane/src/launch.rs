@@ -31,6 +31,14 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
+    Lock { 
+        lock_up_duration: u64, //in days
+    },
+    Withdraw { 
+        withdrawal_amount: Uint128, 
+        lock_up_duration: u64, //in days
+    },
+    Claim {},
     UpdateConfig(UpdateConfig),
 }
 
@@ -71,12 +79,5 @@ pub struct Config {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UpdateConfig {
     pub owner: Option<String>,  
-    pub mbrn_denom: Option<String>,      
-    pub oracle_contract: Option<String>,
-    pub positions_contract: Option<String>,
-    pub staking_contract: Option<String>,
-    pub stability_pool_contract: Option<String>,
-    pub lockdrop_contract: Option<String>,
-    pub discount_vault_contract: Option<String>,
-    pub minimum_time_in_network: Option<u64>, //in days
+    pub mbrn_denom: Option<String>,   
 }

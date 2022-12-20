@@ -56,6 +56,9 @@ pub enum QueryMsg {
         creator_address: String,
         subdenom: String,
     },
+    GetContractDenoms {
+        limit: Option<u32>,
+    },
     /// For a given pool ID, list all tokens traded on it with current liquidity (spot).
     /// As well as the total number of LP shares and their denom
     PoolState {

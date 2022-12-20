@@ -1,6 +1,6 @@
 use cosmwasm_std::{
     entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, WasmMsg,
-    QueryRequest, Response, StdResult, Uint128, WasmQuery, QuerierWrapper, Reply, StdError, CosmosMsg, SubMsg, Addr,
+    QueryRequest, Response, StdResult, Uint128, WasmQuery, QuerierWrapper, Reply, StdError, CosmosMsg, SubMsg, Addr, coins, attr,
 };
 use cw2::set_contract_version;
 
@@ -14,20 +14,20 @@ use membrane::oracle::{InstantiateMsg as Oracle_InstantiateMsg, ExecuteMsg as Or
 use membrane::liq_queue::InstantiateMsg as LQInstantiateMsg;
 use membrane::liquidity_check::{InstantiateMsg as LCInstantiateMsg, ExecuteMsg as LCExecuteMsg};
 use membrane::debt_auction::InstantiateMsg as DAInstantiateMsg;
-use membrane::osmosis_proxy::ExecuteMsg as OPExecuteMsg;
+use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg};
 use membrane::types::{AssetInfo, DebtTokenAsset, Position, Basket, Deposit, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, LiquidityInfo, AssetOracleInfo};
 
 use osmosis_std::shim::Duration;
 use osmosis_std::types::cosmos::base::v1beta1::Coin;
 use osmosis_std::types::osmosis::gamm::poolmodels::balancer::v1beta1::MsgCreateBalancerPool;
 use osmosis_std::types::osmosis::gamm::poolmodels::stableswap::v1beta1::{MsgCreateStableswapPool, PoolParams as SSPoolParams};
-use osmosis_std::types::osmosis::gamm::v1beta1::{PoolParams, SmoothWeightChangeParams};
+use osmosis_std::types::osmosis::gamm::v1beta1::PoolParams;
 use osmosis_std::types::osmosis::gamm::v1beta1::PoolAsset;
-use osmosis_std::types::osmosis::incentives::{MsgCreateGauge, MsgAddToGauge};
+use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
 use osmosis_std::types::osmosis::lockup::QueryCondition;
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, ADDRESSES, LaunchAddrs, CREDIT_POOL_IDS};
+use crate::state::{CONFIG, ADDRESSES, LaunchAddrs, CREDIT_POOL_IDS, LOCKDROP, LockedUser, Lockdrop, LockSlot};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "launch";
@@ -53,6 +53,7 @@ const LIQ_QUEUE_REPLY_ID: u64 = 8;
 const LIQUIDITY_CHECK_REPLY_ID: u64 = 9;
 const DEBT_AUCTION_REPLY_ID: u64 = 10;
 const STABLESWAP_REPLY_ID: u64 = 11;
+const CREATE_DENOM_REPLY_ID: u64 = 12;
 
 //Constants
 const SECONDS_PER_DAY: u64 = 86_400u64;
@@ -64,6 +65,10 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
+
+    //Need to send 20 OSMO for CreateDenom Msgs
+    if info.funds[0].amount != Uint128::new(20_000_00) && info.funds[0].denom != String::from("uosmo"){ return Err(ContractError::NeedOsmo {}) }
+
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
     let mut config: Config;
@@ -89,12 +94,12 @@ pub fn instantiate(
         liq_queue_id: msg.liq_queue_id,
         liquidity_check_id: msg.liquidity_check_id,
         mbrn_auction_id: msg.mbrn_auction_id,
-        atom_denom: msg.atom_denom,
-        osmo_denom: msg.osmo_denom,
-        usdc_denom: msg.usdc_denom,
-        atomosmo_pool_id: msg.atomosmo_pool_id,
-        atomusdc_pool_id: msg.atomusdc_pool_id,
-        osmousdc_pool_id: msg.osmousdc_pool_id,
+        atom_denom: String::from("ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2"),
+        osmo_denom: String::from("uosmo"),
+        usdc_denom: String::from(""),
+        atomosmo_pool_id: 1,
+        atomusdc_pool_id: todo!(),
+        osmousdc_pool_id: todo!(),
     };
     CONFIG.save(deps.storage, &config)?;
 
@@ -111,9 +116,28 @@ pub fn instantiate(
         mbrn_auction: Addr::unchecked(""),
     });
 
-    //Create MBRN & CDT denoms
+    let msg = CosmosMsg::Wasm(WasmMsg::Instantiate { 
+        admin: Some(env.clone().contract.address.to_string()),
+        code_id: config.clone().osmosis_proxy_id,
+        msg: to_binary(&{})?,
+        funds: vec![],
+        label: String::from("osmosis_proxy") 
+    });
+    let sub_msg = SubMsg::reply_on_success(msg, OSMOSIS_PROXY_REPLY_ID);
+
+    //Instantiate Lockdrop 
+    let lockdrop = Lockdrop {
+        lock_slots: vec![],
+        num_of_incentives: Uint128::new(5_000_000_000_000),
+        locked_asset: AssetInfo::NativeToken { denom: String::from("usomo") },
+        lock_up_ceiling: 365,
+        deposit_end: env.block.time.seconds() + (5 * SECONDS_PER_DAY),
+        withdrawal_end: env.block.time.seconds() + (7 * SECONDS_PER_DAY),
+    };
+    LOCKDROP.save(deps.storage, &lockdrop);
 
     Ok(Response::new()
+        .add_submessage(sub_msg)
         .add_attribute("config", format!("{:?}", config))
         .add_attribute("contract_address", env.contract.address)
     )
@@ -128,6 +152,158 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::UpdateConfig(update) => update_config(deps, info, update),
+    }
+}
+
+fn lock(    
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    lock_up_duration: u64,
+) -> Result<Response, ContractError>{
+    let mut lockdrop = LOCKDROP.load(deps.storage)?;
+
+    //Assert Lockdrop is in deposit period
+    if env.block.time.seconds() > lockdrop.deposit_end { return Err(ContractError::DepositsOver {  }) }
+
+    let valid_asset = validate_lockdrop_asset(info, lockdrop.locked_asset)?;
+
+    //Find & add to lock up slots
+    if let Some((i, lock_slot)) = lockdrop.clone().lock_slots
+        .into_iter()
+        .enumerate()
+        .find(|(i, slot)| slot.lock_up_duration == lock_up_duration.clone()){
+        
+        lockdrop.lock_slots[i].deposits.push(
+            LockedUser { 
+                user: info.clone().sender, 
+                deposit: valid_asset.amount, 
+            }
+        );
+
+    } else if lock_up_duration <= lockdrop.lock_up_ceiling {
+        //Add a lock slot
+        let lock_slot = LockSlot {
+            deposits: vec![LockedUser { 
+                user: info.clone().sender, 
+                deposit: valid_asset.amount, 
+            }],
+            lock_up_duration,
+        };
+            
+        lockdrop.lock_slots.push(lock_slot);
+
+    } else {
+        return Err(ContractError::CustomError { val: String::from("Lock duration out of bounds") })
+    }
+
+    //Save Lockdrop
+    LOCKDROP.save(deps.storage, &lockdrop);
+
+    Ok(Response::new()
+        .add_attributes(vec![
+            attr("user", info.clone().sender),
+            attr("lock_up_duration", lock_up_duration.to_string()),
+            attr("deposit", valid_asset.to_string()),
+        ]))
+}
+
+fn withdraw(    
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    mut withdrawal_amount: Uint128,
+    lock_up_duration: u64,
+) -> Result<Response, ContractError>{
+    let mut lockdrop = LOCKDROP.load(deps.storage)?;
+
+    //Assert Lockdrop is in withdraw period
+    if env.block.time.seconds() < lockdrop.deposit_end || env.block.time.seconds() > lockdrop.withdrawal_end { return Err(ContractError::WithdrawalOver {  }) }
+
+    let initial_withdraw_amount = withdrawal_amount;
+
+    //Find & remove from lock up slots
+    if let Some((i, lock_slot)) = lockdrop.clone().lock_slots
+        .into_iter()
+        .enumerate()
+        .find(|(i, slot)| slot.lock_up_duration == lock_up_duration.clone()){
+        
+            lockdrop.lock_slots[i].deposits = lockdrop.clone().lock_slots[i].deposits
+                .into_iter()
+                .map(|mut user| {
+                    if user.user == info.clone().sender.to_string() {
+                        if user.deposit >= withdrawal_amount {
+                            user.deposit -= withdrawal_amount;
+                            withdrawal_amount = Uint128::zero();
+
+                            user
+                        } else {
+                            withdrawal_amount -= user.deposit;
+                            user.deposit = Uint128::zero();
+
+                            user
+                        }
+                    } else {
+                        user
+                    }
+                })
+                .collect::<Vec<LockedUser>>()
+                .into_iter()
+                .filter(|user| user.deposit != Uint128::zero())
+                .collect::<Vec<LockedUser>>();
+
+            if !withdrawal_amount.is_zero() {
+                return Err(ContractError::CustomError { val: format!("This user only owns {} of the locked asset in this lockup duration: {}, retry withdrawal at or below that amount", initial_withdraw_amount - withdrawal_amount, lock_up_duration) })
+            }
+
+    } else {
+        return Err(ContractError::CustomError { val: String::from("Lock duration out of bounds") })
+    }
+
+    //Save Lockdrop
+    LOCKDROP.save(deps.storage, &lockdrop);
+
+    Ok(Response::new()
+        .add_attributes(vec![
+            attr("user", info.clone().sender),
+            attr("lock_up_duration", lock_up_duration.to_string()),
+            attr("withdraw", initial_withdraw_amount),
+        ]))
+}
+
+fn claim (    
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError>{
+    let mut lockdrop = LOCKDROP.load(deps.storage)?;
+
+    //Claim any unlocked assets
+    let (withdrawable, incentives) = get_user_claims();
+
+}
+
+fn calc_ticket_distribution(
+    lock_slot: LockSlot,
+){
+
+    let mut total_tickets = Uint128::zero();
+
+    
+
+
+}
+
+fn validate_lockdrop_asset(info: MessageInfo, lockdrop_asset: AssetInfo) -> StdResult<Asset>{
+    if let Some(lockdrop_asset) = info.clone().funds
+        .into_iter()
+        .find(|coin| coin.denom == lockdrop_asset.to_string()){
+
+        Ok(Asset { 
+            info: AssetInfo::NativeToken { denom: lockdrop_asset.denom }, 
+            amount: lockdrop_asset.amount })
+    } else {
+        return Err(StdError::GenericErr { msg: format!("No valid lockdrop asset, looking for {}", lockdrop_asset) })
     }
 }
 
@@ -175,7 +351,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     }
 }
 
-//This gets called at the last reply 
+//This gets called at the end of the lockdrop
 pub fn end_of_launch(
     deps: DepsMut,
     env: Env,
@@ -283,46 +459,72 @@ pub fn end_of_launch(
     )
 }
 
+//Called after the Osmosis Proxy (OP) reply
+pub fn handle_create_denom_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{ 
+    match msg.result.into_result() {
+        Ok(result) => {
+        let mut config = CONFIG.load(deps.storage)?;
+        let addrs = ADDRESSES.load(deps.storage)?;
+        
+        //Get denoms
+        let denoms: Vec<String> = deps.querier.query_wasm_smart::<Vec<String>>(addrs.osmosis_proxy, &OPQueryMsg::GetContractDenoms { limit: None })?;
+        //We know CDT is first
+        config.credit_denom = denoms[0];
+        config.mbrn_denom = denoms[1];
+
+
+        Ok(Response::new()
+            .add_attribute("saved_denoms", format!("{:?}", denoms))
+        )
+    },
+        Err(err) => return Err(StdError::GenericErr { msg: err }),
+    }    
+}
+
 pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{    
-    let config = CONFIG.load(deps.storage)?;
-    let addrs = ADDRESSES.load(deps.storage)?;
-    let mut msgs = vec![];
-
-    //Send this to a reply of the Stableswap msg
-    //Mint MBRN for Incentives
-    let msg = OPExecuteMsg::MintTokens { 
-        denom: config.clone().mbrn_denom, 
-        amount: Uint128::new(1_000_000_000_000), 
-        mint_to_address: env.clone().contract.address,
-    };
-    let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-        contract_addr: addrs.clone().osmosis_proxy.to_string(), 
-        msg: to_binary(&msg)?, 
-        funds: vec![], 
-    });
-    msgs.push(msg);
-    //Incentivize the stableswap
-    let msg = MsgCreateGauge { 
-        is_perpetual: false, 
-        owner: addrs.clone().governance.to_string(),
-        distribute_to: Some(QueryCondition { 
-            lock_query_type: 0, //ByDuration
-            denom: todo!(), //I need to query the share token in a reply
-            duration: Some(Duration { seconds: 14 * SECONDS_PER_DAY as i64, nanos: 0 }), 
-            timestamp: None,
-        }), 
-        coins: vec![Coin {
+    match msg.result.into_result() {
+        Ok(result) => {
+        let config = CONFIG.load(deps.storage)?;
+        let addrs = ADDRESSES.load(deps.storage)?;
+        let mut msgs = vec![];
+        
+        //Mint MBRN for Incentives
+        let msg = OPExecuteMsg::MintTokens { 
             denom: config.clone().mbrn_denom, 
-            amount: String::from("1_000_000_000_000"),
-        }], 
-        start_time: None, 
-        num_epochs_paid_over: 90, //days
-    }.into();
-    msgs.push(msg);
+            amount: Uint128::new(1_000_000_000_000), 
+            mint_to_address: env.clone().contract.address,
+        };
+        let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+            contract_addr: addrs.clone().osmosis_proxy.to_string(), 
+            msg: to_binary(&msg)?, 
+            funds: vec![], 
+        });
+        msgs.push(msg);
+        //Incentivize the stableswap
+        let msg = MsgCreateGauge { 
+            is_perpetual: false, 
+            owner: addrs.clone().governance.to_string(),
+            distribute_to: Some(QueryCondition { 
+                lock_query_type: 0, //ByDuration
+                denom: todo!(), //I need to query the share token in a reply
+                duration: Some(Duration { seconds: 14 * SECONDS_PER_DAY as i64, nanos: 0 }), 
+                timestamp: None,
+            }), 
+            coins: vec![Coin {
+                denom: config.clone().mbrn_denom, 
+                amount: String::from("1_000_000_000_000"),
+            }], 
+            start_time: None, 
+            num_epochs_paid_over: 90, //days
+        }.into();
+        msgs.push(msg);
 
-    Ok(Response::new()
-        .add_messages(msgs)
-    )
+        Ok(Response::new()
+            .add_messages(msgs)
+        )
+    },
+        Err(err) => return Err(StdError::GenericErr { msg: err }),
+    }    
 }
 
 pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{
@@ -357,6 +559,28 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
             addrs.osmosis_proxy = valid_address.clone();
             ADDRESSES.save(deps.storage, &addrs);
 
+            let mut sub_msgs = vec![];
+
+            //Create CDT & MBRN denom
+            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: addrs.clone().osmosis_proxy.to_string(), 
+                msg: to_binary(&OPExecuteMsg::CreateDenom { 
+                    subdenom: String::from("cdt"), 
+                    max_supply: None,
+                })?, 
+                funds: coins(10_000_000, "uosmo"),
+            });
+            sub_msgs.push(SubMsg::reply_on_success(msg, CREATE_DENOM_REPLY_ID));
+            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: addrs.clone().osmosis_proxy.to_string(), 
+                msg: to_binary(&OPExecuteMsg::CreateDenom { 
+                    subdenom: String::from("mbrn"), 
+                    max_supply: None,
+                })?, 
+                funds: coins(10_000_000, "uosmo"),
+            });
+            sub_msgs.push(SubMsg::reply_on_success(msg, CREATE_DENOM_REPLY_ID));
+
             //Instantiate Oracle
             let oracle_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
                 admin: Some(env.contract.address.to_string()), 
@@ -371,7 +595,7 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
             });
             let sub_msg = SubMsg::reply_on_success(oracle_instantiation, ORACLE_REPLY_ID);
             
-            Ok(Response::new().add_submessage(sub_msg))
+            Ok(Response::new().add_submessages(sub_msgs).add_submessage(sub_msg))
         },
         Err(err) => return Err(StdError::GenericErr { msg: err }),
     }    

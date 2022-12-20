@@ -11,6 +11,15 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
+    #[error("Need 20 uosmo to instantiate")]
+    NeedOsmo {},
+
+    #[error("Deposit period over")]
+    DepositsOver {},
+
+    #[error("Withdrawal period over")]
+    WithdrawalsOver {},
+
     #[error("Custom Error val: {val}")]
     CustomError { val: String },
 

@@ -1,9 +1,9 @@
-use cosmwasm_std::Addr;
+use cosmwasm_std::{Addr, Uint128};
 use cw_storage_plus::Item;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use membrane::launch::Config;
+use membrane::{launch::Config, types::{Deposit, AssetInfo}};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -34,6 +34,33 @@ impl CreditPools {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct Lockdrop {
+    pub lock_slots: Vec<LockSlot>,
+    pub num_of_incentives: Uint128,
+    pub locked_asset: AssetInfo,    
+    pub lock_up_ceiling: u64, //in days
+    pub deposit_end: u64, //5 days
+    pub withdrawal_end: u64, //2 days
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct LockSlot {
+    pub deposits: Vec<LockedUser>,
+    pub lock_up_duration: u64, //in days
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct LockedUser {
+    pub user: Addr,
+    pub deposit: Uint128,
+}
+
 pub const CONFIG: Item<Config> = Item::new("config");
+
+pub const LOCKDROP: Item<Lockdrop> = Item::new("lockdrop");
 pub const ADDRESSES: Item<LaunchAddrs> = Item::new("addresses");
 pub const CREDIT_POOL_IDS: Item<CreditPools> = Item::new("credit_pools");

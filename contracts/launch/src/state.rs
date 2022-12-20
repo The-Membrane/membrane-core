@@ -37,7 +37,7 @@ impl CreditPools {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct Lockdrop {
-    pub lock_slots: Vec<LockSlot>,
+    pub locked_users: Vec<LockedUser>,
     pub num_of_incentives: Uint128,
     pub locked_asset: AssetInfo,    
     pub lock_up_ceiling: u64, //in days
@@ -47,17 +47,18 @@ pub struct Lockdrop {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct LockSlot {
-    pub deposits: Vec<LockedUser>,
-    pub lock_up_duration: u64, //in days
+pub struct LockedUser {
+    pub user: String,
+    pub deposits: Vec<Lock>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct LockedUser {
-    pub user: Addr,
+pub struct Lock {
     pub deposit: Uint128,
+    pub lock_up_duration: u64, //in days
 }
+
 
 pub const CONFIG: Item<Config> = Item::new("config");
 

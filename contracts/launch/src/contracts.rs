@@ -27,7 +27,7 @@ use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
 use osmosis_std::types::osmosis::lockup::QueryCondition;
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, ADDRESSES, LaunchAddrs, CREDIT_POOL_IDS, LOCKDROP, LockedUser, Lockdrop, LockSlot};
+use crate::state::{CONFIG, ADDRESSES, LaunchAddrs, CREDIT_POOL_IDS, LOCKDROP, LockedUser, Lockdrop, LockSlot, Lock};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "launch";
@@ -165,37 +165,37 @@ fn lock(
 
     //Assert Lockdrop is in deposit period
     if env.block.time.seconds() > lockdrop.deposit_end { return Err(ContractError::DepositsOver {  }) }
+    //Validate lockup duration
+    if lock_up_duration > lockdrop.lock_up_ceiling {  return Err(ContractError::CustomError { val: String::from("Can't lock that long")}) }
 
     let valid_asset = validate_lockdrop_asset(info, lockdrop.locked_asset)?;
 
-    //Find & add to lock up slots
-    if let Some((i, lock_slot)) = lockdrop.clone().lock_slots
+    //Find & add to User
+    if let Some((i, lock_slot)) = lockdrop.clone().locked_users
         .into_iter()
         .enumerate()
-        .find(|(i, slot)| slot.lock_up_duration == lock_up_duration.clone()){
+        .find(|(i, user)| user.user == info.clone().sender.to_string()){
         
-        lockdrop.lock_slots[i].deposits.push(
-            LockedUser { 
-                user: info.clone().sender, 
+        lockdrop.locked_users[i].deposits.push(
+            Lock { 
                 deposit: valid_asset.amount, 
+                lock_up_duration: lock_up_duration.clone(),
             }
         );
 
-    } else if lock_up_duration <= lockdrop.lock_up_ceiling {
-        //Add a lock slot
-        let lock_slot = LockSlot {
-            deposits: vec![LockedUser { 
-                user: info.clone().sender, 
+    } else {
+        //Add a User
+        let user = LockedUser { 
+            user: info.clone().sender.to_string(), 
+            deposits: vec![Lock { 
                 deposit: valid_asset.amount, 
-            }],
-            lock_up_duration,
+                lock_up_duration: lock_up_duration.clone(),
+            }]
         };
             
-        lockdrop.lock_slots.push(lock_slot);
+        lockdrop.locked_users.push(user);
 
-    } else {
-        return Err(ContractError::CustomError { val: String::from("Lock duration out of bounds") })
-    }
+    } 
 
     //Save Lockdrop
     LOCKDROP.save(deps.storage, &lockdrop);
@@ -222,42 +222,44 @@ fn withdraw(
 
     let initial_withdraw_amount = withdrawal_amount;
 
-    //Find & remove from lock up slots
-    if let Some((i, lock_slot)) = lockdrop.clone().lock_slots
+    //Find & remove from LockedUser
+    if let Some((i, lock_slot)) = lockdrop.clone().locked_users
         .into_iter()
         .enumerate()
-        .find(|(i, slot)| slot.lock_up_duration == lock_up_duration.clone()){
+        .find(|(i, user)| user.user == info.clone().sender.to_string()){
         
-            lockdrop.lock_slots[i].deposits = lockdrop.clone().lock_slots[i].deposits
+            lockdrop.locked_users[i].deposits = lockdrop.clone().locked_users[i].deposits
                 .into_iter()
-                .map(|mut user| {
-                    if user.user == info.clone().sender.to_string() {
-                        if user.deposit >= withdrawal_amount {
-                            user.deposit -= withdrawal_amount;
+                .map(|mut deposit| {
+                    if deposit.lock_up_duration == lock_up_duration {
+
+                        if deposit.deposit >= withdrawal_amount {
+                            deposit.deposit -= withdrawal_amount;
                             withdrawal_amount = Uint128::zero();
-
-                            user
+    
+                            deposit
                         } else {
-                            withdrawal_amount -= user.deposit;
-                            user.deposit = Uint128::zero();
-
-                            user
+                            withdrawal_amount -= deposit.deposit;
+                            deposit.deposit = Uint128::zero();
+    
+                            deposit
                         }
-                    } else {
-                        user
-                    }
+
+                    } else { deposit }                 
+                    
+                    
                 })
-                .collect::<Vec<LockedUser>>()
+                .collect::<Vec<Lock>>()
                 .into_iter()
-                .filter(|user| user.deposit != Uint128::zero())
-                .collect::<Vec<LockedUser>>();
+                .filter(|deposit| deposit.deposit != Uint128::zero())
+                .collect::<Vec<Lock>>();
 
             if !withdrawal_amount.is_zero() {
                 return Err(ContractError::CustomError { val: format!("This user only owns {} of the locked asset in this lockup duration: {}, retry withdrawal at or below that amount", initial_withdraw_amount - withdrawal_amount, lock_up_duration) })
             }
 
     } else {
-        return Err(ContractError::CustomError { val: String::from("Lock duration out of bounds") })
+        return Err(ContractError::CustomError { val: String::from("No user deposits") })
     }
 
     //Save Lockdrop

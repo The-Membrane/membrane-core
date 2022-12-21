@@ -935,12 +935,22 @@ fn repay(
 
             let coin: Coin = asset_to_coin(repayment.clone())?;
 
+            //Add Accrue Msg before Repayment to accrue discounted rates
+            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: config.clone().positions_contract.to_string(),
+                msg: to_binary(&CDP_ExecuteMsg::Accrue { 
+                    position_owner: Some(user_info.clone().position_owner),
+                    position_id: user_info.clone().position_id 
+                })?, 
+                funds: () 
+            });
+            msgs.push(msg);
+
             let msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.positions_contract.to_string(),
                 msg: to_binary(&repay_msg)?,
                 funds: vec![coin],
             });
-
             msgs.push(msg);
         }
     } else {

@@ -19,13 +19,25 @@ pub fn external_accrue_call(
     deps: DepsMut, 
     info: MessageInfo,
     env: Env,
+    position_owner: Option<String>,
     position_id: Uint128,
 ) -> Result<Response, ContractError>{
     let mut basket = BASKET.load(deps.storage)?;
+    let config = CONFIG.load(deps.storage)?;
+
+    //Validate position owner
+    let valid_position_owner: Addr;
+    if let Some(position_owner) = position_owner {
+        //If the SP is the sender
+        if info.clone().sender == config.clone().stability_pool.unwrap().to_string(){
+            valid_position_owner = deps.api.addr_validate(&position_owner)?;
+        //Defaults to sender
+        } else { valid_position_owner = info.clone().sender }
+    } else { valid_position_owner = info.clone().sender }
 
     let mut position = get_target_position(
         deps.storage,
-        info.clone().sender,
+        valid_position_owner,
         position_id.clone()
     )?.1;
     

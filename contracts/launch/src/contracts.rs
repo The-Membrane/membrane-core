@@ -29,7 +29,7 @@ use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
 use osmosis_std::types::osmosis::lockup::QueryCondition;
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, ADDRESSES, LaunchAddrs, CREDIT_POOL_IDS, LOCKDROP, LockedUser, Lockdrop, LockSlot, Lock, INCENTIVE_RATIOS};
+use crate::state::{CONFIG, ADDRESSES, LaunchAddrs, CREDIT_POOL_IDS, LOCKDROP, LockedUser, Lockdrop, Lock, INCENTIVE_RATIOS};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "launch";
@@ -100,7 +100,6 @@ pub fn instantiate(
         osmo_denom: String::from("uosmo"),
         usdc_denom: String::from(""),
         atomosmo_pool_id: 1,
-        atomusdc_pool_id: todo!(),
         osmousdc_pool_id: todo!(),
     };
     CONFIG.save(deps.storage, &config)?;
@@ -151,11 +150,14 @@ pub fn instantiate(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
+        ExecuteMsg::Lock { lock_up_duration } => lock(deps, env, info, lock_up_duration),
+        ExecuteMsg::Withdraw { withdrawal_amount, lock_up_duration } => withdraw(deps, env, info, withdrawal_amount, lock_up_duration),
+        ExecuteMsg::Claim {  } => claim(deps, env, info),
         ExecuteMsg::UpdateConfig(update) => update_config(deps, info, update),
     }
 }
@@ -449,6 +451,19 @@ fn update_config(
     //Assert authority
     if info.sender != config.owner {
         return Err(ContractError::Unauthorized {});
+    }
+
+    if let Some(credit_denom) = update.credit_denom {
+        config.credit_denom = credit_denom;
+    }
+    if let Some(mbrn_denom) = update.mbrn_denom {
+        config.mbrn_denom = mbrn_denom;
+    }
+    if let Some(osmo_denom) = update.osmo_denom {
+        config.osmo_denom = osmo_denom;
+    }
+    if let Some(usdc_denom) = update.usdc_denom {
+        config.usdc_denom = usdc_denom;
     }
 
     //Save Config

@@ -13,7 +13,6 @@ pub struct InstantiateMsg {
     pub osmo_denom: String,
     pub usdc_denom: String,
     pub atomosmo_pool_id: String,
-    pub atomusdc_pool_id: String,
     pub osmousdc_pool_id: String,
     //Contract IDs
     pub osmosis_proxy_id: u64,
@@ -61,7 +60,6 @@ pub struct Config {
     pub osmo_denom: String,
     pub usdc_denom: String,
     pub atomosmo_pool_id: String,
-    pub atomusdc_pool_id: String,
     pub osmousdc_pool_id: String,
     //Contract IDs
     pub osmosis_proxy_id: u64,
@@ -80,4 +78,7 @@ pub struct Config {
 pub struct UpdateConfig {
     pub owner: Option<String>,  
     pub mbrn_denom: Option<String>,   
+    pub credit_denom: Option<String>,
+    pub osmo_denom: Option<String>,
+    pub usdc_denom: Option<String>,
 }

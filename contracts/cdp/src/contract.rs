@@ -181,7 +181,7 @@ pub fn execute(
                 send_excess_to,
             )
         },
-        ExecuteMsg::Accrue { position_id } => { external_accrue_call(deps, info, env, position_id) },
+        ExecuteMsg::Accrue { position_owner, position_id } => { external_accrue_call(deps, info, env, position_owner, position_id) },
         ExecuteMsg::ClosePosition { 
             position_id, 
             max_spread, 

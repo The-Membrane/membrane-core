@@ -778,7 +778,7 @@ pub fn get_interest_rates_imut(
                 //Change rate of (rate) increase w/ the configuration multiplier
                 let multiplier = multiplier * config.rate_slope_multiplier;
 
-                //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
+                //Ex cont: Multiplier = 2; Proportional rate = 1.8%.
                 //// rate = 3.6%
                 two_slope_pro_rata_rates.push((
                     basket.clone().collateral_supply_caps[i].clone().asset_info,

@@ -8,7 +8,7 @@ use cosmwasm_std::{
 };
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
 
-use membrane::helpers::{router_native_to_native, pool_query_and_exit, query_stability_pool_fee, validate_position_owner, asset_to_coin, withdrawal_msg};
+use membrane::helpers::{router_native_to_native, pool_query_and_exit, query_stability_pool_fee, validate_position_owner, asset_to_coin, withdrawal_msg, get_contract_balances};
 use membrane::positions::{Config, ExecuteMsg, EditBasket};
 use membrane::oracle::{AssetResponse, PriceResponse};
 use osmo_bindings::PoolStateResponse;
@@ -24,7 +24,6 @@ use membrane::types::{
     StoredPrice, SupplyCap, UserInfo, PriceVolLimiter, equal, AssetPool
 };
 
-use crate::contract::get_contract_balances;
 use crate::rates::accrue;
 use crate::risk_engine::{update_basket_tally, update_basket_debt, update_debt_per_asset_in_position};
 use crate::state::{CLOSE_POSITION, ClosePositionPropagation, BASKET};

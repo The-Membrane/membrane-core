@@ -111,6 +111,26 @@ pub fn query_stability_pool_fee(
     Ok(resp.liq_premium)
 }
 
+pub fn get_contract_balances(
+    querier: QuerierWrapper,
+    env: Env,
+    assets: Vec<AssetInfo>,
+) -> StdResult<Vec<Uint128>> {
+    let mut balances = vec![];
+
+    for asset in assets {
+        if let AssetInfo::NativeToken { denom } = asset {
+            balances.push(
+                querier
+                    .query_balance(env.clone().contract.address, denom)?
+                    .amount,
+            );
+        }        
+    }
+
+    Ok(balances)
+}
+
 pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
     if let AssetInfo::NativeToken { denom: _ } = asset.clone().info {
         let coin: Coin = asset_to_coin(asset)?;

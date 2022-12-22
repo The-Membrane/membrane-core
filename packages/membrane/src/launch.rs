@@ -8,12 +8,6 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub labs_addr: String,
     pub apollo_router: String,    
-    //Collateral info    
-    pub atom_denom: String,
-    pub osmo_denom: String,
-    pub usdc_denom: String,
-    pub atomosmo_pool_id: String,
-    pub osmousdc_pool_id: String,
     //Contract IDs
     pub osmosis_proxy_id: u64,
     pub oracle_id: u64,
@@ -59,8 +53,8 @@ pub struct Config {
     pub atom_denom: String,
     pub osmo_denom: String,
     pub usdc_denom: String,
-    pub atomosmo_pool_id: String,
-    pub osmousdc_pool_id: String,
+    pub atomosmo_pool_id: u64,
+    pub osmousdc_pool_id: u64,
     //Contract IDs
     pub osmosis_proxy_id: u64,
     pub oracle_id: u64,
@@ -76,7 +70,6 @@ pub struct Config {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UpdateConfig {
-    pub owner: Option<String>,  
     pub mbrn_denom: Option<String>,   
     pub credit_denom: Option<String>,
     pub osmo_denom: Option<String>,

@@ -650,26 +650,6 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-pub fn get_contract_balances(
-    querier: QuerierWrapper,
-    env: Env,
-    assets: Vec<AssetInfo>,
-) -> Result<Vec<Uint128>, ContractError> {
-    let mut balances = vec![];
-
-    for asset in assets {
-        if let AssetInfo::NativeToken { denom } = asset {
-            balances.push(
-                querier
-                    .query_balance(env.clone().contract.address, denom)?
-                    .amount,
-            );
-        }        
-    }
-
-    Ok(balances)
-}
-
 pub fn edit_contract_owner(
     deps: DepsMut,
     info: MessageInfo,

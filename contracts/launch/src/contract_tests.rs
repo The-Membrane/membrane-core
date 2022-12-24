@@ -139,8 +139,7 @@ fn lock() {
             attr("lock_up_duration", "7"),
             attr("deposit", "10 uosmo"),
         ]
-    );   
-    
+    );       
     
     // //Query and Assert totals
     // let res = query(deps.as_ref(), mock_env(), QueryMsg::TotalStaked {}).unwrap();

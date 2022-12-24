@@ -172,7 +172,7 @@ pub fn submit_proposal(
     let end_block: u64 = {
         if expedited {
             env.block.height + config.expedited_proposal_voting_period
-        } else if messages.is_some(){ //Proposals with executables have to be longer
+        } else if messages.is_some() && config.proposal_voting_period <  (7 * 14400){ //Proposals with executables have to be at least 7 days
             env.block.height + (7 * 14400)
         } else {
             env.block.height + config.proposal_voting_period

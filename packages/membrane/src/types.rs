@@ -418,6 +418,33 @@ pub struct Owner {
     pub liquidity_multiplier: Option<Decimal>, //for CDP mints
     pub non_token_contract_auth: bool,
 }
+////////Launch/////////
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct Lockdrop {
+    pub locked_users: Vec<LockedUser>,
+    pub num_of_incentives: Uint128,
+    pub locked_asset: AssetInfo,    
+    pub lock_up_ceiling: u64, //in days
+    pub deposit_end: u64, //5 days
+    pub withdrawal_end: u64, //2 days
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct LockedUser {
+    pub user: String,
+    pub deposits: Vec<Lock>,
+    pub total_tickets: Uint128,
+    pub incentives_withdrawn: Uint128,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct Lock {
+    pub deposit: Uint128,
+    pub lock_up_duration: u64, //in days
+}
 
 //////////Possibly switching to cw-asset//////
 

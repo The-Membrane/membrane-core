@@ -5,5 +5,7 @@
 pub mod contracts;
 pub mod error;
 pub mod helpers;
-pub mod contract_tests;
+pub mod reply;
 pub mod state;
+#[cfg(test)]
+pub mod contract_tests;

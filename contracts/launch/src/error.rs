@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// ## Description
 /// This enum describes Assembly contract errors!
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
     #[error("{0}")]
     Std(#[from] StdError),
@@ -19,6 +19,9 @@ pub enum ContractError {
 
     #[error("Withdrawal period over")]
     WithdrawalsOver {},
+
+    #[error("No user funds in the contract")]
+    NotAUser {},
 
     #[error("Custom Error val: {val}")]
     CustomError { val: String },

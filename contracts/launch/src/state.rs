@@ -3,7 +3,7 @@ use cw_storage_plus::Item;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use membrane::{launch::Config, types::{Deposit, AssetInfo, UserRatio}};
+use membrane::{launch::Config, types::{Deposit, AssetInfo, UserRatio, Lockdrop}};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -32,31 +32,6 @@ impl CreditPools {
     pub fn to_vec(&self) -> Vec<u64>{
         return vec![self.stableswap, self.atom, self.osmo]
     }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct Lockdrop {
-    pub locked_users: Vec<LockedUser>,
-    pub num_of_incentives: Uint128,
-    pub locked_asset: AssetInfo,    
-    pub lock_up_ceiling: u64, //in days
-    pub deposit_end: u64, //5 days
-    pub withdrawal_end: u64, //2 days
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct LockedUser {
-    pub user: String,
-    pub deposits: Vec<Lock>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct Lock {
-    pub deposit: Uint128,
-    pub lock_up_duration: u64, //in days
 }
 
 

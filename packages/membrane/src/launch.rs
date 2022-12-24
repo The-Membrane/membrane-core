@@ -40,6 +40,8 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     //Returns Config
     Config {},
+    Lockdrop {},
+    IncentiveDistribution {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

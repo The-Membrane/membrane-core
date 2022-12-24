@@ -139,7 +139,16 @@ fn lock() {
             attr("lock_up_duration", "7"),
             attr("deposit", "10 uosmo"),
         ]
-    );    
+    );   
+    
+    
+    // //Query and Assert totals
+    // let res = query(deps.as_ref(), mock_env(), QueryMsg::TotalStaked {}).unwrap();
+
+    // let resp: TotalStakedResponse = from_binary(&res).unwrap();
+
+    // assert_eq!(resp.total_not_including_vested, Uint128::new(10));
+    // assert_eq!(resp.vested_total,  Uint128::new(11));
 
     //Lock attempt after deposit period
     let msg = ExecuteMsg::Lock { lock_up_duration: 7u64 };
@@ -154,13 +163,6 @@ fn lock() {
     ); 
  
 
-    // //Query and Assert totals
-    // let res = query(deps.as_ref(), mock_env(), QueryMsg::TotalStaked {}).unwrap();
-
-    // let resp: TotalStakedResponse = from_binary(&res).unwrap();
-
-    // assert_eq!(resp.total_not_including_vested, Uint128::new(10));
-    // assert_eq!(resp.vested_total,  Uint128::new(11));
 }
 
 

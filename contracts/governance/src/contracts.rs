@@ -157,6 +157,7 @@ pub fn submit_proposal(
         return Err(ContractError::InsufficientStake {});
     }
 
+
     // Update the proposal count
     let count = PROPOSAL_COUNT.update(deps.storage, |c| -> StdResult<_> {
         Ok(c.checked_add(Uint64::new(1))?)
@@ -171,6 +172,8 @@ pub fn submit_proposal(
     let end_block: u64 = {
         if expedited {
             env.block.height + config.expedited_proposal_voting_period
+        } else if messages.is_some(){ //Proposals with executables have to be longer
+            env.block.height + (7 * 14400)
         } else {
             env.block.height + config.proposal_voting_period
         }

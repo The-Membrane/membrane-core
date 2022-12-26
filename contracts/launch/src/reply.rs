@@ -99,6 +99,25 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
         }
 
         //Incentivize the stableswap
+        //7 day guage
+        let msg = MsgCreateGauge { 
+            is_perpetual: false, 
+            owner: addrs.clone().governance.to_string(),
+            distribute_to: Some(QueryCondition { 
+                lock_query_type: 0, //ByDuration
+                denom: pool_denom,
+                duration: Some(Duration { seconds: 7 * SECONDS_PER_DAY as i64, nanos: 0 }), 
+                timestamp: None,
+            }), 
+            coins: vec![Coin {
+                denom: config.clone().mbrn_denom, 
+                amount: String::from("500_000_000_000"),
+            }], 
+            start_time: None, 
+            num_epochs_paid_over: 90, //days
+        }.into();
+        msgs.push(msg);
+        //14 day guage
         let msg = MsgCreateGauge { 
             is_perpetual: false, 
             owner: addrs.clone().governance.to_string(),
@@ -110,7 +129,7 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             }), 
             coins: vec![Coin {
                 denom: config.clone().mbrn_denom, 
-                amount: String::from("1_000_000_000_000"),
+                amount: String::from("500_000_000_000"),
             }], 
             start_time: None, 
             num_epochs_paid_over: 90, //days
@@ -610,7 +629,7 @@ pub fn handle_cdp_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Respons
                 credit_price: Decimal::one(),
                 base_interest_rate: Some(Decimal::percent(1)),
                 credit_pool_ids: CREDIT_POOL_IDS.load(deps.storage)?.to_vec(),
-                liquidity_multiplier_for_debt_caps: Some(Decimal::percent(500)),
+                liquidity_multiplier_for_debt_caps: Some(Decimal::percent(10_00)), //20% (20% would be 500% but the liquidity contract only counts CDT so we double)
                 liq_queue: None,
             };
             let msg = CosmosMsg::Wasm(WasmMsg::Execute { 

@@ -11,6 +11,9 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
+    #[error("This contract doesn't loop LPs")]
+    NoLPs {},
+
     #[error("Custom Error val: {val}")]
     CustomError { val: String },
 

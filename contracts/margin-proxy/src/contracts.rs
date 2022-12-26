@@ -216,7 +216,6 @@ fn deposit_to_cdp(
     info: MessageInfo,    
     position_id: Option<Uint128>,
 ) -> Result<Response, ContractError>{
-
     //Load Config
     let config = CONFIG.load( deps.storage )?;
 
@@ -224,6 +223,11 @@ fn deposit_to_cdp(
     if let Some(position_id) = position_id {
         validate_user_ownership(deps.storage, info.clone().sender, position_id.clone())?;        
     };
+
+    //Errors if any assets are Osmosis LPs
+    if info.clone().funds.into_iter().any(|coin| coin.denom.contains("gamm")){
+        return Err(ContractError::NoLPs {  })
+    }
    
     //Create Reponse objects
     let sub_msg: SubMsg;

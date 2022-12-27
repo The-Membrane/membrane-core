@@ -11,7 +11,6 @@ pub struct InstantiateMsg {
     pub asset_pool: AssetPool,
     pub incentive_rate: Option<Decimal>,
     pub max_incentives: Option<Uint128>,
-    pub desired_ratio_of_total_credit_supply: Option<Decimal>,
     pub osmosis_proxy: String,
     pub positions_contract: String,
     pub mbrn_denom: String,
@@ -84,9 +83,6 @@ pub struct Config {
     pub owner: Addr, //Governance contract address
     pub incentive_rate: Decimal,
     pub max_incentives: Uint128,
-    //% of Supply desired in the SP.
-    //Incentives decrease as it gets closer
-    pub desired_ratio_of_total_credit_supply: Decimal,
     pub unstaking_period: u64, // in days
     pub mbrn_denom: String,
     pub osmosis_proxy: Addr,
@@ -98,7 +94,6 @@ pub struct UpdateConfig {
     pub owner: Option<String>,
     pub incentive_rate: Option<Decimal>,
     pub max_incentives: Option<Uint128>,
-    pub desired_ratio_of_total_credit_supply: Option<Decimal>,
     pub unstaking_period: Option<u64>,
     pub osmosis_proxy: Option<String>,
     pub positions_contract: Option<String>,

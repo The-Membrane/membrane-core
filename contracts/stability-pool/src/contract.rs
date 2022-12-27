@@ -45,9 +45,6 @@ pub fn instantiate(
         max_incentives: msg
             .max_incentives
             .unwrap_or_else(|| Uint128::new(10_000_000_000_000)),
-        desired_ratio_of_total_credit_supply: msg
-            .desired_ratio_of_total_credit_supply
-            .unwrap_or_else(|| Decimal::percent(20)),
         unstaking_period: 1u64,
         mbrn_denom: msg.mbrn_denom,
         osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
@@ -168,10 +165,6 @@ fn update_config(
     if let Some(max_incentives) = update.max_incentives {
         config.max_incentives = max_incentives;
         attrs.push(attr("new_max_incentives", max_incentives.to_string()));
-    }
-    if let Some(desired_ratio_of_total_credit_supply) = update.desired_ratio_of_total_credit_supply {
-        config.desired_ratio_of_total_credit_supply = desired_ratio_of_total_credit_supply;
-        attrs.push(attr( "new_desired_ratio_of_total_credit_supply", desired_ratio_of_total_credit_supply.to_string()));
     }
     if let Some(new_unstaking_period) = update.unstaking_period {
         config.unstaking_period = new_unstaking_period;

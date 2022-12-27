@@ -10,18 +10,12 @@ use crate::state::{CONFIG, ASSET, USERS};
 
 pub fn query_asset_pool(
     deps: Deps,
-    user: Option<String>,
     deposit_limit: Option<u32>,
 ) -> StdResult<AssetPool>{    
     let mut asset_pool = ASSET.load(deps.storage)?;
     
     if let Some(limit) = deposit_limit {
         asset_pool.deposits = asset_pool.deposits[0..limit as usize].to_vec();
-    } else if let Some(user) = user {
-        asset_pool.deposits = asset_pool.clone().deposits
-            .into_iter()
-            .filter(|deposit| deposit.user.to_string() == user)
-            .collect::<Vec<Deposit>>();
     }
     
     Ok(asset_pool)    

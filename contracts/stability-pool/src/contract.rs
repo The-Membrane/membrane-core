@@ -21,7 +21,7 @@ use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_nat
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
-use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_user_claims, query_capital_ahead_of_deposits, query_asset_pool};
+use crate::query::{query_user_incentives, query_liquidatible, query_user_claims, query_capital_ahead_of_deposits, query_asset_pool};
 use crate::state::{Propagation, ASSET, CONFIG, INCENTIVES, PROP, USERS};
 
 // version info for migration info
@@ -1185,12 +1185,11 @@ fn get_user_incentives(
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::Rate { } => to_binary(&query_rate(deps)?),
         QueryMsg::UnclaimedIncentives { user } => to_binary(&query_user_incentives(deps, env, user)?),
         QueryMsg::CapitalAheadOfDeposit { user } => to_binary(&query_capital_ahead_of_deposits(deps, user)?),
         QueryMsg::CheckLiquidatible { amount } => to_binary(&query_liquidatible(deps, amount)?),
         QueryMsg::UserClaims { user } => to_binary(&query_user_claims(deps, user)?),
-        QueryMsg::AssetPool { user, deposit_limit } => to_binary(&query_asset_pool(deps, user, deposit_limit)?),
+        QueryMsg::AssetPool { deposit_limit } => to_binary(&query_asset_pool(deps, deposit_limit)?),
     }
 }
 

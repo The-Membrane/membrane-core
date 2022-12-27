@@ -56,9 +56,6 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     //Returns Config
     Config {},
-    //Get current MBRN incentive rate
-    //Returns Decimal
-    Rate {},
     //Query unclaimed incentives for a user
     //Returns Uint128
     UnclaimedIncentives { user: String },
@@ -72,10 +69,7 @@ pub enum QueryMsg {
     //Returns ClaimsResponse
     UserClaims { user: String },
     //Returns AssetPool
-    AssetPool { //Either or
-        user: Option<String>, 
-        deposit_limit: Option<u32>, 
-    },
+    AssetPool { deposit_limit: Option<u32> },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

@@ -32,6 +32,7 @@ pub enum ExecuteMsg {
         lock_up_duration: u64, //in days
     },
     Claim {},
+    Launch {},
     UpdateConfig(UpdateConfig),
 }
 

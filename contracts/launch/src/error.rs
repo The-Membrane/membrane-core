@@ -20,6 +20,9 @@ pub enum ContractError {
     #[error("Withdrawal period over")]
     WithdrawalsOver {},
 
+    #[error("The lockdrop hasn't ended")]
+    LockdropOngoing {},
+
     #[error("No user funds in the contract")]
     NotAUser {},
 

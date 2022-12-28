@@ -152,7 +152,8 @@ pub fn execute(
     match msg {
         ExecuteMsg::Lock { lock_up_duration } => lock(deps, env, info, lock_up_duration),
         ExecuteMsg::Withdraw { withdrawal_amount, lock_up_duration } => withdraw(deps, env, info, withdrawal_amount, lock_up_duration),
-        ExecuteMsg::Claim {  } => claim(deps, env, info),
+        ExecuteMsg::Claim { } => claim(deps, env, info),
+        ExecuteMsg::Launch{ } => end_of_launch(deps, env),
         ExecuteMsg::UpdateConfig(update) => update_config(deps, info, update),
     }
 }
@@ -529,13 +530,18 @@ pub fn end_of_launch(
     deps: DepsMut,
     env: Env,
 ) -> StdResult<Response>{
+    let mut lockdrop = LOCKDROP.load(deps.storage)?;
+
+    //Assert Lockdrop withdraw period has ended
+    if !(env.block.time.seconds() > lockdrop.withdrawal_end) { return Err(ContractError::LockdropOngoing {  }) }
+
     let config = CONFIG.load(deps.storage)?;
     let addrs = ADDRESSES.load(deps.storage)?;
     let mut msgs: Vec<CosmosMsg> = vec![];
 
     //Get uosmo contract balance
     let uosmo_balance = get_contract_balances(deps.querier, env.clone(), vec![AssetInfo::NativeToken { denom: String::from("uosmo") }])?[0];
-    //Make sure to remove the amount of OSMO used to create Pools. Contract balance - 100uosmo * 4
+    //Make sure to deduct the amount of OSMO used to create Pools. Contract balance - 100uosmo * 4
     let uosmo_pool_delegation_amount = (uosmo_balance - Uint128::new(400_000_000)).to_string();
 
     //Mint MBRN for LP

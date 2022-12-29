@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use cosmwasm_std::{Uint128, Addr};
 use cw_storage_plus::{Item, Map};
 
-use membrane::staking::Config;
+use membrane::discount_vault::Config;
 use membrane::types::{VaultUser, VaultedLP, LPDeposit, AssetInfo};
 
 

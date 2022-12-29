@@ -60,6 +60,20 @@ pub fn pool_query_and_exit(
 
 }
 
+pub fn get_pool_state_response(
+    querier: QuerierWrapper,
+    osmosis_proxy: String,
+    pool_id: u64
+) -> StdResult<PoolStateResponse>{
+    //Query Pool State
+    querier.query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: osmosis_proxy,
+        msg: to_binary(&OsmoQueryMsg::PoolState {
+            id: pool_id,
+        })?,
+    }))
+}
+
 pub fn router_native_to_native(
     router_addr: String,
     asset_to_sell: AssetInfo,

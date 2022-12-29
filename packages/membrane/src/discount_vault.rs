@@ -3,14 +3,15 @@ use cosmwasm_std::{Addr, Uint128, Decimal};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{Asset, LockUp, DebtTokenAsset, AssetInfo};
+use crate::types::{Asset, LockUp, DebtTokenAsset, AssetInfo, LPPoolInfo};
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner: Option<String>,   
     pub positions_contract: String,
-    pub accepted_LPs: Vec<AssetInfo>, //Assumption that the LP contains the Position contract's debt token
+    pub osmosis_proxy: String,
+    pub accepted_LPs: Vec<u64>, //Assumption that the LP contains the Position contract's debt token
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -24,7 +25,7 @@ pub enum ExecuteMsg {
         owner: String,        
     },
     EditAcceptedLPs {
-        lp: AssetInfo,
+        pool_id: u64,
         remove: bool,
     },
 }
@@ -51,7 +52,8 @@ pub enum QueryMsg {
 pub struct Config {
     pub owner: Addr,
     pub positions_contract: Addr,
-    pub accepted_LPs: Vec<AssetInfo>,
+    pub osmosis_proxy: Addr,
+    pub accepted_LPs: Vec<LPPoolInfo>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

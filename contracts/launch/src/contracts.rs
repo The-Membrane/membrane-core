@@ -91,6 +91,7 @@ pub fn instantiate(
         liq_queue_id: msg.liq_queue_id,
         liquidity_check_id: msg.liquidity_check_id,
         mbrn_auction_id: msg.mbrn_auction_id,
+        margin_proxy_id: msg.margin_proxy_id,
         atom_denom: String::from("ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2"),
         osmo_denom: String::from("uosmo"),
         usdc_denom: String::from(""),  //axl wrapped usdc

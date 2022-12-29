@@ -19,6 +19,7 @@ pub struct InstantiateMsg {
     pub liq_queue_id: u64,
     pub liquidity_check_id: u64,
     pub mbrn_auction_id: u64,    
+    pub margin_proxy_id: u64,    
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -68,7 +69,8 @@ pub struct Config {
     pub stability_pool_id: u64,
     pub liq_queue_id: u64,
     pub liquidity_check_id: u64,
-    pub mbrn_auction_id: u64,    
+    pub mbrn_auction_id: u64,     
+    pub margin_proxy_id: u64,    
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

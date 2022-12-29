@@ -21,6 +21,7 @@ use membrane::liq_queue::InstantiateMsg as LQInstantiateMsg;
 use membrane::liquidity_check::{InstantiateMsg as LCInstantiateMsg, ExecuteMsg as LCExecuteMsg};
 use membrane::debt_auction::InstantiateMsg as DAInstantiateMsg;
 use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg};
+use membrane::margin_proxy::InstantiateMsg as ProxyInstantiateMsg;
 use membrane::types::{AssetInfo, DebtTokenAsset, Position, Basket, Deposit, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, LiquidityInfo, AssetOracleInfo, UserRatio, PoolStateResponse};
 
 use osmosis_std::shim::Duration;
@@ -53,6 +54,8 @@ pub fn handle_create_denom_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResu
         config.credit_denom = denoms[0].clone();
         config.mbrn_denom = denoms[1].clone();
 
+        //Save config
+        CONFIG.save(deps.storage, &config)?;
 
         Ok(Response::new()
             .add_attribute("saved_denoms", format!("{:?}", denoms))
@@ -280,7 +283,6 @@ pub fn handle_oracle_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Resp
     }    
 }
 
-
 pub fn handle_staking_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
@@ -382,8 +384,7 @@ pub fn handle_vesting_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                     proposal_required_stake: Uint128::from(PROPOSAL_REQUIRED_STAKE),
                     proposal_required_quorum: String::from(PROPOSAL_REQUIRED_QUORUM),
                     proposal_required_threshold: String::from(PROPOSAL_REQUIRED_THRESHOLD),
-                    //TODO
-                    whitelisted_links: vec!["https://some.link/".to_string()],
+                    whitelisted_links: vec![todo!(), "https://some.link/".to_string()],
                 })?, 
                 funds: vec![], 
                 label: String::from("governance"), 
@@ -652,7 +653,6 @@ pub fn handle_cdp_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Respons
                     },
                     incentive_rate: None,
                     max_incentives: None,
-                    desired_ratio_of_total_credit_supply: None,
                     osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),
                     positions_contract: addrs.clone().positions.to_string(),
                     mbrn_denom: config.clone().mbrn_denom,
@@ -1011,6 +1011,7 @@ pub fn handle_auction_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
 
             
             ////Add contracts to contract configurations & change owners to Governance
+            //Oracle
             msgs.push(
             CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: addrs.clone().oracle.to_string(), 
@@ -1021,6 +1022,7 @@ pub fn handle_auction_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                 })?, 
                 funds: vec![],
             }));
+            //Staking
             msgs.push(
                 CosmosMsg::Wasm(WasmMsg::Execute { 
                     contract_addr: addrs.clone().staking.to_string(), 
@@ -1039,6 +1041,7 @@ pub fn handle_auction_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                     })?, 
                     funds: vec![],
                 }));
+            //Vesting
             msgs.push(
                 CosmosMsg::Wasm(WasmMsg::Execute { 
                     contract_addr: addrs.clone().vesting.to_string(), 
@@ -1051,6 +1054,7 @@ pub fn handle_auction_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                     })?, 
                     funds: vec![],
                 }));
+            //Positions
             msgs.push(
                 CosmosMsg::Wasm(WasmMsg::Execute { 
                     contract_addr: addrs.clone().positions.to_string(), 
@@ -1063,7 +1067,7 @@ pub fn handle_auction_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                         staking_contract: None,
                         oracle_contract: None,
                         liquidity_contract: Some(addrs.clone().liquidity_check.to_string()), 
-                        discounts_contract: None, //TODO
+                        discounts_contract: todo!(), //TODO
                         liq_fee: None,
                         debt_minimum: None,
                         base_debt_cap_multiplier: None,
@@ -1114,6 +1118,21 @@ pub fn handle_auction_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                 contract_addr: addrs.clone().positions.to_string(), 
                 msg: to_binary(&msg)?, 
                 funds: vec![], 
+            });
+            msgs.push(msg);
+
+            //Create Margin Proxy InstantiationMsg
+            let msg = CosmosMsg::Wasm(WasmMsg::Instantiate {                 
+                admin: Some(addrs.clone().governance.to_string()), 
+                code_id: config.clone().margin_proxy_id, 
+                msg: to_binary(&ProxyInstantiateMsg {
+                    owner: Some(addrs.clone().governance.to_string()),
+                    positions_contract: addrs.clone().positions.to_string(),
+                    apollo_router_contract: config.clone().apollo_router.to_string(),
+                    max_slippage: Decimal::percent(1),
+                })?, 
+                funds: vec![], 
+                label: String::from("margin_proxy"),
             });
             msgs.push(msg);
 

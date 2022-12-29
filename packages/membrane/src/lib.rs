@@ -17,7 +17,7 @@ pub mod margin_proxy;
 pub mod system_discounts;
 pub mod lockdrop;
 pub mod launch;
-//pub mod discount_vault;
+pub mod discount_vault;
 pub mod helpers;
 pub mod types;
 pub mod math;

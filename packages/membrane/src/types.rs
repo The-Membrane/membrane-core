@@ -446,6 +446,25 @@ pub struct Lock {
     pub lock_up_duration: u64, //in days
 }
 
+////Discount Vault
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct VaultUser {
+    pub user: Addr,
+    pub vaulted_lps: Vec<VaultLPs>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct VaultLPs {
+    pub gamm: AssetInfo,
+    pub deposits: Vec<LPDeposit>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct LPDeposit {
+    pub amount: Uint128,
+    pub deposit_time: u64,
+}
+
 //////////Possibly switching to cw-asset//////
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

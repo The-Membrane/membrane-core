@@ -9,24 +9,19 @@ use crate::types::{Asset, LockUp, DebtTokenAsset, AssetInfo};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
     pub owner: Option<String>,   
-    pub lock_up_ceiling: Option<u64>,
-    pub basket_id: Uint128,
+    pub positions_contract: String,
     pub accepted_lps: Vec<AssetInfo>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Deposit { 
-        lock_up_duration: u64, //in days
-    },
+    Deposit { },
     Withdraw { 
-        amount: Uint128,  //in GAMM share tokens (AssetInfo::NativeToken)  
+        withdraw_assets: Vec<Asset>,  //in GAMM share tokens (AssetInfo::NativeToken)  
     },
-    ClaimRewards { },
-    UpdateConfig {
-        owner: Option<String>,        
-        lock_up_ceiling: Option<u64>,
+    ChangeOwner {
+        owner: String,        
     },
     EditAcceptedLPs {
         lp: AssetInfo,
@@ -42,30 +37,28 @@ pub enum QueryMsg {
     //Returns UserResponse
     User { 
         user: String,
+        minimum_deposit_time: Option<u64>, //in days
     },
-    //Returns Uint128
-    TotalDepositsPerLP { },
     //Returns Vec<Asset>
-    TotalDeposits { },
-    //Returns Vec<LockUp>
-    LockUpDistribution { },
+    Deposits {
+        limit: Option<u64>,
+        start_after: Option<String>, //user
+    },
 }
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Config {
     pub owner: Addr,
-    pub lock_up_ceiling: u64, //in days
+    pub positions_contract: Addr,
     pub accepted_lps: Vec<AssetInfo>,
-    pub basket_id: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UserResponse {
     pub user: String,
-    pub premium_user_value: Decimal,
-    pub deposits: Vec<Asset>,
-    pub lock_up_distributions: Vec<LockUp>, 
+    pub deposits: Vec<VaultLPs>,
+    pub discount_value: Uint128,
 }
 
 

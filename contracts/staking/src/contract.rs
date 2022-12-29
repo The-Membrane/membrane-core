@@ -113,6 +113,7 @@ pub fn instantiate(
     
     Ok(Response::new()
         .add_attribute("method", "instantiate")
+        .add_attributes(attrs)
         .add_attribute("config", format!("{:?}", config))
         .add_attribute("contract_address", env.contract.address))
 }

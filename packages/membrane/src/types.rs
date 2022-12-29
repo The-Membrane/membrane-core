@@ -450,17 +450,12 @@ pub struct Lock {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct VaultUser {
     pub user: Addr,
-    pub vaulted_lps: Vec<VaultLPs>,
+    pub vaulted_lps: Vec<VaultedLP>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct VaultLPs {
+pub struct VaultedLP {
     pub gamm: AssetInfo,
-    pub deposits: Vec<LPDeposit>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct LPDeposit {
     pub amount: Uint128,
     pub deposit_time: u64,
 }

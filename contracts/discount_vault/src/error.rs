@@ -1,4 +1,5 @@
 use cosmwasm_std::StdError;
+use membrane::types::Asset;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -9,26 +10,8 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
-    #[error("Cw20Msg Error")]
-    Cw20MsgError {},
-
-    #[error("Distributed funds are less than repaid funds")]
-    InsufficientFunds {},
-
-    #[error("Asset pool hasn't been added for this asset yet")]
-    InvalidAsset {},
-
-    #[error("Asset that was passed in has uncongruent object field & deposit amounts")]
-    InvalidAssetObject {},
-
-    #[error("Invalid withdrawal")]
-    InvalidWithdrawal {},
-
-    #[error("Invalid function parameters")]
-    InvalidParameters {},
-
-    #[error("Variable overflow due to mismanaged state")]
-    MismanagedState {},
+    #[error("Attempted withdrawal over available claims: {val:?}")]
+    InvalidWithdrawal { val: Asset },
 
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },

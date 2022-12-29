@@ -10,7 +10,7 @@ use crate::types::{Asset, LockUp, DebtTokenAsset, AssetInfo};
 pub struct InstantiateMsg {
     pub owner: Option<String>,   
     pub positions_contract: String,
-    pub accepted_lps: Vec<AssetInfo>,
+    pub accepted_LPs: Vec<AssetInfo>, //Assumption that the LP contains the Position contract's debt token
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -18,7 +18,7 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     Deposit { },
     Withdraw { 
-        withdraw_assets: Vec<Asset>,  //in GAMM share tokens (AssetInfo::NativeToken)  
+        withdrawal_assets: Vec<Asset>,  //in GAMM share tokens (AssetInfo::NativeToken)  
     },
     ChangeOwner {
         owner: String,        
@@ -51,7 +51,7 @@ pub enum QueryMsg {
 pub struct Config {
     pub owner: Addr,
     pub positions_contract: Addr,
-    pub accepted_lps: Vec<AssetInfo>,
+    pub accepted_LPs: Vec<AssetInfo>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

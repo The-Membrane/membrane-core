@@ -40,7 +40,7 @@ pub enum QueryMsg {
         user: String,
         minimum_deposit_time: Option<u64>, //in days
     },
-    //Returns Vec<Asset>
+    //Returns Vec<VaultedLP>
     Deposits {
         limit: Option<u64>,
         start_after: Option<String>, //user

@@ -11,7 +11,7 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,   
     pub positions_contract: String,
     pub osmosis_proxy: String,
-    pub accepted_LPs: Vec<u64>, //Assumption that the LP contains the Position contract's debt token
+    pub accepted_LPs: Vec<u64>, //Assumption that the LP is 50:50 
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

@@ -10,6 +10,9 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
+    #[error("Invalid asset deposit attempt")]
+    InvalidAsset {},
+
     #[error("Attempted withdrawal over available claims: {val:?}")]
     InvalidWithdrawal { val: Asset },
 

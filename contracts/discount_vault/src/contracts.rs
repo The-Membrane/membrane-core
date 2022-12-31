@@ -26,7 +26,7 @@ const CONTRACT_NAME: &str = "crates.io:discount_vault";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 //Constants
-const SECONDS_PER_DAY: u64 = 86_400u64;
+pub const SECONDS_PER_DAY: u64 = 86_400u64;
 
 // Pagination defaults
 const PAGINATION_DEFAULT_LIMIT: u64 = 10;
@@ -127,6 +127,7 @@ fn deposit(
 ) -> Result<Response, ContractError>{
     let config = CONFIG.load(deps.storage)?;
     let valid_assets = validate_assets(info.clone().funds, config.clone().accepted_LPs);
+    if valid_assets.len() < info.clone().funds.len(){ return Err(ContractError::InvalidAsset {  }) }
 
     //Add deposits to User
     match USERS.load(deps.storage, info.clone().sender){
@@ -330,7 +331,7 @@ fn get_user_response(
     //Enforce minimum_deposit_time
     vault_user.vaulted_lps = vault_user.clone().vaulted_lps
         .into_iter()
-        .filter(|deposit| deposit.deposit_time - env.block.time.seconds() >= minimum_deposit_time)
+        .filter(|deposit| env.block.time.seconds() - deposit.deposit_time  >= minimum_deposit_time)
         .collect::<Vec<VaultedLP>>();
     
     //Get Positions Basket

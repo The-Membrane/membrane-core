@@ -5,12 +5,12 @@ mod tests {
     use crate::helpers::VaultContract;
 
     use membrane::apollo_router::SwapToAssetsInput;
-    use membrane::discount_vault::{ExecuteMsg, InstantiateMsg, QueryMsg};
+    use membrane::discount_vault::{ExecuteMsg, InstantiateMsg, QueryMsg, UserResponse};
     use membrane::positions::{PositionsResponse, PositionResponse};
     use membrane::types::{AssetInfo, Position, cAsset, Asset, Basket, PoolStateResponse, LPPoolInfo};
 
     use cosmwasm_std::{
-        coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal, attr,
+        coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal, attr, BlockInfo
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
     use schemars::JsonSchema;
@@ -119,7 +119,7 @@ mod tests {
                 match msg {
                     Osmo_MockQueryMsg::PoolState { id } => {
                         Ok(to_binary(&PoolStateResponse {
-                            assets: vec![coin(100, "uosmo").into(), coin(100, "cdt").into()],
+                            assets: vec![coin(50, "uosmo").into(), coin(50, "cdt").into()],
                             shares: coin(100, format!("gamm/pool/{}", id)).into(),
                         })?)
                     }
@@ -136,7 +136,7 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked(USER),
-                vec![coin(100_000, "debit")],
+                vec![coin(100_000, "gamm/pool/1"), coin(100_000, "gamm/pool/0")],
             )
             .unwrap();
             bank.init_balance(
@@ -210,9 +210,86 @@ mod tests {
     mod vault {
 
         use cosmwasm_std::coins;
-        use membrane::discount_vault::Config;
+        use membrane::{discount_vault::Config, types::VaultedLP};
+
+        use crate::contracts::SECONDS_PER_DAY;
 
         use super::*;
+
+        #[test]
+        fn deposit() {
+            let (mut app, vault_contract) = proper_instantiate();
+
+            //Deposit invalid asset: Error
+            let msg = ExecuteMsg::Deposit { };
+            let cosmos_msg = vault_contract.call(msg, vec![coin(100, "gamm/pool/0")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //Deposit: Success
+            let msg = ExecuteMsg::Deposit { };
+            let cosmos_msg = vault_contract.call(msg, vec![coin(100, "gamm/pool/1")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Query User
+            let user: UserResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    vault_contract.addr(),
+                    &QueryMsg::User { user: String::from(USER), minimum_deposit_time: None },
+                )
+                .unwrap();
+            assert_eq!(
+                user.discount_value,        
+                Uint128::new(100),
+            );
+
+            //Add 7 days to the clock
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(7 * SECONDS_PER_DAY), //Added a year
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Deposit: Success
+            let msg = ExecuteMsg::Deposit { };
+            let cosmos_msg = vault_contract.call(msg, vec![coin(100, "gamm/pool/1")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Test minimum deposit time
+            //Output should still be 200
+            let user: UserResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    vault_contract.addr(),
+                    &QueryMsg::User { user: String::from(USER), minimum_deposit_time: Some(7) },
+                )
+                .unwrap();
+            assert_eq!(
+                user.discount_value,        
+                Uint128::new(100),
+            );
+            assert_eq!(
+                user.deposits,        
+                vec![
+                    VaultedLP { gamm: AssetInfo::NativeToken { denom: String::from("gamm/pool/1") }, amount: Uint128::new(100), deposit_time: 1571797419 },
+                    ],
+            );
+            //Assert separate deposits were saved
+            let user: UserResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    vault_contract.addr(),
+                    &QueryMsg::User { user: String::from(USER), minimum_deposit_time: None },
+                )
+                .unwrap();
+            assert_eq!(
+                user.deposits,        
+                vec![
+                    VaultedLP { gamm: AssetInfo::NativeToken { denom: String::from("gamm/pool/1") }, amount: Uint128::new(100), deposit_time: 1571797419 },
+                    VaultedLP { gamm: AssetInfo::NativeToken { denom: String::from("gamm/pool/1") }, amount: Uint128::new(100), deposit_time: 1572402219 },
+                    ],
+            );
+        }
 
         #[test]
         fn change_owner() {

@@ -163,13 +163,20 @@ pub fn multi_native_withdrawal_msg(assets: Vec<Asset>, recipient: Addr) -> StdRe
     
     let coins: Vec<Coin> = assets
         .into_iter()
-        .map(|asset| asset_to_coin(asset))
+        .map(|asset| native_asset_to_coin(asset))
         .collect::<Vec<Coin>>();
     let message = CosmosMsg::Bank(BankMsg::Send {
         to_address: recipient.to_string(),
-        amount: vec![coins],
+        amount: coins,
     });
     Ok(message)   
+}
+
+pub fn native_asset_to_coin(asset: Asset) -> Coin {    
+    Coin {
+        denom: asset.info.to_string(),
+        amount: asset.amount,
+    }    
 }
 
 pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {

@@ -37,7 +37,8 @@ fn update_config(){
         stability_pool_id: 0,
         liq_queue_id: 0,
         liquidity_check_id: 0,
-        mbrn_auction_id: 0,    
+        mbrn_auction_id: 0,
+        margin_proxy_id: 0,    
     };
 
     //Instantiating contract
@@ -106,6 +107,7 @@ fn lock() {
         liq_queue_id: 0,
         liquidity_check_id: 0,
         mbrn_auction_id: 0,    
+        margin_proxy_id: 0,
     };
 
     //Instantiating contract
@@ -194,6 +196,7 @@ fn withdraw() {
         liq_queue_id: 0,
         liquidity_check_id: 0,
         mbrn_auction_id: 0,    
+        margin_proxy_id: 0,
     };
 
     //Instantiating contract
@@ -283,6 +286,7 @@ fn claim() {
         liq_queue_id: 0,
         liquidity_check_id: 0,
         mbrn_auction_id: 0,    
+        margin_proxy_id: 0,
     };
 
     //Instantiating contract

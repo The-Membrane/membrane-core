@@ -299,12 +299,10 @@ mod tests {
             //Unauthorized StartAuction
             let msg = ExecuteMsg::StartAuction {
                 repayment_position_info: Some(UserInfo {
-                    basket_id: Uint128::new(1u128),
                     position_id: Uint128::new(1u128),
                     position_owner: String::from("owner"),
                 }),
                 send_to: None,
-                basket_id: Uint128::one(),
                 debt_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
@@ -318,12 +316,10 @@ mod tests {
             //Successful StartAuction
             let msg = ExecuteMsg::StartAuction {
                 repayment_position_info: Some(UserInfo {
-                    basket_id: Uint128::new(1u128),
                     position_id: Uint128::new(1u128),
                     position_owner: String::from("owner"),
                 }),
                 send_to: None,
-                basket_id: Uint128::one(),
                 debt_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
@@ -356,7 +352,6 @@ mod tests {
                 vec![RepayPosition {
                     repayment: Uint128::new(100u128),
                     position_info: UserInfo {
-                        basket_id: Uint128::new(1u128),
                         position_id: Uint128::new(1u128),
                         position_owner: String::from("owner"),
                     }
@@ -366,12 +361,10 @@ mod tests {
             //Successful Start adding to existing auction
             let msg = ExecuteMsg::StartAuction {
                 repayment_position_info: Some(UserInfo {
-                    basket_id: Uint128::new(1u128),
                     position_id: Uint128::new(1u128),
                     position_owner: String::from("owner"),
                 }),
                 send_to: None,
-                basket_id: Uint128::one(),
                 debt_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
@@ -410,7 +403,6 @@ mod tests {
                     RepayPosition {
                         repayment: Uint128::new(100u128),
                         position_info: UserInfo {
-                            basket_id: Uint128::new(1u128),
                             position_id: Uint128::new(1u128),
                             position_owner: String::from("owner"),
                         }
@@ -418,7 +410,6 @@ mod tests {
                     RepayPosition {
                         repayment: Uint128::new(100u128),
                         position_info: UserInfo {
-                            basket_id: Uint128::new(1u128),
                             position_id: Uint128::new(1u128),
                             position_owner: String::from("owner"),
                         }
@@ -453,12 +444,10 @@ mod tests {
             //Successful StartAuction: Position Repayment
             let msg = ExecuteMsg::StartAuction {
                 repayment_position_info: Some(UserInfo {
-                    basket_id: Uint128::new(1u128),
                     position_id: Uint128::new(1u128),
                     position_owner: String::from("owner"),
                 }),
                 send_to: None,
-                basket_id: Uint128::one(),
                 debt_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
@@ -517,7 +506,6 @@ mod tests {
                 vec![RepayPosition {
                     repayment: Uint128::new(1_000u128),
                     position_info: UserInfo {
-                        basket_id: Uint128::new(1u128),
                         position_id: Uint128::new(1u128),
                         position_owner: String::from("owner"),
                     }
@@ -528,7 +516,6 @@ mod tests {
             let msg = ExecuteMsg::StartAuction {
                 repayment_position_info: None,
                 send_to: Some(String::from("send_to_me")),
-                basket_id: Uint128::one(),
                 debt_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
@@ -651,12 +638,10 @@ mod tests {
             //Successful StartAuction
             let msg = ExecuteMsg::StartAuction {
                 repayment_position_info: Some(UserInfo {
-                    basket_id: Uint128::new(1u128),
                     position_id: Uint128::new(1u128),
                     position_owner: String::from("owner"),
                 }),
                 send_to: None,
-                basket_id: Uint128::one(),
                 debt_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
@@ -703,7 +688,7 @@ mod tests {
             let (mut app, debt_contract, cdp_contract) = proper_instantiate();
 
             //Update Config
-            let msg = ExecuteMsg::UpdateConfig { 
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
                 owner: Some(String::from("new_owner")), 
                 oracle_contract: Some(String::from("new_contract")),  
                 osmosis_proxy: Some(String::from("new_contract")),  
@@ -713,7 +698,7 @@ mod tests {
                 initial_discount: Some(Decimal::zero()), 
                 discount_increase_timeframe: Some(0u64), 
                 discount_increase: Some(Decimal::zero()), 
-            };
+            });
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 

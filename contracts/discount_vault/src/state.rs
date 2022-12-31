@@ -5,7 +5,7 @@ use cosmwasm_std::{Uint128, Addr};
 use cw_storage_plus::{Item, Map};
 
 use membrane::discount_vault::Config;
-use membrane::types::{VaultUser, VaultedLP, LPDeposit, AssetInfo};
+use membrane::types::{VaultUser, VaultedLP, AssetInfo};
 
 
 pub const CONFIG: Item<Config> = Item::new("config");

@@ -35,19 +35,16 @@ mod tests {
     #[serde(rename_all = "snake_case")]
     pub enum CDP_MockExecuteMsg {
         Deposit {
-            basket_id: Uint128,
             position_id: Option<Uint128>, //If the user wants to create a new/separate position, no position id is passed
             position_owner: Option<String>,
         },
         IncreaseDebt {
-            basket_id: Uint128,
             position_id: Uint128,
             amount: Option<Uint128>,
             LTV: Option<Decimal>,
             mint_to_addr: Option<String>,
         },
         ClosePosition {
-            basket_id: Uint128,
             position_id: Uint128,
             send_to: Option<String>,
         },
@@ -62,13 +59,11 @@ mod tests {
     pub enum CDP_MockQueryMsg {
         GetUserPositions {
             //All positions from a user
-            basket_id: Option<Uint128>,
             user: String,
             limit: Option<u32>,
         },
         GetPosition {
             //Singular position
-            basket_id: Uint128,
             position_id: Uint128,
             position_owner: String,
         },
@@ -80,12 +75,10 @@ mod tests {
             |deps, _, info, msg: CDP_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
                     CDP_MockExecuteMsg::Deposit {
-                        basket_id,
                         position_id,
                         position_owner
                     } => Ok(Response::default()),
                     CDP_MockExecuteMsg::IncreaseDebt {
-                        basket_id,
                         position_id,
                         amount,
                         LTV,
@@ -99,7 +92,6 @@ mod tests {
                             ])
                     ),
                     CDP_MockExecuteMsg::ClosePosition {
-                        basket_id,
                         position_id,
                         send_to,
                     } => Ok(
@@ -116,7 +108,6 @@ mod tests {
             |_, _, msg: CDP_MockQueryMsg| -> StdResult<Binary> { 
                 match msg {
                     CDP_MockQueryMsg::GetUserPositions { 
-                        basket_id,
                         user,
                         limit,
                     } => {
@@ -132,7 +123,6 @@ mod tests {
                         })?)
                     },
                     CDP_MockQueryMsg::GetPosition { 
-                        basket_id,
                         position_id,
                         position_owner,
                     } => {
@@ -317,10 +307,7 @@ mod tests {
             let (mut app, margin_contract) = proper_instantiate();
 
             //New deposit
-            let msg = ExecuteMsg::Deposit { 
-                basket_id: Uint128::new(1), 
-                position_id: None,
-            };
+            let msg = ExecuteMsg::Deposit { position_id: None };
             let cosmos_msg = margin_contract.call(msg, coins(1_000, "debit")).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
@@ -336,17 +323,13 @@ mod tests {
 
             
             //Existing position deposit: Success
-            let msg = ExecuteMsg::Deposit { 
-                basket_id: Uint128::new(1), 
-                position_id: Some(Uint128::new(1)), 
-            };
+            let msg = ExecuteMsg::Deposit { position_id: Some(Uint128::new(1)) };
             let cosmos_msg = margin_contract.call(msg, coins(1_000, "debit")).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
             //The composition query doesn't change so can only test the success case
 
             //Close Position
             let msg = ExecuteMsg::ClosePosition { 
-                basket_id: Uint128::new(1), 
                 position_id: Uint128::new(1), 
                 max_spread: Decimal::percent(2),
             };
@@ -370,16 +353,12 @@ mod tests {
             let (mut app, margin_contract) = proper_instantiate();
 
             //Deposit: Success
-            let msg = ExecuteMsg::Deposit { 
-                basket_id: Uint128::new(1), 
-                position_id: None,
-            };
+            let msg = ExecuteMsg::Deposit { position_id: None };
             let cosmos_msg = margin_contract.call(msg, coins(1_000, "debit")).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Loop: Error User doesn't own position
             let msg = ExecuteMsg::Loop { 
-                basket_id: Uint128::new(1), 
                 position_id: Uint128::new(2), 
                 num_loops: Some(5), 
                 target_LTV: Decimal::percent(40),
@@ -389,7 +368,6 @@ mod tests {
 
             //Loop: Success 5 loops
             let msg = ExecuteMsg::Loop { 
-                basket_id: Uint128::new(1), 
                 position_id: Uint128::new(1), 
                 num_loops: Some(5), 
                 target_LTV: Decimal::percent(40),

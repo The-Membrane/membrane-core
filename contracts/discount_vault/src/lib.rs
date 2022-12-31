@@ -2,13 +2,13 @@
 #![allow(unused_parens)]
 #![allow(unused_doc_comments)]
 #![allow(non_camel_case_types)]
-pub mod contract;
+pub mod contracts;
 mod error;
-pub mod query;
 pub mod state;
+mod helpers;
 
 #[cfg(test)]
 #[allow(unused_variables)]
-pub mod contract_tests;
+pub mod integration_tests;
 
 pub use crate::error::ContractError;

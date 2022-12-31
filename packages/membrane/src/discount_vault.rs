@@ -3,7 +3,7 @@ use cosmwasm_std::{Addr, Uint128, Decimal};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{Asset, LockUp, DebtTokenAsset, AssetInfo, LPPoolInfo};
+use crate::types::{Asset, AssetInfo, LPPoolInfo, VaultedLP};
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -59,8 +59,6 @@ pub struct Config {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct UserResponse {
     pub user: String,
-    pub deposits: Vec<VaultLPs>,
+    pub deposits: Vec<VaultedLP>,
     pub discount_value: Uint128,
 }
-
-

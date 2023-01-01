@@ -116,7 +116,7 @@ pub fn execute(
         ExecuteMsg::Deposit {  } => deposit(deps, env, info),
         ExecuteMsg::Withdraw { withdrawal_assets } => withdraw(deps, env, info, withdrawal_assets),
         ExecuteMsg::ChangeOwner { owner } => change_owner(deps, env, info, owner),
-        ExecuteMsg::EditAcceptedLPs { pool_id, remove } => edit_LPs(deps, env, info, pool_id, remove),
+        ExecuteMsg::EditAcceptedLPs { pool_ids, remove } => edit_LPs(deps, env, info, pool_ids, remove),
     }
 }
 
@@ -257,7 +257,7 @@ fn edit_LPs(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    pool_id: u64,
+    pool_ids: Vec<u64>,
     remove: bool,
 ) -> Result<Response, ContractError>{
     let mut config = CONFIG.load(deps.storage)?;
@@ -267,7 +267,9 @@ fn edit_LPs(
 
     //Update LPs
     if remove {
-        if let Some((index, LP)) = config.clone().accepted_LPs
+        for id in pool_ids {
+            
+            if let Some((index, LP)) = config.clone().accepted_LPs
             .into_iter()
             .enumerate()
             .find(|(i, LP)| LP.pool_id == pool_id)
@@ -275,8 +277,11 @@ fn edit_LPs(
                 //Remove
                 config.accepted_LPs.remove(index);
             }
+        }
     } else {
-        config.accepted_LPs.push(create_and_validate_LP_object(deps.querier, pool_id, config.clone().positions_contract, config.clone().osmosis_proxy)?);
+        for id in pool_ids {            
+            config.accepted_LPs.push(create_and_validate_LP_object(deps.querier, id, config.clone().positions_contract, config.clone().osmosis_proxy)?);
+        }
     }
 
     //Save config
@@ -285,7 +290,7 @@ fn edit_LPs(
     Ok(Response::new()
         .add_attributes(vec![
             attr("method", "edit_LPs"),
-            attr("edited_pool", pool_id.to_string()),
+            attr("edited_pools", format!("{:?}", pool_ids)),
             attr("removed", remove.to_string())]),
     )
 }
@@ -364,7 +369,7 @@ fn get_deposits(
     env: Env, 
     option_limit: Option<u64>,
     start_after: Option<String>, //user
-) -> StdResult<Vec<VaultedLP>>{
+) -> StdResult<Vec<VaultUser>>{
 
     let limit = option_limit
         .unwrap_or(PAGINATION_DEFAULT_LIMIT)
@@ -376,19 +381,19 @@ fn get_deposits(
     } else {
         None
     };
-    let mut lps: Vec<VaultedLP> = vec![];
+    let mut lps: Vec<VaultUser> = vec![];
 
     USERS
         .range(deps.storage, start, None, Order::Ascending)
         .map(|user| {
             let (addr, user) = user.unwrap();
             
-            lps.extend(user.vaulted_lps);
+            lps.extend(user);
         });
     lps = lps.clone()
         .into_iter()
         .take(limit)
-        .collect::<Vec<VaultedLP>>();
+        .collect::<Vec<VaultUser>>();
 
     Ok(lps)
 }

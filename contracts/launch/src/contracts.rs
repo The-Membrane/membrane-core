@@ -31,7 +31,7 @@ use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
 use osmosis_std::types::osmosis::lockup::QueryCondition;
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, ADDRESSES, LaunchAddrs, CREDIT_POOL_IDS, LOCKDROP, INCENTIVE_RATIOS};
+use crate::state::{CONFIG, ADDRESSES, LaunchAddrs, CREDIT_POOL_IDS, LOCKDROP, INCENTIVE_RATIOS, CreditPools};
 use crate::reply::{handle_auction_reply, handle_cdp_reply, handle_create_denom_reply, handle_gov_reply, handle_lc_reply, handle_lq_reply, handle_op_reply, handle_oracle_reply, handle_sp_reply, handle_stableswap_reply, handle_staking_reply, handle_vesting_reply};
 
 // Contract name and version used for migration.
@@ -51,6 +51,9 @@ pub const LIQUIDITY_CHECK_REPLY_ID: u64 = 9;
 pub const DEBT_AUCTION_REPLY_ID: u64 = 10;
 pub const STABLESWAP_REPLY_ID: u64 = 11;
 pub const CREATE_DENOM_REPLY_ID: u64 = 12;
+pub const SYSTEM_DISCOUNTS_REPLY_ID: u64 = 13;
+pub const DISCOUNT_VAULT_REPLY_ID: u64 = 14;
+pub const BALANCER_POOL_REPLY_ID: u64 = 15;
 
 //Constants
 pub const SECONDS_PER_DAY: u64 = 86_400u64;
@@ -92,6 +95,8 @@ pub fn instantiate(
         liquidity_check_id: msg.liquidity_check_id,
         mbrn_auction_id: msg.mbrn_auction_id,
         margin_proxy_id: msg.margin_proxy_id,
+        system_discounts_id: msg.system_discounts_id,
+        discount_vault_id: msg.discount_vault_id,
         atom_denom: String::from("ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2"),
         osmo_denom: String::from("uosmo"),
         usdc_denom: String::from(""),  //axl wrapped usdc
@@ -111,6 +116,7 @@ pub fn instantiate(
         liq_queue: Addr::unchecked(""),
         liquidity_check: Addr::unchecked(""),
         mbrn_auction: Addr::unchecked(""),
+        discount_vault: Addr::unchecked(""),
     });
 
     let msg = CosmosMsg::Wasm(WasmMsg::Instantiate { 
@@ -135,6 +141,15 @@ pub fn instantiate(
 
     //Instantiate Incentive Ratios
     INCENTIVE_RATIOS.save(deps.storage, &vec![]);
+
+    //Instantiate Credit Pools
+    CREDIT_POOL_IDS.save(deps.storage, 
+        &CreditPools {
+            stableswap: 0,
+            atom: 0,
+            osmo: 0,
+        }
+    );
 
     Ok(Response::new()
         .add_submessage(sub_msg)
@@ -539,6 +554,7 @@ pub fn end_of_launch(
     let config = CONFIG.load(deps.storage)?;
     let addrs = ADDRESSES.load(deps.storage)?;
     let mut msgs: Vec<CosmosMsg> = vec![];
+    let mut sub_msgs: Vec<SubMsg> = vec![];
 
     //Get uosmo contract balance
     let uosmo_balance = get_contract_balances(deps.querier, env.clone(), vec![AssetInfo::NativeToken { denom: String::from("uosmo") }])?[0];
@@ -601,7 +617,8 @@ pub fn end_of_launch(
         ],
         future_pool_governor: addrs.clone().governance.to_string(),
     };
-    msgs.push(msg.into());
+    let sub_msg = SubMsg::reply_on_success(msg.into(), BALANCER_POOL_REPLY_ID);
+    sub_msgs.push(sub_msg);
     //ATOM
     let msg = MsgCreateBalancerPool {
         sender: env.contract.address.to_string(),
@@ -622,7 +639,8 @@ pub fn end_of_launch(
         ],
         future_pool_governor: addrs.clone().governance.to_string(),
     };
-    msgs.push(msg.into());
+    let sub_msg = SubMsg::reply_on_success(msg.into(), BALANCER_POOL_REPLY_ID);
+    sub_msgs.push(sub_msg);
     //USDC Stableswap
     let msg: CosmosMsg = MsgCreateStableswapPool {
         sender: env.contract.address.to_string(),
@@ -637,6 +655,7 @@ pub fn end_of_launch(
         future_pool_governor: addrs.clone().governance.to_string(),
     }.into();
     let sub_msg = SubMsg::reply_on_success(msg, STABLESWAP_REPLY_ID);
+    sub_msgs.push(sub_msg);
 
     Ok(Response::new()
         .add_messages(msgs)

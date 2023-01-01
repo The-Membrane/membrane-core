@@ -18,6 +18,7 @@ pub struct LaunchAddrs {
     pub liq_queue: Addr,
     pub liquidity_check: Addr,
     pub mbrn_auction: Addr,    
+    pub discount_vault: Addr,    
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

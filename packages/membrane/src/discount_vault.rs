@@ -25,7 +25,7 @@ pub enum ExecuteMsg {
         owner: String,        
     },
     EditAcceptedLPs {
-        pool_id: u64,
+        pool_ids: Vec<u64>,
         remove: bool,
     },
 }
@@ -42,7 +42,7 @@ pub enum QueryMsg {
     },
     //Returns Vec<VaultedLP>
     Deposits {
-        limit: Option<u64>,
+        limit: Option<u64>, //User limit
         start_after: Option<String>, //user
     },
 }

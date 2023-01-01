@@ -292,6 +292,68 @@ mod tests {
         }
 
         #[test]
+        fn withdraw() {
+            let (mut app, vault_contract) = proper_instantiate();
+
+            //Deposit: Success
+            let msg = ExecuteMsg::Deposit { };
+            let cosmos_msg = vault_contract.call(msg, vec![coin(100, "gamm/pool/1")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Withdraw more than deposited: Error
+            let msg = ExecuteMsg::Withdraw { 
+                withdrawal_assets: vec![
+                    Asset {
+                        info: AssetInfo::NativeToken { denom: String::from("gamm/pool/1") },
+                        amount: Uint128::new(101)
+                    },
+            ] };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //Withdraw: Success
+            //Invalid asset has no effect on outcome
+            let msg = ExecuteMsg::Withdraw { 
+                withdrawal_assets: vec![
+                    Asset {
+                        info: AssetInfo::NativeToken { denom: String::from("gamm/pool/0") },
+                        amount: Uint128::new(100)
+                    },
+                    Asset {
+                        info: AssetInfo::NativeToken { denom: String::from("gamm/pool/1") },
+                        amount: Uint128::new(98)
+                    },
+            ] };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Check deposit
+            let user: UserResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    vault_contract.addr(),
+                    &QueryMsg::User { user: String::from(USER), minimum_deposit_time: None },
+                )
+                .unwrap();
+            assert_eq!(
+                user.discount_value,        
+                Uint128::new(2),
+            );
+            assert_eq!(
+                user.deposits,        
+                vec![VaultedLP { gamm: AssetInfo::NativeToken { denom: String::from("gamm/pool/1") }, amount: Uint128::new(2), deposit_time: 1571797419 }],
+            );
+
+            //Assert withdrawal success
+            assert_eq!(
+                app.wrap()
+                    .query_all_balances(Addr::unchecked(USER))
+                    .unwrap(),
+                vec![coin(100_000, "gamm/pool/0"), coin(99_998, "gamm/pool/1")]
+            );
+        }
+
+        #[test]
         fn change_owner() {
             let (mut app, vault_contract) = proper_instantiate();
 

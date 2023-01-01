@@ -192,7 +192,7 @@ fn withdraw(
     }    
 
     //Update deposits
-    for mut withdrawal_asset in withdrawal_assets.clone().into_iter(){
+    for (index, mut withdrawal_asset) in withdrawal_assets.clone().into_iter().enumerate(){
         //Comb thru deposits
         for (i, deposit) in user.clone().vaulted_lps.into_iter().enumerate(){
             //If the withdrawl_asset == the deposited asset
@@ -207,16 +207,13 @@ fn withdraw(
                 }
             }
         }
+        //If any withdrawals aren't fulfilled, i.e. at 0, then error  
+        if withdrawal_asset.amount != Uint128::zero(){
+            return Err(ContractError::InvalidWithdrawal { val: withdrawal_assets[index].clone() })
+        }
     }
     //Save updated deposits for User
-    USERS.save(deps.storage, info.clone().sender, &user);
-
-    //If any withdrawal_assets aren't 0 then error
-    for asset in withdrawal_assets.clone(){
-        if asset.amount != Uint128::zero(){
-            return Err(ContractError::InvalidWithdrawal { val: asset })
-        }
-    }    
+    USERS.save(deps.storage, info.clone().sender, &user);  
 
     //Create withdrawl_msgs
     let withdraw_msg = multi_native_withdrawal_msg(withdrawal_assets.clone(), info.clone().sender)?;
@@ -351,7 +348,6 @@ fn get_user_response(
             if let Some(coin) = share_asset_amounts.into_iter().find(|coin| coin.denom == basket.clone().credit_asset.info.to_string()){
                 LP_value += Uint128::from_str(&coin.amount).unwrap() * basket.clone().credit_price;
             }
-            
         }
     }
     //Multiply LP value by 2 to account for the non-debt side

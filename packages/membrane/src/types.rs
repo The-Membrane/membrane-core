@@ -176,6 +176,18 @@ pub struct FeeEvent {
     pub fee: LiqAsset,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct StakeDistribution {
+    pub rate: Decimal,
+    pub duration: u64, //in days
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct StakeDistributionLog {
+    pub ownership_distribution: StakeDistribution,
+    pub start_time: u64,
+}
+
 ///////Oracle////////
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct AssetOracleInfo {

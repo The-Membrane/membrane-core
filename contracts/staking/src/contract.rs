@@ -15,12 +15,12 @@ use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, ProposalStatus};
 use membrane::staking::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::vesting::{QueryMsg as Vesting_QueryMsg, RecipientsResponse};
-use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit};
+use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit, StakeDistributionLog, StakeDistribution};
 use membrane::math::decimal_division;
 
 use crate::error::ContractError;
 use crate::query::{query_user_stake, query_staker_rewards, query_staked, query_fee_events, query_totals};
-use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, TOTALS};
+use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, TOTALS, INCENTIVE_SCHEDULING};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:staking";
@@ -46,7 +46,10 @@ pub fn instantiate(
             vesting_contract: None,
             governance_contract: None,
             osmosis_proxy: None,
-            staking_rate: msg.staking_rate.unwrap_or_else(|| Decimal::percent(10)),
+            incentive_schedule: msg.incentive_schedule.unwrap_or_else(|| StakeDistribution {
+                rate: Decimal::percent(10),
+                duration: 90,
+            }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
             unstaking_period: msg.unstaking_period.unwrap_or(3u64),
             mbrn_denom: msg.mbrn_denom,
@@ -60,7 +63,10 @@ pub fn instantiate(
             vesting_contract: None,
             governance_contract: None,
             osmosis_proxy: None,
-            staking_rate: msg.staking_rate.unwrap_or_else(|| Decimal::percent(10)),
+            incentive_schedule: msg.incentive_schedule.unwrap_or_else(|| StakeDistribution {
+                rate: Decimal::percent(10),
+                duration: 90,
+            }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
             unstaking_period: msg.unstaking_period.unwrap_or(3u64),
             mbrn_denom: msg.mbrn_denom,
@@ -110,6 +116,12 @@ pub fn instantiate(
     //Initialize fee events
     FEE_EVENTS.save(deps.storage, &vec![])?;
 
+    //Initialize INCENTIVE_SCHEDULING
+    INCENTIVE_SCHEDULING.save(deps.storage, &StakeDistributionLog {
+        ownership_distribution: config.incentive_schedule,
+        start_time: env.block.time.seconds(),
+    });
+
     
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -148,19 +160,20 @@ pub fn execute(
             governance_contract,
             osmosis_proxy,
             positions_contract,
-            staking_rate,
+            incentive_schedule,
             fee_wait_period,
             unstaking_period,
         } => update_config(
             deps,
             info,
+            env,
             owner,
             positions_contract,
             vesting_contract,
             governance_contract,
             osmosis_proxy,
             mbrn_denom,
-            staking_rate,
+            incentive_schedule,
             fee_wait_period,
             unstaking_period,
             dex_router,
@@ -211,13 +224,14 @@ pub fn execute(
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
+    env: Env,
     owner: Option<String>,
     positions_contract: Option<String>,
     vesting_contract: Option<String>,
     governance_contract: Option<String>,
     osmosis_proxy: Option<String>,
     mbrn_denom: Option<String>,
-    staking_rate: Option<Decimal>,
+    incentive_schedule: Option<StakeDistribution>,
     fee_wait_period: Option<u64>,
     unstaking_period: Option<u64>,
     dex_router: Option<String>,
@@ -242,13 +256,20 @@ fn update_config(
         config.max_spread = Some(max_spread);
         attrs.push(attr("new_max_spread", max_spread.to_string()));
     };
-    if let Some(mut staking_rate) = staking_rate {
+    if let Some(mut incentive_schedule) = incentive_schedule {
         //Hard code a 20% maximum
-        if staking_rate > Decimal::percent(20) {
-            staking_rate = Decimal::percent(20);
+        if incentive_schedule.rate > Decimal::percent(20) {
+            incentive_schedule.rate = Decimal::percent(20);
         }
-        config.staking_rate = staking_rate;
-        attrs.push(attr("new_staking_rate", staking_rate.to_string()));
+        config.incentive_schedule = incentive_schedule;
+        attrs.push(attr("new_incentive_schedule", incentive_schedule.to_string()));
+
+        //Set Scheduling
+        INCENTIVE_SCHEDULING.save(deps.storage, 
+            &StakeDistributionLog { 
+                ownership_distribution: incentive_schedule, 
+                start_time: env.block.time.seconds(),
+        });
     };
     if let Some(unstaking_period) = unstaking_period {
         config.unstaking_period = unstaking_period;
@@ -531,9 +552,8 @@ fn withdraw_from_state(
     mut withdrawal_amount: Uint128,
     fee_events: Vec<FeeEvent>,
 ) -> StdResult<(Vec<Asset>, Uint128, Uint128)> {
-
     let config = CONFIG.load(storage)?;
-
+    let incentive_schedule = INCENTIVE_SCHEDULING.load(storage)?;
     let deposits = STAKED.load(storage)?;
 
     let mut new_deposit_total = Uint128::zero();
@@ -565,6 +585,7 @@ fn withdraw_from_state(
                     //Calc claimables from this deposit
                     let (deposit_claimables, deposit_interest) = match get_deposit_claimables(
                         config.clone(),
+                        incentive_schedule.clone(),
                         env.clone(),
                         fee_events.clone(),
                         deposit.clone(),
@@ -629,6 +650,7 @@ fn withdraw_from_state(
                     //Calc claimables from this deposit
                     let (deposit_claimables, deposit_interest) = match get_deposit_claimables(
                         config.clone(),
+                        incentive_schedule.clone(),
                         env.clone(),
                         fee_events.clone(),
                         deposit.clone(),
@@ -1214,6 +1236,7 @@ fn get_user_claimables(
     for deposit in deposits {
         let (deposit_claimables, deposit_interest) = get_deposit_claimables(
             config.clone(),
+            INCENTIVE_SCHEDULING.load(storage)?,
             env.clone(),
             fee_events.clone(),
             deposit.clone(),
@@ -1290,7 +1313,8 @@ fn trim_fee_events(
 
 //Get deposit's claimable fee based on which FeeEvents it experienced
 pub fn get_deposit_claimables(
-    config: Config,
+    mut config: Config,
+    incentive_schedule: StakeDistributionLog,
     env: Env,
     fee_events: Vec<FeeEvent>,
     deposit: StakeDeposit,
@@ -1323,9 +1347,15 @@ pub fn get_deposit_claimables(
         }
     }
 
+    //Assert staking rate is still active, if not set to 0
+    let rate_duration = incentive_schedule.ownership_distribution.duration * SECONDS_PER_DAY;
+    if env.block.time.seconds() - incentive_schedule.start_time > rate_duration {
+        config.incentive_schedule.rate = Decimal::zero();
+    }
+
     //Calc MBRN denominated rewards
     let time_elapsed = env.block.time.seconds() - deposit.stake_time;
-    let deposit_interest = accumulate_interest(deposit.amount, config.staking_rate, time_elapsed)?;
+    let deposit_interest = accumulate_interest(deposit.amount, config.incentive_schedule.rate, time_elapsed)?;
 
     Ok((claimables, deposit_interest))
 }
@@ -1353,6 +1383,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_binary(&query_fee_events(deps, limit, start_after)?)
         }
         QueryMsg::TotalStaked {} => to_binary(&query_totals(deps)?),
+        QueryMsg::IncentiveSchedule {  } => to_binary(&INCENTIVE_SCHEDULING.load(deps.storage)?),
     }
 }
 

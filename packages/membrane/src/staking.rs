@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Decimal, Uint128, Addr};
 
-use crate::types::{Asset, FeeEvent, StakeDeposit};
+use crate::types::{Asset, FeeEvent, StakeDeposit, StakeDistribution};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -13,7 +13,7 @@ pub struct InstantiateMsg {
     pub vesting_contract: Option<String>,
     pub governance_contract: Option<String>,
     pub osmosis_proxy: Option<String>,
-    pub staking_rate: Option<Decimal>,
+    pub incentive_schedule: Option<StakeDistribution>,
     pub fee_wait_period: Option<u64>, //in days
     pub unstaking_period: Option<u64>,
     pub mbrn_denom: String,
@@ -31,7 +31,7 @@ pub enum ExecuteMsg {
         governance_contract: Option<String>,
         osmosis_proxy: Option<String>,
         mbrn_denom: Option<String>,
-        staking_rate: Option<Decimal>,
+        incentive_schedule: Option<StakeDistribution>,
         unstaking_period: Option<u64>,
         fee_wait_period: Option<u64>,
         dex_router: Option<String>,
@@ -63,12 +63,6 @@ pub enum ExecuteMsg {
     TrimFeeEvents {},
 
 }
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Cw20HookMsg {
-    //Deposit Liquidation fee
-    DepositFee {},
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -95,13 +89,15 @@ pub enum QueryMsg {
     },
     //Total MBRN staked
     TotalStaked {},
+    //Returns StakeDistribution log from STAKE_INCENTIVES state object
+    IncentiveSchedule {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct Config {
     pub owner: Addr, //MBRN Governance
     pub mbrn_denom: String,
-    pub staking_rate: Decimal,
+    pub incentive_schedule: StakeDistribution,
     //Wait period between deposit & ability to earn fee events
     pub fee_wait_period: u64,  //in days
     pub unstaking_period: u64, //days

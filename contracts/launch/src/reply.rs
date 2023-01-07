@@ -339,7 +339,7 @@ pub fn handle_oracle_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Resp
                     vesting_contract: None,
                     governance_contract: None,
                     osmosis_proxy: Some(addrs.osmosis_proxy.to_string()),
-                    staking_rate: None,
+                    incentive_schedule: None,
                     fee_wait_period: None,
                     unstaking_period: None,
                     mbrn_denom: config.clone().mbrn_denom,
@@ -704,7 +704,7 @@ pub fn handle_cdp_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Respons
                 credit_price: Decimal::one(),
                 base_interest_rate: Some(Decimal::percent(1)),
                 credit_pool_ids: vec![],
-                liquidity_multiplier_for_debt_caps: Some(Decimal::percent(10_00)), //20% (20% would be 500% but the liquidity contract only counts CDT so we double)
+                liquidity_multiplier_for_debt_caps: Some(Decimal::percent(400_00)), //0.5% (0.5% would be 200x but the liquidity contract only counts CDT so we double)
                 liq_queue: None,
             };
             let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
@@ -1193,7 +1193,7 @@ pub fn handle_auction_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                         vesting_contract: Some(addrs.clone().vesting.to_string()),
                         governance_contract: Some(addrs.clone().governance.to_string()),
                         mbrn_denom: None,
-                        staking_rate: None,
+                        incentive_schedule: None,
                         unstaking_period: None,
                         fee_wait_period: None,
                         dex_router: None,

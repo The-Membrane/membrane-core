@@ -191,9 +191,9 @@ pub fn get_interest_rates(
         
         //The debt_proportion is used unless the supply proportion is over 1 or the farthest into slope 2 
         //A proportion in Slope 2 is prioritized        
-        if supply_proportions[i] <= Decimal::one() || ((supply_proportions[i] > Decimal::one() && debt_proportions[i] > Decimal::one()) && supply_proportions[i] - Decimal::one() < debt_proportions[i] - Decimal::one()) {
+        if supply_proportions[i] <= Decimal::one() || ((supply_proportions[i] > Decimal::one() && debt_proportions[i] > Decimal::one()) && supply_proportions[i] < debt_proportions[i]) {
             //Slope 2
-            if debt_proportions[i] > Decimal::one() {
+            if debt_proportions[i] > Decimal::one(){
                 //Ex: 91% > 90%
                 ////0.01 * 100 = 1
                 //1% = 1
@@ -240,6 +240,51 @@ pub fn get_interest_rates(
                     multiplier,
                 ),
             );            
+        }
+    }
+
+    //Calculate supply cap overages 
+    if basket.multi_asset_supply_caps != vec![]{
+        for multi_asset_cap in basket.clone().multi_asset_supply_caps {
+            //Initialize total_ratio
+            let mut total_ratio = Decimal::zero();
+
+            //Find & add ratio for each asset
+            for asset in multi_asset_cap.clone().assets{
+                if let Some((i, _cap)) = basket.clone().collateral_supply_caps.into_iter().enumerate().find(|(_i, cap)| cap.asset_info.equal(&asset)){
+                    total_ratio += new_basket_ratios[i];
+                }
+            }
+
+            //Calc interest rate
+            let multi_cap_proportion = decimal_division(total_ratio, multi_asset_cap.supply_cap_ratio);
+
+            for asset in multi_asset_cap.clone().assets{
+                if let Some((i, _cap)) = basket.clone().collateral_supply_caps.into_iter().enumerate().find(|(_i, cap)| cap.asset_info.equal(&asset)){
+                    //Substitute if proportion of multi_asset_cap is greater than 1 and both debt/supply proportions
+                    if multi_cap_proportion > Decimal::one() && multi_cap_proportion > supply_proportions[i] && multi_cap_proportion > debt_proportions[i]{
+                        //Slope 2            
+                        //Ex: 91% > 90%
+                        ////0.01 * 100 = 1
+                        //1% = 1
+                        let percent_over_desired = decimal_multiplication(
+                            decimal_subtraction(multi_cap_proportion, Decimal::one()),
+                            Decimal::percent(100_00),
+                        );
+                        let multiplier = percent_over_desired + Decimal::one();
+                        //Change rate of (rate) increase w/ the configuration multiplier
+                        let multiplier = multiplier * config.rate_slope_multiplier;
+            
+                        //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
+                        //// rate = 3.6%
+                        two_slope_pro_rata_rates[i] = decimal_multiplication(
+                                decimal_multiplication(rates[i], multi_cap_proportion),
+                                multiplier,
+                            )  
+                        
+                    }
+                }
+            }
         }
     }
         
@@ -828,6 +873,51 @@ pub fn get_interest_rates_imut(
                     multiplier,
                 ),
             ));
+        }
+    }
+
+    //Calculate supply cap overages 
+    if basket.multi_asset_supply_caps != vec![]{
+        for multi_asset_cap in basket.clone().multi_asset_supply_caps {
+            //Initialize total_ratio
+            let mut total_ratio = Decimal::zero();
+
+            //Find & add ratio for each asset
+            for asset in multi_asset_cap.clone().assets{
+                if let Some((i, _cap)) = basket.clone().collateral_supply_caps.into_iter().enumerate().find(|(_i, cap)| cap.asset_info.equal(&asset)){
+                    total_ratio += new_basket_ratios[i];
+                }
+            }
+
+            //Calc interest rate
+            let multi_cap_proportion = decimal_division(total_ratio, multi_asset_cap.supply_cap_ratio);
+
+            for asset in multi_asset_cap.clone().assets{
+                if let Some((i, _cap)) = basket.clone().collateral_supply_caps.into_iter().enumerate().find(|(_i, cap)| cap.asset_info.equal(&asset)){
+                    //Substitute if proportion of multi_asset_cap is greater than 1 and both debt/supply proportions
+                    if multi_cap_proportion > Decimal::one() && multi_cap_proportion > supply_proportions[i] && multi_cap_proportion > debt_proportions[i]{
+                        //Slope 2            
+                        //Ex: 91% > 90%
+                        ////0.01 * 100 = 1
+                        //1% = 1
+                        let percent_over_desired = decimal_multiplication(
+                            decimal_subtraction(multi_cap_proportion, Decimal::one()),
+                            Decimal::percent(100_00),
+                        );
+                        let multiplier = percent_over_desired + Decimal::one();
+                        //Change rate of (rate) increase w/ the configuration multiplier
+                        let multiplier = multiplier * config.rate_slope_multiplier;
+            
+                        //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
+                        //// rate = 3.6%
+                        two_slope_pro_rata_rates[i] = decimal_multiplication(
+                                decimal_multiplication(rates[i], multi_cap_proportion),
+                                multiplier,
+                            )  
+                        
+                    }
+                }
+            }
         }
     }
 

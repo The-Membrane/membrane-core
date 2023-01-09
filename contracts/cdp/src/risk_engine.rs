@@ -161,7 +161,6 @@ pub fn update_basket_tally(
     Ok(())
 }
 
-
 pub fn get_basket_debt_caps(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,

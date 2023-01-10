@@ -5,10 +5,10 @@ mod tests {
     use crate::helpers::LiquidityContract;
 
     use membrane::liquidity_check::{ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::types::AssetInfo;
+    use membrane::types::{AssetInfo, PoolType};
 
     use cosmwasm_std::{
-        coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128,
+        coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
     use osmo_bindings::{PoolStateResponse};
@@ -160,7 +160,7 @@ mod tests {
                     asset: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
                     },
-                    pool_ids: vec![1u64],
+                    pool_infos: vec![ PoolType::Balancer { pool_id: 1 } ],
                 },
             };
             let cosmos_msg = liquidity_contract.call(msg, vec![]).unwrap();
@@ -172,7 +172,7 @@ mod tests {
                     asset: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
                     },
-                    pool_ids: vec![1u64],
+                    pool_infos: vec![ PoolType::Balancer { pool_id: 1 } ],
                 },
             };
             let cosmos_msg = liquidity_contract.call(msg, vec![]).unwrap();
@@ -184,7 +184,7 @@ mod tests {
                     asset: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
                     },
-                    pool_ids: vec![1u64],
+                    pool_infos: vec![ PoolType::Balancer { pool_id: 1 } ],
                 },
             };
             let cosmos_msg = liquidity_contract.call(msg, vec![]).unwrap();
@@ -204,7 +204,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(assets[0].pool_ids, vec![1u64]);
+            assert_eq!(assets[0].pool_infos, vec![ PoolType::Balancer { pool_id: 1 } ]);
 
             //Successful EditAsset
             let msg = ExecuteMsg::EditAsset {
@@ -212,7 +212,7 @@ mod tests {
                     asset: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
                     },
-                    pool_ids: vec![2u64, 3u64, 4u64],
+                    pool_infos: vec![ PoolType::Balancer { pool_id: 2 }, PoolType::Balancer { pool_id: 3 }, PoolType::Balancer { pool_id: 4 } ],
                 },
             };
             let cosmos_msg = liquidity_contract.call(msg, vec![]).unwrap();
@@ -224,7 +224,7 @@ mod tests {
                     asset: AssetInfo::NativeToken {
                         denom: String::from("credit_two"),
                     },
-                    pool_ids: vec![99u64],
+                    pool_infos: vec![ PoolType::Balancer { pool_id: 99 } ],
                 },
             };
             let cosmos_msg = liquidity_contract.call(msg, vec![]).unwrap();
@@ -243,7 +243,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(assets.len(), 2u64 as usize);
-            assert_eq!(assets[0].pool_ids, vec![1u64, 2u64, 3u64, 4u64]);
+            assert_eq!(assets[0].pool_infos, vec![ PoolType::Balancer { pool_id: 1 }, PoolType::Balancer { pool_id: 2 }, PoolType::Balancer { pool_id: 3 }, PoolType::Balancer { pool_id: 4 } ],);
 
             //Successful RemoveAsset
             let msg = ExecuteMsg::RemoveAsset {
@@ -279,7 +279,7 @@ mod tests {
                     asset: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
                     },
-                    pool_ids: vec![1u64, 2u64],
+                    pool_infos: vec![ PoolType::Balancer { pool_id: 1 }, PoolType::StableSwap { pool_id: 2 }],
                 },
             };
             let cosmos_msg = liquidity_contract.call(msg, vec![]).unwrap();
@@ -309,7 +309,8 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(liquidity, Uint128::new(99998u128));
+            //49_999 * 11 bc of the StableSwap 10x boost
+            assert_eq!(liquidity, Uint128::new(549989u128));
         }
 
         #[test]
@@ -321,6 +322,7 @@ mod tests {
                 owner: Some(String::from("new_owner")), 
                 osmosis_proxy: Some(String::from("new_op_contract")),  
                 positions_contract: Some(String::from("new_pos_contract")), 
+                stableswap_multiplier: Some(Decimal::one())
             };
             let cosmos_msg = liquidity_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -340,6 +342,7 @@ mod tests {
                     owner: Addr::unchecked("new_owner"), 
                     osmosis_proxy:  Addr::unchecked("new_op_contract"),  
                     positions_contract:  Addr::unchecked("new_pos_contract"), 
+                    stableswap_multiplier: Decimal::one(),
             });
         }
     }

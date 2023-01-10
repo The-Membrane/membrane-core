@@ -404,7 +404,13 @@ pub struct Auction {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct LiquidityInfo {
     pub asset: AssetInfo,
-    pub pool_ids: Vec<u64>,
+    pub pool_infos: Vec<PoolType>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub enum PoolType {
+    Balancer { pool_id: u64 },
+    StableSwap { pool_id: u64 },
 }
 
 /////////Lockdrop

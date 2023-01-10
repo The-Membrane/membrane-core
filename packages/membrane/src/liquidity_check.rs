@@ -1,4 +1,4 @@
-use cosmwasm_std::Addr;
+use cosmwasm_std::{Addr, Decimal};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -27,6 +27,7 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         osmosis_proxy: Option<String>,
         positions_contract: Option<String>,
+        stableswap_multiplier: Option<Decimal>,
     },
 }
 
@@ -50,4 +51,5 @@ pub struct Config {
     pub owner: Addr,
     pub osmosis_proxy: Addr,
     pub positions_contract: Addr,
+    pub stableswap_multiplier: Decimal,
 }

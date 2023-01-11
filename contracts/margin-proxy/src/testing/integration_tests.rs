@@ -320,7 +320,15 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(positions[0].position_id, Uint128::new(1));
-
+            //
+            let positions: Vec<Uint128> = app
+                .wrap()
+                .query_wasm_smart(
+                    margin_contract.addr(),
+                    &QueryMsg::GetPositionIDs { limit: Some(1), start_after: None },
+                )
+                .unwrap();
+            assert_eq!(positions[0], Uint128::new(1));
             
             //Existing position deposit: Success
             let msg = ExecuteMsg::Deposit { position_id: Some(Uint128::new(1)) };

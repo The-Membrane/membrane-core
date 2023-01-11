@@ -2,10 +2,11 @@ use std::str::FromStr;
 
 use cosmwasm_std::{
     attr, entry_point, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, 
-    Response, StdResult, Uint128, WasmQuery, SubMsg, Storage, Addr, CosmosMsg, WasmMsg, Reply, StdError, QueryRequest, Decimal, QuerierWrapper, Attribute,
+    Response, StdResult, Uint128, WasmQuery, SubMsg, Storage, Addr, CosmosMsg, WasmMsg, Reply, StdError, QueryRequest, Decimal, QuerierWrapper, Attribute, Order,
 };
 use cw2::set_contract_version;
 
+use cw_storage_plus::Bound;
 use membrane::helpers::router_native_to_native;
 use membrane::margin_proxy::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::decimal_multiplication;
@@ -18,6 +19,10 @@ use crate::state::{CONFIG, COMPOSITION_CHECK, USERS, NEW_POSITION_INFO, NUM_OF_L
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "margin_proxy";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// Pagination defaults
+const PAGINATION_DEFAULT_LIMIT: u64 = 10;
+const PAGINATION_MAX_LIMIT: u64 = 30;
 
 //Reply IDs
 const EXISTING_DEPOSIT_REPLY_ID: u64 = 1u64;
@@ -646,15 +651,47 @@ fn handle_new_deposit_reply(
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::GetUserPositions { user } => to_binary(&query_user_positions(deps, env, user)?)
+        QueryMsg::GetUserPositions { user } => to_binary(&query_user_positions(deps, env, user)?),
+        QueryMsg::GetPositionIDs { limit, start_after } => to_binary(&query_positions(deps, env, limit, start_after)?),
     }
+}
+
+fn query_positions(
+    deps: Deps,
+    env: Env,
+    option_limit: Option<u64>, //User limit
+    start_after: Option<String>, //user    
+) -> StdResult<Vec<Uint128>>{
+    
+    let limit = option_limit
+        .unwrap_or(PAGINATION_DEFAULT_LIMIT)
+        .min(PAGINATION_MAX_LIMIT) as usize;
+    
+    let start = if let Some(start) = start_after {
+        let start_after_addr = deps.api.addr_validate(&start)?;
+        Some(Bound::exclusive(start_after_addr))
+    } else {
+        None
+    };
+    let mut positions: Vec<Uint128> = vec![];
+
+    USERS
+        .range(deps.storage, start, None, Order::Ascending)
+        .take(limit)
+        .map(|user| {
+            let (user, user_positions) = user.unwrap();
+            
+            positions.extend(user_positions);
+        });
+
+    Ok(positions)
 }
 
 fn query_user_positions(
     deps: Deps,
     env: Env,
     user: String,
-)-> StdResult<Vec<PositionResponse>>{
+) -> StdResult<Vec<PositionResponse>>{
     //Load Config
     let config: Config = CONFIG.load(deps.storage)?;
 

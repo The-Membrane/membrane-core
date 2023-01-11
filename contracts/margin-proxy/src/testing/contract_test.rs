@@ -25,10 +25,7 @@ mod tests {
         let _res = instantiate(deps.as_mut(), mock_env(), v_info, msg).unwrap();
 
         //New user position
-        let deposit_msg = ExecuteMsg::Deposit {
-            basket_id: Uint128::new(1),
-            position_id: None,
-        };
+        let deposit_msg = ExecuteMsg::Deposit { position_id: None };
         let res = execute(
             deps.as_mut(),
             mock_env(),

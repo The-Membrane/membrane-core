@@ -42,8 +42,14 @@ pub enum ExecuteMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
-    //Get PositionReponses from user owned Positions in the Positions contract
+    //Returns Vec<PositionReponse> from user owned Positions in the Positions contract
     GetUserPositions { user: String },
+    //Returns Vec<Uint128>
+    //For full position responses query the Positions contract
+    GetPositionIDs {
+        limit: Option<u64>, //User limit
+        start_after: Option<String>, //user
+    },
 }
 
 

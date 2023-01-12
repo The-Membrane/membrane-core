@@ -28,7 +28,6 @@ fn instantiate_and_whitelist(deps: &mut OwnedDeps<MemoryStorage, MockApi, MockQu
             liq_premium: Decimal::percent(10),
             deposits: vec![],
         },
-        desired_ratio_of_total_credit_supply: None,
         osmosis_proxy: String::from("osmosis_proxy"),
         positions_contract: String::from("positions_contract"),
         mbrn_denom: String::from("mbrn_denom"),
@@ -174,7 +173,11 @@ fn simulate_bids_with_2_liq_amounts(
     let res = query(
         deps.as_ref(),
         mock_env(),
-        QueryMsg::AssetPool { },
+        QueryMsg::AssetPool {
+            user: None,
+            deposit_limit: None,
+            start_after: None,
+        },
     )
     .unwrap();
 

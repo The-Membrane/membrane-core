@@ -15,10 +15,6 @@ fn partial_one_collateral_one_slot() {
         positions_contract: String::from("positions_contract"),
         owner: None, //Defaults to sender
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -78,7 +74,6 @@ fn partial_one_collateral_one_slot() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -94,10 +89,6 @@ fn partial_one_collateral_one_slot_w_fees() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -158,7 +149,6 @@ fn partial_one_collateral_one_slot_w_fees() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -174,10 +164,6 @@ fn one_collateral_one_slot() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -237,7 +223,6 @@ fn one_collateral_one_slot() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -253,10 +238,6 @@ fn one_collateral_one_slot_w_fees() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -317,7 +298,6 @@ fn one_collateral_one_slot_w_fees() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -333,10 +313,6 @@ fn two_slot_w_fees() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -416,7 +392,6 @@ fn two_slot_w_fees() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -432,10 +407,6 @@ fn partial_two_slot_w_fees() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -516,7 +487,6 @@ fn partial_two_slot_w_fees() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -532,10 +502,6 @@ fn partial_two_slot_w_fees_bignums() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -616,7 +582,6 @@ fn partial_two_slot_w_fees_bignums() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };

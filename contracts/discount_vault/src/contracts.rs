@@ -5,18 +5,15 @@ use std::str::FromStr;
 use cw_storage_plus::Bound;
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, coin, to_binary, Addr, Api, BankMsg, Binary, CosmosMsg, Decimal, Deps, Order,
-    DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg, QueryRequest, WasmQuery, QuerierWrapper, Coin,
+    attr, to_binary, Addr, Binary, Deps, Order,
+    DepsMut, Env, MessageInfo, Response, StdError, StdResult, Uint128, QuerierWrapper, Coin,
 };
 use cw2::set_contract_version;
-use cw20::Cw20ExecuteMsg;
 
 use membrane::positions::QueryMsg as CDPQueryMsg;
-use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, withdrawal_msg, multi_native_withdrawal_msg, get_pool_state_response};
+use membrane::helpers::{multi_native_withdrawal_msg, get_pool_state_response};
 use membrane::discount_vault::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UserResponse};
-use membrane::vesting::{QueryMsg as Vesting_QueryMsg, RecipientsResponse};
-use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit, VaultedLP, PoolStateResponse, VaultUser, LPPoolInfo, Basket};
-use membrane::math::decimal_division;
+use membrane::types::{Asset, AssetInfo, VaultedLP, VaultUser, LPPoolInfo, Basket};
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, USERS};
@@ -114,9 +111,9 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::Deposit {  } => deposit(deps, env, info),
-        ExecuteMsg::Withdraw { withdrawal_assets } => withdraw(deps, env, info, withdrawal_assets),
-        ExecuteMsg::ChangeOwner { owner } => change_owner(deps, env, info, owner),
-        ExecuteMsg::EditAcceptedLPs { pool_ids, remove } => edit_LPs(deps, env, info, pool_ids, remove),
+        ExecuteMsg::Withdraw { withdrawal_assets } => withdraw(deps, info, withdrawal_assets),
+        ExecuteMsg::ChangeOwner { owner } => change_owner(deps, info, owner),
+        ExecuteMsg::EditAcceptedLPs { pool_ids, remove } => edit_LPs(deps, info, pool_ids, remove),
     }
 }
 
@@ -164,7 +161,7 @@ fn deposit(
             USERS.save(deps.storage, info.clone().sender, &VaultUser {
                 user: info.clone().sender,
                 vaulted_lps,
-            });
+            })?;
         },
     };
     
@@ -178,7 +175,6 @@ fn deposit(
 
 fn withdraw(    
     deps: DepsMut,
-    env: Env,
     info: MessageInfo,
     mut withdrawal_assets: Vec<Asset>,
 ) -> Result<Response, ContractError>{
@@ -213,7 +209,7 @@ fn withdraw(
         }
     }
     //Save updated deposits for User
-    USERS.save(deps.storage, info.clone().sender, &user);  
+    USERS.save(deps.storage, info.clone().sender, &user)?;  
 
     //Create withdrawl_msgs
     let withdraw_msg = multi_native_withdrawal_msg(withdrawal_assets.clone(), info.clone().sender)?;
@@ -228,7 +224,6 @@ fn withdraw(
 
 fn change_owner(    
     deps: DepsMut,
-    env: Env,
     info: MessageInfo,
     owner: String,
 ) -> Result<Response, ContractError>{
@@ -244,7 +239,7 @@ fn change_owner(
     config.owner = valid_owner.clone();
 
     //Save config
-    CONFIG.save(deps.storage, &config);
+    CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new()
         .add_attributes(vec![
@@ -255,7 +250,6 @@ fn change_owner(
 
 fn edit_LPs(    
     deps: DepsMut,
-    env: Env,
     info: MessageInfo,
     pool_ids: Vec<u64>,
     remove: bool,
@@ -267,25 +261,25 @@ fn edit_LPs(
 
     //Update LPs
     if remove {
-        for id in pool_ids {
+        for id in pool_ids.clone() {
             
-            if let Some((index, LP)) = config.clone().accepted_LPs
+            if let Some((index, _LP)) = config.clone().accepted_LPs
             .into_iter()
             .enumerate()
-            .find(|(i, LP)| LP.pool_id == pool_id)
+            .find(|(_i, LP)| LP.pool_id == id)
             {
                 //Remove
                 config.accepted_LPs.remove(index);
             }
         }
     } else {
-        for id in pool_ids {            
+        for id in pool_ids.clone() {            
             config.accepted_LPs.push(create_and_validate_LP_object(deps.querier, id, config.clone().positions_contract, config.clone().osmosis_proxy)?);
         }
     }
 
     //Save config
-    CONFIG.save(deps.storage, &config);
+    CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new()
         .add_attributes(vec![
@@ -316,7 +310,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::User { user, minimum_deposit_time } => to_binary(&get_user_response(deps, env, user, minimum_deposit_time)?),
-        QueryMsg::Deposits { limit, start_after } => to_binary(&get_deposits(deps, env, limit, start_after)?),
+        QueryMsg::Deposits { limit, start_after } => to_binary(&get_deposits(deps, limit, start_after)?),
     }
 }
 
@@ -366,7 +360,6 @@ fn get_user_response(
 
 fn get_deposits(    
     deps: Deps, 
-    env: Env, 
     option_limit: Option<u64>,
     start_after: Option<String>, //user
 ) -> StdResult<Vec<VaultUser>>{
@@ -383,12 +376,12 @@ fn get_deposits(
     };
     let mut lps: Vec<VaultUser> = vec![];
 
-    USERS
+    let _iter = USERS
         .range(deps.storage, start, None, Order::Ascending)
         .map(|user| {
-            let (addr, user) = user.unwrap();
+            let (_addr, user) = user.unwrap();
             
-            lps.extend(user);
+            lps.push(user);
         });
     lps = lps.clone()
         .into_iter()

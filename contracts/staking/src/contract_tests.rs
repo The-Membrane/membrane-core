@@ -10,10 +10,10 @@ use cw20::Cw20ReceiveMsg;
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
-    Config, Cw20HookMsg, ExecuteMsg, FeeEventsResponse, InstantiateMsg, QueryMsg, RewardsResponse,
+    Config, ExecuteMsg, FeeEventsResponse, InstantiateMsg, QueryMsg, RewardsResponse,
     StakedResponse, TotalStakedResponse, StakerResponse,
 };
-use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit};
+use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit, StakeDistribution};
 
 
 #[test]
@@ -29,7 +29,7 @@ fn update_config(){
         vesting_contract: Some("vesting_contract".to_string()),
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
-        staking_rate: Some(Decimal::percent(10)),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
         fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
@@ -49,7 +49,7 @@ fn update_config(){
         dex_router: Some(String::from("new_router")), 
         max_spread: Some(Decimal::one()),
         vesting_contract: Some(String::from("new_bv")), 
-        staking_rate: Some(Decimal::one()),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::one(), duration: 90 }),
         fee_wait_period: Some(1),  
     };
 
@@ -81,8 +81,8 @@ fn update_config(){
             mbrn_denom: String::from("new_denom"), 
             dex_router: Some( Addr::unchecked("new_router")), 
             max_spread: Some(Decimal::one()), 
-            vesting_contract: Some( Addr::unchecked("new_bv")), 
-            staking_rate: Decimal::percent(20), //Capped at 20% that's why it isn't 1
+            vesting_contract: Some( Addr::unchecked("new_bv")),             
+            incentive_schedule: StakeDistribution { rate: Decimal::percent(20), duration: 0 }, //Capped at 20% that's why it isn't 1
             fee_wait_period: 1, 
             
         },
@@ -101,7 +101,7 @@ fn stake() {
         vesting_contract: Some("vesting_contract".to_string()),
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
-        staking_rate: Some(Decimal::percent(10)),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
         fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
@@ -216,7 +216,7 @@ fn unstake() {
         vesting_contract: Some("vesting_contract".to_string()),
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
-        staking_rate: Some(Decimal::percent(10)),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
         fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
@@ -416,7 +416,7 @@ fn deposit_fee() {
         vesting_contract: None,
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
-        staking_rate: Some(Decimal::percent(10)),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
         fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
@@ -441,23 +441,6 @@ fn deposit_fee() {
         vec![
             attr("method", "deposit_fee"),
             attr("fee_assets", String::from("[\"10 fee_asset\"]")),
-        ]
-    );
-
-    //Successful Cw20 DepositFee
-    let msg = ExecuteMsg::Receive(Cw20ReceiveMsg {
-        sender: String::from("positions_contract"),
-        amount: Uint128::new(10),
-        msg: to_binary(&Cw20HookMsg::DepositFee {}).unwrap(),
-    });
-
-    let info = mock_info("cw20_asset", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-    assert_eq!(
-        res.attributes,
-        vec![
-            attr("method", "deposit_fee"),
-            attr("fee_assets", String::from("[\"10 cw20_asset\"]")),
         ]
     );
 
@@ -486,15 +469,6 @@ fn deposit_fee() {
                     amount: Decimal::percent(1000),
                 },
             },
-            FeeEvent {
-                time_of_event: mock_env().block.time.seconds(),
-                fee: LiqAsset {
-                    info: AssetInfo::Token {
-                        address: Addr::unchecked("cw20_asset")
-                    },
-                    amount: Decimal::percent(1000),
-                },
-            },
         ]
     );
 }
@@ -511,7 +485,7 @@ fn claim_rewards() {
         vesting_contract: None,
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
-        staking_rate: Some(Decimal::percent(10)),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
         fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,

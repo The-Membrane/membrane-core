@@ -142,9 +142,9 @@ mod tests {
                             ],
                             cAsset_ratios: vec![ Decimal::one() ],
                             credit_amount: Uint128::new(1),
-                            basket_id,
                             avg_borrow_LTV: Decimal::zero(),
                             avg_max_LTV: Decimal::zero(),
+                            basket_id: Uint128::one(),
                         })?)
                     },
                     CDP_MockQueryMsg::GetBasket { } => {

@@ -16,10 +16,6 @@ fn one_bidder_distribution() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -64,7 +60,6 @@ fn one_bidder_distribution() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -116,10 +111,6 @@ fn two_bidder_distribution() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 1u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -165,7 +156,6 @@ fn two_bidder_distribution() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -202,7 +192,6 @@ fn two_bidder_distribution() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -288,10 +277,6 @@ fn two_bidder_distribution_big_number() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -337,7 +322,6 @@ fn two_bidder_distribution_big_number() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -374,7 +358,6 @@ fn two_bidder_distribution_big_number() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -460,10 +443,6 @@ fn one_user_two_slots() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -521,7 +500,6 @@ fn one_user_two_slots() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -559,7 +537,6 @@ fn one_user_two_slots() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -630,10 +607,6 @@ fn completely_empty_pool() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -679,7 +652,6 @@ fn completely_empty_pool() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -745,7 +717,6 @@ fn completely_empty_pool() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -814,10 +785,6 @@ fn product_truncated_to_zero() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -864,7 +831,6 @@ fn product_truncated_to_zero() {
             bid_with: AssetInfo::NativeToken {
                 denom: "cdt".to_string(),
             },
-            basket_id: Uint128::new(1u128),
             position_id: Uint128::new(1u128),
             position_owner: "owner01".to_string(),
         };
@@ -933,10 +899,6 @@ fn two_bidder_distribution_multiple_common_slots() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 1u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -1043,7 +1005,6 @@ fn two_bidder_distribution_multiple_common_slots() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -1138,10 +1099,6 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -1226,7 +1183,6 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -1287,7 +1243,6 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -1343,10 +1298,6 @@ fn not_enough_bid_for_collateral() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 1u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -1414,7 +1365,6 @@ fn not_enough_bid_for_collateral() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };

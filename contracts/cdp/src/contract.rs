@@ -5,7 +5,7 @@ use std::str::FromStr;
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
-    MessageInfo, Reply, Response, StdError, StdResult, Uint128, WasmMsg, QuerierWrapper,
+    MessageInfo, Reply, Response, StdError, StdResult, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 
@@ -26,12 +26,12 @@ use crate::positions::{
     liq_repay, mint_revenue, repay,
     withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID, get_target_position, update_position,
 };
-// use crate::query::{
-//     query_bad_debt, query_basket_credit_interest, query_basket_debt_caps,
-//     query_basket_positions, query_collateral_rates,
-//     query_position, query_position_insolvency,
-//     query_user_positions,
-// };
+use crate::query::{
+    query_bad_debt, query_basket_credit_interest, query_basket_debt_caps,
+    query_basket_positions, query_collateral_rates,
+    query_position, query_position_insolvency,
+    query_user_positions,
+};
 use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
 use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_sp_repay_reply, handle_close_position_reply};
 use crate::state::{
@@ -63,7 +63,7 @@ pub fn instantiate(
         discounts_contract: None,
         oracle_time_limit: msg.oracle_time_limit,
         cpc_multiplier: Decimal::one(), 
-        rate_slope_multiplier: Decimal::from_str("0.618"),
+        rate_slope_multiplier: Decimal::from_str("0.618").unwrap(),
         debt_minimum: msg.debt_minimum,
         base_debt_cap_multiplier: Uint128::new(21u128),
         collateral_twap_timeframe: msg.collateral_twap_timeframe,
@@ -222,7 +222,7 @@ pub fn execute(
             credit_asset,
             credit_price,
             base_interest_rate,
-            credit_pool_ids,
+            credit_pool_infos,
             liquidity_multiplier_for_debt_caps,
             liq_queue,
         } => create_basket(
@@ -234,7 +234,7 @@ pub fn execute(
             credit_asset,
             credit_price,
             base_interest_rate,
-            credit_pool_ids,
+            credit_pool_infos,
             liquidity_multiplier_for_debt_caps,
             liq_queue,
         ),
@@ -280,7 +280,6 @@ fn edit_cAsset(
     }
 
     let mut basket: Basket = BASKET.load(deps.storage)?;
-
     let mut attrs = vec![
         attr("method", "edit_cAsset"),
     ];
@@ -599,54 +598,54 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        // QueryMsg::GetPosition {
-        //     position_id,
-        //     position_owner,
-        // } => {
-        //     to_binary(&query_position(
-        //         deps,
-        //         env,
-        //         position_id,
-        //         deps.api.addr_validate(&position_owner)?
-        //     )?)
-        // }
-        // QueryMsg::GetUserPositions {
-        //     user,
-        //     limit,
-        // } => {
-        //     to_binary(&query_user_positions(
-        //         deps, env, deps.api.addr_validate(&user)?, limit,
-        //     )?)
-        // }
-        // QueryMsg::GetBasketPositions {
-        //     start_after,
-        //     limit,
-        // } => to_binary(&query_basket_positions(
-        //     deps,
-        //     start_after,
-        //     limit,
-        // )?),
+        QueryMsg::GetPosition {
+            position_id,
+            position_owner,
+        } => {
+            to_binary(&query_position(
+                deps,
+                env,
+                position_id,
+                deps.api.addr_validate(&position_owner)?
+            )?)
+        }
+        QueryMsg::GetUserPositions {
+            user,
+            limit,
+        } => {
+            to_binary(&query_user_positions(
+                deps, env, deps.api.addr_validate(&user)?, limit,
+            )?)
+        }
+        QueryMsg::GetBasketPositions {
+            start_after,
+            limit,
+        } => to_binary(&query_basket_positions(
+            deps,
+            start_after,
+            limit,
+        )?),
         QueryMsg::GetBasket { } => to_binary(&BASKET.load(deps.storage)?),
         QueryMsg::Propagation {} => to_binary(&LIQUIDATION.load(deps.storage)?),
-        // QueryMsg::GetBasketDebtCaps { } => {
-        //     to_binary(&query_basket_debt_caps(deps, env)?)
-        // }
-        // QueryMsg::GetBasketBadDebt { } => to_binary(&query_bad_debt(deps)?),
-        // QueryMsg::GetPositionInsolvency {
-        //     position_id,
-        //     position_owner,
-        // } => to_binary(&query_position_insolvency(
-        //     deps,
-        //     env,
-        //     position_id,
-        //     position_owner,
-        // )?),
-        // QueryMsg::GetCreditRate { } => {
-        //     to_binary(&query_basket_credit_interest(deps, env)?)
-        // }
-        // QueryMsg::GetCollateralInterest { } => {
-        //     to_binary(&query_collateral_rates(deps, env)?)
-        // }
+        QueryMsg::GetBasketDebtCaps { } => {
+            to_binary(&query_basket_debt_caps(deps, env)?)
+        }
+        QueryMsg::GetBasketBadDebt { } => to_binary(&query_bad_debt(deps)?),
+        QueryMsg::GetPositionInsolvency {
+            position_id,
+            position_owner,
+        } => to_binary(&query_position_insolvency(
+            deps,
+            env,
+            position_id,
+            position_owner,
+        )?),
+        QueryMsg::GetCreditRate { } => {
+            to_binary(&query_basket_credit_interest(deps, env)?)
+        }
+        QueryMsg::GetCollateralInterest { } => {
+            to_binary(&query_collateral_rates(deps, env)?)
+        }
     }
 }
 

@@ -1,9 +1,9 @@
-use cosmwasm_std::{Addr, Uint128};
+use cosmwasm_std::Addr;
 use cw_storage_plus::Item;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use membrane::{launch::Config, types::{Deposit, AssetInfo, UserRatio, Lockdrop}};
+use membrane::{launch::Config, types::{UserRatio, Lockdrop}};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -18,7 +18,8 @@ pub struct LaunchAddrs {
     pub liq_queue: Addr,
     pub liquidity_check: Addr,
     pub mbrn_auction: Addr,    
-    pub discount_vault: Addr,    
+    pub discount_vault: Addr,
+    pub system_discounts: Addr,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

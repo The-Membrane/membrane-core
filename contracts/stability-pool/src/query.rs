@@ -1,21 +1,37 @@
-use cosmwasm_std::{Deps, Env, StdResult, Uint128, Decimal, StdError, WasmQuery, QueryRequest, to_binary};
+use cosmwasm_std::{Deps, Env, StdResult, Uint128, Decimal, StdError};
 use membrane::types::{AssetPool, Deposit};
 use membrane::stability_pool::{LiquidatibleResponse, ClaimsResponse, DepositPositionResponse};
-use membrane::osmosis_proxy::TokenInfoResponse;
-use membrane::math::{decimal_division, decimal_multiplication};
-use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::helpers::accumulate_interest;
 
 use crate::state::{CONFIG, ASSET, USERS};
 
 pub fn query_asset_pool(
     deps: Deps,
+    user: Option<String>,
     deposit_limit: Option<u32>,
+    start_after: Option<u32>,
 ) -> StdResult<AssetPool>{    
     let mut asset_pool = ASSET.load(deps.storage)?;
+
+    //Optional User deposits
+    if let Some(user) = user {
+        let user = deps.api.addr_validate(&user)?;
+        asset_pool.deposits = asset_pool.clone().deposits
+            .into_iter()
+            .filter(|deposit| deposit.user.to_string() == user)
+            .collect::<Vec<Deposit>>();
+    };
+
+    //Optional start_after deposits
+    let start_after: u32  = if let Some(start) = start_after {
+        start
+    } else { 0 };
     
+    //Optional deposits limit
     if let Some(limit) = deposit_limit {
-        asset_pool.deposits = asset_pool.deposits[0..limit as usize].to_vec();
+        asset_pool.deposits = asset_pool.deposits[start_after as usize..(start_after+limit) as usize].to_vec();
+    } else {
+        asset_pool.deposits = asset_pool.deposits[start_after as usize..].to_vec();
     }
     
     Ok(asset_pool)    

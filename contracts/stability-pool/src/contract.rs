@@ -4,12 +4,11 @@ use std::env;
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
-    DepsMut, Env, MessageInfo, QuerierWrapper, QueryRequest, Response, StdError, StdResult,
-    Storage, Uint128, WasmMsg, WasmQuery,
+    DepsMut, Env, MessageInfo, Response, StdError, StdResult,
+    Storage, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 
-use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, TokenInfoResponse };
 use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::stability_pool::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig,
@@ -290,7 +289,6 @@ pub fn withdraw(
         //Go thru each deposit and withdraw request from state
         let (withdrawable, new_pool) = withdrawal_from_state(
             deps.storage,
-            deps.querier,
             env.clone(),
             config.clone(),
             info.clone().sender,
@@ -322,7 +320,6 @@ pub fn withdraw(
 
 fn withdrawal_from_state(
     storage: &mut dyn Storage,
-    querier: QuerierWrapper,
     env: Env,
     config: Config,
     user: Addr,
@@ -709,7 +706,7 @@ pub fn distribute_funds(
 
                         if !accrued_incentives.is_zero() {                 
                             //Add incentives to User Claims
-                            add_to_user_claims(deps.storage, deposit.user, config.clone().mbrn_denom, accrued_incentives)?;
+                            add_to_user_claims(deps.storage, deposit.user, AssetInfo::NativeToken { denom: config.clone().mbrn_denom }, accrued_incentives)?;
                         }
                     }
                 } else {
@@ -729,7 +726,7 @@ pub fn distribute_funds(
 
                         if !accrued_incentives.is_zero() {                            
                             //Add incentives to User Claims
-                            add_to_user_claims(deps.storage, deposit.user, config.clone().mbrn_denom, accrued_incentives)?;
+                            add_to_user_claims(deps.storage, deposit.user, AssetInfo::NativeToken { denom: config.clone().mbrn_denom }, accrued_incentives)?;
                         }
                     }
                 }
@@ -842,7 +839,6 @@ fn repay(
             //Go thru each deposit and withdraw request from state
             let (_withdrawable, new_pool) = withdrawal_from_state(
                 deps.storage,
-                deps.querier,
                 env,
                 config.clone(),
                 position_owner,
@@ -859,7 +855,7 @@ fn repay(
             let repay_msg = CDP_ExecuteMsg::Repay {
                 position_id: user_info.position_id,
                 position_owner: Some(user_info.clone().position_owner),
-                send_excess_to: Some(user_info.position_owner),
+                send_excess_to: Some(user_info.clone().position_owner),
             };
 
             let coin: Coin = asset_to_coin(repayment.clone())?;
@@ -871,7 +867,7 @@ fn repay(
                     position_owner: Some(user_info.clone().position_owner),
                     position_id: user_info.clone().position_id 
                 })?, 
-                funds: () 
+                funds: vec![],
             });
             msgs.push(msg);
 
@@ -901,11 +897,11 @@ pub fn claim(
     let mut accrued_incentives = Uint128::zero();
     let asset_pool = ASSET.load(deps.storage)?;
     //Add newly accrued incentives to claimables
-    accrued_incentives += get_user_incentives(deps.storage, deps.querier, env.clone(), info.clone().sender, asset_pool, config.clone().incentive_rate)?;    
+    accrued_incentives += get_user_incentives(deps.storage, env.clone(), info.clone().sender, asset_pool, config.clone().incentive_rate)?;    
 
     if !accrued_incentives.is_zero(){
         //Add incentives to User Claims
-        add_to_user_claims(deps.storage, info.clone().sender, config.clone().mbrn_denom, accrued_incentives)?;
+        add_to_user_claims(deps.storage, info.clone().sender, AssetInfo::NativeToken { denom: config.clone().mbrn_denom }, accrued_incentives)?;
     }
     
     //Create claim msgs
@@ -946,7 +942,17 @@ fn user_claims_msgs(
     }
 
     //Remove User's claims
-    USERS.save(storage, info.sender, &vec![])?;
+    USERS.update(storage, info.sender, |user| -> StdResult<User> {
+        match user {
+            Some(mut user) => {
+                user.claimable_assets = vec![];
+                Ok(user)
+            },
+            None => {
+                Err(StdError::GenericErr { msg: "No User found".to_string() })
+            },
+        }
+    })?;
 
     Ok((messages, user.claimable_assets))
 }
@@ -974,7 +980,7 @@ fn split_assets_to_users(
 
                 //Add all of this asset to existing claims
                 //Add to existing user claims
-                add_to_user_claims(storage, user_ratio.clone().user, distribution_assets[index].info, send_amount)?;
+                add_to_user_claims(storage, user_ratio.clone().user, distribution_assets[index].clone().info, send_amount)?;
 
                 //Set cAsset_ratios[index] to 0
                 cAsset_ratios[index] = Decimal::zero();
@@ -993,7 +999,7 @@ fn split_assets_to_users(
                 distribution_assets[index].amount -= send_amount;
                                 
                 //Add to existing user claims
-                add_to_user_claims(storage, user_ratio.clone().user, distribution_assets[index].info, send_amount)?;
+                add_to_user_claims(storage, user_ratio.clone().user, distribution_assets[index].clone().info, send_amount)?;
 
                 //Set cAsset_ratio to the difference
                 cAsset_ratio = decimal_subtraction(cAsset_ratio, user_ratio.ratio);
@@ -1009,7 +1015,7 @@ fn split_assets_to_users(
                 distribution_assets[index].amount -= send_amount;
 
                 //Add to existing user claims
-                add_to_user_claims(storage, user_ratio.clone().user, distribution_assets[index].info, send_amount)?;
+                add_to_user_claims(storage, user_ratio.clone().user, distribution_assets[index].clone().info, send_amount)?;
 
                 //Set user_ratio as leftover
                 user_ratio.ratio = decimal_subtraction(user_ratio.ratio, cAsset_ratio);                                
@@ -1034,19 +1040,19 @@ fn add_to_user_claims(
     USERS.update(
         storage,
         user,
-        |user| -> Result<User, ContractError> {
+        |user| -> StdResult<User> {
             match user {
                 Some(mut user) => {
                     //Find Asset in user state
                     match user.clone().claimable_assets
                         .into_iter()
                         .enumerate()
-                        .find(|(i, asset)| {
+                        .find(|(_i, asset)| {
                         asset.info.equal(&distribution_asset)
                     }) {
                         Some((i, _asset)) => {
                             //Add amount
-                            user.claimable_assets[i] += send_amount;
+                            user.claimable_assets[i].amount += send_amount;
                         }
                         None => {
                             user.claimable_assets.push(Asset {
@@ -1069,7 +1075,9 @@ fn add_to_user_claims(
                 }
             }
         },
-    )
+    )?;
+
+    Ok(())
 }
 
 pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal>, Vec<Deposit>)> {
@@ -1117,7 +1125,6 @@ pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal
 //Calc a user's incentives from each deposit
 fn get_user_incentives(
     storage: &mut dyn Storage,
-    querier: QuerierWrapper,
     env: Env,
     user: Addr,
     mut asset_pool: AssetPool,
@@ -1189,7 +1196,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::CapitalAheadOfDeposit { user } => to_binary(&query_capital_ahead_of_deposits(deps, user)?),
         QueryMsg::CheckLiquidatible { amount } => to_binary(&query_liquidatible(deps, amount)?),
         QueryMsg::UserClaims { user } => to_binary(&query_user_claims(deps, user)?),
-        QueryMsg::AssetPool { deposit_limit } => to_binary(&query_asset_pool(deps, deposit_limit)?),
+        QueryMsg::AssetPool { user, deposit_limit , start_after} => to_binary(&query_asset_pool(deps, user, deposit_limit, start_after)?),
     }
 }
 

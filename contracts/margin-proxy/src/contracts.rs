@@ -484,19 +484,7 @@ fn handle_close_position_reply(
                 .into_iter()
                 .find(|e| e.attributes.iter().any(|attr| attr.key == "basket_id"))
                 .ok_or_else(|| StdError::generic_err(format!("unable to find close_position event")))?;
-
-            let basket_id = {                
-                let string_id = &close_position_event
-                    .attributes
-                    .iter()
-                    .find(|attr| attr.key == "basket_id")
-                    .unwrap()
-                    .value;
-
-                Uint128::from_str(string_id).unwrap()
-                    
-            };
-
+            
             let position_id = {                
                 let string_id = &close_position_event
                     .attributes
@@ -652,13 +640,12 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::GetUserPositions { user } => to_binary(&query_user_positions(deps, env, user)?),
-        QueryMsg::GetPositionIDs { limit, start_after } => to_binary(&query_positions(deps, env, limit, start_after)?),
+        QueryMsg::GetPositionIDs { limit, start_after } => to_binary(&query_positions(deps, limit, start_after)?),
     }
 }
 
 fn query_positions(
     deps: Deps,
-    env: Env,
     option_limit: Option<u64>, //User limit
     start_after: Option<String>, //user    
 ) -> StdResult<Vec<Uint128>>{
@@ -675,11 +662,11 @@ fn query_positions(
     };
     let mut positions: Vec<Uint128> = vec![];
 
-    USERS
+    let _iter = USERS
         .range(deps.storage, start, None, Order::Ascending)
         .take(limit)
         .map(|user| {
-            let (user, user_positions) = user.unwrap();
+            let (_user, user_positions) = user.unwrap();
             
             positions.extend(user_positions);
         });

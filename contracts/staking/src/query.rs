@@ -3,7 +3,7 @@ use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, 
 use membrane::types::{FeeEvent, StakeDeposit};
 
 use crate::contract::get_deposit_claimables;
-use crate::state::{TOTALS, FEE_EVENTS, STAKED, CONFIG};
+use crate::state::{TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING};
 
 const DEFAULT_LIMIT: u32 = 32u32;
 
@@ -47,6 +47,7 @@ pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse>
 
 pub fn query_staker_rewards(deps: Deps, env: Env, staker: String) -> StdResult<RewardsResponse> {
     let config = CONFIG.load(deps.storage)?;
+    let incentive_schedule = INCENTIVE_SCHEDULING.load(deps.storage)?;
 
     let valid_addr = deps.api.addr_validate(&staker)?;
 
@@ -61,7 +62,7 @@ pub fn query_staker_rewards(deps: Deps, env: Env, staker: String) -> StdResult<R
     let mut claimables = vec![];
     let mut accrued_interest = Uint128::zero();
     for deposit in staker_deposits {
-        let (claims, incentives) = get_deposit_claimables(config.clone(), env.clone(), fee_events.clone(), deposit)?;
+        let (claims, incentives) = get_deposit_claimables(config.clone(), incentive_schedule.clone(), env.clone(), fee_events.clone(), deposit)?;
         claimables.extend(claims);
         accrued_interest += incentives;
     }

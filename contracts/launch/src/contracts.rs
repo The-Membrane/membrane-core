@@ -1,34 +1,22 @@
-use std::convert::TryInto;
-
 use cosmwasm_std::{
-    entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, WasmMsg, SubMsgResult, SubMsgResponse, WasmQuery,
-    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, Addr, coins, attr, Storage, QueryRequest,
+    entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, WasmMsg,
+    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, Addr, coin, attr, Storage,
 };
 use cw2::set_contract_version;
 
-use membrane::governance::{InstantiateMsg as Gov_InstantiateMsg, VOTING_PERIOD_INTERVAL, STAKE_INTERVAL};
 use membrane::helpers::{withdrawal_msg, get_contract_balances};
 use membrane::launch::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
 use membrane::math::{decimal_division, decimal_multiplication};
-use membrane::stability_pool::{InstantiateMsg as SP_InstantiateMsg, ExecuteMsg as SPExecuteMsg, UpdateConfig as SPUpdateConfig};
-use membrane::staking::{InstantiateMsg as Staking_InstantiateMsg, ExecuteMsg as StakingExecuteMsg};
-use membrane::vesting::{InstantiateMsg as Vesting_InstantiateMsg, ExecuteMsg as VestingExecuteMsg};
-use membrane::positions::{InstantiateMsg as CDP_InstantiateMsg, EditBasket, ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, UpdateConfig as CDPUpdateConfig};
-use membrane::oracle::{InstantiateMsg as Oracle_InstantiateMsg, ExecuteMsg as OracleExecuteMsg};
-use membrane::liq_queue::InstantiateMsg as LQInstantiateMsg;
-use membrane::liquidity_check::{InstantiateMsg as LCInstantiateMsg, ExecuteMsg as LCExecuteMsg};
-use membrane::debt_auction::InstantiateMsg as DAInstantiateMsg;
-use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg};
-use membrane::types::{AssetInfo, DebtTokenAsset, Position, Basket, Deposit, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, LiquidityInfo, AssetOracleInfo, UserRatio, PoolStateResponse, Lockdrop, LockedUser, Lock};
+use membrane::staking::ExecuteMsg as StakingExecuteMsg;
+use membrane::osmosis_proxy::ExecuteMsg as OPExecuteMsg;
+use membrane::types::{AssetInfo, Asset, UserRatio, Lockdrop, LockedUser, Lock};
 
-use osmosis_std::shim::Duration;
 use osmosis_std::types::cosmos::base::v1beta1::Coin;
 use osmosis_std::types::osmosis::gamm::poolmodels::balancer::v1beta1::MsgCreateBalancerPool;
-use osmosis_std::types::osmosis::gamm::poolmodels::stableswap::v1beta1::{MsgCreateStableswapPool, MsgCreateStableswapPoolResponse, PoolParams as SSPoolParams};
+use osmosis_std::types::osmosis::gamm::poolmodels::stableswap::v1beta1::{MsgCreateStableswapPool, PoolParams as SSPoolParams};
 use osmosis_std::types::osmosis::gamm::v1beta1::PoolParams;
 use osmosis_std::types::osmosis::gamm::v1beta1::PoolAsset;
-use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
-use osmosis_std::types::osmosis::lockup::QueryCondition;
+
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, ADDRESSES, LaunchAddrs, CREDIT_POOL_IDS, LOCKDROP, INCENTIVE_RATIOS, CreditPools};
@@ -71,14 +59,7 @@ pub fn instantiate(
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let mut config: Config;
-    let owner = if let Some(owner) = msg.owner {
-        deps.api.addr_validate(&owner)?
-    } else {
-        info.sender
-    };
-    
-    config = Config {
+    let config = Config {
         mbrn_denom: String::from(""),
         credit_denom: String::from(""),
         labs_addr: deps.api.addr_validate(&msg.labs_addr)?,
@@ -117,7 +98,8 @@ pub fn instantiate(
         liquidity_check: Addr::unchecked(""),
         mbrn_auction: Addr::unchecked(""),
         discount_vault: Addr::unchecked(""),
-    });
+        system_discounts: Addr::unchecked(""),
+    })?;
 
     let msg = CosmosMsg::Wasm(WasmMsg::Instantiate { 
         admin: Some(env.clone().contract.address.to_string()),
@@ -137,10 +119,10 @@ pub fn instantiate(
         deposit_end: env.block.time.seconds() + (5 * SECONDS_PER_DAY),
         withdrawal_end: env.block.time.seconds() + (7 * SECONDS_PER_DAY),
     };
-    LOCKDROP.save(deps.storage, &lockdrop);
+    LOCKDROP.save(deps.storage, &lockdrop)?;
 
     //Instantiate Incentive Ratios
-    INCENTIVE_RATIOS.save(deps.storage, &vec![]);
+    INCENTIVE_RATIOS.save(deps.storage, &vec![])?;
 
     //Instantiate Credit Pools
     CREDIT_POOL_IDS.save(deps.storage, 
@@ -149,7 +131,7 @@ pub fn instantiate(
             atom: 0,
             osmo: 0,
         }
-    );
+    )?;
 
     Ok(Response::new()
         .add_submessage(sub_msg)
@@ -190,10 +172,10 @@ fn lock(
     let valid_asset = validate_lockdrop_asset(info.clone(), lockdrop.clone().locked_asset)?;
 
     //Find & add to User
-    if let Some((i, lock_slot)) = lockdrop.clone().locked_users
+    if let Some((i, _lock_slot)) = lockdrop.clone().locked_users
         .into_iter()
         .enumerate()
-        .find(|(i, user)| user.user == info.clone().sender.to_string()){
+        .find(|(_i, user)| user.user == info.clone().sender.to_string()){
         
         lockdrop.locked_users[i].deposits.push(
             Lock { 
@@ -219,7 +201,7 @@ fn lock(
     } 
 
     //Save Lockdrop
-    LOCKDROP.save(deps.storage, &lockdrop);
+    LOCKDROP.save(deps.storage, &lockdrop)?;
 
     Ok(Response::new()
         .add_attributes(vec![
@@ -245,10 +227,10 @@ fn withdraw(
     let initial_withdraw_amount = withdrawal_amount;
 
     //Find & remove from LockedUser
-    if let Some((i, lock_slot)) = lockdrop.clone().locked_users
+    if let Some((i, _lock_slot)) = lockdrop.clone().locked_users
         .into_iter()
         .enumerate()
-        .find(|(i, user)| user.user == info.clone().sender.to_string()){
+        .find(|(_i, user)| user.user == info.clone().sender.to_string()){
         
             lockdrop.locked_users[i].deposits = lockdrop.clone().locked_users[i].clone().deposits
                 .into_iter()
@@ -285,7 +267,7 @@ fn withdraw(
     }
 
     //Save Lockdrop
-    LOCKDROP.save(deps.storage, &lockdrop);
+    LOCKDROP.save(deps.storage, &lockdrop)?;
 
     //Create Withdraw Msg
     let msg = withdrawal_msg(
@@ -323,7 +305,7 @@ fn claim (
     let mut user_ratios = INCENTIVE_RATIOS.load(deps.storage)?;
     
     if user_ratios.is_empty(){
-        calc_ticket_distribution(deps.storage, &mut lockdrop);
+        calc_ticket_distribution(deps.storage, &mut lockdrop)?;
 
         user_ratios = INCENTIVE_RATIOS.load(deps.storage)?;
     }
@@ -338,10 +320,10 @@ fn claim (
     let mut withdrawable_tickets = Uint128::zero();
     let mut amount_to_mint = Uint128::zero();
     //Find withdrawable tickets
-    if let Some((i, mut user)) = lockdrop.clone().locked_users.into_iter().enumerate().find(|(i, user)| user.user == info.clone().sender){
+    if let Some((i, user)) = lockdrop.clone().locked_users.into_iter().enumerate().find(|(_i, user)| user.user == info.clone().sender){
         let time_since_lockdrop_end = env.block.time.seconds() - lockdrop.withdrawal_end;       
 
-        for (i, deposit) in user.clone().deposits.into_iter().enumerate() {
+        for (_i, deposit) in user.clone().deposits.into_iter().enumerate() {
             //Unlock any deposits that have passed their lock duration
             if time_since_lockdrop_end > deposit.lock_up_duration * SECONDS_PER_DAY {
                 withdrawable_tickets += deposit.deposit * Uint128::from((deposit.lock_up_duration + 1) as u128);
@@ -364,7 +346,7 @@ fn claim (
         return Err(ContractError::NotAUser {})
     }    
     //Save updated incentive tally
-    LOCKDROP.save(deps.storage, &lockdrop);
+    LOCKDROP.save(deps.storage, &lockdrop)?;
 
     let attrs = vec![
         attr("method", "claim"),
@@ -402,13 +384,13 @@ fn claim (
 }
 
 fn get_user_incentives(
-    mut user_ratios: Vec<UserRatio>,
+    user_ratios: Vec<UserRatio>,
     user: String,
     total_incentives: Uint128,
 ) -> StdResult<Uint128>{
 
-    let incentives: Uint128 = match user_ratios.clone().into_iter().enumerate().find(|(i, user_ratio)| user_ratio.user.to_string() == user){
-        Some((i, user)) => {
+    let incentives: Uint128 = match user_ratios.clone().into_iter().enumerate().find(|(_i, user_ratio)| user_ratio.user.to_string() == user){
+        Some((_i, user)) => {
 
             decimal_multiplication(
                 user.ratio, 
@@ -427,7 +409,7 @@ fn get_user_incentives(
 fn calc_ticket_distribution(
     storage: &mut dyn Storage,
     lockdrop: &mut Lockdrop,
-){
+) -> StdResult<()>{
     let user_totals = lockdrop.clone().locked_users
         .into_iter()
         .map(|user| {
@@ -467,7 +449,7 @@ fn calc_ticket_distribution(
         .collect::<Vec<UserRatio>>();
 
     //Save user incentive ratios
-    INCENTIVE_RATIOS.save(storage, &user_ratios);
+    INCENTIVE_RATIOS.save(storage, &user_ratios)
 }
 
 fn validate_lockdrop_asset(info: MessageInfo, lockdrop_asset: AssetInfo) -> StdResult<Asset>{
@@ -515,7 +497,7 @@ fn update_config(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::Lockdrop {} => to_binary(&LOCKDROP.load(deps.storage)?),
@@ -537,6 +519,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         LIQUIDITY_CHECK_REPLY_ID => handle_lc_reply(deps, env, msg),
         DEBT_AUCTION_REPLY_ID => handle_auction_reply(deps, env, msg),
         STABLESWAP_REPLY_ID => handle_stableswap_reply(deps, env, msg),
+        CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 }
@@ -545,8 +528,8 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
 pub fn end_of_launch(
     deps: DepsMut,
     env: Env,
-) -> StdResult<Response>{
-    let mut lockdrop = LOCKDROP.load(deps.storage)?;
+) -> Result<Response, ContractError>{
+    let lockdrop = LOCKDROP.load(deps.storage)?;
 
     //Assert Lockdrop withdraw period has ended
     if !(env.block.time.seconds() > lockdrop.withdrawal_end) { return Err(ContractError::LockdropOngoing {  }) }
@@ -598,7 +581,7 @@ pub fn end_of_launch(
 
     //Create 3 CDT pools
     //OSMO
-    let msg = MsgCreateBalancerPool {
+    let msg: CosmosMsg = MsgCreateBalancerPool {
         sender: env.contract.address.to_string(),
         pool_params: Some(PoolParams {
             swap_fee: String::from("0.2"),
@@ -616,11 +599,11 @@ pub fn end_of_launch(
             }
         ],
         future_pool_governor: addrs.clone().governance.to_string(),
-    };
-    let sub_msg = SubMsg::reply_on_success(msg.into(), BALANCER_POOL_REPLY_ID);
+    }.into();
+    let sub_msg = SubMsg::reply_on_success(msg, BALANCER_POOL_REPLY_ID);
     sub_msgs.push(sub_msg);
     //ATOM
-    let msg = MsgCreateBalancerPool {
+    let msg: CosmosMsg = MsgCreateBalancerPool {
         sender: env.contract.address.to_string(),
         pool_params: Some(PoolParams {
             swap_fee: String::from("0.2"),
@@ -638,8 +621,8 @@ pub fn end_of_launch(
             }
         ],
         future_pool_governor: addrs.clone().governance.to_string(),
-    };
-    let sub_msg = SubMsg::reply_on_success(msg.into(), BALANCER_POOL_REPLY_ID);
+    }.into();
+    let sub_msg = SubMsg::reply_on_success(msg, BALANCER_POOL_REPLY_ID);
     sub_msgs.push(sub_msg);
     //USDC Stableswap
     let msg: CosmosMsg = MsgCreateStableswapPool {
@@ -659,7 +642,7 @@ pub fn end_of_launch(
 
     Ok(Response::new()
         .add_messages(msgs)
-        .add_submessage(sub_msg)
+        .add_submessages(sub_msgs)
     )
 }
 

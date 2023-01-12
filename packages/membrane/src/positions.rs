@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{
     cAsset, Asset, AssetInfo, InsolventPosition, Position, PositionUserInfo,
-    SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo,
+    SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
@@ -77,7 +77,7 @@ pub enum ExecuteMsg {
         credit_asset: Asset, //Creates native denom for Asset
         credit_price: Decimal,
         base_interest_rate: Option<Decimal>,
-        credit_pool_ids: Vec<u64>, //For liquidity measuring
+        credit_pool_infos: Vec<PoolType>, //For liquidity measuring
         liquidity_multiplier_for_debt_caps: Option<Decimal>, //Ex: 5 = debt cap at 5x liquidity
         liq_queue: Option<String>,
     },
@@ -111,30 +111,30 @@ pub enum CallbackMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
-    // GetUserPositions {
-    //     //All positions from a user
-    //     user: String,
-    //     limit: Option<u32>,
-    // },
-    // GetPosition {
-    //     //Singular position
-    //     position_id: Uint128,
-    //     position_owner: String,
-    // },
-    // GetBasketPositions {
-    //     //All positions in a basket
-    //     start_after: Option<String>,
-    //     limit: Option<u32>,
-    // },
+    GetUserPositions {
+        //All positions from a user
+        user: String,
+        limit: Option<u32>,
+    },
+    GetPosition {
+        //Singular position
+        position_id: Uint128,
+        position_owner: String,
+    },
+    GetBasketPositions {
+        //All positions in a basket
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
     GetBasket { }, //Singular basket
-    //GetBasketDebtCaps { },
-    //GetBasketBadDebt { },
-    //GetPositionInsolvency {
-    //     position_id: Uint128,
-    //     position_owner: String,
-    // },
-    //GetCreditRate { },
-    //GetCollateralInterest { },
+    GetBasketDebtCaps { },
+    GetBasketBadDebt { },
+    GetPositionInsolvency {
+        position_id: Uint128,
+        position_owner: String,
+    },
+    GetCreditRate { },
+    GetCollateralInterest { },
     //Used internally to test state propagation
     Propagation {},
 }
@@ -191,7 +191,7 @@ pub struct UpdateConfig {
 pub struct EditBasket {
     pub added_cAsset: Option<cAsset>,
     pub liq_queue: Option<String>,
-    pub credit_pool_ids: Option<Vec<u64>>, //For liquidity measuring
+    pub credit_pool_infos: Option<Vec<PoolType>>, //For liquidity measuring
     pub liquidity_multiplier: Option<Decimal>,
     pub collateral_supply_caps: Option<Vec<SupplyCap>>,
     pub multi_asset_supply_caps: Option<Vec<MultiAssetSupplyCap>>,

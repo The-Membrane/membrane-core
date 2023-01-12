@@ -10,7 +10,7 @@ mod tests {
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
-    use osmo_bindings::{ArithmeticTwapToNowResponse};
+    use osmosis_std::types::osmosis::twap::v1beta1::ArithmeticTwapToNowResponse;
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 
@@ -65,11 +65,11 @@ mod tests {
                     } => {
                         if id == 2u64 {
                             Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(450),
+                                arithmetic_twap: Decimal::percent(450),
                             })?)
                         } else {
                             Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(50),
+                                arithmetic_twap: Decimal::percent(50),
                             })?)
                         }
                     }
@@ -219,7 +219,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(price.avg_price, Decimal::percent(50));
+            assert_eq!(price.price, Decimal::percent(50));
 
             //Query Price for Basket 2
             let price: PriceResponse = app
@@ -235,7 +235,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(price.avg_price, Decimal::percent(450));
+            assert_eq!(price.price, Decimal::percent(450));
 
             //Successful EditAsset
             let msg = ExecuteMsg::EditAsset {
@@ -261,10 +261,10 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(
                     oracle_contract.addr(),
-                    &QueryMsg::Asset {
-                        asset_info: AssetInfo::NativeToken {
+                    &QueryMsg::Assets {
+                        asset_infos: vec![AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
-                        },
+                        }],
                     },
                 )
                 .unwrap();
@@ -306,8 +306,8 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(price[0].avg_price, Decimal::percent(450));
-            assert_eq!(price[1].avg_price, Decimal::percent(50));
+            assert_eq!(price[0].price, Decimal::percent(450));
+            assert_eq!(price[1].price, Decimal::percent(50));
 
             //Successful Remove
             let msg = ExecuteMsg::EditAsset {
@@ -376,7 +376,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(price.avg_price, Decimal::percent(225));
+            assert_eq!(price.price, Decimal::percent(225));
 
             //Successful AddAsset to a different basket
             let msg = ExecuteMsg::AddAsset {
@@ -406,7 +406,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(price.avg_price, Decimal::one());
+            assert_eq!(price.price, Decimal::one());
         }
 
         #[test]

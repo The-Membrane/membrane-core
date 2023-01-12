@@ -11,7 +11,7 @@ mod tests {
     use membrane::staking::{StakerResponse, RewardsResponse, Config as Staking_Config};
     use membrane::oracle::PriceResponse;
     use membrane::discount_vault::UserResponse as Discount_UserResponse;
-    use membrane::types::{Asset, AssetInfo, Position, DebtTokenAsset, Deposit};
+    use membrane::types::{Asset, AssetInfo, Position, DebtTokenAsset, Deposit, StakeDistribution};
 
     use cosmwasm_std::{
         to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal,
@@ -77,7 +77,6 @@ mod tests {
                                     position_id: Uint128::new(1),
                                     collateral_assets: vec![],
                                     credit_amount: Uint128::new(500),
-                                    basket_id: Uint128::new(1),
                                 }
                             ],
                         })?)
@@ -186,7 +185,7 @@ mod tests {
                         Ok(to_binary(&Staking_Config {
                             owner: Addr::unchecked(""),
                             mbrn_denom: String::from("mbrn_denom"),
-                            staking_rate: Decimal::zero(),
+                            incentive_schedule: StakeDistribution { rate: Decimal::zero(), duration: 0 },
                             fee_wait_period: 0,
                             unstaking_period: 0,
                             positions_contract: None,
@@ -319,9 +318,8 @@ mod tests {
                             amount: Uint128::new(11),
                             basket_id: Uint128::one(),
                         },
-                        deposits: vec![],
                         lock_up_distributions: vec![],
-                        accrued_incentives: Asset {
+                        incentives: Asset {
                             info: AssetInfo::NativeToken { denom: String::from("mbrn_denom") },
                             amount: Uint128::new(12),
                         },
@@ -359,9 +357,8 @@ mod tests {
                         user: _,
                     } => Ok(to_binary(&Discount_UserResponse {
                         user: String::from(""),
-                        premium_user_value: Decimal::percent(13_00),
+                        discount_value: Uint128::new(13),
                         deposits: vec![],
-                        lock_up_distributions: vec![],
                     })?),
                 }
             },
@@ -491,12 +488,12 @@ mod tests {
         let msg = InstantiateMsg {
             owner: None,
             positions_contract: cdp_contract_addr.to_string(),
-            basket_id: Uint128::one(),
             oracle_contract: oracle_contract_addr.to_string(),
             staking_contract: staking_contract_addr.to_string(),
             stability_pool_contract: sp_contract_addr.to_string(),
-            lockdrop_contract: lockdrop_contract_addr.to_string(),
-            discount_vault_contract: discount_contract_addr.to_string(),
+            lockdrop_contract: Some(lockdrop_contract_addr.to_string()),
+            discount_vault_contract: Some(discount_contract_addr.to_string()),
+            minimum_time_in_network: 7,
             
         };
 
@@ -519,7 +516,7 @@ mod tests {
     mod discounts {
 
         use cosmwasm_std::Decimal;
-        use membrane::system_discounts::Config;
+        use membrane::system_discounts::{Config, UpdateConfig};
 
         use super::*;
         
@@ -546,9 +543,8 @@ mod tests {
             let (mut app, discounts_contract) = proper_instantiate();
 
             //Successful UpdateConfig
-            let msg = ExecuteMsg::UpdateConfig { 
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
                 owner: Some(String::from("new_owner")), 
-                basket_id: Some(Uint128::zero()),
                 mbrn_denom: Some(String::from("new_denom")), 
                 positions_contract: Some(String::from("new_pos_contract")),                 
                 oracle_contract: Some(String::from("new_oracle_contract")), 
@@ -556,7 +552,8 @@ mod tests {
                 stability_pool_contract: Some(String::from("new_stability_pool_contract")), 
                 lockdrop_contract: Some(String::from("new_lockdrop_contract")), 
                 discount_vault_contract: Some(String::from("new_discount_vault_contract")), 
-            };
+                minimum_time_in_network: Some(14),
+            });
             let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
@@ -573,14 +570,14 @@ mod tests {
                 config, 
                 Config {
                     owner: Addr::unchecked("new_owner"), 
-                    basket_id: Uint128::zero(),
                     mbrn_denom: String::from("new_denom"),
                     positions_contract: Addr::unchecked("new_pos_contract"),                
                     oracle_contract: Addr::unchecked("new_oracle_contract"), 
                     staking_contract: Addr::unchecked("new_staking_contract"), 
                     stability_pool_contract: Addr::unchecked("new_stability_pool_contract"), 
-                    lockdrop_contract: Addr::unchecked("new_lockdrop_contract"), 
-                    discount_vault_contract: Addr::unchecked("new_discount_vault_contract"), 
+                    lockdrop_contract: Some(Addr::unchecked("new_lockdrop_contract")), 
+                    discount_vault_contract: Some(Addr::unchecked("new_discount_vault_contract")), 
+                    minimum_time_in_network: 14,
             });
         }
     }

@@ -4,8 +4,8 @@ mod tests {
 
     use crate::helpers::DebtContract;
 
-    use membrane::debt_auction::{ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::oracle::{PriceResponse};
+    use membrane::debt_auction::{ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
+    use membrane::oracle::PriceResponse;
     use membrane::positions::BasketResponse;
     use membrane::types::{Asset, AssetInfo};
 
@@ -288,7 +288,7 @@ mod tests {
         use super::*;
         use cosmwasm_std::BlockInfo;
         use membrane::{
-            debt_auction::{AuctionResponse, Config},
+            debt_auction::{UpdateConfig, Config},
             types::{RepayPosition, UserInfo, AuctionRecipient},
         };
 

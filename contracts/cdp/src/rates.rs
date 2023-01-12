@@ -1,4 +1,4 @@
-use cosmwasm_std::{Uint128, Decimal, Storage, QuerierWrapper, Env, StdResult, StdError, DepsMut, MessageInfo, Response, attr};
+use cosmwasm_std::{Uint128, Decimal, Storage, QuerierWrapper, Env, StdResult, StdError, DepsMut, MessageInfo, Response, attr, Addr};
 
 use membrane::system_discounts::QueryMsg as DiscountQueryMsg;
 use membrane::types::{Basket, cAsset, SupplyCap, Position, AssetInfo};
@@ -252,7 +252,7 @@ pub fn get_interest_rates(
             //Find & add ratio for each asset
             for asset in multi_asset_cap.clone().assets{
                 if let Some((i, _cap)) = basket.clone().collateral_supply_caps.into_iter().enumerate().find(|(_i, cap)| cap.asset_info.equal(&asset)){
-                    total_ratio += new_basket_ratios[i];
+                    total_ratio += basket_ratios[i];
                 }
             }
 
@@ -341,7 +341,7 @@ pub fn accrue(
     let mut time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
 
     let mut negative_rate: bool = false;
-    let mut price_difference: Decimal = Decimal::zero();
+    let mut price_difference: Decimal;
     let mut credit_price_rate: Decimal = Decimal::zero();
 
     ////Controller barriers to reduce risk of manipulation///
@@ -885,7 +885,7 @@ pub fn get_interest_rates_imut(
             //Find & add ratio for each asset
             for asset in multi_asset_cap.clone().assets{
                 if let Some((i, _cap)) = basket.clone().collateral_supply_caps.into_iter().enumerate().find(|(_i, cap)| cap.asset_info.equal(&asset)){
-                    total_ratio += new_basket_ratios[i];
+                    total_ratio += basket_ratios[i];
                 }
             }
 
@@ -910,7 +910,7 @@ pub fn get_interest_rates_imut(
             
                         //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
                         //// rate = 3.6%
-                        two_slope_pro_rata_rates[i] = decimal_multiplication(
+                        two_slope_pro_rata_rates[i].1 = decimal_multiplication(
                                 decimal_multiplication(rates[i], multi_cap_proportion),
                                 multiplier,
                             )  

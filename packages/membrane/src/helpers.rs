@@ -119,7 +119,11 @@ pub fn query_stability_pool_fee(
 ) -> StdResult<Decimal> {
     let resp: AssetPool = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: stability_pool,
-        msg: to_binary(&SP_QueryMsg::AssetPool { deposit_limit: 1.into()})?,
+        msg: to_binary(&SP_QueryMsg::AssetPool { 
+            user: None,
+            deposit_limit: 1.into(),
+            start_after: None,
+        })?,
     }))?;
 
     Ok(resp.liq_premium)

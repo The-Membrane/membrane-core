@@ -1,37 +1,32 @@
 use std::convert::TryInto;
 
 use cosmwasm_std::{
-    entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, WasmMsg, SubMsgResult, SubMsgResponse, WasmQuery,
-    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, Addr, coins, attr, Storage, QueryRequest,
+    to_binary, Decimal, DepsMut, Env, WasmMsg, WasmQuery,
+    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, coins, QueryRequest,
 };
 use crate::error::ContractError;
-use crate::contracts::{execute, instantiate, query, SECONDS_PER_DAY, POSITIONS_REPLY_ID, DEBT_AUCTION_REPLY_ID, SYSTEM_DISCOUNTS_REPLY_ID, DISCOUNT_VAULT_REPLY_ID, CREATE_DENOM_REPLY_ID, ORACLE_REPLY_ID, OSMOSIS_PROXY_REPLY_ID, STAKING_REPLY_ID, VESTING_REPLY_ID, LIQ_QUEUE_REPLY_ID, GOVERNANCE_REPLY_ID, STABLESWAP_REPLY_ID, STABILITY_POOL_REPLY_ID ,LIQUIDITY_CHECK_REPLY_ID};
+use crate::contracts::{SECONDS_PER_DAY, POSITIONS_REPLY_ID, DEBT_AUCTION_REPLY_ID, SYSTEM_DISCOUNTS_REPLY_ID, DISCOUNT_VAULT_REPLY_ID, CREATE_DENOM_REPLY_ID, ORACLE_REPLY_ID, STAKING_REPLY_ID, VESTING_REPLY_ID, LIQ_QUEUE_REPLY_ID, GOVERNANCE_REPLY_ID, STABILITY_POOL_REPLY_ID ,LIQUIDITY_CHECK_REPLY_ID};
 use crate::state::{ADDRESSES, CONFIG, CREDIT_POOL_IDS};
 
 use membrane::governance::{InstantiateMsg as Gov_InstantiateMsg, VOTING_PERIOD_INTERVAL, STAKE_INTERVAL};
-use membrane::helpers::{withdrawal_msg, get_contract_balances};
-use membrane::launch::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
-use membrane::math::{decimal_division, decimal_multiplication};
-use membrane::stability_pool::{InstantiateMsg as SP_InstantiateMsg, ExecuteMsg as SPExecuteMsg, UpdateConfig as SPUpdateConfig};
+use membrane::stability_pool::InstantiateMsg as SP_InstantiateMsg;
 use membrane::staking::{InstantiateMsg as Staking_InstantiateMsg, ExecuteMsg as StakingExecuteMsg};
 use membrane::vesting::{InstantiateMsg as Vesting_InstantiateMsg, ExecuteMsg as VestingExecuteMsg};
 use membrane::positions::{InstantiateMsg as CDP_InstantiateMsg, EditBasket, ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, UpdateConfig as CDPUpdateConfig};
 use membrane::oracle::{InstantiateMsg as Oracle_InstantiateMsg, ExecuteMsg as OracleExecuteMsg};
 use membrane::liq_queue::InstantiateMsg as LQInstantiateMsg;
-use membrane::liquidity_check::{InstantiateMsg as LCInstantiateMsg, ExecuteMsg as LCExecuteMsg};
+use membrane::liquidity_check::InstantiateMsg as LCInstantiateMsg;
 use membrane::debt_auction::InstantiateMsg as DAInstantiateMsg;
 use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg};
 use membrane::margin_proxy::InstantiateMsg as ProxyInstantiateMsg;
 use membrane::system_discounts::InstantiateMsg as SystemDiscountInstantiateMsg;
 use membrane::discount_vault::{InstantiateMsg as DiscountVaultInstantiateMsg, ExecuteMsg as DiscountVaultExecuteMsg};
-use membrane::types::{AssetInfo, DebtTokenAsset, Position, Basket, Deposit, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, LiquidityInfo, AssetOracleInfo, UserRatio, PoolStateResponse};
+use membrane::types::{AssetInfo, Basket, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, AssetOracleInfo, PoolStateResponse, PoolType};
 
 use osmosis_std::shim::Duration;
 use osmosis_std::types::cosmos::base::v1beta1::Coin;
-use osmosis_std::types::osmosis::gamm::poolmodels::balancer::v1beta1::{MsgCreateBalancerPool, MsgCreateBalancerPoolResponse};
-use osmosis_std::types::osmosis::gamm::poolmodels::stableswap::v1beta1::{MsgCreateStableswapPool, MsgCreateStableswapPoolResponse, PoolParams as SSPoolParams};
-use osmosis_std::types::osmosis::gamm::v1beta1::PoolParams;
-use osmosis_std::types::osmosis::gamm::v1beta1::PoolAsset;
+use osmosis_std::types::osmosis::gamm::poolmodels::balancer::v1beta1::MsgCreateBalancerPoolResponse;
+use osmosis_std::types::osmosis::gamm::poolmodels::stableswap::v1beta1::MsgCreateStableswapPoolResponse;
 use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
 use osmosis_std::types::osmosis::lockup::QueryCondition;
 
@@ -44,9 +39,9 @@ const PROPOSAL_REQUIRED_QUORUM: &str = "0.50";
 const PROPOSAL_REQUIRED_THRESHOLD: &str = "0.60";
 
 //Called after the Osmosis Proxy (OP) reply to save created denoms
-pub fn handle_create_denom_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{ 
+pub fn handle_create_denom_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<Response>{ 
     match msg.result.into_result() {
-        Ok(result) => {
+        Ok(_result) => {
         let mut config = CONFIG.load(deps.storage)?;
         let addrs = ADDRESSES.load(deps.storage)?;
         
@@ -68,14 +63,13 @@ pub fn handle_create_denom_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResu
 }
 
 //Save Balancer Pool IDs
-pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{
+pub fn handle_balancer_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<Response>{
     match msg.clone().result.into_result() {
         Ok(result) => {
         let mut credit_pools = CREDIT_POOL_IDS.load(deps.storage)?;
         
         //Get Balancer Pool denom from Response
-        let mut pool_denom = String::from("");
-        if let SubMsgResult::Ok(SubMsgResponse { data: Some(b), .. }) = msg.result {
+        if let Some(b) = result.data {
             let res: MsgCreateBalancerPoolResponse = match b.try_into().map_err(ContractError::Std){
                 Ok(res) => res,
                 Err(err) => return Err(StdError::GenericErr { msg: String::from(err.to_string()) })
@@ -89,7 +83,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                 credit_pools.atom = res.pool_id;
             }
 
-            CREDIT_POOL_IDS.save(deps.storage, &credit_pools);
+            CREDIT_POOL_IDS.save(deps.storage, &credit_pools)?;
         }
 
         Ok(Response::new()
@@ -114,16 +108,16 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             amount: Uint128::new(1_000_000_000_000), 
             mint_to_address: env.clone().contract.address.to_string(),
         };
-        let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+        let op_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
             contract_addr: addrs.clone().osmosis_proxy.to_string(), 
-            msg: to_binary(&msg)?, 
+            msg: to_binary(&op_msg)?, 
             funds: vec![], 
         });
-        msgs.push(msg);
+        msgs.push(op_msg);
         
         //Get Stableswap denom from Response
         let mut pool_denom = String::from("");
-        if let SubMsgResult::Ok(SubMsgResponse { data: Some(b), .. }) = msg.result {
+        if let Some(b) = result.data {
             let res: MsgCreateStableswapPoolResponse = match b.try_into().map_err(ContractError::Std){
                 Ok(res) => res,
                 Err(err) => return Err(StdError::GenericErr { msg: String::from(err.to_string()) })
@@ -145,7 +139,7 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             owner: addrs.clone().governance.to_string(),
             distribute_to: Some(QueryCondition { 
                 lock_query_type: 0, //ByDuration
-                denom: pool_denom,
+                denom: pool_denom.clone(),
                 duration: Some(Duration { seconds: 7 * SECONDS_PER_DAY as i64, nanos: 0 }), 
                 timestamp: None,
             }), 
@@ -176,11 +170,23 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
         }.into();
         msgs.push(msg);
 
+        //Set credit_pool_infos
+        let credit_pool_infos = credit_pools.clone().to_vec()
+            .into_iter()
+            .enumerate()
+            .map(|ids| {
+                if ids.0 == 0 {
+                    PoolType::StableSwap { pool_id: ids.1 }
+                } else {
+                    PoolType::Balancer { pool_id: ids.1 }
+                }
+            }).collect::<Vec<PoolType>>();
+
         //Add Credit LPs to Basket & Discount Vault
         let msg = CDPExecuteMsg::EditBasket(EditBasket {
             added_cAsset: None,
             liq_queue: None,
-            credit_pool_ids: Some(credit_pools.clone().to_vec()),
+            credit_pool_infos: Some(credit_pool_infos),
             liquidity_multiplier: None,
             collateral_supply_caps: None,
             multi_asset_supply_caps: None,
@@ -251,7 +257,7 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
             //Save Osmosis Proxy address
             let mut addrs = ADDRESSES.load(deps.storage)?;
             addrs.osmosis_proxy = valid_address.clone();
-            ADDRESSES.save(deps.storage, &addrs);
+            ADDRESSES.save(deps.storage, &addrs)?;
 
             let mut sub_msgs = vec![];
 
@@ -327,7 +333,7 @@ pub fn handle_oracle_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Resp
             //Save Oracle address
             let mut addrs = ADDRESSES.load(deps.storage)?;
             addrs.oracle = valid_address.clone();
-            ADDRESSES.save(deps.storage, &addrs);
+            ADDRESSES.save(deps.storage, &addrs)?;
 
             //Instantiate Staking
             let staking_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
@@ -387,7 +393,7 @@ pub fn handle_staking_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
             //Save Staking address
             let mut addrs = ADDRESSES.load(deps.storage)?;
             addrs.staking = valid_address.clone();
-            ADDRESSES.save(deps.storage, &addrs);
+            ADDRESSES.save(deps.storage, &addrs)?;
 
             //Instantiate Vesting
             let vesting_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
@@ -441,7 +447,7 @@ pub fn handle_vesting_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
             //Save Vesting address
             let mut addrs = ADDRESSES.load(deps.storage)?;
             addrs.vesting = valid_address.clone();
-            ADDRESSES.save(deps.storage, &addrs);
+            ADDRESSES.save(deps.storage, &addrs)?;
 
             //Instantiate Gov
             let gov_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
@@ -470,7 +476,7 @@ pub fn handle_vesting_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
     }    
 }
 
-pub fn handle_gov_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response>{
+pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
             let config = CONFIG.load(deps.storage)?;
@@ -500,7 +506,7 @@ pub fn handle_gov_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Respons
             //Save Gov address
             let mut addrs = ADDRESSES.load(deps.storage)?;
             addrs.governance = valid_address.clone();
-            ADDRESSES.save(deps.storage, &addrs);
+            ADDRESSES.save(deps.storage, &addrs)?;
 
             let mut msgs = vec![];
             //Update previous contract admins to Governance
@@ -561,7 +567,7 @@ pub fn handle_gov_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Respons
     }    
 }
 
-pub fn handle_cdp_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response>{
+pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
             let config = CONFIG.load(deps.storage)?;
@@ -591,7 +597,7 @@ pub fn handle_cdp_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Respons
             //Save CDP address
             let mut addrs = ADDRESSES.load(deps.storage)?;
             addrs.positions = valid_address.clone();
-            ADDRESSES.save(deps.storage, &addrs);
+            ADDRESSES.save(deps.storage, &addrs)?;
 
             let mut msgs = vec![];
             
@@ -703,7 +709,7 @@ pub fn handle_cdp_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Respons
                 },
                 credit_price: Decimal::one(),
                 base_interest_rate: Some(Decimal::percent(1)),
-                credit_pool_ids: vec![],
+                credit_pool_infos: vec![],
                 liquidity_multiplier_for_debt_caps: Some(Decimal::percent(400_00)), //0.5% (0.5% would be 200x but the liquidity contract only counts CDT so we double)
                 liq_queue: None,
             };
@@ -742,7 +748,7 @@ pub fn handle_cdp_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Respons
     }    
 }
 
-pub fn handle_sp_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response>{
+pub fn handle_sp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
             let config = CONFIG.load(deps.storage)?;
@@ -772,7 +778,7 @@ pub fn handle_sp_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response
             //Save Stability Pool address
             let mut addrs = ADDRESSES.load(deps.storage)?;
             addrs.stability_pool = valid_address.clone();
-            ADDRESSES.save(deps.storage, &addrs);
+            ADDRESSES.save(deps.storage, &addrs)?;
                        
             //Instantiate Liquidation Queue
             let lq_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
@@ -797,7 +803,7 @@ pub fn handle_sp_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response
     }    
 }
 
-pub fn handle_lq_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response>{
+pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
             let config = CONFIG.load(deps.storage)?;
@@ -827,7 +833,7 @@ pub fn handle_lq_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response
             //Save LQ address
             let mut addrs = ADDRESSES.load(deps.storage)?;
             addrs.liq_queue = valid_address.clone();
-            ADDRESSES.save(deps.storage, &addrs);
+            ADDRESSES.save(deps.storage, &addrs)?;
 
             let mut msgs = vec![];
             //Add LQ to Basket alongside 1/2 LPs & 3/5 SupplyCaps
@@ -889,7 +895,7 @@ pub fn handle_lq_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
             });
             let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: addrs.clone().positions.to_string(), 
@@ -926,7 +932,7 @@ pub fn handle_lq_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
             });
             let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: addrs.clone().positions.to_string(), 
@@ -961,7 +967,7 @@ pub fn handle_lq_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response
     }    
 }
 
-pub fn handle_lc_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response>{
+pub fn handle_lc_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
             let config = CONFIG.load(deps.storage)?;
@@ -991,7 +997,7 @@ pub fn handle_lc_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response
             //Save Liquidity Check address
             let mut addrs = ADDRESSES.load(deps.storage)?;
             addrs.liquidity_check = valid_address.clone();
-            ADDRESSES.save(deps.storage, &addrs);
+            ADDRESSES.save(deps.storage, &addrs)?;
                        
             //Instantiate Discount Vault
             let discount_vault_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
@@ -1017,7 +1023,7 @@ pub fn handle_lc_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response
     }    
 }
 
-pub fn handle_discount_vault_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response>{
+pub fn handle_discount_vault_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
             let config = CONFIG.load(deps.storage)?;
@@ -1047,7 +1053,7 @@ pub fn handle_discount_vault_reply(deps: DepsMut, env: Env, msg: Reply)-> StdRes
             //Save Vault address
             let mut addrs = ADDRESSES.load(deps.storage)?;
             addrs.discount_vault = valid_address.clone();
-            ADDRESSES.save(deps.storage, &addrs);
+            ADDRESSES.save(deps.storage, &addrs)?;
                        
             //Instantiate System Discounts
             let system_discounts_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
@@ -1077,11 +1083,36 @@ pub fn handle_discount_vault_reply(deps: DepsMut, env: Env, msg: Reply)-> StdRes
     }    
 }
 
-pub fn handle_system_discounts_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response>{
+pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
             let config = CONFIG.load(deps.storage)?;
+
+            //Get contract address
+            let instantiate_event = result
+                .events
+                .iter()
+                .find(|e| {
+                    e.attributes
+                        .iter()
+                        .any(|attr| attr.key == "method")
+                })
+                .ok_or_else(|| {
+                    StdError::generic_err(format!("unable to find instantiate event"))
+                })?;
+
+            let contract_address = &instantiate_event
+                .attributes
+                .iter()
+                .find(|attr| attr.key == "contract_address")
+                .unwrap()
+                .value;
+
+            let valid_address = deps.api.addr_validate(&contract_address)?;
+            //Save System Discounts address
             let mut addrs = ADDRESSES.load(deps.storage)?;
+            addrs.system_discounts = valid_address.clone();
+            ADDRESSES.save(deps.storage, &addrs)?;
                        
             //Instantiate Debt Auction
             let da_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
@@ -1113,10 +1144,10 @@ pub fn handle_system_discounts_reply(deps: DepsMut, env: Env, msg: Reply)-> StdR
 }
 
 
-pub fn handle_auction_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response>{
+pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
-        Ok(result) => {
-            let config = CONFIG.load(deps.storage)?;
+        Ok(result) => { 
+            let config = CONFIG.load(deps.storage)?;            
             
             //Get contract address
             let instantiate_event = result
@@ -1143,7 +1174,7 @@ pub fn handle_auction_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
             //Save MBRN Auction address
             let mut addrs = ADDRESSES.load(deps.storage)?;
             addrs.mbrn_auction = valid_address.clone();
-            ADDRESSES.save(deps.storage, &addrs);
+            ADDRESSES.save(deps.storage, &addrs)?;
             
             let mut msgs = vec![];
 
@@ -1227,7 +1258,7 @@ pub fn handle_auction_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                         staking_contract: None,
                         oracle_contract: None,
                         liquidity_contract: Some(addrs.clone().liquidity_check.to_string()), 
-                        discounts_contract: todo!(), //TODO
+                        discounts_contract: Some(addrs.clone().system_discounts.to_string()), 
                         liq_fee: None,
                         debt_minimum: None,
                         base_debt_cap_multiplier: None,
@@ -1272,7 +1303,7 @@ pub fn handle_auction_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
             });
             let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: addrs.clone().positions.to_string(), 

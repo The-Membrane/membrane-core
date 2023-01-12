@@ -13,7 +13,7 @@ mod tests {
     use membrane::staking::Config as Staking_Config;
     use membrane::types::{
         cAsset, Asset, AssetInfo, AssetOracleInfo, Deposit, LiqAsset, LiquidityInfo, TWAPPoolInfo,
-        UserInfo, MultiAssetSupplyCap, AssetPool,
+        UserInfo, MultiAssetSupplyCap, AssetPool, StakeDistribution,
     };
 
     use cosmwasm_std::{
@@ -1055,7 +1055,7 @@ mod tests {
                         Ok(to_binary(&Staking_Config {
                             owner: Addr::unchecked(""),
                             mbrn_denom: String::from("mbrn_denom"),
-                            staking_rate: Decimal::zero(),
+                            incentive_schedule: StakeDistribution { rate: Decimal::zero(), duration: 0 },
                             fee_wait_period: 0,
                             unstaking_period: 0,
                             positions_contract: None,
@@ -1656,7 +1656,7 @@ mod tests {
             },
             credit_price: Decimal::percent(100),
             base_interest_rate: None,
-            credit_pool_ids: vec![],
+            credit_pool_infos: vec![],
             liquidity_multiplier_for_debt_caps: None,
             liq_queue: None,
         };
@@ -1679,7 +1679,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
-            credit_pool_ids: None,
+            credit_pool_infos: None,
         });
         let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
         app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1715,7 +1715,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -2018,7 +2018,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -2227,7 +2227,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -2397,7 +2397,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -2426,7 +2426,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -2476,7 +2476,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -2810,7 +2810,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -2839,7 +2839,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -2889,7 +2889,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -3127,7 +3127,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -3156,7 +3156,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -3206,7 +3206,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -3339,7 +3339,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -3510,7 +3510,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -3656,7 +3656,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -3756,7 +3756,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -3785,7 +3785,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -3835,7 +3835,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -4005,7 +4005,7 @@ mod tests {
             let msg = ExecuteMsg::EditBasket(EditBasket {
                 added_cAsset: None,
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: Some(Decimal::percent(400)),
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -4050,7 +4050,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -4160,7 +4160,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -4286,7 +4286,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -4400,7 +4400,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -4506,7 +4506,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -4616,7 +4616,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -4731,7 +4731,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -4856,7 +4856,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -4885,7 +4885,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -4936,7 +4936,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -5092,7 +5092,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -5121,7 +5121,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -5172,7 +5172,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -5329,7 +5329,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -5358,7 +5358,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -5409,7 +5409,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -5566,7 +5566,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -5595,7 +5595,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -5646,7 +5646,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -5799,7 +5799,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -5935,7 +5935,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -6093,7 +6093,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -6122,7 +6122,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -6170,7 +6170,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -6349,7 +6349,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -6438,7 +6438,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -6533,7 +6533,7 @@ mod tests {
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
@@ -6653,7 +6653,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -6764,7 +6764,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -6874,7 +6874,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -6903,7 +6903,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -6951,7 +6951,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -7100,7 +7100,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -7129,7 +7129,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -7177,7 +7177,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -7348,7 +7348,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -7377,7 +7377,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -7425,7 +7425,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {
@@ -7538,7 +7538,7 @@ mod tests {
             let msg = ExecuteMsg::EditBasket(EditBasket {
                 added_cAsset: None,
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
@@ -7745,7 +7745,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
@@ -7857,7 +7857,7 @@ mod tests {
             let edit_basket_msg = ExecuteMsg::EditBasket(EditBasket {
                 added_cAsset: None,
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
@@ -7934,7 +7934,7 @@ mod tests {
             let edit_basket_msg = ExecuteMsg::EditBasket(EditBasket {
                 added_cAsset: None,
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
@@ -8049,7 +8049,7 @@ mod tests {
             let edit_basket_msg = ExecuteMsg::EditBasket(EditBasket {
                 added_cAsset: None,
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
@@ -8163,7 +8163,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
@@ -8208,7 +8208,7 @@ mod tests {
             let edit_basket_msg = ExecuteMsg::EditBasket(EditBasket {
                 added_cAsset: None,
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
@@ -8346,7 +8346,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -8375,7 +8375,7 @@ mod tests {
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                credit_pool_ids: None,
+                credit_pool_infos: None,
                 liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
@@ -8425,7 +8425,7 @@ mod tests {
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 liquidity_multiplier: Some(Decimal::percent(500_000)),
-                credit_pool_ids: Some(vec![1u64]),
+                credit_pool_infos: Some(vec![1u64]),
                 collateral_supply_caps: Some(vec![
                     SupplyCap {
                         asset_info: AssetInfo::NativeToken {

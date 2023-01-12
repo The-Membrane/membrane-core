@@ -9,7 +9,7 @@ use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::stability_pool::{LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
-use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, PoolStateResponse, Deposit, AssetPool};
+use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, PoolStateResponse, AssetPool, Deposit};
 
 use crate::error::ContractError; 
 use crate::rates::accrue;
@@ -65,7 +65,6 @@ pub fn liquidate(
         storage,
         env.clone(),
         querier,
-        basket.clone(),
         target_position.clone().collateral_assets,
         Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)),
         basket.credit_price,
@@ -88,7 +87,6 @@ pub fn liquidate(
         env.clone(),
         querier,
         config.clone(),
-        basket.clone(),
         target_position.clone().collateral_assets,
     )?;
 
@@ -326,7 +324,11 @@ fn get_user_repay_amount(
         let user_deposits = querier
             .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.clone().stability_pool.unwrap().to_string(),
-                msg: to_binary(&SP_QueryMsg::AssetPool { user: position_owner.clone().into(), deposit_limit: None })?,
+                msg: to_binary(&SP_QueryMsg::AssetPool { 
+                    user: Some(position_owner.clone()),
+                    deposit_limit: None, 
+                    start_after: None,
+                })?,
             }))?
             .deposits;
 
@@ -794,7 +796,7 @@ pub fn sell_wall_using_ids(
 
     let (_i, target_position) = match get_target_position(storage, position_owner.clone(), position_id){
         Ok(position) => position,
-        Err(err) => return Err(StdError::GenericErr { msg: String::from("Non_existent position") })
+        Err(_err) => return Err(StdError::GenericErr { msg: String::from("Non_existent position") })
     };    
     let collateral_assets = target_position.clone().collateral_assets;
 

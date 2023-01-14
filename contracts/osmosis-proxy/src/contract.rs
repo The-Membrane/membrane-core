@@ -19,7 +19,7 @@ use crate::state::{TokenInfo, CONFIG, TOKENS, PENDING, PendingTokenInfo};
 use membrane::osmosis_proxy::{
     Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse,
 };
-use membrane::positions::{QueryMsg as CDPQueryMsg};
+use membrane::cdp::{QueryMsg as CDPQueryMsg};
 use membrane::types::{Pool, PoolStateResponse, Basket, Owner};
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, QueryDenomsFromCreatorResponse};
 

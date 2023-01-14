@@ -10,7 +10,7 @@ pub mod liq_queue;
 pub mod liquidity_check;
 pub mod oracle;
 pub mod osmosis_proxy;
-pub mod positions;
+pub mod cdp;
 pub mod stability_pool;
 pub mod staking;
 pub mod margin_proxy;

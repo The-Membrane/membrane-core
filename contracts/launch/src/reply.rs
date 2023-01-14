@@ -12,7 +12,7 @@ use membrane::governance::{InstantiateMsg as Gov_InstantiateMsg, VOTING_PERIOD_I
 use membrane::stability_pool::InstantiateMsg as SP_InstantiateMsg;
 use membrane::staking::{InstantiateMsg as Staking_InstantiateMsg, ExecuteMsg as StakingExecuteMsg};
 use membrane::vesting::{InstantiateMsg as Vesting_InstantiateMsg, ExecuteMsg as VestingExecuteMsg};
-use membrane::positions::{InstantiateMsg as CDP_InstantiateMsg, EditBasket, ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, UpdateConfig as CDPUpdateConfig};
+use membrane::cdp::{InstantiateMsg as CDP_InstantiateMsg, EditBasket, ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, UpdateConfig as CDPUpdateConfig};
 use membrane::oracle::{InstantiateMsg as Oracle_InstantiateMsg, ExecuteMsg as OracleExecuteMsg};
 use membrane::liq_queue::InstantiateMsg as LQInstantiateMsg;
 use membrane::liquidity_check::InstantiateMsg as LCInstantiateMsg;

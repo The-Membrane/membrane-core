@@ -4,7 +4,7 @@ use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Ui
 
 use membrane::types::{AssetInfo, Asset};
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
-use membrane::positions::{Config, ExecuteMsg};
+use membrane::cdp::{Config, ExecuteMsg};
 use membrane::math::decimal_subtraction;
 use membrane::helpers::{withdrawal_msg, get_contract_balances};
 

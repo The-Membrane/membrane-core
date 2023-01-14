@@ -3,7 +3,7 @@ mod tests {
     use crate::helpers::OPContract;
 
     use membrane::osmosis_proxy::{ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::positions::{PositionsResponse, PositionResponse};
+    use membrane::cdp::{PositionsResponse, PositionResponse};
     use membrane::types::{AssetInfo, Position, cAsset, Asset, Basket, LiquidityInfo, Owner};
 
     use cosmwasm_std::{

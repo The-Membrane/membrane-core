@@ -5,7 +5,7 @@ use membrane::liq_queue::{
     BidResponse, Config, ExecuteMsg, InstantiateMsg, QueryMsg, QueueResponse, ClaimsResponse,
 };
 use membrane::math::{Decimal256, Uint256};
-use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
+use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::types::{AssetInfo, BidInput};
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};

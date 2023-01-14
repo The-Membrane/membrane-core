@@ -9,7 +9,7 @@ use cw_storage_plus::Bound;
 
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
-use membrane::positions::{
+use membrane::cdp::{
     Config, BadDebtResponse, CollateralInterestResponse,
     InsolvencyResponse, InterestResponse, PositionResponse, PositionsResponse,
 };

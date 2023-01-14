@@ -9,7 +9,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use membrane::liq_queue::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::{Decimal256, Uint256};
-use membrane::positions::QueryMsg as CDP_QueryMsg;
+use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue, Basket};
 
 use crate::bid::{claim_liquidations, execute_liquidation, retract_bid, store_queue, submit_bid};

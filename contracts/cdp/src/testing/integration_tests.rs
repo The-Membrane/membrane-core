@@ -8,7 +8,7 @@ mod tests {
     use membrane::math::Uint256;
     use membrane::oracle::{AssetResponse, PriceResponse};
     use membrane::osmosis_proxy::{GetDenomResponse, TokenInfoResponse};
-    use membrane::positions::{ExecuteMsg, InstantiateMsg, QueryMsg, EditBasket, UpdateConfig};
+    use membrane::cdp::{ExecuteMsg, InstantiateMsg, QueryMsg, EditBasket, UpdateConfig};
     use membrane::stability_pool::LiquidatibleResponse as SP_LiquidatibleResponse;
     use membrane::staking::Config as Staking_Config;
     use membrane::types::{
@@ -1691,7 +1691,7 @@ mod tests {
 
         use super::*;
         use cosmwasm_std::{coins, BlockInfo};
-        use membrane::positions::{
+        use membrane::cdp::{
             BadDebtResponse, CollateralInterestResponse, Config,
             ExecuteMsg, InsolvencyResponse, PositionResponse,
             PositionsResponse, InterestResponse,

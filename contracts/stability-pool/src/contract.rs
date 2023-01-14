@@ -9,7 +9,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
+use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::stability_pool::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig,
 };

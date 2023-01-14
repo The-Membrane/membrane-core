@@ -9,7 +9,7 @@ use membrane::debt_auction::{ExecuteMsg, InstantiateMsg, QueryMsg, Config, Updat
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
-use membrane::positions::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
+use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
 use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient, Basket, Auction};
 use membrane::helpers::withdrawal_msg;
 

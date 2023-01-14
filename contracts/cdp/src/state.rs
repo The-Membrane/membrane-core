@@ -6,7 +6,7 @@ use cw_storage_plus::{Item, Map};
 
 
 use membrane::types::{Asset, Basket, Position, UserInfo};
-use membrane::positions::Config;
+use membrane::cdp::Config;
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

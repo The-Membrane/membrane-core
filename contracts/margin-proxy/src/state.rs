@@ -2,7 +2,7 @@ use cosmwasm_std::{Addr, Uint128, Decimal};
 use cw_storage_plus::{Item, Map};
 
 use membrane::margin_proxy::Config;
-use membrane::positions::PositionResponse;
+use membrane::cdp::PositionResponse;
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const USERS: Map<Addr, Vec<Uint128>> = Map::new("assets"); //position_id

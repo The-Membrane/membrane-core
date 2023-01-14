@@ -1,7 +1,7 @@
 
 use cosmwasm_std::{Decimal, Uint128, Env, QuerierWrapper, Storage, to_binary, QueryRequest, WasmQuery, StdResult};
 
-use membrane::positions::Config;
+use membrane::cdp::Config;
 use membrane::stability_pool::QueryMsg as SP_QueryMsg;
 use membrane::types::{Basket, Asset, cAsset, SupplyCap, AssetInfo, AssetPool};
 use membrane::helpers::get_asset_liquidity;

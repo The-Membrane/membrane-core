@@ -6,7 +6,7 @@ mod tests {
 
     use membrane::debt_auction::{ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
     use membrane::oracle::PriceResponse;
-    use membrane::positions::BasketResponse;
+    use membrane::cdp::BasketResponse;
     use membrane::types::{Asset, AssetInfo};
 
     use cosmwasm_std::{

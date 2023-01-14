@@ -4,7 +4,7 @@ mod tests {
 
     use crate::helpers::DiscountsContract;
 
-    use membrane::positions::{PositionsResponse, BasketResponse};
+    use membrane::cdp::{PositionsResponse, BasketResponse};
     use membrane::system_discounts::{ExecuteMsg, InstantiateMsg, QueryMsg};
     use membrane::lockdrop::UserResponse;
     use membrane::stability_pool::{DepositResponse, ClaimsResponse};

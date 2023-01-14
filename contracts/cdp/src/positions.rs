@@ -9,7 +9,7 @@ use cosmwasm_std::{
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
 
 use membrane::helpers::{router_native_to_native, pool_query_and_exit, query_stability_pool_fee, validate_position_owner, asset_to_coin, withdrawal_msg, get_contract_balances};
-use membrane::positions::{Config, ExecuteMsg, EditBasket};
+use membrane::cdp::{Config, ExecuteMsg, EditBasket};
 use membrane::oracle::{AssetResponse, PriceResponse};
 use osmo_bindings::PoolStateResponse;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;

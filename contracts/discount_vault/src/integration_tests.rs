@@ -6,7 +6,7 @@ mod tests {
 
     use membrane::apollo_router::SwapToAssetsInput;
     use membrane::discount_vault::{ExecuteMsg, InstantiateMsg, QueryMsg, UserResponse};
-    use membrane::positions::{PositionsResponse, PositionResponse};
+    use membrane::cdp::{PositionsResponse, PositionResponse};
     use membrane::types::{AssetInfo, Position, cAsset, Asset, Basket, PoolStateResponse, LPPoolInfo};
 
     use cosmwasm_std::{
@@ -383,7 +383,7 @@ mod tests {
             let (mut app, vault_contract) = proper_instantiate();
 
             //Add an LP
-            let msg = ExecuteMsg::EditAcceptedLPs { pool_id: 2, remove: false };
+            let msg = ExecuteMsg::EditAcceptedLPs { pool_ids: vec![2], remove: false };
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
@@ -404,7 +404,7 @@ mod tests {
             );
 
             //Remove an LP
-            let msg = ExecuteMsg::EditAcceptedLPs { pool_id: 1, remove: true };
+            let msg = ExecuteMsg::EditAcceptedLPs { pool_ids: vec![1], remove: true };
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 

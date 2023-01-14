@@ -12,7 +12,7 @@ use cosmwasm_std::{
 use cw20::Cw20ReceiveMsg;
 
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
-use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
+use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::stability_pool::{
     Config, ClaimsResponse, ExecuteMsg, InstantiateMsg, LiquidatibleResponse,
     QueryMsg, DepositPositionResponse, UpdateConfig

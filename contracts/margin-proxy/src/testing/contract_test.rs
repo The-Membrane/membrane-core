@@ -6,7 +6,7 @@ mod tests {
     use cosmwasm_std::{to_binary, CosmosMsg, SubMsg, Uint128, Decimal, WasmMsg, coin};
 
     use membrane::margin_proxy::{InstantiateMsg, ExecuteMsg};
-    use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
+    use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 
     #[test]
     fn deposit_to_new_position(){

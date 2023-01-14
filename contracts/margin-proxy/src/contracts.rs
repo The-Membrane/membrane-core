@@ -10,7 +10,7 @@ use cw_storage_plus::Bound;
 use membrane::helpers::router_native_to_native;
 use membrane::margin_proxy::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::decimal_multiplication;
-use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, PositionResponse, PositionsResponse};
+use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, PositionResponse, PositionsResponse};
 use membrane::types::{Position, AssetInfo, Basket};
 
 use crate::error::ContractError;

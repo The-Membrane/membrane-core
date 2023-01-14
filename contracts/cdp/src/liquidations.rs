@@ -4,7 +4,7 @@ use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Resp
 
 use membrane::helpers::{router_native_to_native, pool_query_and_exit, query_stability_pool_fee, asset_to_coin, validate_position_owner};
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction, Uint256};
-use membrane::positions::{Config, ExecuteMsg, CallbackMsg};
+use membrane::cdp::{Config, ExecuteMsg, CallbackMsg};
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::stability_pool::{LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};

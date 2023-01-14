@@ -10,7 +10,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::positions::QueryMsg as CDPQueryMsg;
+use membrane::cdp::QueryMsg as CDPQueryMsg;
 use membrane::helpers::{multi_native_withdrawal_msg, get_pool_state_response};
 use membrane::discount_vault::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UserResponse};
 use membrane::types::{Asset, AssetInfo, VaultedLP, VaultUser, LPPoolInfo, Basket};

@@ -10,7 +10,7 @@ use membrane::stability_pool::{QueryMsg as SP_QueryMsg, ClaimsResponse};
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
 use membrane::lockdrop::{QueryMsg as Lockdrop_QueryMsg, UserResponse};
 use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse};
-use membrane::positions::{QueryMsg as CDP_QueryMsg, PositionsResponse};
+use membrane::cdp::{QueryMsg as CDP_QueryMsg, PositionsResponse};
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
 use membrane::types::{AssetInfo, DebtTokenAsset, Position, Basket, Deposit, AssetPool};
 
@@ -360,7 +360,11 @@ fn get_sp_value(
     //Query Stability Pool to see if the user has funds
     let user_deposits = querier.query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().stability_pool_contract.to_string(),
-        msg: to_binary(&SP_QueryMsg::AssetPool { deposit_limit: None })?,
+        msg: to_binary(&SP_QueryMsg::AssetPool { 
+            user: None, 
+            start_after: None,
+            deposit_limit: None 
+        })?,
     }))?
     .deposits
         .into_iter()

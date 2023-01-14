@@ -12,7 +12,7 @@ use cw2::set_contract_version;
 use membrane::debt_auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::helpers::assert_sent_native_token_balance;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
-use membrane::positions::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
+use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
 use membrane::types::{
     cAsset, Asset, AssetInfo, Basket, UserInfo,
 };
@@ -420,7 +420,7 @@ fn update_config(
     //Save new Config
     CONFIG.save(deps.storage, &config)?;
     attrs.push(attr("updated_config", format!("{:?}", config)));
-    
+
     Ok(Response::new().add_attributes(attrs))
 }
 

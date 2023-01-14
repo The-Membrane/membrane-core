@@ -1,6 +1,6 @@
 use cosmwasm_schema::write_api;
 
-use membrane::positions::{InstantiateMsg, ExecuteMsg, QueryMsg};
+use membrane::cdp::{InstantiateMsg, ExecuteMsg, QueryMsg};
 
 fn main() {
     write_api! {

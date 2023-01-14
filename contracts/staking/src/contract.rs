@@ -372,15 +372,15 @@ pub fn unstake(
     let mut msgs = vec![];
 
     //Can't unstake if there is an active proposal by user
-    let proposal_list = deps.querier.query::<ProposalListResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
-        contract_addr: config.clone().governance_contract.unwrap().to_string(), 
-        msg: to_binary(&Gov_QueryMsg::Proposals { start: None, limit: None })?
-    }))?;
-    for proposal in proposal_list.proposal_list {
-        if proposal.submitter == info.sender && proposal.status == ProposalStatus::Active {
-            return Err(ContractError::CustomError { val: String::from("Can't unstake while your proposal is active") })
-        }
-    }
+    // let proposal_list = deps.querier.query::<ProposalListResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+    //     contract_addr: config.clone().governance_contract.unwrap().to_string(), 
+    //     msg: to_binary(&Gov_QueryMsg::Proposals { start: None, limit: None })?
+    // }))?;
+    // for proposal in proposal_list.proposal_list {
+    //     if proposal.submitter == info.sender && proposal.status == ProposalStatus::Active {
+    //         return Err(ContractError::CustomError { val: String::from("Can't unstake while your proposal is active") })
+    //     }
+    // }
 
     //Get total Stake
     let total_stake = {

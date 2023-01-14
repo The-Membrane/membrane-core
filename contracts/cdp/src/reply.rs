@@ -110,7 +110,7 @@ pub fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
             LIQUIDATION.save(deps.storage, &prop)?;
 
             Ok(Response::new()
-                .add_messages(messages)
+                //.add_messages(messages)
                 .add_submessages(submessages)
                 .add_attribute("error", string)
                 .add_attribute("sent_to_sell_wall", repay_amount.to_string()))
@@ -334,7 +334,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             }
 
             Ok(Response::new()
-                .add_messages(messages)
+                //.add_messages(messages)
                 .add_submessages(submessages)
                 .add_attributes(attrs))
         }
@@ -470,8 +470,8 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             Ok(Response::new().add_message(msg).add_attributes(attrs))
         }
         Err(string) => {
-            //If error, do nothing if the SP was used
-            //The SP reply will handle the sell wall
+            //If error, do nothing if the SP was used. The SP reply will handle the sell wall.
+            //Else, handle leftovers here
 
             let mut messages = vec![];
             let mut repay_amount = Decimal::zero();
@@ -493,14 +493,14 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             LIQUIDATION.save(deps.storage, &prop)?;
 
             Ok(Response::new()
-                .add_messages(messages)
+                //.add_messages(messages)
                 .add_attribute("error", string)
                 .add_attribute("sent_to_sell_wall", repay_amount.to_string()))
         }
     }
 }
 
-//Builds sell wall submessages to add to list of submessages
+//Builds sell wall & LP messages to add to list of submessages
 pub fn sell_wall_in_reply(
     storage: &mut dyn Storage,
     api: &dyn Api,

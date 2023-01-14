@@ -442,7 +442,11 @@ pub fn get_stability_pool_liquidity(
         Ok(querier
             .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: sp_addr.to_string(),
-                msg: to_binary(&SP_QueryMsg::AssetPool { deposit_limit: 1.into() })?,
+                msg: to_binary(&SP_QueryMsg::AssetPool { 
+                    user: None,
+                    start_after: None,
+                    deposit_limit: 1.into(),
+                })?,
             }))?
             .credit_asset
             .amount)

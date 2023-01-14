@@ -49,7 +49,7 @@ fn update_config(){
         dex_router: Some(String::from("new_router")), 
         max_spread: Some(Decimal::one()),
         vesting_contract: Some(String::from("new_bv")), 
-        incentive_schedule: Some(StakeDistribution { rate: Decimal::one(), duration: 90 }),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::one(), duration: 0 }),
         fee_wait_period: Some(1),  
     };
 
@@ -485,7 +485,7 @@ fn claim_rewards() {
         vesting_contract: None,
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
-        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 1101 }),
         fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,

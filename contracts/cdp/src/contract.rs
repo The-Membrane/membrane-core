@@ -367,76 +367,60 @@ fn update_config(
     //Set Optionals
     if let Some(owner) = update.owner {
         config.owner = deps.api.addr_validate(&owner)?;
-        attrs.push(attr("new_owner", config.clone().owner.to_string()));
     }
     if let Some(stability_pool) = update.stability_pool {
         config.stability_pool = Some(deps.api.addr_validate(&stability_pool)?);
-        attrs.push(attr("new_stability_pool", config.clone().stability_pool.unwrap()));
     }
     if let Some(dex_router) = update.dex_router {
         config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
-        attrs.push(attr("new_dex_router", config.clone().dex_router.unwrap()));
     }
     if let Some(osmosis_proxy) = update.osmosis_proxy {
         config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
-        attrs.push(attr("new_osmosis_proxy", config.clone().osmosis_proxy.unwrap()));
     }
     if let Some(debt_auction) = update.debt_auction {
         config.debt_auction = Some(deps.api.addr_validate(&debt_auction)?);
-        attrs.push(attr("new_debt_auction", config.clone().debt_auction.unwrap()));
     }
     if let Some(staking_contract) = update.staking_contract {
         config.staking_contract = Some(deps.api.addr_validate(&staking_contract)?);
-        attrs.push(attr("new_staking_contract", config.clone().staking_contract.unwrap()));
     }
     if let Some(oracle_contract) = update.oracle_contract {
         config.oracle_contract = Some(deps.api.addr_validate(&oracle_contract)?);
-        attrs.push(attr("new_oracle_contract", config.clone().oracle_contract.unwrap()));
     }
     if let Some(liquidity_contract) = update.liquidity_contract {
         config.liquidity_contract = Some(deps.api.addr_validate(&liquidity_contract)?);
-        attrs.push(attr("new_liquidity_contract", config.clone().liquidity_contract.unwrap()));
     }
     if let Some(discounts_contract) = update.discounts_contract {
         config.discounts_contract = Some(deps.api.addr_validate(&discounts_contract)?);
-        attrs.push(attr("new_discounts_contract", config.clone().discounts_contract.unwrap()));
     }
     if let Some(liq_fee) = update.liq_fee {
         config.liq_fee = liq_fee.clone();
-        attrs.push(attr("new_liq_fee", liq_fee.to_string()));
     }
     if let Some(debt_minimum) = update.debt_minimum {
         config.debt_minimum = debt_minimum.clone();
-        attrs.push(attr("new_debt_minimum", debt_minimum.to_string()));
     }
     if let Some(base_debt_cap_multiplier) = update.base_debt_cap_multiplier {
         config.base_debt_cap_multiplier = base_debt_cap_multiplier.clone();
-        attrs.push(attr("new_base_debt_cap_multiplier",base_debt_cap_multiplier.to_string()));
     }
     if let Some(oracle_time_limit) = update.oracle_time_limit {
         config.oracle_time_limit = oracle_time_limit.clone();
-        attrs.push(attr("new_oracle_time_limit", oracle_time_limit.to_string()));
     }
     if let Some(collateral_twap_timeframe) = update.collateral_twap_timeframe {
         config.collateral_twap_timeframe = collateral_twap_timeframe.clone();
-        attrs.push(attr("new_collateral_twap_timeframe",collateral_twap_timeframe.to_string()));
     }
     if let Some(credit_twap_timeframe) = update.credit_twap_timeframe {
         config.credit_twap_timeframe = credit_twap_timeframe.clone();
-        attrs.push(attr("new_credit_twap_timeframe",credit_twap_timeframe.to_string()));
     }
     if let Some(cpc_multiplier) = update.cpc_multiplier {
         config.cpc_multiplier = cpc_multiplier.clone();
-            attrs.push(attr("new_cpc_multiplier",cpc_multiplier.to_string()));
     }
     if let Some(rate_slope_multiplier) = update.rate_slope_multiplier {
         config.rate_slope_multiplier = rate_slope_multiplier.clone();
-        attrs.push(attr("new_rate_slope_multiplier",rate_slope_multiplier.to_string()));
     }
 
     //Save new Config
     CONFIG.save(deps.storage, &config)?;
-
+    attrs.push(attr("updated_config", format!("{:?}", config)));
+    
     Ok(Response::new().add_attributes(attrs))
 }
 

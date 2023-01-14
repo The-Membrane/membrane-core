@@ -214,7 +214,7 @@ pub fn execute(
                     .collect::<Vec<Asset>>()
             };
 
-            deposit_fee(deps, env, info, fee_assets, false)
+            deposit_fee(deps, env, info, fee_assets)
         },
         ExecuteMsg::TrimFeeEvents {  } => trim_fee_events(deps.storage, info),
     }
@@ -249,11 +249,9 @@ fn update_config(
     if let Some(owner) = owner {
         let valid_addr = deps.api.addr_validate(&owner)?;
         config.owner = valid_addr.clone();
-        attrs.push(attr("new_owner", valid_addr.to_string()));
     };
     if let Some(max_spread) = max_spread {
         config.max_spread = Some(max_spread);
-        attrs.push(attr("new_max_spread", max_spread.to_string()));
     };
     if let Some(mut incentive_schedule) = incentive_schedule {
         //Hard code a 20% maximum
@@ -261,7 +259,6 @@ fn update_config(
             incentive_schedule.rate = Decimal::percent(20);
         }
         config.incentive_schedule = incentive_schedule.clone();
-        attrs.push(attr("new_incentive_schedule", format!("{:?}", incentive_schedule)));
 
         //Set Scheduling
         INCENTIVE_SCHEDULING.save(deps.storage, 
@@ -272,40 +269,33 @@ fn update_config(
     };
     if let Some(unstaking_period) = unstaking_period {
         config.unstaking_period = unstaking_period;
-        attrs.push(attr("new_unstaking_period", unstaking_period.to_string()));
     };
     if let Some(fee_wait_period) = fee_wait_period {
         config.fee_wait_period = fee_wait_period;
-        attrs.push(attr("new_fee_wait_period", fee_wait_period.to_string()));
     };
     if let Some(mbrn_denom) = mbrn_denom {
         config.mbrn_denom = mbrn_denom.clone();
-        attrs.push(attr("new_mbrn_denom", mbrn_denom));
     };
     if let Some(dex_router) = dex_router {
         config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
-        attrs.push(attr("new_dex_router", dex_router));
     };
     if let Some(vesting_contract) = vesting_contract {
             config.vesting_contract = Some(deps.api.addr_validate(&vesting_contract)?);
-            attrs.push(attr("new_builders_contract", vesting_contract));
     };
     if let Some(positions_contract) = positions_contract {
             config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
-            attrs.push(attr("new_positions_contract", positions_contract));
     };
     if let Some(governance_contract) = governance_contract {
         config.governance_contract = Some(deps.api.addr_validate(&governance_contract)?);
-        attrs.push(attr("new_governance_contract", governance_contract));
     };
     if let Some(osmosis_proxy) = osmosis_proxy {
             config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
-            attrs.push(attr("new_osmosis_proxy", osmosis_proxy));
     };
 
     //Save new Config
     CONFIG.save(deps.storage, &config)?;
 
+    attrs.push(attr("updated_config", format!("{:?}", config)));
     Ok(Response::new().add_attributes(attrs))
 }
 
@@ -323,7 +313,7 @@ pub fn stake(
     if info.funds.len() == 1 && info.funds[0].denom == config.mbrn_denom {
         valid_asset = assert_sent_native_token_balance(
             AssetInfo::NativeToken {
-                denom: config.mbrn_denom,
+                denom: config.clone().mbrn_denom,
             },
             &info,
         )?;
@@ -348,10 +338,14 @@ pub fn stake(
 
     //Add to Totals
     let mut totals = TOTALS.load(deps.storage)?;
-    
-    totals.stakers += valid_asset.amount;
-    TOTALS.save(deps.storage, &totals)?;
-    
+    if let Some(vesting_contract) = config.clone().vesting_contract{
+        if info.clone().sender == vesting_contract{
+            totals.vesting_contract += valid_asset.amount;
+        }
+    } else {
+        totals.stakers += valid_asset.amount;
+    }
+    TOTALS.save(deps.storage, &totals)?;    
 
     //Response build
     let response = Response::new();
@@ -372,12 +366,10 @@ pub fn unstake(
     info: MessageInfo,
     mbrn_withdraw_amount: Option<Uint128>,
 ) -> Result<Response, ContractError> {
-
     let config = CONFIG.load(deps.storage)?;
+    let fee_events = FEE_EVENTS.load(deps.storage)?;
 
     let mut msgs = vec![];
-
-    let fee_events = FEE_EVENTS.load(deps.storage)?;
 
     //Can't unstake if there is an active proposal by user
     let proposal_list = deps.querier.query::<ProposalListResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
@@ -482,10 +474,15 @@ pub fn unstake(
         msgs.push(message);
     }
 
-    //Correct Totals
+    //Update Totals
     let mut totals = TOTALS.load(deps.storage)?;
-    totals.stakers -= withdrawable_amount;
-    
+    if let Some(vesting_contract) = config.clone().vesting_contract{
+        if info.clone().sender == vesting_contract{
+            totals.vesting_contract -= withdrawable_amount;
+        }
+    } else {
+        totals.stakers -= withdrawable_amount;
+    }
     TOTALS.save(deps.storage, &totals)?;
 
     //Response builder
@@ -862,14 +859,8 @@ fn deposit_fee(
     env: Env,
     info: MessageInfo,
     fee_assets: Vec<Asset>,
-    cw20_contract: bool,
 ) -> Result<Response, ContractError> {
-
     let config = CONFIG.load(deps.storage)?;
-
-    if info.sender != config.positions_contract.unwrap() && !cw20_contract {
-        return Err(ContractError::Unauthorized {});
-    }
 
     //Load Fee Events
     let mut fee_events = FEE_EVENTS.load(deps.storage)?;
@@ -885,21 +876,17 @@ fn deposit_fee(
         TOTALS.save(deps.storage, &totals)?;
     }
 
-
     //Set total
     let mut total = totals.vesting_contract + totals.stakers;
-
     if total.is_zero() {
         total = Uint128::new(1u128)
     }
-
     let decimal_total = Decimal::from_ratio(total, Uint128::new(1u128));
-
     
     //Add new Fee Event
     for asset in fee_assets.clone() {
         let amount = Decimal::from_ratio(asset.amount, Uint128::new(1u128));
-
+        
         fee_events.push(FeeEvent {
             time_of_event: env.block.time.seconds(),
             fee: LiqAsset {
@@ -1192,7 +1179,6 @@ pub fn get_deposit_claimables(
     fee_events: Vec<FeeEvent>,
     deposit: StakeDeposit,
 ) -> StdResult<(Vec<Asset>, Uint128)> {
-
     let mut claimables: Vec<Asset> = vec![];
 
     //Filter for events that the deposit was staked for

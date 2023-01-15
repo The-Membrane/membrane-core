@@ -1,12 +1,11 @@
 
 use cosmwasm_std::{Addr, Uint128};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use cosmwasm_schema::cw_serde;
 
 use crate::types::{LPPoolInfo, DebtTokenAsset, Asset, AssetInfo};
 
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Option<String>,   
     pub osmosis_proxy: String,
@@ -19,8 +18,7 @@ pub struct InstantiateMsg {
     pub withdrawal_period: Option<u64>, //in days
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum ExecuteMsg {
     Lock { 
         lock_up_duration: u64, //in days
@@ -45,8 +43,7 @@ pub enum ExecuteMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum QueryMsg {
     //Returns Config
     Config { },
@@ -62,7 +59,7 @@ pub enum QueryMsg {
 }
 
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct Config {
     pub owner: Addr,
     pub osmosis_proxy: Addr,
@@ -76,7 +73,7 @@ pub struct Config {
     pub withdrawal_period: u64, //in days
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct UserResponse {
     pub user: String,
     pub total_debt_token: DebtTokenAsset,
@@ -84,7 +81,7 @@ pub struct UserResponse {
     pub incentives: Asset,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct LockDistributionResponse {
     pub locked_lp: Asset,
     pub lock_up_duration: u64,

@@ -1,9 +1,8 @@
 use cosmwasm_std::Addr;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use cosmwasm_schema::cw_serde;
 
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub oracle_contract: String,
@@ -15,14 +14,12 @@ pub struct InstantiateMsg {
     pub minimum_time_in_network: u64, //in days
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum ExecuteMsg {
     UpdateConfig(UpdateConfig),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum QueryMsg {
     //Returns Config
     Config {},
@@ -30,7 +27,7 @@ pub enum QueryMsg {
     UserDiscount { user: String },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct Config {
     pub owner: Addr,
     pub mbrn_denom: String,
@@ -43,7 +40,7 @@ pub struct Config {
     pub minimum_time_in_network: u64, //in days
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct UpdateConfig {
     pub owner: Option<String>,  
     pub mbrn_denom: Option<String>,      

@@ -1,11 +1,9 @@
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-
+use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Decimal, Addr};
 
 use crate::types::{Asset, AssetInfo, UserInfo};
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub oracle_contract: String,
@@ -18,8 +16,7 @@ pub struct InstantiateMsg {
     pub discount_increase: Decimal, //Increase in discount per unit of timeframe
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum ExecuteMsg {
     //Start or add to ongoing auction
     //Callable by the owner (MBRN Governance) or Positions contract
@@ -41,8 +38,7 @@ pub enum ExecuteMsg {
     UpdateConfig(UpdateConfig),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum QueryMsg {
     Config {},
     OngoingAuctions {
@@ -57,7 +53,7 @@ pub enum QueryMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct Config {
     pub owner: Addr,
     pub oracle_contract: Addr,
@@ -70,7 +66,7 @@ pub struct Config {
     pub discount_increase: Decimal,       //% increase
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct UpdateConfig {
     pub owner: Option<String>,
     pub oracle_contract: Option<String>,

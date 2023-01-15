@@ -1,13 +1,11 @@
 use crate::types::{Asset, AssetInfo};
 
+use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Binary, Decimal, Uint128};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
 
 /// ## Description
 /// This structure describes the basic settings for creating a contract.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InstantiateMsg {
     /// Apollo Collector contract address
     pub apollo_collector: String,
@@ -15,8 +13,7 @@ pub struct InstantiateMsg {
     pub blocks_till_price_expires: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum ExecuteMsg {
     /// Swap where start asset is a native token
     Swap {
@@ -27,20 +24,8 @@ pub enum ExecuteMsg {
     },
 }
 
-/// CW20 Hook
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Cw20HookMsg {
-    Swap {
-        to: SwapToAssetsInput,
-        max_spread: Option<Decimal>,
-        recipient: Option<String>,
-        hook_msg: Option<Binary>,
-    },
-}
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum RouterCallbackMsg {
     /// Check the swap amount is exceed minimum_receive
     AssertMinimumReceive {
@@ -65,8 +50,7 @@ pub enum RouterCallbackMsg {
 
 /// ## Description
 /// This structure describes the query messages of the contract.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum QueryMsg {
     /// Config returns controls settings that specified in custom [`ConfigResponse`] structure
     Config {},
@@ -77,8 +61,7 @@ pub enum QueryMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[cw_serde]
 pub enum SwapToAssetsInput {
     /// Swap to single asset
     Single(AssetInfo),

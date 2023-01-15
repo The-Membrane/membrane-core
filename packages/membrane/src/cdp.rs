@@ -1,4 +1,5 @@
 use cosmwasm_std::{Addr, Decimal, Uint128};
+use cosmwasm_schema::cw_serde;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -7,7 +8,7 @@ use crate::types::{
     SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType,
 };
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub oracle_time_limit: u64, //in seconds until oracle failure is acceoted
@@ -26,8 +27,7 @@ pub struct InstantiateMsg {
     pub discounts_contract: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum ExecuteMsg {
     UpdateConfig(UpdateConfig),
     Deposit {
@@ -107,8 +107,8 @@ pub enum CallbackMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+
+#[cw_serde]
 pub enum QueryMsg {
     Config {},
     GetUserPositions {
@@ -139,7 +139,7 @@ pub enum QueryMsg {
     Propagation {},
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[cw_serde]
 pub struct Config {
     pub owner: Addr,
     pub stability_pool: Option<Addr>,
@@ -166,7 +166,7 @@ pub struct Config {
     pub rate_slope_multiplier: Decimal,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[cw_serde]
 pub struct UpdateConfig {
     pub owner: Option<String>,
     pub stability_pool: Option<String>,
@@ -187,7 +187,7 @@ pub struct UpdateConfig {
     pub rate_slope_multiplier: Option<Decimal>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[cw_serde]
 pub struct EditBasket {
     pub added_cAsset: Option<cAsset>,
     pub liq_queue: Option<String>,
@@ -204,7 +204,7 @@ pub struct EditBasket {
 }
 
 // We define a custom struct for each query response
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[cw_serde]
 pub struct PositionResponse {
     pub position_id: Uint128,
     pub collateral_assets: Vec<cAsset>,
@@ -217,29 +217,29 @@ pub struct PositionResponse {
     pub avg_max_LTV: Decimal,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[cw_serde]
 pub struct PositionsResponse {
     pub user: String,
     pub positions: Vec<Position>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct BadDebtResponse {
     pub has_bad_debt: Vec<(PositionUserInfo, Uint128)>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InsolvencyResponse {
     pub insolvent_positions: Vec<InsolventPosition>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InterestResponse {
     pub credit_interest: Decimal,
     pub negative_rate: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct CollateralInterestResponse {
     pub rates: Vec<(AssetInfo, Decimal)>,
 }

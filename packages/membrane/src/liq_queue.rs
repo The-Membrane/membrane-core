@@ -1,20 +1,18 @@
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use cosmwasm_schema::cw_serde;
 
 use cosmwasm_std::{Decimal, Addr, Uint128};
 
 use crate::math::{Decimal256, Uint256};
 use crate::types::{AssetInfo, Bid, BidInput};
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub positions_contract: String,
     pub waiting_period: u64, //seconds
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum ExecuteMsg {
     SubmitBid {
         //Deposit a list of accepted assets
@@ -59,8 +57,7 @@ pub enum ExecuteMsg {
 }
 
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum QueryMsg {
     Config {},
     Bid {
@@ -104,7 +101,7 @@ pub enum QueryMsg {
 }
 
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct Config {
     pub owner: Addr, //Governance
     pub positions_contract: Addr,
@@ -114,7 +111,7 @@ pub struct Config {
 }
 
 // We define a custom struct for each query response
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct SlotResponse {
     pub bids: Vec<Bid>,
     pub liq_premium: String,
@@ -127,7 +124,7 @@ pub struct SlotResponse {
     pub residue_bid: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct BidResponse {
     pub user: String,
     pub id: Uint128,
@@ -141,19 +138,19 @@ pub struct BidResponse {
     pub scale_snapshot: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct ClaimsResponse {
     pub bid_for: String,
     pub pending_liquidated_collateral: Uint256,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct LiquidatibleResponse {
     pub leftover_collateral: String,
     pub total_credit_repaid: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct QueueResponse {
     pub bid_asset: String,
     pub max_premium: String,

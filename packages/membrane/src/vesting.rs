@@ -1,15 +1,12 @@
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-
+use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Uint128, Addr};
-use cw20::Cw20ReceiveMsg;
 
 use crate::{
     governance::{ProposalMessage, ProposalVoteOption},
     types::{Allocation, Asset, VestingPeriod},
 };
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub initial_allocation: Uint128,
@@ -22,8 +19,7 @@ pub struct InstantiateMsg {
 
 //To decrease Allocations, you need to upgrade the contract
 //This is so there is a level of permanance in the vesting contract
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum ExecuteMsg {
     AddRecipient {
         recipient: String,
@@ -63,8 +59,7 @@ pub enum ExecuteMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum QueryMsg {
     Config {},
     Allocation { recipient: String },
@@ -73,7 +68,7 @@ pub enum QueryMsg {
     Recipients {},
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct Config {
     pub owner: Addr, //Governance Contract
     pub total_allocation: Uint128,
@@ -82,8 +77,7 @@ pub struct Config {
     pub staking_contract: Addr,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub struct AllocationResponse {
     pub amount: Uint128,
     pub amount_withdrawn: Uint128,
@@ -91,22 +85,19 @@ pub struct AllocationResponse {
     pub vesting_period: VestingPeriod,    //In days
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub struct UnlockedResponse {
     pub unlocked_amount: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub struct RecipientResponse {
     pub recipient: String,
     pub allocation: Option<Allocation>,
     pub claimables: Vec<Asset>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub struct RecipientsResponse {
     pub recipients: Vec<RecipientResponse>,
 }

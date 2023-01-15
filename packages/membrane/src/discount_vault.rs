@@ -1,12 +1,9 @@
+use cosmwasm_std::{Addr, Uint128};
+use cosmwasm_schema::cw_serde;
 
-use cosmwasm_std::{Addr, Uint128, Decimal};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use crate::types::{Asset, LPPoolInfo, VaultedLP};
 
-use crate::types::{Asset, AssetInfo, LPPoolInfo, VaultedLP};
-
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Option<String>,   
     pub positions_contract: String,
@@ -14,8 +11,7 @@ pub struct InstantiateMsg {
     pub accepted_LPs: Vec<u64>, //Assumption that the LP is 50:50 
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum ExecuteMsg {
     Deposit { },
     Withdraw { 
@@ -30,8 +26,7 @@ pub enum ExecuteMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum QueryMsg {
     //Returns Config
     Config { },
@@ -48,7 +43,7 @@ pub enum QueryMsg {
 }
 
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct Config {
     pub owner: Addr,
     pub positions_contract: Addr,
@@ -56,7 +51,7 @@ pub struct Config {
     pub accepted_LPs: Vec<LPPoolInfo>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct UserResponse {
     pub user: String,
     pub deposits: Vec<VaultedLP>,

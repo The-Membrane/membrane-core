@@ -740,6 +740,7 @@ name = "membrane"
 version = "0.1.0"
 dependencies = [
  "bigint",
+ "cosmwasm-schema",
  "cosmwasm-std",
  "cosmwasm-storage",
  "cw-storage-plus 0.13.4",

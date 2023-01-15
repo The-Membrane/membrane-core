@@ -1,11 +1,9 @@
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-
+use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Decimal, Uint128, Addr};
 
 use crate::types::{Asset, FeeEvent, StakeDeposit, StakeDistribution};
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub positions_contract: Option<String>,
@@ -20,8 +18,7 @@ pub struct InstantiateMsg {
     pub max_spread: Option<Decimal>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum ExecuteMsg {
     UpdateConfig {
         owner: Option<String>,
@@ -63,8 +60,7 @@ pub enum ExecuteMsg {
 
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum QueryMsg {
     Config {},
     UserStake {
@@ -92,7 +88,7 @@ pub enum QueryMsg {
     IncentiveSchedule {},
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct Config {
     pub owner: Addr, //MBRN Governance
     pub mbrn_denom: String,
@@ -109,31 +105,31 @@ pub struct Config {
 }
 
 // We define a custom struct for each query response
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct StakerResponse {
     pub staker: String,
     pub total_staked: Uint128,
     pub deposit_list: Vec<(String, String)>, //Amount and timestamp of each deposit
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct RewardsResponse {
     pub claimables: Vec<Asset>,
     pub accrued_interest: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct StakedResponse {
     pub stakers: Vec<StakeDeposit>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct TotalStakedResponse {
     pub total_not_including_vested: Uint128,
     pub vested_total: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct FeeEventsResponse {
     pub fee_events: Vec<FeeEvent>,
 }

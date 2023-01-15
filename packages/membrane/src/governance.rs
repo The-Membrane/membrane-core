@@ -1,6 +1,5 @@
 use cosmwasm_std::{Addr, CosmosMsg, Decimal, StdError, StdResult, Uint128, Uint64};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use cosmwasm_schema::cw_serde;
 use std::fmt::{Display, Formatter, Result};
 use std::ops::RangeInclusive;
 
@@ -27,7 +26,7 @@ const MAX_LINK_LENGTH: usize = 128;
 const SAFE_TEXT_CHARS: &str = "!&?#()*+'-./\"";
 
 /// This structure holds the parameters used for creating a Governance contract.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InstantiateMsg {
     /// MBRN Staking contract to query MBRN denom
     pub mbrn_staking_contract_addr: String,
@@ -54,8 +53,7 @@ pub struct InstantiateMsg {
 }//u64 fields are block units
 
 /// This enum describes all execute functions available in the contract.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum ExecuteMsg {
     /// Submit a new proposal in the Governance contract
     SubmitProposal {
@@ -106,8 +104,7 @@ pub enum ExecuteMsg {
 }
 
 /// Thie enum describes all the queries available in the contract.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum QueryMsg {
     /// Return the contract's configuration
     Config {},
@@ -144,7 +141,7 @@ pub enum QueryMsg {
 }
 
 /// This structure stores general parameters for the Governance contract.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct Config {
     /// MBRN native token fulldenom
     pub mbrn_denom: String,
@@ -234,7 +231,7 @@ impl Config {
 }
 
 /// This structure stores the params used when updating the main Governance contract params.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct UpdateConfig {
     /// MBRN native token fulldenom
     pub mbrn_denom: Option<String>,
@@ -265,7 +262,7 @@ pub struct UpdateConfig {
 }
 
 /// This structure stores data for a proposal.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct Proposal {
     /// Unique proposal ID
     pub proposal_id: Uint64,
@@ -302,7 +299,7 @@ pub struct Proposal {
 }
 
 /// This structure describes a proposal response.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct ProposalResponse {
     /// Unique proposal ID
     pub proposal_id: Uint64,
@@ -389,7 +386,7 @@ impl Proposal {
 }
 
 /// This enum describes available statuses/states for a Proposal.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub enum ProposalStatus {
     Active,
     Passed,
@@ -411,7 +408,7 @@ impl Display for ProposalStatus {
 }
 
 /// This structure describes a proposal message.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct ProposalMessage {
     /// Order of execution of the message
     pub order: Uint64,
@@ -420,7 +417,7 @@ pub struct ProposalMessage {
 }
 
 /// This structure describes a proposal vote.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct ProposalVote {
     /// Voted option for the proposal
     pub option: ProposalVoteOption,
@@ -429,7 +426,7 @@ pub struct ProposalVote {
 }
 
 /// This enum describes available options for voting on a proposal.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub enum ProposalVoteOption {
     For,
     Against,
@@ -445,7 +442,7 @@ impl Display for ProposalVoteOption {
 }
 
 /// This structure describes a proposal vote response.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct ProposalVotesResponse {
     /// Proposal identifier
     pub proposal_id: u64,
@@ -456,7 +453,7 @@ pub struct ProposalVotesResponse {
 }
 
 /// This structure describes a proposal list response.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct ProposalListResponse {
     /// The amount of proposals returned
     pub proposal_count: Uint64,

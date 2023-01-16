@@ -24,7 +24,7 @@ use crate::positions::{
     create_basket, deposit,
     edit_basket, increase_debt,
     liq_repay, mint_revenue, repay,
-    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID, get_target_position, update_position,
+    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID,
 };
 use crate::query::{
     query_bad_debt, query_basket_credit_interest, query_basket_debt_caps,
@@ -35,7 +35,7 @@ use crate::query::{
 use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
 use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_sp_repay_reply, handle_close_position_reply};
 use crate::state::{
-    BASKET, CONFIG, LIQUIDATION,
+    BASKET, CONFIG, LIQUIDATION, get_target_position, update_position,
 };
 
 // version info for migration info

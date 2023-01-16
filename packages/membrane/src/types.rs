@@ -547,9 +547,7 @@ impl fmt::Display for Asset {
     }
 }
 
-////////////////////Osmosis-std types
-
-
+////////////////////Osmosis-std types////////////////////
 pub enum Pool {
     Balancer(osmosis_std::types::osmosis::gamm::v1beta1::Pool),
     StableSwap(osmosis_std::types::osmosis::gamm::poolmodels::stableswap::v1beta1::Pool),

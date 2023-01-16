@@ -163,8 +163,7 @@ pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
 }
 
 //Don't use with AssetInfo::Token
-pub fn multi_native_withdrawal_msg(assets: Vec<Asset>, recipient: Addr) -> StdResult<CosmosMsg> {
-    
+pub fn multi_native_withdrawal_msg(assets: Vec<Asset>, recipient: Addr) -> StdResult<CosmosMsg> {    
     let coins: Vec<Coin> = assets
         .into_iter()
         .map(|asset| native_asset_to_coin(asset))
@@ -238,12 +237,7 @@ pub fn validate_position_owner(
     info: MessageInfo,
     recipient: Option<String>,
 ) -> StdResult<Addr> {
-    let valid_recipient: Addr = if let Some(recipient) = recipient {
-        deps.addr_validate(&recipient)?
-    } else {
-        info.sender
-    };
-    Ok(valid_recipient)
+    recipient.map_or_else(|| Ok(info.sender), |x| deps.addr_validate(&x))
 }
 
 pub fn accumulate_interest(base: Uint128, rate: Decimal, time_elapsed: u64) -> StdResult<Uint128> {

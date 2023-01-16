@@ -9,12 +9,13 @@ use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::stability_pool::{LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
-use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, PoolStateResponse, AssetPool, Deposit};
+use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, PoolStateResponse, AssetPool};
 
 use crate::error::ContractError; 
 use crate::rates::accrue;
-use crate::positions::{get_target_position, update_position, insolvency_check, get_avg_LTV, get_cAsset_ratios, BAD_DEBT_REPLY_ID, update_position_claims};
-use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation};
+use crate::positions::BAD_DEBT_REPLY_ID;
+use crate::query::{insolvency_check, get_avg_LTV, get_cAsset_ratios};
+use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation, get_target_position, update_position, update_position_claims};
 
 
 //Liquidation reply ids

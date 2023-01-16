@@ -8,8 +8,7 @@ use membrane::cdp::{Config, ExecuteMsg};
 use membrane::math::decimal_subtraction;
 use membrane::helpers::{withdrawal_msg, get_contract_balances};
 
-use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, CONFIG, BASKET, CLOSE_POSITION, ClosePositionPropagation};
-use crate::positions::{get_target_position, update_position_claims};
+use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, CONFIG, BASKET, CLOSE_POSITION, ClosePositionPropagation, get_target_position, update_position_claims};
 use crate::liquidations::{query_stability_pool_liquidatible, STABILITY_POOL_REPLY_ID, sell_wall_using_ids};
 
 //On success....

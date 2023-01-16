@@ -8388,7 +8388,7 @@ mod tests {
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
+            
             //Add LP asset
             //Set supply caps
             //Set general parameters

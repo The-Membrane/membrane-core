@@ -241,5 +241,5 @@ pub struct InterestResponse {
 
 #[cw_serde]
 pub struct CollateralInterestResponse {
-    pub rates: Vec<(AssetInfo, Decimal)>,
+    pub rates: Vec<Decimal>,
 }

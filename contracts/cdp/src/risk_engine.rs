@@ -8,8 +8,7 @@ use membrane::helpers::get_asset_liquidity;
 use membrane::math::decimal_multiplication; 
 
 use crate::state::{CONFIG, BASKET};
-use crate::positions::get_cAsset_ratios;
-use crate::query::get_cAsset_ratios_imut;
+use crate::query::get_cAsset_ratios;
 use crate::error::ContractError;
 
 pub fn assert_basket_assets(
@@ -161,93 +160,6 @@ pub fn update_basket_tally(
     Ok(())
 }
 
-pub fn get_basket_debt_caps(
-    storage: &mut dyn Storage,
-    querier: QuerierWrapper,
-    env: Env,
-    basket: &mut Basket,
-) -> Result<Vec<Uint128>, ContractError> {
-    let config: Config = CONFIG.load(storage)?;
-
-    //Get the Basket's asset ratios
-    let (cAsset_ratios, _) = get_cAsset_ratios(
-        storage,
-        env.clone(),
-        querier,
-        basket.clone().collateral_types,
-        config.clone(),
-    )?;
-
-    //Get the base debt cap
-    let mut debt_cap =
-        get_asset_liquidity(querier, config.clone().liquidity_contract.unwrap().to_string(), basket.clone().credit_asset.info)?
-            * basket.liquidity_multiplier;
-
-    //Get SP liquidity
-    let sp_liquidity = get_stability_pool_liquidity(querier, config.clone())?;
-
-    //Add SP liquidity to the cap
-    debt_cap += Decimal::from_ratio(sp_liquidity, Uint128::new(1)) * Uint128::new(1);    
-
-    //If debt cap is less than the minimum, set it to the minimum
-    if debt_cap < (config.base_debt_cap_multiplier * config.debt_minimum) {
-        debt_cap = (config.base_debt_cap_multiplier * config.debt_minimum);
-    }    
-    
-    //Don't double count debt btwn Stability Pool based caps and TVL based caps
-    for cap in basket.clone().collateral_supply_caps {
-        //If the cap is based on sp_liquidity, subtract its value from the debt_cap
-        if let Some(sp_ratio) = cap.stability_pool_ratio_for_debt_cap {
-            debt_cap -= decimal_multiplication(Decimal::from_ratio(sp_liquidity, Uint128::new(1)), sp_ratio) * Uint128::new(1);
-        }
-    }
-
-    //Calc total basket debt
-    let total_debt: Uint128 = basket.clone().collateral_supply_caps
-        .into_iter()
-        .map(|cap| cap.debt_total)
-        .collect::<Vec<Uint128>>()
-        .into_iter()
-        .sum();
-
-    //If the basket's proportion of it's debt cap is >= 1, negative rates are turned off
-    //This protects against perpetual devaluing of the credit asset as Membrane is disincentivizing new debt w/ high rates
-    //Note: This could be changed to "IF each asset's util is above desired"...
-    //...but the current implementation turns them off faster, might as well be on the safe side
-    if Decimal::from_ratio(total_debt, debt_cap) >= Decimal::one() {
-        basket.negative_rates = false;
-    }
-
-    let mut per_asset_debt_caps = vec![];
-
-    //Calc per asset debt caps
-    for (i, cAsset_ratio) in cAsset_ratios.clone().into_iter().enumerate() {
-                
-        if basket.clone().collateral_supply_caps != vec![] {
-            // If supply cap is 0, then debt cap is 0
-            if basket.clone().collateral_supply_caps[i]
-                .supply_cap_ratio
-                .is_zero()
-            {
-                per_asset_debt_caps.push(Uint128::zero());
-            } else if let Some(sp_ratio) = basket.clone().collateral_supply_caps[i].stability_pool_ratio_for_debt_cap{
-                //If cap is supposed to be based off of a ratio of SP liquidity, calculate                                
-                per_asset_debt_caps.push(
-                    decimal_multiplication(Decimal::from_ratio(sp_liquidity, Uint128::new(1)), sp_ratio) * Uint128::new(1)
-                );
-            } else {
-                //TVL Ratio * Cap 
-                per_asset_debt_caps.push(cAsset_ratio * debt_cap);
-            }
-        } else {
-            //TVL Ratio * Cap 
-            per_asset_debt_caps.push(cAsset_ratio * debt_cap);
-        }
-    }
-    
-    Ok(per_asset_debt_caps)
-}
-
 pub fn update_debt_per_asset_in_position(
     storage: &mut dyn Storage,
     env: Env,
@@ -342,7 +254,7 @@ pub fn update_debt_per_asset_in_position(
 }
 
 pub fn update_basket_debt(
-    storage: &mut dyn Storage,
+    storage: &dyn Storage,
     env: Env,
     querier: QuerierWrapper,
     config: Config,
@@ -455,18 +367,17 @@ pub fn get_stability_pool_liquidity(
     }
 }
 
-////////////Immutable fns for Queries/////
-pub fn get_basket_debt_caps_imut(
+pub fn get_basket_debt_caps(
     storage: &dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     //These are Basket specific fields
-    basket: Basket,
+    basket: &mut Basket,
 ) -> StdResult<Vec<Uint128>> {    
     let config: Config = CONFIG.load(storage)?;
     
     //Get the Basket's asset ratios
-    let cAsset_ratios = get_cAsset_ratios_imut(
+    let (cAsset_ratios, _) = get_cAsset_ratios(
         storage,
         env.clone(),
         querier,
@@ -499,29 +410,49 @@ pub fn get_basket_debt_caps_imut(
         }
     }
 
-    let mut per_asset_debt_caps = vec![];    
+    //Calc total basket debt
+    let total_debt: Uint128 = basket.clone().collateral_supply_caps
+        .into_iter()
+        .map(|cap| cap.debt_total)
+        .collect::<Vec<Uint128>>()
+        .into_iter()
+        .sum();
+
+    //If the basket's proportion of it's debt cap is >= 1, negative rates are turned off
+    //This protects against perpetual devaluing of the credit asset as Membrane is disincentivizing new debt w/ high rates
+    //Note: This could be changed to "IF each asset's util is above desired"...
+    //...but the current implementation turns them off faster, might as well be on the safe side
+    if Decimal::from_ratio(total_debt, debt_cap) >= Decimal::one() {
+        basket.negative_rates = false;
+    }
+
+    let mut per_asset_debt_caps = vec![];
+
+    //Calc per asset debt caps
     for (i, cAsset_ratio) in cAsset_ratios.clone().into_iter().enumerate() {
-        // If supply cap is 0, then debt cap is 0
+                
         if basket.clone().collateral_supply_caps != vec![] {
+            // If supply cap is 0, then debt cap is 0
             if basket.clone().collateral_supply_caps[i]
                 .supply_cap_ratio
                 .is_zero()
             {
                 per_asset_debt_caps.push(Uint128::zero());
-
             } else if let Some(sp_ratio) = basket.clone().collateral_supply_caps[i].stability_pool_ratio_for_debt_cap{
                 //If cap is supposed to be based off of a ratio of SP liquidity, calculate                                
                 per_asset_debt_caps.push(
                     decimal_multiplication(Decimal::from_ratio(sp_liquidity, Uint128::new(1)), sp_ratio) * Uint128::new(1)
                 );
             } else {
+                //TVL Ratio * Cap 
                 per_asset_debt_caps.push(cAsset_ratio * debt_cap);
             }
         } else {
+            //TVL Ratio * Cap 
             per_asset_debt_caps.push(cAsset_ratio * debt_cap);
         }
     }
-
+    
     Ok(per_asset_debt_caps)
 }
 

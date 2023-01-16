@@ -8,7 +8,7 @@ Auomated mixed-asset debt market protocol powered by smart contracts on [Osmosis
 | Name                                                       | Description                                  |
 | ---------------------------------------------------------- | -------------------------------------------- |
 | [`positions`](contracts/cdp)                               | Credit position manager                      |
-| [`liquidity queue`](contracts/liq-queue)                   | Debt liquidation queue                       |
+| [`liquidation queue`](contracts/liq-queue)                   | Debt liquidation queue                       |
 | [`stability pool`](contracts/stability-pool)               | Position stability pool                      |
 | [`debt auction`](contracts/debt_auction)                   | Last-resort MBRN auction for bad debt        |
 | [`oracle`](contracts/oracle)                               | TWAP oracles for approved assets             |

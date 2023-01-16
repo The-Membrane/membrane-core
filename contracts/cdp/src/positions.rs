@@ -21,10 +21,10 @@ use membrane::stability_pool::ExecuteMsg as SP_ExecuteMsg;
 use membrane::math::{decimal_division, decimal_multiplication, Uint256};
 use membrane::types::{
     cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, LiquidityInfo, Position,
-    StoredPrice, SupplyCap, UserInfo, PriceVolLimiter, equal, PoolType, PoolInfo
+    StoredPrice, SupplyCap, UserInfo, PriceVolLimiter, PoolType
 };
 
-use crate::query::{get_asset_values, get_cAsset_ratios, get_avg_LTV, insolvency_check};
+use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
 use crate::rates::accrue;
 use crate::risk_engine::{update_basket_tally, update_basket_debt, update_debt_per_asset_in_position};
 use crate::state::{CLOSE_POSITION, ClosePositionPropagation, BASKET, get_target_position, update_position_claims};
@@ -209,8 +209,8 @@ pub fn deposit(
     ]))
 }
 
-/// Function used to create & save a position, then update state
-/// This is a helper function to reduce the size of the deposit function
+/// Function used to create & save a position, then update state.
+/// This is a helper function to reduce the size of the deposit function.
 fn create_position_in_deposit(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -281,8 +281,8 @@ fn check_deposit_state(
     Ok(())
 }
 
-/// Withdraws assets from a position
-/// Validates withdraw amount & updates state
+/// Withdraws assets from a position.
+/// Validates withdraw amount & updates state.
 pub fn withdraw(
     deps: DepsMut,
     env: Env,
@@ -532,9 +532,9 @@ pub fn withdraw(
         .add_submessages(msgs))
 }
 
-/// Use credit to repay outstanding debt in a Position
-/// Validates repayment & updates state
-/// Note: Excess repayment defaults to the sending address
+/// Use credit to repay outstanding debt in a Position.
+/// Validates repayment & updates state.
+/// Note: Excess repayment defaults to the sending address.
 pub fn repay(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -697,7 +697,7 @@ fn check_repay_state(
     Ok(())
 }
 
-/// This is what the stability pool contract calls to repay for a liquidation and to get its collateral distribution
+/// This is what the stability pool contract calls to repay for a liquidation and get its collateral distribution
 pub fn liq_repay(
     deps: DepsMut,
     env: Env,
@@ -836,9 +836,9 @@ pub fn liq_repay(
         .add_attribute("distribute_for", native_repayment.clone()))
 }
 
-/// Increase debt of a position
-/// Accrue and validate credit amount
-/// Check for insolvency & update basket debt tally 
+/// Increase debt of a position.
+/// Accrue and validate credit amount.
+/// Check for insolvency & update basket debt tally.
 pub fn increase_debt(
     deps: DepsMut,
     env: Env,
@@ -996,8 +996,8 @@ fn check_debt_increase_state(
     Ok(())
 }
 
-/// Sell position collateral to fully repay debts
-/// Max spread is used to ensure the full debt is repaid in lieu of slippage
+/// Sell position collateral to fully repay debts.
+/// Max spread is used to ensure the full debt is repaid in lieu of slippage.
 pub fn close_position(
     deps: DepsMut, 
     env: Env,
@@ -1163,8 +1163,8 @@ fn create_router_msg_to_buy_credit_and_repay(
     )  
 }
 
-/// Create the contract's basket
-/// Validates params and creates the basket
+/// Create the contract's Basket.
+/// Validates params.
 pub fn create_basket(
     deps: DepsMut,
     info: MessageInfo,
@@ -1245,8 +1245,7 @@ pub fn create_basket(
                 let max_premium = match Uint128::new(95u128).checked_sub( asset.max_LTV * Uint128::new(100u128) ){
                     Ok( diff ) => diff,
                     //A default to 10 assuming that will be the lowest sp_liq_fee
-                    Err( _err ) => Uint128::new(10u128) 
-                    ,
+                    Err( _err ) => Uint128::new(10u128),
                 };
                 //We rather the LQ liquidate than the SP if possible so its max_premium will be at most the sp_liq fee...
                 //..if the first subtraction fails.
@@ -1348,7 +1347,7 @@ pub fn create_basket(
         .add_messages(msgs))
 }
 
-/// Edit Basket
+/// Edit the contract's Basket.
 /// Can't edit basket id, current_position_id or credit_asset.
 /// Credit price can only be changed thru the accrue function.
 /// Validates parameters and updates the basket.
@@ -1358,6 +1357,10 @@ pub fn edit_basket(
     editable_parameters: EditBasket,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
+
+    if info.sender.clone() != config.owner {
+        return Err(ContractError::Unauthorized {});
+    }
 
     let mut new_queue: Option<Addr> = None;
     if let Some(liq_queue) = editable_parameters.clone().liq_queue {
@@ -1510,8 +1513,7 @@ pub fn edit_basket(
             let max_premium = match Uint128::new(95u128).checked_sub( new_cAsset.max_LTV * Uint128::new(100u128) ){
                 Ok( diff ) => diff,
                 //A default to 10 assuming that will be the lowest sp_liq_fee
-                Err( _err ) => Uint128::new(10u128) 
-                ,
+                Err( _err ) => Uint128::new(10u128),
             };
 
             msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1623,68 +1625,8 @@ pub fn edit_basket(
 
     //Update Basket
     BASKET.update(deps.storage, |mut basket| -> Result<Basket, ContractError> {
-        if info.sender.clone() != config.owner {
-            return Err(ContractError::Unauthorized {});
-        } else { //Set all optional parameters & append to Response attributes
-
-            if editable_parameters.clone().added_cAsset.is_some() {
-                basket.collateral_types.push(new_cAsset.clone());
-            }
-            if editable_parameters.clone().liq_queue.is_some() {
-                basket.liq_queue = new_queue.clone();
-            }
-            if let Some(collateral_supply_caps) = editable_parameters.clone().collateral_supply_caps {
-                //Set new cap parameters
-                for new_cap in collateral_supply_caps {
-                    if let Some((index, _cap)) = basket.clone().collateral_supply_caps
-                        .into_iter()
-                        .enumerate()
-                        .find(|(_x, cap)| cap.asset_info.equal(&new_cap.asset_info))
-                    {
-                        //Set supply cap ratio
-                        basket.collateral_supply_caps[index].supply_cap_ratio = new_cap.supply_cap_ratio;
-                        //Set stability pool based ratio
-                        basket.collateral_supply_caps[index].stability_pool_ratio_for_debt_cap = new_cap.stability_pool_ratio_for_debt_cap;
-                    }
-                }
-            }
-            if let Some(multi_asset_supply_caps) = editable_parameters.clone().multi_asset_supply_caps {
-                //Set new cap parameters
-                for new_cap in multi_asset_supply_caps {
-                    if let Some((index, _cap)) = basket.clone().multi_asset_supply_caps
-                        .into_iter()
-                        .enumerate()
-                        .find(|(_x, cap)| equal(&cap.assets, &new_cap.assets))
-                    {
-                        //Set supply cap ratio
-                        basket.multi_asset_supply_caps[index].supply_cap_ratio = new_cap.supply_cap_ratio;
-                    } else {
-                        basket.multi_asset_supply_caps.push(new_cap);
-                    }
-                }
-            }
-            if let Some(base_interest_rate) = editable_parameters.clone().base_interest_rate {
-                basket.base_interest_rate = base_interest_rate.clone();
-            }
-            if let Some(toggle) = editable_parameters.clone().negative_rates {
-                basket.negative_rates = toggle.clone();
-            }
-            if let Some(toggle) = editable_parameters.clone().frozen {
-                basket.frozen = toggle.clone();
-            }
-            if let Some(toggle) = editable_parameters.clone().rev_to_stakers {
-                basket.rev_to_stakers = toggle.clone();
-            }
-            if let Some(error_margin) = editable_parameters.clone().cpc_margin_of_error {
-                basket.cpc_margin_of_error = error_margin.clone();
-            }
-            //Set basket specific multiplier
-            if let Some(multiplier) = editable_parameters.clone().liquidity_multiplier {
-                basket.liquidity_multiplier = multiplier.clone();
-            }
-
-            basket.oracle_set = oracle_set;
-        }
+        //Set all optional parameters
+        editable_parameters.edit_basket(&mut basket, new_cAsset, new_queue, oracle_set)?;        
 
         Ok(basket)
     })?;
@@ -1783,7 +1725,7 @@ pub fn mint_revenue(
     ]))
 }
 
-
+/// Calculate desired amount of credit to borrow to reach target LTV
 fn get_amount_from_LTV(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -1834,10 +1776,10 @@ fn get_amount_from_LTV(
 }
 
 
-//Checks if any Basket caps are set to 0
-//If so the withdrawal assets have to either fully withdraw the asset from the position or only withdraw said asset
-//Otherwise users could just fully withdrawal other assets and create a new position
-//In a LUNA situation this would leave debt backed by an asset whose solvency Membrane has no faith in
+/// Checks if any Basket caps are set to 0.
+/// If so the withdrawal assets have to either fully withdraw the asset from the position or only withdraw said asset.
+/// Otherwise users could just fully withdrawal other assets and create a new position.
+/// In a LUNA situation this would leave debt backed by an asset whose solvency Membrane has no faith in.
 fn check_for_expunged(
     position_assets: Vec<cAsset>,
     withdrawal_assets: Vec<cAsset>,
@@ -1893,7 +1835,7 @@ fn check_for_expunged(
     Ok(())
 }
 
-//Create Position instance
+/// Create Position instance
 pub fn create_position(
     cAssets: Vec<cAsset>, //Assets being added into the position
     basket: &mut Basket,
@@ -1910,6 +1852,7 @@ pub fn create_position(
     return Ok(new_position);
 }
 
+/// Creates a CosmosMsg to mint tokens
 pub fn credit_mint_msg(
     config: Config,
     credit_asset: Asset,
@@ -1942,6 +1885,7 @@ pub fn credit_mint_msg(
     }
 }
 
+/// Creates a CosmosMsg to burn credit tokens
 pub fn credit_burn_msg(
     config: Config, 
     env: Env, 
@@ -2008,6 +1952,7 @@ pub fn credit_burn_msg(
     } else { return Err(StdError::GenericErr { msg: "Cw20 assets aren't allowed".to_string() }) }
 }
 
+/// Stores the price of an asset
 pub fn store_price(
     storage: &mut dyn Storage,
     env: Env, 
@@ -2033,6 +1978,7 @@ pub fn store_price(
     price_bucket.save(storage, &price)
 }
 
+/// Reads the price of an asset from storage
 pub fn read_price(
     storage: &dyn Storage,
     asset_token: &AssetInfo
@@ -2063,7 +2009,7 @@ fn assert_credit_asset(
     Ok(())
 }
 
-///Checks if any cAsset amount is zero
+/// Checks if any cAsset amount is zero
 pub fn check_for_empty_position( collateral_assets: Vec<cAsset> )-> bool {
     //Checks if any cAsset amount is zero
     for asset in collateral_assets {    

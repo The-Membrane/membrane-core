@@ -29,6 +29,7 @@ use crate::state::{BASKET, CONFIG, POSITIONS, get_target_position};
 
 const MAX_LIMIT: u32 = 31;
 
+/// Returns Position information
 pub fn query_position(
     deps: Deps,
     env: Env,
@@ -79,6 +80,7 @@ pub fn query_position(
 
 }
 
+/// Returns Positions for a given user
 pub fn query_user_positions(
     deps: Deps,
     env: Env,
@@ -159,6 +161,7 @@ pub fn query_user_positions(
     
 }
 
+/// Returns Positions in a Basket
 pub fn query_basket_positions(
     deps: Deps,
     start_after: Option<String>,
@@ -188,7 +191,7 @@ pub fn query_basket_positions(
 
 //Calculate debt caps
 pub fn query_basket_debt_caps(deps: Deps, env: Env) -> StdResult<Vec<DebtCap>> {    
-    let mut basket: Basket = BASKET.load(deps.storage)?;
+    let basket: Basket = BASKET.load(deps.storage)?;
 
     let asset_caps = get_basket_debt_caps(deps.storage, deps.querier, env, &mut basket.clone())?;
 
@@ -207,6 +210,7 @@ pub fn query_basket_debt_caps(deps: Deps, env: Env) -> StdResult<Vec<DebtCap>> {
     Ok( res )
 }
 
+/// Returns Position info with bad debt in the Basket
 pub fn query_bad_debt(deps: Deps) -> StdResult<BadDebtResponse> {
     let mut res = BadDebtResponse {
         has_bad_debt: vec![],
@@ -238,6 +242,7 @@ pub fn query_bad_debt(deps: Deps) -> StdResult<BadDebtResponse> {
     Ok(res)
 }
 
+/// Returns Position's insolvency status
 pub fn query_position_insolvency(
     deps: Deps,
     env: Env,
@@ -292,6 +297,7 @@ pub fn query_position_insolvency(
     Ok(res)
 }
 
+/// Returns cAsset interest rates for the Basket
 pub fn query_collateral_rates(
     deps: Deps,
     env: Env,
@@ -377,7 +383,7 @@ pub fn query_collateral_rates(
     }
 }
 
-
+/// Returns Basket credit redemption interest rate
 pub fn query_basket_credit_interest(
     deps: Deps,
     env: Env,
@@ -473,8 +479,8 @@ pub fn get_cAsset_ratios(
     Ok((cAsset_ratios, cAsset_prices))
 }
 
-/// Function queries the price of an asset from the oracle
-/// If the query is within the oracle_time_limit, it will use the stored price
+/// Function queries the price of an asset from the oracle.
+/// If the query is within the oracle_time_limit, it will use the stored price.
 pub fn query_price(
     storage: &dyn Storage,
     querier: QuerierWrapper,
@@ -518,7 +524,7 @@ pub fn query_price(
     Ok(price)
 }
 
-/// Calc Asset values
+/// Calculate cAsset values & returns a tuple of (cAsset_values, cAsset_prices)
 pub fn get_asset_values(
     storage: &dyn Storage,
     env: Env,
@@ -584,9 +590,9 @@ pub fn get_asset_values(
 }
 
 
-/// Calculate LP share token value
-/// Calculate LP price
-/// Append price and value to lists
+/// Calculate LP share token value.
+/// Calculate LP price.
+/// Append price and value to lists.
 pub fn append_lp_price(
     querier: QuerierWrapper,
     config: Config,
@@ -663,8 +669,8 @@ pub fn append_lp_price(
     Ok(())
 }
 
-/// Calculates the average LTV of a position
-/// Returns avg_borrow_LTV, avg_max_LTV, total_value and cAsset_prices
+/// Calculates the average LTV of a position.
+/// Returns avg_borrow_LTV, avg_max_LTV, total_value and cAsset_prices.
 pub fn get_avg_LTV(
     storage: &dyn Storage,
     env: Env,
@@ -739,9 +745,8 @@ pub fn calculate_avg_LTV(
 }
 
 
-
-/// Uses a Position's info to calculate if the user is insolvent
-/// Returns insolvent, current_LTV and available fee
+/// Uses a Position's info to calculate if the user is insolvent.
+/// Returns insolvent, current_LTV and available fee.
 pub fn insolvency_check(
     storage: &dyn Storage,
     env: Env,

@@ -23,9 +23,9 @@ pub const LIQ_QUEUE_REPLY_ID: u64 = 1u64;
 pub const STABILITY_POOL_REPLY_ID: u64 = 2u64;
 pub const USER_SP_REPAY_REPLY_ID: u64 = 6u64;
 
-//Confirms insolvency and calculates repayment amount
-//Then sends liquidation messages to the modules if they have funds
-//If not, sell wall
+/// Confirms insolvency and calculates repayment amount,
+/// then sends liquidation messages to the modules if they have funds.
+/// If not, sell wall.
 pub fn liquidate(
     storage: &mut dyn Storage,
     api: &dyn Api,
@@ -259,6 +259,7 @@ pub fn liquidate(
     }
 }
 
+/// Calculate the amount & value of debt to repay 
 fn get_repay_quantities(
     config: Config,
     basket: Basket,
@@ -308,6 +309,7 @@ fn get_repay_quantities(
     Ok((repay_value, credit_repay_amount))
 }
 
+/// Calculate amount of debt the User can repay from the Stability Pool
 fn get_user_repay_amount(
     querier: QuerierWrapper,
     config: Config,
@@ -382,7 +384,8 @@ fn get_user_repay_amount(
     Ok( user_repay_amount )
 }
 
-//Calc fees and send liquidatible amount to Liquidaiton Queue
+/// Calculate & send fees.
+/// Send liquidatible amount to Liquidation Queue.
 fn per_asset_fulfillments(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -561,6 +564,8 @@ fn per_asset_fulfillments(
     Ok(())
 }
 
+/// This fucntion is used to build (sub)messages for the Stability Pool and sell wall.
+/// Also returns leftover debt repayment amount.
 fn build_sp_sw_submsgs(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -737,7 +742,7 @@ fn build_sp_sw_submsgs(
     Ok((leftover_repayment, lp_withdraw_messages, sell_wall_messages))
 }
 
-//Returns LP withdrawal message that is used in liquidations
+/// Returns LP withdrawal message use in liquidations
 fn get_lp_liq_withdraw_msg(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -782,7 +787,7 @@ fn get_lp_liq_withdraw_msg(
     )?.0 )
 }
 
-
+/// Uses Position info to create sell wall msgs
 pub fn sell_wall_using_ids(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -821,6 +826,7 @@ pub fn sell_wall_using_ids(
     }
 }
 
+/// Returns router & lp withdraw messages for use in liquidations
 pub fn sell_wall(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -936,6 +942,7 @@ pub fn sell_wall(
     Ok((messages, lp_withdraw_messages))
 }
 
+/// Returns leftover liquidatible amount from the stability pool
 pub fn query_stability_pool_liquidatible(
     querier: QuerierWrapper,
     config: Config,
@@ -951,7 +958,8 @@ pub fn query_stability_pool_liquidatible(
 
     Ok(query_res.leftover)
 }
-//If cAssets include an LP, remove the LP share denom and add its paired assets
+
+/// If cAssets include an LP, remove the LP share denom and add its paired assets
 pub fn get_LP_pool_cAssets(
     querier: QuerierWrapper,
     config: Config,

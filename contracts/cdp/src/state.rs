@@ -49,7 +49,7 @@ pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_posi
 
 
 //Helper functions
-
+/// Update asset claims a Position has
 pub fn update_position_claims(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -123,7 +123,7 @@ pub fn update_position_claims(
     Ok(())
 }
 
-//Returns Position & index of Position in User's list
+/// Returns Position & index of Position in User's list
 pub fn get_target_position(
     storage: &dyn Storage,
     valid_position_owner: Addr,
@@ -143,7 +143,7 @@ pub fn get_target_position(
 }
 
 
-//Update Position in state
+/// Replace Position data in state
 pub fn update_position(
     storage: &mut dyn Storage,
     valid_position_owner: Addr,

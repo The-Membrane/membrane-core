@@ -3,7 +3,7 @@ use cosmwasm_std::{Decimal, Uint128, Env, QuerierWrapper, Storage, to_binary, Qu
 
 use membrane::cdp::Config;
 use membrane::stability_pool::QueryMsg as SP_QueryMsg;
-use membrane::types::{Basket, Asset, cAsset, SupplyCap, AssetInfo, AssetPool};
+use membrane::types::{Basket, Asset, cAsset, SupplyCap, AssetPool};
 use membrane::helpers::get_asset_liquidity;
 use membrane::math::decimal_multiplication; 
 
@@ -11,6 +11,7 @@ use crate::state::{CONFIG, BASKET};
 use crate::query::get_cAsset_ratios;
 use crate::error::ContractError;
 
+/// Asserts that the assets provided are valid collateral assets in the basket
 pub fn assert_basket_assets(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -21,36 +22,20 @@ pub fn assert_basket_assets(
     let mut basket: Basket = BASKET.load(storage)?;
 
     //Checking if Assets for the position are available collateral assets in the basket
-    let mut valid = false;
-    let mut collateral_assets: Vec<cAsset> = Vec::new();
-
-    for asset in assets {
-        for cAsset in basket.clone().collateral_types {
-            match (asset.clone().info, cAsset.asset.info) {                    
-                (
-                    AssetInfo::NativeToken { denom },
-                    AssetInfo::NativeToken {
-                        denom: cAsset_denom,
-                    },
-                ) => {
-                    if denom == cAsset_denom {
-                        valid = true;
-                        collateral_assets.push(cAsset {
-                            asset: asset.clone(),
-                            ..cAsset
-                        });
-                    }
-                }
-                (_, _) => continue,
-            }
-        }
-
-        //Error if invalid collateral, meaning it wasn't found in the list of cAssets
-        if !valid {
-            return Err(ContractError::InvalidCollateral {});
-        }
-        valid = false;
-    }
+    let collateral_assets = assets
+        .into_iter()
+        .map(|asset| {
+            let cAsset = basket
+                .collateral_types
+                .iter()
+                .find(|cAsset| cAsset.asset.info.equal(&asset.info))
+                .ok_or(ContractError::InvalidCollateral {})?;
+            Ok(cAsset {
+                asset: asset.clone(),
+                ..cAsset.clone()
+            })
+        })
+        .collect::<Result<Vec<cAsset>, ContractError>>()?;
 
     //Add valid asset amounts to running basket total
     //This is done before deposit() so if that errors this will revert as well
@@ -71,7 +56,7 @@ pub fn assert_basket_assets(
     Ok(collateral_assets)
 }
 
-
+/// Update SupplyCap objects in Basket 
 pub fn update_basket_tally(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -160,6 +145,7 @@ pub fn update_basket_tally(
     Ok(())
 }
 
+/// Update the distribution of Basket debt per asset after Position collateral makeup changes
 pub fn update_debt_per_asset_in_position(
     storage: &mut dyn Storage,
     env: Env,
@@ -253,6 +239,7 @@ pub fn update_debt_per_asset_in_position(
     Ok(())
 }
 
+/// Update the distribution of Basket debt per asset after Position debt increases
 pub fn update_basket_debt(
     storage: &dyn Storage,
     env: Env,
@@ -344,7 +331,7 @@ pub fn update_basket_debt(
     Ok(())
 }
 
-//Get total pooled amount for the debt token
+/// Get total amount of debt token in the Stability Pool
 pub fn get_stability_pool_liquidity(
     querier: QuerierWrapper,
     config: Config,
@@ -367,6 +354,7 @@ pub fn get_stability_pool_liquidity(
     }
 }
 
+/// Calculate the debt cap for each asset in the Basket using network liquidity 
 pub fn get_basket_debt_caps(
     storage: &dyn Storage,
     querier: QuerierWrapper,

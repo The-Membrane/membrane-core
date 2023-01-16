@@ -13,6 +13,7 @@ use crate::state::{CONFIG, BASKET, get_target_position, update_position};
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
 
+/// Accrue interest for a Position
 pub fn external_accrue_call(
     deps: DepsMut, 
     info: MessageInfo,
@@ -71,7 +72,7 @@ pub fn accumulate_interest_dec(decimal: Decimal, rate: Decimal, time_elapsed: u6
     Ok(decimal_multiplication(decimal, applied_rate))
 }
 
-//Get Basket interests and then accumulate interest to all basket cAsset rate indices
+// Calculate Basket interests and then accumulate interest to all basket cAsset rate indices
 pub fn update_rate_indices(
     storage: &dyn Storage,
     querier: QuerierWrapper,
@@ -124,6 +125,7 @@ pub fn update_rate_indices(
     Ok(())
 }
 
+/// Calculate interest rates for each asset in the basket
 pub fn get_interest_rates(
     storage: &dyn Storage,
     querier: QuerierWrapper,
@@ -289,6 +291,7 @@ pub fn get_interest_rates(
     Ok(two_slope_pro_rata_rates)
 }
 
+/// Calculates the % change to accrue to the Position's debt
 fn get_credit_rate_of_change(
     storage: &dyn Storage,
     querier: QuerierWrapper,
@@ -320,10 +323,11 @@ fn get_credit_rate_of_change(
             position.collateral_assets[i].rate_index = basket_asset.rate_index;        
         }
     }    
-    //The change in index represents the rate accrued to the cAsset in the time since last accrual
+    //The change in index represents the rate accrued to the cAsset's index in the time since last accrual
     Ok(avg_change_in_index)
 }
 
+/// Accrue interest to the repayment price & Position debt amount
 pub fn accrue(
     storage: &dyn Storage,
     querier: QuerierWrapper,
@@ -339,7 +343,7 @@ pub fn accrue(
     let mut time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
 
     let mut negative_rate: bool = false;
-    let mut price_difference: Decimal;
+    let price_difference: Decimal;
     let mut credit_price_rate: Decimal = Decimal::zero();
 
     ////Controller barriers to reduce risk of manipulation///
@@ -497,6 +501,7 @@ pub fn accrue(
     Ok(())
 }
 
+/// Calculate the discounted interest for a user
 fn get_discounted_interest(
     querier: QuerierWrapper,
     discounts_contract: String,

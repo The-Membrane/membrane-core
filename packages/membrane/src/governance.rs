@@ -5,10 +5,10 @@ use std::ops::RangeInclusive;
 
 use self::helpers::is_safe_link;
 
-pub const MINIMUM_PROPOSAL_REQUIRED_THRESHOLD_PERCENTAGE: u64 = 33;
+pub const MINIMUM_PROPOSAL_REQUIRED_THRESHOLD_PERCENTAGE: u64 = 51;
 pub const MAX_PROPOSAL_REQUIRED_THRESHOLD_PERCENTAGE: u64 = 100;
 pub const MAX_PROPOSAL_REQUIRED_QUORUM_PERCENTAGE: u64 = 100;
-pub const MINIMUM_PROPOSAL_REQUIRED_QUORUM_PERCENTAGE: u64 = 1;
+pub const MINIMUM_PROPOSAL_REQUIRED_QUORUM_PERCENTAGE: u64 = 33;
 pub const VOTING_PERIOD_INTERVAL: RangeInclusive<u64> = 14400..=14 * 14400; //1 to 14 days in blocks (6 seconds per block)
 pub const DELAY_INTERVAL: RangeInclusive<u64> = 7200..=14400; // from 0.5 to 1 day in blocks (6 seconds per block)
 pub const EXPIRATION_PERIOD_INTERVAL: RangeInclusive<u64> = 14400..=100800; //1 to 14 days in blocks (6 seconds per block)

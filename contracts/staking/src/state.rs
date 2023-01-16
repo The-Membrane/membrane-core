@@ -1,4 +1,4 @@
-use membrane::types::{FeeEvent, StakeDeposit};
+use membrane::types::{FeeEvent, StakeDeposit, StakeDistributionLog};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -16,5 +16,5 @@ pub struct Totals {
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const TOTALS: Item<Totals> = Item::new("totals");
 pub const STAKED: Item<Vec<StakeDeposit>> = Item::new("stake"); //Stack of deposits
-                                                                //The amount saved is the amount of the asset per MBRN staked
-pub const FEE_EVENTS: Item<Vec<FeeEvent>> = Item::new("fee_events"); //<timestamp, asset>
+pub const FEE_EVENTS: Item<Vec<FeeEvent>> = Item::new("fee_events"); //<timestamp, asset> //The amount saved is the amount of the asset per MBRN staked
+pub const INCENTIVE_SCHEDULING: Item<StakeDistributionLog> = Item::new("stake_incentives_log"); 

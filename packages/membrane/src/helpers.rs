@@ -60,6 +60,20 @@ pub fn pool_query_and_exit(
 
 }
 
+pub fn get_pool_state_response(
+    querier: QuerierWrapper,
+    osmosis_proxy: String,
+    pool_id: u64
+) -> StdResult<PoolStateResponse>{
+    //Query Pool State
+    querier.query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: osmosis_proxy,
+        msg: to_binary(&OsmoQueryMsg::PoolState {
+            id: pool_id,
+        })?,
+    }))
+}
+
 pub fn router_native_to_native(
     router_addr: String,
     asset_to_sell: AssetInfo,
@@ -105,10 +119,34 @@ pub fn query_stability_pool_fee(
 ) -> StdResult<Decimal> {
     let resp: AssetPool = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: stability_pool,
-        msg: to_binary(&SP_QueryMsg::AssetPool { user: None, deposit_limit: 1.into()})?,
+        msg: to_binary(&SP_QueryMsg::AssetPool { 
+            user: None,
+            deposit_limit: 1.into(),
+            start_after: None,
+        })?,
     }))?;
 
     Ok(resp.liq_premium)
+}
+
+pub fn get_contract_balances(
+    querier: QuerierWrapper,
+    env: Env,
+    assets: Vec<AssetInfo>,
+) -> StdResult<Vec<Uint128>> {
+    let mut balances = vec![];
+
+    for asset in assets {
+        if let AssetInfo::NativeToken { denom } = asset {
+            balances.push(
+                querier
+                    .query_balance(env.clone().contract.address, denom)?
+                    .amount,
+            );
+        }        
+    }
+
+    Ok(balances)
 }
 
 pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
@@ -122,6 +160,26 @@ pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
     } else {
         return Err(StdError::GenericErr { msg: String::from("Native assets only") })
     }
+}
+
+//Don't use with AssetInfo::Token
+pub fn multi_native_withdrawal_msg(assets: Vec<Asset>, recipient: Addr) -> StdResult<CosmosMsg> {    
+    let coins: Vec<Coin> = assets
+        .into_iter()
+        .map(|asset| native_asset_to_coin(asset))
+        .collect::<Vec<Coin>>();
+    let message = CosmosMsg::Bank(BankMsg::Send {
+        to_address: recipient.to_string(),
+        amount: coins,
+    });
+    Ok(message)   
+}
+
+pub fn native_asset_to_coin(asset: Asset) -> Coin {    
+    Coin {
+        denom: asset.info.to_string(),
+        amount: asset.amount,
+    }    
 }
 
 pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {
@@ -179,12 +237,7 @@ pub fn validate_position_owner(
     info: MessageInfo,
     recipient: Option<String>,
 ) -> StdResult<Addr> {
-    let valid_recipient: Addr = if let Some(recipient) = recipient {
-        deps.addr_validate(&recipient)?
-    } else {
-        info.sender
-    };
-    Ok(valid_recipient)
+    recipient.map_or_else(|| Ok(info.sender), |x| deps.addr_validate(&x))
 }
 
 pub fn accumulate_interest(base: Uint128, rate: Decimal, time_elapsed: u64) -> StdResult<Uint128> {

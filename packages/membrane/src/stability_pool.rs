@@ -1,24 +1,21 @@
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use cosmwasm_schema::cw_serde;
 
 use cosmwasm_std::{Decimal, Uint128, Addr};
 
 use crate::types::{Asset, AssetPool, Deposit, UserInfo};
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub asset_pool: AssetPool,
     pub incentive_rate: Option<Decimal>,
     pub max_incentives: Option<Uint128>,
-    pub desired_ratio_of_total_credit_supply: Option<Decimal>,
     pub osmosis_proxy: String,
     pub positions_contract: String,
     pub mbrn_denom: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum ExecuteMsg {
     UpdateConfig(UpdateConfig),
     Deposit {
@@ -52,14 +49,10 @@ pub enum ExecuteMsg {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum QueryMsg {
     //Returns Config
     Config {},
-    //Get current MBRN incentive rate
-    //Returns Decimal
-    Rate {},
     //Query unclaimed incentives for a user
     //Returns Uint128
     UnclaimedIncentives { user: String },
@@ -73,32 +66,29 @@ pub enum QueryMsg {
     //Returns ClaimsResponse
     UserClaims { user: String },
     //Returns AssetPool
-    AssetPool { //Either or
-        user: Option<String>, 
-        deposit_limit: Option<u32>, 
+    AssetPool { 
+        user: Option<String>,
+        deposit_limit: Option<u32>,
+        start_after: Option<u32>,        
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct Config {
     pub owner: Addr, //Governance contract address
     pub incentive_rate: Decimal,
     pub max_incentives: Uint128,
-    //% of Supply desired in the SP.
-    //Incentives decrease as it gets closer
-    pub desired_ratio_of_total_credit_supply: Decimal,
     pub unstaking_period: u64, // in days
     pub mbrn_denom: String,
     pub osmosis_proxy: Addr,
     pub positions_contract: Addr,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct UpdateConfig {
     pub owner: Option<String>,
     pub incentive_rate: Option<Decimal>,
     pub max_incentives: Option<Uint128>,
-    pub desired_ratio_of_total_credit_supply: Option<Decimal>,
     pub unstaking_period: Option<u64>,
     pub osmosis_proxy: Option<String>,
     pub positions_contract: Option<String>,
@@ -106,17 +96,17 @@ pub struct UpdateConfig {
 }
 
 // We define a custom struct for each query response
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct LiquidatibleResponse {
     pub leftover: Decimal,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct ClaimsResponse {
     pub claims: Vec<Asset>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct DepositPositionResponse {
     pub deposit: Deposit,
     pub capital_ahead: Decimal,

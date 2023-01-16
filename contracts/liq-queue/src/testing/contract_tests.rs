@@ -5,7 +5,7 @@ use membrane::liq_queue::{
     BidResponse, Config, ExecuteMsg, InstantiateMsg, QueryMsg, QueueResponse, ClaimsResponse,
 };
 use membrane::math::{Decimal256, Uint256};
-use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
+use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::types::{AssetInfo, BidInput};
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
@@ -22,10 +22,6 @@ fn proper_initialization() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("addr0000", &[]);
@@ -59,10 +55,6 @@ fn update_config() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("addr0000", &[]);
@@ -73,7 +65,6 @@ fn update_config() {
         owner: Some("owner0001".to_string()),
         positions_contract: None,
         waiting_period: None,
-        basket_id: None,
     };
 
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -101,7 +92,6 @@ fn update_config() {
         owner: None,
         positions_contract: None,
         waiting_period: Some(100u64),
-        basket_id: None,
     };
 
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -129,7 +119,6 @@ fn update_config() {
         owner: Some("addr0000".to_string()),
         positions_contract: None,
         waiting_period: Some(60u64),
-        basket_id: None,
     };
 
     let res = execute(deps.as_mut(), mock_env(), info, msg);
@@ -151,10 +140,6 @@ fn submit_bid() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -311,10 +296,6 @@ fn retract_bid() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -414,10 +395,6 @@ fn execute_bid() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -465,7 +442,6 @@ fn execute_bid() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -494,7 +470,6 @@ fn execute_bid() {
         vec![SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: "positions_contract".to_string(),
             msg: to_binary(&CDP_ExecuteMsg::Repay {
-                basket_id: Uint128::new(1u128),
                 position_id: Uint128::new(1u128),
                 position_owner: Some("owner01".to_string()),
                 send_excess_to: None,
@@ -520,7 +495,6 @@ fn execute_bid() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -537,10 +511,6 @@ fn claim_liquidations() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -586,7 +556,6 @@ fn claim_liquidations() {
         bid_with: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        basket_id: Uint128::new(1u128),
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -632,10 +601,6 @@ fn update_queue() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("addr0000", &[]);

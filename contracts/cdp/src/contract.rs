@@ -1,39 +1,41 @@
 use std::env;
+use std::str::FromStr;
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
-    MessageInfo, Reply, Response, StdError, StdResult, Uint128, WasmMsg, QuerierWrapper,
+    MessageInfo, Reply, Response, StdError, StdResult, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 
 use membrane::debt_auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::helpers::assert_sent_native_token_balance;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
-use membrane::positions::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
+use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
 use membrane::types::{
     cAsset, Asset, AssetInfo, Basket, UserInfo,
 };
 
 use crate::error::ContractError;
+use crate::rates::external_accrue_call;
 use crate::risk_engine::assert_basket_assets;
 use crate::positions::{
     create_basket, deposit,
     edit_basket, increase_debt,
     liq_repay, mint_revenue, repay,
-    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID, get_target_position, update_position,
+    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID,
 };
-// use crate::query::{
-//     query_bad_debt, query_basket_credit_interest, query_basket_debt_caps,
-//     query_basket_positions, query_collateral_rates,
-//     query_position, query_position_insolvency,
-//     query_user_positions,
-// };
+use crate::query::{
+    query_bad_debt, query_basket_credit_interest, query_basket_debt_caps,
+    query_basket_positions, query_collateral_rates,
+    query_position, query_position_insolvency,
+    query_user_positions,
+};
 use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
-use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_sp_repay_reply, handle_close_position_reply};
+use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_close_position_reply};
 use crate::state::{
-    BASKET, CONFIG, LIQUIDATION,
+    BASKET, CONFIG, LIQUIDATION, get_target_position, update_position,
 };
 
 // version info for migration info
@@ -43,7 +45,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -60,8 +62,8 @@ pub fn instantiate(
         liquidity_contract: None,
         discounts_contract: None,
         oracle_time_limit: msg.oracle_time_limit,
-        cpc_multiplier: Decimal::one(),
-        rate_slope_multiplier: Decimal::one(),
+        cpc_multiplier: Decimal::one(), 
+        rate_slope_multiplier: Decimal::from_str("0.618").unwrap(),
         debt_minimum: msg.debt_minimum,
         base_debt_cap_multiplier: Uint128::new(21u128),
         collateral_twap_timeframe: msg.collateral_twap_timeframe,
@@ -98,11 +100,11 @@ pub fn instantiate(
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let mut attrs = vec![];
-    attrs.push(attr("method", "instantiate"));
-    attrs.push(attr("owner", info.sender.to_string()));
-
-    Ok(Response::new().add_attributes(attrs))
+    Ok(Response::new()
+        .add_attribute("method", "instantiate")
+        .add_attribute("config", format!("{:?}", config))
+        .add_attribute("contract_address", env.contract.address)
+    )
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -113,7 +115,7 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig ( update ) => update_config(deps, info, update),
+        ExecuteMsg::UpdateConfig (update) => update_config(deps, info, update),
         ExecuteMsg::Deposit { position_owner, position_id} => {
             //Set valid_assets from funds sent
             let valid_assets = info
@@ -178,7 +180,8 @@ pub fn execute(
                 credit_asset,
                 send_excess_to,
             )
-        }
+        },
+        ExecuteMsg::Accrue { position_owner, position_id } => { external_accrue_call(deps, info, env, position_owner, position_id) },
         ExecuteMsg::ClosePosition { 
             position_id, 
             max_spread, 
@@ -206,7 +209,6 @@ pub fn execute(
                 return Err(ContractError::InvalidCredit {});
             }
         }
-        ExecuteMsg::EditAdmin { owner } => edit_contract_owner(deps, info, owner),
         ExecuteMsg::EditcAsset {
             asset,
             max_borrow_LTV,
@@ -219,7 +221,7 @@ pub fn execute(
             credit_asset,
             credit_price,
             base_interest_rate,
-            credit_pool_ids,
+            credit_pool_infos,
             liquidity_multiplier_for_debt_caps,
             liq_queue,
         } => create_basket(
@@ -231,7 +233,7 @@ pub fn execute(
             credit_asset,
             credit_price,
             base_interest_rate,
-            credit_pool_ids,
+            credit_pool_infos,
             liquidity_multiplier_for_debt_caps,
             liq_queue,
         ),
@@ -262,6 +264,7 @@ pub fn execute(
     }
 }
 
+/// Edit params for a cAsset in the basket
 fn edit_cAsset(
     deps: DepsMut,
     info: MessageInfo,
@@ -277,7 +280,6 @@ fn edit_cAsset(
     }
 
     let mut basket: Basket = BASKET.load(deps.storage)?;
-
     let mut attrs = vec![
         attr("method", "edit_cAsset"),
     ];
@@ -348,6 +350,7 @@ fn edit_cAsset(
     Ok(Response::new().add_attributes(attrs).add_messages(msgs))
 }
 
+/// Update contract config
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -359,85 +362,20 @@ fn update_config(
     if info.sender != config.owner {
         return Err(ContractError::Unauthorized {});
     }
-
-    let mut attrs = vec![attr("method", "update_config")];
-
-    //Set Optionals
-    if let Some(owner) = update.owner {
-        config.owner = deps.api.addr_validate(&owner)?;
-        attrs.push(attr("new_owner", config.clone().owner.to_string()));
-    }
-    if let Some(stability_pool) = update.stability_pool {
-        config.stability_pool = Some(deps.api.addr_validate(&stability_pool)?);
-        attrs.push(attr("new_stability_pool", config.clone().stability_pool.unwrap()));
-    }
-    if let Some(dex_router) = update.dex_router {
-        config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
-        attrs.push(attr("new_dex_router", config.clone().dex_router.unwrap()));
-    }
-    if let Some(osmosis_proxy) = update.osmosis_proxy {
-        config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
-        attrs.push(attr("new_osmosis_proxy", config.clone().osmosis_proxy.unwrap()));
-    }
-    if let Some(debt_auction) = update.debt_auction {
-        config.debt_auction = Some(deps.api.addr_validate(&debt_auction)?);
-        attrs.push(attr("new_debt_auction", config.clone().debt_auction.unwrap()));
-    }
-    if let Some(staking_contract) = update.staking_contract {
-        config.staking_contract = Some(deps.api.addr_validate(&staking_contract)?);
-        attrs.push(attr("new_staking_contract", config.clone().staking_contract.unwrap()));
-    }
-    if let Some(oracle_contract) = update.oracle_contract {
-        config.oracle_contract = Some(deps.api.addr_validate(&oracle_contract)?);
-        attrs.push(attr("new_oracle_contract", config.clone().oracle_contract.unwrap()));
-    }
-    if let Some(liquidity_contract) = update.liquidity_contract {
-        config.liquidity_contract = Some(deps.api.addr_validate(&liquidity_contract)?);
-        attrs.push(attr("new_liquidity_contract", config.clone().liquidity_contract.unwrap()));
-    }
-    if let Some(discounts_contract) = update.discounts_contract {
-        config.discounts_contract = Some(deps.api.addr_validate(&discounts_contract)?);
-        attrs.push(attr("new_discounts_contract", config.clone().discounts_contract.unwrap()));
-    }
-    if let Some(liq_fee) = update.liq_fee {
-        config.liq_fee = liq_fee.clone();
-        attrs.push(attr("new_liq_fee", liq_fee.to_string()));
-    }
-    if let Some(debt_minimum) = update.debt_minimum {
-        config.debt_minimum = debt_minimum.clone();
-        attrs.push(attr("new_debt_minimum", debt_minimum.to_string()));
-    }
-    if let Some(base_debt_cap_multiplier) = update.base_debt_cap_multiplier {
-        config.base_debt_cap_multiplier = base_debt_cap_multiplier.clone();
-        attrs.push(attr("new_base_debt_cap_multiplier",base_debt_cap_multiplier.to_string()));
-    }
-    if let Some(oracle_time_limit) = update.oracle_time_limit {
-        config.oracle_time_limit = oracle_time_limit.clone();
-        attrs.push(attr("new_oracle_time_limit", oracle_time_limit.to_string()));
-    }
-    if let Some(collateral_twap_timeframe) = update.collateral_twap_timeframe {
-        config.collateral_twap_timeframe = collateral_twap_timeframe.clone();
-        attrs.push(attr("new_collateral_twap_timeframe",collateral_twap_timeframe.to_string()));
-    }
-    if let Some(credit_twap_timeframe) = update.credit_twap_timeframe {
-        config.credit_twap_timeframe = credit_twap_timeframe.clone();
-        attrs.push(attr("new_credit_twap_timeframe",credit_twap_timeframe.to_string()));
-    }
-    if let Some(cpc_multiplier) = update.cpc_multiplier {
-        config.cpc_multiplier = cpc_multiplier.clone();
-            attrs.push(attr("new_cpc_multiplier",cpc_multiplier.to_string()));
-    }
-    if let Some(rate_slope_multiplier) = update.rate_slope_multiplier {
-        config.rate_slope_multiplier = rate_slope_multiplier.clone();
-        attrs.push(attr("new_rate_slope_multiplier",rate_slope_multiplier.to_string()));
-    }
+    
+    //Update Config
+    update.update_config(deps.api, &mut config)?;
 
     //Save new Config
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::new().add_attributes(attrs))
+    Ok(Response::new().add_attributes(vec![
+        attr("method", "update_config"),
+        attr("updated_config", format!("{:?}", config))
+    ]))
 }
 
+/// Handle CallbackMsgs
 pub fn callback_handler(
     deps: DepsMut,
     env: Env,
@@ -451,6 +389,7 @@ pub fn callback_handler(
     }
 }
 
+/// Check and recapitilize Bad Debt w/ revenue or MBRN auctions
 fn check_and_fulfill_bad_debt(
     deps: DepsMut,
     env: Env,
@@ -585,7 +524,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         LIQ_QUEUE_REPLY_ID => handle_liq_queue_reply(deps, msg, env),
         STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, env, msg),
         WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
-        USER_SP_REPAY_REPLY_ID => handle_sp_repay_reply(deps, env, msg),
+        USER_SP_REPAY_REPLY_ID => handle_user_sp_repay_reply(deps, env, msg),
         CLOSE_POSITION_REPLY_ID => handle_close_position_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
@@ -596,100 +535,58 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        // QueryMsg::GetPosition {
-        //     position_id,
-        //     position_owner,
-        // } => {
-        //     to_binary(&query_position(
-        //         deps,
-        //         env,
-        //         position_id,
-        //         deps.api.addr_validate(&position_owner)?
-        //     )?)
-        // }
-        // QueryMsg::GetUserPositions {
-        //     user,
-        //     limit,
-        // } => {
-        //     to_binary(&query_user_positions(
-        //         deps, env, deps.api.addr_validate(&user)?, limit,
-        //     )?)
-        // }
-        // QueryMsg::GetBasketPositions {
-        //     start_after,
-        //     limit,
-        // } => to_binary(&query_basket_positions(
-        //     deps,
-        //     start_after,
-        //     limit,
-        // )?),
+        QueryMsg::GetPosition {
+            position_id,
+            position_owner,
+        } => {
+            to_binary(&query_position(
+                deps,
+                env,
+                position_id,
+                deps.api.addr_validate(&position_owner)?
+            )?)
+        }
+        QueryMsg::GetUserPositions {
+            user,
+            limit,
+        } => {
+            to_binary(&query_user_positions(
+                deps, env, deps.api.addr_validate(&user)?, limit,
+            )?)
+        }
+        QueryMsg::GetBasketPositions {
+            start_after,
+            limit,
+        } => to_binary(&query_basket_positions(
+            deps,
+            start_after,
+            limit,
+        )?),
         QueryMsg::GetBasket { } => to_binary(&BASKET.load(deps.storage)?),
         QueryMsg::Propagation {} => to_binary(&LIQUIDATION.load(deps.storage)?),
-        // QueryMsg::GetBasketDebtCaps { } => {
-        //     to_binary(&query_basket_debt_caps(deps, env)?)
-        // }
-        // QueryMsg::GetBasketBadDebt { } => to_binary(&query_bad_debt(deps)?),
-        // QueryMsg::GetPositionInsolvency {
-        //     position_id,
-        //     position_owner,
-        // } => to_binary(&query_position_insolvency(
-        //     deps,
-        //     env,
-        //     position_id,
-        //     position_owner,
-        // )?),
-        // QueryMsg::GetCreditRate { } => {
-        //     to_binary(&query_basket_credit_interest(deps, env)?)
-        // }
-        // QueryMsg::GetCollateralInterest { } => {
-        //     to_binary(&query_collateral_rates(deps, env)?)
-        // }
+        QueryMsg::GetBasketDebtCaps { } => {
+            to_binary(&query_basket_debt_caps(deps, env)?)
+        }
+        QueryMsg::GetBasketBadDebt { } => to_binary(&query_bad_debt(deps)?),
+        QueryMsg::GetPositionInsolvency {
+            position_id,
+            position_owner,
+        } => to_binary(&query_position_insolvency(
+            deps,
+            env,
+            position_id,
+            position_owner,
+        )?),
+        QueryMsg::GetCreditRate { } => {
+            to_binary(&query_basket_credit_interest(deps, env)?)
+        }
+        QueryMsg::GetCollateralInterest { } => {
+            to_binary(&query_collateral_rates(deps, env)?)
+        }
     }
 }
 
-pub fn get_contract_balances(
-    querier: QuerierWrapper,
-    env: Env,
-    assets: Vec<AssetInfo>,
-) -> Result<Vec<Uint128>, ContractError> {
-    let mut balances = vec![];
-
-    for asset in assets {
-        if let AssetInfo::NativeToken { denom } = asset {
-            balances.push(
-                querier
-                    .query_balance(env.clone().contract.address, denom)?
-                    .amount,
-            );
-        }        
-    }
-
-    Ok(balances)
-}
-
-pub fn edit_contract_owner(
-    deps: DepsMut,
-    info: MessageInfo,
-    owner: String,
-) -> Result<Response, ContractError> {
-    let mut config: Config = CONFIG.load(deps.storage)?;
-
-    if info.sender == config.owner {
-        let valid_owner: Addr = deps.api.addr_validate(&owner)?;
-        config.owner = valid_owner;
-
-        CONFIG.save(deps.storage, &config)?;
-    } else {
-        return Err(ContractError::NotContractOwner {});
-    }
-
-    let response = Response::new()
-        .add_attribute("method", "edit_contract_owner")
-        .add_attribute("new_owner", owner);
-
-    Ok(response)
-}
-
+/// Check for duplicate assets in a Vec<Asset>
 fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
     //No duplicates
     for (i, asset) in assets.clone().into_iter().enumerate() {

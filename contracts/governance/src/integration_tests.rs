@@ -128,7 +128,7 @@ mod tests {
                     Staking_MockQueryMsg::Config {} => Ok(to_binary(&StakingConfig {
                         owner: Addr::unchecked(""),
                         positions_contract: Some(Addr::unchecked("")),
-                        builders_contract: Some(Addr::unchecked("")),
+                        vesting_contract: Some(Addr::unchecked("")),
                         governance_contract: Some(Addr::unchecked("")),
                         osmosis_proxy: Some(Addr::unchecked("")),
                         staking_rate: Decimal::zero(),
@@ -257,8 +257,8 @@ mod tests {
 
         let msg = InstantiateMsg {
             mbrn_staking_contract_addr: staking_contract_addr.to_string(),
-            builders_contract_addr: bv_contract_addr.to_string(),
-            builders_voting_power_multiplier: Decimal::percent(33),
+            vesting_contract_addr: bv_contract_addr.to_string(),
+            vesting_voting_power_multiplier: Decimal::percent(33),
             proposal_voting_period: PROPOSAL_VOTING_PERIOD,
             expedited_proposal_voting_period: PROPOSAL_VOTING_PERIOD,
             proposal_effective_delay: PROPOSAL_EFFECTIVE_DELAY,

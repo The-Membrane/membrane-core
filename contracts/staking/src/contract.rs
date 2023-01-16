@@ -3,24 +3,23 @@ use std::env;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, coin, from_binary, to_binary, Addr, Api, BankMsg, Binary, CosmosMsg, Decimal, Deps,
+    attr, coin, to_binary, Addr, Api, BankMsg, Binary, CosmosMsg, Decimal, Deps,
     DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg, QueryRequest, WasmQuery, QuerierWrapper,
 };
 use cw2::set_contract_version;
-use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
 
-use membrane::apollo_router::{Cw20HookMsg as RouterCw20HookMsg, ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
+use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, withdrawal_msg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, ProposalStatus};
-use membrane::staking::{ Config, Cw20HookMsg, ExecuteMsg, InstantiateMsg, QueryMsg };
+use membrane::staking::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::vesting::{QueryMsg as Vesting_QueryMsg, RecipientsResponse};
-use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit};
+use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit, StakeDistributionLog, StakeDistribution};
 use membrane::math::decimal_division;
 
 use crate::error::ContractError;
 use crate::query::{query_user_stake, query_staker_rewards, query_staked, query_fee_events, query_totals};
-use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, TOTALS};
+use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, TOTALS, INCENTIVE_SCHEDULING};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:staking";
@@ -33,7 +32,7 @@ const SECONDS_PER_DAY: u64 = 86_400u64;
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -46,7 +45,10 @@ pub fn instantiate(
             vesting_contract: None,
             governance_contract: None,
             osmosis_proxy: None,
-            staking_rate: msg.staking_rate.unwrap_or_else(|| Decimal::percent(10)),
+            incentive_schedule: msg.incentive_schedule.unwrap_or_else(|| StakeDistribution {
+                rate: Decimal::percent(10),
+                duration: 90,
+            }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
             unstaking_period: msg.unstaking_period.unwrap_or(3u64),
             mbrn_denom: msg.mbrn_denom,
@@ -60,7 +62,10 @@ pub fn instantiate(
             vesting_contract: None,
             governance_contract: None,
             osmosis_proxy: None,
-            staking_rate: msg.staking_rate.unwrap_or_else(|| Decimal::percent(10)),
+            incentive_schedule: msg.incentive_schedule.unwrap_or_else(|| StakeDistribution {
+                rate: Decimal::percent(10),
+                duration: 90,
+            }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
             unstaking_period: msg.unstaking_period.unwrap_or(3u64),
             mbrn_denom: msg.mbrn_denom,
@@ -110,11 +115,18 @@ pub fn instantiate(
     //Initialize fee events
     FEE_EVENTS.save(deps.storage, &vec![])?;
 
-    let res = Response::new();
-    Ok(res.add_attributes(vec![
-        attr("method", "instantiate"),
-        attr("owner", config.owner.to_string()),
-    ]))
+    //Initialize INCENTIVE_SCHEDULING
+    INCENTIVE_SCHEDULING.save(deps.storage, &StakeDistributionLog {
+        ownership_distribution: config.clone().incentive_schedule,
+        start_time: env.block.time.seconds(),
+    })?;
+
+    
+    Ok(Response::new()
+        .add_attribute("method", "instantiate")
+        .add_attributes(attrs)
+        .add_attribute("config", format!("{:?}", config))
+        .add_attribute("contract_address", env.contract.address))
 }
 
 fn get_total_vesting(
@@ -147,19 +159,20 @@ pub fn execute(
             governance_contract,
             osmosis_proxy,
             positions_contract,
-            staking_rate,
+            incentive_schedule,
             fee_wait_period,
             unstaking_period,
         } => update_config(
             deps,
             info,
+            env,
             owner,
             positions_contract,
             vesting_contract,
             governance_contract,
             osmosis_proxy,
             mbrn_denom,
-            staking_rate,
+            incentive_schedule,
             fee_wait_period,
             unstaking_period,
             dex_router,
@@ -201,7 +214,7 @@ pub fn execute(
                     .collect::<Vec<Asset>>()
             };
 
-            deposit_fee(deps, env, info, fee_assets, false)
+            deposit_fee(deps, env, info, fee_assets)
         },
         ExecuteMsg::TrimFeeEvents {  } => trim_fee_events(deps.storage, info),
     }
@@ -210,13 +223,14 @@ pub fn execute(
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
+    env: Env,
     owner: Option<String>,
     positions_contract: Option<String>,
     vesting_contract: Option<String>,
     governance_contract: Option<String>,
     osmosis_proxy: Option<String>,
     mbrn_denom: Option<String>,
-    staking_rate: Option<Decimal>,
+    incentive_schedule: Option<StakeDistribution>,
     fee_wait_period: Option<u64>,
     unstaking_period: Option<u64>,
     dex_router: Option<String>,
@@ -235,56 +249,53 @@ fn update_config(
     if let Some(owner) = owner {
         let valid_addr = deps.api.addr_validate(&owner)?;
         config.owner = valid_addr.clone();
-        attrs.push(attr("new_owner", valid_addr.to_string()));
     };
     if let Some(max_spread) = max_spread {
         config.max_spread = Some(max_spread);
-        attrs.push(attr("new_max_spread", max_spread.to_string()));
     };
-    if let Some(mut staking_rate) = staking_rate {
+    if let Some(mut incentive_schedule) = incentive_schedule {
         //Hard code a 20% maximum
-        if staking_rate > Decimal::percent(20) {
-            staking_rate = Decimal::percent(20);
+        if incentive_schedule.rate > Decimal::percent(20) {
+            incentive_schedule.rate = Decimal::percent(20);
         }
-        config.staking_rate = staking_rate;
-        attrs.push(attr("new_staking_rate", staking_rate.to_string()));
+        config.incentive_schedule = incentive_schedule.clone();
+
+        //Set Scheduling
+        INCENTIVE_SCHEDULING.save(deps.storage, 
+            &StakeDistributionLog { 
+                ownership_distribution: incentive_schedule, 
+                start_time: env.block.time.seconds(),
+        })?;
     };
     if let Some(unstaking_period) = unstaking_period {
         config.unstaking_period = unstaking_period;
-        attrs.push(attr("new_unstaking_period", unstaking_period.to_string()));
     };
     if let Some(fee_wait_period) = fee_wait_period {
         config.fee_wait_period = fee_wait_period;
-        attrs.push(attr("new_fee_wait_period", fee_wait_period.to_string()));
     };
     if let Some(mbrn_denom) = mbrn_denom {
         config.mbrn_denom = mbrn_denom.clone();
-        attrs.push(attr("new_mbrn_denom", mbrn_denom));
     };
     if let Some(dex_router) = dex_router {
         config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
-        attrs.push(attr("new_dex_router", dex_router));
     };
     if let Some(vesting_contract) = vesting_contract {
             config.vesting_contract = Some(deps.api.addr_validate(&vesting_contract)?);
-            attrs.push(attr("new_builders_contract", vesting_contract));
     };
     if let Some(positions_contract) = positions_contract {
             config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
-            attrs.push(attr("new_positions_contract", positions_contract));
     };
     if let Some(governance_contract) = governance_contract {
         config.governance_contract = Some(deps.api.addr_validate(&governance_contract)?);
-        attrs.push(attr("new_governance_contract", governance_contract));
     };
     if let Some(osmosis_proxy) = osmosis_proxy {
             config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
-            attrs.push(attr("new_osmosis_proxy", osmosis_proxy));
     };
 
     //Save new Config
     CONFIG.save(deps.storage, &config)?;
 
+    attrs.push(attr("updated_config", format!("{:?}", config)));
     Ok(Response::new().add_attributes(attrs))
 }
 
@@ -302,7 +313,7 @@ pub fn stake(
     if info.funds.len() == 1 && info.funds[0].denom == config.mbrn_denom {
         valid_asset = assert_sent_native_token_balance(
             AssetInfo::NativeToken {
-                denom: config.mbrn_denom,
+                denom: config.clone().mbrn_denom,
             },
             &info,
         )?;
@@ -327,10 +338,14 @@ pub fn stake(
 
     //Add to Totals
     let mut totals = TOTALS.load(deps.storage)?;
-    
-    totals.stakers += valid_asset.amount;
-    TOTALS.save(deps.storage, &totals)?;
-    
+    if let Some(vesting_contract) = config.clone().vesting_contract{
+        if info.clone().sender == vesting_contract{
+            totals.vesting_contract += valid_asset.amount;
+        }
+    } else {
+        totals.stakers += valid_asset.amount;
+    }
+    TOTALS.save(deps.storage, &totals)?;    
 
     //Response build
     let response = Response::new();
@@ -351,23 +366,21 @@ pub fn unstake(
     info: MessageInfo,
     mbrn_withdraw_amount: Option<Uint128>,
 ) -> Result<Response, ContractError> {
-
     let config = CONFIG.load(deps.storage)?;
+    let fee_events = FEE_EVENTS.load(deps.storage)?;
 
     let mut msgs = vec![];
 
-    let fee_events = FEE_EVENTS.load(deps.storage)?;
-
     //Can't unstake if there is an active proposal by user
-    let proposal_list = deps.querier.query::<ProposalListResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
-        contract_addr: config.clone().governance_contract.unwrap().to_string(), 
-        msg: to_binary(&Gov_QueryMsg::Proposals { start: None, limit: None })?
-    }))?;
-    for proposal in proposal_list.proposal_list {
-        if proposal.submitter == info.sender && proposal.status == ProposalStatus::Active {
-            return Err(ContractError::CustomError { val: String::from("Can't unstake while your proposal is active") })
-        }
-    }
+    // let proposal_list = deps.querier.query::<ProposalListResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+    //     contract_addr: config.clone().governance_contract.unwrap().to_string(), 
+    //     msg: to_binary(&Gov_QueryMsg::Proposals { start: None, limit: None })?
+    // }))?;
+    // for proposal in proposal_list.proposal_list {
+    //     if proposal.submitter == info.sender && proposal.status == ProposalStatus::Active {
+    //         return Err(ContractError::CustomError { val: String::from("Can't unstake while your proposal is active") })
+    //     }
+    // }
 
     //Get total Stake
     let total_stake = {
@@ -461,10 +474,15 @@ pub fn unstake(
         msgs.push(message);
     }
 
-    //Correct Totals
+    //Update Totals
     let mut totals = TOTALS.load(deps.storage)?;
-    totals.stakers -= withdrawable_amount;
-    
+    if let Some(vesting_contract) = config.clone().vesting_contract{
+        if info.clone().sender == vesting_contract{
+            totals.vesting_contract -= withdrawable_amount;
+        }
+    } else {
+        totals.stakers -= withdrawable_amount;
+    }
     TOTALS.save(deps.storage, &totals)?;
 
     //Response builder
@@ -530,9 +548,8 @@ fn withdraw_from_state(
     mut withdrawal_amount: Uint128,
     fee_events: Vec<FeeEvent>,
 ) -> StdResult<(Vec<Asset>, Uint128, Uint128)> {
-
     let config = CONFIG.load(storage)?;
-
+    let incentive_schedule = INCENTIVE_SCHEDULING.load(storage)?;
     let deposits = STAKED.load(storage)?;
 
     let mut new_deposit_total = Uint128::zero();
@@ -564,6 +581,7 @@ fn withdraw_from_state(
                     //Calc claimables from this deposit
                     let (deposit_claimables, deposit_interest) = match get_deposit_claimables(
                         config.clone(),
+                        incentive_schedule.clone(),
                         env.clone(),
                         fee_events.clone(),
                         deposit.clone(),
@@ -628,6 +646,7 @@ fn withdraw_from_state(
                     //Calc claimables from this deposit
                     let (deposit_claimables, deposit_interest) = match get_deposit_claimables(
                         config.clone(),
+                        incentive_schedule.clone(),
                         env.clone(),
                         fee_events.clone(),
                         deposit.clone(),
@@ -840,14 +859,8 @@ fn deposit_fee(
     env: Env,
     info: MessageInfo,
     fee_assets: Vec<Asset>,
-    cw20_contract: bool,
 ) -> Result<Response, ContractError> {
-
     let config = CONFIG.load(deps.storage)?;
-
-    if info.sender != config.positions_contract.unwrap() && !cw20_contract {
-        return Err(ContractError::Unauthorized {});
-    }
 
     //Load Fee Events
     let mut fee_events = FEE_EVENTS.load(deps.storage)?;
@@ -863,21 +876,17 @@ fn deposit_fee(
         TOTALS.save(deps.storage, &totals)?;
     }
 
-
     //Set total
     let mut total = totals.vesting_contract + totals.stakers;
-
     if total.is_zero() {
         total = Uint128::new(1u128)
     }
-
     let decimal_total = Decimal::from_ratio(total, Uint128::new(1u128));
-
     
     //Add new Fee Event
     for asset in fee_assets.clone() {
         let amount = Decimal::from_ratio(asset.amount, Uint128::new(1u128));
-
+        
         fee_events.push(FeeEvent {
             time_of_event: env.block.time.seconds(),
             fee: LiqAsset {
@@ -933,133 +942,7 @@ fn user_claims(
         //Router usage
         for asset in user_claimables.clone() {
             match asset.info {
-                AssetInfo::Token { address } => {
-                    //Swap to Cw20 before sending or depositing
-                    if claim_as_cw20.is_some() {
-                        let valid_claim_addr =
-                            api.addr_validate(&claim_as_cw20.clone().unwrap())?;
-
-                        if send_to.clone().is_some() {
-                            //Send to Optional receipient
-                            let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
-                            //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterCw20HookMsg::Swap {
-                                to: SwapToAssetsInput::Single(AssetInfo::Token {
-                                    address: valid_claim_addr,
-                                }),
-                                max_spread: Some(
-                                    config
-                                        .clone()
-                                        .max_spread
-                                        .unwrap_or_else(|| Decimal::percent(10)),
-                                ),
-                                recipient: Some(valid_receipient.to_string()),
-                                hook_msg: None,
-                            };
-
-                            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: address.to_string(),
-                                msg: to_binary(&Cw20ExecuteMsg::Send {
-                                    contract: config.clone().dex_router.unwrap().to_string(),
-                                    amount: asset.amount,
-                                    msg: to_binary(&swap_hook)?,
-                                })?,
-                                funds: vec![],
-                            });
-
-                            messages.push(message);
-                        } else {
-                            //Send to Staker
-                            //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterCw20HookMsg::Swap {
-                                to: SwapToAssetsInput::Single(AssetInfo::Token {
-                                    address: valid_claim_addr,
-                                }),
-                                max_spread: Some(
-                                    config
-                                        .clone()
-                                        .max_spread
-                                        .unwrap_or_else(|| Decimal::percent(10)),
-                                ),
-                                recipient: Some(info.clone().sender.to_string()),
-                                hook_msg: None,
-                            };
-
-                            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: address.to_string(),
-                                msg: to_binary(&Cw20ExecuteMsg::Send {
-                                    contract: config.clone().dex_router.unwrap().to_string(),
-                                    amount: asset.amount,
-                                    msg: to_binary(&swap_hook)?,
-                                })?,
-                                funds: vec![],
-                            });
-
-                            messages.push(message);
-                        }
-                    }
-                    //Swap to native before sending or depositing
-                    else if claim_as_native.is_some() {
-                        if send_to.clone().is_some() {
-                            //Send to Optional receipient
-                            let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
-                            //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterCw20HookMsg::Swap {
-                                to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
-                                    denom: claim_as_native.clone().unwrap(),
-                                }),
-                                max_spread: Some(
-                                    config
-                                        .clone()
-                                        .max_spread
-                                        .unwrap_or_else(|| Decimal::percent(10)),
-                                ),
-                                recipient: Some(valid_receipient.to_string()),
-                                hook_msg: None,
-                            };
-
-                            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: address.to_string(),
-                                msg: to_binary(&Cw20ExecuteMsg::Send {
-                                    contract: config.clone().dex_router.unwrap().to_string(),
-                                    amount: asset.amount,
-                                    msg: to_binary(&swap_hook)?,
-                                })?,
-                                funds: vec![],
-                            });
-
-                            messages.push(message);
-                        } else {
-                            //Send to Staker
-                            //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterCw20HookMsg::Swap {
-                                to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
-                                    denom: claim_as_native.clone().unwrap(),
-                                }),
-                                max_spread: Some(
-                                    config
-                                        .clone()
-                                        .max_spread
-                                        .unwrap_or_else(|| Decimal::percent(10)),
-                                ),
-                                recipient: Some(info.clone().sender.to_string()),
-                                hook_msg: None,
-                            };
-
-                            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: address.to_string(),
-                                msg: to_binary(&Cw20ExecuteMsg::Send {
-                                    contract: config.clone().dex_router.unwrap().to_string(),
-                                    amount: asset.amount,
-                                    msg: to_binary(&swap_hook)?,
-                                })?,
-                                funds: vec![],
-                            });
-
-                            messages.push(message);
-                        }
-                    }
-                }
+                AssetInfo::Token { address:_ } => { },
                 /////Starting token is native so msgs go straight to the router contract
                 AssetInfo::NativeToken { denom: _ } => {
                     //Swap to Cw20 before sending or depositing
@@ -1213,6 +1096,7 @@ fn get_user_claimables(
     for deposit in deposits {
         let (deposit_claimables, deposit_interest) = get_deposit_claimables(
             config.clone(),
+            INCENTIVE_SCHEDULING.load(storage)?,
             env.clone(),
             fee_events.clone(),
             deposit.clone(),
@@ -1289,12 +1173,12 @@ fn trim_fee_events(
 
 //Get deposit's claimable fee based on which FeeEvents it experienced
 pub fn get_deposit_claimables(
-    config: Config,
+    mut config: Config,
+    incentive_schedule: StakeDistributionLog,
     env: Env,
     fee_events: Vec<FeeEvent>,
     deposit: StakeDeposit,
 ) -> StdResult<(Vec<Asset>, Uint128)> {
-
     let mut claimables: Vec<Asset> = vec![];
 
     //Filter for events that the deposit was staked for
@@ -1322,9 +1206,15 @@ pub fn get_deposit_claimables(
         }
     }
 
+    //Assert staking rate is still active, if not set to 0
+    let rate_duration = incentive_schedule.ownership_distribution.duration * SECONDS_PER_DAY;
+    if env.block.time.seconds() - incentive_schedule.start_time > rate_duration {
+        config.incentive_schedule.rate = Decimal::zero();
+    }
+
     //Calc MBRN denominated rewards
     let time_elapsed = env.block.time.seconds() - deposit.stake_time;
-    let deposit_interest = accumulate_interest(deposit.amount, config.staking_rate, time_elapsed)?;
+    let deposit_interest = accumulate_interest(deposit.amount, config.incentive_schedule.rate, time_elapsed)?;
 
     Ok((claimables, deposit_interest))
 }
@@ -1352,6 +1242,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_binary(&query_fee_events(deps, limit, start_after)?)
         }
         QueryMsg::TotalStaked {} => to_binary(&query_totals(deps)?),
+        QueryMsg::IncentiveSchedule {  } => to_binary(&INCENTIVE_SCHEDULING.load(deps.storage)?),
     }
 }
 

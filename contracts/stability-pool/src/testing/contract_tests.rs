@@ -12,7 +12,7 @@ use cosmwasm_std::{
 use cw20::Cw20ReceiveMsg;
 
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
-use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
+use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::stability_pool::{
     Config, ClaimsResponse, ExecuteMsg, InstantiateMsg, LiquidatibleResponse,
     QueryMsg, DepositPositionResponse, UpdateConfig
@@ -35,7 +35,6 @@ fn deposit() {
             liq_premium: Decimal::zero(),
             deposits: vec![],
         },
-        desired_ratio_of_total_credit_supply: None,
         osmosis_proxy: String::from("osmosis_proxy"),
         positions_contract: String::from("positions_contract"),
         mbrn_denom: String::from("mbrn_denom"),
@@ -68,11 +67,15 @@ fn deposit() {
     let res = query(
         deps.as_ref(),
         mock_env(),
-        QueryMsg::AssetPool {  }
+        QueryMsg::AssetPool { 
+            user: Some(String::from("sender88")),
+            deposit_limit: None,
+            start_after: None,
+        }
     ).unwrap();
 
     let resp: AssetPool = from_binary(&res).unwrap();
-    if resp.deposits.into_iter().any(|deposit| deposit.user.to_string() == String::from("sender88")){
+    if resp.deposits != vec![]{
         panic!("State wasn't saved correctly");
     }
 
@@ -94,7 +97,10 @@ fn deposit() {
     let res = query(
         deps.as_ref(),
         mock_env(),
-        QueryMsg::AssetPool { },
+        QueryMsg::AssetPool { 
+            user: Some(String::from("sender88")),
+            deposit_limit: None,
+            start_after: None, },
     )
     .unwrap();
 
@@ -121,7 +127,6 @@ fn withdrawal() {
             liq_premium: Decimal::zero(),
             deposits: vec![],
         },
-        desired_ratio_of_total_credit_supply: None,
         osmosis_proxy: String::from("osmosis_proxy"),
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
@@ -143,22 +148,15 @@ fn withdrawal() {
     let info = mock_info("sender88", &coins(11, "credit"));
     let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
 
-    //Invalid Asset
-    let asset = Asset {
-        info: AssetInfo::NativeToken {
-            denom: "notcredit".to_string(),
-        },
-        amount: Uint128::zero(),
-    };
-
-    let withdraw_msg = ExecuteMsg::Withdraw { asset };
-    let _res = execute(deps.as_mut(), mock_env(), info.clone(), withdraw_msg);
-
     //Query position data to make sure nothing was withdrawn
     let res = query(
         deps.as_ref(),
         mock_env(),
-        QueryMsg::AssetPool {  }
+        QueryMsg::AssetPool { 
+            user: Some(String::from("sender88")),
+            deposit_limit: None,
+            start_after: None,
+        }
     )
     .unwrap();
 
@@ -167,14 +165,7 @@ fn withdrawal() {
     /////////////////////
 
     //Invalid Withdrawal "Amount too high"
-    let asset = Asset {
-        info: AssetInfo::NativeToken {
-            denom: "credit".to_string(),
-        },
-        amount: Uint128::new(24u128),
-    };
-
-    let withdraw_msg = ExecuteMsg::Withdraw { asset };
+    let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(24u128) };
     let empty_info = mock_info("sender88", &[]);
     let res = execute(deps.as_mut(), mock_env(), empty_info, withdraw_msg);
 
@@ -187,15 +178,7 @@ fn withdrawal() {
     }
    
     //Successful Withdraw
-    let asset =
-        Asset {
-            info: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-            amount: Uint128::from(12u128),
-        };
-
-    let withdraw_msg = ExecuteMsg::Withdraw { asset };
+    let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::from(12u128) };
 
     //First msg is to begin unstaking
     execute(
@@ -210,7 +193,11 @@ fn withdrawal() {
     let res = query(
         deps.as_ref(),
         mock_env(),
-        QueryMsg::AssetPool {  }
+        QueryMsg::AssetPool { 
+            user: None,
+            deposit_limit: None,
+            start_after: None,
+        }
     )
     .unwrap();
 
@@ -240,15 +227,7 @@ fn withdrawal() {
     execute(deps.as_mut(), mock_env(), info.clone(), restake_msg).unwrap();
 
     //Successful ReWithdraw
-    let asset = 
-        Asset {
-            info: AssetInfo::NativeToken {
-                denom: "credit".to_string(),
-            },
-            amount: Uint128::from(12u128),
-        };
-
-    let withdraw_msg = ExecuteMsg::Withdraw { asset };
+    let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::from(12u128) };
 
     //First msg is to begin unstaking
     let res = execute(
@@ -285,27 +264,29 @@ fn withdrawal() {
     let res = query(
         deps.as_ref(),
         mock_env(),
-        QueryMsg::AssetPool {  }
+        QueryMsg::AssetPool { 
+            user: None,
+            deposit_limit: None,
+            start_after: None,
+        }
     )
     .unwrap();
     let resp: AssetPool = from_binary(&res).unwrap();
     assert_eq!(resp.deposits[0].to_string(), "sender88 10".to_string());
 
     //Successful attempt
-    let asset = Asset {
-        info: AssetInfo::NativeToken {
-            denom: "credit".to_string(),
-        },
-        amount: Uint128::from(10u128),
-    };
-    let withdraw_msg = ExecuteMsg::Withdraw { asset };
+    let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::from(10u128) };
     let res = execute(deps.as_mut(), env.clone(), info.clone(), withdraw_msg.clone()).unwrap();
 
     //Query position data to make sure it was deleted from state
     let res = query(
         deps.as_ref(),
         mock_env(),
-        QueryMsg::AssetPool {  }
+        QueryMsg::AssetPool { 
+            user: None,
+            deposit_limit: None,
+            start_after: None,
+        }
     ).unwrap();
     let resp: AssetPool = from_binary(&res).unwrap();
     
@@ -330,7 +311,6 @@ fn liquidate() {
             liq_premium: Decimal::zero(),
             deposits: vec![],
         },
-        desired_ratio_of_total_credit_supply: None,
         osmosis_proxy: String::from("osmosis_proxy"),
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
@@ -418,7 +398,6 @@ fn liquidate_bignums() {
             liq_premium: Decimal::zero(),
             deposits: vec![],
         },
-        desired_ratio_of_total_credit_supply: None,
         osmosis_proxy: String::from("osmosis_proxy"),
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
@@ -486,7 +465,6 @@ fn distribute() {
             liq_premium: Decimal::zero(),
             deposits: vec![],
         },
-        desired_ratio_of_total_credit_supply: None,
         osmosis_proxy: String::from("osmosis_proxy"),
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
@@ -607,7 +585,11 @@ fn distribute() {
     let res = query(
         deps.as_ref(),
         mock_env(),
-        QueryMsg::AssetPool {  }
+        QueryMsg::AssetPool { 
+            user: None,
+            deposit_limit: None,
+            start_after: None,
+        }
     )
     .unwrap();
     let resp: AssetPool = from_binary(&res).unwrap();
@@ -619,7 +601,11 @@ fn distribute() {
     let res = query(
         deps.as_ref(),
         mock_env(),
-        QueryMsg::AssetPool {  }
+        QueryMsg::AssetPool {
+            user: None,
+            deposit_limit: None,
+            start_after: None,
+        }
     )
     .unwrap();
 
@@ -711,7 +697,6 @@ fn distribute_bignums() {
             liq_premium: Decimal::zero(),
             deposits: vec![],
         },
-        desired_ratio_of_total_credit_supply: None,
         osmosis_proxy: String::from("osmosis_proxy"),
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
@@ -839,7 +824,11 @@ fn distribute_bignums() {
     let res = query(
         deps.as_ref(),
         mock_env(),
-        QueryMsg::AssetPool {  }
+        QueryMsg::AssetPool {
+            user: None,
+            deposit_limit: None,
+            start_after: None,
+        }
     )
     .unwrap();
     let resp: AssetPool = from_binary(&res).unwrap();
@@ -871,7 +860,6 @@ fn claims() {
             liq_premium: Decimal::zero(),
             deposits: vec![],
         },
-        desired_ratio_of_total_credit_supply: None,
         osmosis_proxy: String::from("osmosis_proxy"),
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
@@ -979,7 +967,6 @@ fn cdp_repay() {
             liq_premium: Decimal::zero(),
             deposits: vec![],
         },
-        desired_ratio_of_total_credit_supply: None,
         osmosis_proxy: String::from("osmosis_proxy"),
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
@@ -1116,7 +1103,11 @@ fn cdp_repay() {
     let res = query(
         deps.as_ref(),
         mock_env(),
-        QueryMsg::AssetPool { },
+        QueryMsg::AssetPool {
+            user: None,
+            deposit_limit: None,
+            start_after: None,
+        },
     )
     .unwrap();
 
@@ -1144,7 +1135,6 @@ fn update_config(){
             liq_premium: Decimal::zero(),
             deposits: vec![],
         },
-        desired_ratio_of_total_credit_supply: None,
         osmosis_proxy: String::from("osmosis_proxy"),
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
@@ -1159,8 +1149,7 @@ fn update_config(){
     let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
         owner: Some(String::from("new_owner")),
         incentive_rate: Some(Decimal::one()), 
-        max_incentives: Some(Uint128::new(100)),
-        desired_ratio_of_total_credit_supply: Some(Decimal::one()),  
+        max_incentives: Some(Uint128::new(100)), 
         unstaking_period: Some(1),  
         osmosis_proxy: Some(String::from("new_op")), 
         positions_contract: Some(String::from("new_cdp")), 
@@ -1190,7 +1179,6 @@ fn update_config(){
             owner: Addr::unchecked("new_owner"),
             incentive_rate: Decimal::one(), 
             max_incentives: Uint128::new(100),
-            desired_ratio_of_total_credit_supply: Decimal::one(),  
             unstaking_period: 1,  
             osmosis_proxy: Addr::unchecked("new_op"), 
             positions_contract: Addr::unchecked("new_cdp"), 
@@ -1215,7 +1203,6 @@ fn capital_ahead_of_deposits() {
             liq_premium: Decimal::zero(),
             deposits: vec![],
         },
-        desired_ratio_of_total_credit_supply: None,
         osmosis_proxy: String::from("osmosis_proxy"),
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,

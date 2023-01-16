@@ -2,14 +2,15 @@ use std::str::FromStr;
 
 use cosmwasm_std::{
     attr, entry_point, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, 
-    Response, StdResult, Uint128, WasmQuery, SubMsg, Storage, Addr, CosmosMsg, WasmMsg, Reply, StdError, QueryRequest, Decimal, QuerierWrapper, Attribute,
+    Response, StdResult, Uint128, WasmQuery, SubMsg, Storage, Addr, CosmosMsg, WasmMsg, Reply, StdError, QueryRequest, Decimal, QuerierWrapper, Attribute, Order,
 };
 use cw2::set_contract_version;
 
+use cw_storage_plus::Bound;
 use membrane::helpers::router_native_to_native;
 use membrane::margin_proxy::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::decimal_multiplication;
-use membrane::positions::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, PositionResponse, PositionsResponse};
+use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, PositionResponse, PositionsResponse};
 use membrane::types::{Position, AssetInfo, Basket};
 
 use crate::error::ContractError;
@@ -18,6 +19,10 @@ use crate::state::{CONFIG, COMPOSITION_CHECK, USERS, NEW_POSITION_INFO, NUM_OF_L
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "margin_proxy";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// Pagination defaults
+const PAGINATION_DEFAULT_LIMIT: u64 = 10;
+const PAGINATION_MAX_LIMIT: u64 = 30;
 
 //Reply IDs
 const EXISTING_DEPOSIT_REPLY_ID: u64 = 1u64;
@@ -28,7 +33,7 @@ const CLOSE_POSITION_REPLY_ID: u64 = 4u64;
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -54,7 +59,10 @@ pub fn instantiate(
     //Save Config
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::default())
+    Ok(Response::new()
+        .add_attribute("config", format!("{:?}", config))
+        .add_attribute("contract_address", env.contract.address)
+    )
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -213,7 +221,6 @@ fn deposit_to_cdp(
     info: MessageInfo,    
     position_id: Option<Uint128>,
 ) -> Result<Response, ContractError>{
-
     //Load Config
     let config = CONFIG.load( deps.storage )?;
 
@@ -221,6 +228,11 @@ fn deposit_to_cdp(
     if let Some(position_id) = position_id {
         validate_user_ownership(deps.storage, info.clone().sender, position_id.clone())?;        
     };
+
+    //Errors if any assets are Osmosis LPs
+    if info.clone().funds.into_iter().any(|coin| coin.denom.contains("gamm")){
+        return Err(ContractError::NoLPs {  })
+    }
    
     //Create Reponse objects
     let sub_msg: SubMsg;
@@ -472,19 +484,7 @@ fn handle_close_position_reply(
                 .into_iter()
                 .find(|e| e.attributes.iter().any(|attr| attr.key == "basket_id"))
                 .ok_or_else(|| StdError::generic_err(format!("unable to find close_position event")))?;
-
-            let basket_id = {                
-                let string_id = &close_position_event
-                    .attributes
-                    .iter()
-                    .find(|attr| attr.key == "basket_id")
-                    .unwrap()
-                    .value;
-
-                Uint128::from_str(string_id).unwrap()
-                    
-            };
-
+            
             let position_id = {                
                 let string_id = &close_position_event
                     .attributes
@@ -639,15 +639,46 @@ fn handle_new_deposit_reply(
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::GetUserPositions { user } => to_binary(&query_user_positions(deps, env, user)?)
+        QueryMsg::GetUserPositions { user } => to_binary(&query_user_positions(deps, env, user)?),
+        QueryMsg::GetPositionIDs { limit, start_after } => to_binary(&query_positions(deps, limit, start_after)?),
     }
+}
+
+fn query_positions(
+    deps: Deps,
+    option_limit: Option<u64>, //User limit
+    start_after: Option<String>, //user    
+) -> StdResult<Vec<Uint128>>{
+    
+    let limit = option_limit
+        .unwrap_or(PAGINATION_DEFAULT_LIMIT)
+        .min(PAGINATION_MAX_LIMIT) as usize;
+    
+    let start = if let Some(start) = start_after {
+        let start_after_addr = deps.api.addr_validate(&start)?;
+        Some(Bound::exclusive(start_after_addr))
+    } else {
+        None
+    };
+    let mut positions: Vec<Uint128> = vec![];
+
+    let _iter = USERS
+        .range(deps.storage, start, None, Order::Ascending)
+        .take(limit)
+        .map(|user| {
+            let (_user, user_positions) = user.unwrap();
+            
+            positions.extend(user_positions);
+        });
+
+    Ok(positions)
 }
 
 fn query_user_positions(
     deps: Deps,
     env: Env,
     user: String,
-)-> StdResult<Vec<PositionResponse>>{
+) -> StdResult<Vec<PositionResponse>>{
     //Load Config
     let config: Config = CONFIG.load(deps.storage)?;
 

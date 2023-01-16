@@ -2,13 +2,13 @@ use std::str::FromStr;
 
 use cosmwasm_std::{
     attr, entry_point, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Order,
-    QueryRequest, Response, StdResult, Uint128, WasmQuery,
+    QueryRequest, Response, StdResult, Uint128, WasmQuery, Decimal
 };
 use cw2::set_contract_version;
 
 use membrane::liquidity_check::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
-use membrane::types::{AssetInfo, LiquidityInfo, PoolStateResponse};
+use membrane::types::{AssetInfo, LiquidityInfo, PoolStateResponse, PoolType};
 
 use cw_storage_plus::Bound;
 
@@ -24,7 +24,7 @@ const MAX_LIMIT: u64 = 31u64;
 
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -36,18 +36,24 @@ pub fn instantiate(
             owner: deps.api.addr_validate(&owner)?,
             osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
+            stableswap_multiplier: Decimal::percent(10_00),
         };
     } else {
         config = Config {
             owner: info.sender,
             osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
+            stableswap_multiplier: Decimal::percent(10_00),
         };
     }
 
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::default())
+    Ok(Response::new()    
+        .add_attribute("method", "instantiate")
+        .add_attribute("config", format!("{:?}", config))
+        .add_attribute("contract_address", env.contract.address)
+    )
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -65,7 +71,8 @@ pub fn execute(
             owner,
             osmosis_proxy,
             positions_contract,
-        } => update_config(deps, info, owner, osmosis_proxy, positions_contract),
+            stableswap_multiplier,
+        } => update_config(deps, info, owner, osmosis_proxy, positions_contract, stableswap_multiplier),
     }
 }
 
@@ -89,7 +96,7 @@ fn add_asset(
         ASSETS.save(deps.storage, asset.asset.to_string(), &asset)?;
 
         attrs.push(attr("added_asset", asset.asset.to_string()));
-        attrs.push(attr("pool_ids", format!("{:?}", asset.pool_ids)));
+        attrs.push(attr("pool_infos", format!("{:?}", asset.pool_infos)));
     } else {
         return Err(ContractError::CustomError {
             val: String::from("Duplicate assets"),
@@ -121,11 +128,11 @@ fn edit_asset(
         |stored_asset| -> Result<LiquidityInfo, ContractError> {
             //Can easily add new fields if multiple DEXs are desired
             if let Some(mut stored_asset) = stored_asset {
-                stored_asset.pool_ids.extend(asset.clone().pool_ids);
+                stored_asset.pool_infos.extend(asset.clone().pool_infos);
 
                 attrs.push(attr(
-                    "added_pool_ids",
-                    format!("{:?}", asset.clone().pool_ids),
+                    "added_pool_infos",
+                    format!("{:?}", asset.clone().pool_infos),
                 ));
 
                 Ok(stored_asset)
@@ -168,6 +175,7 @@ fn update_config(
     owner: Option<String>,
     osmosis_proxy: Option<String>,
     positions_contract: Option<String>,
+    stableswap_multiplier: Option<Decimal>,
 ) -> Result<Response, ContractError> {
 
     let mut config = CONFIG.load(deps.storage)?;
@@ -187,11 +195,15 @@ fn update_config(
     if let Some(addr) = positions_contract {
         config.positions_contract = deps.api.addr_validate(&addr)?;
     }
+    if let Some(multiplier) = stableswap_multiplier {
+        config.stableswap_multiplier = multiplier;
+    }
 
     //Save Config
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::new())
+    Ok(Response::new()
+        .add_attribute("updated_config", format!("{:?}", config)))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -244,7 +256,16 @@ fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<Uint128> {
 
     let mut total_pooled = Uint128::zero();
 
-    for id in asset.pool_ids {
+    for info in asset.pool_infos {
+        //Set ID and liquidity multiplier
+        let (id, multiplier) = { 
+            if let PoolType::Balancer { pool_id } = info {
+                (pool_id, Decimal::one())
+            } else if let PoolType::StableSwap { pool_id } = info {
+                (pool_id, config.clone().stableswap_multiplier)
+            } else { (0, Decimal::zero()) }
+        };
+
         let res: PoolStateResponse = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.clone().osmosis_proxy.to_string(),
             msg: to_binary(&OsmoQueryMsg::PoolState { id })?,
@@ -259,7 +280,7 @@ fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<Uint128> {
                 return Err(cosmwasm_std::StdError::GenericErr { msg: format!("This LP doesn't contain {}", denom) })
             };
 
-        total_pooled += pooled_amount;
+        total_pooled += pooled_amount * multiplier;
     }
 
     Ok(total_pooled)

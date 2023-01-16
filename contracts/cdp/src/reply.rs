@@ -2,20 +2,16 @@ use std::str::FromStr;
 
 use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, Api, CosmosMsg, Storage, QuerierWrapper};
 
-use membrane::types::{AssetInfo, Asset, Basket, LiqAsset};
+use membrane::types::{AssetInfo, Asset};
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
-use membrane::positions::{Config, ExecuteMsg};
+use membrane::cdp::{Config, ExecuteMsg};
 use membrane::math::decimal_subtraction;
-use membrane::helpers::withdrawal_msg;
+use membrane::helpers::{withdrawal_msg, get_contract_balances};
 
-use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, CONFIG, BASKET, CLOSE_POSITION, ClosePositionPropagation};
-use crate::contract::get_contract_balances;
-use crate::positions::{get_target_position, update_position_claims};
+use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, CONFIG, BASKET, CLOSE_POSITION, ClosePositionPropagation, get_target_position, update_position_claims};
 use crate::liquidations::{query_stability_pool_liquidatible, STABILITY_POOL_REPLY_ID, sell_wall_using_ids};
 
-//On success....
-//Update position claims
-//attempt to withdraw leftover using a WithdrawMsg
+/// On success, update position claims & attempt to withdraw leftover using a WithdrawMsg
 pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.result.into_result() {
         Ok(_result) => {
@@ -80,7 +76,9 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
     }
 }
 
-pub fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+/// On error of an user's Stability Pool repayment, leave leftover handling to the SP reply unless SP wasn't called.
+/// If so, sell wall the leftover.
+pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.result.into_result() {
         Ok(_result) => {
             //Its reply on error only
@@ -89,7 +87,7 @@ pub fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
         Err(string) => {
             //If error, do nothing if the SP was used
             //The SP reply will handle the sell wall
-            let mut submessages: Vec<SubMsg> = vec![];
+            let submessages: Vec<SubMsg> = vec![];
             let mut messages = vec![];
             let mut repay_amount = Decimal::zero();
             let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
@@ -100,7 +98,7 @@ pub fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                 repay_amount = prop.clone().user_repay_amount;
 
                 //Sell wall asset's repayment amount
-                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut prop, &mut submessages, repay_amount.clone())?);
+                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut prop, repay_amount.clone())?);
 
             } else {                    
                 //Since Error && SP was used (ie there will be a reply later in the execution)...
@@ -111,7 +109,7 @@ pub fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
             LIQUIDATION.save(deps.storage, &prop)?;
 
             Ok(Response::new()
-                .add_messages(messages)
+                //.add_messages(messages)
                 .add_submessages(submessages)
                 .add_attribute("error", string)
                 .add_attribute("sent_to_sell_wall", repay_amount.to_string()))
@@ -119,6 +117,8 @@ pub fn handle_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
     }
 }
 
+/// Validate withdrawls by asserting that the amount withdrawn is less than or equal to the amount of the asset in the contract.
+/// Assert new cAssets amount was saved correctly.
 pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     //Initialize Response Attributes
     let mut attrs = vec![];
@@ -129,10 +129,10 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
             let mut withdraw_prop = WITHDRAW.load(deps.storage)?;
 
             //Assert valid withdrawal for each asset this reply is
-            for _i in 0..withdraw_prop.reply_order[0] {
-                let asset_info: AssetInfo = withdraw_prop.positions_prev_collateral[0].clone().info;
-                let position_amount: Uint128 = withdraw_prop.positions_prev_collateral[0].amount;
-                let withdraw_amount: Uint128 = withdraw_prop.withdraw_amounts[0];
+            for (i, prev_collateral) in withdraw_prop.clone().positions_prev_collateral.into_iter().enumerate() {
+                let asset_info: AssetInfo = prev_collateral.info.clone();
+                let position_amount: Uint128 = prev_collateral.amount;
+                let withdraw_amount: Uint128 = withdraw_prop.withdraw_amounts[i];
 
                 let current_asset_balance = match get_contract_balances(
                     deps.querier,
@@ -148,7 +148,7 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                 };
 
                 //If balance differnce is more than what they tried to withdraw, error
-                if withdraw_prop.contracts_prev_collateral_amount[0] - current_asset_balance > withdraw_amount {
+                if withdraw_prop.contracts_prev_collateral_amount[i] - current_asset_balance > withdraw_amount {
                     return Err(StdError::GenericErr {
                         msg: format!(
                             "Conditional 1: Invalid withdrawal, possible bug found by {}",
@@ -198,18 +198,7 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                     }
                     .to_string(),
                 ));
-
-                //Remove the first entry from each field
-                withdraw_prop.positions_prev_collateral.remove(0);
-                withdraw_prop.withdraw_amounts.remove(0);
-                withdraw_prop.contracts_prev_collateral_amount.remove(0);
             }
-
-            //Remove used reply_order entry
-            withdraw_prop.reply_order.remove(0);
-
-            //Save new prop
-            WITHDRAW.save(deps.storage, &withdraw_prop)?;
 
             //We can go by first entries for these fields bc the replies will come in FIFO in terms of assets sent
         } //We only reply on success
@@ -219,6 +208,7 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
     Ok(Response::new().add_attributes(attrs))
 }
 
+/// The reply used to handle all liquidation leftovers. Prioritizes use of the SP, then the sell wall.
 pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     //Initialize Response Attributes
     let mut attrs = vec![];
@@ -265,7 +255,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 + Decimal::from_ratio(leftover_amount, Uint128::new(1u128));
 
                 //Sell Wall SP, LQ and User's SP Fund leftovers
-                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut liquidation_propagation, &mut submessages, repay_amount.clone())?);
+                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut liquidation_propagation, repay_amount.clone())?);
 
                 //Save to propagate
                 LIQUIDATION.save(deps.storage, &liquidation_propagation)?;
@@ -273,8 +263,6 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 //Send LQ leftovers to SP
                 //This is an SP reply so we don't have to check if the SP is okay to call
                 let config: Config = CONFIG.load(deps.storage)?;
-
-                let basket: Basket = BASKET.load(deps.storage)?;
 
                 //Check for stability pool funds before any liquidation attempts
                 //Sell wall any leftovers
@@ -292,7 +280,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     ));
                     
                     //Sell wall remaining
-                    messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut liquidation_propagation, &mut submessages, leftover_repayment)?);
+                    messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut liquidation_propagation, leftover_repayment)?);
                     
                     LIQUIDATION.save(deps.storage, &liquidation_propagation)?;                   
                 }
@@ -337,13 +325,11 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             }
 
             Ok(Response::new()
-                .add_messages(messages)
+                //.add_messages(messages)
                 .add_submessages(submessages)
                 .add_attributes(attrs))
         }
         Err(_) => {
-
-            let mut submessages: Vec<SubMsg> = vec![];
             let mut messages: Vec<CosmosMsg> = vec![];
 
             //If error, sell wall the SP repay amount and LQ leftovers
@@ -352,7 +338,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             let repay_amount = liquidation_propagation.liq_queue_leftovers + liquidation_propagation.stability_pool;
 
             //Sell wall remaining
-            messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut liquidation_propagation, &mut submessages, repay_amount.clone())?);
+            messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut liquidation_propagation, repay_amount.clone())?);
 
             attrs.push(attr(
                 "sent_to_sell_wall",
@@ -368,12 +354,13 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
 
             Ok(Response::new()
                 //.add_messages(messages)
-                .add_submessages(submessages)
                 .add_attributes(attrs))
         }
     }
 }
 
+/// Send the liquidation queue its collateral reward.
+/// If the SP wasn't used, send leftovers to the sell wall.
 pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Response> {
     let mut attrs = vec![attr("method", "handle_liq_queue_reply")];
 
@@ -476,10 +463,9 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             Ok(Response::new().add_message(msg).add_attributes(attrs))
         }
         Err(string) => {
-            //If error, do nothing if the SP was used
-            //The SP reply will handle the sell wall
+            //If error, do nothing if the SP was used. The SP reply will handle the sell wall.
+            //Else, handle leftovers here
 
-            let mut submessages: Vec<SubMsg> = vec![];
             let mut messages = vec![];
             let mut repay_amount = Decimal::zero();
 
@@ -492,7 +478,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 repay_amount = prop.clone().per_asset_repayment[0];
 
                 //Sell wall asset's repayment amount
-                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut prop, &mut submessages, repay_amount.clone())?);
+                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut prop, repay_amount.clone())?);
                
             }
 
@@ -500,27 +486,25 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             LIQUIDATION.save(deps.storage, &prop)?;
 
             Ok(Response::new()
-                .add_messages(messages)
-                .add_submessages(submessages)
+                //.add_messages(messages)
                 .add_attribute("error", string)
                 .add_attribute("sent_to_sell_wall", repay_amount.to_string()))
         }
     }
 }
 
-//Adds sell wall submessages to list of submessages
+/// Builds sell wall & LP messages to add to list of messages
 pub fn sell_wall_in_reply(
     storage: &mut dyn Storage,
     api: &dyn Api,
     env: Env,
     querier: QuerierWrapper,
     prop: &mut LiquidationPropagation,
-    submessages: &mut Vec<SubMsg>,
     repay_amount: Decimal,
 ) -> StdResult<Vec<CosmosMsg>>{
     
     //Sell wall asset's repayment amount
-    let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall_using_ids(
+    let (sell_wall_msgs, mut lp_withdraw_msgs) = sell_wall_using_ids(
         storage,
         querier,
         api,
@@ -529,6 +513,9 @@ pub fn sell_wall_in_reply(
         api.addr_validate(&prop.clone().position_info.position_owner)?,
         repay_amount,
     )?;    
+
+    //Extend from LP withdraw to keep at beginning of execution
+    lp_withdraw_msgs.extend(sell_wall_msgs);
 
     Ok( lp_withdraw_msgs )
 }

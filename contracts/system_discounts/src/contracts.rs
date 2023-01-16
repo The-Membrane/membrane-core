@@ -10,7 +10,7 @@ use membrane::stability_pool::{QueryMsg as SP_QueryMsg, ClaimsResponse};
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
 use membrane::lockdrop::{QueryMsg as Lockdrop_QueryMsg, UserResponse};
 use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse};
-use membrane::positions::{QueryMsg as CDP_QueryMsg, PositionsResponse};
+use membrane::cdp::{QueryMsg as CDP_QueryMsg, PositionsResponse};
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
 use membrane::types::{AssetInfo, DebtTokenAsset, Position, Basket, Deposit, AssetPool};
 
@@ -27,7 +27,7 @@ const SECONDS_PER_DAY: u64 = 86_400u64;
 
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -70,7 +70,10 @@ pub fn instantiate(
 
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::new().add_attribute("config", format!("{:?}", config)))
+    Ok(Response::new()
+        .add_attribute("config", format!("{:?}", config))
+        .add_attribute("contract_address", env.contract.address)
+    )
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -213,8 +216,8 @@ fn get_user_value_in_network(
     //Initialize total_value
     let mut total_value = Decimal::zero();
 
-    total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone(), basket.clone().credit_asset.info, mbrn_price)?;
-    total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price.clone())?;
+    total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone(), mbrn_price)?;
+    total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price.clone(), credit_price.clone())?;
 
     if config.discount_vault_contract.is_some(){
         total_value += get_discounts_vault_value(querier, config.clone(), user.clone())?;
@@ -280,10 +283,11 @@ fn get_discounts_vault_value(
         contract_addr: config.clone().discount_vault_contract.unwrap().to_string(),
         msg: to_binary(&Discount_QueryMsg::User {
             user,
+            minimum_deposit_time: Some(config.minimum_time_in_network),
         })?,
     }))?;
 
-    Ok( user.premium_user_value )
+    Ok( Decimal::from_ratio(user.discount_value, Uint128::one()) )
 
 }
 
@@ -293,6 +297,7 @@ fn get_staked_MBRN_value(
     config: Config,
     user: String,
     mbrn_price: Decimal,
+    credit_price: Decimal,
 ) -> StdResult<Decimal>{
 
     let mut user_stake = querier.query::<StakerResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
@@ -318,7 +323,7 @@ fn get_staked_MBRN_value(
     
     for asset in rewards.claimables {
 
-        let price = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        let mut price = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.clone().oracle_contract.to_string(),
             msg: to_binary(&Oracle_QueryMsg::Price {
                 asset_info: asset.info,
@@ -327,6 +332,8 @@ fn get_staked_MBRN_value(
             })?,
         }))?
         .price;
+
+        if price < credit_price { price = credit_price }
 
         let value = decimal_multiplication(price, Decimal::from_ratio(asset.amount, Uint128::one()));
 
@@ -347,14 +354,17 @@ fn get_sp_value(
     config: Config,
     current_block_time: u64,
     user: String,
-    asset_info: AssetInfo,
     mbrn_price: Decimal,
 ) -> StdResult<Decimal>{
 
     //Query Stability Pool to see if the user has funds
     let user_deposits = querier.query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().stability_pool_contract.to_string(),
-        msg: to_binary(&SP_QueryMsg::AssetPool { user: user.into(), deposit_limit: None })?,
+        msg: to_binary(&SP_QueryMsg::AssetPool { 
+            user: None, 
+            start_after: None,
+            deposit_limit: None 
+        })?,
     }))?
     .deposits
         .into_iter()

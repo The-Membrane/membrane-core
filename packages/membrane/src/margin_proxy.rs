@@ -1,9 +1,8 @@
 use cosmwasm_std::{Addr, Uint128, Decimal};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use cosmwasm_schema::cw_serde;
 
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub positions_contract: String,
@@ -11,8 +10,7 @@ pub struct InstantiateMsg {
     pub max_slippage: Decimal,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum ExecuteMsg {
     //Deposits asset into a new Position in the Positions contract
     Deposit {
@@ -38,16 +36,21 @@ pub enum ExecuteMsg {
 }
 //Position Repayments can be done on the the base Positions contract
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum QueryMsg {
     Config {},
-    //Get PositionReponses from user owned Positions in the Positions contract
+    //Returns Vec<PositionReponse> from user owned Positions in the Positions contract
     GetUserPositions { user: String },
+    //Returns Vec<Uint128>
+    //For full position responses query the Positions contract
+    GetPositionIDs {
+        limit: Option<u64>, //User limit
+        start_after: Option<String>, //user
+    },
 }
 
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
 pub struct Config {
     pub owner: Addr,
     pub positions_contract: Addr,

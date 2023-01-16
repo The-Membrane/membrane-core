@@ -8,7 +8,7 @@ use cosmwasm_std::{
 };
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
 use membrane::math::{Decimal256, Uint256};
-use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
+use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::liq_queue::Config;
 use membrane::types::{Asset, AssetInfo, Bid, BidInput, PremiumSlot, Queue};
 

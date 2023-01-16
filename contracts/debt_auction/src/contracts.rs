@@ -9,7 +9,7 @@ use membrane::debt_auction::{ExecuteMsg, InstantiateMsg, QueryMsg, Config, Updat
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
-use membrane::positions::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
+use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
 use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient, Basket, Auction};
 use membrane::helpers::withdrawal_msg;
 
@@ -25,7 +25,7 @@ const MAX_LIMIT: u64 = 31u64;
 
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -53,7 +53,10 @@ pub fn instantiate(
     //Initialize Assets
     ASSETS.save(deps.storage, &vec![])?;
 
-    Ok(Response::default())
+    Ok(Response::new()    
+        .add_attribute("config", format!("{:?}", config))
+        .add_attribute("contract_address", env.contract.address)
+    )
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

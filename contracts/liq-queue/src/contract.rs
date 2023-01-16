@@ -9,7 +9,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use membrane::liq_queue::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::{Decimal256, Uint256};
-use membrane::positions::QueryMsg as CDP_QueryMsg;
+use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue, Basket};
 
 use crate::bid::{claim_liquidations, execute_liquidation, retract_bid, store_queue, submit_bid};
@@ -27,7 +27,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -65,16 +65,12 @@ pub fn instantiate(
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
+    
 
-    let res = Response::new();
-    let mut attrs = vec![];
-
-    attrs.push(("method", "instantiate"));
-
-    let c = &config.owner.to_string();
-    attrs.push(("owner", c));
-
-    Ok(res.add_attributes(attrs))
+    Ok(Response::new()
+        .add_attribute("method", "instantiate")
+        .add_attribute("config", format!("{:?}", config))
+        .add_attribute("contract_address", env.contract.address))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

@@ -255,7 +255,6 @@ mod tests {
                 liq_premium: Decimal::zero(),
                 deposits: vec![],
             },
-            desired_ratio_of_total_credit_supply: Some(Decimal::percent(80)),
             osmosis_proxy: osmosis_proxy_contract_addr.to_string(),
             mbrn_denom: String::from("mbrn_denom"),
             incentive_rate: Some(Decimal::percent(10)),

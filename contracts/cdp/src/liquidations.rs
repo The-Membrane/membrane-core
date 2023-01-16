@@ -4,17 +4,18 @@ use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Resp
 
 use membrane::helpers::{router_native_to_native, pool_query_and_exit, query_stability_pool_fee, asset_to_coin, validate_position_owner};
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction, Uint256};
-use membrane::positions::{Config, ExecuteMsg, CallbackMsg};
+use membrane::cdp::{Config, ExecuteMsg, CallbackMsg};
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::stability_pool::{LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
-use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, PoolStateResponse, Deposit, AssetPool};
+use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, PoolStateResponse, AssetPool};
 
 use crate::error::ContractError; 
 use crate::rates::accrue;
-use crate::positions::{get_target_position, update_position, insolvency_check, get_avg_LTV, get_cAsset_ratios, BAD_DEBT_REPLY_ID, update_position_claims};
-use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation};
+use crate::positions::BAD_DEBT_REPLY_ID;
+use crate::query::{insolvency_check, get_avg_LTV, get_cAsset_ratios};
+use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation, get_target_position, update_position, update_position_claims};
 
 
 //Liquidation reply ids
@@ -22,9 +23,9 @@ pub const LIQ_QUEUE_REPLY_ID: u64 = 1u64;
 pub const STABILITY_POOL_REPLY_ID: u64 = 2u64;
 pub const USER_SP_REPAY_REPLY_ID: u64 = 6u64;
 
-//Confirms insolvency and calculates repayment amount
-//Then sends liquidation messages to the modules if they have funds
-//If not, sell wall
+/// Confirms insolvency and calculates repayment amount,
+/// then sends liquidation messages to the modules if they have funds.
+/// If not, sell wall.
 pub fn liquidate(
     storage: &mut dyn Storage,
     api: &dyn Api,
@@ -65,7 +66,6 @@ pub fn liquidate(
         storage,
         env.clone(),
         querier,
-        basket.clone(),
         target_position.clone().collateral_assets,
         Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)),
         basket.credit_price,
@@ -88,7 +88,6 @@ pub fn liquidate(
         env.clone(),
         querier,
         config.clone(),
-        basket.clone(),
         target_position.clone().collateral_assets,
     )?;
 
@@ -260,6 +259,7 @@ pub fn liquidate(
     }
 }
 
+/// Calculate the amount & value of debt to repay 
 fn get_repay_quantities(
     config: Config,
     basket: Basket,
@@ -309,6 +309,7 @@ fn get_repay_quantities(
     Ok((repay_value, credit_repay_amount))
 }
 
+/// Calculate amount of debt the User can repay from the Stability Pool
 fn get_user_repay_amount(
     querier: QuerierWrapper,
     config: Config,
@@ -326,7 +327,11 @@ fn get_user_repay_amount(
         let user_deposits = querier
             .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.clone().stability_pool.unwrap().to_string(),
-                msg: to_binary(&SP_QueryMsg::AssetPool { user: position_owner.clone().into(), deposit_limit: None })?,
+                msg: to_binary(&SP_QueryMsg::AssetPool { 
+                    user: Some(position_owner.clone()),
+                    deposit_limit: None, 
+                    start_after: None,
+                })?,
             }))?
             .deposits;
 
@@ -379,7 +384,8 @@ fn get_user_repay_amount(
     Ok( user_repay_amount )
 }
 
-//Calc fees and send liquidatible amount to Liquidaiton Queue
+/// Calculate & send fees.
+/// Send liquidatible amount to Liquidation Queue.
 fn per_asset_fulfillments(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -558,6 +564,8 @@ fn per_asset_fulfillments(
     Ok(())
 }
 
+/// This fucntion is used to build (sub)messages for the Stability Pool and sell wall.
+/// Also returns leftover debt repayment amount.
 fn build_sp_sw_submsgs(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -734,7 +742,7 @@ fn build_sp_sw_submsgs(
     Ok((leftover_repayment, lp_withdraw_messages, sell_wall_messages))
 }
 
-//Returns LP withdrawal message that is used in liquidations
+/// Returns LP withdrawal message use in liquidations
 fn get_lp_liq_withdraw_msg(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -779,7 +787,7 @@ fn get_lp_liq_withdraw_msg(
     )?.0 )
 }
 
-
+/// Uses Position info to create sell wall msgs
 pub fn sell_wall_using_ids(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -794,7 +802,7 @@ pub fn sell_wall_using_ids(
 
     let (_i, target_position) = match get_target_position(storage, position_owner.clone(), position_id){
         Ok(position) => position,
-        Err(err) => return Err(StdError::GenericErr { msg: String::from("Non_existent position") })
+        Err(_err) => return Err(StdError::GenericErr { msg: String::from("Non_existent position") })
     };    
     let collateral_assets = target_position.clone().collateral_assets;
 
@@ -818,6 +826,7 @@ pub fn sell_wall_using_ids(
     }
 }
 
+/// Returns router & lp withdraw messages for use in liquidations
 pub fn sell_wall(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -933,6 +942,7 @@ pub fn sell_wall(
     Ok((messages, lp_withdraw_messages))
 }
 
+/// Returns leftover liquidatible amount from the stability pool
 pub fn query_stability_pool_liquidatible(
     querier: QuerierWrapper,
     config: Config,
@@ -948,7 +958,8 @@ pub fn query_stability_pool_liquidatible(
 
     Ok(query_res.leftover)
 }
-//If cAssets include an LP, remove the LP share denom and add its paired assets
+
+/// If cAssets include an LP, remove the LP share denom and add its paired assets
 pub fn get_LP_pool_cAssets(
     querier: QuerierWrapper,
     config: Config,

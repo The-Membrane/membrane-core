@@ -3,14 +3,13 @@ use std::env;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Addr, Api, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
-    DepsMut, Env, MessageInfo, QuerierWrapper, QueryRequest, Response, StdError, StdResult,
-    Storage, Uint128, WasmMsg, WasmQuery,
+    attr, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
+    DepsMut, Env, MessageInfo, Response, StdError, StdResult,
+    Storage, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 
-use membrane::osmosis_proxy::{ QueryMsg as OsmoQueryMsg, TokenInfoResponse };
-use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
+use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::stability_pool::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig,
 };
@@ -21,7 +20,7 @@ use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_nat
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
-use crate::query::{query_rate, query_user_incentives, query_liquidatible, query_user_claims, query_capital_ahead_of_deposits, query_asset_pool};
+use crate::query::{query_user_incentives, query_liquidatible, query_user_claims, query_capital_ahead_of_deposits, query_asset_pool};
 use crate::state::{Propagation, ASSET, CONFIG, INCENTIVES, PROP, USERS};
 
 // version info for migration info
@@ -35,7 +34,7 @@ const SECONDS_PER_DAY: u64 = 86_400u64;
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -45,9 +44,6 @@ pub fn instantiate(
         max_incentives: msg
             .max_incentives
             .unwrap_or_else(|| Uint128::new(10_000_000_000_000)),
-        desired_ratio_of_total_credit_supply: msg
-            .desired_ratio_of_total_credit_supply
-            .unwrap_or_else(|| Decimal::percent(20)),
         unstaking_period: 1u64,
         mbrn_denom: msg.mbrn_denom,
         osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
@@ -81,8 +77,10 @@ pub fn instantiate(
 
     Ok(Response::new().add_attributes(vec![
         attr("method", "instantiate"),
-        attr("owner", config.owner.to_string()),
-    ]))
+        attr("config", format!("{:?}", config)),
+    ])
+    .add_attribute("contract_address", env.contract.address)
+)
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -167,10 +165,6 @@ fn update_config(
         config.max_incentives = max_incentives;
         attrs.push(attr("new_max_incentives", max_incentives.to_string()));
     }
-    if let Some(desired_ratio_of_total_credit_supply) = update.desired_ratio_of_total_credit_supply {
-        config.desired_ratio_of_total_credit_supply = desired_ratio_of_total_credit_supply;
-        attrs.push(attr( "new_desired_ratio_of_total_credit_supply", desired_ratio_of_total_credit_supply.to_string()));
-    }
     if let Some(new_unstaking_period) = update.unstaking_period {
         config.unstaking_period = new_unstaking_period;
         attrs.push(attr("new_unstaking_period", new_unstaking_period.to_string()));
@@ -209,7 +203,7 @@ pub fn deposit(
         asset_pool.deposits.push(deposit);
 
         ASSET.save(deps.storage, &asset_pool)?;            
-    }
+    } else { return Err(ContractError::InvalidAsset {  }) }
 
     //Response build
     let response = Response::new();
@@ -223,10 +217,8 @@ pub fn deposit(
 //Get incentive rate and return accrued amount
 fn accrue_incentives(
     storage: &mut dyn Storage,
-    querier: QuerierWrapper,
     env: Env,
     config: Config,
-    asset_pool: AssetPool,
     stake: Uint128,
     deposit: &mut Deposit,
 ) -> StdResult<Uint128> {    
@@ -239,13 +231,7 @@ fn accrue_incentives(
             env.block.time.seconds() - deposit.last_accrued
         },
     };    
-
-    let rate: Decimal;
-    if time_elapsed == 0 {
-        return Ok(Uint128::zero())
-    } else {
-        rate = get_rate(storage, querier, asset_pool)?;
-    }
+    let rate: Decimal = config.clone().incentive_rate;
 
     //Set last_accrued
     deposit.last_accrued = env.block.time.seconds();
@@ -270,8 +256,7 @@ pub fn withdraw(
     env: Env,
     info: MessageInfo,
     amount: Uint128,
-) -> Result<Response, ContractError> {
-    
+) -> Result<Response, ContractError> {    
     let config = CONFIG.load(deps.storage)?;
 
     let message: CosmosMsg;
@@ -304,7 +289,6 @@ pub fn withdraw(
         //Go thru each deposit and withdraw request from state
         let (withdrawable, new_pool) = withdrawal_from_state(
             deps.storage,
-            deps.querier,
             env.clone(),
             config.clone(),
             info.clone().sender,
@@ -329,16 +313,13 @@ pub fn withdraw(
             message = withdrawal_msg(withdrawable_asset, info.sender.clone())?;
             msgs.push(message);
         }
-    }
-    
-    
+    }    
 
     Ok(Response::new().add_attributes(attrs).add_messages(msgs))
 }
 
 fn withdrawal_from_state(
     storage: &mut dyn Storage,
-    querier: QuerierWrapper,
     env: Env,
     config: Config,
     user: Addr,
@@ -416,10 +397,8 @@ fn withdrawal_from_state(
                     //Calc incentives
                     let accrued_incentives = match accrue_incentives(
                         storage,
-                        querier,
                         env.clone(),
                         config.clone(),
-                        pool.clone(),
                         withdrawal_amount * Uint128::new(1u128),
                         &mut deposit_item,
                     ){
@@ -447,10 +426,8 @@ fn withdrawal_from_state(
                     //Calc incentives
                     let accrued_incentives = match accrue_incentives(
                         storage,
-                        querier,
                         env.clone(),
                         config.clone(),
-                        pool.clone(),
                         deposit_item.amount * Uint128::new(1u128),
                         &mut deposit_item,
                     ){
@@ -517,10 +494,7 @@ fn withdrawal_from_state(
                             Err(ContractError::CustomError {
                                 val: String::from("Invalid user"),
                             })
-                        }
-                    }
-                }
-            },
+                }}}},
         )?;
     }
 
@@ -680,7 +654,7 @@ pub fn distribute_funds(
     //so we can propagate without worry
     let mut prop = PROP.load(deps.storage)?;
     let repaid_amount: Uint128;
-    //If this distribution is at most for the amount that was repaid
+    //If this distribution is more than what was repaid, error
     if distribute_for <= prop.repaid_amount {
         repaid_amount = distribute_for;
         prop.repaid_amount -= distribute_for;
@@ -724,38 +698,15 @@ pub fn distribute_funds(
                     if env.block.time.seconds() > deposit.last_accrued {
                         let accrued_incentives = accrue_incentives(
                             deps.storage,
-                            deps.querier,
                             env.clone(),
                             config.clone(),
-                            asset_pool.clone(),
                             remaining_repayment * Uint128::new(1u128),
                             &mut deposit,
                         )?;
 
                         if !accrued_incentives.is_zero() {                 
                             //Add incentives to User Claims
-                            USERS.update(
-                                deps.storage,
-                                deposit.user,
-                                |user_claims| -> Result<User, ContractError> {
-                                    match user_claims {
-                                        Some(mut user) => {
-                                            user.claimable_assets.push(Asset {
-                                                info: AssetInfo::NativeToken {
-                                                    denom: config.clone().mbrn_denom,
-                                                },
-                                                amount: accrued_incentives,
-                                            });
-                                            Ok(user)
-                                        }
-                                        None => {
-                                            Err(ContractError::CustomError {
-                                                val: String::from("Invalid user"),
-                                            })
-                                        }
-                                    }
-                                },
-                            )?;
+                            add_to_user_claims(deps.storage, deposit.user, AssetInfo::NativeToken { denom: config.clone().mbrn_denom }, accrued_incentives)?;
                         }
                     }
                 } else {
@@ -767,38 +718,15 @@ pub fn distribute_funds(
                         //Calc MBRN incentives
                         let accrued_incentives = accrue_incentives(
                             deps.storage,
-                            deps.querier,
                             env.clone(),
                             config.clone(),
-                            asset_pool.clone(),
                             deposit.amount * Uint128::new(1u128),
                             &mut deposit,
                         )?;
 
                         if !accrued_incentives.is_zero() {                            
                             //Add incentives to User Claims
-                            USERS.update(
-                                deps.storage,
-                                deposit.user,
-                                |user_claims| -> Result<User, ContractError> {
-                                    match user_claims {
-                                        Some(mut user) => {
-                                            user.claimable_assets.push(Asset {
-                                                info: AssetInfo::NativeToken {
-                                                    denom: config.clone().mbrn_denom,
-                                                },
-                                                amount: accrued_incentives,
-                                            });
-                                            Ok(user)
-                                        }
-                                        None => {
-                                            Err(ContractError::CustomError {
-                                                val: String::from("Invalid user"),
-                                            })
-                                        }
-                                    }
-                                },
-                            )?;
+                            add_to_user_claims(deps.storage, deposit.user, AssetInfo::NativeToken { denom: config.clone().mbrn_denom }, accrued_incentives)?;
                         }
                     }
                 }
@@ -911,7 +839,6 @@ fn repay(
             //Go thru each deposit and withdraw request from state
             let (_withdrawable, new_pool) = withdrawal_from_state(
                 deps.storage,
-                deps.querier,
                 env,
                 config.clone(),
                 position_owner,
@@ -928,17 +855,27 @@ fn repay(
             let repay_msg = CDP_ExecuteMsg::Repay {
                 position_id: user_info.position_id,
                 position_owner: Some(user_info.clone().position_owner),
-                send_excess_to: Some(user_info.position_owner),
+                send_excess_to: Some(user_info.clone().position_owner),
             };
 
             let coin: Coin = asset_to_coin(repayment.clone())?;
+
+            //Add Accrue Msg before Repayment to accrue discounted rates
+            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: config.clone().positions_contract.to_string(),
+                msg: to_binary(&CDP_ExecuteMsg::Accrue { 
+                    position_owner: Some(user_info.clone().position_owner),
+                    position_id: user_info.clone().position_id 
+                })?, 
+                funds: vec![],
+            });
+            msgs.push(msg);
 
             let msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.positions_contract.to_string(),
                 msg: to_binary(&repay_msg)?,
                 funds: vec![coin],
             });
-
             msgs.push(msg);
         }
     } else {
@@ -960,33 +897,11 @@ pub fn claim(
     let mut accrued_incentives = Uint128::zero();
     let asset_pool = ASSET.load(deps.storage)?;
     //Add newly accrued incentives to claimables
-    accrued_incentives += get_user_incentives(deps.storage, deps.querier, env.clone(), info.clone().sender, asset_pool)?;
-    
+    accrued_incentives += get_user_incentives(deps.storage, env.clone(), info.clone().sender, asset_pool, config.clone().incentive_rate)?;    
 
     if !accrued_incentives.is_zero(){
         //Add incentives to User Claims
-        USERS.update(
-            deps.storage,
-            info.clone().sender,
-            |user_claims| -> Result<User, ContractError> {
-                match user_claims {
-                    Some(mut user) => {
-                        user.claimable_assets.push(Asset {
-                            info: AssetInfo::NativeToken {
-                                denom: config.clone().mbrn_denom,
-                            },
-                            amount: accrued_incentives,
-                        });
-                        Ok(user)
-                    }
-                    None => {
-                        Err(ContractError::CustomError {
-                            val: String::from("Invalid user"),
-                        })
-                    }
-                }
-            },
-        )?;
+        add_to_user_claims(deps.storage, info.clone().sender, AssetInfo::NativeToken { denom: config.clone().mbrn_denom }, accrued_incentives)?;
     }
     
     //Create claim msgs
@@ -1027,23 +942,17 @@ fn user_claims_msgs(
     }
 
     //Remove User's claims
-    USERS.update(
-        storage,
-        info.sender,
-        |user| -> Result<User, ContractError> {
-            match user {
-                Some(mut user) => {
-                    user.claimable_assets = vec![];
-                    Ok(user)
-                }
-                None => {
-                    Err(ContractError::CustomError {
-                        val: "Info.sender is not a user".to_string(),
-                    })
-                }
-            }
-        },
-    )?;
+    USERS.update(storage, info.sender, |user| -> StdResult<User> {
+        match user {
+            Some(mut user) => {
+                user.claimable_assets = vec![];
+                Ok(user)
+            },
+            None => {
+                Err(StdError::GenericErr { msg: "No User found".to_string() })
+            },
+        }
+    })?;
 
     Ok((messages, user.claimable_assets))
 }
@@ -1053,7 +962,7 @@ fn split_assets_to_users(
     storage: &mut dyn Storage,
     mut cAsset_ratios: Vec<Decimal>,
     mut distribution_assets: Vec<Asset>,
-    distribution_ratios: Vec<UserRatio>    ,
+    distribution_ratios: Vec<UserRatio>,
 ) -> Result<(), ContractError>{
     
     for mut user_ratio in distribution_ratios {
@@ -1070,59 +979,8 @@ fn split_assets_to_users(
                 distribution_assets[index].amount -= send_amount;
 
                 //Add all of this asset to existing claims
-                USERS.update(
-                    storage,
-                    user_ratio.clone().user,
-                    |user: Option<User>| -> Result<User, ContractError> {
-                        match user {
-                            Some(mut some_user) => {
-                                
-                                //Find Asset in user state
-                                match some_user
-                                    .clone()
-                                    .claimable_assets
-                                    .into_iter()
-                                    .find(|asset| {
-                                        asset.info.equal(&distribution_assets[index].info)
-                                    }) {
-                                    Some(mut asset) => {
-                                        
-                                        //Add claim amount to the asset object
-                                        asset.amount += send_amount;                                        
-
-                                        //Create a replacement object for "user" since we can't edit in place
-                                        let mut temp_assets: Vec<Asset> = some_user
-                                            .clone()
-                                            .claimable_assets
-                                            .into_iter()
-                                            .filter(|claim| !claim.info.equal(&asset.info))
-                                            .collect::<Vec<Asset>>();
-                                        temp_assets.push(asset);
-
-                                        some_user.claimable_assets = temp_assets;
-                                    }
-                                    None => {
-                                        some_user.claimable_assets.push(Asset {
-                                            info: distribution_assets[index].clone().info,
-                                            amount: send_amount,
-                                        });
-                                    }
-                                }
-
-                                Ok(some_user)
-                            }
-                            None => {
-                                //Create object for user
-                                Ok(User {
-                                    claimable_assets: vec![Asset {
-                                        info: distribution_assets[index].clone().info,
-                                        amount: send_amount,
-                                    }],
-                                })
-                            }
-                        }
-                    },
-                )?;
+                //Add to existing user claims
+                add_to_user_claims(storage, user_ratio.clone().user, distribution_assets[index].clone().info, send_amount)?;
 
                 //Set cAsset_ratios[index] to 0
                 cAsset_ratios[index] = Decimal::zero();
@@ -1141,53 +999,7 @@ fn split_assets_to_users(
                 distribution_assets[index].amount -= send_amount;
                                 
                 //Add to existing user claims
-                USERS.update(
-                    storage,
-                    user_ratio.clone().user,
-                    |user| -> Result<User, ContractError> {
-                        match user {
-                            Some(mut user) => {
-                                //Find Asset in user state
-                                match user.clone().claimable_assets.into_iter().find(|asset| {
-                                    asset.info.equal(&distribution_assets[index].info)
-                                }) {
-                                    Some(mut asset) => {
-                                        //Add amounts
-                                        asset.amount += send_amount;
-
-                                        //Create a replacement object for "user" since we can't edit in place
-                                        let mut temp_assets: Vec<Asset> = user
-                                            .clone()
-                                            .claimable_assets
-                                            .into_iter()
-                                            .filter(|claim| !claim.info.equal(&asset.info))
-                                            .collect::<Vec<Asset>>();
-                                        temp_assets.push(asset);
-
-                                        user.claimable_assets = temp_assets;
-                                    }
-                                    None => {
-                                        user.claimable_assets.push(Asset {
-                                            amount: send_amount,
-                                            info: distribution_assets[index].clone().info,
-                                        });
-                                    }
-                                }
-
-                                Ok(user)
-                            }
-                            None => {
-                                //Create object for user
-                                Ok(User {
-                                    claimable_assets: vec![Asset {
-                                        amount: send_amount,
-                                        info: distribution_assets[index].clone().info,
-                                    }],
-                                })
-                            }
-                        }
-                    },
-                )?;
+                add_to_user_claims(storage, user_ratio.clone().user, distribution_assets[index].clone().info, send_amount)?;
 
                 //Set cAsset_ratio to the difference
                 cAsset_ratio = decimal_subtraction(cAsset_ratio, user_ratio.ratio);
@@ -1203,53 +1015,7 @@ fn split_assets_to_users(
                 distribution_assets[index].amount -= send_amount;
 
                 //Add to existing user claims
-                USERS.update(
-                    storage,
-                    user_ratio.clone().user,
-                    |user| -> Result<User, ContractError> {
-                        match user {
-                            Some(mut user) => {
-                                
-                                //Find Asset in user state
-                                match user.clone().claimable_assets.into_iter().find(|asset| {
-                                    asset.info.equal(&distribution_assets[index].info)
-                                }) {
-                                    Some(mut asset) => {
-                                        asset.amount += send_amount;
-
-                                        //Create a replacement object for "user" since we can't edit in place
-                                        let mut temp_assets: Vec<Asset> = user
-                                            .clone()
-                                            .claimable_assets
-                                            .into_iter()
-                                            .filter(|claim| !claim.info.equal(&asset.info))
-                                            .collect::<Vec<Asset>>();
-                                        temp_assets.push(asset);
-
-                                        user.claimable_assets = temp_assets;
-                                    }
-                                    None => {
-                                        user.claimable_assets.push(Asset {
-                                            info: distribution_assets[index].clone().info,
-                                            amount: send_amount,
-                                        });
-                                    }
-                                }
-
-                                Ok(user)
-                            }
-                            None => {
-                                //Create object for user
-                                Ok(User {
-                                    claimable_assets: vec![Asset {
-                                        info: distribution_assets[index].clone().info,
-                                        amount: send_amount,
-                                    }],
-                                })
-                            }
-                        }
-                    },
-                )?;
+                add_to_user_claims(storage, user_ratio.clone().user, distribution_assets[index].clone().info, send_amount)?;
 
                 //Set user_ratio as leftover
                 user_ratio.ratio = decimal_subtraction(user_ratio.ratio, cAsset_ratio);                                
@@ -1260,6 +1026,56 @@ fn split_assets_to_users(
             }
         }
     }
+
+    Ok(())
+}
+
+fn add_to_user_claims(
+    storage: &mut dyn Storage,
+    user: Addr,
+    distribution_asset: AssetInfo,
+    send_amount: Uint128,
+) -> StdResult<()>{
+    //Add to existing user claims
+    USERS.update(
+        storage,
+        user,
+        |user| -> StdResult<User> {
+            match user {
+                Some(mut user) => {
+                    //Find Asset in user state
+                    match user.clone().claimable_assets
+                        .into_iter()
+                        .enumerate()
+                        .find(|(_i, asset)| {
+                        asset.info.equal(&distribution_asset)
+                    }) {
+                        Some((i, _asset)) => {
+                            //Add amount
+                            user.claimable_assets[i].amount += send_amount;
+                        }
+                        None => {
+                            user.claimable_assets.push(Asset {
+                                amount: send_amount,
+                                info: distribution_asset,
+                            });
+                        }
+                    }
+
+                    Ok(user)
+                }
+                None => {
+                    //Create object for user
+                    Ok(User {
+                        claimable_assets: vec![Asset {
+                            amount: send_amount,
+                            info: distribution_asset,
+                        }],
+                    })
+                }
+            }
+        },
+    )?;
 
     Ok(())
 }
@@ -1309,10 +1125,10 @@ pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal
 //Calc a user's incentives from each deposit
 fn get_user_incentives(
     storage: &mut dyn Storage,
-    querier: QuerierWrapper,
     env: Env,
     user: Addr,
-    mut asset_pool: AssetPool
+    mut asset_pool: AssetPool,
+    rate: Decimal,
 ) -> StdResult<Uint128>{
     let mut total_incentives = Uint128::zero();
     let mut error: Option<StdError> = None;
@@ -1328,14 +1144,6 @@ fn get_user_incentives(
                     let stake = deposit.amount * Uint128::one();
     
                     if time_elapsed != 0 {
-                        //Get incentive Rate
-                        let rate = match get_rate(storage, querier, asset_pool.clone()){
-                            Ok(rate) => rate,
-                            Err(err) => {
-                                error = Some(err);
-                                Decimal::zero()
-                            },
-                        };
                         //Add accrued incentives
                         total_incentives += match accumulate_interest(stake, rate, time_elapsed){
                             Ok(incentives) => incentives,
@@ -1353,14 +1161,6 @@ fn get_user_incentives(
                     let stake = deposit.amount * Uint128::one();
     
                     if time_elapsed != 0 {
-                        //Get incentive Rate
-                        let rate = match get_rate(storage, querier, asset_pool.clone()){
-                            Ok(rate) => rate,
-                            Err(err) => {
-                                error = Some(err);
-                                Decimal::zero()
-                            },
-                        };
                         //Add accrued incentives
                         total_incentives += match accumulate_interest(stake, rate, time_elapsed){
                             Ok(incentives) => incentives,
@@ -1387,63 +1187,16 @@ fn get_user_incentives(
     Ok(total_incentives)
 }
 
-//Get incentive rate based on base rate and % of credit supply in the pool
-fn get_rate(
-    storage: &mut dyn Storage,
-    querier: QuerierWrapper,
-    asset_pool: AssetPool,
-) -> StdResult<Decimal>{
-    let config = CONFIG.load(storage)?;
-    
-    let asset_current_supply = querier
-    .query::<TokenInfoResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.osmosis_proxy.to_string(),
-        msg: to_binary(&OsmoQueryMsg::GetTokenInfo {
-            denom: asset_pool.credit_asset.info.to_string(),
-        })?,
-    }))?
-    .current_supply;
-
-    //Set Rate
-    //The 2 slope model is based on total credit supply AFTER liquidations.
-    //So the users who are distributed liq_funds will get rates based off the AssetPool's total AFTER their funds were used.
-    let mut rate = config.incentive_rate;
-    if !config
-        .desired_ratio_of_total_credit_supply
-        .is_zero()
-    {
-        let asset_util_ratio = decimal_division(
-            Decimal::from_ratio(asset_pool.credit_asset.amount, Uint128::new(1u128)),
-            Decimal::from_ratio(asset_current_supply, Uint128::new(1u128)),
-        );
-        let mut proportion_of_desired_util = decimal_division(
-            asset_util_ratio,
-            config.desired_ratio_of_total_credit_supply,
-        );
-
-        if proportion_of_desired_util.is_zero() {
-            proportion_of_desired_util = Decimal::one();
-        }
-
-        let rate_multiplier = decimal_division(Decimal::one(), proportion_of_desired_util);
-
-        rate = decimal_multiplication(config.incentive_rate, rate_multiplier);
-    }
-
-    Ok(rate)
-}
-
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::Rate { } => to_binary(&query_rate(deps)?),
         QueryMsg::UnclaimedIncentives { user } => to_binary(&query_user_incentives(deps, env, user)?),
         QueryMsg::CapitalAheadOfDeposit { user } => to_binary(&query_capital_ahead_of_deposits(deps, user)?),
         QueryMsg::CheckLiquidatible { amount } => to_binary(&query_liquidatible(deps, amount)?),
         QueryMsg::UserClaims { user } => to_binary(&query_user_claims(deps, user)?),
-        QueryMsg::AssetPool { user, deposit_limit } => to_binary(&query_asset_pool(deps, user, deposit_limit)?),
+        QueryMsg::AssetPool { user, deposit_limit , start_after} => to_binary(&query_asset_pool(deps, user, deposit_limit, start_after)?),
     }
 }
 

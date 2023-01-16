@@ -6,7 +6,7 @@ mod tests {
     use cosmwasm_std::{to_binary, CosmosMsg, SubMsg, Uint128, Decimal, WasmMsg, coin};
 
     use membrane::margin_proxy::{InstantiateMsg, ExecuteMsg};
-    use membrane::positions::ExecuteMsg as CDP_ExecuteMsg;
+    use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 
     #[test]
     fn deposit_to_new_position(){
@@ -25,10 +25,7 @@ mod tests {
         let _res = instantiate(deps.as_mut(), mock_env(), v_info, msg).unwrap();
 
         //New user position
-        let deposit_msg = ExecuteMsg::Deposit {
-            basket_id: Uint128::new(1),
-            position_id: None,
-        };
+        let deposit_msg = ExecuteMsg::Deposit { position_id: None };
         let res = execute(
             deps.as_mut(),
             mock_env(),

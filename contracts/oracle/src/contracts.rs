@@ -25,7 +25,7 @@ const MILLISECONDS_PER_MINUTE: i64 = 60_000i64;
 
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -52,7 +52,10 @@ pub fn instantiate(
 
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::default())
+    Ok(Response::new()
+        .add_attribute("method", "instantiate")
+        .add_attribute("config", format!("{:?}", config))
+        .add_attribute("contract_address", env.contract.address))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

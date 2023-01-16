@@ -18,10 +18,6 @@ fn query_liquidatible() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -87,10 +83,6 @@ fn query_bid() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);
@@ -224,10 +216,6 @@ fn query_slots_queues() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
-        basket_id: None,
-        bid_asset: Some(AssetInfo::NativeToken {
-            denom: String::from("cdt"),
-        }),
     };
 
     let info = mock_info("owner0000", &[]);

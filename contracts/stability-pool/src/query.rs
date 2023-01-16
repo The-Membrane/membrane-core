@@ -1,9 +1,6 @@
-use cosmwasm_std::{Deps, Env, StdResult, Uint128, Decimal, StdError, WasmQuery, QueryRequest, to_binary};
+use cosmwasm_std::{Deps, Env, StdResult, Uint128, Decimal, StdError};
 use membrane::types::{AssetPool, Deposit};
 use membrane::stability_pool::{LiquidatibleResponse, ClaimsResponse, DepositPositionResponse};
-use membrane::osmosis_proxy::TokenInfoResponse;
-use membrane::math::{decimal_division, decimal_multiplication};
-use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::helpers::accumulate_interest;
 
 use crate::state::{CONFIG, ASSET, USERS};
@@ -12,16 +9,29 @@ pub fn query_asset_pool(
     deps: Deps,
     user: Option<String>,
     deposit_limit: Option<u32>,
+    start_after: Option<u32>,
 ) -> StdResult<AssetPool>{    
     let mut asset_pool = ASSET.load(deps.storage)?;
-    
-    if let Some(limit) = deposit_limit {
-        asset_pool.deposits = asset_pool.deposits[0..limit as usize].to_vec();
-    } else if let Some(user) = user {
+
+    //Optional User deposits
+    if let Some(user) = user {
+        let user = deps.api.addr_validate(&user)?;
         asset_pool.deposits = asset_pool.clone().deposits
             .into_iter()
             .filter(|deposit| deposit.user.to_string() == user)
             .collect::<Vec<Deposit>>();
+    };
+
+    //Optional start_after deposits
+    let start_after: u32  = if let Some(start) = start_after {
+        start
+    } else { 0 };
+    
+    //Optional deposits limit
+    if let Some(limit) = deposit_limit {
+        asset_pool.deposits = asset_pool.deposits[start_after as usize..(start_after+limit) as usize].to_vec();
+    } else {
+        asset_pool.deposits = asset_pool.deposits[start_after as usize..].to_vec();
     }
     
     Ok(asset_pool)    
@@ -65,7 +75,7 @@ pub fn query_user_incentives(
     user: String,
 ) -> StdResult<Uint128>{
     let resp: Vec<Deposit> = query_deposits(deps, user)?;
-    let rate = query_rate(deps)?;
+    let rate = CONFIG.load(deps.storage)?.incentive_rate;
 
     let mut total_incentives = Uint128::zero();
     for deposit in resp {
@@ -88,48 +98,6 @@ pub fn query_user_incentives(
     }
 
     Ok(total_incentives)
-}
-
-pub fn query_rate( deps: Deps ) -> StdResult<Decimal>{
-    let config = CONFIG.load(deps.storage)?;
-    let asset_pool: AssetPool = ASSET.load(deps.storage)?;
-
-    let asset_current_supply = deps.querier
-    .query::<TokenInfoResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.osmosis_proxy.to_string(),
-        msg: to_binary(&OsmoQueryMsg::GetTokenInfo {
-            denom: asset_pool.credit_asset.info.to_string(),
-        })?,
-    }))?
-    .current_supply;
-
-    //Set Rate
-    //The 2 slope model is based on total credit supply AFTER liquidations.
-    //So the users who are distributed liq_funds will get rates based off the AssetPool's total AFTER their funds were used.
-    let mut rate = config.incentive_rate;
-    if !config
-        .desired_ratio_of_total_credit_supply
-        .is_zero()
-    {
-        let asset_util_ratio = decimal_division(
-            Decimal::from_ratio(asset_pool.credit_asset.amount, Uint128::new(1u128)),
-            Decimal::from_ratio(asset_current_supply, Uint128::new(1u128)),
-        );
-        let mut proportion_of_desired_util = decimal_division(
-            asset_util_ratio,
-            config.desired_ratio_of_total_credit_supply,
-        );
-
-        if proportion_of_desired_util.is_zero() {
-            proportion_of_desired_util = Decimal::one();
-        }
-
-        let rate_multiplier = decimal_division(Decimal::one(), proportion_of_desired_util);
-
-        rate = decimal_multiplication(config.incentive_rate, rate_multiplier);
-    }
-
-    Ok(rate)
 }
 
 pub fn query_liquidatible(deps: Deps, amount: Decimal) -> StdResult<LiquidatibleResponse> {

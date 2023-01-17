@@ -84,10 +84,10 @@ pub fn router_native_to_native(
     amount_to_sell: u128,
 ) -> StdResult<CosmosMsg>{
     if let AssetInfo::NativeToken { denom } = asset_to_sell {
-        if let AssetInfo::NativeToken { denom:_ } = asset_to_buy.clone() {
+        if let AssetInfo::NativeToken { denom:_ } = asset_to_buy {
 
             let router_msg = RouterExecuteMsg::Swap {
-                to: SwapToAssetsInput::Single(asset_to_buy.clone()), //Buy
+                to: SwapToAssetsInput::Single(asset_to_buy), //Buy
                 max_spread, 
                 recipient,
                 hook_msg,
@@ -106,10 +106,10 @@ pub fn router_native_to_native(
     
             Ok(msg)            
         } else {
-            return Err(StdError::GenericErr { msg: String::from("Native assets only") })
+            Err(StdError::GenericErr { msg: String::from("Native assets only") })
         }
     } else {
-        return Err(StdError::GenericErr { msg: String::from("Native assets only") })
+        Err(StdError::GenericErr { msg: String::from("Native assets only") })
     }
 }
 
@@ -158,7 +158,7 @@ pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
         });
         Ok(message)        
     } else {
-        return Err(StdError::GenericErr { msg: String::from("Native assets only") })
+        Err(StdError::GenericErr { msg: String::from("Native assets only") })
     }
 }
 
@@ -166,7 +166,7 @@ pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
 pub fn multi_native_withdrawal_msg(assets: Vec<Asset>, recipient: Addr) -> StdResult<CosmosMsg> {    
     let coins: Vec<Coin> = assets
         .into_iter()
-        .map(|asset| native_asset_to_coin(asset))
+        .map(native_asset_to_coin)
         .collect::<Vec<Coin>>();
     let message = CosmosMsg::Bank(BankMsg::Send {
         to_address: recipient.to_string(),

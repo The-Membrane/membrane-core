@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::str::FromStr;
 
 use cosmwasm_std::{
@@ -38,7 +39,7 @@ pub fn query_position(
 ) -> StdResult<PositionResponse> {
     let mut basket = BASKET.load(deps.storage)?;
 
-    let (_i, mut position) = match get_target_position(deps.storage, user.clone(), position_id.clone()){
+    let (_i, mut position) = match get_target_position(deps.storage, user.clone(), position_id){
         Ok(position) => position,
         Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
     };
@@ -67,10 +68,10 @@ pub fn query_position(
         collateral_assets: position.clone().collateral_assets,
         cAsset_ratios: get_cAsset_ratios(
             deps.storage,
-            env.clone(),
+            env,
             deps.querier,
             position.clone().collateral_assets,
-            config.clone(),
+            config,
         )?.0,
         credit_amount: position.credit_amount,
         basket_id: basket.basket_id,
@@ -99,7 +100,7 @@ pub fn query_user_positions(
     let mut basket = BASKET.load(deps.storage)?;
     let mut user_positions: Vec<PositionResponse> = vec![];
     
-    let _iter: () = positions.into_iter().take(limit).map(|mut position| {
+    let _iter: (_) = positions.into_iter().take(limit).map(|mut position| {
         
         let (borrow, max, _value, _prices) = match get_avg_LTV(
             deps.storage,
@@ -152,10 +153,10 @@ pub fn query_user_positions(
                 avg_max_LTV: max,
             })
         }
-    }).collect();
+    });
 
-    if error.is_some() {
-        return Err(error.unwrap())
+    if let Some(error) = error{
+        return Err(error)
     }
     Ok(user_positions)
     
@@ -216,7 +217,7 @@ pub fn query_bad_debt(deps: Deps) -> StdResult<BadDebtResponse> {
         has_bad_debt: vec![],
     };
 
-    let _iter: () = POSITIONS
+    let _iter: (_) = POSITIONS
         .range(deps.storage, None, None, Order::Ascending)
         .map(|item| {
             let (addr, positions) = item.unwrap();
@@ -224,7 +225,7 @@ pub fn query_bad_debt(deps: Deps) -> StdResult<BadDebtResponse> {
             for position in positions {
                 //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
                 //This is allowed bc any calls here will be after a liquidation where the sell wall would've sold all it could to cover debts
-                let empty = check_for_empty_position(position.clone().collateral_assets);
+                let empty = check_for_empty_position(position.collateral_assets);
 
                 //If there are no assets and outstanding debt
                 if empty && !position.credit_amount.is_zero() {
@@ -237,7 +238,7 @@ pub fn query_bad_debt(deps: Deps) -> StdResult<BadDebtResponse> {
                     ))
                 }
             }
-        }).collect();
+        });
 
     Ok(res)
 }
@@ -253,7 +254,7 @@ pub fn query_position_insolvency(
     let valid_owner_addr = deps.api.addr_validate(&position_owner)?;
     let mut basket: Basket = BASKET.load(deps.storage)?;
 
-    let (_i, mut target_position) = match get_target_position(deps.storage, valid_owner_addr, position_id.clone()){
+    let (_i, mut target_position) = match get_target_position(deps.storage, valid_owner_addr, position_id){
         Ok(position) => position,
         Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
     };
@@ -274,13 +275,13 @@ pub fn query_position_insolvency(
 
     let (insolvent, current_LTV, available_fee) = insolvency_check(
         deps.storage,
-        env.clone(),
+        env,
         deps.querier,
         target_position.collateral_assets,
         Decimal::from_ratio(target_position.credit_amount, Uint128::new(1u128)),
-        basket.clone().credit_price,
+        basket.credit_price,
         false,
-        config.clone(),
+        config,
     )?;
 
     //Since its a Singular position we'll output whether insolvent or not
@@ -288,7 +289,7 @@ pub fn query_position_insolvency(
         insolvent,
         position_info: UserInfo {
             position_id: target_position.position_id,
-            position_owner: position_owner.to_string(),
+            position_owner,
         },
         current_LTV,
         available_fee,
@@ -312,10 +313,10 @@ pub fn query_collateral_rates(
     //Calc Time-elapsed and update last_Accrued
     let time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
 
-    let negative_rate: bool;
+    let mut negative_rate: bool = false;
     let mut price_difference: Decimal;
 
-    if !(time_elapsed == 0u64) && basket.oracle_set {
+    if time_elapsed != 0u64 && basket.oracle_set {
         basket.credit_last_accrued = env.block.time.seconds();
 
         //Calculate new interest rate
@@ -328,30 +329,30 @@ pub fn query_collateral_rates(
         };
         let credit_TWAP_price = get_asset_values(
             deps.storage,
-            env.clone(),
+            env,
             deps.querier,
             vec![credit_asset],
-            config.clone(),
+            config,
         )?
         .1[0];
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
-            //If market price > than repayment price
-            if credit_TWAP_price > basket.clone().credit_price {
-                negative_rate = true;
-                decimal_subtraction(
-                    decimal_division(credit_TWAP_price, basket.clone().credit_price),
-                    Decimal::one(),
-                )
-            } else if basket.clone().credit_price > credit_TWAP_price {
-                negative_rate = false;
-                decimal_subtraction(
-                    decimal_division(basket.clone().credit_price, credit_TWAP_price),
-                    Decimal::one(),
-                )
-            } else {
-                negative_rate = false;
-                Decimal::zero()
+            //Compare market price & redemption price
+            match credit_TWAP_price.cmp(&basket.credit_price) {
+                Ordering::Greater => {
+                    negative_rate = true;
+                    decimal_subtraction(
+                        decimal_division(credit_TWAP_price, basket.credit_price),
+                        Decimal::one(),
+                    )
+                }
+                Ordering::Less => {
+                    decimal_subtraction(
+                        decimal_division(basket.credit_price, credit_TWAP_price),
+                        Decimal::one(),
+                    )
+                }
+                Ordering::Equal => Decimal::zero(),
             }
         };
 
@@ -365,17 +366,15 @@ pub fn query_collateral_rates(
             .map(|mut rate| {
                 //Accrue a year of repayment rate to interest rates
                 if negative_rate {
-                    rate = decimal_multiplication(
+                    decimal_multiplication(
                         rate,
                         decimal_subtraction(Decimal::one(), price_difference),
-                    );
+                    )
                 } else {
-                    rate = decimal_multiplication(rate, (Decimal::one() + price_difference));
+                    decimal_multiplication(rate, (Decimal::one() + price_difference))
                 }
-
-                rate
             })
-            .collect::<Vec<Decimal>>();
+            .collect::<StdResult<Vec<Decimal>>>()?;
 
         Ok(CollateralInterestResponse { rates: new_rates })
     } else {
@@ -396,7 +395,7 @@ pub fn query_basket_credit_interest(
     let mut price_difference = Decimal::zero();
     let mut negative_rate: bool = false;
 
-    if !(time_elapsed == 0u64) {
+    if !time_elapsed != 0u64 {
         //Calculate new interest rate
         let credit_asset = cAsset {
             asset: basket.clone().credit_asset,
@@ -411,32 +410,34 @@ pub fn query_basket_credit_interest(
             env,
             deps.querier,
             vec![credit_asset],
-            config.clone(),
+            config,
         )?
         .1[0];
 
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
-            //If market price > than repayment price
-            if credit_TWAP_price > basket.clone().credit_price {
-                negative_rate = true;
-                decimal_subtraction(
-                    decimal_division(credit_TWAP_price, basket.clone().credit_price),
-                    Decimal::one(),
-                )
-            } else if basket.clone().credit_price > credit_TWAP_price {
-                negative_rate = false;
-                decimal_subtraction(
-                    decimal_division(basket.clone().credit_price, credit_TWAP_price),
-                    Decimal::one(),
-                )
-            } else {
-                Decimal::zero()
+            //Compare market price & redemption price
+            match credit_TWAP_price.cmp(&basket.credit_price) {
+                Ordering::Greater => {
+                    negative_rate = true;
+                    decimal_subtraction(
+                        decimal_division(credit_TWAP_price, basket.credit_price)?,
+                        Decimal::one(),
+                    )?
+                }
+                Ordering::Less => {
+                    negative_rate = false;
+                    decimal_subtraction(
+                        decimal_division(basket.credit_price, credit_TWAP_price)?,
+                        Decimal::one(),
+                    )?
+                }
+                Ordering::Equal => Decimal::zero(),
             }
         };
 
         //Don't set interest if price is within the margin of error
-        if price_difference <= basket.clone().cpc_margin_of_error {
+        if price_difference <= basket.cpc_margin_of_error {
             price_difference = Decimal::zero();
         }
     }
@@ -460,7 +461,7 @@ pub fn get_cAsset_ratios(
         storage,
         env,
         querier,
-        collateral_assets.clone(),
+        collateral_assets,
         config,
     )?;
 
@@ -472,7 +473,7 @@ pub fn get_cAsset_ratios(
         if total_value.is_zero() {
             cAsset_ratios.push(Decimal::zero());
         } else {
-            cAsset_ratios.push(decimal_division(cAsset, total_value));
+            cAsset_ratios.push(decimal_division(cAsset, total_value)?);
         }
     }
 
@@ -508,9 +509,9 @@ pub fn query_price(
     
     //Query Price
     let price = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().oracle_contract.unwrap().to_string(),
+        contract_addr: config.oracle_contract.unwrap().to_string(),
         msg: to_binary(&OracleQueryMsg::Price {
-            asset_info: asset_info.clone(),
+            asset_info,
             twap_timeframe,
             basket_id: None,
         })?,
@@ -538,7 +539,7 @@ pub fn get_asset_values(
     let mut cAsset_values: Vec<Decimal> = vec![];
     let mut cAsset_prices: Vec<Decimal> = vec![];
 
-    if config.clone().oracle_contract.is_some() {
+    if config.oracle_contract.is_some() {
         for (_i, cAsset) in assets.iter().enumerate() {
             //If an Osmosis LP
             if cAsset.pool_info.is_some() {
@@ -580,7 +581,7 @@ pub fn get_asset_values(
                 let collateral_value = decimal_multiplication(
                     Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128)),
                     price,
-                );
+                )?;
                 cAsset_values.push(collateral_value);
             }
         }
@@ -607,7 +608,7 @@ pub fn append_lp_price(
         //Query share asset amount
         let share_asset_amounts = querier
             .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+                contract_addr: config.osmosis_proxy.unwrap().to_string(),
                 msg: to_binary(&OsmoQueryMsg::PoolState {
                     id: pool_info.pool_id,
                 })?,
@@ -645,7 +646,7 @@ pub fn append_lp_price(
                 Decimal::from_ratio(asset_amount, Uint128::new(1u128));
 
             //Price * # of assets in LP shares
-            value += decimal_multiplication(price, decimal_asset_amount);
+            value += decimal_multiplication(price, decimal_asset_amount)?;
         }
 
         value
@@ -656,7 +657,7 @@ pub fn append_lp_price(
         let share_amount =
             Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128));
         if !share_amount.is_zero() {
-            decimal_division(cAsset_value, share_amount)
+            decimal_division(cAsset_value, share_amount)?
         } else {
             Decimal::zero()
         }
@@ -705,7 +706,7 @@ pub fn calculate_avg_LTV(
         if total_value == Decimal::zero() {
             cAsset_ratios.push(Decimal::zero());
         } else {
-            cAsset_ratios.push(decimal_division(cAsset, total_value));
+            cAsset_ratios.push(decimal_division(cAsset, total_value)?);
         }
     }
 
@@ -713,7 +714,7 @@ pub fn calculate_avg_LTV(
     let mut avg_max_LTV: Decimal = Decimal::zero();
     let mut avg_borrow_LTV: Decimal = Decimal::zero();
 
-    if cAsset_ratios.len() == 0 {
+    if cAsset_ratios.is_empty(){
         return Ok((
             Decimal::percent(0),
             Decimal::percent(0),
@@ -732,13 +733,13 @@ pub fn calculate_avg_LTV(
         ));
     }
 
-    for (i, _cAsset) in collateral_assets.clone().iter().enumerate() {
+    for (i, _cAsset) in collateral_assets.iter().enumerate() {
         avg_borrow_LTV +=
-            decimal_multiplication(cAsset_ratios[i], collateral_assets[i].max_borrow_LTV);
+            decimal_multiplication(cAsset_ratios[i], collateral_assets[i].max_borrow_LTV)?;
     }
 
-    for (i, _cAsset) in collateral_assets.clone().iter().enumerate() {
-        avg_max_LTV += decimal_multiplication(cAsset_ratios[i], collateral_assets[i].max_LTV);
+    for (i, _cAsset) in collateral_assets.iter().enumerate() {
+        avg_max_LTV += decimal_multiplication(cAsset_ratios[i], collateral_assets[i].max_LTV)?;
     }
 
     Ok((avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices))
@@ -787,22 +788,21 @@ pub fn insolvency_check_calc(
     }
 
     let total_asset_value: Decimal = avg_LTVs.2; //pulls total_asset_value
-    let check: bool;
     //current_LTV = credit_amount * credit_price / total_asset_value);
     let current_LTV = 
         credit_amount.checked_mul(credit_price)?
         .checked_div(total_asset_value).map_err(|_| StdError::generic_err("Division by zero"))?; 
 
-    match max_borrow {
+    let check: bool = match max_borrow {
         true => {
             //Checks max_borrow
-            check = current_LTV > avg_LTVs.0;
+            current_LTV > avg_LTVs.0
         }
         false => {
             //Checks max_LTV
-            check = current_LTV > avg_LTVs.1;
+            current_LTV > avg_LTVs.1
         }
-    }
+    };
 
     let available_fee = if check {    
         //current_LTV - max_LTV

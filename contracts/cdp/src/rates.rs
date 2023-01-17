@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use cosmwasm_std::{Uint128, Decimal, Storage, QuerierWrapper, Env, StdResult, StdError, DepsMut, MessageInfo, Response, attr, Addr};
 
 use membrane::system_discounts::QueryMsg as DiscountQueryMsg;
@@ -28,7 +30,7 @@ pub fn external_accrue_call(
     let valid_position_owner: Addr;
     if let Some(position_owner) = position_owner {
         //If the SP is the sender
-        if info.clone().sender == config.clone().stability_pool.unwrap().to_string(){
+        if info.sender == config.stability_pool.unwrap(){
             valid_position_owner = deps.api.addr_validate(&position_owner)?;
         //Defaults to sender
         } else { valid_position_owner = info.clone().sender }
@@ -37,7 +39,7 @@ pub fn external_accrue_call(
     let mut position = get_target_position(
         deps.storage,
         valid_position_owner,
-        position_id.clone()
+        position_id,
     )?.1;
     
     let prev_loan = position.clone().credit_amount;
@@ -48,12 +50,12 @@ pub fn external_accrue_call(
         env, 
         &mut position,
         &mut basket, 
-        info.clone().sender.to_string()
+        info.sender.to_string()
     )?;
 
     let accrued_interest = position.clone().credit_amount - prev_loan;
 
-    update_position(deps.storage, info.clone().sender, position)?;
+    update_position(deps.storage, info.sender, position)?;
 
     Ok(Response::new()
         .add_attributes(vec![
@@ -113,7 +115,7 @@ pub fn update_rate_indices(
         let accrued_rate = accumulate_interest_dec(
             basket_asset.rate_index,
             interest_rates[i],
-            time_elapsed.clone(),
+            time_elapsed,
         )?;
 
         basket.collateral_types[i].rate_index += accrued_rate;        
@@ -163,7 +165,7 @@ pub fn get_interest_rates(
    
     //Get basket cAsset ratios
     let (basket_ratios, _) =
-        get_cAsset_ratios(storage, env.clone(), querier, basket.clone().collateral_types, config.clone())?;
+        get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config.clone())?;
     
 
     for (i, cap) in basket.clone().collateral_supply_caps.iter().enumerate() {
@@ -257,7 +259,7 @@ pub fn get_interest_rates(
             }
 
             //Calc interest rate
-            let multi_cap_proportion = decimal_division(total_ratio, multi_asset_cap.supply_cap_ratio);
+            let multi_cap_proportion = decimal_division(total_ratio, multi_asset_cap.supply_cap_ratio)?;
 
             for asset in multi_asset_cap.clone().assets{
                 if let Some((i, _cap)) = basket.clone().collateral_supply_caps.into_iter().enumerate().find(|(_i, cap)| cap.asset_info.equal(&asset)){
@@ -358,7 +360,7 @@ pub fn accrue(
             decimal_division(
                 Decimal::from_ratio(liquidity, Uint128::new(1u128)),
                 Decimal::from_ratio(current_supply, Uint128::new(1u128)),
-            )
+            )?
         } else {
             Decimal::one()        
         }
@@ -368,7 +370,7 @@ pub fn accrue(
         time_elapsed = 0u64;
     }
 
-    if !(time_elapsed == 0u64) && basket.oracle_set {
+    if time_elapsed != 0u64 && basket.oracle_set {
         basket.credit_last_accrued = env.block.time.seconds();
 
         //Calculate new interest rate
@@ -392,21 +394,25 @@ pub fn accrue(
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
             //If market price > than repayment price
-            if credit_TWAP_price > basket.clone().credit_price {
-                negative_rate = true;
-                decimal_subtraction(
-                    decimal_division(credit_TWAP_price, basket.clone().credit_price),
-                    Decimal::one(),
-                )
-            } else if basket.clone().credit_price > credit_TWAP_price {
-                negative_rate = false;
-                decimal_subtraction(
-                    decimal_division(basket.clone().credit_price, credit_TWAP_price),
-                    Decimal::one(),
-                )
-            } else {
-                negative_rate = false;
-                Decimal::zero()
+            match credit_TWAP_price.cmp(&basket.clone().credit_price){
+                Ordering::Greater => {
+                    negative_rate = true;
+                    decimal_subtraction(
+                        decimal_division(credit_TWAP_price, basket.clone().credit_price)?,
+                        Decimal::one(),
+                    )?
+                },
+                Ordering::Less => {
+                    negative_rate = false;
+                    decimal_subtraction(
+                        decimal_division(basket.clone().credit_price, credit_TWAP_price)?,
+                        Decimal::one(),
+                    )?
+                },
+                Ordering::Equal => {
+                    negative_rate = false;
+                    Decimal::zero()
+                }
             }
         };
 
@@ -414,7 +420,7 @@ pub fn accrue(
         if price_difference > basket.clone().cpc_margin_of_error {
 
             //Multiply price_difference by the cpc_multiplier
-            credit_price_rate = decimal_multiplication(price_difference, config.clone().cpc_multiplier);
+            credit_price_rate = decimal_multiplication(price_difference, config.cpc_multiplier)?;
 
             //Calculate rate of change
             let mut applied_rate = credit_price_rate.checked_mul(Decimal::from_ratio(
@@ -426,7 +432,7 @@ pub fn accrue(
             //If a negative rate we subtract the applied_rate from 1
             if negative_rate {
                 //Subtract applied_rate to make it .9___
-                applied_rate = decimal_subtraction(Decimal::one(), applied_rate);
+                applied_rate = decimal_subtraction(Decimal::one(), applied_rate)?;
             } else {
                 //Add 1 to make the value 1.__
                 applied_rate += Decimal::one();
@@ -434,8 +440,8 @@ pub fn accrue(
 
             let mut new_price = basket.credit_price;
             //Negative repayment interest needs to be enabled by the basket
-            if negative_rate && basket.negative_rates || !negative_rate {
-                new_price = decimal_multiplication(basket.credit_price, applied_rate);
+            if !negative_rate || basket.negative_rates {
+                new_price = decimal_multiplication(basket.credit_price, applied_rate)?;
             } 
 
             basket.credit_price = new_price;
@@ -460,7 +466,7 @@ pub fn accrue(
     let new_credit_amount = decimal_multiplication(
         Decimal::from_ratio(position.credit_amount, Uint128::new(1)), 
         rate_of_change
-    ) * Uint128::new(1u128);
+    )? * Uint128::new(1u128);
         
     if new_credit_amount > position.credit_amount {
         //Calc accrued interest
@@ -468,7 +474,7 @@ pub fn accrue(
 
         if let Some(contract) = config.clone().discounts_contract {
             //Get User's discounted interest
-            accrued_interest = get_discounted_interest(querier, contract.to_string(), user, accrued_interest.clone())?;
+            accrued_interest = get_discounted_interest(querier, contract.to_string(), user, accrued_interest)?;
         }
 
         //Add accrued interest to the basket's pending revenue
@@ -480,9 +486,9 @@ pub fn accrue(
         //Add accrued interest to the basket's debt cap
         match update_basket_debt(
             storage,
-            env.clone(),
+            env,
             querier,
-            config.clone(),
+            config,
             basket,
             position.clone().collateral_assets,
             accrued_interest,
@@ -506,14 +512,14 @@ fn get_discounted_interest(
     querier: QuerierWrapper,
     discounts_contract: String,
     user: String,
-    nondiscounted_interest: Uint128,
+    undiscounted_interest: Uint128,
 ) -> StdResult<Uint128>{
     //Get discount
     let discount = querier.query_wasm_smart::<Decimal>(discounts_contract, &DiscountQueryMsg::UserDiscount { user })?;
 
     let discounted_interest = {
-        let percent_of_interest = decimal_subtraction(Decimal::one(), discount);
-        decimal_multiplication(Decimal::from_ratio(nondiscounted_interest, Uint128::one()), percent_of_interest)
+        let percent_of_interest = decimal_subtraction(Decimal::one(), discount)?;
+        decimal_multiplication(Decimal::from_ratio(undiscounted_interest, Uint128::one()), percent_of_interest)?
     } * Uint128::one();
     
     Ok(discounted_interest)

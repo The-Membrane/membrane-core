@@ -51,7 +51,7 @@ impl fmt::Display for Deposit {
 }
 
 impl Deposit {
-    pub fn equal(&self, deposits: &Vec<Deposit>) -> bool {
+    pub fn equal(&self, deposits: &[Deposit]) -> bool {
         let mut check = false;
         for deposit in deposits.iter() {
             if self.amount == deposit.amount && self.user == deposit.user && self.deposit_time == deposit.deposit_time{
@@ -119,7 +119,7 @@ impl fmt::Display for Bid {
 }
 
 impl Bid {
-    pub fn equal(&self, bids: &Vec<Bid>) -> bool {
+    pub fn equal(&self, bids: &[Bid]) -> bool {
         let mut check = false;
         for bid in bids.iter() {
             if self.amount == bid.amount && self.user == bid.user {
@@ -527,12 +527,12 @@ pub fn equal(assets_1: &Vec<AssetInfo>, assets_2: &Vec<AssetInfo>) -> bool {
     }
 
     for asset in assets_2{
-        if let None = assets_1.into_iter().find(|self_asset| asset.equal(&self_asset)){
+        if assets_1.iter().find(|self_asset| asset.equal(self_asset)).is_none(){
            return false
         }
     }
 
-    return true
+    true
 }
 
 #[cw_serde]

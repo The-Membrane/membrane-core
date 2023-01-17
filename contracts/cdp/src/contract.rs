@@ -52,7 +52,7 @@ pub fn instantiate(
 
     let mut config = Config {
         liq_fee: msg.liq_fee,
-        owner: info.sender.clone(),
+        owner: info.sender,
         stability_pool: None,
         dex_router: None,
         staking_contract: None,
@@ -197,16 +197,16 @@ pub fn execute(
             )
         },
         ExecuteMsg::LiqRepay {} => {
-            if info.clone().funds.len() != 0 as usize {
+            if info.funds.is_empty() {
                 let credit_asset = Asset {
                     info: AssetInfo::NativeToken {
-                        denom: info.clone().funds[0].clone().denom,
+                        denom: info.funds[0].clone().denom,
                     },
-                    amount: info.clone().funds[0].amount,
+                    amount: info.funds[0].amount,
                 };
                 liq_repay(deps, env, info, credit_asset)
-            } else { //This is checked more specifcally in repay(). This is solely to guarantee only one asset is checked.
-                return Err(ContractError::InvalidCredit {});
+            } else { //This is checked more specifically in repay(). This is solely to guarantee only one asset is checked.
+                 Err(ContractError::InvalidCredit {})
             }
         }
         ExecuteMsg::EditcAsset {
@@ -258,7 +258,7 @@ pub fn execute(
             if info.sender == env.contract.address {
                 callback_handler(deps, env, msg)
             } else {
-                return Err(ContractError::Unauthorized {});
+                Err(ContractError::Unauthorized {})
             }
         }
     }
@@ -294,10 +294,10 @@ fn edit_cAsset(
         .find(|cAsset| cAsset.asset.info.equal(&asset))
     {
         Some(mut asset) => {
-            attrs.push(attr("asset", asset.clone().asset.info.to_string()));
+            attrs.push(attr("asset", asset.asset.info.to_string()));
 
             if let Some(LTV) = max_LTV {
-                asset.max_LTV = LTV.clone();
+                asset.max_LTV = LTV;
 
                 //Edit the asset's liq_queue max_premium
                 //Create Liquidation Queue for its assets
@@ -323,7 +323,7 @@ fn edit_cAsset(
 
             if let Some(LTV) = max_borrow_LTV {
                 if LTV < Decimal::percent(100) && LTV < asset.max_LTV {
-                    asset.max_borrow_LTV = LTV.clone();
+                    asset.max_borrow_LTV = LTV;
                     attrs.push(attr("max_borrow_LTV", LTV.to_string()));
                 }
             }
@@ -401,7 +401,7 @@ fn check_and_fulfill_bad_debt(
     let mut basket: Basket = BASKET.load(deps.storage)?;
 
     //Get target Position
-    let (_i, mut target_position) = get_target_position(deps.storage, position_owner.clone(), position_id.clone())?;
+    let (_i, mut target_position) = get_target_position(deps.storage, position_owner.clone(), position_id)?;
 
     //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
     //This is allowed bc any calls here will be after a liquidation where the sell wall would've sold all it could to cover debts
@@ -414,7 +414,7 @@ fn check_and_fulfill_bad_debt(
         .sum();
 
     if total_assets > Uint128::zero() || target_position.credit_amount.is_zero() {
-        return Err(ContractError::PositionSolvent {});
+        Err(ContractError::PositionSolvent {})
     } else {
         let mut messages: Vec<CosmosMsg> = vec![];
         let mut bad_debt_amount = target_position.credit_amount;
@@ -512,9 +512,9 @@ fn check_and_fulfill_bad_debt(
             attr("amount_sent_to_auction", bad_debt_amount)
         );
 
-        return Ok(Response::new()
+        Ok(Response::new()
             .add_messages(messages)
-            .add_attributes(attrs));
+            .add_attributes(attrs))
     }
 }
 

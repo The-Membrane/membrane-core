@@ -219,28 +219,28 @@ impl UpdateConfig {
             config.discounts_contract = Some(api.addr_validate(&discounts_contract)?);
         }
         if let Some(liq_fee) = self.liq_fee {
-            config.liq_fee = liq_fee.clone();
+            config.liq_fee = liq_fee;
         }
         if let Some(debt_minimum) = self.debt_minimum {
-            config.debt_minimum = debt_minimum.clone();
+            config.debt_minimum = debt_minimum;
         }
         if let Some(base_debt_cap_multiplier) = self.base_debt_cap_multiplier {
-            config.base_debt_cap_multiplier = base_debt_cap_multiplier.clone();
+            config.base_debt_cap_multiplier = base_debt_cap_multiplier;
         }
         if let Some(oracle_time_limit) = self.oracle_time_limit {
-            config.oracle_time_limit = oracle_time_limit.clone();
+            config.oracle_time_limit = oracle_time_limit;
         }
         if let Some(collateral_twap_timeframe) = self.collateral_twap_timeframe {
-            config.collateral_twap_timeframe = collateral_twap_timeframe.clone();
+            config.collateral_twap_timeframe = collateral_twap_timeframe;
         }
         if let Some(credit_twap_timeframe) = self.credit_twap_timeframe {
-            config.credit_twap_timeframe = credit_twap_timeframe.clone();
+            config.credit_twap_timeframe = credit_twap_timeframe;
         }
         if let Some(cpc_multiplier) = self.cpc_multiplier {
-            config.cpc_multiplier = cpc_multiplier.clone();
+            config.cpc_multiplier = cpc_multiplier;
         }
         if let Some(rate_slope_multiplier) = self.rate_slope_multiplier {
-            config.rate_slope_multiplier = rate_slope_multiplier.clone();
+            config.rate_slope_multiplier = rate_slope_multiplier;
         }
         Ok(())
     }
@@ -271,13 +271,13 @@ impl EditBasket {
         new_queue: Option<Addr>,
         oracle_set: bool,
     ) -> StdResult<()> {
-        if self.clone().added_cAsset.is_some() {
-            basket.collateral_types.push(new_cAsset.clone());
+        if self.added_cAsset.is_some() {
+            basket.collateral_types.push(new_cAsset);
         }
-        if self.clone().liq_queue.is_some() {
-            basket.liq_queue = new_queue.clone();
+        if self.liq_queue.is_some() {
+            basket.liq_queue = new_queue;
         }
-        if let Some(collateral_supply_caps) = self.clone().collateral_supply_caps {
+        if let Some(collateral_supply_caps) = self.collateral_supply_caps {
             //Set new cap parameters
             for new_cap in collateral_supply_caps {
                 if let Some((index, _cap)) = basket.clone().collateral_supply_caps
@@ -292,7 +292,7 @@ impl EditBasket {
                 }
             }
         }
-        if let Some(multi_asset_supply_caps) = self.clone().multi_asset_supply_caps {
+        if let Some(multi_asset_supply_caps) = self.multi_asset_supply_caps {
             //Set new cap parameters
             for new_cap in multi_asset_supply_caps {
                 if let Some((index, _cap)) = basket.clone().multi_asset_supply_caps
@@ -307,24 +307,24 @@ impl EditBasket {
                 }
             }
         }
-        if let Some(base_interest_rate) = self.clone().base_interest_rate {
-            basket.base_interest_rate = base_interest_rate.clone();
+        if let Some(base_interest_rate) = self.base_interest_rate {
+            basket.base_interest_rate = base_interest_rate;
         }
-        if let Some(toggle) = self.clone().negative_rates {
-            basket.negative_rates = toggle.clone();
+        if let Some(toggle) = self.negative_rates {
+            basket.negative_rates = toggle;
         }
-        if let Some(toggle) = self.clone().frozen {
-            basket.frozen = toggle.clone();
+        if let Some(toggle) = self.frozen {
+            basket.frozen = toggle;
         }
-        if let Some(toggle) = self.clone().rev_to_stakers {
-            basket.rev_to_stakers = toggle.clone();
+        if let Some(toggle) = self.rev_to_stakers {
+            basket.rev_to_stakers = toggle;
         }
-        if let Some(error_margin) = self.clone().cpc_margin_of_error {
-            basket.cpc_margin_of_error = error_margin.clone();
+        if let Some(error_margin) = self.cpc_margin_of_error {
+            basket.cpc_margin_of_error = error_margin;
         }
         //Set basket specific multiplier
-        if let Some(multiplier) = self.clone().liquidity_multiplier {
-            basket.liquidity_multiplier = multiplier.clone();
+        if let Some(multiplier) = self.liquidity_multiplier {
+            basket.liquidity_multiplier = multiplier;
         }
         basket.oracle_set = oracle_set;
 

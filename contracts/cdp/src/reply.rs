@@ -29,7 +29,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     deps.storage, 
                     deps.querier, 
                     env.clone(), 
-                    position_id.clone(), 
+                    position_id,
                     valid_position_owner.clone(), 
                     withdrawn_collateral.info, 
                     withdrawn_collateral.amount
@@ -40,7 +40,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             let (_i, target_position) = match get_target_position(
                 deps.storage, 
                 valid_position_owner, 
-                position_id.clone(), 
+                position_id, 
             ){
                 Ok(position) => position,
                 Err(err) => return Err(StdError::GenericErr { msg: err.to_string() })
@@ -98,7 +98,7 @@ pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
                 repay_amount = prop.clone().user_repay_amount;
 
                 //Sell wall asset's repayment amount
-                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut prop, repay_amount.clone())?);
+                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env, deps.querier, &mut prop, repay_amount)?);
 
             } else {                    
                 //Since Error && SP was used (ie there will be a reply later in the execution)...
@@ -126,10 +126,10 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
     //Match on msg.result
     match msg.result.into_result() {
         Ok(_result) => {
-            let mut withdraw_prop = WITHDRAW.load(deps.storage)?;
+            let withdraw_prop = WITHDRAW.load(deps.storage)?;
 
             //Assert valid withdrawal for each asset this reply is
-            for (i, prev_collateral) in withdraw_prop.clone().positions_prev_collateral.into_iter().enumerate() {
+            for (i, prev_collateral) in withdraw_prop.clone().positions_prev_collateral.into_iter().enumerate(){
                 let asset_info: AssetInfo = prev_collateral.info.clone();
                 let position_amount: Uint128 = prev_collateral.amount;
                 let withdraw_amount: Uint128 = withdraw_prop.withdraw_amounts[i];
@@ -152,14 +152,14 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                     return Err(StdError::GenericErr {
                         msg: format!(
                             "Conditional 1: Invalid withdrawal, possible bug found by {}",
-                            withdraw_prop.position_info.position_owner.clone()
+                            withdraw_prop.position_info.position_owner
                         ),
                     });
                 }
 
                 match get_target_position(
                     deps.storage,
-                    deps.api.addr_validate(&withdraw_prop.position_info.position_owner.clone())?,
+                    deps.api.addr_validate(&withdraw_prop.position_info.position_owner)?,
                     withdraw_prop.position_info.position_id,
                 ){
                     Ok((_i, user_position)) => {
@@ -229,7 +229,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                         .any(|attr| attr.key == "leftover_repayment")
                 })
                 .ok_or_else(|| {
-                    StdError::generic_err(format!("unable to find stability pool event"))
+                    StdError::GenericErr { msg: String::from("unable to find stability pool event") }
                 })?;
 
             let leftover = &liq_event
@@ -239,7 +239,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 .unwrap()
                 .value;
 
-            let leftover_amount = Uint128::from_str(&leftover)?;
+            let leftover_amount = Uint128::from_str(leftover)?;
 
             let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;
             let mut submessages = vec![];
@@ -255,7 +255,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 + Decimal::from_ratio(leftover_amount, Uint128::new(1u128));
 
                 //Sell Wall SP, LQ and User's SP Fund leftovers
-                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut liquidation_propagation, repay_amount.clone())?);
+                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env, deps.querier, &mut liquidation_propagation, repay_amount)?);
 
                 //Save to propagate
                 LIQUIDATION.save(deps.storage, &liquidation_propagation)?;
@@ -280,7 +280,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     ));
                     
                     //Sell wall remaining
-                    messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut liquidation_propagation, leftover_repayment)?);
+                    messages.extend(sell_wall_in_reply(deps.storage, deps.api, env, deps.querier, &mut liquidation_propagation, leftover_repayment)?);
                     
                     LIQUIDATION.save(deps.storage, &liquidation_propagation)?;                   
                 }
@@ -288,7 +288,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 //Send whatever is able to the Stability Pool
                 let sp_repay_amount = decimal_subtraction(
                     liquidation_propagation.clone().liq_queue_leftovers,
-                    leftover_repayment.clone(),
+                    leftover_repayment,
                 );
 
                 if !sp_repay_amount.is_zero() {
@@ -338,7 +338,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             let repay_amount = liquidation_propagation.liq_queue_leftovers + liquidation_propagation.stability_pool;
 
             //Sell wall remaining
-            messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut liquidation_propagation, repay_amount.clone())?);
+            messages.extend(sell_wall_in_reply(deps.storage, deps.api, env, deps.querier, &mut liquidation_propagation, repay_amount)?);
 
             attrs.push(attr(
                 "sent_to_sell_wall",
@@ -373,7 +373,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 .events
                 .into_iter()
                 .find(|e| e.attributes.iter().any(|attr| attr.key == "repay_amount"))
-                .ok_or_else(|| StdError::generic_err(format!("unable to find liq-queue event")))?;
+                .ok_or_else(|| StdError::GenericErr {  msg: "unable to find liq-queue event".to_string()})?;
 
             let repay = &liq_event
                 .attributes
@@ -381,7 +381,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 .find(|attr| attr.key == "repay_amount")
                 .unwrap()
                 .value;
-            let repay_amount = Uint128::from_str(&repay)?;
+            let repay_amount = Uint128::from_str(repay)?;
 
             let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
             let basket = BASKET.load(deps.storage)?;
@@ -394,7 +394,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 .unwrap()
                 .value;
 
-            let send_amount = Uint128::from_str(&amount)?;
+            let send_amount = Uint128::from_str(amount)?;
 
             let token = &liq_event
                 .attributes
@@ -412,7 +412,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
 
             let token_info: AssetInfo = if asset_info.eq(&"token".to_string()) {
                 AssetInfo::Token {
-                    address: deps.api.addr_validate(&token)?,
+                    address: deps.api.addr_validate(token)?,
                 }
             } else {
                 AssetInfo::NativeToken {
@@ -478,7 +478,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 repay_amount = prop.clone().per_asset_repayment[0];
 
                 //Sell wall asset's repayment amount
-                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env.clone(), deps.querier, &mut prop, repay_amount.clone())?);
+                messages.extend(sell_wall_in_reply(deps.storage, deps.api, env, deps.querier, &mut prop, repay_amount)?);
                
             }
 

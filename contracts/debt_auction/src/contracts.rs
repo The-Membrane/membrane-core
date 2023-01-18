@@ -318,17 +318,17 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                         Uint128::new(1u128),
                     ),
                     config.discount_increase,
-                );
+                )?;
                 let discount = decimal_subtraction(
                     Decimal::one(),
                     (current_discount_increase + config.initial_discount),
-                );
+                )?;
 
                 //Mint MBRN for user
-                let discounted_mbrn_price = decimal_multiplication(mbrn_price, discount);
-                let credit_value = decimal_multiplication(swap_amount, basket_credit_price);
+                let discounted_mbrn_price = decimal_multiplication(mbrn_price, discount)?;
+                let credit_value = decimal_multiplication(swap_amount, basket_credit_price)?;
                 let mbrn_mint_amount =
-                    decimal_division(credit_value, discounted_mbrn_price) * Uint128::new(1u128);
+                    decimal_division(credit_value, discounted_mbrn_price)? * Uint128::new(1u128);
 
                 let message = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: config.clone().osmosis_proxy.to_string(),

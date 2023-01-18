@@ -318,7 +318,7 @@ fn claim (
     )?;
     
     let mut withdrawable_tickets = Uint128::zero();
-    let mut amount_to_mint = Uint128::zero();
+    let amount_to_mint: Uint128;
     //Find withdrawable tickets
     if let Some((i, user)) = lockdrop.clone().locked_users.into_iter().enumerate().find(|(_i, user)| user.user == info.clone().sender){
         let time_since_lockdrop_end = env.block.time.seconds() - lockdrop.withdrawal_end;       
@@ -333,7 +333,7 @@ fn claim (
         //Calc ratio of incentives to unlock
         let ratio_of_unlock = decimal_division(
             Decimal::from_ratio(withdrawable_tickets, Uint128::one()), 
-            Decimal::from_ratio(user.total_tickets, Uint128::one()));
+            Decimal::from_ratio(user.total_tickets, Uint128::one()))?;
 
         let unlocked_incentives = ratio_of_unlock * incentives;
 
@@ -395,7 +395,7 @@ fn get_user_incentives(
             decimal_multiplication(
                 user.ratio, 
                 Decimal::from_ratio(total_incentives, Uint128::one())
-            ) * Uint128::one()
+            )? * Uint128::one()
         },
         None => {
             return Err(StdError::GenericErr { msg: String::from("User didn't participate in the lockdrop") })
@@ -410,6 +410,8 @@ fn calc_ticket_distribution(
     storage: &mut dyn Storage,
     lockdrop: &mut Lockdrop,
 ) -> StdResult<()>{
+    let mut error: Option<StdError> = None;
+
     let user_totals = lockdrop.clone().locked_users
         .into_iter()
         .map(|user| {
@@ -442,7 +444,10 @@ fn calc_ticket_distribution(
             let ratio = decimal_division(
                 Decimal::from_ratio(user.1, Uint128::one()),
                 Decimal::from_ratio(total_tickets, Uint128::one()),
-            );
+            ).unwrap_or_else(|e| {
+                error = Some(e);
+                Decimal::zero()
+            });
 
             UserRatio { user: Addr::unchecked(user.0), ratio }
         })
@@ -578,7 +583,6 @@ pub fn end_of_launch(
         future_pool_governor: addrs.clone().governance.to_string(),
     };
     msgs.push(msg.into());
-
     //Create 3 CDT pools
     //OSMO
     let msg: CosmosMsg = MsgCreateBalancerPool {

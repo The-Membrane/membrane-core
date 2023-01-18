@@ -9,15 +9,17 @@ use bigint::U256;
 
 use cosmwasm_std::{Decimal, StdError, Uint128, StdResult};
 
+/// Checked Decimal subtraction
 pub fn decimal_subtraction(a: Decimal, b: Decimal) -> StdResult<Decimal> {
     a.checked_sub(b).map_err(|_| StdError::GenericErr{msg: String::from("Decimal subtraction overflow")})
 }
 
-/// return a / b
+/// Checked Decimal division
 pub fn decimal_division(a: Decimal, b: Decimal) -> StdResult<Decimal> {
     a.checked_div(b).map_err(|_| StdError::GenericErr{msg: String::from("Decimal division overflow")})
 }
 
+/// Checked Decimal multiplication
 pub fn decimal_multiplication(a: Decimal, b: Decimal) -> StdResult<Decimal> {
     a.checked_mul(b).map_err(|_| StdError::GenericErr{msg: String::from("Decimal multiplication overflow")})
 }

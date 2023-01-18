@@ -119,34 +119,52 @@ pub enum ExecuteMsg {
     },
     /// Create the contract's Basket
     CreateBasket {
+        /// Basket ID
         basket_id: Uint128,
+        /// Collateral asset types.
+        /// Note: Also used to tally asset amounts for ease of calculation of Basket ratios
         collateral_types: Vec<cAsset>,
-        credit_asset: Asset, //Creates native denom for Asset
+        /// Creates native denom for credit_asset
+        credit_asset: Asset, 
+        /// Credit redemption price
         credit_price: Decimal,
+        /// Base collateral interest rate.
+        /// Used to calculate the interest rate for each collateral type.
         base_interest_rate: Option<Decimal>,
-        credit_pool_infos: Vec<PoolType>, //For liquidity measuring
-        liquidity_multiplier_for_debt_caps: Option<Decimal>, //Ex: 5 = debt cap at 5x liquidity
+        /// To measure liquidity for the credit asset
+        credit_pool_infos: Vec<PoolType>, 
+        /// Liquidity multiplier for debt caps.
+        /// Ex: 5 = debt cap at 5x liquidity
+        liquidity_multiplier_for_debt_caps: Option<Decimal>, 
+        /// Liquidation queue for collateral assets
         liq_queue: Option<String>,
     },
+    /// Edit the contract's Basket
     EditBasket(EditBasket),
+    /// Edit a cAsset in the contract's Basket
     EditcAsset {
+        /// cAsset to edit
         asset: AssetInfo,
-        //Editables
-        max_borrow_LTV: Option<Decimal>, //aka what u can borrow up to
-        max_LTV: Option<Decimal>,        //ie liquidation point
+        /// Max users can borrow up to
+        max_borrow_LTV: Option<Decimal>, 
+        /// Point of liquidation
+        max_LTV: Option<Decimal>,
     },
     //Callbacks; Only callable by the contract
     Callback(CallbackMsg),
 }
 
 
-// NOTE: Since CallbackMsg are always sent by the contract itself, we assume all types are already
-// validated and don't do additional checks. E.g. user addresses are Addr instead of String
+/// Note: Since CallbackMsg are always sent by the contract itself, we assume all types are already
+/// validated and don't do additional checks. E.g. user addresses are Addr instead of String
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CallbackMsg {
+    /// Bad debt check post liquidation
     BadDebtCheck {
+        /// Position ID to check
         position_id: Uint128,
+        /// Position owner to check
         position_owner: Addr,
     },
 }
@@ -154,80 +172,128 @@ pub enum CallbackMsg {
 
 #[cw_serde]
 pub enum QueryMsg {
+    /// Returns the contract's config
     Config {},
+    /// Returns Positions owned by a user
     GetUserPositions {
-        //All positions from a user
+        /// User to query
         user: String,
+        /// Response limiter
         limit: Option<u32>,
     },
+    /// Returns a single Position
     GetPosition {
-        //Singular position
+        //Position ID to query
         position_id: Uint128,
+        //Position owner to query
         position_owner: String,
     },
+    /// Returns Positions in the contract's Basket
     GetBasketPositions {
-        //All positions in a basket
+        /// Start after this user address
         start_after: Option<String>,
+        /// Response limiter
         limit: Option<u32>,
     },
-    GetBasket { }, //Singular basket
+    /// Returns the contract's Basket
+    GetBasket { }, 
+    /// Returns Basket collateral debt caps
     GetBasketDebtCaps { },
+    /// Returns Positions with bad debt in the Basket
     GetBasketBadDebt { },
+    /// Returns insolvency status of a Position
     GetPositionInsolvency {
+        /// Position ID to query
         position_id: Uint128,
+        /// Position owner to query
         position_owner: String,
     },
+    /// Returns credit redemption rate
     GetCreditRate { },
+    /// Returns Basket collateral interest rates
     GetCollateralInterest { },
-    //Used internally to test state propagation
+    /// Used internally to test state propagation
     Propagation {},
 }
 
 #[cw_serde]
 pub struct Config {
+    /// Contract owner
     pub owner: Addr,
+    /// Stability Pool contract address
     pub stability_pool: Option<Addr>,
-    pub dex_router: Option<Addr>, //Apollo's router, will need to change msg types if the router changes
+    /// Apollo DEX router contract address.
+    /// Note: Will need to change msg types if the router provider changes
+    pub dex_router: Option<Addr>,
+    /// Staking contract address
     pub staking_contract: Option<Addr>,
+    /// Osmosis Proxy contract address
     pub osmosis_proxy: Option<Addr>,
+    /// Debt auction contract address
     pub debt_auction: Option<Addr>,
+    /// Oracle contract address
     pub oracle_contract: Option<Addr>,
+    /// Liquidity Check contract address
     pub liquidity_contract: Option<Addr>,
+    /// System Discounts contract address
     pub discounts_contract: Option<Addr>,
-    pub liq_fee: Decimal,               //Enter as percent, 0.01
-    pub collateral_twap_timeframe: u64, //in minutes
-    pub credit_twap_timeframe: u64,     //in minutes
-    pub oracle_time_limit: u64, //in seconds until oracle failure is accepted. Think of it as how many blocks you allow the oracle to fail for.
-    //Augment the rate of increase per % difference for the redemption rate
+    /// Liquidation fee as percent
+    pub liq_fee: Decimal,
+    /// Collateral TWAP time frame in minutes
+    pub collateral_twap_timeframe: u64, 
+    /// Credit TWAP time frame in minutes
+    pub credit_twap_timeframe: u64,
+    /// Seconds until oracle failure is accepted. Think of it as how many blocks you allow the oracle to fail for.
+    pub oracle_time_limit: u64, 
+    /// Augment the rate of increase per % difference for the redemption rate
     pub cpc_multiplier: Decimal,
-    //This needs to be large enough so that USDC positions are profitable to liquidate,
-    //1-2% of liquidated debt (max -> borrow_LTV) needs to be more than gas fees assuming ~98% LTV.
-    pub debt_minimum: Uint128, //Debt minimum value per position.
-    //Debt Minimum multiplier for base debt cap
-    //ie; How many users do we want at 0 credit liquidity?
+    /// Debt minimum value per position.
+    /// This needs to be large enough so that USDC positions are profitable to liquidate.
+    //1-2% of liquidated debt (max -> borrow_LTV) needs to be more than gas fees assuming ~96% LTV.
+    pub debt_minimum: Uint128, 
+    /// Debt minimum multiplier for base debt cap.
+    /// How many users do we want at 0 credit liquidity?
     pub base_debt_cap_multiplier: Uint128,
-    //Interest rate 2nd Slope multiplier
+    /// Interest rate 2nd Slope multiplier
     pub rate_slope_multiplier: Decimal,
 }
 
 #[cw_serde]
 pub struct UpdateConfig {
+    /// Contract owner
     pub owner: Option<String>,
+    /// Stability Pool contract address
     pub stability_pool: Option<String>,
+    /// Apollo DEX router contract address.
     pub dex_router: Option<String>,
-    pub osmosis_proxy: Option<String>,
-    pub debt_auction: Option<String>,
+    /// Staking contract address
     pub staking_contract: Option<String>,
+    /// Osmosis Proxy contract address
+    pub osmosis_proxy: Option<String>,
+    /// Debt auction contract address
+    pub debt_auction: Option<String>,
+    /// Oracle contract address
     pub oracle_contract: Option<String>,
+    /// Liquidity Check contract address
     pub liquidity_contract: Option<String>,
+    /// System Discounts contract address
     pub discounts_contract: Option<String>,
+    /// Liquidation fee as percent
     pub liq_fee: Option<Decimal>,
-    pub debt_minimum: Option<Uint128>,
-    pub base_debt_cap_multiplier: Option<Uint128>,
-    pub oracle_time_limit: Option<u64>,
-    pub credit_twap_timeframe: Option<u64>,
+    /// Collateral TWAP time frame in minutes
     pub collateral_twap_timeframe: Option<u64>,
+    /// Credit TWAP time frame in minutes
+    pub credit_twap_timeframe: Option<u64>,
+    /// Seconds until oracle failure is accepted
+    pub oracle_time_limit: Option<u64>,
+    /// Augment the rate of increase per % difference for the redemption rate
     pub cpc_multiplier: Option<Decimal>,
+    /// Debt minimum value per position.
+    pub debt_minimum: Option<Uint128>,
+    /// Debt minimum multiplier for base debt cap.
+    /// How many users do we want at 0 credit liquidity?
+    pub base_debt_cap_multiplier: Option<Uint128>,
+    /// Interest rate 2nd Slope multiplier
     pub rate_slope_multiplier: Option<Decimal>,
 }
 
@@ -295,19 +361,30 @@ impl UpdateConfig {
 
 #[cw_serde]
 pub struct EditBasket {
+    /// Add new cAsset
     pub added_cAsset: Option<cAsset>,
+    /// Liquidation Queue
     pub liq_queue: Option<String>,
-    pub credit_pool_infos: Option<Vec<PoolType>>, //For liquidity measuring
+    /// Credit pool info for liquidity measuring
+    pub credit_pool_infos: Option<Vec<PoolType>>, 
+    /// Liquidity multiplier for debt caps
     pub liquidity_multiplier: Option<Decimal>,
+    /// Supply caps for each collateral
     pub collateral_supply_caps: Option<Vec<SupplyCap>>,
+    /// Supply caps for asset groups
     pub multi_asset_supply_caps: Option<Vec<MultiAssetSupplyCap>>,
+    /// Base interest rate
     pub base_interest_rate: Option<Decimal>,
     /// Osmosis Pool info for credit TWAP price
     /// Non-USD denominated baskets don't work due to the debt minimum
     pub credit_asset_twap_price_source: Option<TWAPPoolInfo>,
-    pub negative_rates: Option<bool>, //Allow negative repayment interest or not
+    /// Toggle allowance negative redemption rate
+    pub negative_rates: Option<bool>, 
+    /// Margin of error for difference in TWAP price and redemption price
     pub cpc_margin_of_error: Option<Decimal>,
+    /// Toggle basket freezing
     pub frozen: Option<bool>,
+    /// Toggle Basket revenue to stakers
     pub rev_to_stakers: Option<bool>,
 }
 
@@ -381,43 +458,58 @@ impl EditBasket {
     }
 } 
 
-// We define a custom struct for each query response
+/// Response for Positions
 #[cw_serde]
 pub struct PositionResponse {
+    /// Position ID
     pub position_id: Uint128,
+    /// Position collateral assets
     pub collateral_assets: Vec<cAsset>,
-    //Allows front ends to get ratios using the same oracles
-    //Useful for users who want to deposit or withdraw at the current ratio
+    /// Collateral asset ratios
+    /// Allows front ends to get ratios using the same oracles.
+    /// Useful for users who want to deposit or withdraw at the current ratio.
     pub cAsset_ratios: Vec<Decimal>,
+    /// Position outstanding debt
     pub credit_amount: Uint128,
+    /// Basket ID
     pub basket_id: Uint128,
+    /// Average borrow LTV of collateral assets
     pub avg_borrow_LTV: Decimal,
+    /// Average max LTV of collateral assets
     pub avg_max_LTV: Decimal,
 }
 
 #[cw_serde]
 pub struct PositionsResponse {
+    /// Position user
     pub user: String,
+    /// List of Positions
     pub positions: Vec<Position>,
 }
 
 #[cw_serde]
 pub struct BadDebtResponse {
+    /// List of Positions with bad debt 
     pub has_bad_debt: Vec<(PositionUserInfo, Uint128)>,
 }
 
 #[cw_serde]
 pub struct InsolvencyResponse {
+    /// List of insolvent Positions
     pub insolvent_positions: Vec<InsolventPosition>,
 }
 
+/// Response for credit redemption price
 #[cw_serde]
 pub struct InterestResponse {
+    /// Redemption rate
     pub credit_interest: Decimal,
+    /// Is the redemption rate negative?
     pub negative_rate: bool,
 }
 
 #[cw_serde]
 pub struct CollateralInterestResponse {
+    /// Collateral interest rates in the order of the collateral types
     pub rates: Vec<Decimal>,
 }

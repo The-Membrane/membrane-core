@@ -10,6 +10,7 @@ use crate::stability_pool::QueryMsg as SP_QueryMsg;
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
 
+/// Returns asset liquidity from the liquidity check contract
 pub fn get_asset_liquidity(
     querier: QuerierWrapper,
     liquidity_contract: String,
@@ -23,6 +24,7 @@ pub fn get_asset_liquidity(
     Ok(total_pooled)   
 }
 
+/// Query Osmosis proxy for pool state then create & return LP withdraw msg
 pub fn pool_query_and_exit(
     querier: QuerierWrapper,
     env: Env,
@@ -60,6 +62,7 @@ pub fn pool_query_and_exit(
 
 }
 
+/// Returns [`PoolStateResponse`] from Osmosis proxy
 pub fn get_pool_state_response(
     querier: QuerierWrapper,
     osmosis_proxy: String,
@@ -74,6 +77,7 @@ pub fn get_pool_state_response(
     }))
 }
 
+/// Creates router swap msg between native assets
 pub fn router_native_to_native(
     router_addr: String,
     asset_to_sell: AssetInfo,
@@ -113,6 +117,7 @@ pub fn router_native_to_native(
     }
 }
 
+/// Returns Stability Pool liq premium
 pub fn query_stability_pool_fee(
     querier: QuerierWrapper,
     stability_pool: String,
@@ -129,6 +134,7 @@ pub fn query_stability_pool_fee(
     Ok(resp.liq_premium)
 }
 
+/// Get contract balances for list of assets
 pub fn get_contract_balances(
     querier: QuerierWrapper,
     env: Env,
@@ -149,6 +155,7 @@ pub fn get_contract_balances(
     Ok(balances)
 }
 
+/// Build withdraw msg for native assets
 pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
     if let AssetInfo::NativeToken { denom: _ } = asset.clone().info {
         let coin: Coin = asset_to_coin(asset)?;
@@ -162,7 +169,7 @@ pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
     }
 }
 
-//Don't use with AssetInfo::Token
+/// Builds withdraw msg for multiple native assets
 pub fn multi_native_withdrawal_msg(assets: Vec<Asset>, recipient: Addr) -> StdResult<CosmosMsg> {    
     let coins: Vec<Coin> = assets
         .into_iter()
@@ -175,6 +182,7 @@ pub fn multi_native_withdrawal_msg(assets: Vec<Asset>, recipient: Addr) -> StdRe
     Ok(message)   
 }
 
+/// Converts native Asset to Coin
 pub fn native_asset_to_coin(asset: Asset) -> Coin {    
     Coin {
         denom: asset.info.to_string(),
@@ -182,6 +190,7 @@ pub fn native_asset_to_coin(asset: Asset) -> Coin {
     }    
 }
 
+/// Converts Asset to Coin
 pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {
     match asset.info {
         //
@@ -196,8 +205,8 @@ pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {
         }),
     }
 }
-
-//Refactored Terraswap function
+/// Asserts balance of native tokens sent to the contract
+/// Refactored Terraswap function.
 pub fn assert_sent_native_token_balance(
     asset_info: AssetInfo,
     message_info: &MessageInfo,
@@ -231,7 +240,7 @@ pub fn assert_sent_native_token_balance(
     Ok(asset)
 }
 
-//Validate Recipient
+/// Returns valid addr for contract usage
 pub fn validate_position_owner(
     deps: &dyn Api,
     info: MessageInfo,
@@ -240,6 +249,7 @@ pub fn validate_position_owner(
     recipient.map_or_else(|| Ok(info.sender), |x| deps.addr_validate(&x))
 }
 
+/// Accumulate interest to a given base amount
 pub fn accumulate_interest(base: Uint128, rate: Decimal, time_elapsed: u64) -> StdResult<Uint128> {
     let applied_rate = rate.checked_mul(Decimal::from_ratio(
         Uint128::from(time_elapsed),

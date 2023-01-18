@@ -289,7 +289,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 let sp_repay_amount = decimal_subtraction(
                     liquidation_propagation.clone().liq_queue_leftovers,
                     leftover_repayment,
-                );
+                )?;
 
                 if !sp_repay_amount.is_zero() {
                     attrs.push(attr("sent_to_sp", sp_repay_amount.clone().to_string()));
@@ -433,7 +433,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                     prop.liq_queue_leftovers = decimal_subtraction(
                         prop.liq_queue_leftovers,
                         Decimal::from_ratio(repay_amount, Uint128::new(1u128)),
-                    );
+                    )?;
 
                     //SP reply handles LQ_leftovers
                 }

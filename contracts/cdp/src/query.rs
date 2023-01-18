@@ -342,15 +342,15 @@ pub fn query_collateral_rates(
                 Ordering::Greater => {
                     negative_rate = true;
                     decimal_subtraction(
-                        decimal_division(credit_TWAP_price, basket.credit_price),
+                        decimal_division(credit_TWAP_price, basket.credit_price)?,
                         Decimal::one(),
-                    )
+                    )?
                 }
                 Ordering::Less => {
                     decimal_subtraction(
-                        decimal_division(basket.credit_price, credit_TWAP_price),
+                        decimal_division(basket.credit_price, credit_TWAP_price)?,
                         Decimal::one(),
-                    )
+                    )?
                 }
                 Ordering::Equal => Decimal::zero(),
             }
@@ -368,7 +368,7 @@ pub fn query_collateral_rates(
                 if negative_rate {
                     decimal_multiplication(
                         rate,
-                        decimal_subtraction(Decimal::one(), price_difference),
+                        decimal_subtraction(Decimal::one(), price_difference)?,
                     )
                 } else {
                     decimal_multiplication(rate, (Decimal::one() + price_difference))

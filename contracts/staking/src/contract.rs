@@ -11,7 +11,6 @@ use cw2::set_contract_version;
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, withdrawal_msg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
-use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, ProposalStatus};
 use membrane::staking::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::vesting::{QueryMsg as Vesting_QueryMsg, RecipientsResponse};
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit, StakeDistributionLog, StakeDistribution};
@@ -73,8 +72,6 @@ pub fn instantiate(
             max_spread: msg.max_spread,
         };
     }
-
-    let mut attrs = vec![];
 
     //Set optional config parameters
     if let Some(dex_router) = msg.dex_router {
@@ -206,7 +203,7 @@ pub fn execute(
                     .collect::<Vec<Asset>>()
             };
 
-            deposit_fee(deps, env, info, fee_assets)
+            deposit_fee(deps, env, fee_assets)
         },
         ExecuteMsg::TrimFeeEvents {  } => trim_fee_events(deps.storage, info),
     }
@@ -746,7 +743,7 @@ pub fn claim_rewards(
         config.clone(),
         info.clone(),
         config.clone().dex_router,
-        claim_as_cw20.clone(),
+        claim_as_native.clone(),
         send_to.clone(),
     )?;    
 
@@ -839,7 +836,6 @@ fn accumulate_interest(stake: Uint128, rate: Decimal, time_elapsed: u64) -> StdR
 fn deposit_fee(
     deps: DepsMut,
     env: Env,
-    info: MessageInfo,
     fee_assets: Vec<Asset>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
@@ -874,7 +870,7 @@ fn deposit_fee(
             fee: LiqAsset {
                 //Amount = Amount per Staked MBRN
                 info: asset.info,
-                amount: decimal_division(amount, decimal_total),
+                amount: decimal_division(amount, decimal_total)?,
             },
         });
     }

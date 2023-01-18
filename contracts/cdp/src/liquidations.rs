@@ -115,7 +115,7 @@ pub fn liquidate(
     let collateral_assets = target_position.clone().collateral_assets;
 
     //Dynamic fee that goes to the caller (info.sender): current_LTV - max_LTV
-    let caller_fee = decimal_subtraction(current_LTV, avg_max_LTV);
+    let caller_fee = decimal_subtraction(current_LTV, avg_max_LTV)?;
 
     //Get amount of repayment user can repay from the Stability Pool
     let user_repay_amount = get_user_repay_amount(querier, config.clone(), basket.clone(), position_id, position_owner.clone(), &mut credit_repay_amount, &mut submessages)?;
@@ -195,7 +195,7 @@ pub fn liquidate(
     //If we don't we are guaranteeing increased bad debt by selling collateral for a discount.
     if !(leftover_repayment).is_zero()
         && leftover_position_value
-            <= decimal_multiplication(leftover_repayment, basket.clone().credit_price)
+            <= decimal_multiplication(leftover_repayment, basket.clone().credit_price)?
     {
         //Sell wall credit_repay_amount
         //The other submessages were for the LQ and SP so we reassign the submessage variable
@@ -269,7 +269,7 @@ fn get_repay_quantities(
     let loan_value = decimal_multiplication(
         basket.credit_price,
         Decimal::from_ratio(target_position.credit_amount, Uint128::new(1u128)),
-    );
+    )?;
 
     //repay value = the % of the loan insolvent. Insolvent is anything between current and max borrow LTV.
     //IE, repay what to get the position down to borrow LTV
@@ -374,7 +374,7 @@ fn get_user_repay_amount(
             submessages.push(sub_msg);
 
             //Subtract Repay amount from credit_repay_amount for the liquidation
-            *credit_repay_amount = decimal_subtraction(*credit_repay_amount, user_repay_amount);
+            *credit_repay_amount = decimal_subtraction(*credit_repay_amount, user_repay_amount)?;
         }
     }
 
@@ -411,16 +411,16 @@ fn per_asset_fulfillments(
         let mut fee_assets: Vec<Asset> = vec![];
 
         let repay_amount_per_asset =
-            decimal_multiplication(*credit_repay_amount, cAsset_ratios[num]);
+            decimal_multiplication(*credit_repay_amount, cAsset_ratios[num])?;
 
 
         let collateral_price = cAsset_prices[num];
-        let collateral_repay_value_for_fees = decimal_multiplication(repay_value, cAsset_ratios[num]);
-        let collateral_repay_amount_for_fees = decimal_division(collateral_repay_value_for_fees, collateral_price);
+        let collateral_repay_value_for_fees = decimal_multiplication(repay_value, cAsset_ratios[num])?;
+        let collateral_repay_amount_for_fees = decimal_division(collateral_repay_value_for_fees, collateral_price)?;
 
         //Subtract Caller fee from Position's claims
         let caller_fee_in_collateral_amount =
-            decimal_multiplication(collateral_repay_amount_for_fees, caller_fee) * Uint128::new(1u128);
+            decimal_multiplication(collateral_repay_amount_for_fees, caller_fee)? * Uint128::new(1u128);
         update_position_claims(
             storage,
             querier,
@@ -433,7 +433,7 @@ fn per_asset_fulfillments(
         
         //Subtract Protocol fee from Position's claims
         let protocol_fee_in_collateral_amount =
-            decimal_multiplication(collateral_repay_amount_for_fees, config.clone().liq_fee)
+            decimal_multiplication(collateral_repay_amount_for_fees, config.clone().liq_fee)?
                 * Uint128::new(1u128);
         update_position_claims(
             storage,
@@ -448,8 +448,8 @@ fn per_asset_fulfillments(
         //After fees are calculated, set collateral_repay_amount to the amount minus anything the user paid from the SP
         //Has to be after or user_repayment would disincentivize liquidations which would force a non-trivial debt minimum
         let collateral_repay_value =
-            decimal_multiplication(repay_amount_per_asset, basket.clone().credit_price);
-        let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price);
+            decimal_multiplication(repay_amount_per_asset, basket.clone().credit_price)?;
+        let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?;
 
         //Subtract fees from leftover_position value
         //fee_value = total_fee_collateral_amount * collateral_price
@@ -459,8 +459,8 @@ fn per_asset_fulfillments(
                 Uint128::new(1u128),
             ),
             collateral_price,
-        );
-        *leftover_position_value = decimal_subtraction(*leftover_position_value, fee_value);
+        )?;
+        *leftover_position_value = decimal_subtraction(*leftover_position_value, fee_value)?;
 
         //Create msgs to caller as well as to liq_queue if.is_some()
         match cAsset.clone().asset.info {
@@ -525,15 +525,15 @@ fn per_asset_fulfillments(
             let value_paid_to_queue: Decimal = decimal_multiplication(
                 Decimal::from_ratio(queue_asset_amount_paid, Uint128::new(1u128)),
                 collateral_price,
-            );
-            *leftover_position_value = decimal_subtraction(*leftover_position_value, value_paid_to_queue);
+            )?;
+            *leftover_position_value = decimal_subtraction(*leftover_position_value, value_paid_to_queue)?;
 
             //Calculate how much the queue repaid in credit
             let queue_credit_repaid = Uint128::from_str(&res.total_credit_repaid)?;
             *liq_queue_leftover_credit_repayment = decimal_subtraction(
                 *liq_queue_leftover_credit_repayment,
                 Decimal::from_ratio(queue_credit_repaid, Uint128::new(1u128)),
-            );
+            )?;
 
             //Call Liq Queue::Liquidate for the asset
             let liq_msg = LQ_ExecuteMsg::Liquidate {
@@ -597,10 +597,10 @@ fn build_sp_sw_submsgs(
         let leftover_repayment_value = decimal_multiplication(
             *liq_queue_leftover_credit_repayment,
             basket.credit_price,
-        );
+        )?;
 
         //SP liq_fee Guarantee check
-        if *leftover_position_value < decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee))
+        if *leftover_position_value < decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee))?
         {
             sell_wall_repayment_amount = *liq_queue_leftover_credit_repayment;
 
@@ -621,7 +621,7 @@ fn build_sp_sw_submsgs(
 
             //Leftover's starts as the total LQ is supposed to pay,
             //and is subtracted by every successful LQ reply
-            let liq_queue_leftovers = decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment);
+            let liq_queue_leftovers = decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment)?;
 
             // Set repay values for reply msg
             let liquidation_propagation = LiquidationPropagation {
@@ -667,11 +667,11 @@ fn build_sp_sw_submsgs(
             }
 
             //Set Stability Pool repay_amount
-            let sp_repay_amount = decimal_subtraction(*liq_queue_leftover_credit_repayment, leftover_repayment);
+            let sp_repay_amount = decimal_subtraction(*liq_queue_leftover_credit_repayment, leftover_repayment)?;
 
             //Leftover's starts as the total LQ is supposed to pay, and is subtracted by every successful LQ reply
             let liq_queue_leftovers =
-                decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment);
+                decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment)?;
             
             // Set repay values for reply msg
             let liquidation_propagation = LiquidationPropagation {
@@ -712,10 +712,10 @@ fn build_sp_sw_submsgs(
             //Set and subtract the value of what was paid to the Stability Pool
             //(sp_repay_amount * credit_price) * (1+sp_liq_fee)
             let paid_to_sp = decimal_multiplication(
-                decimal_multiplication(sp_repay_amount, basket.credit_price),
+                decimal_multiplication(sp_repay_amount, basket.credit_price)?,
                 (Decimal::one() + sp_liq_fee),
-            );
-            *leftover_position_value = decimal_subtraction(*leftover_position_value, paid_to_sp);
+            )?;
+            *leftover_position_value = decimal_subtraction(*leftover_position_value, paid_to_sp)?;
         }
     } else {
         //In case SP isn't used, we need to set LiquidationPropagation
@@ -759,8 +759,8 @@ fn get_lp_liq_withdraw_msg(
     let lp_liquidate_amount = decimal_division( 
         decimal_multiplication(
             cAsset_ratios[i],
-            repay_value), 
-            cAsset_prices[i])
+            repay_value)?, 
+            cAsset_prices[i])?
     * Uint128::new(1u128);
 
     //Remove asset from Position claims
@@ -842,7 +842,7 @@ pub fn sell_wall(
     let mut lp_withdraw_messages = vec![];
     let position_owner_addr = api.addr_validate(&position_owner)?;
 
-    let repay_value = decimal_multiplication(repay_amount, basket.credit_price);
+    let repay_value = decimal_multiplication(repay_amount, basket.credit_price)?;
 
     //Get Pre-Split cAsset_ratios & prices
     let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(storage, env.clone(), querier, collateral_assets.clone(), config.clone())?;   
@@ -875,8 +875,8 @@ pub fn sell_wall(
 
             //Calc collateral_repay_amount        
             let collateral_price = cAsset_prices[i];
-            let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[i]);
-            let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price);  
+            let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[i])?;
+            let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?;  
             //The repay_amount after the split may be greater so the amount used to update claims isn't necessary the same amount that'll get sold
 
             //Remove assets from Position claims before spliting the LP cAsset to ensure excess claims aren't removed
@@ -916,8 +916,8 @@ pub fn sell_wall(
 
         //Calc collateral_repay_amount        
         let collateral_price = cAsset_prices[index];
-        let collateral_repay_value = decimal_multiplication(repay_value, ratio);
-        let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price);                
+        let collateral_repay_value = decimal_multiplication(repay_value, ratio)?;
+        let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?;                
 
         let hook_msg = Some(to_binary(&ExecuteMsg::Repay {
             position_id,

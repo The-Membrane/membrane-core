@@ -2,7 +2,7 @@ use std::convert::TryInto;
 
 use cosmwasm_std::{
     to_binary, Decimal, DepsMut, Env, WasmMsg, WasmQuery,
-    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, coins, QueryRequest,
+    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, coins, QueryRequest, BankMsg,
 };
 use crate::error::ContractError;
 use crate::contracts::{SECONDS_PER_DAY, POSITIONS_REPLY_ID, DEBT_AUCTION_REPLY_ID, SYSTEM_DISCOUNTS_REPLY_ID, DISCOUNT_VAULT_REPLY_ID, CREATE_DENOM_REPLY_ID, ORACLE_REPLY_ID, STAKING_REPLY_ID, VESTING_REPLY_ID, LIQ_QUEUE_REPLY_ID, GOVERNANCE_REPLY_ID, STABILITY_POOL_REPLY_ID ,LIQUIDITY_CHECK_REPLY_ID};
@@ -133,24 +133,6 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
         }
 
         //Incentivize the stableswap
-        //7 day guage
-        let msg = MsgCreateGauge { 
-            is_perpetual: false, 
-            owner: addrs.clone().governance.to_string(),
-            distribute_to: Some(QueryCondition { 
-                lock_query_type: 0, //ByDuration
-                denom: pool_denom.clone(),
-                duration: Some(Duration { seconds: 7 * SECONDS_PER_DAY as i64, nanos: 0 }), 
-                timestamp: None,
-            }), 
-            coins: vec![Coin {
-                denom: config.clone().mbrn_denom, 
-                amount: String::from("500_000_000_000"),
-            }], 
-            start_time: None, 
-            num_epochs_paid_over: 90, //days
-        }.into();
-        msgs.push(msg);
         //14 day guage
         let msg = MsgCreateGauge { 
             is_perpetual: false, 
@@ -163,7 +145,7 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             }), 
             coins: vec![Coin {
                 denom: config.clone().mbrn_denom, 
-                amount: String::from("500_000_000_000"),
+                amount: String::from("1_000_000_000_000"),
             }], 
             start_time: None, 
             num_epochs_paid_over: 90, //days
@@ -218,6 +200,21 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             funds: vec![], 
         });
         msgs.push(msg);
+        
+        //Query contract balance of MBRN-OSMO LP
+        let gamm_coin = match deps.querier.query_all_balances(env.contract.address)?
+            .into_iter()
+            .find( |a| a.denom.contains("gamm")){
+                Some(gamm_denom) => gamm_denom,
+                None => return Err(StdError::GenericErr { msg: String::from("No MBRN-OSMO LP found") })
+            };
+        //Send gamm_coin NativeToken to Governance
+        let msg = BankMsg::Send {
+            to_address: addrs.clone().governance.to_string(),
+            amount: vec![gamm_coin],
+        };
+        msgs.push(msg.into());
+            
 
         Ok(Response::new()
             .add_messages(msgs)
@@ -1126,7 +1123,7 @@ pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                     twap_timeframe: 60u64,
                     mbrn_denom: config.clone().mbrn_denom,
                     initial_discount: Decimal::percent(1),
-                    discount_increase_timeframe: 15u64,
+                    discount_increase_timeframe: 15 * 60, //15 minutes,
                     discount_increase: Decimal::percent(1),
                 })?, 
                 funds: vec![], 

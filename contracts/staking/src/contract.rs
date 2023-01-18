@@ -79,23 +79,18 @@ pub fn instantiate(
     //Set optional config parameters
     if let Some(dex_router) = msg.dex_router {
         config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
-        attrs.push(attr("dex_router", dex_router));
     };
     if let Some(vesting_contract) = msg.vesting_contract {        
         config.vesting_contract = Some(deps.api.addr_validate(&vesting_contract)?);
-        attrs.push(attr("vesting_contract", vesting_contract));
     };
     if let Some(positions_contract) = msg.positions_contract {
         config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
-        attrs.push(attr("positions_contract", positions_contract));
     };
     if let Some(governance_contract) = msg.governance_contract {
         config.governance_contract = Some(deps.api.addr_validate(&governance_contract)?);
-        attrs.push(attr("governance_contract", governance_contract));
     };
     if let Some(osmosis_proxy) = msg.osmosis_proxy {
         config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
-        attrs.push(attr("osmosis_proxy", osmosis_proxy));
     };
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
@@ -124,7 +119,6 @@ pub fn instantiate(
     
     Ok(Response::new()
         .add_attribute("method", "instantiate")
-        .add_attributes(attrs)
         .add_attribute("config", format!("{:?}", config))
         .add_attribute("contract_address", env.contract.address))
 }
@@ -183,7 +177,6 @@ pub fn execute(
         ExecuteMsg::Restake { mbrn_amount } => restake(deps, env, info, mbrn_amount),
         ExecuteMsg::ClaimRewards {
             claim_as_native,
-            claim_as_cw20,
             send_to,
             restake,
         } => claim_rewards(
@@ -191,7 +184,6 @@ pub fn execute(
             env,
             info,
             claim_as_native,
-            claim_as_cw20,
             send_to,
             restake,
         ),
@@ -737,7 +729,6 @@ pub fn claim_rewards(
     env: Env,
     info: MessageInfo,
     claim_as_native: Option<String>,
-    claim_as_cw20: Option<String>,
     send_to: Option<String>,
     restake: bool,
 ) -> Result<Response, ContractError> {
@@ -748,13 +739,6 @@ pub fn claim_rewards(
     let accrued_interest: Uint128;
     let user_claimables: Vec<Asset>;
 
-    //Only 1 toggle at a time
-    if claim_as_native.is_some() && claim_as_cw20.is_some() {
-        return Err(ContractError::CustomError {
-            val: "Can't claim as multiple assets, if not all claimable assets".to_string(),
-        });
-    }
-
     (messages, user_claimables, accrued_interest) = user_claims(
         deps.storage,
         deps.api,
@@ -762,7 +746,6 @@ pub fn claim_rewards(
         config.clone(),
         info.clone(),
         config.clone().dex_router,
-        claim_as_native.clone(),
         claim_as_cw20.clone(),
         send_to.clone(),
     )?;    
@@ -834,7 +817,6 @@ pub fn claim_rewards(
         .add_attribute("method", "claim")
         .add_attribute("user", info.sender)
         .add_attribute("claim_as_native", claim_as_native.unwrap_or_default())
-        .add_attribute("claim_as_cw20", claim_as_cw20.unwrap_or_default())
         .add_attribute("send_to", send_to.unwrap_or_default())
         .add_attribute("restake", restake.to_string())
         .add_attribute("mbrn_rewards", accrued_interest.to_string())
@@ -918,7 +900,6 @@ fn user_claims(
     info: MessageInfo,
     dex_router: Option<Addr>,
     claim_as_native: Option<String>,
-    claim_as_cw20: Option<String>,
     send_to: Option<String>,
 ) -> StdResult<(Vec<CosmosMsg>, Vec<Asset>, Uint128)> {
 
@@ -929,7 +910,7 @@ fn user_claims(
         get_user_claimables(storage, env, info.clone().sender)?;
 
     //If we are claiming the available assets without swaps
-    if claim_as_cw20.is_none() && claim_as_native.is_none() {
+    if claim_as_native.is_none() {
         for asset in user_claimables.clone() {
             if send_to.clone().is_none() {
                 messages.push(withdrawal_msg(asset, info.clone().sender)?);
@@ -945,63 +926,8 @@ fn user_claims(
                 AssetInfo::Token { address:_ } => { },
                 /////Starting token is native so msgs go straight to the router contract
                 AssetInfo::NativeToken { denom: _ } => {
-                    //Swap to Cw20 before sending or depositing
-                    if claim_as_cw20.is_some() {
-                        let valid_claim_addr =
-                            api.addr_validate(claim_as_cw20.clone().unwrap().as_ref())?;
-
-                        if send_to.clone().is_some() {
-                            //Send to Optional receipient
-                            let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
-                            //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterExecuteMsg::Swap {
-                                to: SwapToAssetsInput::Single(AssetInfo::Token {
-                                    address: valid_claim_addr,
-                                }),
-                                max_spread: Some(
-                                    config
-                                        .clone()
-                                        .max_spread
-                                        .unwrap_or_else(|| Decimal::percent(10)),
-                                ),
-                                recipient: Some(valid_receipient.to_string()),
-                                hook_msg: None,
-                            };
-
-                            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: config.clone().dex_router.unwrap().to_string(),
-                                msg: to_binary(&swap_hook)?,
-                                funds: vec![asset_to_coin(asset)?],
-                            });
-
-                            messages.push(message);
-                        } else {
-                            //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterExecuteMsg::Swap {
-                                to: SwapToAssetsInput::Single(AssetInfo::Token {
-                                    address: valid_claim_addr,
-                                }),
-                                max_spread: Some(
-                                    config
-                                        .clone()
-                                        .max_spread
-                                        .unwrap_or_else(|| Decimal::percent(10)),
-                                ),
-                                recipient: Some(info.clone().sender.to_string()),
-                                hook_msg: None,
-                            };
-
-                            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: config.clone().dex_router.unwrap().to_string(),
-                                msg: to_binary(&swap_hook)?,
-                                funds: vec![asset_to_coin(asset)?],
-                            });
-
-                            messages.push(message);
-                        }
-                    }
                     //Swap to native before sending or depositing
-                    else if claim_as_native.is_some() {
+                    if claim_as_native.is_some() {
                         if send_to.clone().is_some() {
                             //Send to Optional receipient
                             let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;

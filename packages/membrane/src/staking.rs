@@ -49,7 +49,6 @@ pub enum ExecuteMsg {
         //Claim ALL staking rewards
         //NOTE: Claim_As is for liq_fees, NOT MBRN tokens
         claim_as_native: Option<String>, //Native FullDenom
-        claim_as_cw20: Option<String>,   //Contract Address
         send_to: Option<String>,
         restake: bool,
     },

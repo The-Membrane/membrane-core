@@ -71,7 +71,7 @@ pub fn accumulate_interest_dec(decimal: Decimal, rate: Decimal, time_elapsed: u6
         Uint128::from(SECONDS_PER_YEAR),
     ))?;
 
-    Ok(decimal_multiplication(decimal, applied_rate))
+    decimal_multiplication(decimal, applied_rate)
 }
 
 // Calculate Basket interests and then accumulate interest to all basket cAsset rate indices
@@ -86,15 +86,25 @@ pub fn update_rate_indices(
     //Get basket rates
     let mut interest_rates = get_interest_rates(storage, querier, env.clone(), basket)?;
 
+    let mut error: Option<StdError> = None;
+
     //Add/Subtract the repayment rate to the rates
     //These aren't saved so it won't compound
     interest_rates = interest_rates.clone().into_iter().map(|mut rate| {
 
         if negative_rate {
+            //If the collateral interest rate is less than the redemption rate, set to 0. 
+            //Avoids negative interest rates but not redemption rates.
             if rate < credit_price_rate {
                 rate = Decimal::zero();
             } else {
-                rate = decimal_subtraction(rate, credit_price_rate);
+                rate = match decimal_subtraction(rate, credit_price_rate){
+                    Ok(rate) => rate,
+                    Err(err) => {
+                        error = Some(err);
+                        Decimal::zero()
+                    },
+                };
             }            
             
         } else {
@@ -105,8 +115,13 @@ pub fn update_rate_indices(
     })
     .collect::<Vec<Decimal>>();
     //This allows us to prioritize credit stability over profit/state of the basket
-    //This means base rate is the range above (peg + margin of error) before rates go to 0
+    //This means base_interest_rate + margin_of_error is the range above peg before rates go to 0
     
+    // Assert that there are no errors
+    if let Some(err) = error {
+        return Err(err);
+    }
+
     //Calc time_elapsed
     let time_elapsed = env.block.time.seconds() - basket.clone().rates_last_accrued;
 
@@ -146,8 +161,8 @@ pub fn get_interest_rates(
         //base * (1/max_LTV)
         rates.push(decimal_multiplication(
             basket.clone().base_interest_rate,
-            decimal_division(Decimal::one(), asset.max_LTV),
-        ));        
+            decimal_division(Decimal::one(), asset.max_LTV)?,
+        )?);        
     }
 
     //Get proportion of debt && supply caps filled
@@ -179,7 +194,7 @@ pub fn get_interest_rates(
         } else {
             //Push the debt_ratio and supply_ratio
             debt_proportions.push(Decimal::from_ratio(cap.debt_total, debt_caps[i]));
-            supply_proportions.push(decimal_division(basket_ratios[i], cap.supply_cap_ratio))
+            supply_proportions.push(decimal_division(basket_ratios[i], cap.supply_cap_ratio)?)
         }
     }
 
@@ -200,9 +215,9 @@ pub fn get_interest_rates(
                 ////0.01 * 100 = 1
                 //1% = 1
                 let percent_over_desired = decimal_multiplication(
-                    decimal_subtraction(debt_proportions[i], Decimal::one()),
+                    decimal_subtraction(debt_proportions[i], Decimal::one())?,
                     Decimal::percent(100_00),
-                );
+                )?;
                 let multiplier = percent_over_desired + Decimal::one();
                 //Change rate of (rate) increase w/ the configuration multiplier
                 let multiplier = multiplier * config.rate_slope_multiplier;
@@ -211,14 +226,14 @@ pub fn get_interest_rates(
                 //// rate = 3.6%
                 two_slope_pro_rata_rates.push(
                     decimal_multiplication(
-                        decimal_multiplication(rates[i], debt_proportions[i]),
+                        decimal_multiplication(rates[i], debt_proportions[i])?,
                         multiplier,
-                    ),
+                    )?,
                 );
             } else {
                 //Slope 1
                 two_slope_pro_rata_rates.push(
-                    decimal_multiplication(rates[i], debt_proportions[i]),
+                    decimal_multiplication(rates[i], debt_proportions[i])?,
                 );
             }
         } else if supply_proportions[i] > Decimal::one() {
@@ -227,9 +242,9 @@ pub fn get_interest_rates(
             ////0.01 * 100 = 1
             //1% = 1
             let percent_over_desired = decimal_multiplication(
-                decimal_subtraction(supply_proportions[i], Decimal::one()),
+                decimal_subtraction(supply_proportions[i], Decimal::one())?,
                 Decimal::percent(100_00),
-            );
+            )?;
             let multiplier = percent_over_desired + Decimal::one();
             //Change rate of (rate) increase w/ the configuration multiplier
             let multiplier = multiplier * config.rate_slope_multiplier;
@@ -238,9 +253,9 @@ pub fn get_interest_rates(
             //// rate = 3.6%
             two_slope_pro_rata_rates.push(
                 decimal_multiplication(
-                    decimal_multiplication(rates[i], supply_proportions[i]),
+                    decimal_multiplication(rates[i], supply_proportions[i])?,
                     multiplier,
-                ),
+                )?,
             );            
         }
     }
@@ -270,9 +285,9 @@ pub fn get_interest_rates(
                         ////0.01 * 100 = 1
                         //1% = 1
                         let percent_over_desired = decimal_multiplication(
-                            decimal_subtraction(multi_cap_proportion, Decimal::one()),
+                            decimal_subtraction(multi_cap_proportion, Decimal::one())?,
                             Decimal::percent(100_00),
-                        );
+                        )?;
                         let multiplier = percent_over_desired + Decimal::one();
                         //Change rate of (rate) increase w/ the configuration multiplier
                         let multiplier = multiplier * config.rate_slope_multiplier;
@@ -280,10 +295,9 @@ pub fn get_interest_rates(
                         //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
                         //// rate = 3.6%
                         two_slope_pro_rata_rates[i] = decimal_multiplication(
-                                decimal_multiplication(rates[i], multi_cap_proportion),
+                                decimal_multiplication(rates[i], multi_cap_proportion)?,
                                 multiplier,
-                            )  
-                        
+                            )?;                        
                     }
                 }
             }
@@ -319,7 +333,7 @@ fn get_credit_rate_of_change(
             .find(|basket_asset| basket_asset.asset.info.equal(&cAsset.asset.info)){
             ////Add proportionally the change in index
             // cAsset_ratio * change in index          
-            avg_change_in_index += decimal_multiplication(ratios[i], decimal_division(basket_asset.rate_index, cAsset.rate_index));
+            avg_change_in_index += decimal_multiplication(ratios[i], decimal_division(basket_asset.rate_index, cAsset.rate_index)?)?;
             
             /////Update cAsset rate_index
             position.collateral_assets[i].rate_index = basket_asset.rate_index;        

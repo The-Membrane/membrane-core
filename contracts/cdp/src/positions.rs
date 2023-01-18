@@ -757,7 +757,7 @@ pub fn liq_repay(
     let repay_value = decimal_multiplication(
         Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128)),
         basket.credit_price,
-    );
+    )?;
 
     let mut messages = vec![];
     let mut coins: Vec<Coin> = vec![];
@@ -773,9 +773,9 @@ pub fn liq_repay(
     //Calculate distribution of assets to send from the repaid position
     for (num, cAsset) in collateral_assets.into_iter().enumerate() {
 
-        let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num]);
-        let collateral_repay_amount = decimal_division(collateral_repay_value, cAsset_prices[num]);
-        let collateral_w_fee = (decimal_multiplication(collateral_repay_amount, sp_liq_fee+Decimal::one())) * Uint128::new(1u128);
+        let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num])?;
+        let collateral_repay_amount = decimal_division(collateral_repay_value, cAsset_prices[num])?;
+        let collateral_w_fee = decimal_multiplication(collateral_repay_amount, sp_liq_fee+Decimal::one())? * Uint128::new(1u128);
 
         let repay_amount_per_asset = credit_asset.amount * cAsset_ratios[num];
 
@@ -1006,7 +1006,7 @@ pub fn close_position(
     //Load Basket
     let basket: Basket = BASKET.load(deps.storage)?;
 
-    //Load target_position
+    //Load target_position, restrict to owner
     let (_i, target_position) = get_target_position(deps.storage, info.clone().sender, position_id)?;
 
     //Calc collateral to sell
@@ -1014,8 +1014,8 @@ pub fn close_position(
     let total_collateral_value_to_sell = {
         decimal_multiplication(
             Decimal::from_ratio(target_position.credit_amount, Uint128::new(1)), 
-            decimal_multiplication(basket.credit_price, (max_spread + Decimal::one()))
-        )
+            decimal_multiplication(basket.credit_price, (max_spread + Decimal::one()))?
+        )?
     };
     //Max_spread is added to the collateral amount to ensure enough credit is purchased
     //Excess gets sent back to the position_owner during repayment
@@ -1033,9 +1033,9 @@ pub fn close_position(
         //Calc collateral_amount_to_sell
         let mut collateral_amount_to_sell = {
         
-            let collateral_value_to_sell = decimal_multiplication(total_collateral_value_to_sell, cAsset_ratios[i]);
+            let collateral_value_to_sell = decimal_multiplication(total_collateral_value_to_sell, cAsset_ratios[i])?;
             
-            decimal_division(collateral_value_to_sell, cAsset_prices[i]) * Uint128::new(1u128)
+            decimal_division(collateral_value_to_sell, cAsset_prices[i])? * Uint128::new(1u128)
         };
 
         //Collateral to sell can't be more than the position owns
@@ -1743,9 +1743,9 @@ fn get_amount_from_LTV(
 
     //Calc current LTV
     let current_LTV = {
-        let credit_value = decimal_multiplication(Decimal::from_ratio(position.credit_amount, Uint128::new(1)), basket.credit_price);
+        let credit_value = decimal_multiplication(Decimal::from_ratio(position.credit_amount, Uint128::new(1)), basket.credit_price)?;
 
-        decimal_division(credit_value, total_value)
+        decimal_division(credit_value, total_value)?
     };
 
     //If target_LTV is <= current_LTV there is no room to increase
@@ -1759,9 +1759,9 @@ fn get_amount_from_LTV(
         let LTV_spread = target_LTV - current_LTV;
 
         //Calc the value LTV_spread represents
-        let increased_credit_value = decimal_multiplication(total_value, LTV_spread);
+        let increased_credit_value = decimal_multiplication(total_value, LTV_spread)?;
         
-        decimal_division(increased_credit_value, basket.credit_price) * Uint128::new(1)
+        decimal_division(increased_credit_value, basket.credit_price)? * Uint128::new(1)
     };
 
     Ok( credit_amount )

@@ -10,67 +10,114 @@ use crate::types::{
 
 #[cw_serde]
 pub struct InstantiateMsg {
+    /// Contract Owner
     pub owner: Option<String>,
-    pub oracle_time_limit: u64, //in seconds until oracle failure is acceoted
-    pub debt_minimum: Uint128,  //Debt minimum value per position
+    /// Seconds until oracle failure is acceoted
+    pub oracle_time_limit: u64, 
+    /// Minimum debt per position to ensure liquidatibility 
+    pub debt_minimum: Uint128, 
+    /// Protocol liquidation fee to restrict self liquidations
     pub liq_fee: Decimal,
-    pub collateral_twap_timeframe: u64, //in minutes
-    pub credit_twap_timeframe: u64,     //in minutes
-    //Contracts
+    /// Timeframe for Collateral TWAPs in minutes
+    pub collateral_twap_timeframe: u64, 
+    /// Timeframe for Credit TWAP in minutes
+    pub credit_twap_timeframe: u64,     
+    /// Stability Pool contract
     pub stability_pool: Option<String>,
+    /// Apollo DEX Router contract
     pub dex_router: Option<String>,
+    /// MBRN Staking contract
     pub staking_contract: Option<String>,
+    /// Oracle contract
     pub oracle_contract: Option<String>,
+    /// Osmosis Proxy contract
     pub osmosis_proxy: Option<String>,
+    /// Debt Auction contract
     pub debt_auction: Option<String>,
+    /// Liquidity Check contract
     pub liquidity_contract: Option<String>,
+    /// System Discounts contract    
     pub discounts_contract: Option<String>,
 }
 
 #[cw_serde]
 pub enum ExecuteMsg {
+    /// Update the contract config
     UpdateConfig(UpdateConfig),
+    /// Deposit collateral into a Position
     Deposit {
-        position_id: Option<Uint128>, //If the user wants to create a new/separate position, no position id is passed
+        /// Position ID to deposit into.
+        /// If the user wants to create a new/separate position, no position id is passed.
+        position_id: Option<Uint128>, 
+        /// Position owner.
+        /// Defaults to the sender.
         position_owner: Option<String>,
     },
-    //Increase debt by an amount or to a LTV
+    /// Increase debt of a Position
     IncreaseDebt {
+        /// Position ID to increase debt of
         position_id: Uint128,
+        /// Amount of debt to increase
         amount: Option<Uint128>,
+        /// LTV to borrow up to
         LTV: Option<Decimal>,
+        /// Mint debt tokens to this address
         mint_to_addr: Option<String>,
     },
+    /// Withdraw collateral from a Position
     Withdraw {
+        /// Position ID to withdraw from
         position_id: Uint128,
+        /// Asset to withdraw
         assets: Vec<Asset>,
-        send_to: Option<String>, //If not the sender
-    },
-    Repay {
-        position_id: Uint128,
-        position_owner: Option<String>, //If not the sender
-        send_excess_to: Option<String>, //If not the sender
-    },
-    LiqRepay {},
-    Liquidate {
-        position_id: Uint128,
-        position_owner: String,
-    },
-    ClosePosition {
-        position_id: Uint128,
-        max_spread: Decimal,
+        /// Send withdrawn assets to this address if not the sender
         send_to: Option<String>,
     },
+    /// Repay debt of a Position
+    Repay {
+        /// Position ID to repay debt of
+        position_id: Uint128,
+        /// Position owner to repay debt of if not the sender
+        position_owner: Option<String>, 
+        /// Send excess assets to this address if not the sender
+        send_excess_to: Option<String>, 
+    },
+    /// Repay message for the Stability Pool during liquidations
+    LiqRepay {},
+    /// Liquidate a Position
+    Liquidate {
+        /// Position ID to liquidate
+        position_id: Uint128,
+        /// Position owner to liquidate
+        position_owner: String,
+    },
+    /// Close a Position by selling collateral and repaying debt
+    ClosePosition {
+        /// Position ID to close
+        position_id: Uint128,
+        /// Max spread for the sale of collateral
+        max_spread: Decimal,
+        /// Send excess assets to this address if not the Position owner
+        send_to: Option<String>,
+    },
+    /// Accrue interest for a Position
     Accrue { 
-        position_owner: Option<String>, //Only Membrane contracts should be able to call for Positions they don't own
+        /// Positon owner to accrue interest for
+        /// Only the Stability Pool can call for unowned Positions
+        position_owner: Option<String>, 
+        /// Positon ID to accrue interest for
         position_id: Uint128
     },
+    /// Mint Basket pending revenue
     MintRevenue {
+        /// Send minted tokens to this address if not the sender
         send_to: Option<String>, 
-        repay_for: Option<UserInfo>, //Repay for a position w/ the revenue
+        /// Repay for a position w/ the revenue
+        repay_for: Option<UserInfo>, 
+        /// Amount of revenue to mint
         amount: Option<Uint128>,
     },
-    //Non-USD denominated baskets don't work due to the debt minimum
+    /// Create the contract's Basket
     CreateBasket {
         basket_id: Uint128,
         collateral_types: Vec<cAsset>,
@@ -255,6 +302,8 @@ pub struct EditBasket {
     pub collateral_supply_caps: Option<Vec<SupplyCap>>,
     pub multi_asset_supply_caps: Option<Vec<MultiAssetSupplyCap>>,
     pub base_interest_rate: Option<Decimal>,
+    /// Osmosis Pool info for credit TWAP price
+    /// Non-USD denominated baskets don't work due to the debt minimum
     pub credit_asset_twap_price_source: Option<TWAPPoolInfo>,
     pub negative_rates: Option<bool>, //Allow negative repayment interest or not
     pub cpc_margin_of_error: Option<Decimal>,

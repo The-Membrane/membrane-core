@@ -430,6 +430,7 @@ pub struct Owner {
     pub owner: Addr,
     pub total_minted: Uint128, //for CDP mints
     pub liquidity_multiplier: Option<Decimal>, //for CDP mints
+    pub stability_pool_ratio: Option<Decimal>, //for CDP mints
     pub non_token_contract_auth: bool,
 }
 ////////Launch/////////

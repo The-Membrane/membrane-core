@@ -45,6 +45,7 @@ pub fn instantiate(
                 owner: info.sender.clone(),
                 total_minted: Uint128::zero(),
                 liquidity_multiplier: Some(Decimal::zero()),
+                stability_pool_ratio: Some(Decimal::zero()),
                 non_token_contract_auth: true, 
             }],
         debt_auction: None,
@@ -103,8 +104,8 @@ pub fn execute(
             positions_contract,
             liquidity_contract,
         } => update_config(deps, info, owner, debt_auction, positions_contract, liquidity_contract, add_owner),
-        ExecuteMsg::EditOwner { owner, liquidity_multiplier, non_token_contract_auth } => {
-            edit_owner(deps, info, owner, liquidity_multiplier, non_token_contract_auth)
+        ExecuteMsg::EditOwner { owner, liquidity_multiplier, stability_pool_ratio, non_token_contract_auth } => {
+            edit_owner(deps, info, owner, liquidity_multiplier, stability_pool_ratio, non_token_contract_auth)
         }
     }
 }
@@ -134,6 +135,7 @@ fn update_config(
                     owner: deps.api.addr_validate(&owner)?,
                     total_minted: Uint128::zero(),
                     liquidity_multiplier: Some(Decimal::zero()),
+                    stability_pool_ratio: Some(Decimal::zero()),
                     non_token_contract_auth: true,
                 });
             }
@@ -176,6 +178,7 @@ fn edit_owner(
     info: MessageInfo,
     owner: String,
     liquidity_multiplier: Option<Decimal>,
+    stability_pool_ratio: Option<Decimal>,
     non_token_contract_auth: Option<bool>,
 ) -> Result<Response, TokenFactoryError>{
     let mut config = CONFIG.load(deps.storage)?;
@@ -195,6 +198,9 @@ fn edit_owner(
         //Update Optionals
         if liquidity_multiplier.clone().is_some() {
             owner.liquidity_multiplier = liquidity_multiplier;
+        }
+        if stability_pool_ratio.clone().is_some() {
+            owner.stability_pool_ratio = stability_pool_ratio;
         }
         if let Some(toggle) = non_token_contract_auth.clone() {
             owner.non_token_contract_auth = toggle;

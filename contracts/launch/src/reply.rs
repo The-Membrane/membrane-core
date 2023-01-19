@@ -169,7 +169,6 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             added_cAsset: None,
             liq_queue: None,
             credit_pool_infos: Some(credit_pool_infos),
-            liquidity_multiplier: None,
             collateral_supply_caps: None,
             multi_asset_supply_caps: None,
             base_interest_rate: None,
@@ -739,6 +738,8 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
             });
             let sub_msg = SubMsg::reply_on_success(sp_instantiation, STABILITY_POOL_REPLY_ID);     
 
+            // Edit liquidity multiplier for 
+
             Ok(Response::new().add_messages(msgs).add_submessage(sub_msg))
         },
         Err(err) => return Err(StdError::GenericErr { msg: err }),
@@ -853,7 +854,6 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: Some(addrs.clone().liq_queue.to_string()),
-                liquidity_multiplier: None,
                 collateral_supply_caps: Some(vec![
                 SupplyCap {
                     asset_info: AssetInfo::NativeToken {
@@ -920,7 +920,6 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 credit_asset_twap_price_source: None,
@@ -1291,7 +1290,6 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
             let msg = CDPExecuteMsg::EditBasket(EditBasket {
                 added_cAsset: None,
                 liq_queue: None,
-                liquidity_multiplier: None,
                 collateral_supply_caps: Some(lp_supply_caps),
                 base_interest_rate: None,
                 credit_asset_twap_price_source: None,

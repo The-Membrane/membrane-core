@@ -1167,7 +1167,6 @@ pub fn create_basket(
     credit_price: Decimal,
     base_interest_rate: Option<Decimal>,
     credit_pool_infos: Vec<PoolType>,
-    liquidity_multiplier_for_debt_caps: Option<Decimal>,
     liq_queue: Option<String>,
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
@@ -1273,7 +1272,6 @@ pub fn create_basket(
 
     //Set Basket fields
     let base_interest_rate = base_interest_rate.unwrap_or(Decimal::zero());
-    let liquidity_multiplier = liquidity_multiplier_for_debt_caps.unwrap_or(Decimal::one());
 
     let new_basket: Basket = Basket {
         basket_id,
@@ -1284,7 +1282,6 @@ pub fn create_basket(
         credit_asset: credit_asset.clone(),
         credit_price,
         base_interest_rate,
-        liquidity_multiplier,
         pending_revenue: Uint128::zero(),
         credit_last_accrued: env.block.time.seconds(),
         rates_last_accrued: env.block.time.seconds(),

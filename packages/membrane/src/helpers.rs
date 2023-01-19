@@ -259,16 +259,16 @@ pub fn accumulate_interest(base: Uint128, rate: Decimal, time_elapsed: u64) -> S
     Ok(base * applied_rate)
 }
 
-/// Return liquidity multiplier for an owner of the Osmosis Proxy contract
+/// Return liquidity multiplier & SP cap ratio for an owner of the Osmosis Proxy contract
 pub fn get_owner_liquidity_multiplier(
     querier: QuerierWrapper,
     owner: String,
     proxy_addr: String,
-) -> StdResult<Decimal> {
+) -> StdResult<(Decimal, Decimal)> {
     let resp: Owner = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: proxy_addr,
         msg: to_binary(&OsmoQueryMsg::GetOwner { owner })?,
     }))?;
 
-    Ok(resp.liquidity_multiplier.unwrap_or_else(|| Decimal::zero()))
+    Ok((resp.liquidity_multiplier.unwrap_or_else(|| Decimal::zero()), resp.stability_pool_ratio.unwrap_or_else(|| Decimal::zero())))
 }

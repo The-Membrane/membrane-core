@@ -133,9 +133,6 @@ pub enum ExecuteMsg {
         base_interest_rate: Option<Decimal>,
         /// To measure liquidity for the credit asset
         credit_pool_infos: Vec<PoolType>, 
-        /// Liquidity multiplier for debt caps.
-        /// Ex: 5 = debt cap at 5x liquidity
-        liquidity_multiplier_for_debt_caps: Option<Decimal>, 
         /// Liquidation queue for collateral assets
         liq_queue: Option<String>,
     },
@@ -367,8 +364,6 @@ pub struct EditBasket {
     pub liq_queue: Option<String>,
     /// Credit pool info for liquidity measuring
     pub credit_pool_infos: Option<Vec<PoolType>>, 
-    /// Liquidity multiplier for debt caps
-    pub liquidity_multiplier: Option<Decimal>,
     /// Supply caps for each collateral
     pub collateral_supply_caps: Option<Vec<SupplyCap>>,
     /// Supply caps for asset groups
@@ -447,10 +442,6 @@ impl EditBasket {
         }
         if let Some(error_margin) = self.cpc_margin_of_error {
             basket.cpc_margin_of_error = error_margin;
-        }
-        //Set basket specific multiplier
-        if let Some(multiplier) = self.liquidity_multiplier {
-            basket.liquidity_multiplier = multiplier;
         }
         basket.oracle_set = oracle_set;
 

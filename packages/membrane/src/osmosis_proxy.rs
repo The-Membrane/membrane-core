@@ -41,13 +41,18 @@ pub enum ExecuteMsg {
     },
     EditOwner {
         owner: String,
+        /// Liquidity multiplier for debt caps.
+        /// Ex: 5 = debt cap at 5x liquidity
         liquidity_multiplier: Option<Decimal>,
+        /// Toggle authority over token state
         non_token_contract_auth: Option<bool>,
     },
 }
 
 #[cw_serde]
 pub enum QueryMsg {
+    Config {},
+    GetOwner { owner: String },
     GetDenom {
         creator_address: String,
         subdenom: String,
@@ -63,7 +68,6 @@ pub enum QueryMsg {
     GetTokenInfo {
         denom: String,
     },
-    Config {},
 }
 
 #[cw_serde]

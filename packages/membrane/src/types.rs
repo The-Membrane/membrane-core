@@ -281,7 +281,6 @@ pub struct Basket {
     pub credit_asset: Asset, 
     pub credit_price: Decimal, //This is credit_repayment_price, not market price
     pub base_interest_rate: Decimal, //Enter as percent, 0.02
-    pub liquidity_multiplier: Decimal, //liquidity_multiplier for debt caps
     pub pending_revenue: Uint128,
     pub credit_last_accrued: u64, //credit redemption price last_accrued
     pub rates_last_accrued: u64, //rate_index last_accrued

@@ -63,45 +63,72 @@ pub enum ExecuteMsg {
 
 #[cw_serde]
 pub enum QueryMsg {
-    //Returns Config
+    /// Returns Config
     Config {},
+    /// Returns Lockdrop object
     Lockdrop {},
+    /// Returns MBRN lockup distributions
     IncentiveDistribution {},
 }
 
 #[cw_serde]
 pub struct Config {
+    /// MBRN token denom
     pub mbrn_denom: String,
+    /// Basket credit asset denom
     pub credit_denom: String,
+    /// Emergent Labs multisig address
     pub labs_addr: Addr,
+    /// Apollo router address
     pub apollo_router: Addr,
+    /// Amount of MBRN for launch incentives & LPs
     pub mbrn_launch_amount: Uint128,
-    //Collateral info    
+    /// Osmosis ATOM denom
     pub atom_denom: String,
+    /// OSMO denom
     pub osmo_denom: String,
+    /// Axelar USDC denom
     pub usdc_denom: String,
+    /// ATOM/OSMO pool id
     pub atomosmo_pool_id: u64,
+    /// USDC/OSMO pool id
     pub osmousdc_pool_id: u64,
-    //Contract IDs
+    /// Osmosis Proxy contract id
     pub osmosis_proxy_id: u64,
+    /// Oracle contract id
     pub oracle_id: u64,
+    /// Staking contract id
     pub staking_id: u64,
+    /// Vesting contract id
     pub vesting_id: u64,
+    /// Governance contract id
     pub governance_id: u64,
+    /// Positions contract id
     pub positions_id: u64,
+    /// Stability Pool contract id
     pub stability_pool_id: u64,
+    /// Liquidity Queue contract id
     pub liq_queue_id: u64,
+    /// Liquidity Check contract id
     pub liquidity_check_id: u64,
-    pub mbrn_auction_id: u64,     
+    /// MBRN Auction contract id
+    pub mbrn_auction_id: u64,   
+    /// Margin Proxy contract id  
     pub margin_proxy_id: u64,   
+    /// System Discounts contract id
     pub system_discounts_id: u64,
+    /// Discount Vault contract id
     pub discount_vault_id: u64, 
 }
 
 #[cw_serde]
 pub struct UpdateConfig {
+    /// MBRN token denom
     pub mbrn_denom: Option<String>,   
+    /// Basket credit asset denom
     pub credit_denom: Option<String>,
+    /// OSMO denom
     pub osmo_denom: Option<String>,
+    /// Axelar USDC denom
     pub usdc_denom: Option<String>,
 }

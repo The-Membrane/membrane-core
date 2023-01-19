@@ -1,7 +1,7 @@
 use cosmwasm_std::{CosmosMsg, StdResult, Decimal, Binary, to_binary, WasmMsg, coin, StdError, Addr, Coin, BankMsg, Uint128, MessageInfo, Api, QuerierWrapper, Env, WasmQuery, QueryRequest};
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
-use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool}; 
+use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Owner}; 
 use crate::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use crate::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use crate::liquidity_check::QueryMsg as LiquidityQueryMsg;
@@ -257,4 +257,18 @@ pub fn accumulate_interest(base: Uint128, rate: Decimal, time_elapsed: u64) -> S
     ))?;
 
     Ok(base * applied_rate)
+}
+
+/// Return liquidity multiplier for an owner of the Osmosis Proxy contract
+pub fn get_owner_liquidity_multiplier(
+    querier: QuerierWrapper,
+    owner: String,
+    proxy_addr: String,
+) -> StdResult<Decimal> {
+    let resp: Owner = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: proxy_addr,
+        msg: to_binary(&OsmoQueryMsg::GetOwner { owner })?,
+    }))?;
+
+    Ok(resp.liquidity_multiplier.unwrap_or_else(|| Decimal::zero()))
 }

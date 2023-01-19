@@ -353,7 +353,7 @@ fn claim (
         attr("minted_incentives", amount_to_mint),
     ];
 
-    //Create mint & stake msgs if there are incentives to withdraw
+    //Create mint msg if there are incentives to withdraw
     if !amount_to_mint.is_zero(){
 
         let mint_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
@@ -366,15 +366,9 @@ fn claim (
             funds: vec![] 
         });
 
-        let stake_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-            contract_addr: addrs.staking.to_string(), 
-            msg: to_binary(&StakingExecuteMsg::Stake { user: Some(info.clone().sender.to_string()) })?, 
-            funds: vec![coin(amount_to_mint.into(), config.clone().mbrn_denom)] 
-        });
-
         Ok(Response::new()
             .add_attributes(attrs)
-            .add_messages(vec![mint_msg, stake_msg])
+            .add_message(mint_msg)
         )
     } else {
         Ok(Response::new()

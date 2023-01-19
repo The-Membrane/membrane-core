@@ -7,23 +7,31 @@ use crate::types::{AssetInfo, Bid, BidInput};
 
 #[cw_serde]
 pub struct InstantiateMsg {
+    /// Contract owner
     pub owner: Option<String>,
+    /// Positions contract address
     pub positions_contract: String,
-    pub waiting_period: u64, //seconds
+    /// Waiting period before bids are activated
+    pub waiting_period: u64, 
 }
 
 #[cw_serde]
 pub enum ExecuteMsg {
+    /// Deposit an accepted asset to create a bid
     SubmitBid {
-        //Deposit a list of accepted assets
+        /// Bid info 
         bid_input: BidInput,
+        /// Bidder address, defaults to msg.sender
         bid_owner: Option<String>,
     },
+    /// Withdraw assets from a bid
     RetractBid {
-        //Withdraw a list of accepted assets
+        /// Bid id
         bid_id: Uint128,
+        /// Asset being bid for
         bid_for: AssetInfo,
-        amount: Option<Uint256>, //If none, retracts full bid
+        /// Amount to withdraw, None = withdraw full bid
+        amount: Option<Uint256>,
     },
     Liquidate {
         //Use bids to fulfll liquidation of Position Contract basket. Called by Positions

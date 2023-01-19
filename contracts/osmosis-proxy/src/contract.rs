@@ -251,11 +251,6 @@ pub fn create_denom(
     //Create Msg
     let msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: subdenom.clone() };
     let create_denom_msg = SubMsg::reply_on_success(msg, CREATE_DENOM_REPLY_ID );
-
-    
-            //Comment for production
-            TOKENS.save(deps.storage, String::from("factory/cdt/#1"), 
-            &TokenInfo { current_supply: Uint128::zero(), max_supply: None })?;
     
     //Save PendingTokenInfo
     PENDING.save(deps.storage, &PendingTokenInfo { subdenom: subdenom.clone(), max_supply })?;
@@ -263,8 +258,8 @@ pub fn create_denom(
     let res = Response::new()
         .add_attribute("method", "create_denom")
         .add_attribute("sub_denom", subdenom)
-        .add_attribute("max_supply", max_supply.unwrap_or_else(Uint128::zero));
-        //.add_submessage(create_denom_msg);
+        .add_attribute("max_supply", max_supply.unwrap_or_else(Uint128::zero))
+        .add_submessage(create_denom_msg);
 
     Ok(res)
 }
@@ -397,7 +392,7 @@ pub fn mint_tokens(
                     basket.clone().credit_asset.info)?;
                 
                 //Calculate Owner's cap 
-                let cap = decimal_multiplication(liquidity_multiplier,  Decimal::from_ratio(cdp_liquidity, Uint128::one()))
+                let cap = decimal_multiplication(liquidity_multiplier,  Decimal::from_ratio(cdp_liquidity, Uint128::one()))?
                 * Uint128::one();
 
                 //Assert mints are below the owner's LM * liquidity
@@ -550,6 +545,8 @@ pub fn burn_tokens(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
+        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
+        QueryMsg::GetOwner { owner } => to_binary(&get_contract_owner(deps, owner)?),
         QueryMsg::GetDenom {
             creator_address,
             subdenom,
@@ -557,7 +554,15 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetContractDenoms { limit } => to_binary(&get_contract_denoms(deps, limit)?),
         QueryMsg::PoolState { id } => to_binary(&get_pool_state(deps, id)?),
         QueryMsg::GetTokenInfo { denom } => to_binary(&get_token_info(deps, denom)?),
-        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
+    }
+}
+
+fn get_contract_owner(deps: Deps, owner: String) -> StdResult<Owner> {
+    let config = CONFIG.load(deps.storage)?;
+    if let Some(owner) = config.owners.into_iter().find(|stored_owner| stored_owner .owner == owner) {
+        Ok(owner)
+    } else {
+        Err(StdError::generic_err("Owner not found"))
     }
 }
 
@@ -606,7 +611,6 @@ fn get_pool_state(
 }
 
 fn get_denom(deps: Deps, creator_addr: String, subdenom: String) -> StdResult<GetDenomResponse> {
-
     let response: QueryDenomsFromCreatorResponse = TokenFactory::TokenfactoryQuerier::new(&deps.querier).denoms_from_creator(creator_addr)?;
 
     let denom = if let Some(denom) = response.denoms.into_iter().find(|denoms| denoms.contains(&subdenom)){

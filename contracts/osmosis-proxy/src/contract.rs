@@ -113,7 +113,7 @@ pub fn execute(
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
-    owners: Option<Vec<String>>,
+    owners: Option<Vec<Owner>>,
     debt_auction: Option<String>,
     positions_contract: Option<String>,
     liquidity_contract: Option<String>,
@@ -131,23 +131,20 @@ fn update_config(
         if add_owner {
             //Add all new owners
             for owner in owners {
-                config.owners.push( Owner {
-                    owner: deps.api.addr_validate(&owner)?,
-                    total_minted: Uint128::zero(),
-                    liquidity_multiplier: Some(Decimal::zero()),
-                    stability_pool_ratio: Some(Decimal::zero()),
-                    non_token_contract_auth: true,
-                });
+                //Validate Owner address
+                deps.api.addr_validate(&owner.owner.to_string())?;
+
+                //Add owner to config
+                config.owners.push( owner );
             }
         } else {
             //Filter out owners
             for owner in owners {
-                deps.api.addr_validate(&owner)?;
                 config.owners = config
                     .clone()
                     .owners
                     .into_iter()
-                    .filter(|stored_owner| stored_owner.owner.to_string() != owner)
+                    .filter(|stored_owner| stored_owner.owner.to_string() != owner.owner)
                     .collect::<Vec<Owner>>();
             }
         }

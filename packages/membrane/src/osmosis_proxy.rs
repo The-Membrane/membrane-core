@@ -33,7 +33,7 @@ pub enum ExecuteMsg {
         max_supply: Uint128,
     },
     UpdateConfig {
-        owner: Option<Vec<String>>,
+        owner: Option<Vec<Owner>>,
         add_owner: bool, //Add or Remove
         debt_auction: Option<String>,
         positions_contract: Option<String>,
@@ -46,7 +46,7 @@ pub enum ExecuteMsg {
         liquidity_multiplier: Option<Decimal>,
         /// Distribute cap sapce from Stability Pool liquidity
         stability_pool_ratio: Option<Decimal>,
-        /// Toggle authority over token state
+        /// Toggle authority over non-token contract state
         non_token_contract_auth: Option<bool>,
     },
 }

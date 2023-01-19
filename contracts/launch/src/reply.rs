@@ -21,7 +21,7 @@ use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg
 use membrane::margin_proxy::InstantiateMsg as ProxyInstantiateMsg;
 use membrane::system_discounts::InstantiateMsg as SystemDiscountInstantiateMsg;
 use membrane::discount_vault::{InstantiateMsg as DiscountVaultInstantiateMsg, ExecuteMsg as DiscountVaultExecuteMsg};
-use membrane::types::{AssetInfo, Basket, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, AssetOracleInfo, PoolStateResponse, PoolType};
+use membrane::types::{AssetInfo, Basket, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, AssetOracleInfo, PoolStateResponse, PoolType, Owner};
 
 use osmosis_std::shim::Duration;
 use osmosis_std::types::cosmos::base::v1beta1::Coin;
@@ -706,7 +706,6 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 credit_price: Decimal::one(),
                 base_interest_rate: Some(Decimal::percent(1)),
                 credit_pool_infos: vec![],
-                liquidity_multiplier_for_debt_caps: Some(Decimal::percent(400_00)), //0.5% (0.5% would be 200x but the liquidity contract only counts CDT so we double)
                 liq_queue: None,
             };
             let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
@@ -736,9 +735,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 funds: vec![], 
                 label: String::from("stability_pool"), 
             });
-            let sub_msg = SubMsg::reply_on_success(sp_instantiation, STABILITY_POOL_REPLY_ID);     
-
-            // Edit liquidity multiplier for 
+            let sub_msg = SubMsg::reply_on_success(sp_instantiation, STABILITY_POOL_REPLY_ID);    
 
             Ok(Response::new().add_messages(msgs).add_submessage(sub_msg))
         },
@@ -1177,12 +1174,49 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
             //Add owners & new contracts to OP
             let msg = OPExecuteMsg::UpdateConfig { 
                 owner: Some(vec![
-                    addrs.clone().positions.to_string(), 
-                    addrs.clone().vesting.to_string(), 
-                    addrs.clone().staking.to_string(), 
-                    addrs.clone().stability_pool.to_string(), 
-                    addrs.clone().governance.to_string(), 
-                    addrs.clone().mbrn_auction.to_string(),
+                    Owner {
+                        owner: addrs.clone().positions, 
+                        total_minted: Uint128::zero(),
+                        liquidity_multiplier: Some(Decimal::percent(400_00)), //0.5% (0.5% would be 200x but the liquidity contract only counts CDT so we double)
+                        stability_pool_ratio: Some(Decimal::one()), //CDP contracts gets full share of SP cap size (for now)
+                        non_token_contract_auth: false,
+                    },
+                    // No other owners mint CDT atm
+                    Owner {
+                        owner: addrs.clone().vesting, 
+                        total_minted: Uint128::zero(),
+                        liquidity_multiplier: None,
+                        stability_pool_ratio: None,
+                        non_token_contract_auth: false,
+                    },
+                    Owner {
+                        owner: addrs.clone().staking, 
+                        total_minted: Uint128::zero(),
+                        liquidity_multiplier: None,
+                        stability_pool_ratio: None,
+                        non_token_contract_auth: false,
+                    },
+                    Owner {
+                        owner: addrs.clone().stability_pool, 
+                        total_minted: Uint128::zero(),
+                        liquidity_multiplier: None,
+                        stability_pool_ratio: None,
+                        non_token_contract_auth: false,
+                    },
+                    Owner {
+                        owner: addrs.clone().governance, 
+                        total_minted: Uint128::zero(),
+                        liquidity_multiplier: None,
+                        stability_pool_ratio: None,
+                        non_token_contract_auth: true, //Governance has full control over the system but no need to mint CDT
+                    },
+                    Owner {
+                        owner: addrs.clone().mbrn_auction, 
+                        total_minted: Uint128::zero(),
+                        liquidity_multiplier: None,
+                        stability_pool_ratio: None,
+                        non_token_contract_auth: false,
+                    }
                     ]), 
                 add_owner: true, 
                 debt_auction: Some(addrs.clone().mbrn_auction.to_string()), 

@@ -95,7 +95,6 @@ pub fn execute(
             collateral_price,
             collateral_amount,
             bid_for,
-            bid_with,
             position_id,
             position_owner,
         } => execute_liquidation(
@@ -106,7 +105,6 @@ pub fn execute(
             bid_for,
             collateral_price,
             credit_price,
-            bid_with,
             position_id,
             position_owner,
         ),

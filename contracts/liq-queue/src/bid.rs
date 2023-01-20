@@ -301,7 +301,6 @@ pub fn execute_liquidation(
     bid_for: AssetInfo, //aka collateral_info
     collateral_price: Decimal,
     credit_price: Decimal,
-    bid_with: AssetInfo,
     //For Repayment
     position_id: Uint128,
     position_owner: String,
@@ -313,6 +312,9 @@ pub fn execute_liquidation(
     if info.sender != config.positions_contract {
         return Err(ContractError::Unauthorized {});
     }
+    
+    //Get bid_with asset from Config
+    let bid_with: AssetInfo = config.bid_asset;
 
     let queue = QUEUES.load(deps.storage, bid_for.to_string())?;
     if queue.bid_asset.info != bid_with {

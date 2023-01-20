@@ -377,7 +377,7 @@ pub fn get_basket_debt_caps(
     //Get the Basket's asset ratios
     let (cAsset_ratios, _) = get_cAsset_ratios(
         storage,
-        env,
+        env.clone(),
         querier,
         basket.clone().collateral_types,
         config.clone(),

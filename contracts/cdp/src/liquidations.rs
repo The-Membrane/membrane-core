@@ -529,7 +529,7 @@ fn per_asset_fulfillments(
             *leftover_position_value = decimal_subtraction(*leftover_position_value, value_paid_to_queue)?;
 
             //Calculate how much the queue repaid in credit
-            let queue_credit_repaid = Uint128::from_str(&res.total_credit_repaid)?;
+            let queue_credit_repaid = Uint128::from_str(&res.total_debt_repaid)?;
             *liq_queue_leftover_credit_repayment = decimal_subtraction(
                 *liq_queue_leftover_credit_repayment,
                 Decimal::from_ratio(queue_credit_repaid, Uint128::new(1u128)),
@@ -541,7 +541,6 @@ fn per_asset_fulfillments(
                 collateral_price,
                 collateral_amount: Uint256::from(queue_asset_amount_paid.u128()),
                 bid_for: cAsset.clone().asset.info,
-                bid_with: basket.clone().credit_asset.info,
                 position_id,
                 position_owner: valid_position_owner.clone().to_string(),
             };

@@ -152,7 +152,7 @@ pub fn query_liquidatible(
     //If 0, it means there is no leftover and the collateral_amount is liquidatible
     Ok(LiquidatibleResponse {
         leftover_collateral: (remaining_collateral_to_liquidate.0.to_string()),
-        total_credit_repaid: total_credit_repaid.to_string(),
+        total_debt_repaid: total_credit_repaid.to_string(),
     })
 }
 

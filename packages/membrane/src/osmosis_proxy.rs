@@ -44,7 +44,7 @@ pub enum ExecuteMsg {
         /// Liquidity multiplier for debt caps.
         /// Ex: 5 = debt cap at 5x liquidity
         liquidity_multiplier: Option<Decimal>,
-        /// Distribute cap sapce from Stability Pool liquidity
+        /// Distribute cap space from Stability Pool liquidity
         stability_pool_ratio: Option<Decimal>,
         /// Toggle authority over non-token contract state
         non_token_contract_auth: Option<bool>,

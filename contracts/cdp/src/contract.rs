@@ -222,7 +222,6 @@ pub fn execute(
             credit_price,
             base_interest_rate,
             credit_pool_infos,
-            liquidity_multiplier_for_debt_caps,
             liq_queue,
         } => create_basket(
             deps,
@@ -234,7 +233,6 @@ pub fn execute(
             credit_price,
             base_interest_rate,
             credit_pool_infos,
-            liquidity_multiplier_for_debt_caps,
             liq_queue,
         ),
         ExecuteMsg::Liquidate {

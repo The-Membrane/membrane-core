@@ -443,6 +443,8 @@ pub struct Lockdrop {
     pub lock_up_ceiling: u64, //in days
     pub deposit_end: u64, //5 days
     pub withdrawal_end: u64, //2 days
+    /// Has the protocol launched?
+    pub launched: bool,
 }
 
 #[cw_serde]

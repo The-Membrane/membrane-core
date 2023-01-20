@@ -118,6 +118,7 @@ pub fn instantiate(
         lock_up_ceiling: 365,
         deposit_end: env.block.time.seconds() + (5 * SECONDS_PER_DAY),
         withdrawal_end: env.block.time.seconds() + (7 * SECONDS_PER_DAY),
+        launched: false,
     };
     LOCKDROP.save(deps.storage, &lockdrop)?;
 
@@ -534,7 +535,14 @@ pub fn end_of_launch(
     deps: DepsMut,
     env: Env,
 ) -> Result<Response, ContractError>{
-    let lockdrop = LOCKDROP.load(deps.storage)?;
+    let mut lockdrop = LOCKDROP.load(deps.storage)?;
+
+    //Assert launch hasn't happened yet, don't want this called twice
+    if lockdrop.launched { return Err(ContractError::LaunchHappened {  }) }
+    
+    //Toggle launched and save
+    lockdrop.launched = true;
+    LOCKDROP.save(deps.storage, &lockdrop)?;
 
     //Assert Lockdrop withdraw period has ended
     if !(env.block.time.seconds() > lockdrop.withdrawal_end) { return Err(ContractError::LockdropOngoing {  }) }

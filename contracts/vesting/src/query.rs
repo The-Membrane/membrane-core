@@ -47,7 +47,7 @@ pub fn query_unlocked(deps: Deps, env: Env, recipient: String) -> StdResult<Unlo
     };
 
     if recipient.allocation.is_some() {
-        let unlocked_amount = get_unlocked_amount(recipient.allocation, env.block.time.seconds()).0;
+        let unlocked_amount = get_unlocked_amount(recipient.allocation, env.block.time.seconds())?.0;
         Ok(UnlockedResponse { unlocked_amount })
     } else {
         Err(StdError::GenericErr {

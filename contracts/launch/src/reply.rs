@@ -1173,7 +1173,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
 
             //Add owners & new contracts to OP
             let msg = OPExecuteMsg::UpdateConfig { 
-                owner: Some(vec![
+                owners: Some(vec![
                     Owner {
                         owner: addrs.clone().positions, 
                         total_minted: Uint128::zero(),

@@ -64,9 +64,7 @@ pub struct Config {
 #[cw_serde]
 pub struct UpdateConfig {
     /// Contract owner
-    pub owner: Option<String>,
-    /// MBRN denom
-    pub mbrn_denom: Option<String>,      
+    pub owner: Option<String>,     
     /// Oracle contract address
     pub oracle_contract: Option<String>,
     /// Positions contract address

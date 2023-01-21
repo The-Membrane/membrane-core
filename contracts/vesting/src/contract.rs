@@ -8,8 +8,8 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::vesting::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg };
-use membrane::governance::{ExecuteMsg as GovExecuteMsg, ProposalMessage, ProposalVoteOption};
+use membrane::vesting::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
+use membrane::governance::{ExecuteMsg as GovExecuteMsg, ProposalMessage};
 use membrane::math::decimal_division;
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
@@ -98,7 +98,6 @@ pub fn execute(
             messages,
             expedited
         } => submit_proposal(deps, info, title, description, link, messages, expedited),
-        ExecuteMsg::CastVote { proposal_id, vote } => cast_vote(deps, info, proposal_id, vote),
         ExecuteMsg::UpdateConfig {
             owner,
             mbrn_denom,
@@ -152,43 +151,6 @@ fn submit_proposal(
                 .add_attributes(vec![
                     attr("method", "submit_proposal"),
                     attr("proposer", recipient.recipient.to_string()),
-                ])
-                .add_message(message))
-        }
-        None => Err(ContractError::InvalidRecipient {}),
-    }
-}
-
-//Calls the Governance contract CastVoteMsg
-fn cast_vote(
-    deps: DepsMut,
-    info: MessageInfo,
-    proposal_id: u64,
-    vote: ProposalVoteOption,
-) -> Result<Response, ContractError> {
-    let config = CONFIG.load(deps.storage)?;
-    let recipients = RECIPIENTS.load(deps.storage)?;
-
-    match recipients
-        
-        .into_iter()
-        .find(|recipient| recipient.recipient == info.sender)
-    {
-        Some(recipient) => {
-            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.owner.to_string(),
-                msg: to_binary(&GovExecuteMsg::CastVote {
-                    proposal_id,
-                    vote,
-                    recipient: Some(recipient.recipient.to_string()),
-                })?,
-                funds: vec![],
-            });
-
-            Ok(Response::new()
-                .add_attributes(vec![
-                    attr("method", "cast_vote"),
-                    attr("voter", recipient.recipient.to_string()),
                 ])
                 .add_message(message))
         }
@@ -308,7 +270,6 @@ fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, Contract
     let msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.staking_contract.to_string(),
         msg: to_binary(&StakingExecuteMsg::ClaimRewards {
-            claim_as_cw20: None,
             claim_as_native: None,
             restake: false,
             send_to: None,
@@ -350,7 +311,7 @@ fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, reci
                 Uint128::new(1u128),
             ),
             Decimal::from_ratio(staked_mbrn, Uint128::new(1u128)),
-        ));
+        )?);
     }
     
 
@@ -376,27 +337,23 @@ fn update_config(
 
     if let Some(owner) = owner {
         config.owner = deps.api.addr_validate(&owner)?;
-        attrs.push(attr("new_owner", owner));
     };
     if let Some(osmosis_proxy) = osmosis_proxy {
         config.osmosis_proxy = deps.api.addr_validate(&osmosis_proxy)?;
-        attrs.push(attr("new_osmosis_proxy", osmosis_proxy));
     };
     if let Some(mbrn_denom) = mbrn_denom {
         config.mbrn_denom = mbrn_denom.clone();
-        attrs.push(attr("new_mbrn_denom", mbrn_denom));
     };
     if let Some(staking_contract) = staking_contract {
         config.staking_contract = deps.api.addr_validate(&staking_contract)?;
-        attrs.push(attr("new_staking_contract", staking_contract));
     };
     if let Some(additional_allocation) = additional_allocation {
         config.total_allocation += additional_allocation;
-        attrs.push(attr("new_allocation", additional_allocation));
     };
 
     CONFIG.save(deps.storage, &config)?;
 
+    attrs.push(attr("config", format!("{:?}", config)));
     Ok(Response::new().add_attributes(attrs))
 }
 
@@ -410,7 +367,7 @@ fn withdraw_unlocked(
     let config = CONFIG.load(deps.storage)?;
     let recipients = RECIPIENTS.load(deps.storage)?;
 
-    let mut message: CosmosMsg;
+    let message: CosmosMsg;
     let unlocked_amount: Uint128;
     let new_allocation: Allocation;
 
@@ -423,7 +380,7 @@ fn withdraw_unlocked(
         Some(mut recipient) => {
             if recipient.allocation.is_some() {
                 (unlocked_amount, new_allocation) =
-                    get_unlocked_amount(recipient.allocation, env.block.time.seconds());
+                    get_unlocked_amount(recipient.allocation, env.block.time.seconds())?;
 
                 //Save new allocation
                 recipient.allocation = Some(new_allocation);
@@ -471,7 +428,7 @@ pub fn get_unlocked_amount(
     //This is an option bc the Recipient's allocation is. Its existence is confirmed beforehand.
     allocation: Option<Allocation>, 
     current_block_time: u64, //in seconds
-) -> (Uint128, Allocation) {
+) -> StdResult<(Uint128, Allocation)> {
     let mut allocation = allocation.unwrap();
     let mut unlocked_amount = Uint128::zero();
 
@@ -489,7 +446,7 @@ pub fn get_unlocked_amount(
             let ratio_unlocked = decimal_division(
                 Decimal::from_ratio(Uint128::new(time_passed_cliff as u128), Uint128::new(1u128)),
                 Decimal::from_ratio(Uint128::new(linear_in_seconds as u128), Uint128::new(1u128)),
-            );
+            )?;
 
             let newly_unlocked: Uint128;
             if !ratio_unlocked.is_zero() {
@@ -510,7 +467,7 @@ pub fn get_unlocked_amount(
         }
     }
 
-    (unlocked_amount, allocation)
+    Ok((unlocked_amount, allocation))
 }
 
 //Add allocation to a Recipient

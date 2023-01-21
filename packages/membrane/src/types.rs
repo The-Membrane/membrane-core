@@ -9,17 +9,20 @@ use cosmwasm_std::{Addr, Decimal, Uint128, StdError};
 
 use osmosis_std::types::cosmos::base::v1beta1::Coin;
 
-//Stability Pool
-
+/// Stability Pool
 #[cw_serde]
 pub struct PositionUserInfo {
+    /// Position ID
     pub position_id: Option<Uint128>,
+    /// User address
     pub position_owner: Option<String>,
 }
 
 #[cw_serde]
 pub struct LiqAsset {
+    /// Asset info
     pub info: AssetInfo,
+    /// Asset amount
     pub amount: Decimal,
 }
 
@@ -31,16 +34,23 @@ impl fmt::Display for LiqAsset {
 
 #[cw_serde]
 pub struct UserRatio {
+    /// Address
     pub user: Addr,
+    /// Ratio
     pub ratio: Decimal,
 }
 
 #[cw_serde]
 pub struct Deposit {
+    /// User address
     pub user: Addr,
+    /// Deposit amount
     pub amount: Decimal,
+    /// Deposit time in seconds
     pub deposit_time: u64,
+    /// Last accrued time in seconds
     pub last_accrued: u64,
+    /// Unstake time in seconds
     pub unstake_time: Option<u64>,
 }
 
@@ -51,6 +61,7 @@ impl fmt::Display for Deposit {
 }
 
 impl Deposit {
+    /// Equality check for Deposit's amount/time/user
     pub fn equal(&self, deposits: &[Deposit]) -> bool {
         let mut check = false;
         for deposit in deposits.iter() {
@@ -65,8 +76,11 @@ impl Deposit {
 
 #[cw_serde]
 pub struct AssetPool {
+    /// Credit asset
     pub credit_asset: Asset,
+    /// Liquidation premium
     pub liq_premium: Decimal,
+    /// Asset deposits
     pub deposits: Vec<Deposit>,
 }
 
@@ -76,20 +90,28 @@ impl fmt::Display for AssetPool {
     }
 }
 
-//Liq-queue
+/// Liquidation Queue
 #[cw_serde]
 pub struct Queue {
+    /// Bid for asset
     pub bid_asset: Asset,
-    pub max_premium: Uint128, //A slot for each premium is created when queue is created
+    /// Max premium.
+    /// A slot for each premium is created when queue is created.
+    pub max_premium: Uint128,
+    /// Premium slots
     pub slots: Vec<PremiumSlot>,
+    /// Current bid ID
     pub current_bid_id: Uint128,
+    /// Minimum bid amount in the queue before waiting period is set to 0
     pub bid_threshold: Uint256,
 }
 
 #[cw_serde]
 pub struct BidInput {
+    /// Bid for asset
     pub bid_for: AssetInfo,
-    pub liq_premium: u8, //Premium within range of Queue
+    /// Liquidation premium within range of Queue's max_premium
+    pub liq_premium: u8,
 }
 
 impl fmt::Display for BidInput {
@@ -100,15 +122,25 @@ impl fmt::Display for BidInput {
 
 #[cw_serde]
 pub struct Bid {
+    /// Bidder address
     pub user: Addr,
+    /// Bid ID
     pub id: Uint128,
+    /// Bid amount
     pub amount: Uint256,
+    /// Liquidation premium
     pub liq_premium: u8,
+    /// Product snapshot
     pub product_snapshot: Decimal256,
+    /// Sum snapshot
     pub sum_snapshot: Decimal256,
+    /// Pending liquidated collateral
     pub pending_liquidated_collateral: Uint256,
+    /// End of waiting period in seconds
     pub wait_end: Option<u64>,
+    /// Epoch snapshot
     pub epoch_snapshot: Uint128,
+    /// Scale snapshot
     pub scale_snapshot: Uint128,
 }
 
@@ -133,31 +165,44 @@ impl Bid {
 
 #[cw_serde]
 pub struct User {
-    //pub user: Addr,
-    pub claimable_assets: Vec<Asset>, //Collateral assets earned from liquidations
+    /// Claimable assets earned from liquidations
+    pub claimable_assets: Vec<Asset>,
 }
 
 #[cw_serde]
 pub struct PremiumSlot {
+    /// Bids in the slot
     pub bids: Vec<Bid>,
-    pub liq_premium: Decimal256, //
+    /// Liquidation premium
+    pub liq_premium: Decimal256,
+    /// Sum snapshot
     pub sum_snapshot: Decimal256,
+    /// Product snapshot
     pub product_snapshot: Decimal256,
+    /// Total bid amount
     pub total_bid_amount: Uint256,
-    pub last_total: u64, //last time the bids have been totaled
+    /// Last time the bids have been totaled, in seconds
+    pub last_total: u64, 
+    /// Current epoch
     pub current_epoch: Uint128,
+    /// Current scale
     pub current_scale: Uint128,
+    /// Residue collateral
     pub residue_collateral: Decimal256,
+    /// Residue bid
     pub residue_bid: Decimal256,
 }
 
-///Staking////
-///
+/// Staking
 #[cw_serde]
 pub struct StakeDeposit {
+    /// Staker address
     pub staker: Addr,
+    /// Amount of stake
     pub amount: Uint128,
+    /// Time of stake in seconds
     pub stake_time: u64,
+    /// Time of unstake in seconds
     pub unstake_start_time: Option<u64>,
 }
 
@@ -169,27 +214,36 @@ impl fmt::Display for StakeDeposit {
 
 #[cw_serde]
 pub struct FeeEvent {
+    /// Time of event in seconds
     pub time_of_event: u64,
+    /// Fee asset    
     pub fee: LiqAsset,
 }
 
 #[cw_serde]
 pub struct StakeDistribution {
+    /// Distribution rate
     pub rate: Decimal,
-    pub duration: u64, //in days
+    /// Duration of distribution in days
+    pub duration: u64,
 }
 
 #[cw_serde]
 pub struct StakeDistributionLog {
+    /// Distribution strategy
     pub ownership_distribution: StakeDistribution,
+    /// Distribution start time in seconds
     pub start_time: u64,
 }
 
-///////Oracle////////
+/// Oracle
 #[cw_serde]
 pub struct AssetOracleInfo {
+    /// Basket ID
     pub basket_id: Uint128,
+    /// Osmosis pools for TWAP
     pub osmosis_pools_for_twap: Vec<TWAPPoolInfo>,
+    /// Ability to set a static price
     pub static_price: Option<Decimal>,
 }
 
@@ -201,8 +255,11 @@ impl fmt::Display for AssetOracleInfo {
 
 #[cw_serde]
 pub struct TWAPPoolInfo {
+    /// Pool ID
     pub pool_id: u64,
+    /// Base asset denom
     pub base_asset_denom: String,
+    /// Quote asset denom
     pub quote_asset_denom: String,
 }
 
@@ -218,111 +275,158 @@ impl fmt::Display for TWAPPoolInfo {
 
 #[cw_serde]
 pub struct StoredPrice {
+    /// Price
     pub price: Decimal,
+    /// Time of price in seconds
     pub last_time_updated: u64,
-    pub price_vol_limiter: PriceVolLimiter,//(Time since save, price)
+    /// Previous price to measure volatility
+    pub price_vol_limiter: PriceVolLimiter,
 }
 
 #[cw_serde]
 pub struct PriceVolLimiter {
+    /// Price
     pub price: Decimal,
+    /// Time of price in seconds
     pub last_time_updated: u64,
 }
 
 #[cw_serde]
 pub struct PriceInfo {
-    pub source: String, //Chain name, Oracle Address or static
+    /// Source of price,
+    /// Chain name, Oracle Address or static
+    pub source: String, 
+    /// Price
     pub price: Decimal,
 }
 
-////////////////CDP///////////
-///
-///
+/// CDP
 #[cw_serde]
 pub struct cAsset {
-    pub asset: Asset, //amount is 0 when adding to basket_contract config or initiator
-    pub max_borrow_LTV: Decimal, //aka what u can bprrpw up to
-    pub max_LTV: Decimal, //ie liquidation point
-    pub rate_index: Decimal, //Rate index to smooth rate accrual
-    // //Osmosis Pool Info to pull TWAP from
-    // pub pool_info_for_price: TWAPPoolInfo,
-    // //NOTE: AssetInfo denom for an Osmo LP is the shares_denom
-    pub pool_info: Option<PoolInfo>, //if its an Osmosis LP add PoolInfo.
+    /// Asset data
+    /// NOTE: AssetInfo denom for an Osmo LP is the shares_denom
+    pub asset: Asset,
+    /// Max borrow limit, aka what u can borrow up to
+    pub max_borrow_LTV: Decimal, 
+    /// Liquidation LTV
+    pub max_LTV: Decimal,
+    /// Rate index to smooth rate accrual
+    pub rate_index: Decimal, 
+    /// Pool Info for Osmosis LP
+    pub pool_info: Option<PoolInfo>,
 }
 
+/// Osmosis PoolInfo
 #[cw_serde]
 pub struct PoolInfo {
+    /// Pool ID
     pub pool_id: u64,
-    //AssetInfo, Asset Decimal Places
-    pub asset_infos: Vec<LPAssetInfo>, //Asset decimals (https://api-osmosis.imperator.co/tokens/v2/all)
+    /// Asset Infos
+    /// Includes asset decimals (https://api-osmosis.imperator.co/tokens/v2/all)
+    pub asset_infos: Vec<LPAssetInfo>, 
 }
 
 #[cw_serde]
 pub struct LPAssetInfo {
+    /// Pool asset denom
     pub info: AssetInfo,
+    /// Asset decimals
     pub decimals: u64,
+    /// Asset ratio in pool
     pub ratio: Decimal,
 }
 
 #[cw_serde]
 pub struct Position {
+    /// Position ID
     pub position_id: Uint128,
+    /// Collateral assets
     pub collateral_assets: Vec<cAsset>,
+    /// Loan size
     pub credit_amount: Uint128,
 }
 
 #[cw_serde]
 pub struct Basket {
+    /// Basket ID
     pub basket_id: Uint128,
+    /// Position ID for next position
     pub current_position_id: Uint128,
+    /// Available collateral types
     pub collateral_types: Vec<cAsset>,
+    /// Collateral supply caps
     pub collateral_supply_caps: Vec<SupplyCap>, 
+    /// Multi collateral supply caps
     pub multi_asset_supply_caps: Vec<MultiAssetSupplyCap>,
+    /// Credit asset object
     pub credit_asset: Asset, 
-    pub credit_price: Decimal, //This is credit_repayment_price, not market price
-    pub base_interest_rate: Decimal, //Enter as percent, 0.02
+    /// Credit redemption price, not market price
+    pub credit_price: Decimal,
+    /// Base collateral interest rate.
+    /// Enter as percent, 0.02 = 2%.
+    pub base_interest_rate: Decimal,
+    /// Pending revenue available to mint
     pub pending_revenue: Uint128,
-    pub credit_last_accrued: u64, //credit redemption price last_accrued
-    pub rates_last_accrued: u64, //rate_index last_accrued
-    pub oracle_set: bool, //If the credit oracle was set. Can't update repayment price without.
-    pub negative_rates: bool, //Allow negative repayment interest or not
-    pub frozen: bool, //Freeze withdrawals and debt increases to provide time to fix vulnerabilities
+    /// Last time credit price was updated, in seconds
+    pub credit_last_accrued: u64,
+    /// Last time rate indices for collateral_types was updated, in seconds
+    pub rates_last_accrued: u64,
+    /// True if the credit oracle was set. Can't update redemption price without it.
+    pub oracle_set: bool, 
+    /// Toggle to allow negative redemption rates
+    pub negative_rates: bool, 
+    /// Freeze withdrawals and debt increases to provide time to fix vulnerabilities
+    pub frozen: bool, 
+    /// Toggle to allow stakers to automatically receive rate revenue
     pub rev_to_stakers: bool,
-    //% difference btwn credit TWAP and repayment price before the interest changes
-    //Set to 100 if you want to turn off the PID
+    /// % difference btwn credit TWAP and redemption price before the controller is effected.
+    /// Set to 100 if you want to turn off the controller.
     pub cpc_margin_of_error: Decimal,
-    //Contracts
-    pub liq_queue: Option<Addr>, //Each basket holds its own liq_queue contract
+    /// Liquidation queue contract address
+    pub liq_queue: Option<Addr>,
 }
 
 #[cw_serde]
 pub struct SupplyCap {
+    /// Asset info
     pub asset_info: AssetInfo,
+    /// Current amount of asset in Basket
     pub current_supply: Uint128,
+    /// Total debt collateralized by asset
     pub debt_total: Uint128,
+    /// Total supply cap ratio
     pub supply_cap_ratio: Decimal,    
+    /// is LP?
     pub lp: bool,
-    //Toggle for a debt cap ratio based on Stability Pool Liquidity
-    //If false, debt cap is based on proportion of TVL
+    /// Toggle for a debt cap ratio based on Stability Pool Liquidity.
+    /// If false, debt cap is based on proportion of TVL.
     pub stability_pool_ratio_for_debt_cap: Option<Decimal>,     
 }
 
 #[cw_serde]
 pub struct MultiAssetSupplyCap {
+    /// Asset infos
     pub assets: Vec<AssetInfo>,
+    /// Target supply cap ratio
     pub supply_cap_ratio: Decimal,
 }
 
+//Used for Query Responses
 #[cw_serde]
 pub struct DebtCap {
+    /// Asset info
     pub collateral: AssetInfo,
+    /// Total debt collateralized by asset
     pub debt_total: Uint128,
+    /// Debt ceiling
     pub cap: Uint128,
 }
 
 #[cw_serde]
 pub struct UserInfo {
+    /// Position ID
     pub position_id: Uint128,
+    /// Position owner
     pub position_owner: String,
 }
 
@@ -338,18 +442,23 @@ impl fmt::Display for UserInfo {
 
 #[cw_serde]
 pub struct InsolventPosition {
+    /// Is insolvent?
     pub insolvent: bool,
+    /// Position info
     pub position_info: UserInfo,
+    /// Current LTV
     pub current_LTV: Decimal,
+    /// Available liquidation fee
     pub available_fee: Uint128,
 }
 
-////////Builder Vesting////////
-///
+/// Builder Vesting
 #[cw_serde]
 pub struct VestingPeriod {
-    pub cliff: u64,  //In days
-    pub linear: u64, //In days
+    /// Cliff period in days
+    pub cliff: u64,
+    /// Linear period in days
+    pub linear: u64,
 }
 
 impl VestingPeriod {
@@ -360,89 +469,121 @@ impl VestingPeriod {
 
 #[cw_serde]
 pub struct Recipient {
+    /// Recipient address
     pub recipient: Addr,
+    /// Allocation
     pub allocation: Option<Allocation>,
+    /// Claimable assets
     pub claimables: Vec<Asset>,
 }
 
 #[cw_serde]
 pub struct Allocation {
+    /// Amount of asset allocated
     pub amount: Uint128,
+    /// Amount of asset withdrawn
     pub amount_withdrawn: Uint128,
-    pub start_time_of_allocation: u64, //block time of allocation in seconds
-    pub vesting_period: VestingPeriod, //In days
+    /// Start time of allocation in seconds
+    pub start_time_of_allocation: u64, 
+    /// Vesting period
+    pub vesting_period: VestingPeriod,
 }
 
-/////Debt Auction
-
-#[cw_serde]
-pub struct RepayPosition {
-    pub repayment: Uint128,
-    pub position_info: UserInfo,
-}
-
+/// Debt Auction
 #[cw_serde]
 pub struct AuctionRecipient {
+    /// Amount
     pub amount: Uint128,
+    /// Recipient address
     pub recipient: Addr,
 }
 
 #[cw_serde]
 pub struct Auction {
+    /// Remaining debt to repay
     pub remaining_recapitalization: Uint128,
-    pub repayment_positions: Vec<RepayPosition>, //Repayment amount, Positions info
+    /// Positions to repay
+    pub repayment_positions: Vec<RepayPosition>,
+    /// Capital recipients
     pub send_to: Vec<AuctionRecipient>,
+    /// Auction start time
     pub auction_start_time: u64,
 }
 
-/////////Liquidity Check
-///
+#[cw_serde]
+pub struct RepayPosition {
+    /// Repayment amount
+    pub repayment: Uint128,
+    /// Position info
+    pub position_info: UserInfo,
+}
+
+/// Liquidity Check
 #[cw_serde]
 pub struct LiquidityInfo {
+    /// Asset info
     pub asset: AssetInfo,
+    /// Pool info
     pub pool_infos: Vec<PoolType>,
 }
 
 #[cw_serde]
 pub enum PoolType {
+    /// Balancer pool
     Balancer { pool_id: u64 },
+    /// Stableswap pool
     StableSwap { pool_id: u64 },
 }
 
-/////////Lockdrop
-///
+/// Lockdrop
 #[cw_serde]
 pub struct LPPoolInfo {
+    /// LP share token asset info
     pub share_token: AssetInfo,
+    /// Pool ID
     pub pool_id: u64,
 }
 
 #[cw_serde]
 pub struct DebtTokenAsset {
+    /// Asset info
     pub info: AssetInfo,
+    /// Amount
     pub amount: Uint128,
+    /// Basket ID
     pub basket_id: Uint128,
 }
 
-///////Osmosis Proxy
+/// Osmosis Proxy
 #[cw_serde]
 pub struct Owner {
+    /// Owner address
     pub owner: Addr,
-    pub total_minted: Uint128, //for CDP mints
-    pub liquidity_multiplier: Option<Decimal>, //for CDP mints
-    pub stability_pool_ratio: Option<Decimal>, //for CDP mints
+    /// Total CDT minted
+    pub total_minted: Uint128,
+    /// Liquidity multiplier for CDT mint caps
+    pub liquidity_multiplier: Option<Decimal>,
+    /// Stability pool ratio allocated to CDT mint caps
+    pub stability_pool_ratio: Option<Decimal>,
+    /// Authority over non-token contract messages
     pub non_token_contract_auth: bool,
 }
-////////Launch/////////
+/// Launch
 #[cw_serde]
 #[serde(rename_all = "snake_case")]
 pub struct Lockdrop {
+    /// List of users who have signaled to lock their MBRN rewards
     pub locked_users: Vec<LockedUser>,
+    /// Total number of incentives to distribute
     pub num_of_incentives: Uint128,
+    /// Asset needed to lock
     pub locked_asset: AssetInfo,    
-    pub lock_up_ceiling: u64, //in days
-    pub deposit_end: u64, //5 days
-    pub withdrawal_end: u64, //2 days
+    /// Lock up ceiling, in days
+    pub lock_up_ceiling: u64,
+    /// Deposit period window, in days
+    pub deposit_end: u64,
+    /// Withdrawal period window, in days
+    pub withdrawal_end: u64,
     /// Has the protocol launched?
     pub launched: bool,
 }
@@ -450,30 +591,41 @@ pub struct Lockdrop {
 #[cw_serde]
 #[serde(rename_all = "snake_case")]
 pub struct LockedUser {
+    /// User address
     pub user: String,
+    /// List of deposits
     pub deposits: Vec<Lock>,
+    /// Total number of tickets, i.e. share of incentives distributed
     pub total_tickets: Uint128,
+    /// Total number of incentives withdrawn
     pub incentives_withdrawn: Uint128,
 }
 
 #[cw_serde]
 #[serde(rename_all = "snake_case")]
 pub struct Lock {
+    /// Deposit amount
     pub deposit: Uint128,
-    pub lock_up_duration: u64, //in days
+    /// Lock up duration, in days
+    pub lock_up_duration: u64,
 }
 
-////Discount Vault
+/// Discount Vault
 #[cw_serde]
 pub struct VaultUser {
+    /// User address
     pub user: Addr,
+    /// List of vaulted LPs
     pub vaulted_lps: Vec<VaultedLP>,
 }
 
 #[cw_serde]
 pub struct VaultedLP {
+    /// LP share token asset info
     pub gamm: AssetInfo,
+    /// Amount of LP share tokens
     pub amount: Uint128,
+    /// Deposit time
     pub deposit_time: u64,
 }
 
@@ -481,7 +633,9 @@ pub struct VaultedLP {
 
 #[cw_serde]
 pub enum AssetInfo {
+    /// Cw20 token
     Token { address: Addr },
+    /// Native token
     NativeToken { denom: String },
 }
 
@@ -539,7 +693,9 @@ pub fn equal(assets_1: &Vec<AssetInfo>, assets_2: &Vec<AssetInfo>) -> bool {
 
 #[cw_serde]
 pub struct Asset {
+    /// Asset info
     pub info: AssetInfo,
+    /// Amount
     pub amount: Uint128,
 }
 
@@ -626,8 +782,11 @@ impl PoolStateResponse {
 
 #[cw_serde]
 pub struct Swap {
+    /// Pool id
     pub pool_id: u64,
+    /// Denom in
     pub denom_in: String,
+    /// Denom out
     pub denom_out: String,
 }
 
@@ -643,7 +802,9 @@ impl Swap {
 
 #[cw_serde]
 pub struct Step {
+    /// Pool id
     pub pool_id: u64,
+    /// Denom out
     pub denom_out: String,
 }
 

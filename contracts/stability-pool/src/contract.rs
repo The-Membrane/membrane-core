@@ -989,11 +989,11 @@ fn split_assets_to_users(
             } else if user_ratio.ratio < cAsset_ratio {
 
                 //Allocate full user ratio of the asset
-                let send_ratio = decimal_division(user_ratio.ratio, cAsset_ratio);
+                let send_ratio = decimal_division(user_ratio.ratio, cAsset_ratio)?;
                 let send_amount = decimal_multiplication(
                     send_ratio,
                     Decimal::from_ratio(distribution_assets[index].amount, Uint128::new(1u128)),
-                ) * Uint128::new(1u128);
+                )? * Uint128::new(1u128);
 
                 //Set distribution_asset amount to difference
                 distribution_assets[index].amount -= send_amount;
@@ -1002,7 +1002,7 @@ fn split_assets_to_users(
                 add_to_user_claims(storage, user_ratio.clone().user, distribution_assets[index].clone().info, send_amount)?;
 
                 //Set cAsset_ratio to the difference
-                cAsset_ratio = decimal_subtraction(cAsset_ratio, user_ratio.ratio);
+                cAsset_ratio = decimal_subtraction(cAsset_ratio, user_ratio.ratio)?;
                 cAsset_ratios[index] = cAsset_ratio;
 
                 break;
@@ -1018,7 +1018,7 @@ fn split_assets_to_users(
                 add_to_user_claims(storage, user_ratio.clone().user, distribution_assets[index].clone().info, send_amount)?;
 
                 //Set user_ratio as leftover
-                user_ratio.ratio = decimal_subtraction(user_ratio.ratio, cAsset_ratio);                                
+                user_ratio.ratio = decimal_subtraction(user_ratio.ratio, cAsset_ratio)?;                                
 
                 //Set cAsset_ratio to 0
                 cAsset_ratios[index] = Decimal::zero();
@@ -1116,7 +1116,7 @@ pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal
     //getting each user's % of total amount
     let mut user_ratios: Vec<Decimal> = vec![];
     for deposit in user_deposits.iter() {
-        user_ratios.push(decimal_division(deposit.amount, total_amount));
+        user_ratios.push(decimal_division(deposit.amount, total_amount)?);
     }
 
     Ok((user_ratios, user_deposits))

@@ -98,12 +98,12 @@ pub fn execute(
             edit_token_max(deps, info, denom, max_supply)
         }
         ExecuteMsg::UpdateConfig {
-            owner,
+            owners,
             add_owner,
             debt_auction,
             positions_contract,
             liquidity_contract,
-        } => update_config(deps, info, owner, debt_auction, positions_contract, liquidity_contract, add_owner),
+        } => update_config(deps, info, owners, debt_auction, positions_contract, liquidity_contract, add_owner),
         ExecuteMsg::EditOwner { owner, liquidity_multiplier, stability_pool_ratio, non_token_contract_auth } => {
             edit_owner(deps, info, owner, liquidity_multiplier, stability_pool_ratio, non_token_contract_auth)
         }

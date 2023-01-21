@@ -460,6 +460,9 @@ pub fn update_config(
     if let Some(mbrn_denom) = updated_config.mbrn_denom {
         config.mbrn_denom = mbrn_denom;
     }
+    if let Some(minimum_total_stake) = updated_config.minimum_total_stake {
+        config.minimum_total_stake = minimum_total_stake;
+    }
     if let Some(staking_contract) = updated_config.staking_contract {
         config.staking_contract_addr = deps.api.addr_validate(&staking_contract)?;
     }

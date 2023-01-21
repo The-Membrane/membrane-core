@@ -237,6 +237,8 @@ impl Config {
 pub struct UpdateConfig {
     /// MBRN native token fulldenom
     pub mbrn_denom: Option<String>,
+    /// Minimum total stake required to submit a proposal
+    pub minimum_total_stake: Option<Uint128>,
     /// MBRN staking contract
     pub staking_contract: Option<String>,
     /// vesting' contract address

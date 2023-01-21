@@ -145,6 +145,8 @@ pub enum QueryMsg {
 pub struct Config {
     /// MBRN native token fulldenom
     pub mbrn_denom: String,
+    /// Minimum total stake required to submit a proposal
+    pub minimum_total_stake: Uint128,
     ///MBRN staking contract
     pub staking_contract_addr: Addr,
     /// Address of the vesting contract

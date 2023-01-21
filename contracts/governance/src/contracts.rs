@@ -55,6 +55,7 @@ pub fn instantiate(
 
     let config = Config {
         mbrn_denom,
+        minimum_total_stake: Uint128::new(5_000_000_000_000),  //5M MBRN
         staking_contract_addr: deps.api.addr_validate(&msg.mbrn_staking_contract_addr)?,
         vesting_contract_addr: deps.api.addr_validate(&msg.vesting_contract_addr)?,
         vesting_voting_power_multiplier: msg.vesting_voting_power_multiplier,
@@ -135,11 +136,18 @@ pub fn submit_proposal(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
+    //Assert minimum total stake from staking contract
+    let total_staked = deps.querier.query_wasm_smart::<Uint128>(
+        config.staking_contract_addr,
+        &StakingQueryMsg::TotalStaked {  },
+    )?;
+    if total_staked < config.minimum_total_stake {
+        return Err(ContractError::InsufficientTotalStake { minimum: config.minimum_total_stake.into() });
+    }
+
     //If sender is vesting Contract, toggle
-    let mut vesting: bool = false;
-    if info.sender == config.vesting_contract_addr {
-        vesting = true;
-    } else {
+    let vesting: bool = false;
+    if info.sender != config.vesting_contract_addr {
         //Only Vesting contract can submit expedited proposals
         expedited = false;
     }
@@ -645,7 +653,6 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             vesting,
         } => {
             let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
-
             let user = deps.api.addr_validate(&user)?;
 
             to_binary(&calc_voting_power(

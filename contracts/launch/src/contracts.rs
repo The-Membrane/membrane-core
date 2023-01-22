@@ -64,7 +64,7 @@ pub fn instantiate(
         credit_denom: String::from(""),
         labs_addr: deps.api.addr_validate(&msg.labs_addr)?,
         apollo_router: deps.api.addr_validate(&msg.apollo_router)?,
-        mbrn_launch_amount: Uint128::new(5_000_000_000_000),
+        mbrn_launch_amount: Uint128::new(25_000_000_000_000),
         osmosis_proxy_id: msg.osmosis_proxy_id,
         oracle_id: msg.oracle_id,
         staking_id: msg.staking_id,
@@ -113,9 +113,9 @@ pub fn instantiate(
     //Instantiate Lockdrop 
     let lockdrop = Lockdrop {
         locked_users: vec![],
-        num_of_incentives: Uint128::new(5_000_000_000_000),
+        num_of_incentives: Uint128::new(25_000_000_000_000),
         locked_asset: AssetInfo::NativeToken { denom: String::from("uosmo") },
-        lock_up_ceiling: 365,
+        lock_up_ceiling: 90,
         deposit_end: env.block.time.seconds() + (5 * SECONDS_PER_DAY),
         withdrawal_end: env.block.time.seconds() + (7 * SECONDS_PER_DAY),
         launched: false,
@@ -287,7 +287,7 @@ fn withdraw(
         ]))
 }
 
-fn claim (    
+fn claim(    
     deps: DepsMut,
     env: Env,
     info: MessageInfo,

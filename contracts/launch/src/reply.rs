@@ -460,7 +460,10 @@ pub fn handle_vesting_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                     proposal_required_stake: Uint128::from(PROPOSAL_REQUIRED_STAKE),
                     proposal_required_quorum: String::from(PROPOSAL_REQUIRED_QUORUM),
                     proposal_required_threshold: String::from(PROPOSAL_REQUIRED_THRESHOLD),
-                    whitelisted_links: vec!["https://discord.com/channels/1060217330258432010/".to_string()],
+                    whitelisted_links: vec![
+                        String::from("https://discord.com/channels/1060217330258432010/"),
+                        String::from("https://commonwealth.im/membrane/")
+                        ],
                 })?, 
                 funds: vec![], 
                 label: String::from("governance"), 

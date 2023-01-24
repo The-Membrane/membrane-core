@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":[["PageRequest","PageRequest is to be embedded in gRPC request messages for efficient pagination. Ex:"],["PageResponse","PageResponse is to be embedded in gRPC response messages where the corresponding request message has used PageRequest."]]};

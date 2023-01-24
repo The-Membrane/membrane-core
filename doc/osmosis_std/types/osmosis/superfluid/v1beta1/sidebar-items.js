@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":[["RemoveSuperfluidAssetsProposal","RemoveSuperfluidAssetsProposal is a gov Content type to remove the superfluid assets by denom"],["SetSuperfluidAssetsProposal","SetSuperfluidAssetsProposal is a gov Content type to update the superfluid assets"]]};

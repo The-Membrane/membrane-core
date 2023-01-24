@@ -1,4 +1,0 @@
-(function() {var implementors = {
-"cosmwasm_std":[],
-"cosmwasm_storage":[["impl&lt;'a&gt; <a class=\"trait\" href=\"cosmwasm_std/traits/trait.Storage.html\" title=\"trait cosmwasm_std::traits::Storage\">Storage</a> for <a class=\"struct\" href=\"cosmwasm_storage/struct.PrefixedStorage.html\" title=\"struct cosmwasm_storage::PrefixedStorage\">PrefixedStorage</a>&lt;'a&gt;"],["impl&lt;'a&gt; <a class=\"trait\" href=\"cosmwasm_std/traits/trait.Storage.html\" title=\"trait cosmwasm_std::traits::Storage\">Storage</a> for <a class=\"struct\" href=\"cosmwasm_storage/struct.ReadonlyPrefixedStorage.html\" title=\"struct cosmwasm_storage::ReadonlyPrefixedStorage\">ReadonlyPrefixedStorage</a>&lt;'a&gt;"]]
-};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

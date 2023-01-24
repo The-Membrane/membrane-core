@@ -1,3 +1,0 @@
-(function() {var implementors = {
-"osmo_bindings":[["impl <a class=\"trait\" href=\"cosmwasm_schema/query_response/trait.QueryResponses.html\" title=\"trait cosmwasm_schema::query_response::QueryResponses\">QueryResponses</a> for <a class=\"enum\" href=\"osmo_bindings/enum.OsmosisQuery.html\" title=\"enum osmo_bindings::OsmosisQuery\">OsmosisQuery</a>"]]
-};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

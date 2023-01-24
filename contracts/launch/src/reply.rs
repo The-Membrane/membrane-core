@@ -1196,7 +1196,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                     Owner {
                         owner: addrs.clone().positions, 
                         total_minted: Uint128::zero(),
-                        liquidity_multiplier: Some(Decimal::percent(400_00)), //0.5% (0.5% would be 200x but the liquidity contract only counts CDT so we double)
+                        liquidity_multiplier: Some(Decimal::percent(360_00)), //0.55% (0.55% would be 180x but the liquidity contract only counts CDT so we double)
                         stability_pool_ratio: Some(Decimal::one()), //CDP contracts gets full share of SP cap size (for now)
                         non_token_contract_auth: false,
                     },

@@ -87,6 +87,7 @@ pub fn execute(
     }
 }
 
+/// Update contract configuration
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -148,8 +149,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-//Returns % of interest that is discounted
-//i.e. 90% of 1% interest is .1% interest
+/// Returns % of interest that is discounted,
+/// i.e. 95% of 1% interest is .05% interest
 fn get_discount(
     deps: Deps,
     env: Env,
@@ -191,8 +192,8 @@ fn get_discount(
     Ok(percent_discount)
 }
 
-//Get the value of the user's capital in..
-//Stake, SP & Queriable LPs
+/// Get the value of the user's capital in
+/// the Stability Pool, Discount Vault LPs & staking
 fn get_user_value_in_network(
     querier: QuerierWrapper,
     env: Env,
@@ -229,6 +230,7 @@ fn get_user_value_in_network(
     Ok( total_value )
 }
 
+/// Return value of LPs in the discount vault
 fn get_discounts_vault_value(
     querier: QuerierWrapper,
     config: Config,
@@ -248,7 +250,7 @@ fn get_discounts_vault_value(
 
 }
 
-//Calc value of staked MBRN & pending rewards
+// Return value of staked MBRN & pending rewards
 fn get_staked_MBRN_value(
     querier: QuerierWrapper,
     config: Config,
@@ -305,7 +307,7 @@ fn get_staked_MBRN_value(
     Ok( staked_value )
 }
 
-//Gets user total Stability Pool funds
+/// Return user's total Stability Pool value from credit & MBRN incentives 
 fn get_sp_value(
     querier: QuerierWrapper,
     config: Config,

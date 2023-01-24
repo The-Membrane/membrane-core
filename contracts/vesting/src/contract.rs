@@ -1,5 +1,3 @@
-///Expanded Fork of: https://github.com/astroport-fi/astroport-governance/tree/main/contracts/builder_unlock
-
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
@@ -116,7 +114,7 @@ pub fn execute(
     }
 }
 
-//Calls the Governance contract SubmitProposalMsg
+/// Calls the Governance contract SubmitProposalMsg
 fn submit_proposal(
     deps: DepsMut,
     info: MessageInfo,
@@ -158,7 +156,7 @@ fn submit_proposal(
     }
 }
 
-//Claim a Recipient's proportion of staking rewards that were previously claimed using ClaimFeesForContract
+/// Claim a Recipient's proportion of staking rewards that were previously claimed using ClaimFeesForContract
 fn claim_fees_for_recipient(deps: DepsMut, info: MessageInfo) -> Result<Response, ContractError> {
 
     //Load recipients
@@ -206,7 +204,7 @@ fn claim_fees_for_recipient(deps: DepsMut, info: MessageInfo) -> Result<Response
     ]))
 }
 
-//Claim staking rewards for all contract owned staked MBRN
+/// Claim staking rewards for allocated MBRN
 fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
     //Load Config
     let config = CONFIG.load(deps.storage)?;
@@ -290,6 +288,7 @@ fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, Contract
     ]))
 }
 
+/// Get allocation ratios for list of recipients
 fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, recipients: &mut Vec<Recipient>) -> StdResult<Vec<Decimal>> {
     let mut allocation_ratios: Vec<Decimal> = vec![];
 
@@ -318,6 +317,7 @@ fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, reci
     Ok(allocation_ratios)
 }
 
+/// Update contract configuration
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -358,7 +358,7 @@ fn update_config(
 }
 
 
-//Withdraw unvested MBRN by minting the unlocked quantity
+/// Withdraw unvested MBRN by minting the unlocked quantity
 fn withdraw_unlocked(
     deps: DepsMut,
     env: Env,
@@ -423,7 +423,7 @@ fn withdraw_unlocked(
     
 }
 
-//Get unvested amount 
+/// Get unvested amount 
 pub fn get_unlocked_amount(
     //This is an option bc the Recipient's allocation is. Its existence is confirmed beforehand.
     allocation: Option<Allocation>, 
@@ -470,7 +470,8 @@ pub fn get_unlocked_amount(
     Ok((unlocked_amount, allocation))
 }
 
-//Add allocation to a Recipient
+/// Add allocation to a Recipient or
+/// an existing Recipient can divvy their allocation to add a new Recipient
 fn add_allocation(
     deps: DepsMut,
     env: Env,
@@ -614,7 +615,7 @@ fn add_allocation(
 }
 
 
-//Add new Recipient
+/// Add new Recipient
 fn add_recipient(
     deps: DepsMut,
     info: MessageInfo,
@@ -656,7 +657,7 @@ fn add_recipient(
     ]))
 }
 
-//Remove existing Recipient
+/// Remove existing Recipient
 fn remove_recipient(
     deps: DepsMut,
     info: MessageInfo,

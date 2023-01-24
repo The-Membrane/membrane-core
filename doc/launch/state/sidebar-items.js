@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":[["ADDRESSES",""],["CONFIG",""],["CREDIT_POOL_IDS",""],["INCENTIVE_RATIOS",""],["LOCKDROP",""]],"struct":[["CreditPools",""],["LaunchAddrs",""]]};

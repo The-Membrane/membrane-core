@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":[["is_safe_link","Checks if the link is valid. Returns a boolean value."],["validate_links","Validating the list of links. Returns an error if a list has an invalid link."]]};

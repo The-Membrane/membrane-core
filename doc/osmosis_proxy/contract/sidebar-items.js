@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":[["burn_tokens","Burns tokens "],["change_admin","Change the admin of a denom created from this contract"],["create_denom","Create a new denom using TokenFactory. Saves the denom in the reply."],["execute",""],["instantiate",""],["mint_tokens","Mint tokens to an address"],["query",""],["reply",""],["validate_denom","Validate token factory denom"]]};

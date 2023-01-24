@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":[["EpochInfo","EpochInfo is a struct that describes the data going into a timer defined by the x/epochs module."],["EpochsQuerier",""],["GenesisState","GenesisState defines the epochs module’s genesis state."],["QueryCurrentEpochRequest",""],["QueryCurrentEpochResponse",""],["QueryEpochsInfoRequest",""],["QueryEpochsInfoResponse",""]]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"attr":[["cw_serde",""]],"derive":[["QueryResponses",""]],"macro":[["generate_api",""],["write_api",""]]};

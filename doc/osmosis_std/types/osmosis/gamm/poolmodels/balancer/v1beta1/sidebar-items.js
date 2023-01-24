@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":[["MsgCreateBalancerPool","===================== MsgCreatePool"],["MsgCreateBalancerPoolResponse","Returns the poolID"]]};

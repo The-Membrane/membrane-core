@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":[["COMPOSITION_CHECK",""],["CONFIG",""],["LOOP_PARAMETERS",""],["NEW_POSITION_INFO",""],["NUM_OF_LOOPS",""],["USERS",""]]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":[["ExecuteMsg",""],["QueryMsg","Description"],["RouterCallbackMsg",""],["SwapToAssetsInput",""]],"struct":[["InstantiateMsg","Description"]]};

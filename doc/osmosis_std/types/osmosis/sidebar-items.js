@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":[["epochs",""],["gamm",""],["incentives",""],["lockup",""],["mint",""],["poolincentives",""],["store",""],["streamswap",""],["superfluid",""],["tokenfactory",""],["twap",""],["txfees",""]]};

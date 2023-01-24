@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"trait":[["DigestPrimitive","Bind a preferred [`Digest`] algorithm to an elliptic curve type."],["SignPrimitive","Try to sign the given prehashed message using ECDSA."],["VerifyPrimitive","Verify the given prehashed message using ECDSA."]]};

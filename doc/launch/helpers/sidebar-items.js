@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":[["DiscountsContract","DiscountsContract is a wrapper around Addr that provides a lot of helpers for working with this."]]};

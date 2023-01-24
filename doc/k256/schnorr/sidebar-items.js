@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":[["Error","Signature errors."],["Signature","Taproot Schnorr signature as defined in BIP340."],["SigningKey","Taproot Schnorr signing key."],["VerifyingKey","Taproot Schnorr verifying key."]]};

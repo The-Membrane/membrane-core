@@ -83,6 +83,8 @@ pub fn instantiate(
         .add_attribute("contract_address", env.contract.address))
 }
 
+/// Add a new LP to the accepted LPs list with the given pool id.
+/// Query info from Osmosis Proxy and validate that the LP contains the debt token.
 fn create_and_validate_LP_object(    
     querier: QuerierWrapper,
     pool_id: u64,
@@ -117,6 +119,7 @@ pub fn execute(
     }
 }
 
+/// Deposit accepted LPs into the vault.
 fn deposit(    
     deps: DepsMut,
     env: Env,
@@ -173,6 +176,7 @@ fn deposit(
         ]))
 }
 
+/// Withdraw LPs from the vault.
 fn withdraw(    
     deps: DepsMut,
     info: MessageInfo,
@@ -203,7 +207,7 @@ fn withdraw(
                 }
             }
         }
-        //If any withdrawals aren't fulfilled, i.e. at 0, then error  
+        //If any withdrawals aren't fulfilled, i.e. amount != 0, then error  
         if withdrawal_asset.amount != Uint128::zero(){
             return Err(ContractError::InvalidWithdrawal { val: withdrawal_assets[index].clone() })
         }
@@ -222,6 +226,7 @@ fn withdraw(
         ]))
 }
 
+/// Change the owner of the contract.
 fn change_owner(    
     deps: DepsMut,
     info: MessageInfo,
@@ -248,6 +253,7 @@ fn change_owner(
     )
 }
 
+/// Add or remove LPs from list of accepted LPs.
 fn edit_LPs(    
     deps: DepsMut,
     info: MessageInfo,
@@ -289,6 +295,7 @@ fn edit_LPs(
     )
 }
 
+/// Validate assets and return only those that are accepted.
 fn validate_assets(
     funds: Vec<Coin>,
     accepted_LPs: Vec<LPPoolInfo>,
@@ -314,6 +321,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
+/// Return UserResponse for a given user. 
+/// Return the LP value so that the System Discounts contract can calculate the discount.
 fn get_user_response(
     deps: Deps, 
     env: Env, 
@@ -358,6 +367,7 @@ fn get_user_response(
     //Withdrawals of removed LPs still work tho
 }
 
+/// Return deposits for a given user.
 fn get_deposits(    
     deps: Deps, 
     option_limit: Option<u64>,

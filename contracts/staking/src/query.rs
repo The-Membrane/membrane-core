@@ -7,6 +7,7 @@ use crate::state::{TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING};
 
 const DEFAULT_LIMIT: u32 = 32u32;
 
+/// Returns total of staked tokens for a given staker
 pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse> {
     let config = CONFIG.load(deps.storage)?;    
     let valid_addr = deps.api.addr_validate(&staker)?;
@@ -45,6 +46,7 @@ pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse>
     })
 }
 
+/// Returns claimable assets for a given staker
 pub fn query_staker_rewards(deps: Deps, env: Env, staker: String) -> StdResult<RewardsResponse> {
     let config = CONFIG.load(deps.storage)?;
     let incentive_schedule = INCENTIVE_SCHEDULING.load(deps.storage)?;
@@ -73,6 +75,7 @@ pub fn query_staker_rewards(deps: Deps, env: Env, staker: String) -> StdResult<R
     })
 }
 
+/// Returns stake deposits
 pub fn query_staked(
     deps: Deps,
     env: Env,
@@ -104,6 +107,7 @@ pub fn query_staked(
     Ok(StakedResponse { stakers })
 }
 
+/// Returns historical fee events
 pub fn query_fee_events(
     deps: Deps,
     limit: Option<u32>,
@@ -122,6 +126,7 @@ pub fn query_fee_events(
     Ok(FeeEventsResponse { fee_events })
 }
 
+/// Return staked tokens totals
 pub fn query_totals(deps: Deps) -> StdResult<TotalStakedResponse> {
     let totals = TOTALS.load(deps.storage)?;
 

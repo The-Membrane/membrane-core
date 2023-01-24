@@ -120,6 +120,7 @@ pub fn instantiate(
         .add_attribute("contract_address", env.contract.address))
 }
 
+/// Return total MBRN vesting
 fn get_total_vesting(
     querier: QuerierWrapper,    
     vesting_contract: String,
@@ -209,6 +210,7 @@ pub fn execute(
     }
 }
 
+/// Update contract configuration
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -288,7 +290,7 @@ fn update_config(
     Ok(Response::new().add_attributes(attrs))
 }
 
-
+/// Stake MBRN
 pub fn stake(
     deps: DepsMut,
     env: Env,
@@ -347,8 +349,8 @@ pub fn stake(
     Ok(response.add_attributes(attrs))
 }
 
-//First call is an unstake
-//2nd call after unstake period is a withdrawal
+/// First call is an unstake
+/// 2nd call after unstake period is a withdrawal
 pub fn unstake(
     deps: DepsMut,
     env: Env,
@@ -485,7 +487,7 @@ pub fn unstake(
     Ok(response.add_attributes(attrs).add_messages(msgs))
 }
 
-//Restake unstaking deposits for a user
+/// Restake unstaking deposits for a user
 fn restake(
     deps: DepsMut,
     env: Env,
@@ -529,7 +531,8 @@ fn restake(
     ]))
 }
 
-//Returns claimable assets, accrued interest, withdrawable amount
+/// Update deposits being withdrawn from.
+/// Returns claimable assets, accrued interest, withdrawable amount.
 fn withdraw_from_state(
     storage: &mut dyn Storage,
     env: Env,
@@ -719,8 +722,9 @@ fn withdraw_from_state(
     Ok((claimables, accrued_interest, withdrawable_amount))
 }
 
-//Sends available claims to info.sender
-//If asset is passed, the claims will be sent as said asset
+/// Sends available claims to info.sender or as specified in send_to.
+/// If claim_as is passed, the claims will be sent as said asset.
+/// If restake is true, the accrued ownership will be restaked.
 pub fn claim_rewards(
     deps: DepsMut,
     env: Env,
@@ -822,6 +826,7 @@ pub fn claim_rewards(
     Ok(res.add_messages(messages))
 }
 
+/// Calculates the accrued interest for a given stake
 fn accumulate_interest(stake: Uint128, rate: Decimal, time_elapsed: u64) -> StdResult<Uint128> {
     let applied_rate = rate.checked_mul(Decimal::from_ratio(
         Uint128::from(time_elapsed),
@@ -833,6 +838,7 @@ fn accumulate_interest(stake: Uint128, rate: Decimal, time_elapsed: u64) -> StdR
     Ok(accrued_interest)
 }
 
+/// Deposit assets for staking rewards
 fn deposit_fee(
     deps: DepsMut,
     env: Env,
@@ -888,6 +894,7 @@ fn deposit_fee(
     ]))
 }
 
+/// Return claim messages for a given user 
 fn user_claims(
     storage: &mut dyn Storage,
     api: &dyn Api,
@@ -987,6 +994,7 @@ fn user_claims(
     Ok((messages, user_claimables, accrued_interest))
 }
 
+/// Return user claimables for a given user
 fn get_user_claimables(
     storage: &mut dyn Storage,
     env: Env,
@@ -1065,6 +1073,7 @@ fn get_user_claimables(
     Ok((claimables, accrued_interest))
 }
 
+/// Trim fee events to only include events after the earliest deposit
 fn trim_fee_events(
     storage: &mut dyn Storage,
     info: MessageInfo,
@@ -1093,7 +1102,7 @@ fn trim_fee_events(
     Ok(Response::new().add_attribute("trimmed", "true"))
 }
 
-//Get deposit's claimable fee based on which FeeEvents it experienced
+/// Get deposit's claimable fee assets based on which FeeEvents it experienced
 pub fn get_deposit_claimables(
     mut config: Config,
     incentive_schedule: StakeDistributionLog,

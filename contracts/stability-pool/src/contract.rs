@@ -126,6 +126,7 @@ pub fn execute(
     }
 }
 
+/// Update contract configuration
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -176,6 +177,7 @@ fn update_config(
     Ok(Response::new().add_attributes(attrs))
 }
 
+/// Deposit debt tokens into the contract
 pub fn deposit(
     deps: DepsMut,
     env: Env,
@@ -214,7 +216,8 @@ pub fn deposit(
     ]))
 }
 
-//Get incentive rate and return accrued amount
+/// Return accrued amount.
+/// Assert max incentives limit.
 fn accrue_incentives(
     storage: &mut dyn Storage,
     env: Env,
@@ -250,7 +253,7 @@ fn accrue_incentives(
     Ok(incentives)
 }
 
-//Withdraw / Unstake
+/// Withdraw / Unstake, capital can be used for liquidations while unstaking
 pub fn withdraw(
     deps: DepsMut,
     env: Env,
@@ -300,7 +303,7 @@ pub fn withdraw(
         //Update pool
         ASSET.save(deps.storage, &new_pool)?;
 
-        //If there is a withdrwable amount
+        //If there is a withdrawable amount
         if !withdrawable.is_zero() {
             let withdrawable_asset = Asset {
                 amount: withdrawable,
@@ -318,6 +321,8 @@ pub fn withdraw(
     Ok(Response::new().add_attributes(attrs).add_messages(msgs))
 }
 
+/// Unstake or withdraw tokens from Deposits & update state.
+/// Add any claimables to user claims.
 fn withdrawal_from_state(
     storage: &mut dyn Storage,
     env: Env,
@@ -501,7 +506,7 @@ fn withdrawal_from_state(
     Ok((withdrawable_amount, pool))
 }
 
-//Restake unstaking deposits for a user
+/// Restake unstaking deposits for a user
 fn restake(
     deps: DepsMut,
     env: Env,
@@ -548,8 +553,8 @@ fn restake(
     ]))
 }
 
-//- send repayments for the Positions contract
-//- Positions contract sends back a distribute msg
+/// Send repayments for the Positions contract.
+/// Positions contract sends back a distribute msg.
 pub fn liquidate(
     deps: DepsMut,
     info: MessageInfo,
@@ -611,7 +616,7 @@ pub fn liquidate(
     ]))
 }
 
-//Calculate which and how much each user gets distributed from the liquidation
+/// Calculate which and how much each user gets distributed from the liquidation
 pub fn distribute_funds(
     deps: DepsMut,
     info: MessageInfo,
@@ -789,7 +794,7 @@ pub fn distribute_funds(
     ]))
 }
 
-//Repay for a user in the CDP contract
+/// Repay for a user in the Positions contract
 fn repay(
     deps: DepsMut,
     env: Env,
@@ -885,8 +890,7 @@ fn repay(
     Ok(Response::new().add_attributes(attrs).add_messages(msgs))
 }
 
-//Sends available claims to info.sender
-//If claim_as is passed, the claims will be sent as said asset
+/// Sends available claims to info.sender
 pub fn claim(
     deps: DepsMut,
     env: Env,
@@ -918,6 +922,7 @@ pub fn claim(
     Ok(res.add_messages(messages))
 }
 
+/// Build claim messages for a user & clear claims
 fn user_claims_msgs(
     storage: &mut dyn Storage,
     info: MessageInfo,
@@ -957,7 +962,7 @@ fn user_claims_msgs(
     Ok((messages, user.claimable_assets))
 }
 
-
+/// Split distribution assets to users based on ratios
 fn split_assets_to_users(
     storage: &mut dyn Storage,
     mut cAsset_ratios: Vec<Decimal>,
@@ -1030,6 +1035,7 @@ fn split_assets_to_users(
     Ok(())
 }
 
+/// Add assets to user claims
 fn add_to_user_claims(
     storage: &mut dyn Storage,
     user: Addr,
@@ -1080,6 +1086,7 @@ fn add_to_user_claims(
     Ok(())
 }
 
+/// Get user ratios of deposits from a list of deposits
 pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal>, Vec<Deposit>)> {
     let mut user_deposits: Vec<Deposit> = vec![];
     let mut total_amount: Decimal = Decimal::percent(0);
@@ -1113,7 +1120,7 @@ pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal
         user_deposits = new_deposits.clone();
     }
 
-    //getting each user's % of total amount
+    //Getting each user's % of total amount
     let mut user_ratios: Vec<Decimal> = vec![];
     for deposit in user_deposits.iter() {
         user_ratios.push(decimal_division(deposit.amount, total_amount)?);
@@ -1122,7 +1129,7 @@ pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal
     Ok((user_ratios, user_deposits))
 }
 
-//Calc a user's incentives from each deposit
+/// Calculate a user's incentives from each deposit
 fn get_user_incentives(
     storage: &mut dyn Storage,
     env: Env,
@@ -1200,7 +1207,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-//Note: This fails if an asset total is sent in two separate Asset objects. Both will be invalidated.
+/// Note: This fails if an asset total is sent in two separate Asset objects. Both will be invalidated.
 pub fn validate_assets(
     deps: &dyn Storage,
     assets: Vec<AssetInfo>,

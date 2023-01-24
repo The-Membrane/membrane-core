@@ -363,7 +363,7 @@ pub fn query_collateral_rates(
 
         let new_rates: Vec<Decimal> = rates
             .into_iter()
-            .map(|mut rate| {
+            .map(|rate| {
                 //Accrue a year of repayment rate to interest rates
                 if negative_rate {
                     decimal_multiplication(

@@ -46,7 +46,6 @@ pub const BALANCER_POOL_REPLY_ID: u64 = 15;
 //Constants
 pub const SECONDS_PER_DAY: u64 = 86_400u64;
 
-
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
@@ -157,6 +156,7 @@ pub fn execute(
     }
 }
 
+/// Deposit OSMO into the lockdrop & elect to lock MBRN rewards for a certain duration
 fn lock(    
     deps: DepsMut,
     env: Env,
@@ -213,6 +213,7 @@ fn lock(
         ]))
 }
 
+/// Withdraw OSMO from the lockdrop during the withdrawal period
 fn withdraw(    
     deps: DepsMut,
     env: Env,
@@ -287,6 +288,7 @@ fn withdraw(
         ]))
 }
 
+/// Claim unlocked MBRN rewards
 fn claim(    
     deps: DepsMut,
     env: Env,
@@ -384,6 +386,7 @@ fn claim(
     
 }
 
+/// Return the amount of incentives a user is entitled to
 fn get_user_incentives(
     user_ratios: Vec<UserRatio>,
     user: String,
@@ -404,9 +407,9 @@ fn get_user_incentives(
     };
 
     Ok(incentives)
-
 }
 
+/// Calculate the ratio of incentives each user is entitled to
 fn calc_ticket_distribution(
     storage: &mut dyn Storage,
     lockdrop: &mut Lockdrop,
@@ -458,6 +461,7 @@ fn calc_ticket_distribution(
     INCENTIVE_RATIOS.save(storage, &user_ratios)
 }
 
+/// Validate that the lockdrop asset is present in the message
 fn validate_lockdrop_asset(info: MessageInfo, lockdrop_asset: AssetInfo) -> StdResult<Asset>{
     if let Some(lockdrop_asset) = info.clone().funds
         .into_iter()
@@ -471,6 +475,7 @@ fn validate_lockdrop_asset(info: MessageInfo, lockdrop_asset: AssetInfo) -> StdR
     }
 }
 
+/// Update contract configuration
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -530,7 +535,8 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     }
 }
 
-//This gets called at the end of the lockdrop
+/// This gets called at the end of the lockdrop.
+/// Create MBRN & CDT pools and deposit into MBRN/OSMO pool.
 pub fn end_of_launch(
     deps: DepsMut,
     env: Env,

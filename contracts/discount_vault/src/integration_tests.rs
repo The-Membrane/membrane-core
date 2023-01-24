@@ -64,7 +64,6 @@ mod tests {
                             credit_price: Decimal::one(),
                             liq_queue: None,
                             base_interest_rate: Decimal::zero(),
-                            liquidity_multiplier: Decimal::zero(),
                             pending_revenue: Uint128::zero(),
                             negative_rates: false,
                             cpc_margin_of_error: Decimal::zero(),

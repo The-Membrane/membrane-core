@@ -76,6 +76,7 @@ pub fn execute(
     }
 }
 
+/// Add a new asset to the list of assets that can be checked for liquidity
 fn add_asset(
     deps: DepsMut,
     info: MessageInfo,
@@ -106,12 +107,12 @@ fn add_asset(
     Ok(Response::new().add_attributes(attrs))
 }
 
+/// Edit an existing asset's liquidity info
 fn edit_asset(
     deps: DepsMut,
     info: MessageInfo,
     asset: LiquidityInfo,
 ) -> Result<Response, ContractError> {
-
     let config = CONFIG.load(deps.storage)?;
 
     //Assert Authority
@@ -145,6 +146,7 @@ fn edit_asset(
     Ok(Response::new().add_attributes(attrs))
 }
 
+/// Remove an asset from the list of assets that can be checked for liquidity
 fn remove_asset(
     deps: DepsMut,
     info: MessageInfo,
@@ -169,6 +171,7 @@ fn remove_asset(
     Ok(Response::new().add_attributes(attrs))
 }
 
+/// Update contract configuration
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -219,6 +222,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
+/// Return LiquidityInfo for an asset or multiple assets
 fn get_assets(
     deps: Deps,
     asset: Option<AssetInfo>,
@@ -245,7 +249,8 @@ fn get_assets(
     }
 }
 
-//This only works for native tokens on Osmosis, which is fine for now
+/// Returns # of tokens in the list of pools for an asset.
+/// This only works for native tokens on Osmosis, which is fine for now.
 fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<Uint128> {
     
     let config = CONFIG.load(deps.storage)?;

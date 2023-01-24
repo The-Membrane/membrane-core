@@ -123,6 +123,9 @@ pub fn execute(
     }
 }
 
+/// Submit a proposal to the governance contract. 
+/// Total stake must surpass the minimum.
+/// Only the vesting contract can submit expedited proposals.
 pub fn submit_proposal(
     deps: DepsMut,
     env: Env,
@@ -229,6 +232,7 @@ pub fn submit_proposal(
     ]))
 }
 
+/// Cast a vote on an active proposal.
 pub fn cast_vote(
     deps: DepsMut,
     env: Env,
@@ -305,6 +309,7 @@ pub fn cast_vote(
     ]))
 }
 
+/// End a proposal and determine the result.
 pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Response, ContractError> {
     let mut proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
 
@@ -356,7 +361,7 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
     Ok(response)
 }
 
-//Execute Proposal Msgs
+/// Execute Proposal Msgs
 pub fn execute_proposal(
     deps: DepsMut,
     env: Env,
@@ -417,7 +422,7 @@ pub fn check_messages(
         .add_messages(messages))
 }
 
-//Remove completed Proposals
+/// Remove completed Proposals
 pub fn remove_completed_proposal(
     deps: DepsMut,
     env: Env,
@@ -444,6 +449,7 @@ pub fn remove_completed_proposal(
         .add_attribute("proposal_id", proposal_id.to_string()))
 }
 
+/// Update the contract configuration
 pub fn update_config(
     deps: DepsMut,
     env: Env,
@@ -525,7 +531,7 @@ pub fn update_config(
     Ok(Response::new().add_attribute("action", "update_config"))
 }
 
-//Calc total voting power at a specific time
+/// Calc total voting power at a specific time
 pub fn calc_total_voting_power_at(deps: Deps, start_time: u64) -> StdResult<Uint128> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -565,7 +571,7 @@ pub fn calc_total_voting_power_at(deps: Deps, start_time: u64) -> StdResult<Uint
     Ok(total)
 }
 
-//Calc voting power for sender at a Popoosal's start_time
+/// Calc voting power for sender at a Proposal's start_time
 pub fn calc_voting_power(
     deps: Deps,
     sender: String,
@@ -684,6 +690,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
+/// Return a list of Proposals
 pub fn query_proposals(
     deps: Deps,
     start: Option<u64>,
@@ -724,6 +731,7 @@ pub fn query_proposals(
     })
 }
 
+/// Return a list of voters for a given proposal
 pub fn query_proposal_voters(
     deps: Deps,
     proposal_id: u64,
@@ -749,6 +757,7 @@ pub fn query_proposal_voters(
         .collect())
 }
 
+/// Return the voting power per option for a given proposal
 pub fn query_proposal_votes(deps: Deps, proposal_id: u64) -> StdResult<ProposalVotesResponse> {
     let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
 

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":[["execute",""],["instantiate",""],["query",""],["update_config","Update contract configuration"]]};

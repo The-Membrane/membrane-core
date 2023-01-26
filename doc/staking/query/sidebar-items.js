@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":[["query_fee_events","Returns historical fee events"],["query_staked","Returns stake deposits"],["query_staker_rewards","Returns claimable assets for a given staker"],["query_totals","Return staked tokens totals"],["query_user_stake","Returns total of staked tokens for a given staker"]]};

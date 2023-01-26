@@ -46,6 +46,7 @@ pub fn liquidate(
         valid_position_owner.clone(),
         position_id,
     )?;
+    
     //Accrue interest
     accrue(
         storage,
@@ -55,6 +56,7 @@ pub fn liquidate(
         &mut basket,
         position_owner.clone(),
     )?;
+    
     //Save updated repayment price and basket debt
     BASKET.save(storage, &basket)?;
 
@@ -82,7 +84,6 @@ pub fn liquidate(
 
     //Send liquidation amounts and info to the modules
     //Calculate how much needs to be liquidated (down to max_borrow_LTV):
-
     let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices) = get_avg_LTV(
         storage,
         env.clone(),

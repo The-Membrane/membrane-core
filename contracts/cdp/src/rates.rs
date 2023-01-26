@@ -85,7 +85,7 @@ pub fn update_rate_indices(
 ) -> StdResult<()>{
     //Get basket rates
     let mut interest_rates = get_interest_rates(storage, querier, env.clone(), basket)?;
-
+    
     let mut error: Option<StdError> = None;
 
     //Add/Subtract the repayment rate to the rates
@@ -495,7 +495,7 @@ pub fn accrue(
         basket.pending_revenue += accrued_interest;
 
         //Set position's debt to the debt + accrued_interest
-        position.credit_amount = new_credit_amount;
+        position.credit_amount += accrued_interest;
 
         //Add accrued interest to the basket's debt cap
         match update_basket_debt(

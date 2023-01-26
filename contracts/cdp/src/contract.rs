@@ -197,7 +197,7 @@ pub fn execute(
             )
         },
         ExecuteMsg::LiqRepay {} => {
-            if info.funds.is_empty() {
+            if !info.funds.is_empty() {
                 let credit_asset = Asset {
                     info: AssetInfo::NativeToken {
                         denom: info.funds[0].clone().denom,

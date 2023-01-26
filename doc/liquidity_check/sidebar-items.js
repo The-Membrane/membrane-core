@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":[["contracts",""],["error",""],["helpers",""],["integration_tests",""],["state",""]]};

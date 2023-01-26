@@ -494,7 +494,7 @@ pub fn withdraw(
             Decimal::from_ratio(target_position.credit_amount, Uint128::new(1u128)),
         )?;
     }
-
+    
     //Set Withdrawal_Prop
     let prop_assets_info: Vec<AssetInfo> = prop_assets
         .clone()
@@ -1214,7 +1214,7 @@ pub fn create_basket(
             if config.clone().oracle_contract.is_some() {
                 //Query Asset Oracle
                 deps.querier
-                    .query::<AssetResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                    .query::<Vec<AssetResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
                         contract_addr: config.clone().oracle_contract.unwrap().to_string(),
                         msg: to_binary(&OracleQueryMsg::Assets {
                             asset_infos: vec![asset.clone().asset.info],
@@ -1479,7 +1479,7 @@ pub fn edit_basket(
             if config.oracle_contract.is_some() {
                 //Query Asset Oracle
                 deps.querier
-                    .query::<AssetResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                    .query::<Vec<AssetResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
                         contract_addr: config.clone().oracle_contract.unwrap().to_string(),
                         msg: to_binary(&OracleQueryMsg::Assets {
                             asset_infos: vec![new_cAsset.clone().asset.info],

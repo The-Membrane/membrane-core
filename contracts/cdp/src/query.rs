@@ -17,7 +17,7 @@ use membrane::cdp::{
 
 use membrane::types::{
     cAsset, AssetInfo, Basket, InsolventPosition, Position, PositionUserInfo,
-    StoredPrice, UserInfo, DebtCap, PoolInfo, PoolStateResponse
+    UserInfo, DebtCap, PoolInfo, PoolStateResponse
 };
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
@@ -100,7 +100,7 @@ pub fn query_user_positions(
     let mut basket = BASKET.load(deps.storage)?;
     let mut user_positions: Vec<PositionResponse> = vec![];
     
-    let _iter: (_) = positions.into_iter().take(limit).map(|mut position| {
+    for mut position in positions.into_iter().take(limit) {
         
         let (borrow, max, _value, _prices) = match get_avg_LTV(
             deps.storage,
@@ -153,11 +153,12 @@ pub fn query_user_positions(
                 avg_max_LTV: max,
             })
         }
-    });
+    };
 
     if let Some(error) = error{
         return Err(error)
     }
+
     Ok(user_positions)
     
 }
@@ -499,13 +500,16 @@ pub fn query_price(
     }   
 
     //Try to use a stored price
-    let stored_price: StoredPrice = read_price(storage, &asset_info)?;
-
-    let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
+    let stored_price_res = read_price(storage, &asset_info);
+    
     //Use the stored price if within the oracle_time_limit
-    if time_elapsed <= config.oracle_time_limit {
-        return Ok(stored_price.price)
-    } 
+    if let Ok(stored_price) = stored_price_res {
+        let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
+
+        if time_elapsed <= config.oracle_time_limit {
+            return Ok(stored_price.price)
+        }
+    }
     
     //Query Price
     let price = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
@@ -783,15 +787,20 @@ pub fn insolvency_check_calc(
         .collect::<Vec<Uint128>>()
         .iter()
         .sum();
+    
+    // No assets with debt, return insolvent        
     if total_assets.is_zero() && !credit_amount.is_zero() {
         return Ok((true, Decimal::percent(100), Uint128::zero()));
+    } // No assets and no debt, return not insolvent        
+    else if total_assets.is_zero() && credit_amount.is_zero() {
+        return Ok((false, Decimal::percent(0), Uint128::zero()));
     }
-
+    
     let total_asset_value: Decimal = avg_LTVs.2; //pulls total_asset_value
     //current_LTV = credit_amount * credit_price / total_asset_value);
     let current_LTV = 
         credit_amount.checked_mul(credit_price)?
-        .checked_div(total_asset_value).map_err(|_| StdError::generic_err("Division by zero"))?; 
+        .checked_div(total_asset_value).map_err(|_| StdError::generic_err("Division by zero in insolvency_check_calc"))?; 
 
     let check: bool = match max_borrow {
         true => {
@@ -810,7 +819,7 @@ pub fn insolvency_check_calc(
         //current_LTV - borrow_LTV
         let liq_range = current_LTV.checked_sub(avg_LTVs.0)?;
         //Fee value = repay_amount * fee
-        liq_range.checked_div(current_LTV).map_err(|_| StdError::generic_err("Division by zero"))?
+        liq_range.checked_div(current_LTV).map_err(|_| StdError::generic_err("Division by zeroin insolvency_check_calc"))?
                 .checked_mul(
         credit_amount.checked_mul(credit_price)?)?
                 .checked_mul(fee)?

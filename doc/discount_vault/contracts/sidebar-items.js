@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":[["SECONDS_PER_DAY",""]],"fn":[["execute",""],["instantiate",""],["query",""]]};

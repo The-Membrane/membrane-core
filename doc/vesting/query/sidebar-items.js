@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":[["query_allocation","Returns the allocation of a recipient"],["query_recipient","Returns the details of a recipient"],["query_recipients","Returns the list of recipients"],["query_unlocked","Returns the amount of tokens that can be unlocked by a recipient"]]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":[["CONFIG",""],["FEE_EVENTS",""],["INCENTIVE_SCHEDULING",""],["STAKED",""],["TOTALS",""]],"struct":[["Totals",""]]};

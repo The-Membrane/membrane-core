@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":[["SECONDS_PER_YEAR",""]],"fn":[["accrue","Accrue interest to the repayment price & Position debt amount"],["accumulate_interest_dec",""],["external_accrue_call","Accrue interest for a Position"],["get_interest_rates","Calculate interest rates for each asset in the basket"],["update_rate_indices",""]]};

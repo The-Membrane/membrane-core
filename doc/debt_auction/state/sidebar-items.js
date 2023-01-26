@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":[["ASSETS",""],["CONFIG",""],["ONGOING_AUCTIONS",""]]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":[["ExecuteMsg",""],["QueryMsg",""]],"struct":[["BidResponse",""],["ClaimsResponse",""],["Config",""],["InstantiateMsg",""],["LiquidatibleResponse",""],["QueueResponse",""],["SlotResponse",""]]};

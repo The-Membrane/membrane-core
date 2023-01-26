@@ -390,13 +390,15 @@ pub fn get_basket_debt_caps(
         config.clone().osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string()
     )?;
     
+    let liquidity = get_asset_liquidity(
+        querier, 
+        config.clone().liquidity_contract.unwrap().to_string(),
+        basket.clone().credit_asset.info
+    )?;
+    
     //Get the base debt cap
-    let mut debt_cap =
-        get_asset_liquidity(
-            querier, 
-            config.clone().liquidity_contract.unwrap().to_string(),
-            basket.clone().credit_asset.info
-        )? * owner_params.0;
+    let mut debt_cap = decimal_multiplication(Decimal::from_ratio(liquidity, Uint128::one()), owner_params.0)? * Uint128::one();
+
 
     //Get SP cap space the contract is allowed to use
     let sp_liquidity = Decimal::from_ratio(get_stability_pool_liquidity(querier, config.clone())?, Uint128::new(1));
@@ -409,12 +411,12 @@ pub fn get_basket_debt_caps(
     if debt_cap < (config.base_debt_cap_multiplier * config.debt_minimum) {
         debt_cap = (config.base_debt_cap_multiplier * config.debt_minimum);
     }
-
+    
      //Don't double count debt btwn Stability Pool based ratios and TVL based ratios
      for cap in basket.clone().collateral_supply_caps {
         //If the cap is based on sp_liquidity, subtract its value from the debt_cap
         if let Some(sp_ratio) = cap.stability_pool_ratio_for_debt_cap {
-            debt_cap -= decimal_multiplication(sp_cap_space, sp_ratio)? * Uint128::new(1);
+            debt_cap -= decimal_multiplication(sp_cap_space, sp_ratio)? * Uint128::one();
         }
     }
 

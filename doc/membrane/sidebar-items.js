@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":[["apollo_router",""],["cdp",""],["debt_auction",""],["discount_vault",""],["governance",""],["helpers",""],["launch",""],["liq_queue",""],["liquidity_check",""],["margin_proxy",""],["math",""],["oracle",""],["osmosis_proxy",""],["stability_pool",""],["staking",""],["system_discounts",""],["types",""],["vesting",""]]};

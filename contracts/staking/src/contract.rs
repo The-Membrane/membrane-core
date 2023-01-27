@@ -9,7 +9,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
-use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, withdrawal_msg};
+use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, withdrawal_msg, accrue_user_positions};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::vesting::{QueryMsg as Vesting_QueryMsg, RecipientsResponse};
@@ -362,7 +362,7 @@ pub fn unstake(
 
     let mut msgs = vec![];
 
-    //Can't unstake if there is an active proposal by user
+    // Can't unstake if there is an active proposal by user
     // let proposal_list = deps.querier.query::<ProposalListResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
     //     contract_addr: config.clone().governance_contract.unwrap().to_string(), 
     //     msg: to_binary(&Gov_QueryMsg::Proposals { start: None, limit: None })?
@@ -417,8 +417,17 @@ pub fn unstake(
     //List of coins to send
     let mut native_claims = vec![];
 
-    //If user can unstake, add to native claims list
+    //If user can withdraw, accrue their positions and add to native_claims
     if !withdrawable_amount.is_zero() {
+        //Create Position accrual msgs to lock in user discounts before withdrawing
+        // let accrual_msg = accrue_user_positions(
+        //     deps.querier, 
+        //     config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+        //     info.sender.clone().to_string(), 
+        //     32,
+        // )?;
+        // msgs.push(accrual_msg);
+
         //Push to native claims list
         native_claims.push(asset_to_coin(Asset {
             info: AssetInfo::NativeToken {
@@ -451,7 +460,7 @@ pub fn unstake(
         msgs.push(msg);
     }
 
-    //Create msg for accrued interest
+    //Create msg to mint accrued interest
     if !accrued_interest.is_zero() {
         let message = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),

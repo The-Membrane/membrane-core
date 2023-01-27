@@ -2,7 +2,7 @@ use prost::Message;
 use core::fmt;
 use std::{str::FromStr, convert::TryFrom};
 
-use crate::math::{Decimal256, Uint256};
+use crate::{math::{Decimal256, Uint256}, liq_queue::QueueResponse};
 
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Decimal, Uint128, StdError};
@@ -104,6 +104,17 @@ pub struct Queue {
     pub current_bid_id: Uint128,
     /// Minimum bid amount in the queue before waiting period is set to 0
     pub bid_threshold: Uint256,
+}
+
+impl Queue {
+    pub fn into_queue_response(self) -> QueueResponse {
+        QueueResponse {
+            bid_asset: self.bid_asset,
+            max_premium: self.max_premium,
+            current_bid_id: self.current_bid_id,
+            bid_threshold: self.bid_threshold,
+        }
+    }
 }
 
 #[cw_serde]

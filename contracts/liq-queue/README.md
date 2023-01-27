@@ -15,3 +15,8 @@ Modifications
 - Prices are taken from input by the Positions contract, the messages are guaranteed the same block so the price will be block_time + Position's config oracle_time_limit second's old.
 - The position is assumed insolvent since called by the Positions contract, ie there is no additional solvency check in this contract.
 - ExecuteMsg::Liquidate doesn't take any assets up front, instead receiving assets in the Reply fn of the Positions contract
+- Removed bid_with, instead saving the bid_asset from the Positions contract
+
+To Pass tests:
+- Comment bid_asset in instantiate msg & add below:
+let bid_asset = AssetInfo::NativeToken { denom: String::from("cdt") };

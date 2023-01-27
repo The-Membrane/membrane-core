@@ -105,7 +105,7 @@ fn update_config() {
         Config {
             owner: Addr::unchecked("owner0001"),
             positions_contract: Addr::unchecked("positions_contract"),
-            waiting_period: 60u64,
+            waiting_period: 100u64,
             added_assets: Some(vec![]),
             bid_asset: AssetInfo::NativeToken {
                 denom: String::from("cdt"),
@@ -439,9 +439,6 @@ fn execute_bid() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
-        },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -491,9 +488,6 @@ fn execute_bid() {
         collateral_amount: Uint256::from(500_000_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -552,9 +546,6 @@ fn claim_liquidations() {
         collateral_amount: Uint256::from(5000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -630,10 +621,10 @@ fn update_queue() {
     let queue_response: QueueResponse =
         from_binary(&query(deps.as_ref(), mock_env(), query_msg.clone()).unwrap()).unwrap();
 
-    assert_eq!(queue_response.max_premium, Uint128::new(10u128).to_string());
+    assert_eq!(queue_response.max_premium, Uint128::new(10u128));
     assert_eq!(
         queue_response.bid_threshold,
-        Uint256::from(1_000_000_000u128).to_string()
+        Uint256::from(1_000_000_000u128)
     );
 
     let msg = ExecuteMsg::UpdateQueue {
@@ -648,9 +639,9 @@ fn update_queue() {
     let queue_response: QueueResponse =
         from_binary(&query(deps.as_ref(), mock_env(), query_msg).unwrap()).unwrap();
 
-    assert_eq!(queue_response.max_premium, Uint128::new(20u128).to_string());
+    assert_eq!(queue_response.max_premium, Uint128::new(20u128));
     assert_eq!(
         queue_response.bid_threshold,
-        Uint256::from(500_000_000u128).to_string()
+        Uint256::from(500_000_000u128)
     );
 }

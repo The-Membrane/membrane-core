@@ -155,9 +155,6 @@ fn simulate_bids_with_2_liq_amounts(
                 bid_for: AssetInfo::NativeToken {
                     denom: "osmo".to_string(),
                 },
-                bid_with: AssetInfo::NativeToken {
-                    denom: "cdt".to_string(),
-                },
                 position_id: Uint128::new(1u128),
                 position_owner: "owner01".to_string(),
             };
@@ -174,9 +171,6 @@ fn simulate_bids_with_2_liq_amounts(
                 collateral_amount: Uint256::from(liq_amount_2),
                 bid_for: AssetInfo::NativeToken {
                     denom: "osmo".to_string(),
-                },
-                bid_with: AssetInfo::NativeToken {
-                    denom: "cdt".to_string(),
                 },
                 position_id: Uint128::new(1u128),
                 position_owner: "owner01".to_string(),

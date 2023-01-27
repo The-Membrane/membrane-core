@@ -3,7 +3,7 @@ use std::str::FromStr;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::{Decimal, Deps, StdError, StdResult, Uint128};
 use membrane::liq_queue::{
-    Config, BidResponse, ClaimsResponse, LiquidatibleResponse, SlotResponse,
+    Config, BidResponse, ClaimsResponse, LiquidatibleResponse, SlotResponse, QueueResponse,
 };
 use membrane::math::{Decimal256, Uint256};
 use membrane::types::{AssetInfo, Bid, PremiumSlot, Queue};
@@ -19,10 +19,10 @@ pub fn query_queues(
     deps: Deps,
     start_after: Option<AssetInfo>,
     limit: Option<u8>,
-) -> StdResult<Vec<Queue>> {
+) -> StdResult<Vec<QueueResponse>> {
     let config: Config = CONFIG.load(deps.storage)?;
 
-    let mut resp: Vec<Queue> = vec![];
+    let mut resp: Vec<QueueResponse> = vec![];
 
     let asset_list = config.added_assets.unwrap();
 
@@ -37,13 +37,13 @@ pub fn query_queues(
         for index in start..asset_list.len() {
             let queue = QUEUES.load(deps.storage, asset_list[index].to_string())?;
 
-            resp.push(queue);
+            resp.push(queue.into_queue_response());
         }
     } else {
         for asset in asset_list.iter().take(limit) {
             let queue = QUEUES.load(deps.storage, asset.to_string())?;
 
-            resp.push(queue);
+            resp.push(queue.into_queue_response());
         }
     }
 

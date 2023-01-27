@@ -57,9 +57,6 @@ fn one_bidder_distribution() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
-        },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -153,9 +150,6 @@ fn two_bidder_distribution() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
-        },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -188,9 +182,6 @@ fn two_bidder_distribution() {
         collateral_amount: Uint256::from(6u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -319,9 +310,6 @@ fn two_bidder_distribution_big_number() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
-        },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -354,9 +342,6 @@ fn two_bidder_distribution_big_number() {
         collateral_amount: Uint256::from(600_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -497,9 +482,6 @@ fn one_user_two_slots() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
-        },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -533,9 +515,6 @@ fn one_user_two_slots() {
         collateral_amount: Uint256::from(10_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -649,9 +628,6 @@ fn completely_empty_pool() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
-        },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -713,9 +689,6 @@ fn completely_empty_pool() {
         collateral_amount: Uint256::from(20_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -827,9 +800,6 @@ fn product_truncated_to_zero() {
             collateral_amount: Uint256::from(999_999_995u128), //5 uusd residue //999_999_999
             bid_for: AssetInfo::NativeToken {
                 denom: "osmo".to_string(),
-            },
-            bid_with: AssetInfo::NativeToken {
-                denom: "cdt".to_string(),
             },
             position_id: Uint128::new(1u128),
             position_owner: "owner01".to_string(),
@@ -1001,9 +971,6 @@ fn two_bidder_distribution_multiple_common_slots() {
         collateral_amount: Uint256::from(32_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -1180,9 +1147,6 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
-        },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
     };
@@ -1239,9 +1203,6 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         collateral_amount: Uint256::from(50u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -1361,9 +1322,6 @@ fn not_enough_bid_for_collateral() {
         collateral_amount: Uint256::from(100u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),

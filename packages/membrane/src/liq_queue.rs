@@ -3,7 +3,7 @@ use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Decimal, Addr, Uint128};
 
 use crate::math::{Decimal256, Uint256};
-use crate::types::{AssetInfo, Bid, BidInput};
+use crate::types::{AssetInfo, Bid, BidInput, Asset};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -237,11 +237,11 @@ pub struct LiquidatibleResponse {
 #[cw_serde]
 pub struct QueueResponse {
     /// Bid for asset
-    pub bid_asset: String,
+    pub bid_asset: Asset,
     /// Max premium
-    pub max_premium: String,
+    pub max_premium: Uint128,
     /// Current bid id
-    pub current_bid_id: String,
+    pub current_bid_id: Uint128,
     /// Minimum bid amount
-    pub bid_threshold: String,
+    pub bid_threshold: Uint256,
 }

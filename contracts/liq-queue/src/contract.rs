@@ -36,14 +36,16 @@ pub fn instantiate(
     let positions_contract = deps.api.addr_validate(&msg.positions_contract)?;
     
     //Get bid_asset from Basket
-    let bid_asset = deps
-        .querier
-        .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: positions_contract.to_string(),
-            msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
-        }))?
-        .credit_asset
-        .info;
+    // let bid_asset = deps
+    //     .querier
+    //     .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
+    //         contract_addr: positions_contract.to_string(),
+    //         msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
+    //     }))?
+    //     .credit_asset
+    //     .info;
+    //Comment out above and use below for testing
+    let bid_asset = AssetInfo::NativeToken { denom: String::from("cdt") };
 
     if msg.owner.is_some() {
         config = Config {
@@ -332,7 +334,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             limit,
             start_after,
         )?),
-        QueryMsg::Queue { bid_for } => to_binary(&QUEUES.load(deps.storage, bid_for.to_string())?),
+        QueryMsg::Queue { bid_for } => to_binary(&QUEUES.load(deps.storage, bid_for.to_string())?.into_queue_response()),
         QueryMsg::Queues { start_after, limit } => {
             to_binary(&query_queues(deps, start_after, limit)?)
         }

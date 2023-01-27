@@ -5,7 +5,7 @@ use membrane::liq_queue::{
     SlotResponse,
 };
 use membrane::math::{Decimal256, Uint256};
-use membrane::types::{AssetInfo, Bid, BidInput};
+use membrane::types::{AssetInfo, Bid, BidInput, Asset};
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
 use cosmwasm_std::{from_binary, Addr, Coin, Decimal, Uint128};
@@ -70,7 +70,7 @@ fn query_liquidatible() {
         resp,
         LiquidatibleResponse {
             leftover_collateral: String::from("0"),
-            total_credit_repaid: String::from("9900"),
+            total_debt_repaid: String::from("9900"),
         }
     );
 }
@@ -250,16 +250,26 @@ fn query_slots_queues() {
         resp,
         vec![
             QueueResponse {
-                bid_asset: String::from("0 cdt"),
-                max_premium: String::from("10"),
-                current_bid_id: String::from("1"),
-                bid_threshold: String::from("1000000000"),
+                bid_asset: Asset {
+                    amount: Uint128::new(0),
+                    info: AssetInfo::NativeToken {
+                        denom: "cdt".to_string(),
+                    },
+                },
+                max_premium: Uint128::new(10),
+                current_bid_id: Uint128::new(1),
+                bid_threshold: Uint128::new(1000000000).into(),
             },
             QueueResponse {
-                bid_asset: String::from("0 cdt"),
-                max_premium: String::from("10"),
-                current_bid_id: String::from("1"),
-                bid_threshold: String::from("1000000000"),
+                bid_asset: Asset {
+                    amount: Uint128::new(0),
+                    info: AssetInfo::NativeToken {
+                        denom: "cdt".to_string(),
+                    },
+                },
+                max_premium: Uint128::new(10),
+                current_bid_id: Uint128::new(1),
+                bid_threshold: Uint128::new(1000000000).into(),
             }
         ]
     );
@@ -359,7 +369,7 @@ fn query_slots_queues() {
         }
     );
 
-    //Query a Queue
+    //Query a QueueResponse
     let msg = QueryMsg::Queue {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -370,14 +380,19 @@ fn query_slots_queues() {
     assert_eq!(
         resp,
         QueueResponse {
-            bid_asset: String::from("1000000 cdt"),
-            max_premium: String::from("10"),
-            current_bid_id: String::from("2"),
-            bid_threshold: String::from("1000000000"),
+            bid_asset: Asset {
+                amount: Uint128::new(1_000_000),
+                info: AssetInfo::NativeToken {
+                    denom: "cdt".to_string(),
+                },
+            },
+            max_premium: Uint128::new(10),
+            current_bid_id: Uint128::new(2),
+            bid_threshold: Uint128::new(1000000000).into(),
         }
     );
 
-    //Query Queue w/ start after
+    //Query QueueResponse w/ start after
     let msg = QueryMsg::Queues {
         start_after: Some(AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -389,10 +404,15 @@ fn query_slots_queues() {
     assert_eq!(
         resp[0],
         QueueResponse {
-            bid_asset: String::from("1000000 cdt"),
-            max_premium: String::from("10"),
-            current_bid_id: String::from("2"),
-            bid_threshold: String::from("1000000000"),
+            bid_asset: Asset {
+                amount: Uint128::new(1_000_000),
+                info: AssetInfo::NativeToken {
+                    denom: "cdt".to_string(),
+                },
+            },
+            max_premium: Uint128::new(10),
+            current_bid_id: Uint128::new(2),
+            bid_threshold: Uint128::new(1000000000).into(),
         }
     );
     assert_eq!(resp.len().to_string(), String::from("2"));

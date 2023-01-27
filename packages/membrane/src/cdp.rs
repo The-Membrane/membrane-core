@@ -102,15 +102,14 @@ pub enum ExecuteMsg {
     },
     /// Accrue interest for a Position
     Accrue { 
-        /// Positon owner to accrue interest for
-        /// Only the Stability Pool can call for unowned Positions
+        /// Positon owner to accrue interest for, defaults to sender
         position_owner: Option<String>, 
         /// Positon ID to accrue interest for
-        position_id: Uint128
+        position_ids: Vec<Uint128>
     },
     /// Mint Basket pending revenue
     MintRevenue {
-        /// Send minted tokens to this address if not the sender
+        /// Send minted tokens to this address, defaults to sender
         send_to: Option<String>, 
         /// Repay for a position w/ the revenue
         repay_for: Option<UserInfo>, 

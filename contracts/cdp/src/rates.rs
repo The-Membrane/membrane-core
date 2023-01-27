@@ -15,52 +15,57 @@ use crate::state::{CONFIG, BASKET, get_target_position, update_position};
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
 
-/// Accrue interest for a Position
+/// Accrue interest for a list of Positions
 pub fn external_accrue_call(
     deps: DepsMut, 
     info: MessageInfo,
     env: Env,
     position_owner: Option<String>,
-    position_id: Uint128,
+    position_ids: Vec<Uint128>,
 ) -> Result<Response, ContractError>{
     let mut basket = BASKET.load(deps.storage)?;
-    let config = CONFIG.load(deps.storage)?;
 
     //Validate position owner
     let valid_position_owner: Addr;
     if let Some(position_owner) = position_owner {
-        //If the SP is the sender
-        if info.sender == config.stability_pool.unwrap(){
-            valid_position_owner = deps.api.addr_validate(&position_owner)?;
-        //Defaults to sender
-        } else { valid_position_owner = info.clone().sender }
-    } else { valid_position_owner = info.clone().sender }
+        //Sent addr
+        valid_position_owner = deps.api.addr_validate(&position_owner)?  
+    } else { 
+        //Msg sender
+        valid_position_owner = info.clone().sender 
+    }
 
-    let mut position = get_target_position(
-        deps.storage,
-        valid_position_owner,
-        position_id,
-    )?.1;
-    
-    let prev_loan = position.clone().credit_amount;
-    
-    accrue(
-        deps.storage, 
-        deps.querier, 
-        env, 
-        &mut position,
-        &mut basket, 
-        info.sender.to_string()
-    )?;
+    //Initialize accrued_interest
+    let mut accrued_interest: Uint128 = Uint128::zero();
 
-    let accrued_interest = position.clone().credit_amount - prev_loan;
+    //Accrue interest for each position
+    for position_id in position_ids.clone() {
+        let mut position = get_target_position(
+            deps.storage,
+            valid_position_owner.clone(),
+            position_id,
+        )?.1;
+        
+        let prev_loan = position.clone().credit_amount;
+        
+        accrue(
+            deps.storage, 
+            deps.querier, 
+            env.clone(), 
+            &mut position,
+            &mut basket, 
+            info.sender.to_string()
+        )?;
 
-    update_position(deps.storage, info.sender, position)?;
+        accrued_interest += position.clone().credit_amount - prev_loan;
+
+        update_position(deps.storage, valid_position_owner.clone(), position)?;
+    }
 
     Ok(Response::new()
         .add_attributes(vec![
             attr("method", "accrue"),
-            attr("position_id", position_id),
+            attr("position_ids", format!("{:?}", position_ids)),
             attr("accrued_interest", accrued_interest),
         ]))
 }

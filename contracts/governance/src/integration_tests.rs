@@ -12,7 +12,7 @@ mod tests {
     use membrane::staking::{
         Config as StakingConfig, StakedResponse,
     };
-    use membrane::types::{StakeDeposit, VestingPeriod};
+    use membrane::types::{StakeDeposit, VestingPeriod, StakeDistribution};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
@@ -92,6 +92,7 @@ mod tests {
             unstaking: bool,
         },
         Config {},
+        TotalStaked {},
     }
 
     pub fn staking_contract() -> Box<dyn Contract<Empty>> {
@@ -131,13 +132,17 @@ mod tests {
                         vesting_contract: Some(Addr::unchecked("")),
                         governance_contract: Some(Addr::unchecked("")),
                         osmosis_proxy: Some(Addr::unchecked("")),
-                        staking_rate: Decimal::zero(),
+                        incentive_schedule: StakeDistribution {
+                            rate: Decimal::zero(),
+                            duration: 0,
+                        },
                         unstaking_period: 0,
                         fee_wait_period: 0,
                         mbrn_denom: String::from("mbrn_denom"),
                         dex_router: Some(Addr::unchecked("")),
                         max_spread: Some(Decimal::zero()),
                     })?),
+                    Staking_MockQueryMsg::TotalStaked {  } => Ok(to_binary(&Uint128::new(5_000_000_000_001u128))?),
                 }
             },
         );
@@ -156,7 +161,7 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum BV_MockQueryMsg {
-        Allocation { receiver: String },
+        Allocation { recipient: String },
     }
 
     pub fn bv_contract() -> Box<dyn Contract<Empty>> {
@@ -169,7 +174,7 @@ mod tests {
             },
             |_, _, msg: BV_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    BV_MockQueryMsg::Allocation { receiver } => {
+                    BV_MockQueryMsg::Allocation { recipient } => {
                         Ok(to_binary(&AllocationResponse {
                             amount: Uint128::new(1000000000),
                             amount_withdrawn: Uint128::zero(),
@@ -283,8 +288,8 @@ mod tests {
         use super::*;
         use cosmwasm_std::{Uint64, WasmMsg};
         use membrane::governance::{
-            Config, ProposalListResponse, ProposalMessage, ProposalResponse, ProposalStatus,
-            ProposalVoteOption, ProposalVotesResponse, UpdateConfig,
+            Config, ProposalListResponse, ProposalMessage, ProposalStatus,
+            ProposalVoteOption, ProposalVotesResponse, UpdateConfig, Proposal
         };
 
         #[test]
@@ -297,7 +302,7 @@ mod tests {
                 description: "Test description!".to_string(),
                 link: None,
                 messages: None,
-                receiver: None,
+                recipient: None,
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
@@ -315,7 +320,7 @@ mod tests {
                 description: "Test description!".to_string(),
                 link: None,
                 messages: None,
-                receiver: Some(String::from("receiver")),
+                recipient: Some(String::from("recipient")),
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
@@ -327,7 +332,7 @@ mod tests {
                 description: "Test description!".to_string(),
                 link: None,
                 messages: None,
-                receiver: None,
+                recipient: None,
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
@@ -344,7 +349,7 @@ mod tests {
                 description: "Test description!".to_string(),
                 link: None,
                 messages: None,
-                receiver: Some(String::from("receiver")),
+                recipient: Some(String::from("recipient")),
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
@@ -360,7 +365,7 @@ mod tests {
                 description: "Test description!".to_string(),
                 link: None,
                 messages: None,
-                receiver: Some(String::from("receiver")),
+                recipient: Some(String::from("recipient")),
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
@@ -378,7 +383,7 @@ mod tests {
                 description: "X".to_string(),
                 link: None,
                 messages: None,
-                receiver: Some(String::from("receiver")),
+                recipient: Some(String::from("recipient")),
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
@@ -396,7 +401,7 @@ mod tests {
                 description: String::from_utf8(vec![b'X'; 1025]).unwrap(),
                 link: None,
                 messages: None,
-                receiver: Some(String::from("receiver")),
+                recipient: Some(String::from("recipient")),
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
@@ -414,7 +419,7 @@ mod tests {
                 description: "Test description!".to_string(),
                 link: Some(String::from("X")),
                 messages: None,
-                receiver: Some(String::from("receiver")),
+                recipient: Some(String::from("recipient")),
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
@@ -432,7 +437,7 @@ mod tests {
                 description: "Test description!".to_string(),
                 link: Some(String::from_utf8(vec![b'X'; 129]).unwrap()),
                 messages: None,
-                receiver: Some(String::from("receiver")),
+                recipient: Some(String::from("recipient")),
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
@@ -450,7 +455,7 @@ mod tests {
                 description: "Test description!".to_string(),
                 link: Some(String::from("https://some1.link")),
                 messages: None,
-                receiver: Some(String::from("receiver")),
+                recipient: Some(String::from("recipient")),
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
@@ -470,7 +475,7 @@ mod tests {
                     "https://some.link/<script>alert('test');</script>",
                 )),
                 messages: None,
-                receiver: Some(String::from("receiver")),
+                recipient: Some(String::from("recipient")),
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
@@ -497,13 +502,13 @@ mod tests {
                         funds: vec![],
                     }),
                 }]),
-                receiver: Some(String::from("receiver")),
+                recipient: Some(String::from("recipient")),
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(bv_contract_addr, cosmos_msg).unwrap();
 
-            let proposal: ProposalResponse = app
+            let proposal: Proposal = app
                 .wrap()
                 .query_wasm_smart(
                     gov_contract.addr(),
@@ -512,12 +517,12 @@ mod tests {
                 .unwrap();
 
             assert_eq!(proposal.proposal_id, Uint64::from(1u64));
-            assert_eq!(proposal.submitter, Addr::unchecked("receiver"));
+            assert_eq!(proposal.submitter, Addr::unchecked("recipient"));
             assert_eq!(proposal.status, ProposalStatus::Active);
             assert_eq!(proposal.for_power, Uint128::zero());
             assert_eq!(proposal.against_power, Uint128::zero());
             assert_eq!(proposal.start_block, 12_345);
-            assert_eq!(proposal.end_block, 12_345 + PROPOSAL_VOTING_PERIOD);
+            assert_eq!(proposal.end_block, 12_345 + (7 * 14400)); //Executables have a minimum 7 day voting period
             assert_eq!(proposal.title, String::from("Test title!"));
             assert_eq!(proposal.description, String::from("Test description!"));
             assert_eq!(
@@ -553,8 +558,8 @@ mod tests {
                         msg: to_binary(&ExecuteMsg::UpdateConfig(UpdateConfig {
                             mbrn_denom: None,
                             staking_contract: None,
-                            builders_contract_addr: None,
-                            builders_voting_power_multiplier: None,
+                            vesting_contract_addr: None,
+                            minimum_total_stake: None,
                             proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
                             expedited_proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
                             proposal_effective_delay: None,
@@ -572,7 +577,7 @@ mod tests {
                         funds: vec![],
                     }),
                 }]),
-                receiver: Some(String::from("receiver")),
+                recipient: Some(String::from("recipient")),
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
@@ -583,7 +588,7 @@ mod tests {
             let msg = ExecuteMsg::CastVote {
                 proposal_id: 1u64,
                 vote: ProposalVoteOption::For,
-                receiver: Some(String::from("receiver")),
+                recipient: Some(String::from("recipient")),
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
@@ -595,7 +600,7 @@ mod tests {
             let msg = ExecuteMsg::CastVote {
                 proposal_id: 1u64,
                 vote: ProposalVoteOption::For,
-                receiver: None,
+                recipient: None,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
@@ -603,13 +608,13 @@ mod tests {
             let msg = ExecuteMsg::CastVote {
                 proposal_id: 1u64,
                 vote: ProposalVoteOption::Against,
-                receiver: None,
+                recipient: None,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Assertations
-            let proposal: ProposalResponse = app
+            let proposal: Proposal = app
                 .wrap()
                 .query_wasm_smart(
                     gov_contract.addr(),
@@ -669,7 +674,7 @@ mod tests {
                     &QueryMsg::UserVotingPower { 
                         user: String::from("user"), 
                         proposal_id: 1, 
-                        builders: false, 
+                        vesting: false, 
                     },
                 )
                 .unwrap();
@@ -683,7 +688,7 @@ mod tests {
                     &QueryMsg::UserVotingPower { 
                         user: String::from("admin"), 
                         proposal_id: 1, 
-                        builders: false, 
+                        vesting: false, 
                     },
                 )
                 .unwrap();
@@ -703,7 +708,7 @@ mod tests {
 
             // Skip voting period
             app.update_block(|bi| {
-                bi.height += PROPOSAL_VOTING_PERIOD + 1;
+                bi.height += 7 * PROPOSAL_VOTING_PERIOD + 1;
                 bi.time = bi.time.plus_seconds(6 * (PROPOSAL_VOTING_PERIOD + 1));
             });
 
@@ -711,7 +716,7 @@ mod tests {
             let msg = ExecuteMsg::CastVote {
                 proposal_id: 1u64,
                 vote: ProposalVoteOption::For,
-                receiver: None,
+                recipient: None,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
@@ -734,7 +739,7 @@ mod tests {
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            let proposal: ProposalResponse = app
+            let proposal: Proposal = app
                 .wrap()
                 .query_wasm_smart(
                     gov_contract.addr(),
@@ -773,7 +778,7 @@ mod tests {
                 )
                 .unwrap();
 
-            let proposal: ProposalResponse = app
+            let proposal: Proposal = app
                 .wrap()
                 .query_wasm_smart(
                     gov_contract.addr().to_string(),
@@ -862,8 +867,8 @@ mod tests {
                         msg: to_binary(&ExecuteMsg::UpdateConfig(UpdateConfig {
                             mbrn_denom: None,
                             staking_contract: None,
-                            builders_contract_addr: None,
-                            builders_voting_power_multiplier: None,
+                            vesting_contract_addr: None,
+                            minimum_total_stake: None,
                             proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
                             expedited_proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
                             proposal_effective_delay: None,
@@ -881,7 +886,7 @@ mod tests {
                         funds: vec![],
                     }),
                 }]),
-                receiver: Some(String::from("receiver")),
+                recipient: Some(String::from("recipient")),
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
@@ -891,7 +896,7 @@ mod tests {
             let msg = ExecuteMsg::CastVote {
                 proposal_id: 1u64,
                 vote: ProposalVoteOption::Against,
-                receiver: None,
+                recipient: None,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
@@ -899,14 +904,14 @@ mod tests {
             let msg = ExecuteMsg::CastVote {
                 proposal_id: 1u64,
                 vote: ProposalVoteOption::For,
-                receiver: None,
+                recipient: None,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             // Skip voting period
             app.update_block(|bi| {
-                bi.height += PROPOSAL_VOTING_PERIOD + 1;
+                bi.height += 7 * PROPOSAL_VOTING_PERIOD + 1;
                 bi.time = bi.time.plus_seconds(6 * (PROPOSAL_VOTING_PERIOD + 1));
             });
 
@@ -915,7 +920,7 @@ mod tests {
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            let proposal: ProposalResponse = app
+            let proposal: Proposal = app
                 .wrap()
                 .query_wasm_smart(
                     gov_contract.addr(),
@@ -977,8 +982,8 @@ mod tests {
                         msg: to_binary(&ExecuteMsg::UpdateConfig(UpdateConfig {
                             mbrn_denom: None,
                             staking_contract: None,
-                            builders_contract_addr: None,
-                            builders_voting_power_multiplier: None,
+                            vesting_contract_addr: None,
+                            minimum_total_stake: None,
                             proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
                             expedited_proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
                             proposal_effective_delay: None,

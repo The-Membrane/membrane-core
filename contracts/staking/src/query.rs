@@ -7,7 +7,7 @@ use crate::state::{TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING};
 
 const DEFAULT_LIMIT: u32 = 32u32;
 
-/// Returns total of staked tokens for a given staker
+/// Returns total of staked tokens for a given staker, includes unstaking tokens
 pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse> {
     let config = CONFIG.load(deps.storage)?;    
     let valid_addr = deps.api.addr_validate(&staker)?;
@@ -29,8 +29,8 @@ pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse>
     let deposit_list = staker_deposits
         .clone()
         .into_iter()
-        .map(|deposit| (deposit.amount.to_string(), deposit.stake_time.to_string()))
-        .collect::<Vec<(String, String)>>();
+        .map(|deposit| (deposit.amount, deposit.stake_time))
+        .collect::<Vec<(Uint128, u64)>>();
 
     let total_staker_deposits: Uint128 = staker_deposits
         .into_iter()

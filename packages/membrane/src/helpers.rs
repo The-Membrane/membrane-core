@@ -1,11 +1,12 @@
 use cosmwasm_std::{CosmosMsg, StdResult, Decimal, Binary, to_binary, WasmMsg, coin, StdError, Addr, Coin, BankMsg, Uint128, MessageInfo, Api, QuerierWrapper, Env, WasmQuery, QueryRequest};
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
-use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Owner}; 
+use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Owner, Position}; 
 use crate::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use crate::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use crate::liquidity_check::QueryMsg as LiquidityQueryMsg;
 use crate::stability_pool::QueryMsg as SP_QueryMsg;
+use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
 
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
@@ -271,4 +272,33 @@ pub fn get_owner_liquidity_multiplier(
     }))?;
 
     Ok((resp.liquidity_multiplier.unwrap_or_else(|| Decimal::zero()), resp.stability_pool_ratio.unwrap_or_else(|| Decimal::zero())))
+}
+
+/// Create accrual msg for User Positions
+pub fn accrue_user_positions(
+    querier: QuerierWrapper,
+    positions_contract: String,
+    user: String,
+    limit: u32,
+) -> StdResult<CosmosMsg> {
+
+    let user_positions = querier.query_wasm_smart::<Vec<Position>>(
+        positions_contract.to_string(),
+        &CDPQueryMsg::GetUserPositions { 
+            user: user.clone(),
+            limit: Some(limit),
+        })?;
+
+    let user_ids = user_positions.into_iter().map(|position| position.position_id).collect::<Vec<Uint128>>();
+
+    let accrual_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: positions_contract.to_string(),
+        msg: to_binary(&CDPExecuteMsg::Accrue { 
+            position_owner: Some(user.clone()),
+            position_ids: user_ids,
+        })?,
+        funds: vec![],
+    });
+
+    Ok(accrual_msg)
 }

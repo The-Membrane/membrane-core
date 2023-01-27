@@ -11,7 +11,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 
 use membrane::cdp::QueryMsg as CDPQueryMsg;
-use membrane::helpers::{multi_native_withdrawal_msg, get_pool_state_response};
+use membrane::helpers::{multi_native_withdrawal_msg, get_pool_state_response, accrue_user_positions};
 use membrane::discount_vault::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UserResponse};
 use membrane::types::{Asset, AssetInfo, VaultedLP, VaultUser, LPPoolInfo, Basket};
 
@@ -182,6 +182,7 @@ fn withdraw(
     info: MessageInfo,
     mut withdrawal_assets: Vec<Asset>,
 ) -> Result<Response, ContractError>{
+    let config = CONFIG.load(deps.storage)?;
     let mut user = USERS.load(deps.storage, info.clone().sender)?;
 
     //Remove invalid & unowned assets
@@ -218,7 +219,17 @@ fn withdraw(
     //Create withdrawl_msgs
     let withdraw_msg = multi_native_withdrawal_msg(withdrawal_assets.clone(), info.clone().sender)?;
 
-    Ok(Response::new().add_message(withdraw_msg)
+    //Create Position accrual msgs to lock in user discounts before withdrawing
+    let accrual_msg = accrue_user_positions(
+        deps.querier, 
+        config.positions_contract.to_string(),
+        info.clone().sender.to_string(), 
+        PAGINATION_MAX_LIMIT as u32
+    )?;
+
+    Ok(Response::new()
+        .add_message(accrual_msg)
+        .add_message(withdraw_msg)
         .add_attributes(vec![
             attr("method", "withdraw"),
             attr("user", info.clone().sender),

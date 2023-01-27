@@ -16,7 +16,7 @@ use membrane::stability_pool::{
 use membrane::types::{
     Asset, AssetInfo, AssetPool, Deposit, User, UserInfo, UserRatio,
 };
-use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest};
+use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest, accrue_user_positions};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
@@ -305,6 +305,15 @@ pub fn withdraw(
 
         //If there is a withdrawable amount
         if !withdrawable.is_zero() {
+            //Create Position accrual msgs to lock in user discounts before withdrawing
+            let accrual_msg = accrue_user_positions(
+                deps.querier, 
+                config.positions_contract.to_string(),
+                info.sender.clone().to_string(), 
+                32,
+            )?;
+            msgs.push(accrual_msg);
+
             let withdrawable_asset = Asset {
                 amount: withdrawable,
                 ..asset_pool.clone().credit_asset
@@ -846,7 +855,7 @@ fn repay(
                 deps.storage,
                 env,
                 config.clone(),
-                position_owner,
+                position_owner.clone(),
                 Decimal::from_ratio(repayment.amount, Uint128::new(1u128)),
                 asset_pool,
                 true,
@@ -854,6 +863,16 @@ fn repay(
             
             //Update pool
             ASSET.save(deps.storage, &new_pool)?;
+            
+            //Add Accrue Msg before Repayment to accrue discounted rates
+            //Create Position accrual msgs to lock in user discounts before withdrawing
+            let accrual_msg = accrue_user_positions(
+                deps.querier, 
+                config.positions_contract.to_string(),
+                user_info.clone().position_owner, 
+                32,
+            )?;
+            msgs.push(accrual_msg);
 
             /////This is where the function differs from withdraw()
             //Add Positions RepayMsg
@@ -863,18 +882,7 @@ fn repay(
                 send_excess_to: Some(user_info.clone().position_owner),
             };
 
-            let coin: Coin = asset_to_coin(repayment.clone())?;
-
-            //Add Accrue Msg before Repayment to accrue discounted rates
-            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-                contract_addr: config.clone().positions_contract.to_string(),
-                msg: to_binary(&CDP_ExecuteMsg::Accrue { 
-                    position_owner: Some(user_info.clone().position_owner),
-                    position_id: user_info.clone().position_id 
-                })?, 
-                funds: vec![],
-            });
-            msgs.push(msg);
+            let coin: Coin = asset_to_coin(repayment.clone())?;           
 
             let msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.positions_contract.to_string(),

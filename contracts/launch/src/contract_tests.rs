@@ -3,20 +3,17 @@ use crate::error::ContractError;
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
 use cosmwasm_std::{
-    attr, coin, coins, from_binary, to_binary, Addr, BankMsg, CosmosMsg, Decimal, SubMsg, Uint128,
-    WasmMsg, StdError,
+    attr, coin, coins, from_binary, to_binary, BankMsg, CosmosMsg, SubMsg, Uint128,
+    WasmMsg
 };
-use cw20::Cw20ReceiveMsg;
 
-use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
-use membrane::helpers::SECONDS_PER_YEAR;
+use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::launch::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig
 };
-use membrane::types::{Asset, AssetInfo, Lockdrop, LockedUser, Lock};
+use membrane::types::{Lockdrop, LockedUser, Lock};
 
-use crate::state::{CONFIG, ADDRESSES};
 
 #[test]
 fn update_config(){
@@ -352,7 +349,7 @@ fn claim() {
         res.attributes,
         vec![
             attr("method", "claim"),
-            attr("minted_incentives", "1739130434782"), //1_739_130_434782
+            attr("minted_incentives", "8695652173913"), //8_695_652_173_913
         ]
     );
     assert_eq!(
@@ -363,8 +360,16 @@ fn claim() {
                 funds: vec![],
                 msg: to_binary(&OsmoExecuteMsg::MintTokens {
                     denom: String::from(""),
-                    amount: Uint128::new(1739130434782),
+                    amount: Uint128::new(8695652173913),
                     mint_to_address: String::from("user1")
+                })
+                .unwrap()
+            })),
+            SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: String::from(""),
+                funds: vec![coin(8695652173913, "")],
+                msg: to_binary(&StakingExecuteMsg::Stake {
+                    user: Some(String::from("user1"))
                 })
                 .unwrap()
             }))
@@ -388,7 +393,7 @@ fn claim() {
                     lock_up_duration: 14u64, 
                 }],
             total_tickets: Uint128::new(230),
-            incentives_withdrawn: Uint128::new(1739130434782),
+            incentives_withdrawn: Uint128::new(8695652173913),
         }
     );
 
@@ -401,7 +406,7 @@ fn claim() {
         res.attributes,
         vec![
             attr("method", "claim"),
-            attr("minted_incentives", "3260869565218"),
+            attr("minted_incentives", "16304347826087"),
         ]
     );
     assert_eq!(
@@ -412,8 +417,16 @@ fn claim() {
                 funds: vec![],
                 msg: to_binary(&OsmoExecuteMsg::MintTokens {
                     denom: String::from(""),
-                    amount: Uint128::new(3260869565218),
+                    amount: Uint128::new(16304347826087), //16_304_347_826_087
                     mint_to_address: String::from("user1")
+                })
+                .unwrap()
+            })),
+            SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: String::from(""),
+                funds: vec![coin(16304347826087, "")],
+                msg: to_binary(&StakingExecuteMsg::Stake {
+                    user: Some(String::from("user1"))
                 })
                 .unwrap()
             }))
@@ -454,7 +467,7 @@ fn claim() {
                     lock_up_duration: 14u64, 
                 }],
             total_tickets: Uint128::new(230),
-            incentives_withdrawn: Uint128::new(5000000000000),
+            incentives_withdrawn: Uint128::new(25000000000000), //25_000_000_000_000
         }
     );
 }

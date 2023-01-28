@@ -16,7 +16,7 @@ use membrane::stability_pool::{
 use membrane::types::{
     Asset, AssetInfo, AssetPool, Deposit, User, UserInfo, UserRatio,
 };
-use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest};
+use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest, accrue_user_positions};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
@@ -126,6 +126,7 @@ pub fn execute(
     }
 }
 
+/// Update contract configuration
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -176,6 +177,7 @@ fn update_config(
     Ok(Response::new().add_attributes(attrs))
 }
 
+/// Deposit debt tokens into the contract
 pub fn deposit(
     deps: DepsMut,
     env: Env,
@@ -214,7 +216,8 @@ pub fn deposit(
     ]))
 }
 
-//Get incentive rate and return accrued amount
+/// Return accrued amount.
+/// Assert max incentives limit.
 fn accrue_incentives(
     storage: &mut dyn Storage,
     env: Env,
@@ -250,7 +253,7 @@ fn accrue_incentives(
     Ok(incentives)
 }
 
-//Withdraw / Unstake
+/// Withdraw / Unstake, capital can be used for liquidations while unstaking
 pub fn withdraw(
     deps: DepsMut,
     env: Env,
@@ -300,8 +303,17 @@ pub fn withdraw(
         //Update pool
         ASSET.save(deps.storage, &new_pool)?;
 
-        //If there is a withdrwable amount
+        //If there is a withdrawable amount
         if !withdrawable.is_zero() {
+            //Create Position accrual msgs to lock in user discounts before withdrawing
+            let accrual_msg = accrue_user_positions(
+                deps.querier, 
+                config.positions_contract.to_string(),
+                info.sender.clone().to_string(), 
+                32,
+            )?;
+            msgs.push(accrual_msg);
+
             let withdrawable_asset = Asset {
                 amount: withdrawable,
                 ..asset_pool.clone().credit_asset
@@ -318,6 +330,8 @@ pub fn withdraw(
     Ok(Response::new().add_attributes(attrs).add_messages(msgs))
 }
 
+/// Unstake or withdraw tokens from Deposits & update state.
+/// Add any claimables to user claims.
 fn withdrawal_from_state(
     storage: &mut dyn Storage,
     env: Env,
@@ -501,7 +515,7 @@ fn withdrawal_from_state(
     Ok((withdrawable_amount, pool))
 }
 
-//Restake unstaking deposits for a user
+/// Restake unstaking deposits for a user
 fn restake(
     deps: DepsMut,
     env: Env,
@@ -548,8 +562,8 @@ fn restake(
     ]))
 }
 
-//- send repayments for the Positions contract
-//- Positions contract sends back a distribute msg
+/// Send repayments for the Positions contract.
+/// Positions contract sends back a distribute msg.
 pub fn liquidate(
     deps: DepsMut,
     info: MessageInfo,
@@ -611,7 +625,7 @@ pub fn liquidate(
     ]))
 }
 
-//Calculate which and how much each user gets distributed from the liquidation
+/// Calculate which and how much each user gets distributed from the liquidation
 pub fn distribute_funds(
     deps: DepsMut,
     info: MessageInfo,
@@ -789,7 +803,7 @@ pub fn distribute_funds(
     ]))
 }
 
-//Repay for a user in the CDP contract
+/// Repay for a user in the Positions contract
 fn repay(
     deps: DepsMut,
     env: Env,
@@ -841,7 +855,7 @@ fn repay(
                 deps.storage,
                 env,
                 config.clone(),
-                position_owner,
+                position_owner.clone(),
                 Decimal::from_ratio(repayment.amount, Uint128::new(1u128)),
                 asset_pool,
                 true,
@@ -849,6 +863,16 @@ fn repay(
             
             //Update pool
             ASSET.save(deps.storage, &new_pool)?;
+            
+            //Add Accrue Msg before Repayment to accrue discounted rates
+            //Create Position accrual msgs to lock in user discounts before withdrawing
+            let accrual_msg = accrue_user_positions(
+                deps.querier, 
+                config.positions_contract.to_string(),
+                user_info.clone().position_owner, 
+                32,
+            )?;
+            msgs.push(accrual_msg);
 
             /////This is where the function differs from withdraw()
             //Add Positions RepayMsg
@@ -858,18 +882,7 @@ fn repay(
                 send_excess_to: Some(user_info.clone().position_owner),
             };
 
-            let coin: Coin = asset_to_coin(repayment.clone())?;
-
-            //Add Accrue Msg before Repayment to accrue discounted rates
-            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-                contract_addr: config.clone().positions_contract.to_string(),
-                msg: to_binary(&CDP_ExecuteMsg::Accrue { 
-                    position_owner: Some(user_info.clone().position_owner),
-                    position_id: user_info.clone().position_id 
-                })?, 
-                funds: vec![],
-            });
-            msgs.push(msg);
+            let coin: Coin = asset_to_coin(repayment.clone())?;           
 
             let msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.positions_contract.to_string(),
@@ -885,8 +898,7 @@ fn repay(
     Ok(Response::new().add_attributes(attrs).add_messages(msgs))
 }
 
-//Sends available claims to info.sender
-//If claim_as is passed, the claims will be sent as said asset
+/// Sends available claims to info.sender
 pub fn claim(
     deps: DepsMut,
     env: Env,
@@ -918,6 +930,7 @@ pub fn claim(
     Ok(res.add_messages(messages))
 }
 
+/// Build claim messages for a user & clear claims
 fn user_claims_msgs(
     storage: &mut dyn Storage,
     info: MessageInfo,
@@ -957,7 +970,7 @@ fn user_claims_msgs(
     Ok((messages, user.claimable_assets))
 }
 
-
+/// Split distribution assets to users based on ratios
 fn split_assets_to_users(
     storage: &mut dyn Storage,
     mut cAsset_ratios: Vec<Decimal>,
@@ -989,11 +1002,11 @@ fn split_assets_to_users(
             } else if user_ratio.ratio < cAsset_ratio {
 
                 //Allocate full user ratio of the asset
-                let send_ratio = decimal_division(user_ratio.ratio, cAsset_ratio);
+                let send_ratio = decimal_division(user_ratio.ratio, cAsset_ratio)?;
                 let send_amount = decimal_multiplication(
                     send_ratio,
                     Decimal::from_ratio(distribution_assets[index].amount, Uint128::new(1u128)),
-                ) * Uint128::new(1u128);
+                )? * Uint128::new(1u128);
 
                 //Set distribution_asset amount to difference
                 distribution_assets[index].amount -= send_amount;
@@ -1002,7 +1015,7 @@ fn split_assets_to_users(
                 add_to_user_claims(storage, user_ratio.clone().user, distribution_assets[index].clone().info, send_amount)?;
 
                 //Set cAsset_ratio to the difference
-                cAsset_ratio = decimal_subtraction(cAsset_ratio, user_ratio.ratio);
+                cAsset_ratio = decimal_subtraction(cAsset_ratio, user_ratio.ratio)?;
                 cAsset_ratios[index] = cAsset_ratio;
 
                 break;
@@ -1018,7 +1031,7 @@ fn split_assets_to_users(
                 add_to_user_claims(storage, user_ratio.clone().user, distribution_assets[index].clone().info, send_amount)?;
 
                 //Set user_ratio as leftover
-                user_ratio.ratio = decimal_subtraction(user_ratio.ratio, cAsset_ratio);                                
+                user_ratio.ratio = decimal_subtraction(user_ratio.ratio, cAsset_ratio)?;                                
 
                 //Set cAsset_ratio to 0
                 cAsset_ratios[index] = Decimal::zero();
@@ -1030,6 +1043,7 @@ fn split_assets_to_users(
     Ok(())
 }
 
+/// Add assets to user claims
 fn add_to_user_claims(
     storage: &mut dyn Storage,
     user: Addr,
@@ -1080,6 +1094,7 @@ fn add_to_user_claims(
     Ok(())
 }
 
+/// Get user ratios of deposits from a list of deposits
 pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal>, Vec<Deposit>)> {
     let mut user_deposits: Vec<Deposit> = vec![];
     let mut total_amount: Decimal = Decimal::percent(0);
@@ -1113,16 +1128,16 @@ pub fn get_distribution_ratios(deposits: Vec<Deposit>) -> StdResult<(Vec<Decimal
         user_deposits = new_deposits.clone();
     }
 
-    //getting each user's % of total amount
+    //Getting each user's % of total amount
     let mut user_ratios: Vec<Decimal> = vec![];
     for deposit in user_deposits.iter() {
-        user_ratios.push(decimal_division(deposit.amount, total_amount));
+        user_ratios.push(decimal_division(deposit.amount, total_amount)?);
     }
 
     Ok((user_ratios, user_deposits))
 }
 
-//Calc a user's incentives from each deposit
+/// Calculate a user's incentives from each deposit
 fn get_user_incentives(
     storage: &mut dyn Storage,
     env: Env,
@@ -1200,7 +1215,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-//Note: This fails if an asset total is sent in two separate Asset objects. Both will be invalidated.
+/// Note: This fails if an asset total is sent in two separate Asset objects. Both will be invalidated.
 pub fn validate_assets(
     deps: &dyn Storage,
     assets: Vec<AssetInfo>,

@@ -1,10 +1,10 @@
 
-use cosmwasm_std::{Decimal, Uint128, Env, QuerierWrapper, Storage, to_binary, QueryRequest, WasmQuery, StdResult};
+use cosmwasm_std::{Decimal, Uint128, Env, QuerierWrapper, Storage, to_binary, QueryRequest, WasmQuery, StdResult, StdError, Addr};
 
 use membrane::cdp::Config;
 use membrane::stability_pool::QueryMsg as SP_QueryMsg;
 use membrane::types::{Basket, Asset, cAsset, SupplyCap, AssetPool};
-use membrane::helpers::get_asset_liquidity;
+use membrane::helpers::{get_asset_liquidity, get_owner_liquidity_multiplier};
 use membrane::math::decimal_multiplication; 
 
 use crate::state::{CONFIG, BASKET};
@@ -91,24 +91,22 @@ pub fn update_basket_tally(
     }
     
     let (new_basket_ratios, _) =
-        get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config.clone())?;
+        get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config)?;
 
  
     //Assert new ratios aren't above Collateral Supply Caps. If so, error.
     //Only for deposits
     for (i, ratio) in new_basket_ratios.clone().into_iter().enumerate() {
-        if basket.collateral_supply_caps != vec![] {
-            if ratio > basket.collateral_supply_caps[i].supply_cap_ratio && add_to_cAsset {
+        if basket.collateral_supply_caps != vec![] && ratio > basket.collateral_supply_caps[i].supply_cap_ratio && add_to_cAsset{
 
-                return Err(ContractError::CustomError {
-                    val: format!(
-                        "Supply cap ratio for {} is over the limit ({} > {})",
-                        basket.collateral_supply_caps[i].asset_info,
-                        ratio,
-                        basket.collateral_supply_caps[i].supply_cap_ratio
-                    ),
-                });
-            }
+            return Err(ContractError::CustomError {
+                val: format!(
+                    "Supply cap ratio for {} is over the limit ({} > {})",
+                    basket.collateral_supply_caps[i].asset_info,
+                    ratio,
+                    basket.collateral_supply_caps[i].supply_cap_ratio
+                ),
+            });            
         }
     }
 
@@ -169,6 +167,7 @@ pub fn update_debt_per_asset_in_position(
 
     let mut over_cap = false;
     let mut assets_over_cap = vec![];
+    let mut error: Option<StdError> = None;
 
     //Calculate debt per asset caps
     let cAsset_caps = get_basket_debt_caps(storage, querier, env, &mut basket)?;
@@ -181,19 +180,25 @@ pub fn update_debt_per_asset_in_position(
                     .into_iter() 
                     .map(|mut cap| {
                         if cap.asset_info.equal(&old_assets[i].asset.info) {
-                            //So we subtract the % difference in debt from said asset
-                            match cap.debt_total.checked_sub( decimal_multiplication(Decimal::new(difference), credit_amount) * Uint128::new(1u128)) {
-                                Ok(difference) => {
-                                    if cap.current_supply.is_zero() {
-                                        //This removes rounding errors that would slowly increase resting interest rates
-                                        //Doesn't effect checks for bad debt since its basket debt not position.credit_amount
-                                        //its a .000001 error, so shouldn't effect overall calcs or be profitably spammable
-                                        cap.debt_total = Uint128::zero();
-                                    } else {
-                                        cap.debt_total = difference;
-                                    }
+                            let debt_difference = match decimal_multiplication(Decimal::new(difference), credit_amount){
+                                Ok(debt_difference) => {
+                                    debt_difference
+                                },
+                                Err(e) => {
+                                    error = Some(e);                                    
+                                    Decimal::zero()
                                 }
-                                Err(_) => { }
+                            };
+                            //So we subtract the % difference in debt from said asset
+                            if let Ok(difference) = cap.debt_total.checked_sub( debt_difference * Uint128::new(1u128)) {
+                                if cap.current_supply.is_zero() {
+                                    //This removes rounding errors that would slowly increase resting interest rates
+                                    //Doesn't effect checks for bad debt since its basket debt not position.credit_amount
+                                    //its a .000001 error, so shouldn't effect overall calcs or be profitably spammable
+                                    cap.debt_total = Uint128::zero();
+                                } else {
+                                    cap.debt_total = difference;
+                                }
                             };
                         }
 
@@ -211,7 +216,16 @@ pub fn update_debt_per_asset_in_position(
                     .enumerate()
                     .map(|(index, mut cap)| {
                         if cap.asset_info.equal(&old_assets[i].asset.info) {
-                            let asset_debt = decimal_multiplication(difference, credit_amount) * Uint128::new(1u128);
+                            let debt_difference = match decimal_multiplication(difference, credit_amount){
+                                Ok(debt_difference) => {
+                                    debt_difference
+                                },
+                                Err(e) => {
+                                    error = Some(e);
+                                    Decimal::zero()
+                                }
+                            };
+                            let asset_debt = debt_difference * Uint128::new(1u128);
 
                             //Assert its not over the cap
                             if (cap.debt_total + asset_debt) <= cAsset_caps[index] {
@@ -227,6 +241,10 @@ pub fn update_debt_per_asset_in_position(
                     .collect::<Vec<SupplyCap>>();
             }
         }
+    }
+
+    if let Some(error) = error{
+        return Err(ContractError::Std(error));
     }
 
     if over_cap {
@@ -299,16 +317,8 @@ pub fn update_basket_debt(
                             over_cap = true;
                             assets_over_cap.push(cap.asset_info.to_string());
                         }
-                    } else {
-                        match cap.debt_total.checked_sub(asset_debt[index]) {
-                            Ok(difference) => {
-                                cap.debt_total = difference;
-                            }
-                            Err(_) => {
-                                //Don't subtract bc it'll end up being an invalid repayment error anyway
-                                //Can't return an Error here without inferring the map return type
-                            }
-                        };
+                    } else if let Ok(difference) = cap.debt_total.checked_sub(asset_debt[index]) {
+                        cap.debt_total = difference;
                     }
                 }
 
@@ -336,7 +346,7 @@ pub fn get_stability_pool_liquidity(
     querier: QuerierWrapper,
     config: Config,
 ) -> StdResult<Uint128> {
-    if let Some(sp_addr) = config.clone().stability_pool {
+    if let Some(sp_addr) = config.stability_pool {
         //Query the SP Asset Pool
         Ok(querier
             .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
@@ -372,29 +382,41 @@ pub fn get_basket_debt_caps(
         basket.clone().collateral_types,
         config.clone(),
     )?;
+
+    //Get owner liquidity parameters from Osmosis Proxy
+    let owner_params = get_owner_liquidity_multiplier(
+        querier, 
+        env.contract.address.to_string(),
+        config.clone().osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string()
+    )?;
+    
+    let liquidity = get_asset_liquidity(
+        querier, 
+        config.clone().liquidity_contract.unwrap().to_string(),
+        basket.clone().credit_asset.info
+    )?;
     
     //Get the base debt cap
-    let mut debt_cap =
-        get_asset_liquidity(querier, config.clone().liquidity_contract.unwrap().to_string(), basket.clone().credit_asset.info)?
-            * basket.liquidity_multiplier;
+    let mut debt_cap = decimal_multiplication(Decimal::from_ratio(liquidity, Uint128::one()), owner_params.0)? * Uint128::one();
 
-    //Get SP liquidity
-    let sp_liquidity = get_stability_pool_liquidity(querier, config.clone())?;
 
-    //Add SP liquidity to the cap
-    debt_cap += Decimal::from_ratio(sp_liquidity, Uint128::new(1)) * Uint128::new(1);
+    //Get SP cap space the contract is allowed to use
+    let sp_liquidity = Decimal::from_ratio(get_stability_pool_liquidity(querier, config.clone())?, Uint128::new(1));
+    let sp_cap_space = decimal_multiplication(sp_liquidity, owner_params.1)?;
 
+    //Add SP cap space to the cap
+    debt_cap += sp_cap_space * Uint128::one();
 
     //If debt cap is less than the minimum, set it to the minimum
     if debt_cap < (config.base_debt_cap_multiplier * config.debt_minimum) {
         debt_cap = (config.base_debt_cap_multiplier * config.debt_minimum);
     }
-
+    
      //Don't double count debt btwn Stability Pool based ratios and TVL based ratios
      for cap in basket.clone().collateral_supply_caps {
         //If the cap is based on sp_liquidity, subtract its value from the debt_cap
         if let Some(sp_ratio) = cap.stability_pool_ratio_for_debt_cap {
-            debt_cap -= decimal_multiplication(Decimal::from_ratio(sp_liquidity, Uint128::new(1)), sp_ratio) * Uint128::new(1);
+            debt_cap -= decimal_multiplication(sp_cap_space, sp_ratio)? * Uint128::one();
         }
     }
 
@@ -417,7 +439,7 @@ pub fn get_basket_debt_caps(
     let mut per_asset_debt_caps = vec![];
 
     //Calc per asset debt caps
-    for (i, cAsset_ratio) in cAsset_ratios.clone().into_iter().enumerate() {
+    for (i, cAsset_ratio) in cAsset_ratios.into_iter().enumerate() {
                 
         if basket.clone().collateral_supply_caps != vec![] {
             // If supply cap is 0, then debt cap is 0
@@ -429,7 +451,7 @@ pub fn get_basket_debt_caps(
             } else if let Some(sp_ratio) = basket.clone().collateral_supply_caps[i].stability_pool_ratio_for_debt_cap{
                 //If cap is supposed to be based off of a ratio of SP liquidity, calculate                                
                 per_asset_debt_caps.push(
-                    decimal_multiplication(Decimal::from_ratio(sp_liquidity, Uint128::new(1)), sp_ratio) * Uint128::new(1)
+                    decimal_multiplication(sp_cap_space, sp_ratio)? * Uint128::new(1)
                 );
             } else {
                 //TVL Ratio * Cap 

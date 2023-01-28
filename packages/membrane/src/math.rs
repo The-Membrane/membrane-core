@@ -7,38 +7,21 @@ use std::str::FromStr;
 
 use bigint::U256;
 
-use cosmwasm_std::{Decimal, StdError, Uint128};
+use cosmwasm_std::{Decimal, StdError, Uint128, StdResult};
 
-const DECIMAL_FRACTIONAL: Uint128 = Uint128::new(1_000_000_000u128);
-
-pub fn reverse_decimal(decimal: Decimal) -> Decimal {
-    Decimal::from_ratio(DECIMAL_FRACTIONAL, decimal * DECIMAL_FRACTIONAL)
+/// Checked Decimal subtraction
+pub fn decimal_subtraction(a: Decimal, b: Decimal) -> StdResult<Decimal> {
+    a.checked_sub(b).map_err(|_| StdError::GenericErr{msg: String::from("Decimal subtraction overflow")})
 }
 
-pub fn decimal_subtraction(a: Decimal, b: Decimal) -> Decimal {
-    Decimal::from_ratio(
-        (DECIMAL_FRACTIONAL * a)
-            .checked_sub(DECIMAL_FRACTIONAL * b)
-            .unwrap(),
-        DECIMAL_FRACTIONAL,
-    )
+/// Checked Decimal division
+pub fn decimal_division(a: Decimal, b: Decimal) -> StdResult<Decimal> {
+    a.checked_div(b).map_err(|_| StdError::GenericErr{msg: String::from("Decimal division overflow")})
 }
 
-/// return a / b
-pub fn decimal_division(a: Decimal, b: Decimal) -> Decimal {
-    Decimal::from_ratio(DECIMAL_FRACTIONAL * a, b * DECIMAL_FRACTIONAL)
-}
-
-pub fn decimal_multiplication(a: Decimal, b: Decimal) -> Decimal {
-    Decimal::from_ratio(a * DECIMAL_FRACTIONAL * b, DECIMAL_FRACTIONAL)
-}
-
-pub fn decimal_min(a: Decimal, b: Decimal) -> Decimal {
-    if a < b {
-        a
-    } else {
-        b
-    }
+/// Checked Decimal multiplication
+pub fn decimal_multiplication(a: Decimal, b: Decimal) -> StdResult<Decimal> {
+    a.checked_mul(b).map_err(|_| StdError::GenericErr{msg: String::from("Decimal multiplication overflow")})
 }
 
 //////////////cosmwasm-bignumber Fork: https://github.com/terra-money/terra-cosmwasm/blob/094dc24caa9d417e528e32cc2e44fa19c576599b/packages/bignumber/Cargo.toml///////////////////////

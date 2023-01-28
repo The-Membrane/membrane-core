@@ -10,8 +10,8 @@ use cw_storage_plus::Bound;
 use membrane::helpers::router_native_to_native;
 use membrane::margin_proxy::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::decimal_multiplication;
-use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, PositionResponse, PositionsResponse};
-use membrane::types::{Position, AssetInfo, Basket};
+use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, PositionResponse};
+use membrane::types::{AssetInfo, Basket};
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, COMPOSITION_CHECK, USERS, NEW_POSITION_INFO, NUM_OF_LOOPS, LOOP_PARAMETERS};
@@ -95,7 +95,7 @@ pub fn execute(
     }
 }
 
-//Calls ClosePosition on the Positions contract
+/// Calls ClosePosition on the Positions contract
 fn close_posiion(
     deps: DepsMut,
     info: MessageInfo,
@@ -130,8 +130,8 @@ fn close_posiion(
     )
 }
 
-//Loop position composition at a desired LTV
-//If num_loops is passed, stop the loop there or LTV if met first
+/// Loop position composition at a desired LTV.
+/// Stop loops when num_of_loops is reached or when increase of credit is less than 2.
 fn loop_leverage(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -199,6 +199,7 @@ fn loop_leverage(
     
 }
 
+/// Validate user's ownership of a position within the contract
 fn validate_user_ownership(
     storage: &mut dyn Storage,
     user: Addr,
@@ -215,6 +216,7 @@ fn validate_user_ownership(
     Ok(())
 }
 
+/// Deposit assets to a Position
 fn deposit_to_cdp(
     deps: DepsMut,
     env: Env,
@@ -309,16 +311,15 @@ fn deposit_to_cdp(
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         EXISTING_DEPOSIT_REPLY_ID => handle_existing_deposit_reply(deps, env, msg),
-        NEW_DEPOSIT_REPLY_ID => handle_new_deposit_reply(deps, env, msg),
+        NEW_DEPOSIT_REPLY_ID => handle_new_deposit_reply(deps, msg),
         LOOP_REPLY_ID => handle_loop_reply(deps, env, msg),
         CLOSE_POSITION_REPLY_ID => handle_close_position_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 }
 
-//On success, sell for collateral composition, redeposit & call loop fn again
-//Increment Loop number
-//On error, reset loop number
+/// On success, sell for collateral composition, redeposit & call loop fn again.
+/// Increment Loop number.
 fn handle_loop_reply(
     deps: DepsMut,
     env: Env,
@@ -359,7 +360,6 @@ fn handle_loop_reply(
 
             //If credit amount is < 2, end loop
             if credit_amount < Decimal::percent(2_000_000_00){
-
                 return Ok(Response::new()
                         .add_attribute("loop_finished", "true")
                         .add_attribute("total_loan", total_loan.to_string()))
@@ -391,7 +391,7 @@ fn handle_loop_reply(
             //Sell new debt for collateral composition & redeposit 
             for (collateral, ratio) in composition_to_loop {
                 
-                let credit_to_sell = decimal_multiplication(credit_amount, ratio);
+                let credit_to_sell = decimal_multiplication(credit_amount, ratio)?;
 
                 let hook_msg = Some(to_binary(&CDP_ExecuteMsg::Deposit { 
                     position_id: Some(previous_composition.clone().position_id),
@@ -471,6 +471,7 @@ fn handle_loop_reply(
     }
 }
 
+/// Remove User claim over a position in this contract
 fn handle_close_position_reply(
     deps: DepsMut,
     _env: Env,
@@ -530,6 +531,7 @@ fn handle_close_position_reply(
     }
 }
 
+/// Asserts users only deposit the current Position composition
 fn handle_existing_deposit_reply(
     deps: DepsMut,
     env: Env,
@@ -537,7 +539,6 @@ fn handle_existing_deposit_reply(
 ) -> StdResult<Response>{
     match msg.result.into_result() {
         Ok(_result) => {
-
             //Load Config 
             let config = CONFIG.load(deps.storage)?;
 
@@ -589,43 +590,47 @@ fn handle_existing_deposit_reply(
     }
 }
 
+/// Fetch & save new position ID under user's address
 fn handle_new_deposit_reply(
     deps: DepsMut,
-    env: Env,
     msg: Reply,
 ) -> StdResult<Response>{
 
     match msg.result.into_result() {
-        Ok(_result) => {
-
-            //Load Config
-            let config = CONFIG.load(deps.storage)?;
-
+        Ok(result) => {
             //Load NEW_POSITION_INFO
             let new_position_user = NEW_POSITION_INFO.load(deps.storage)?;
 
             //Get new Position_ID
-            ////Query Positions contract for all positions from this contract and save last id to the user
-            let mut positions_response = deps.querier.query::<PositionsResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
-                contract_addr: config.clone().positions_contract.to_string(), 
-                msg: to_binary(&CDP_QueryMsg::GetUserPositions {
-                    user: env.contract.address.to_string(),
-                    limit: None,
-                })?
-            }))?;
+            let instantiate_event = result
+                .events
+                .iter()
+                .find(|e| {
+                    e.attributes
+                        .iter()
+                        .any(|attr| attr.key == "position_id")
+                })
+                .ok_or_else(|| {
+                    StdError::generic_err(format!("unable to find deposit event"))
+                })?;
 
-            //Get latest position
-            let latest_position: Position = positions_response.positions.pop().unwrap();
+            let position_id = &instantiate_event
+                .attributes
+                .iter()
+                .find(|attr| attr.key == "position_id")
+                .unwrap()
+                .value;
+            let position_id = Uint128::from_str(position_id)?;
 
             //Save ID to User
-            if let Err(err) = append_to_user_list_of_ids(deps.storage, new_position_user.clone(), latest_position.position_id){
+            if let Err(err) = append_to_user_list_of_ids(deps.storage, new_position_user.clone(), position_id){
                 return Err(StdError::GenericErr { msg: err.to_string() })
             };
 
             Ok(Response::new()
                 .add_attributes(vec![
                     attr("user", new_position_user),
-                    attr("new_id",  latest_position.position_id),
+                    attr("new_id",  position_id),
             ]))
         },
         Err(string) => {
@@ -644,6 +649,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
+/// Returns a list of Position ID owned by this contract
 fn query_positions(
     deps: Deps,
     option_limit: Option<u64>, //User limit
@@ -674,6 +680,7 @@ fn query_positions(
     Ok(positions)
 }
 
+/// Returns a list of Positions owned by a user in this contract
 fn query_user_positions(
     deps: Deps,
     env: Env,
@@ -707,7 +714,7 @@ fn query_user_positions(
 
 }
 
-////Helpers///
+/// Append new ID to user's list of IDs
 fn append_to_user_list_of_ids(
     storage: &mut dyn Storage,
     user: Addr,
@@ -730,6 +737,7 @@ fn append_to_user_list_of_ids(
     Ok(())
 }
 
+/// Update contract configuration
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,

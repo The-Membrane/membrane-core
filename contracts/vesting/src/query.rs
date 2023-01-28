@@ -3,6 +3,7 @@ use membrane::vesting::{UnlockedResponse, AllocationResponse, RecipientResponse,
 
 use crate::{contract::get_unlocked_amount, state::RECIPIENTS};
 
+/// Returns the allocation of a recipient
 pub fn query_allocation(deps: Deps, recipient: String) -> StdResult<AllocationResponse> {
     let recipient = match RECIPIENTS
         .load(deps.storage)?
@@ -32,6 +33,7 @@ pub fn query_allocation(deps: Deps, recipient: String) -> StdResult<AllocationRe
     }
 }
 
+///Returns the amount of tokens that can be unlocked by a recipient
 pub fn query_unlocked(deps: Deps, env: Env, recipient: String) -> StdResult<UnlockedResponse> {
     let recipient = match RECIPIENTS
         .load(deps.storage)?
@@ -47,7 +49,7 @@ pub fn query_unlocked(deps: Deps, env: Env, recipient: String) -> StdResult<Unlo
     };
 
     if recipient.allocation.is_some() {
-        let unlocked_amount = get_unlocked_amount(recipient.allocation, env.block.time.seconds()).0;
+        let unlocked_amount = get_unlocked_amount(recipient.allocation, env.block.time.seconds())?.0;
         Ok(UnlockedResponse { unlocked_amount })
     } else {
         Err(StdError::GenericErr {
@@ -56,6 +58,7 @@ pub fn query_unlocked(deps: Deps, env: Env, recipient: String) -> StdResult<Unlo
     }
 }
 
+/// Returns the list of recipients
 pub fn query_recipients(deps: Deps) -> StdResult<RecipientsResponse> {
     let recipients = RECIPIENTS.load(deps.storage)?;
 
@@ -73,6 +76,7 @@ pub fn query_recipients(deps: Deps) -> StdResult<RecipientsResponse> {
     })
 }
 
+/// Returns the details of a recipient
 pub fn query_recipient(deps: Deps, recipient: String) -> StdResult<RecipientResponse> {
     let recipients = RECIPIENTS.load(deps.storage)?;
 

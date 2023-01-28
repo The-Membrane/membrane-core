@@ -5,6 +5,7 @@ use membrane::helpers::accumulate_interest;
 
 use crate::state::{CONFIG, ASSET, USERS};
 
+/// Return AssetPool with customizers for the deposit list
 pub fn query_asset_pool(
     deps: Deps,
     user: Option<String>,
@@ -37,6 +38,7 @@ pub fn query_asset_pool(
     Ok(asset_pool)    
 }
 
+/// Return a user's frontmost deposit and the amount of capital ahead of it
 pub fn query_capital_ahead_of_deposits(
     deps: Deps,
     user: String,
@@ -69,6 +71,7 @@ pub fn query_capital_ahead_of_deposits(
     Ok( resp )
 }
 
+/// Return user's available incentives
 pub fn query_user_incentives(
     deps: Deps, 
     env: Env,
@@ -79,7 +82,6 @@ pub fn query_user_incentives(
 
     let mut total_incentives = Uint128::zero();
     for deposit in resp {
-
         match deposit.unstake_time{
             Some(unstake_time) => {
                 let time_elapsed = unstake_time - deposit.last_accrued;
@@ -93,13 +95,13 @@ pub fn query_user_incentives(
 
                 total_incentives += accumulate_interest(stake, rate, time_elapsed)?;
             },
-        }
-        
+        }        
     }
 
     Ok(total_incentives)
 }
 
+/// Return leftover amount from a hypothetical liquidation amount
 pub fn query_liquidatible(deps: Deps, amount: Decimal) -> StdResult<LiquidatibleResponse> {
     
     let asset_pool = ASSET.load(deps.storage)?;
@@ -119,6 +121,7 @@ pub fn query_liquidatible(deps: Deps, amount: Decimal) -> StdResult<Liquidatible
     
 }
 
+/// Return user's deposits 
 pub fn query_deposits(
     deps: Deps,
     user: String,
@@ -133,6 +136,7 @@ pub fn query_deposits(
         .collect::<Vec<Deposit>>())
 }
 
+/// Return user's claimable assets
 pub fn query_user_claims(deps: Deps, user: String) -> StdResult<ClaimsResponse> {
     let valid_user = deps.api.addr_validate(&user)?;
 

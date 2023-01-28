@@ -46,7 +46,6 @@ pub const BALANCER_POOL_REPLY_ID: u64 = 15;
 //Constants
 pub const SECONDS_PER_DAY: u64 = 86_400u64;
 
-
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
@@ -64,7 +63,7 @@ pub fn instantiate(
         credit_denom: String::from(""),
         labs_addr: deps.api.addr_validate(&msg.labs_addr)?,
         apollo_router: deps.api.addr_validate(&msg.apollo_router)?,
-        mbrn_launch_amount: Uint128::new(5_000_000_000_000),
+        mbrn_launch_amount: Uint128::new(25_000_000_000_000),
         osmosis_proxy_id: msg.osmosis_proxy_id,
         oracle_id: msg.oracle_id,
         staking_id: msg.staking_id,
@@ -113,11 +112,12 @@ pub fn instantiate(
     //Instantiate Lockdrop 
     let lockdrop = Lockdrop {
         locked_users: vec![],
-        num_of_incentives: Uint128::new(5_000_000_000_000),
+        num_of_incentives: Uint128::new(25_000_000_000_000),
         locked_asset: AssetInfo::NativeToken { denom: String::from("uosmo") },
-        lock_up_ceiling: 365,
+        lock_up_ceiling: 90,
         deposit_end: env.block.time.seconds() + (5 * SECONDS_PER_DAY),
         withdrawal_end: env.block.time.seconds() + (7 * SECONDS_PER_DAY),
+        launched: false,
     };
     LOCKDROP.save(deps.storage, &lockdrop)?;
 
@@ -156,6 +156,7 @@ pub fn execute(
     }
 }
 
+/// Deposit OSMO into the lockdrop & elect to lock MBRN rewards for a certain duration
 fn lock(    
     deps: DepsMut,
     env: Env,
@@ -212,6 +213,7 @@ fn lock(
         ]))
 }
 
+/// Withdraw OSMO from the lockdrop during the withdrawal period
 fn withdraw(    
     deps: DepsMut,
     env: Env,
@@ -286,7 +288,8 @@ fn withdraw(
         ]))
 }
 
-fn claim (    
+/// Claim unlocked MBRN rewards
+fn claim(    
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
@@ -318,7 +321,7 @@ fn claim (
     )?;
     
     let mut withdrawable_tickets = Uint128::zero();
-    let mut amount_to_mint = Uint128::zero();
+    let amount_to_mint: Uint128;
     //Find withdrawable tickets
     if let Some((i, user)) = lockdrop.clone().locked_users.into_iter().enumerate().find(|(_i, user)| user.user == info.clone().sender){
         let time_since_lockdrop_end = env.block.time.seconds() - lockdrop.withdrawal_end;       
@@ -333,7 +336,7 @@ fn claim (
         //Calc ratio of incentives to unlock
         let ratio_of_unlock = decimal_division(
             Decimal::from_ratio(withdrawable_tickets, Uint128::one()), 
-            Decimal::from_ratio(user.total_tickets, Uint128::one()));
+            Decimal::from_ratio(user.total_tickets, Uint128::one()))?;
 
         let unlocked_incentives = ratio_of_unlock * incentives;
 
@@ -383,6 +386,7 @@ fn claim (
     
 }
 
+/// Return the amount of incentives a user is entitled to
 fn get_user_incentives(
     user_ratios: Vec<UserRatio>,
     user: String,
@@ -395,7 +399,7 @@ fn get_user_incentives(
             decimal_multiplication(
                 user.ratio, 
                 Decimal::from_ratio(total_incentives, Uint128::one())
-            ) * Uint128::one()
+            )? * Uint128::one()
         },
         None => {
             return Err(StdError::GenericErr { msg: String::from("User didn't participate in the lockdrop") })
@@ -403,13 +407,15 @@ fn get_user_incentives(
     };
 
     Ok(incentives)
-
 }
 
+/// Calculate the ratio of incentives each user is entitled to
 fn calc_ticket_distribution(
     storage: &mut dyn Storage,
     lockdrop: &mut Lockdrop,
 ) -> StdResult<()>{
+    let mut error: Option<StdError> = None;
+
     let user_totals = lockdrop.clone().locked_users
         .into_iter()
         .map(|user| {
@@ -442,7 +448,10 @@ fn calc_ticket_distribution(
             let ratio = decimal_division(
                 Decimal::from_ratio(user.1, Uint128::one()),
                 Decimal::from_ratio(total_tickets, Uint128::one()),
-            );
+            ).unwrap_or_else(|e| {
+                error = Some(e);
+                Decimal::zero()
+            });
 
             UserRatio { user: Addr::unchecked(user.0), ratio }
         })
@@ -452,6 +461,7 @@ fn calc_ticket_distribution(
     INCENTIVE_RATIOS.save(storage, &user_ratios)
 }
 
+/// Validate that the lockdrop asset is present in the message
 fn validate_lockdrop_asset(info: MessageInfo, lockdrop_asset: AssetInfo) -> StdResult<Asset>{
     if let Some(lockdrop_asset) = info.clone().funds
         .into_iter()
@@ -465,6 +475,7 @@ fn validate_lockdrop_asset(info: MessageInfo, lockdrop_asset: AssetInfo) -> StdR
     }
 }
 
+/// Update contract configuration
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -524,12 +535,20 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     }
 }
 
-//This gets called at the end of the lockdrop
+/// This gets called at the end of the lockdrop.
+/// Create MBRN & CDT pools and deposit into MBRN/OSMO pool.
 pub fn end_of_launch(
     deps: DepsMut,
     env: Env,
 ) -> Result<Response, ContractError>{
-    let lockdrop = LOCKDROP.load(deps.storage)?;
+    let mut lockdrop = LOCKDROP.load(deps.storage)?;
+
+    //Assert launch hasn't happened yet, don't want this called twice
+    if lockdrop.launched { return Err(ContractError::LaunchHappened {  }) }
+    
+    //Toggle launched and save
+    lockdrop.launched = true;
+    LOCKDROP.save(deps.storage, &lockdrop)?;
 
     //Assert Lockdrop withdraw period has ended
     if !(env.block.time.seconds() > lockdrop.withdrawal_end) { return Err(ContractError::LockdropOngoing {  }) }
@@ -578,7 +597,6 @@ pub fn end_of_launch(
         future_pool_governor: addrs.clone().governance.to_string(),
     };
     msgs.push(msg.into());
-
     //Create 3 CDT pools
     //OSMO
     let msg: CosmosMsg = MsgCreateBalancerPool {

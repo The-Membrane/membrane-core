@@ -8,11 +8,10 @@ use membrane::math::{decimal_multiplication, decimal_division};
 use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
 use membrane::stability_pool::{QueryMsg as SP_QueryMsg, ClaimsResponse};
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
-use membrane::lockdrop::{QueryMsg as Lockdrop_QueryMsg, UserResponse};
 use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse};
 use membrane::cdp::{QueryMsg as CDP_QueryMsg, PositionsResponse};
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
-use membrane::types::{AssetInfo, DebtTokenAsset, Position, Basket, Deposit, AssetPool};
+use membrane::types::{AssetInfo, Position, Basket, Deposit, AssetPool};
 
 use crate::error::ContractError;
 use crate::state::CONFIG;
@@ -88,6 +87,7 @@ pub fn execute(
     }
 }
 
+/// Update contract configuration
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -105,9 +105,6 @@ fn update_config(
     if let Some(addr) = update.owner {
         config.owner = deps.api.addr_validate(&addr)?;
     }
-    if let Some(mbrn_denom) = update.mbrn_denom {
-        config.mbrn_denom = mbrn_denom;
-    }
     if let Some(addr) = update.positions_contract {
         config.positions_contract = deps.api.addr_validate(&addr)?;
     }
@@ -116,6 +113,14 @@ fn update_config(
     }
     if let Some(addr) = update.staking_contract {
         config.staking_contract = deps.api.addr_validate(&addr)?;
+        
+        let mbrn_denom = deps.querier.query::<Staking_Config>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: addr.to_string(),
+            msg: to_binary(&Staking_QueryMsg::Config {})?,
+        }))?
+        .mbrn_denom;
+
+        config.mbrn_denom = mbrn_denom;
     }
     if let Some(addr) = update.stability_pool_contract {
         config.stability_pool_contract = deps.api.addr_validate(&addr)?;
@@ -144,14 +149,13 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-//Returns % of interest that is discounted
-//i.e. 90% of 1% interest is .1% interest
+/// Returns % of interest that is discounted,
+/// i.e. 95% of 1% interest is .05% interest
 fn get_discount(
     deps: Deps,
     env: Env,
     user: String, 
 )-> StdResult<Decimal>{
-  
     //Load Config
     let config = CONFIG.load(deps.storage)?;
 
@@ -181,15 +185,15 @@ fn get_discount(
         if user_value_in_network >= user_outstanding_debt {
             Decimal::one()
         } else {
-            decimal_division(user_value_in_network, user_outstanding_debt)
+            decimal_division(user_value_in_network, user_outstanding_debt)?
         }
     };
 
     Ok(percent_discount)
 }
 
-//Get the value of the user's capital in..
-//Stake, SP & Queriable LPs
+/// Get the value of the user's capital in
+/// the Stability Pool, Discount Vault LPs & staking
 fn get_user_value_in_network(
     querier: QuerierWrapper,
     env: Env,
@@ -221,57 +225,12 @@ fn get_user_value_in_network(
 
     if config.discount_vault_contract.is_some(){
         total_value += get_discounts_vault_value(querier, config.clone(), user.clone())?;
-    }
-    if config.lockdrop_contract.is_some(){
-        total_value += get_lockdrop_value(querier, config.clone(), user.clone(), credit_price.clone(), mbrn_price.clone())?;
-    }    
+    }   
     
     Ok( total_value )
 }
 
-//Returns total_value of incentives + LP
-fn get_lockdrop_value(
-    querier: QuerierWrapper,
-    config: Config,
-    user: String,    
-    credit_price: Decimal,
-    mbrn_price: Decimal,
-) -> StdResult<Decimal>{
-    
-    //Get user info from the Gauge Vault
-    let user = querier.query::<UserResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().lockdrop_contract.unwrap().to_string(),
-        msg: to_binary(&Lockdrop_QueryMsg::User {
-            user,
-            minimum_lock: config.minimum_time_in_network.into(),
-        })?,
-    }))?;
-    let debt_token: DebtTokenAsset = user.total_debt_token;
-    let accrued_incentives = user.incentives.amount;
-
-    //Calc total value of the LPs
-    let mut total_value = 
-    decimal_multiplication(
-        decimal_multiplication(
-            Decimal::from_ratio(debt_token.amount, Uint128::one()), 
-            credit_price
-        ), 
-        Decimal::percent(200)
-    );
-    //Assumption is that all LPs are 50/50
-
-    //Add value of MBRN incentives
-    let value = decimal_multiplication(
-        mbrn_price, 
-        Decimal::from_ratio(accrued_incentives, Uint128::one())
-    );
-
-    total_value += value;
-
-    Ok( total_value )
-
-}
-
+/// Return value of LPs in the discount vault
 fn get_discounts_vault_value(
     querier: QuerierWrapper,
     config: Config,
@@ -291,7 +250,7 @@ fn get_discounts_vault_value(
 
 }
 
-//Calc value of staked MBRN & pending rewards
+// Return value of staked MBRN & pending rewards
 fn get_staked_MBRN_value(
     querier: QuerierWrapper,
     config: Config,
@@ -335,20 +294,20 @@ fn get_staked_MBRN_value(
 
         if price < credit_price { price = credit_price }
 
-        let value = decimal_multiplication(price, Decimal::from_ratio(asset.amount, Uint128::one()));
+        let value = decimal_multiplication(price, Decimal::from_ratio(asset.amount, Uint128::one()))?;
 
         staked_value += value;
     }
 
     //Add MBRN value to staked_value
-    let value = decimal_multiplication(mbrn_price, Decimal::from_ratio(user_stake, Uint128::one()));
+    let value = decimal_multiplication(mbrn_price, Decimal::from_ratio(user_stake, Uint128::one()))?;
 
     staked_value += value;
     
     Ok( staked_value )
 }
 
-//Gets user total Stability Pool funds
+/// Return user's total Stability Pool value from credit & MBRN incentives 
 fn get_sp_value(
     querier: QuerierWrapper,
     config: Config,
@@ -386,7 +345,7 @@ fn get_sp_value(
             user: user.clone(),
         })?,
     }))?;
-    let incentive_value = decimal_multiplication(mbrn_price, Decimal::from_ratio(accrued_incentives, Uint128::one()));
+    let incentive_value = decimal_multiplication(mbrn_price, Decimal::from_ratio(accrued_incentives, Uint128::one()))?;
 
     //Query for user claimable assets
     let res = querier.query::<ClaimsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
@@ -410,7 +369,7 @@ fn get_sp_value(
         }))?
         .price;
 
-        let value = decimal_multiplication(price, Decimal::from_ratio(asset.amount, Uint128::one()));
+        let value = decimal_multiplication(price, Decimal::from_ratio(asset.amount, Uint128::one()))?;
 
         claims_value += value;
     }

@@ -4,10 +4,9 @@ mod tests {
 
     use crate::helpers::DebtContract;
 
-    use membrane::debt_auction::{ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
+    use membrane::debt_auction::{ExecuteMsg, InstantiateMsg, QueryMsg};
     use membrane::oracle::PriceResponse;
-    use membrane::cdp::BasketResponse;
-    use membrane::types::{Asset, AssetInfo};
+    use membrane::types::{Asset, AssetInfo, Basket, Auction};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
@@ -88,7 +87,7 @@ mod tests {
     #[serde(rename_all = "snake_case")]
     pub struct Oracle_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Oracle_MockQueryMsg {
         Price {
@@ -127,7 +126,6 @@ mod tests {
     #[serde(rename_all = "snake_case")]
     pub enum CDP_MockExecuteMsg {
         Repay {
-            basket_id: Uint128,
             position_id: Uint128,
             position_owner: Option<String>,
         },
@@ -140,7 +138,7 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum CDP_MockQueryMsg {
-        GetBasket { basket_id: Uint128 },
+        GetBasket { },
     }
 
     pub fn cdp_contract() -> Box<dyn Contract<Empty>> {
@@ -148,7 +146,6 @@ mod tests {
             |deps, _, info, msg: CDP_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
                     CDP_MockExecuteMsg::Repay {
-                        basket_id,
                         position_id,
                         position_owner,
                     } => Ok(Response::default()),
@@ -157,10 +154,9 @@ mod tests {
             |_, _, _, _: CDP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
             |_, _, msg: CDP_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    CDP_MockQueryMsg::GetBasket { basket_id } => Ok(to_binary(&BasketResponse {
-                        owner: String::from("owner"),
-                        basket_id: String::from(""),
-                        current_position_id: String::from(""),
+                    CDP_MockQueryMsg::GetBasket { } => Ok(to_binary(&Basket {
+                        basket_id: Uint128::one(),
+                        current_position_id: Uint128::one(),
                         collateral_types: vec![],
                         collateral_supply_caps: vec![],
                         credit_asset: Asset {
@@ -170,16 +166,17 @@ mod tests {
                             amount: Uint128::zero(),
                         },
                         credit_price: Decimal::one(),
-                        liq_queue: String::from(""),
+                        liq_queue: None,
                         base_interest_rate: Decimal::zero(),
-                        liquidity_multiplier: Decimal::zero(),
-                        desired_debt_cap_util: Decimal::zero(),
                         pending_revenue: Uint128::zero(),
                         negative_rates: true,
                         cpc_margin_of_error: Decimal::zero(),
                         multi_asset_supply_caps: vec![],
                         frozen: false,
                         rev_to_stakers: true,
+                        credit_last_accrued: 0,
+                        rates_last_accrued: 0,
+                        oracle_set: false,
                     })?),
                 }
             },
@@ -331,7 +328,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Assert Auction Response
-            let auction: Vec<AuctionResponse> = app
+            let auction: Vec<Auction> = app
                 .wrap()
                 .query_wasm_smart(
                     debt_contract.addr(),
@@ -345,7 +342,6 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(auction[0].auction_start_time, 1571797419u64);
-            assert_eq!(auction[0].basket_id_price_source, Uint128::new(1u128));
             assert_eq!(auction[0].remaining_recapitalization, Uint128::new(100u128));
             assert_eq!(
                 auction[0].repayment_positions,
@@ -381,7 +377,7 @@ mod tests {
             app.execute(cdp_contract, cosmos_msg).unwrap();
 
             //Assert Auction Response
-            let auction: Vec<AuctionResponse> = app
+            let auction: Vec<Auction> = app
                 .wrap()
                 .query_wasm_smart(
                     debt_contract.addr(),
@@ -395,7 +391,6 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(auction[0].auction_start_time, 1571797419u64); //Start_time doesn't change
-            assert_eq!(auction[0].basket_id_price_source, Uint128::new(1u128));
             assert_eq!(auction[0].remaining_recapitalization, Uint128::new(200u128));
             assert_eq!(
                 auction[0].repayment_positions,
@@ -481,7 +476,7 @@ mod tests {
 
             ///Mint amount asserted in mock contract definition
             //Assert Auction partial fulfillment
-            let auction: Vec<AuctionResponse> = app
+            let auction: Vec<Auction> = app
                 .wrap()
                 .query_wasm_smart(
                     debt_contract.addr(),
@@ -496,7 +491,6 @@ mod tests {
                 .unwrap();
 
             assert_eq!(auction[0].auction_start_time, 1571797419u64);
-            assert_eq!(auction[0].basket_id_price_source, Uint128::new(1u128));
             assert_eq!(
                 auction[0].remaining_recapitalization,
                 Uint128::new(1_000u128)
@@ -527,7 +521,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Assert Auction Recap increase
-            let auction: Vec<AuctionResponse> = app
+            let auction: Vec<Auction> = app
                 .wrap()
                 .query_wasm_smart(
                     debt_contract.addr(),
@@ -553,7 +547,7 @@ mod tests {
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Assert Auction partial fulfillment
-            let auction: Vec<AuctionResponse> = app
+            let auction: Vec<Auction> = app
                 .wrap()
                 .query_wasm_smart(
                     debt_contract.addr(),
@@ -568,7 +562,6 @@ mod tests {
                 .unwrap();
 
             assert_eq!(auction[0].auction_start_time, 1571797419u64);
-            assert_eq!(auction[0].basket_id_price_source, Uint128::new(1u128));
             assert_eq!(
                 auction[0].remaining_recapitalization,
                 Uint128::new(2_000u128)
@@ -596,7 +589,7 @@ mod tests {
             //Assert Auction is empty
             let err = app
                 .wrap()
-                .query_wasm_smart::<Vec<AuctionResponse>>(
+                .query_wasm_smart::<Vec<Auction>>(
                     debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
                         debt_asset: Some(AssetInfo::NativeToken {
@@ -672,7 +665,7 @@ mod tests {
 
             //Assert Auction removal
             app.wrap()
-                .query_wasm_smart::<Vec<AuctionResponse>>(
+                .query_wasm_smart::<Vec<Auction>>(
                     debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
                         debt_asset: None,

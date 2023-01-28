@@ -3,8 +3,8 @@ use std::env;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Addr, Api, Binary, Deps, DepsMut, Env, MessageInfo, QueryRequest, Response,
-    StdError, StdResult, Uint128, WasmQuery,
+    attr, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, QueryRequest, Response,
+    StdResult, Uint128, WasmQuery,
 };
 use cw2::set_contract_version;
 use membrane::liq_queue::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
@@ -12,11 +12,11 @@ use membrane::math::{Decimal256, Uint256};
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue, Basket};
 
-use crate::bid::{claim_liquidations, execute_liquidation, retract_bid, store_queue, submit_bid};
+use crate::bid::{claim_liquidations, execute_liquidation, retract_bid, submit_bid};
 use crate::error::ContractError;
 use crate::query::{
     query_bid, query_bids_by_user, query_liquidatible, query_premium_slot,
-    query_premium_slots, query_queue, query_queues, query_user_claims,
+    query_premium_slots, query_queues, query_user_claims,
 };
 use crate::state::{CONFIG, QUEUES};
 
@@ -36,14 +36,16 @@ pub fn instantiate(
     let positions_contract = deps.api.addr_validate(&msg.positions_contract)?;
     
     //Get bid_asset from Basket
-    let bid_asset = deps
-        .querier
-        .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: positions_contract.to_string(),
-            msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
-        }))?
-        .credit_asset
-        .info;
+    // let bid_asset = deps
+    //     .querier
+    //     .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
+    //         contract_addr: positions_contract.to_string(),
+    //         msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
+    //     }))?
+    //     .credit_asset
+    //     .info;
+    //Comment out above and use below for testing
+    let bid_asset = AssetInfo::NativeToken { denom: String::from("cdt") };
 
     if msg.owner.is_some() {
         config = Config {
@@ -95,7 +97,6 @@ pub fn execute(
             collateral_price,
             collateral_amount,
             bid_for,
-            bid_with,
             position_id,
             position_owner,
         } => execute_liquidation(
@@ -106,7 +107,6 @@ pub fn execute(
             bid_for,
             collateral_price,
             credit_price,
-            bid_with,
             position_id,
             position_owner,
         ),
@@ -137,6 +137,7 @@ pub fn execute(
     }
 } //Functions assume Cw20 asset amounts are taken from Messageinfo
 
+/// Update the contract config
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -183,6 +184,7 @@ fn update_config(
     ]))
 }
 
+/// Edit queue
 fn edit_queue(
     deps: DepsMut,
     info: MessageInfo,
@@ -206,7 +208,7 @@ fn edit_queue(
         queue.bid_threshold = bid_threshold.unwrap();
     }
 
-    store_queue(deps.storage, bid_for.to_string(), queue.clone())?;
+    QUEUES.save(deps.storage, bid_for.to_string(), &queue)?;
 
     Ok(Response::new().add_attributes(vec![
         attr("method", "edit_queue"),
@@ -215,6 +217,7 @@ fn edit_queue(
     ]))
 }
 
+/// Add queue
 fn add_queue(
     deps: DepsMut,
     info: MessageInfo,
@@ -331,53 +334,9 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             limit,
             start_after,
         )?),
-        QueryMsg::Queue { bid_for } => to_binary(&query_queue(deps, bid_for)?),
+        QueryMsg::Queue { bid_for } => to_binary(&QUEUES.load(deps.storage, bid_for.to_string())?.into_queue_response()),
         QueryMsg::Queues { start_after, limit } => {
             to_binary(&query_queues(deps, start_after, limit)?)
         }
     }
-}
-
-//Helper functions
-
-//Refactored Terraswap function
-pub fn assert_sent_native_token_balance(
-    asset: &Asset,
-    message_info: &MessageInfo,
-) -> StdResult<()> {
-    
-    if let AssetInfo::NativeToken { denom } = &asset.info {
-        match message_info.funds.iter().find(|x| x.denom == *denom) {
-            Some(coin) => {
-                if asset.amount == coin.amount {
-                    Ok(())
-                } else {
-                    Err(StdError::generic_err(
-                        "Sent coin.amount is different from asset.amount",
-                    ))
-                }
-            }
-            None => Err(StdError::generic_err(
-                "Incorrect denomination, sent asset denom and asset.info.denom differ",
-            )),
-        }
-    } else {
-        Err(StdError::generic_err(
-            "Asset type not native, check Msg schema and use AssetInfo::Token{ address: Addr }",
-        ))
-    }
-}
-
-//Validate Recipient
-pub fn validate_position_owner(
-    deps: &dyn Api,
-    info: MessageInfo,
-    recipient: Option<String>,
-) -> StdResult<Addr> {
-    let valid_recipient: Addr = if let Some(recipient) = recipient {
-        deps.addr_validate(&recipient)?
-    } else {
-        info.sender
-    };
-    Ok(valid_recipient)
 }

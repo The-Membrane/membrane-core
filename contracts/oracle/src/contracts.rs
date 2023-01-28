@@ -20,7 +20,7 @@ use crate::state::{ASSETS, CONFIG};
 const CONTRACT_NAME: &str = "oracle";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-//
+// Time unit conversion rates
 const MILLISECONDS_PER_MINUTE: i64 = 60_000i64;
 
 pub fn instantiate(
@@ -83,6 +83,8 @@ pub fn execute(
     }
 }
 
+/// Edit oracle info for an asset
+/// or remove asset from the contract
 fn edit_asset(
     deps: DepsMut,
     info: MessageInfo,
@@ -146,6 +148,7 @@ fn edit_asset(
     Ok(Response::new().add_attributes(attrs))
 }
 
+/// Add an asset alongside its oracle info
 fn add_asset(
     deps: DepsMut,
     info: MessageInfo,
@@ -215,6 +218,7 @@ fn add_asset(
     Ok(Response::new().add_attributes(attrs))
 }
 
+/// Update contract configuration
 pub fn update_config(
     deps: DepsMut,
     _env: Env,
@@ -275,6 +279,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
+/// Return list of queryable assets
 fn get_assets(deps: Deps, asset_infos: Vec<AssetInfo>) -> StdResult<Vec<AssetResponse>> {
     let mut resp = vec![];
     for asset_info in asset_infos {
@@ -289,6 +294,7 @@ fn get_assets(deps: Deps, asset_infos: Vec<AssetInfo>) -> StdResult<Vec<AssetRes
     Ok(resp)
 }
 
+/// Return Asset price info as a PriceResponse
 fn get_asset_price(
     storage: &dyn Storage,
     querier: QuerierWrapper,
@@ -362,7 +368,7 @@ fn get_asset_price(
         let price = {
             let mut final_price = Decimal::one();
             for price in price_steps {
-                final_price = decimal_multiplication(final_price, price);
+                final_price = decimal_multiplication(final_price, price)?;
             }
 
             final_price
@@ -382,7 +388,7 @@ fn get_asset_price(
     let price = if oracle_prices.len() % 2 == 0 {
         let median_index = oracle_prices.len() / 2;
 
-        decimal_division(oracle_prices[median_index].price + oracle_prices[median_index+1].price, Decimal::percent(2_00))
+        decimal_division(oracle_prices[median_index].price + oracle_prices[median_index+1].price, Decimal::percent(2_00))?
         
     } else {
         let median_index = oracle_prices.len() / 2;
@@ -396,6 +402,7 @@ fn get_asset_price(
     })
 }
 
+/// Return list of asset price info as list of PriceResponse
 fn get_asset_prices(
     deps: Deps,
     asset_infos: Vec<AssetInfo>,

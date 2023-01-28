@@ -2,7 +2,7 @@ use std::convert::TryInto;
 
 use cosmwasm_std::{
     to_binary, Decimal, DepsMut, Env, WasmMsg, WasmQuery,
-    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, coins, QueryRequest,
+    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, coins, QueryRequest, BankMsg,
 };
 use crate::error::ContractError;
 use crate::contracts::{SECONDS_PER_DAY, POSITIONS_REPLY_ID, DEBT_AUCTION_REPLY_ID, SYSTEM_DISCOUNTS_REPLY_ID, DISCOUNT_VAULT_REPLY_ID, CREATE_DENOM_REPLY_ID, ORACLE_REPLY_ID, STAKING_REPLY_ID, VESTING_REPLY_ID, LIQ_QUEUE_REPLY_ID, GOVERNANCE_REPLY_ID, STABILITY_POOL_REPLY_ID ,LIQUIDITY_CHECK_REPLY_ID};
@@ -21,7 +21,7 @@ use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg
 use membrane::margin_proxy::InstantiateMsg as ProxyInstantiateMsg;
 use membrane::system_discounts::InstantiateMsg as SystemDiscountInstantiateMsg;
 use membrane::discount_vault::{InstantiateMsg as DiscountVaultInstantiateMsg, ExecuteMsg as DiscountVaultExecuteMsg};
-use membrane::types::{AssetInfo, Basket, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, AssetOracleInfo, PoolStateResponse, PoolType};
+use membrane::types::{AssetInfo, Basket, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, AssetOracleInfo, PoolStateResponse, PoolType, Owner};
 
 use osmosis_std::shim::Duration;
 use osmosis_std::types::cosmos::base::v1beta1::Coin;
@@ -38,7 +38,7 @@ const PROPOSAL_REQUIRED_STAKE: u128 = *STAKE_INTERVAL.start();
 const PROPOSAL_REQUIRED_QUORUM: &str = "0.50";
 const PROPOSAL_REQUIRED_THRESHOLD: &str = "0.60";
 
-//Called after the Osmosis Proxy (OP) reply to save created denoms
+/// Called after the Osmosis Proxy (OP) reply to save created denoms
 pub fn handle_create_denom_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<Response>{ 
     match msg.result.into_result() {
         Ok(_result) => {
@@ -62,7 +62,7 @@ pub fn handle_create_denom_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdRes
     }    
 }
 
-//Save Balancer Pool IDs
+/// Save Balancer Pool IDs
 pub fn handle_balancer_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<Response>{
     match msg.clone().result.into_result() {
         Ok(result) => {
@@ -94,6 +94,9 @@ pub fn handle_balancer_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<
     }    
 }
 
+/// Save and add Stableswap Pool ID & pool denom to necessary contracts.
+/// Mint MBRN for Stableswap Incentives.
+/// Send MBRN/OSMO to Governance.
 pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{    
     match msg.clone().result.into_result() {
         Ok(result) => {
@@ -133,24 +136,6 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
         }
 
         //Incentivize the stableswap
-        //7 day guage
-        let msg = MsgCreateGauge { 
-            is_perpetual: false, 
-            owner: addrs.clone().governance.to_string(),
-            distribute_to: Some(QueryCondition { 
-                lock_query_type: 0, //ByDuration
-                denom: pool_denom.clone(),
-                duration: Some(Duration { seconds: 7 * SECONDS_PER_DAY as i64, nanos: 0 }), 
-                timestamp: None,
-            }), 
-            coins: vec![Coin {
-                denom: config.clone().mbrn_denom, 
-                amount: String::from("500_000_000_000"),
-            }], 
-            start_time: None, 
-            num_epochs_paid_over: 90, //days
-        }.into();
-        msgs.push(msg);
         //14 day guage
         let msg = MsgCreateGauge { 
             is_perpetual: false, 
@@ -163,7 +148,7 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             }), 
             coins: vec![Coin {
                 denom: config.clone().mbrn_denom, 
-                amount: String::from("500_000_000_000"),
+                amount: String::from("1_000_000_000_000"),
             }], 
             start_time: None, 
             num_epochs_paid_over: 90, //days
@@ -187,7 +172,6 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             added_cAsset: None,
             liq_queue: None,
             credit_pool_infos: Some(credit_pool_infos),
-            liquidity_multiplier: None,
             collateral_supply_caps: None,
             multi_asset_supply_caps: None,
             base_interest_rate: None,
@@ -218,6 +202,21 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             funds: vec![], 
         });
         msgs.push(msg);
+        
+        //Query contract balance of MBRN-OSMO LP
+        let gamm_coin = match deps.querier.query_all_balances(env.contract.address)?
+            .into_iter()
+            .find( |a| a.denom.contains("gamm")){
+                Some(gamm_denom) => gamm_denom,
+                None => return Err(StdError::GenericErr { msg: String::from("No MBRN-OSMO LP found") })
+            };
+        //Send gamm_coin NativeToken to Governance
+        let msg = BankMsg::Send {
+            to_address: addrs.clone().governance.to_string(),
+            amount: vec![gamm_coin],
+        };
+        msgs.push(msg.into());
+            
 
         Ok(Response::new()
             .add_messages(msgs)
@@ -227,6 +226,7 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
     }    
 }
 
+/// Create Membrane denoms and instantiate oracle contract
 pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
@@ -239,7 +239,7 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "method")
+                        .any(|attr| attr.key == "contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -303,6 +303,7 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
     }    
 }
 
+/// Instantiate Staking Contract
 pub fn handle_oracle_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
@@ -315,7 +316,7 @@ pub fn handle_oracle_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Resp
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "method")
+                        .any(|attr| attr.key == "contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -363,6 +364,7 @@ pub fn handle_oracle_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Resp
     }    
 }
 
+/// Instantiate Vesting Contract
 pub fn handle_staking_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
@@ -375,7 +377,7 @@ pub fn handle_staking_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "method")
+                        .any(|attr| attr.key == "contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -417,6 +419,7 @@ pub fn handle_staking_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
     }    
 }
 
+/// Instantiate Governance Contract
 pub fn handle_vesting_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
@@ -429,7 +432,7 @@ pub fn handle_vesting_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "method")
+                        .any(|attr| attr.key == "contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -464,7 +467,10 @@ pub fn handle_vesting_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                     proposal_required_stake: Uint128::from(PROPOSAL_REQUIRED_STAKE),
                     proposal_required_quorum: String::from(PROPOSAL_REQUIRED_QUORUM),
                     proposal_required_threshold: String::from(PROPOSAL_REQUIRED_THRESHOLD),
-                    whitelisted_links: vec![todo!(), "https://some.link/".to_string()],
+                    whitelisted_links: vec![
+                        String::from("https://discord.com/channels/1060217330258432010/"),
+                        String::from("https://commonwealth.im/membrane/")
+                        ],
                 })?, 
                 funds: vec![], 
                 label: String::from("governance"), 
@@ -476,6 +482,7 @@ pub fn handle_vesting_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
     }    
 }
 
+/// Instantiate Positions Contract & update existing contract admins to Governance
 pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
@@ -488,7 +495,7 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "method")
+                        .any(|attr| attr.key == "contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -530,7 +537,6 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 contract_addr: addrs.governance.to_string(), 
                 admin: addrs.clone().governance.to_string(),
             }));
-
             
             //Instantiate Positions
             let cdp_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
@@ -567,6 +573,8 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
     }    
 }
 
+/// Add initial collateral oracles & create Basket with initial collateral types.
+/// Instantiate Stability Pool contract.
 pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
@@ -579,7 +587,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "method")
+                        .any(|attr| attr.key == "contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -710,7 +718,6 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 credit_price: Decimal::one(),
                 base_interest_rate: Some(Decimal::percent(1)),
                 credit_pool_infos: vec![],
-                liquidity_multiplier_for_debt_caps: Some(Decimal::percent(400_00)), //0.5% (0.5% would be 200x but the liquidity contract only counts CDT so we double)
                 liq_queue: None,
             };
             let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
@@ -740,7 +747,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 funds: vec![], 
                 label: String::from("stability_pool"), 
             });
-            let sub_msg = SubMsg::reply_on_success(sp_instantiation, STABILITY_POOL_REPLY_ID);     
+            let sub_msg = SubMsg::reply_on_success(sp_instantiation, STABILITY_POOL_REPLY_ID);    
 
             Ok(Response::new().add_messages(msgs).add_submessage(sub_msg))
         },
@@ -748,6 +755,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
     }    
 }
 
+/// Instantiate Liquidation Queue
 pub fn handle_sp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
@@ -760,7 +768,7 @@ pub fn handle_sp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "method")
+                        .any(|attr| attr.key == "contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -792,8 +800,7 @@ pub fn handle_sp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 funds: vec![], 
                 label: String::from("liquidation_queue"), 
             });
-            let sub_msg = SubMsg::reply_on_success(lq_instantiation, LIQ_QUEUE_REPLY_ID);     
-            
+            let sub_msg = SubMsg::reply_on_success(lq_instantiation, LIQ_QUEUE_REPLY_ID);
             
             Ok(Response::new()
                 .add_submessage(sub_msg)
@@ -803,6 +810,8 @@ pub fn handle_sp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
     }    
 }
 
+/// Add LQ to Basket alongside both LPs & 3/5 SupplyCaps.
+/// Instantiate Liquidity Check
 pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
@@ -815,7 +824,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "method")
+                        .any(|attr| attr.key == "contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -856,7 +865,6 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: Some(addrs.clone().liq_queue.to_string()),
-                liquidity_multiplier: None,
                 collateral_supply_caps: Some(vec![
                 SupplyCap {
                     asset_info: AssetInfo::NativeToken {
@@ -923,7 +931,6 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                     rate_index: Decimal::one(),
                 }),
                 liq_queue: None,
-                liquidity_multiplier: None,
                 collateral_supply_caps: None,
                 base_interest_rate: None,
                 credit_asset_twap_price_source: None,
@@ -939,8 +946,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 msg: to_binary(&msg)?, 
                 funds: vec![], 
             });
-            msgs.push(msg);
-            
+            msgs.push(msg);            
                        
             //Instantiate Liquidity Check
             let lc_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
@@ -967,6 +973,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
     }    
 }
 
+/// Instantiate Discount Vault
 pub fn handle_lc_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
@@ -979,7 +986,7 @@ pub fn handle_lc_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "method")
+                        .any(|attr| attr.key == "contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -1023,6 +1030,7 @@ pub fn handle_lc_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
     }    
 }
 
+/// Instantiate System Discounts
 pub fn handle_discount_vault_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
@@ -1035,7 +1043,7 @@ pub fn handle_discount_vault_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdRe
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "method")
+                        .any(|attr| attr.key == "contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -1083,6 +1091,7 @@ pub fn handle_discount_vault_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdRe
     }    
 }
 
+/// Instantiate Debt Auction
 pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
@@ -1095,7 +1104,7 @@ pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "method")
+                        .any(|attr| attr.key == "contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -1126,7 +1135,7 @@ pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                     twap_timeframe: 60u64,
                     mbrn_denom: config.clone().mbrn_denom,
                     initial_discount: Decimal::percent(1),
-                    discount_increase_timeframe: 15u64,
+                    discount_increase_timeframe: 15 * 60, //15 minutes,
                     discount_increase: Decimal::percent(1),
                 })?, 
                 funds: vec![], 
@@ -1143,7 +1152,10 @@ pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
     }    
 }
 
-
+/// Add Owners & contracts to the Osmosis Proxy.
+/// Add contracts to contract configurations & change owners to Governance.
+/// Query saved share tokens in Position's contract & add Supply Caps for them.
+/// Instantiate Margin Proxy.
 pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => { 
@@ -1156,7 +1168,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "method")
+                        .any(|attr| attr.key == "contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -1180,13 +1192,50 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
 
             //Add owners & new contracts to OP
             let msg = OPExecuteMsg::UpdateConfig { 
-                owner: Some(vec![
-                    addrs.clone().positions.to_string(), 
-                    addrs.clone().vesting.to_string(), 
-                    addrs.clone().staking.to_string(), 
-                    addrs.clone().stability_pool.to_string(), 
-                    addrs.clone().governance.to_string(), 
-                    addrs.clone().mbrn_auction.to_string(),
+                owners: Some(vec![
+                    Owner {
+                        owner: addrs.clone().positions, 
+                        total_minted: Uint128::zero(),
+                        liquidity_multiplier: Some(Decimal::percent(360_00)), //0.55% (0.55% would be 180x but the liquidity contract only counts CDT so we double)
+                        stability_pool_ratio: Some(Decimal::one()), //CDP contracts gets full share of SP cap size (for now)
+                        non_token_contract_auth: false,
+                    },
+                    // No other owners mint CDT atm
+                    Owner {
+                        owner: addrs.clone().vesting, 
+                        total_minted: Uint128::zero(),
+                        liquidity_multiplier: None,
+                        stability_pool_ratio: None,
+                        non_token_contract_auth: false,
+                    },
+                    Owner {
+                        owner: addrs.clone().staking, 
+                        total_minted: Uint128::zero(),
+                        liquidity_multiplier: None,
+                        stability_pool_ratio: None,
+                        non_token_contract_auth: false,
+                    },
+                    Owner {
+                        owner: addrs.clone().stability_pool, 
+                        total_minted: Uint128::zero(),
+                        liquidity_multiplier: None,
+                        stability_pool_ratio: None,
+                        non_token_contract_auth: false,
+                    },
+                    Owner {
+                        owner: addrs.clone().governance, 
+                        total_minted: Uint128::zero(),
+                        liquidity_multiplier: None,
+                        stability_pool_ratio: None,
+                        non_token_contract_auth: true, //Governance has full control over the system but no need to mint CDT
+                    },
+                    Owner {
+                        owner: addrs.clone().mbrn_auction, 
+                        total_minted: Uint128::zero(),
+                        liquidity_multiplier: None,
+                        stability_pool_ratio: None,
+                        non_token_contract_auth: false,
+                    }
                     ]), 
                 add_owner: true, 
                 debt_auction: Some(addrs.clone().mbrn_auction.to_string()), 
@@ -1199,7 +1248,6 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                 funds: vec![], 
             });
             msgs.push(msg);
-
             
             ////Add contracts to contract configurations & change owners to Governance
             //Oracle
@@ -1294,7 +1342,6 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
             let msg = CDPExecuteMsg::EditBasket(EditBasket {
                 added_cAsset: None,
                 liq_queue: None,
-                liquidity_multiplier: None,
                 collateral_supply_caps: Some(lp_supply_caps),
                 base_interest_rate: None,
                 credit_asset_twap_price_source: None,

@@ -3,7 +3,7 @@ use std::str::FromStr;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::{Decimal, Deps, StdError, StdResult, Uint128};
 use membrane::liq_queue::{
-    Config, BidResponse, ClaimsResponse, LiquidatibleResponse, QueueResponse, SlotResponse,
+    Config, BidResponse, ClaimsResponse, LiquidatibleResponse, SlotResponse, QueueResponse,
 };
 use membrane::math::{Decimal256, Uint256};
 use membrane::types::{AssetInfo, Bid, PremiumSlot, Queue};
@@ -14,18 +14,7 @@ use crate::bid::{
     read_premium_slot,
 };
 
-
-pub fn query_queue(deps: Deps, bid_for: AssetInfo) -> StdResult<QueueResponse> {
-    let queue = QUEUES.load(deps.storage, bid_for.to_string())?;
-
-    Ok(QueueResponse {
-        bid_asset: queue.bid_asset.to_string(),
-        max_premium: queue.max_premium.to_string(),
-        current_bid_id: queue.current_bid_id.to_string(),
-        bid_threshold: queue.bid_threshold.to_string(),
-    })
-}
-
+/// Return Multiple Queues
 pub fn query_queues(
     deps: Deps,
     start_after: Option<AssetInfo>,
@@ -48,32 +37,22 @@ pub fn query_queues(
         for index in start..asset_list.len() {
             let queue = QUEUES.load(deps.storage, asset_list[index].to_string())?;
 
-            resp.push(QueueResponse {
-                bid_asset: queue.bid_asset.to_string(),
-                max_premium: queue.max_premium.to_string(),
-                current_bid_id: queue.current_bid_id.to_string(),
-                bid_threshold: queue.bid_threshold.to_string(),
-            });
+            resp.push(queue.into_queue_response());
         }
     } else {
         for asset in asset_list.iter().take(limit) {
             let queue = QUEUES.load(deps.storage, asset.to_string())?;
 
-            resp.push(QueueResponse {
-                bid_asset: queue.bid_asset.to_string(),
-                max_premium: queue.max_premium.to_string(),
-                current_bid_id: queue.current_bid_id.to_string(),
-                bid_threshold: queue.bid_threshold.to_string(),
-            });
+            resp.push(queue.into_queue_response());
         }
     }
 
     Ok(resp)
 }
 
+/// Query liquidatible collateral
 pub fn query_liquidatible(
     deps: Deps,
-    // env: Env,
     bid_for: AssetInfo,
     collateral_price: Decimal,
     collateral_amount: Uint256,
@@ -152,10 +131,11 @@ pub fn query_liquidatible(
     //If 0, it means there is no leftover and the collateral_amount is liquidatible
     Ok(LiquidatibleResponse {
         leftover_collateral: (remaining_collateral_to_liquidate.0.to_string()),
-        total_credit_repaid: total_credit_repaid.to_string(),
+        total_debt_repaid: total_credit_repaid.to_string(),
     })
 }
 
+/// Return SlotResponse for a given premium in a queue
 pub fn query_premium_slot(
     deps: Deps,
     bid_for: AssetInfo,
@@ -189,6 +169,7 @@ pub fn query_premium_slot(
     })
 }
 
+/// Return multiple SlotResponses
 pub fn query_premium_slots(
     deps: Deps,
     bid_for: AssetInfo,
@@ -241,6 +222,7 @@ pub fn query_premium_slots(
     }
 }
 
+/// Return BidResponse for a given bid_id
 pub fn query_bid(deps: Deps, bid_for: AssetInfo, bid_id: Uint128) -> StdResult<BidResponse> {
     let bid: Bid = read_bid(deps.storage, bid_id, bid_for.clone())?;
     let slot: PremiumSlot = match read_premium_slot(deps.storage, bid_for.clone(), bid.liq_premium)
@@ -285,6 +267,7 @@ pub fn query_bid(deps: Deps, bid_for: AssetInfo, bid_id: Uint128) -> StdResult<B
     })
 }
 
+/// Return multiple BidResponses for a given user
 pub fn query_bids_by_user(
     deps: Deps,
     bid_for: AssetInfo,
@@ -300,9 +283,7 @@ pub fn query_bids_by_user(
         valid_user,
         limit,
         start_after,
-    )?;
-
-    
+    )?;    
 
     user_bids
         .into_iter()
@@ -313,6 +294,7 @@ pub fn query_bids_by_user(
         .collect::<StdResult<Vec<BidResponse>>>()
 }
 
+/// Return liquidated collateral for a given user
 pub fn query_user_claims(deps: Deps, user: String) -> StdResult<Vec<ClaimsResponse>> {
     let valid_user = deps.api.addr_validate(&user)?;
 

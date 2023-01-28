@@ -1,11 +1,8 @@
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-
-use cosmwasm_std::{Uint128, Addr};
+use cosmwasm_std::Addr;
 use cw_storage_plus::{Item, Map};
 
 use membrane::discount_vault::Config;
-use membrane::types::{VaultUser, VaultedLP, AssetInfo};
+use membrane::types::VaultUser;
 
 
 pub const CONFIG: Item<Config> = Item::new("config");

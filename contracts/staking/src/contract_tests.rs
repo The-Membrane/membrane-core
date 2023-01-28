@@ -15,7 +15,6 @@ use membrane::staking::{
 };
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit, StakeDistribution};
 
-
 #[test]
 fn update_config(){
 

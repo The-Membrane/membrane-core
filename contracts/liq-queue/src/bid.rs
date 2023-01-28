@@ -3,7 +3,7 @@ use std::str::FromStr;
 use bigint::U256;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::{
-    attr, to_binary, Addr, BankMsg, CanonicalAddr, Coin, CosmosMsg, Decimal, DepsMut, Env,
+    attr, to_binary, Addr, CanonicalAddr, Coin, CosmosMsg, Decimal, DepsMut, Env,
     MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg,
 };
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
@@ -11,10 +11,8 @@ use membrane::math::{Decimal256, Uint256};
 use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::liq_queue::Config;
 use membrane::types::{Asset, AssetInfo, Bid, BidInput, PremiumSlot, Queue};
+use membrane::helpers::{validate_position_owner, withdrawal_msg, asset_to_coin};
 
-use cw20::Cw20ExecuteMsg;
-
-use crate::contract::validate_position_owner;
 use crate::error::ContractError;
 use crate::state::{CONFIG, QUEUES};
 
@@ -22,8 +20,8 @@ const MAX_LIMIT: u32 = 2147483646;
 
 static PREFIX_EPOCH_SCALE_SUM: &[u8] = b"epoch_scale_sum";
 
+/// Create Bid and add to the corresponding Slot
 pub fn submit_bid(
-    //Create Bid and add to the corresponding Slot
     deps: DepsMut,
     info: MessageInfo,
     env: Env,
@@ -105,7 +103,7 @@ pub fn submit_bid(
     queue.slots = new_slots;
 
     //Save queue to state
-    store_queue(deps.storage, bid_input.bid_for.to_string(), queue)?;
+    QUEUES.save(deps.storage, bid_input.bid_for.to_string(), &queue)?;
 
     //Response build
     let response = Response::new();
@@ -118,6 +116,7 @@ pub fn submit_bid(
     ]))
 }
 
+/// Activate bid
 fn process_bid_activation(bid: &mut Bid, slot: &mut PremiumSlot) {
     bid.product_snapshot = slot.product_snapshot;
     bid.sum_snapshot = slot.sum_snapshot;
@@ -126,6 +125,7 @@ fn process_bid_activation(bid: &mut Bid, slot: &mut PremiumSlot) {
     bid.epoch_snapshot = slot.current_epoch;
 }
 
+/// Validate sent assets
 pub fn assert_bid_asset_from_sent_funds(
     bid_asset: AssetInfo,
     info: &MessageInfo,
@@ -158,22 +158,7 @@ pub fn assert_bid_asset_from_sent_funds(
     }
 }
 
-pub fn store_queue(
-    deps: &mut dyn Storage,
-    bid_for: String,
-    queue: Queue,
-) -> Result<(), ContractError> {
-
-    QUEUES.update(deps, bid_for, |old_queue| -> Result<Queue, ContractError> {
-        match old_queue {
-            Some(_old_queue) => Ok(queue),
-            None => Err(ContractError::InvalidAsset {}),
-        }
-    })?;
-
-    Ok(())
-}
-
+/// Withdraw bid amount
 pub fn retract_bid(
     deps: DepsMut,
     info: MessageInfo,
@@ -265,7 +250,7 @@ pub fn retract_bid(
 
         //Store total bids
         queue.bid_asset.amount -= Uint128::from(w_amount);
-        store_queue(deps.storage, bid_for.to_string(), queue.clone())?;
+        QUEUES.save(deps.storage, bid_for.to_string(), &queue)?;
 
         msgs.push(withdrawal_msg(
             Asset {
@@ -301,7 +286,6 @@ pub fn execute_liquidation(
     bid_for: AssetInfo, //aka collateral_info
     collateral_price: Decimal,
     credit_price: Decimal,
-    bid_with: AssetInfo,
     //For Repayment
     position_id: Uint128,
     position_owner: String,
@@ -313,6 +297,9 @@ pub fn execute_liquidation(
     if info.sender != config.positions_contract {
         return Err(ContractError::Unauthorized {});
     }
+    
+    //Get bid_with asset from Config
+    let bid_with: AssetInfo = config.bid_asset;
 
     let queue = QUEUES.load(deps.storage, bid_for.to_string())?;
     if queue.bid_asset.info != bid_with {
@@ -392,7 +379,7 @@ pub fn execute_liquidation(
         Err(_) => return Err(ContractError::InsufficientBids {}),
     };
 
-    store_queue(deps.storage, bid_for.to_string(), queue.clone())?;
+    QUEUES.save(deps.storage, bid_for.to_string(), &queue)?;
 
     let repay_msg = CDP_ExecuteMsg::Repay {
         position_id,
@@ -625,7 +612,7 @@ fn execute_pool_liquidation(
     Ok((pool_required_stable, pool_collateral_to_liquidate))
 }
 
-
+/// Calculate & update PremiumSlot total bid amount
 pub(crate) fn set_slot_total(
     deps: &mut dyn Storage,
     mut slot: PremiumSlot,
@@ -676,7 +663,7 @@ pub(crate) fn set_slot_total(
 
     slot.bids = edited_bids;
 
-    store_queue(deps, bid_for.to_string(), queue)?;
+    QUEUES.save(deps, bid_for.to_string(), &queue)?;
 
     //Set the last_total time
     slot.last_total = block_time;
@@ -684,8 +671,8 @@ pub(crate) fn set_slot_total(
     Ok(slot)
 }
 
+/// Claim residue bids due to bid type conversions
 fn claim_bid_residue(slot: &mut PremiumSlot) -> Uint256 {
-
     let claimable = slot.residue_bid * Uint256::one();
 
     if !claimable.is_zero() {
@@ -694,8 +681,8 @@ fn claim_bid_residue(slot: &mut PremiumSlot) -> Uint256 {
     claimable
 }
 
+/// Claim residue collateral due to collateral type conversions
 fn claim_col_residue(slot: &mut PremiumSlot) -> Uint256 {
-
     let claimable = slot.residue_collateral * Uint256::one();
 
     if !claimable.is_zero() {
@@ -704,6 +691,7 @@ fn claim_col_residue(slot: &mut PremiumSlot) -> Uint256 {
     claimable
 }
 
+/// Calculate the amount of collateral to liquidate
 pub fn calculate_liquidated_collateral(
     deps: &dyn Storage,
     bid: &Bid,
@@ -747,6 +735,7 @@ pub fn calculate_liquidated_collateral(
     Ok((liquidated_collateral, residue_collateral))
 }
 
+/// Store epoch scale sum
 pub fn store_epoch_scale_sum(
     deps: &mut dyn Storage,
     bid_for: &CanonicalAddr,
@@ -755,7 +744,6 @@ pub fn store_epoch_scale_sum(
     scale: Uint128,
     sum: Decimal256,
 ) -> StdResult<()> {
-
     let mut epoch_scale_sum: Bucket<Decimal256> = Bucket::multilevel(
         deps,
         &[
@@ -768,6 +756,7 @@ pub fn store_epoch_scale_sum(
     epoch_scale_sum.save(&scale.u128().to_be_bytes(), &sum)
 }
 
+/// Read epoch scale sum
 pub fn read_epoch_scale_sum(
     deps: &dyn Storage,
     bid_for: &CanonicalAddr,
@@ -775,7 +764,6 @@ pub fn read_epoch_scale_sum(
     epoch: Uint128,
     scale: Uint128,
 ) -> StdResult<Decimal256> {
-
     let epoch_scale_sum: ReadonlyBucket<Decimal256> = ReadonlyBucket::multilevel(
         deps,
         &[
@@ -789,8 +777,8 @@ pub fn read_epoch_scale_sum(
     epoch_scale_sum.load(&scale.u128().to_be_bytes())
 }
 
+/// Calculate the remaining bid amount after a scale change, i.e. a liquidation or a bid activation
 pub fn calculate_remaining_bid(bid: &Bid, slot: &PremiumSlot) -> StdResult<(Uint256, Decimal256)> {
-
     let scale_diff: Uint128 = slot.current_scale.checked_sub(bid.scale_snapshot)?;
     let epoch_diff: Uint128 = slot.current_epoch.checked_sub(bid.epoch_snapshot)?;
 
@@ -816,12 +804,12 @@ pub fn calculate_remaining_bid(bid: &Bid, slot: &PremiumSlot) -> StdResult<(Uint
     Ok((remaining_bid, bid_residue))
 }
 
+/// Read premium slot
 pub fn read_premium_slot(
     deps: &dyn Storage,
     bid_for: AssetInfo,
     premium: u8,
 ) -> StdResult<PremiumSlot> {
-
     let queue = QUEUES.load(deps, bid_for.to_string())?;
 
     let slot = match queue
@@ -841,6 +829,7 @@ pub fn read_premium_slot(
     Ok(slot)
 }
 
+/// Store premium slot
 fn store_premium_slot(
     deps: &mut dyn Storage,
     bid_for: AssetInfo,
@@ -877,6 +866,7 @@ fn store_premium_slot(
     Ok(())
 }
 
+/// Remove bid from premium slot
 fn remove_bid(deps: &mut dyn Storage, bid: Bid, bid_for: AssetInfo) -> Result<(), ContractError> {
 
     //load Queue
@@ -924,24 +914,14 @@ fn remove_bid(deps: &mut dyn Storage, bid: Bid, bid_for: AssetInfo) -> Result<()
     //Set
     queue.slots = slots;
 
-    //Update
-    QUEUES.update(
-        deps,
-        bid_for.to_string(),
-        |old_queue| -> Result<Queue, ContractError> {
-            match old_queue {
-                Some(_old_queue) => Ok(queue),
-                None => Err(ContractError::InvalidAsset {}),
-            }
-        },
-    )?;
+    //Update Queue to save slots
+    QUEUES.save(deps, bid_for.to_string(), &queue)?;
 
     Ok(())
 }
 
+/// Store bid in premium slot
 fn store_bid(deps: &mut dyn Storage, bid_for: AssetInfo, bid: Bid) -> Result<(), ContractError> {
-
-    //load Queue
     let mut queue = QUEUES.load(deps, bid_for.to_string())?;
 
     //Get premium_slot to edit
@@ -987,21 +967,13 @@ fn store_bid(deps: &mut dyn Storage, bid_for: AssetInfo, bid: Bid) -> Result<(),
     //Set
     queue.slots = slots;
 
-    //Update
-    QUEUES.update(
-        deps,
-        bid_for.to_string(),
-        |old_queue| -> Result<Queue, ContractError> {
-            match old_queue {
-                Some(_old_queue) => Ok(queue),
-                None => Err(ContractError::InvalidAsset {}),
-            }
-        },
-    )?;
+    //Update Queue to save slots
+    QUEUES.save(deps, bid_for.to_string(), &queue)?;
 
     Ok(())
 }
 
+/// Validate withdrawal amount
 fn assert_withdraw_amount(
     withdraw_amount: Option<Uint256>,
     withdrawable_amount: Uint256,
@@ -1020,8 +992,8 @@ fn assert_withdraw_amount(
     Ok(withdrawal_amount)
 }
 
+/// Return Bid from storage
 pub fn read_bid(deps: &dyn Storage, bid_id: Uint128, bid_for: AssetInfo) -> StdResult<Bid> {
-
     let mut read_bid: Option<Bid> = None;
 
     let queue = QUEUES.load(deps, bid_for.to_string())?;
@@ -1050,6 +1022,7 @@ pub fn read_bid(deps: &dyn Storage, bid_id: Uint128, bid_for: AssetInfo) -> StdR
     Ok(read_bid.unwrap())
 }
 
+/// Return Bids for a user
 pub fn read_bids_by_user(
     deps: &dyn Storage,
     bid_for: String,
@@ -1079,44 +1052,7 @@ pub fn read_bids_by_user(
     Ok(read_bids)
 }
 
-pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> Result<CosmosMsg, ContractError> {
-
-    let asset_amount: Uint128 = asset.amount;
-
-    match asset.clone().info {
-        AssetInfo::Token { address } => {
-            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: address.to_string(),
-                msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                    recipient: recipient.to_string(),
-                    amount: asset_amount,
-                })?,
-                funds: vec![],
-            });
-            Ok(message)
-        }
-        AssetInfo::NativeToken { denom: _ } => {
-            let coin: Coin = asset_to_coin(asset)?;
-            let message = CosmosMsg::Bank(BankMsg::Send {
-                to_address: recipient.to_string(),
-                amount: vec![coin],
-            });
-            Ok(message)
-        }
-    }
-}
-
-pub fn asset_to_coin(asset: Asset) -> Result<Coin, ContractError> {
-    match asset.info {
-        //
-        AssetInfo::Token { address: _ } => Err(ContractError::InvalidParameters {}),
-        AssetInfo::NativeToken { denom } => Ok(Coin {
-            denom,
-            amount: asset.amount,
-        }),
-    }
-}
-
+/// Validate bid input
 pub fn validate_bid_input(deps: &dyn Storage, bid_input: BidInput) -> Result<(), ContractError> {
     match QUEUES.load(deps, bid_input.bid_for.to_string()) {
         Ok(queue) => {

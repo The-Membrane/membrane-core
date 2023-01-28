@@ -46,6 +46,7 @@ pub fn liquidate(
         valid_position_owner.clone(),
         position_id,
     )?;
+    
     //Accrue interest
     accrue(
         storage,
@@ -55,6 +56,7 @@ pub fn liquidate(
         &mut basket,
         position_owner.clone(),
     )?;
+    
     //Save updated repayment price and basket debt
     BASKET.save(storage, &basket)?;
 
@@ -82,7 +84,6 @@ pub fn liquidate(
 
     //Send liquidation amounts and info to the modules
     //Calculate how much needs to be liquidated (down to max_borrow_LTV):
-
     let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices) = get_avg_LTV(
         storage,
         env.clone(),
@@ -92,7 +93,7 @@ pub fn liquidate(
     )?;
 
     //Get repay value and repay_amount
-    let (repay_value, mut credit_repay_amount) = get_repay_quantities(config.clone(), basket.clone(), target_position.clone(), current_LTV.clone(), avg_borrow_LTV)?;
+    let (repay_value, mut credit_repay_amount) = get_repay_quantities(config.clone(), basket.clone(), target_position.clone(), current_LTV, avg_borrow_LTV)?;
 
     // Don't send any funds here, only send UserInfo and repayment amounts.
     // We want to act on the reply status but since SubMsg state won't revert if we catch the error,
@@ -115,10 +116,10 @@ pub fn liquidate(
     let collateral_assets = target_position.clone().collateral_assets;
 
     //Dynamic fee that goes to the caller (info.sender): current_LTV - max_LTV
-    let caller_fee = decimal_subtraction(current_LTV, avg_max_LTV);
+    let caller_fee = decimal_subtraction(current_LTV, avg_max_LTV)?;
 
     //Get amount of repayment user can repay from the Stability Pool
-    let user_repay_amount = get_user_repay_amount(querier, config.clone(), basket.clone(), position_id.clone(), position_owner.clone(), &mut credit_repay_amount, &mut submessages)?;
+    let user_repay_amount = get_user_repay_amount(querier, config.clone(), basket.clone(), position_id, position_owner.clone(), &mut credit_repay_amount, &mut submessages)?;
     
     //Track total leftover repayment after the liq_queue
     let mut liq_queue_leftover_credit_repayment: Decimal = credit_repay_amount;
@@ -136,16 +137,16 @@ pub fn liquidate(
         env.clone(), 
         config.clone(), 
         basket.clone(), 
-        position_id.clone(), 
+        position_id, 
         valid_position_owner.clone(), 
-        info.clone().sender.to_string(),
+        info.sender.to_string(),
         caller_fee,
         collateral_assets.clone(), 
         &mut credit_repay_amount, 
         &mut leftover_position_value, 
         &mut liq_queue_leftover_credit_repayment, 
         repay_value, 
-        cAsset_ratios.clone(), 
+        cAsset_ratios, 
         cAsset_prices, 
         &mut submessages, 
         &mut fee_messages, 
@@ -159,9 +160,9 @@ pub fn liquidate(
         querier,
         api, 
         env.clone(), 
-        config.clone(), 
+        config, 
         basket.clone(), 
-        position_id.clone(), 
+        position_id, 
         valid_position_owner.clone(), 
         collateral_assets.clone(), 
         &mut liq_queue_leftover_credit_repayment, 
@@ -169,7 +170,7 @@ pub fn liquidate(
         &mut leftover_position_value, 
         &mut submessages, 
         per_asset_repayment, 
-        user_repay_amount.clone()
+        user_repay_amount,
     )?;
     
     //Extend LP withdraw messages
@@ -178,7 +179,7 @@ pub fn liquidate(
 
     //Create the Bad debt callback message to be added as the last SubMsg
     let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: env.clone().contract.address.to_string(),
+        contract_addr: env.contract.address.to_string(),
         msg: to_binary(&ExecuteMsg::Callback(CallbackMsg::BadDebtCheck {
             position_id,
             position_owner: valid_position_owner.clone(),
@@ -195,7 +196,7 @@ pub fn liquidate(
     //If we don't we are guaranteeing increased bad debt by selling collateral for a discount.
     if !(leftover_repayment).is_zero()
         && leftover_position_value
-            <= decimal_multiplication(leftover_repayment, basket.clone().credit_price)
+            <= decimal_multiplication(leftover_repayment, basket.clone().credit_price)?
     {
         //Sell wall credit_repay_amount
         //The other submessages were for the LQ and SP so we reassign the submessage variable
@@ -204,11 +205,11 @@ pub fn liquidate(
             querier,
             api,
             env.clone(),
-            collateral_assets.clone(),
+            collateral_assets,
             credit_repay_amount,
             basket.clone(),
             position_id,
-            position_owner.clone(),
+            position_owner,
         )?;
 
         // Set repay values for reply msg
@@ -219,9 +220,9 @@ pub fn liquidate(
             user_repay_amount,
             position_info: UserInfo {
                 position_id,
-                position_owner: valid_position_owner.clone().to_string()
+                position_owner: valid_position_owner.to_string()
             },
-            positions_contract: env.clone().contract.address,
+            positions_contract: env.contract.address,
         };
 
         LIQUIDATION.save(storage, &liquidation_propagation)?;
@@ -238,10 +239,7 @@ pub fn liquidate(
             ]))
     } else {
         let mut liquidation_propagation: Option<String> = None;
-        match LIQUIDATION.load(storage) {
-            Ok(repay) => liquidation_propagation = Some(format!("{:?}", repay)),
-            Err(_) => {}
-        }
+        if let Ok(repay) = LIQUIDATION.load(storage) { liquidation_propagation = Some(format!("{:?}", repay)) }
 
         Ok(res
             //.add_messages(lp_withdraw_messages)
@@ -271,12 +269,12 @@ fn get_repay_quantities(
     // max_borrow_LTV/ current_LTV, * current_loan_value, current_loan_value - __ = value of loan amount
     let loan_value = decimal_multiplication(
         basket.credit_price,
-        Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)),
-    );
+        Decimal::from_ratio(target_position.credit_amount, Uint128::new(1u128)),
+    )?;
 
     //repay value = the % of the loan insolvent. Insolvent is anything between current and max borrow LTV.
     //IE, repay what to get the position down to borrow LTV
-    let mut repay_value = decimal_multiplication( decimal_division( decimal_subtraction(current_LTV, borrow_LTV), current_LTV), loan_value);
+    let mut repay_value = decimal_multiplication( decimal_division( decimal_subtraction(current_LTV, borrow_LTV)?, current_LTV)?, loan_value)?;
 
     //Assert repay_value is above the minimum, if not repay at least the minimum
     //Repay the full loan if the resulting leftover credit amount is less than the minimum.
@@ -292,12 +290,12 @@ fn get_repay_quantities(
         }
     }
 
-    let credit_repay_amount = match decimal_division(repay_value, basket.clone().credit_price) {
+    let credit_repay_amount = match decimal_division(repay_value, basket.credit_price)?{
         //Repay amount has to be above 0, or there is nothing to liquidate and there was a mistake prior
         x if x <= Decimal::new(Uint128::zero()) => return Err(ContractError::PositionSolvent {}),
         //No need to repay more than the debt
         x if x > Decimal::from_ratio(
-            target_position.clone().credit_amount,
+            target_position.credit_amount,
             Uint128::new(1u128),
         ) =>
         {
@@ -322,7 +320,7 @@ fn get_user_repay_amount(
 
     let mut user_repay_amount = Decimal::zero();
     //Let the user repay their position if they are in the SP
-    if config.clone().stability_pool.is_some() {
+    if config.stability_pool.is_some() {
         //Query Stability Pool to see if the user has funds
         let user_deposits = querier
             .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
@@ -358,16 +356,16 @@ fn get_user_repay_amount(
             let repay_msg = SP_ExecuteMsg::Repay {
                 user_info: UserInfo {
                     position_id,
-                    position_owner: position_owner.clone(),
+                    position_owner,
                 },
                 repayment: Asset {
                     amount: user_repay_amount * Uint128::new(1u128),
-                    info: basket.clone().credit_asset.info,
+                    info: basket.credit_asset.info,
                 },
             };
 
             let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.clone().stability_pool.unwrap().to_string(),
+                contract_addr: config.stability_pool.unwrap().to_string(),
                 msg: to_binary(&repay_msg)?,
                 funds: vec![],
             });
@@ -377,7 +375,7 @@ fn get_user_repay_amount(
             submessages.push(sub_msg);
 
             //Subtract Repay amount from credit_repay_amount for the liquidation
-            *credit_repay_amount = decimal_subtraction(*credit_repay_amount, user_repay_amount);
+            *credit_repay_amount = decimal_subtraction(*credit_repay_amount, user_repay_amount)?;
         }
     }
 
@@ -408,22 +406,22 @@ fn per_asset_fulfillments(
     per_asset_repayment: &mut Vec<Decimal>,
 ) -> StdResult<()>{
 
-    for (num, cAsset) in collateral_assets.clone().iter().enumerate() {
+    for (num, cAsset) in collateral_assets.iter().enumerate() {
         let mut caller_coins: Vec<Coin> = vec![];
         let mut protocol_coins: Vec<Coin> = vec![];
         let mut fee_assets: Vec<Asset> = vec![];
 
         let repay_amount_per_asset =
-            decimal_multiplication(*credit_repay_amount, cAsset_ratios[num]);
+            decimal_multiplication(*credit_repay_amount, cAsset_ratios[num])?;
 
 
         let collateral_price = cAsset_prices[num];
-        let collateral_repay_value_for_fees = decimal_multiplication(repay_value, cAsset_ratios[num]);
-        let collateral_repay_amount_for_fees = decimal_division(collateral_repay_value_for_fees, collateral_price);
+        let collateral_repay_value_for_fees = decimal_multiplication(repay_value, cAsset_ratios[num])?;
+        let collateral_repay_amount_for_fees = decimal_division(collateral_repay_value_for_fees, collateral_price)?;
 
         //Subtract Caller fee from Position's claims
         let caller_fee_in_collateral_amount =
-            decimal_multiplication(collateral_repay_amount_for_fees, caller_fee) * Uint128::new(1u128);
+            decimal_multiplication(collateral_repay_amount_for_fees, caller_fee)? * Uint128::new(1u128);
         update_position_claims(
             storage,
             querier,
@@ -436,7 +434,7 @@ fn per_asset_fulfillments(
         
         //Subtract Protocol fee from Position's claims
         let protocol_fee_in_collateral_amount =
-            decimal_multiplication(collateral_repay_amount_for_fees, config.clone().liq_fee)
+            decimal_multiplication(collateral_repay_amount_for_fees, config.clone().liq_fee)?
                 * Uint128::new(1u128);
         update_position_claims(
             storage,
@@ -451,8 +449,8 @@ fn per_asset_fulfillments(
         //After fees are calculated, set collateral_repay_amount to the amount minus anything the user paid from the SP
         //Has to be after or user_repayment would disincentivize liquidations which would force a non-trivial debt minimum
         let collateral_repay_value =
-            decimal_multiplication(repay_amount_per_asset, basket.clone().credit_price);
-        let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price);
+            decimal_multiplication(repay_amount_per_asset, basket.clone().credit_price)?;
+        let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?;
 
         //Subtract fees from leftover_position value
         //fee_value = total_fee_collateral_amount * collateral_price
@@ -462,8 +460,8 @@ fn per_asset_fulfillments(
                 Uint128::new(1u128),
             ),
             collateral_price,
-        );
-        *leftover_position_value = decimal_subtraction(*leftover_position_value, fee_value);
+        )?;
+        *leftover_position_value = decimal_subtraction(*leftover_position_value, fee_value)?;
 
         //Create msgs to caller as well as to liq_queue if.is_some()
         match cAsset.clone().asset.info {
@@ -528,15 +526,15 @@ fn per_asset_fulfillments(
             let value_paid_to_queue: Decimal = decimal_multiplication(
                 Decimal::from_ratio(queue_asset_amount_paid, Uint128::new(1u128)),
                 collateral_price,
-            );
-            *leftover_position_value = decimal_subtraction(*leftover_position_value, value_paid_to_queue);
+            )?;
+            *leftover_position_value = decimal_subtraction(*leftover_position_value, value_paid_to_queue)?;
 
             //Calculate how much the queue repaid in credit
-            let queue_credit_repaid = Uint128::from_str(&res.total_credit_repaid)?;
+            let queue_credit_repaid = Uint128::from_str(&res.total_debt_repaid)?;
             *liq_queue_leftover_credit_repayment = decimal_subtraction(
                 *liq_queue_leftover_credit_repayment,
                 Decimal::from_ratio(queue_credit_repaid, Uint128::new(1u128)),
-            );
+            )?;
 
             //Call Liq Queue::Liquidate for the asset
             let liq_msg = LQ_ExecuteMsg::Liquidate {
@@ -544,7 +542,6 @@ fn per_asset_fulfillments(
                 collateral_price,
                 collateral_amount: Uint256::from(queue_asset_amount_paid.u128()),
                 bid_for: cAsset.clone().asset.info,
-                bid_with: basket.clone().credit_asset.info,
                 position_id,
                 position_owner: valid_position_owner.clone().to_string(),
             };
@@ -589,7 +586,7 @@ fn build_sp_sw_submsgs(
     let mut lp_withdraw_messages = vec![];
     let mut sell_wall_messages = vec![];
     
-    if config.clone().stability_pool.is_some() && !liq_queue_leftover_credit_repayment.is_zero() {
+    if config.stability_pool.is_some() && !liq_queue_leftover_credit_repayment.is_zero() {
         let sp_liq_fee = query_stability_pool_fee(querier, config.clone().stability_pool.unwrap().to_string())?;
 
         //If LTV is 90% and the fees are 10%, the position would pay everything to pay the liquidators.
@@ -599,12 +596,11 @@ fn build_sp_sw_submsgs(
         //Bc the LQ has already repaid some
         let leftover_repayment_value = decimal_multiplication(
             *liq_queue_leftover_credit_repayment,
-            basket.clone().credit_price,
-        );
+            basket.credit_price,
+        )?;
 
         //SP liq_fee Guarantee check
-        if !(*leftover_position_value
-            >= decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee)))
+        if *leftover_position_value < decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee))?
         {
             sell_wall_repayment_amount = *liq_queue_leftover_credit_repayment;
 
@@ -614,18 +610,18 @@ fn build_sp_sw_submsgs(
                 querier,
                 api,
                 env.clone(),
-                collateral_assets.clone(),
+                collateral_assets,
                 sell_wall_repayment_amount,
-                basket.clone(),
+                basket,
                 position_id,
-                valid_position_owner.clone().to_string(),
+                valid_position_owner.to_string(),
             )?;
             lp_withdraw_messages = lp_withdraw_msgs;
             sell_wall_messages = sell_wall_msgs;
 
             //Leftover's starts as the total LQ is supposed to pay,
             //and is subtracted by every successful LQ reply
-            let liq_queue_leftovers = decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment);
+            let liq_queue_leftovers = decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment)?;
 
             // Set repay values for reply msg
             let liquidation_propagation = LiquidationPropagation {
@@ -635,9 +631,9 @@ fn build_sp_sw_submsgs(
                 user_repay_amount,
                 position_info: UserInfo {
                     position_id,
-                    position_owner: valid_position_owner.clone().to_string()
+                    position_owner: valid_position_owner.to_string()
                 },
-                positions_contract: env.clone().contract.address,
+                positions_contract: env.contract.address,
             };
 
             LIQUIDATION.save(storage, &liquidation_propagation)?;
@@ -659,11 +655,11 @@ fn build_sp_sw_submsgs(
                     querier,
                     api,
                     env.clone(),
-                    collateral_assets.clone(),
+                    collateral_assets,
                     sell_wall_repayment_amount,
                     basket.clone(),
                     position_id,
-                    valid_position_owner.clone().to_string(),
+                    valid_position_owner.to_string(),
                 )?;
                 lp_withdraw_messages = lp_withdraw_msgs;
                 sell_wall_messages = sell_wall_msgs;
@@ -671,11 +667,11 @@ fn build_sp_sw_submsgs(
             }
 
             //Set Stability Pool repay_amount
-            let sp_repay_amount = decimal_subtraction(*liq_queue_leftover_credit_repayment, leftover_repayment);
+            let sp_repay_amount = decimal_subtraction(*liq_queue_leftover_credit_repayment, leftover_repayment)?;
 
             //Leftover's starts as the total LQ is supposed to pay, and is subtracted by every successful LQ reply
             let liq_queue_leftovers =
-                decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment);
+                decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment)?;
             
             // Set repay values for reply msg
             let liquidation_propagation = LiquidationPropagation {
@@ -685,9 +681,9 @@ fn build_sp_sw_submsgs(
                 user_repay_amount,
                 position_info: UserInfo {
                     position_id,
-                    position_owner: valid_position_owner.clone().to_string()
+                    position_owner: valid_position_owner.to_string()
                 },
-                positions_contract: env.clone().contract.address,
+                positions_contract: env.contract.address,
             };
 
             LIQUIDATION.save(storage, &liquidation_propagation)?;
@@ -698,7 +694,7 @@ fn build_sp_sw_submsgs(
             };
 
             let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.clone().stability_pool.unwrap().to_string(),
+                contract_addr: config.stability_pool.unwrap().to_string(),
                 msg: to_binary(&liq_msg)?,
                 funds: vec![],
             });
@@ -716,10 +712,10 @@ fn build_sp_sw_submsgs(
             //Set and subtract the value of what was paid to the Stability Pool
             //(sp_repay_amount * credit_price) * (1+sp_liq_fee)
             let paid_to_sp = decimal_multiplication(
-                decimal_multiplication(sp_repay_amount, basket.credit_price),
+                decimal_multiplication(sp_repay_amount, basket.credit_price)?,
                 (Decimal::one() + sp_liq_fee),
-            );
-            *leftover_position_value = decimal_subtraction(*leftover_position_value, paid_to_sp);
+            )?;
+            *leftover_position_value = decimal_subtraction(*leftover_position_value, paid_to_sp)?;
         }
     } else {
         //In case SP isn't used, we need to set LiquidationPropagation
@@ -731,9 +727,9 @@ fn build_sp_sw_submsgs(
             user_repay_amount,
             position_info: UserInfo {
                 position_id,
-                position_owner: valid_position_owner.clone().to_string()
+                position_owner: valid_position_owner.to_string()
             },
-            positions_contract: env.clone().contract.address,
+            positions_contract: env.contract.address,
         };
 
         LIQUIDATION.save(storage, &liquidation_propagation)?;
@@ -763,8 +759,8 @@ fn get_lp_liq_withdraw_msg(
     let lp_liquidate_amount = decimal_division( 
         decimal_multiplication(
             cAsset_ratios[i],
-            repay_value), 
-            cAsset_prices[i])
+            repay_value)?, 
+            cAsset_prices[i])?
     * Uint128::new(1u128);
 
     //Remove asset from Position claims
@@ -773,15 +769,15 @@ fn get_lp_liq_withdraw_msg(
         querier,
         env.clone(),
         position_id,
-        position_owner.clone(),
-        cAsset.clone().asset.info,
+        position_owner,
+        cAsset.asset.info,
         lp_liquidate_amount,
     )?;   
 
     Ok( pool_query_and_exit(
         querier, 
         env, 
-        config.clone().osmosis_proxy.unwrap().to_string(), 
+        config.osmosis_proxy.unwrap().to_string(), 
         pool_info.pool_id, 
         lp_liquidate_amount
     )?.0 )
@@ -804,22 +800,22 @@ pub fn sell_wall_using_ids(
         Ok(position) => position,
         Err(_err) => return Err(StdError::GenericErr { msg: String::from("Non_existent position") })
     };    
-    let collateral_assets = target_position.clone().collateral_assets;
+    let collateral_assets = target_position.collateral_assets;
 
     match sell_wall(
         storage,
         querier,
         api,
-        env.clone(),
-        collateral_assets.clone(),
+        env,
+        collateral_assets,
         repay_amount,
-        basket.clone(),
+        basket,
         position_id,
         position_owner.to_string(),
     ) {
         Ok(res) => Ok(res),
         Err(err) => {
-            return Err(StdError::GenericErr {
+            Err(StdError::GenericErr {
                 msg: err.to_string(),
             })
         }
@@ -846,7 +842,7 @@ pub fn sell_wall(
     let mut lp_withdraw_messages = vec![];
     let position_owner_addr = api.addr_validate(&position_owner)?;
 
-    let repay_value = decimal_multiplication(repay_amount.clone(), basket.clone().credit_price);
+    let repay_value = decimal_multiplication(repay_amount, basket.credit_price)?;
 
     //Get Pre-Split cAsset_ratios & prices
     let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(storage, env.clone(), querier, collateral_assets.clone(), config.clone())?;   
@@ -865,13 +861,13 @@ pub fn sell_wall(
                 querier, 
                 env.clone(), 
                 config.clone(), 
-                position_id.clone(),
+                position_id,
                 position_owner_addr.clone(),
                 cAsset_ratios.clone(), 
                 cAsset_prices.clone(), 
-                repay_value.clone(),
+                repay_value,
                 cAsset.clone(), 
-                i.clone()  
+                i, 
             )?;
 
             lp_withdraw_messages.push(msg);            
@@ -879,8 +875,8 @@ pub fn sell_wall(
 
             //Calc collateral_repay_amount        
             let collateral_price = cAsset_prices[i];
-            let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[i]);
-            let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price);  
+            let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[i])?;
+            let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?;  
             //The repay_amount after the split may be greater so the amount used to update claims isn't necessary the same amount that'll get sold
 
             //Remove assets from Position claims before spliting the LP cAsset to ensure excess claims aren't removed
@@ -908,7 +904,7 @@ pub fn sell_wall(
     //Post-LP Split ratios
     let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(
         storage,
-        env.clone(),
+        env,
         querier,
         collateral_assets.clone(),
         config.clone(),
@@ -920,8 +916,8 @@ pub fn sell_wall(
 
         //Calc collateral_repay_amount        
         let collateral_price = cAsset_prices[index];
-        let collateral_repay_value = decimal_multiplication(repay_value, ratio);
-        let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price);                
+        let collateral_repay_value = decimal_multiplication(repay_value, ratio)?;
+        let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?;                
 
         let hook_msg = Some(to_binary(&ExecuteMsg::Repay {
             position_id,
@@ -974,7 +970,7 @@ pub fn get_LP_pool_cAssets(
 
     //Add LP's Assets as cAssets
     //Remove LP share token
-    for cAsset in position_assets.clone() {
+    for cAsset in position_assets {
         if let Some(pool_info) = cAsset.pool_info {
 
             //Query share asset amount

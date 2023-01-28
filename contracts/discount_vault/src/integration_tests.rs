@@ -4,13 +4,11 @@ mod tests {
 
     use crate::helpers::VaultContract;
 
-    use membrane::apollo_router::SwapToAssetsInput;
     use membrane::discount_vault::{ExecuteMsg, InstantiateMsg, QueryMsg, UserResponse};
-    use membrane::cdp::{PositionsResponse, PositionResponse};
-    use membrane::types::{AssetInfo, Position, cAsset, Asset, Basket, PoolStateResponse, LPPoolInfo};
+    use membrane::types::{AssetInfo, Position, Asset, Basket, PoolStateResponse, LPPoolInfo};
 
     use cosmwasm_std::{
-        coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal, attr, BlockInfo
+        coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal, BlockInfo
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
     use schemars::JsonSchema;
@@ -33,7 +31,12 @@ mod tests {
     //Mock Positions Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum CDP_MockExecuteMsg {}
+    pub enum CDP_MockExecuteMsg {
+        Accrue {
+            position_owner: Option<String>,
+            position_ids: Vec<Uint128>,
+        },
+    }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
@@ -43,6 +46,10 @@ mod tests {
     #[serde(rename_all = "snake_case")]
     pub enum CDP_MockQueryMsg {
         GetBasket {},
+        GetUserPositions { 
+            user: String,
+            limit: Option<u32>,
+        },
     }
 
     pub fn cdp_contract() -> Box<dyn Contract<Empty>> {
@@ -64,7 +71,6 @@ mod tests {
                             credit_price: Decimal::one(),
                             liq_queue: None,
                             base_interest_rate: Decimal::zero(),
-                            liquidity_multiplier: Decimal::zero(),
                             pending_revenue: Uint128::zero(),
                             negative_rates: false,
                             cpc_margin_of_error: Decimal::zero(),
@@ -75,6 +81,15 @@ mod tests {
                             rates_last_accrued: 0,
                             oracle_set: true,
                         })?)
+                    },
+                    CDP_MockQueryMsg::GetUserPositions { user, limit } => {
+                        Ok(to_binary(&vec![ 
+                            Position { 
+                                position_id: Uint128::one(), 
+                                collateral_assets: vec![], 
+                                credit_amount: Uint128::one(),
+                            }
+                        ])?)
                     },
                 }
             },
@@ -209,7 +224,6 @@ mod tests {
 
     mod vault {
 
-        use cosmwasm_std::coins;
         use membrane::{discount_vault::Config, types::VaultedLP};
 
         use crate::contracts::SECONDS_PER_DAY;

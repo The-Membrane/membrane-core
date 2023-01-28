@@ -78,7 +78,7 @@ pub fn execute(
     }
 }
 
-
+/// Update contract configuration
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -126,8 +126,8 @@ fn update_config(
     Ok(Response::new())
 }
 
-//Start Auction 
-//Auctions have set recaptilization limits and will automatically repay for CDP Positions
+/// Start or add to ongoing Auction.
+/// Auctions have set recaptilization limits and can automatically repay for CDP Positions or sned funds to an arbitrary address.
 fn start_auction(
     deps: DepsMut,
     env: Env,
@@ -242,7 +242,7 @@ fn start_auction(
     Ok(Response::new().add_attributes(attrs))
 }
 
-//Remove Auction 
+/// Remove Auction for a debt asset
 fn remove_auction(
     deps: DepsMut,
     info: MessageInfo,
@@ -266,7 +266,9 @@ fn remove_auction(
     Ok(Response::new().add_attributes(attrs))
 }
 
-//Swap the debt asset in an auction for MBRN at a discount
+/// Swap a debt asset in an ongoing auction for MBRN at a discount.
+/// Handle Position repayments and arbitrary sends.
+/// Excess swap amount is returned to the sender.
 fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -318,17 +320,17 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                         Uint128::new(1u128),
                     ),
                     config.discount_increase,
-                );
+                )?;
                 let discount = decimal_subtraction(
                     Decimal::one(),
                     (current_discount_increase + config.initial_discount),
-                );
+                )?;
 
                 //Mint MBRN for user
-                let discounted_mbrn_price = decimal_multiplication(mbrn_price, discount);
-                let credit_value = decimal_multiplication(swap_amount, basket_credit_price);
+                let discounted_mbrn_price = decimal_multiplication(mbrn_price, discount)?;
+                let credit_value = decimal_multiplication(swap_amount, basket_credit_price)?;
                 let mbrn_mint_amount =
-                    decimal_division(credit_value, discounted_mbrn_price) * Uint128::new(1u128);
+                    decimal_division(credit_value, discounted_mbrn_price)? * Uint128::new(1u128);
 
                 let message = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: config.clone().osmosis_proxy.to_string(),
@@ -448,8 +450,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                     }                    
                 }
 
-                if swap_amount > Uint128::zero() {
-                            
+                if swap_amount > Uint128::zero() {                            
                     //Calculate the the user's overpayment
                     //We want to allow users to focus on speed rather than correctness
                     overpay = swap_amount;
@@ -512,7 +513,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-//Get Assets that have been used as Auction debt assets
+/// Get Assets that have been used as Auction debt assets
 fn get_valid_assets(
     deps: Deps,
     debt_asset: Option<AssetInfo>,
@@ -552,7 +553,7 @@ fn get_valid_assets(
     }
 }
 
-//Get an AuctionResponse of any Auction w/ a non-zero remaining_recapitalization
+/// Return info of any Auction w/ a non-zero remaining_recapitalization
 fn get_ongoing_auction(
     deps: Deps,
     debt_asset: Option<AssetInfo>,

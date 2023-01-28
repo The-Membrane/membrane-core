@@ -55,9 +55,9 @@ pub fn instantiate(
 
     let config = Config {
         mbrn_denom,
+        minimum_total_stake: Uint128::new(5_000_000_000_000),  //5M MBRN
         staking_contract_addr: deps.api.addr_validate(&msg.mbrn_staking_contract_addr)?,
         vesting_contract_addr: deps.api.addr_validate(&msg.vesting_contract_addr)?,
-        vesting_voting_power_multiplier: msg.vesting_voting_power_multiplier,
         proposal_voting_period: msg.proposal_voting_period,
         expedited_proposal_voting_period: msg.expedited_proposal_voting_period,
         proposal_effective_delay: msg.proposal_effective_delay,
@@ -122,6 +122,9 @@ pub fn execute(
     }
 }
 
+/// Submit a proposal to the governance contract. 
+/// Total stake must surpass the minimum.
+/// Only the vesting contract can submit expedited proposals.
 pub fn submit_proposal(
     deps: DepsMut,
     env: Env,
@@ -135,13 +138,22 @@ pub fn submit_proposal(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
+    //Assert minimum total stake from staking contract
+    let total_staked = deps.querier.query_wasm_smart::<Uint128>(
+        config.staking_contract_addr,
+        &StakingQueryMsg::TotalStaked {  },
+    )?;
+    if total_staked < config.minimum_total_stake {
+        return Err(ContractError::InsufficientTotalStake { minimum: config.minimum_total_stake.into() });
+    }
+
     //If sender is vesting Contract, toggle
     let mut vesting: bool = false;
-    if info.sender == config.vesting_contract_addr {
-        vesting = true;
-    } else {
+    if info.sender != config.vesting_contract_addr {
         //Only Vesting contract can submit expedited proposals
         expedited = false;
+    } else {
+        vesting = true;
     }
 
     //Validate voting power
@@ -152,7 +164,7 @@ pub fn submit_proposal(
         vesting,
         recipient.clone(),
     )?;
-
+    
     if voting_power < config.proposal_required_stake {
         return Err(ContractError::InsufficientStake {});
     }
@@ -190,11 +202,9 @@ pub fn submit_proposal(
         start_block: env.block.height,
         start_time: env.block.time.seconds(),
         end_block,
-        delayed_end_block: env.block.height
-            + config.proposal_voting_period
+        delayed_end_block: end_block
             + config.proposal_effective_delay,
-        expiration_block: env.block.height
-            + config.proposal_voting_period
+        expiration_block: end_block
             + config.proposal_effective_delay
             + config.proposal_expiration_period,
         title,
@@ -221,6 +231,7 @@ pub fn submit_proposal(
     ]))
 }
 
+/// Cast a vote on an active proposal.
 pub fn cast_vote(
     deps: DepsMut,
     env: Env,
@@ -297,6 +308,7 @@ pub fn cast_vote(
     ]))
 }
 
+/// End a proposal and determine the result.
 pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Response, ContractError> {
     let mut proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
 
@@ -348,7 +360,7 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
     Ok(response)
 }
 
-//Execute Proposal Msgs
+/// Execute Proposal Msgs
 pub fn execute_proposal(
     deps: DepsMut,
     env: Env,
@@ -409,7 +421,7 @@ pub fn check_messages(
         .add_messages(messages))
 }
 
-//Remove completed Proposals
+/// Remove completed Proposals
 pub fn remove_completed_proposal(
     deps: DepsMut,
     env: Env,
@@ -436,6 +448,7 @@ pub fn remove_completed_proposal(
         .add_attribute("proposal_id", proposal_id.to_string()))
 }
 
+/// Update the contract configuration
 pub fn update_config(
     deps: DepsMut,
     env: Env,
@@ -452,15 +465,14 @@ pub fn update_config(
     if let Some(mbrn_denom) = updated_config.mbrn_denom {
         config.mbrn_denom = mbrn_denom;
     }
+    if let Some(minimum_total_stake) = updated_config.minimum_total_stake {
+        config.minimum_total_stake = minimum_total_stake;
+    }
     if let Some(staking_contract) = updated_config.staking_contract {
         config.staking_contract_addr = deps.api.addr_validate(&staking_contract)?;
     }
     if let Some(vesting_contract_addr) = updated_config.vesting_contract_addr {
         config.vesting_contract_addr = deps.api.addr_validate(&vesting_contract_addr)?;
-    }
-    if let Some(vesting_voting_power_multiplier) = updated_config.vesting_voting_power_multiplier
-    {
-        config.vesting_voting_power_multiplier = vesting_voting_power_multiplier;
     }
     if let Some(proposal_voting_period) = updated_config.proposal_voting_period {
         config.proposal_voting_period = proposal_voting_period;
@@ -514,9 +526,8 @@ pub fn update_config(
     Ok(Response::new().add_attribute("action", "update_config"))
 }
 
-//Calc total voting power at a specific time
+/// Calc total voting power at a specific time
 pub fn calc_total_voting_power_at(deps: Deps, start_time: u64) -> StdResult<Uint128> {
-
     let config = CONFIG.load(deps.storage)?;
 
     //Pulls stake from before Proposal's start_time
@@ -541,11 +552,9 @@ pub fn calc_total_voting_power_at(deps: Deps, start_time: u64) -> StdResult<Uint
         total = staked_mbrn
             .into_iter()
             .map(|stake| {
-                if stake.staker == config.vesting_contract_addr {
-                    stake.amount * config.vesting_voting_power_multiplier
-                } else {
-                    stake.amount
-                }
+                
+                stake.amount
+                
             })
             .collect::<Vec<Uint128>>()
             .into_iter()
@@ -555,7 +564,7 @@ pub fn calc_total_voting_power_at(deps: Deps, start_time: u64) -> StdResult<Uint
     Ok(total)
 }
 
-//Calc voting power for sender at a Popoosal's start_time
+/// Calc voting power for sender at a Proposal's start_time
 pub fn calc_voting_power(
     deps: Deps,
     sender: String,
@@ -606,10 +615,10 @@ pub fn calc_voting_power(
             .querier
             .query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.vesting_contract_addr.to_string(),
-                msg: to_binary(&VestingQueryMsg::Allocation { recipient: recipient })?,
+                msg: to_binary(&VestingQueryMsg::Allocation { recipient })?,
             }))?;
-
-        total = allocation.amount * config.vesting_voting_power_multiplier;
+            
+        total = allocation.amount;
     } else if vesting {
         //If vesting but recipient isn't passed, use the sender
         let recipient = sender;
@@ -621,7 +630,7 @@ pub fn calc_voting_power(
                 msg: to_binary(&VestingQueryMsg::Allocation { recipient: recipient })?,
             }))?;
 
-        total = allocation.amount * config.vesting_voting_power_multiplier;
+        total = allocation.amount;
     } else {
         //This isn't necessary but fulfills the compiler
         total = Uint128::zero();
@@ -645,7 +654,6 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             vesting,
         } => {
             let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
-
             let user = deps.api.addr_validate(&user)?;
 
             to_binary(&calc_voting_power(
@@ -675,6 +683,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
+/// Return a list of Proposals
 pub fn query_proposals(
     deps: Deps,
     start: Option<u64>,
@@ -715,6 +724,7 @@ pub fn query_proposals(
     })
 }
 
+/// Return a list of voters for a given proposal
 pub fn query_proposal_voters(
     deps: Deps,
     proposal_id: u64,
@@ -740,6 +750,7 @@ pub fn query_proposal_voters(
         .collect())
 }
 
+/// Return the voting power per option for a given proposal
 pub fn query_proposal_votes(deps: Deps, proposal_id: u64) -> StdResult<ProposalVotesResponse> {
     let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
 

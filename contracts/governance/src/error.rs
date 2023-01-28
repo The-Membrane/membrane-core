@@ -49,6 +49,9 @@ pub enum ContractError {
 
     #[error("Messages check passed. Nothing was committed to the blockchain")]
     MessagesCheckPassed {},
+
+    #[error("Total staked amount isn't greater than {minimum}")]
+    InsufficientTotalStake { minimum: u128 },
 }
 
 impl From<OverflowError> for ContractError {

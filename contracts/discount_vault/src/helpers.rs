@@ -11,10 +11,12 @@ use membrane::discount_vault::ExecuteMsg;
 pub struct VaultContract(pub Addr);
 
 impl VaultContract {
+    #[allow(dead_code)]
     pub fn addr(&self) -> Addr {
         self.0.clone()
     }
 
+    #[allow(dead_code)]
     pub fn call<T: Into<ExecuteMsg>>(&self, msg: T, funds: Vec<Coin>) -> StdResult<CosmosMsg> {
         let msg = to_binary(&msg.into())?;
         Ok(WasmMsg::Execute {

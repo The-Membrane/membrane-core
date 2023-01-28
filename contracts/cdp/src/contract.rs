@@ -26,12 +26,12 @@ use crate::positions::{
     liq_repay, mint_revenue, repay,
     withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID,
 };
-use crate::query::{
-    query_bad_debt, query_basket_credit_interest, query_basket_debt_caps,
-    query_basket_positions, query_collateral_rates,
-    query_position, query_position_insolvency,
-    query_user_positions,
-};
+// use crate::query::{
+//     query_bad_debt, query_basket_credit_interest, query_basket_debt_caps,
+//     query_basket_positions, query_collateral_rates,
+//     query_position, query_position_insolvency,
+//     query_user_positions,
+// };
 use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
 use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_close_position_reply};
 use crate::state::{
@@ -52,7 +52,7 @@ pub fn instantiate(
 
     let mut config = Config {
         liq_fee: msg.liq_fee,
-        owner: info.sender.clone(),
+        owner: info.sender,
         stability_pool: None,
         dex_router: None,
         staking_contract: None,
@@ -181,7 +181,7 @@ pub fn execute(
                 send_excess_to,
             )
         },
-        ExecuteMsg::Accrue { position_owner, position_id } => { external_accrue_call(deps, info, env, position_owner, position_id) },
+        ExecuteMsg::Accrue { position_owner, position_ids } => { external_accrue_call(deps, info, env, position_owner, position_ids) },
         ExecuteMsg::ClosePosition { 
             position_id, 
             max_spread, 
@@ -197,16 +197,16 @@ pub fn execute(
             )
         },
         ExecuteMsg::LiqRepay {} => {
-            if info.clone().funds.len() != 0 as usize {
+            if !info.funds.is_empty() {
                 let credit_asset = Asset {
                     info: AssetInfo::NativeToken {
-                        denom: info.clone().funds[0].clone().denom,
+                        denom: info.funds[0].clone().denom,
                     },
-                    amount: info.clone().funds[0].amount,
+                    amount: info.funds[0].amount,
                 };
                 liq_repay(deps, env, info, credit_asset)
-            } else { //This is checked more specifcally in repay(). This is solely to guarantee only one asset is checked.
-                return Err(ContractError::InvalidCredit {});
+            } else { //This is checked more specifically in repay(). This is solely to guarantee only one asset is checked.
+                 Err(ContractError::InvalidCredit {})
             }
         }
         ExecuteMsg::EditcAsset {
@@ -222,7 +222,6 @@ pub fn execute(
             credit_price,
             base_interest_rate,
             credit_pool_infos,
-            liquidity_multiplier_for_debt_caps,
             liq_queue,
         } => create_basket(
             deps,
@@ -234,7 +233,6 @@ pub fn execute(
             credit_price,
             base_interest_rate,
             credit_pool_infos,
-            liquidity_multiplier_for_debt_caps,
             liq_queue,
         ),
         ExecuteMsg::Liquidate {
@@ -258,7 +256,7 @@ pub fn execute(
             if info.sender == env.contract.address {
                 callback_handler(deps, env, msg)
             } else {
-                return Err(ContractError::Unauthorized {});
+                Err(ContractError::Unauthorized {})
             }
         }
     }
@@ -294,10 +292,10 @@ fn edit_cAsset(
         .find(|cAsset| cAsset.asset.info.equal(&asset))
     {
         Some(mut asset) => {
-            attrs.push(attr("asset", asset.clone().asset.info.to_string()));
+            attrs.push(attr("asset", asset.asset.info.to_string()));
 
             if let Some(LTV) = max_LTV {
-                asset.max_LTV = LTV.clone();
+                asset.max_LTV = LTV;
 
                 //Edit the asset's liq_queue max_premium
                 //Create Liquidation Queue for its assets
@@ -323,7 +321,7 @@ fn edit_cAsset(
 
             if let Some(LTV) = max_borrow_LTV {
                 if LTV < Decimal::percent(100) && LTV < asset.max_LTV {
-                    asset.max_borrow_LTV = LTV.clone();
+                    asset.max_borrow_LTV = LTV;
                     attrs.push(attr("max_borrow_LTV", LTV.to_string()));
                 }
             }
@@ -401,7 +399,7 @@ fn check_and_fulfill_bad_debt(
     let mut basket: Basket = BASKET.load(deps.storage)?;
 
     //Get target Position
-    let (_i, mut target_position) = get_target_position(deps.storage, position_owner.clone(), position_id.clone())?;
+    let (_i, mut target_position) = get_target_position(deps.storage, position_owner.clone(), position_id)?;
 
     //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
     //This is allowed bc any calls here will be after a liquidation where the sell wall would've sold all it could to cover debts
@@ -414,7 +412,7 @@ fn check_and_fulfill_bad_debt(
         .sum();
 
     if total_assets > Uint128::zero() || target_position.credit_amount.is_zero() {
-        return Err(ContractError::PositionSolvent {});
+        Err(ContractError::PositionSolvent {})
     } else {
         let mut messages: Vec<CosmosMsg> = vec![];
         let mut bad_debt_amount = target_position.credit_amount;
@@ -512,9 +510,9 @@ fn check_and_fulfill_bad_debt(
             attr("amount_sent_to_auction", bad_debt_amount)
         );
 
-        return Ok(Response::new()
+        Ok(Response::new()
             .add_messages(messages)
-            .add_attributes(attrs));
+            .add_attributes(attrs))
     }
 }
 
@@ -533,57 +531,58 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
-    match msg {
-        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::GetPosition {
-            position_id,
-            position_owner,
-        } => {
-            to_binary(&query_position(
-                deps,
-                env,
-                position_id,
-                deps.api.addr_validate(&position_owner)?
-            )?)
-        }
-        QueryMsg::GetUserPositions {
-            user,
-            limit,
-        } => {
-            to_binary(&query_user_positions(
-                deps, env, deps.api.addr_validate(&user)?, limit,
-            )?)
-        }
-        QueryMsg::GetBasketPositions {
-            start_after,
-            limit,
-        } => to_binary(&query_basket_positions(
-            deps,
-            start_after,
-            limit,
-        )?),
-        QueryMsg::GetBasket { } => to_binary(&BASKET.load(deps.storage)?),
-        QueryMsg::Propagation {} => to_binary(&LIQUIDATION.load(deps.storage)?),
-        QueryMsg::GetBasketDebtCaps { } => {
-            to_binary(&query_basket_debt_caps(deps, env)?)
-        }
-        QueryMsg::GetBasketBadDebt { } => to_binary(&query_bad_debt(deps)?),
-        QueryMsg::GetPositionInsolvency {
-            position_id,
-            position_owner,
-        } => to_binary(&query_position_insolvency(
-            deps,
-            env,
-            position_id,
-            position_owner,
-        )?),
-        QueryMsg::GetCreditRate { } => {
-            to_binary(&query_basket_credit_interest(deps, env)?)
-        }
-        QueryMsg::GetCollateralInterest { } => {
-            to_binary(&query_collateral_rates(deps, env)?)
-        }
-    }
+    Err(StdError::GenericErr { msg: String::from("Not auditing these") })
+    // match msg {
+    //     QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
+    //     QueryMsg::GetPosition {
+    //         position_id,
+    //         position_owner,
+    //     } => {
+    //         to_binary(&query_position(
+    //             deps,
+    //             env,
+    //             position_id,
+    //             deps.api.addr_validate(&position_owner)?
+    //         )?)
+    //     }
+    //     QueryMsg::GetUserPositions {
+    //         user,
+    //         limit,
+    //     } => {
+    //         to_binary(&query_user_positions(
+    //             deps, env, deps.api.addr_validate(&user)?, limit,
+    //         )?)
+    //     }
+    //     QueryMsg::GetBasketPositions {
+    //         start_after,
+    //         limit,
+    //     } => to_binary(&query_basket_positions(
+    //         deps,
+    //         start_after,
+    //         limit,
+    //     )?),
+    //     QueryMsg::GetBasket { } => to_binary(&BASKET.load(deps.storage)?),
+    //     QueryMsg::Propagation {} => to_binary(&LIQUIDATION.load(deps.storage)?),
+    //     QueryMsg::GetBasketDebtCaps { } => {
+    //         to_binary(&query_basket_debt_caps(deps, env)?)
+    //     }
+    //     QueryMsg::GetBasketBadDebt { } => to_binary(&query_bad_debt(deps)?),
+    //     QueryMsg::GetPositionInsolvency {
+    //         position_id,
+    //         position_owner,
+    //     } => to_binary(&query_position_insolvency(
+    //         deps,
+    //         env,
+    //         position_id,
+    //         position_owner,
+    //     )?),
+    //     QueryMsg::GetCreditRate { } => {
+    //         to_binary(&query_basket_credit_interest(deps, env)?)
+    //     }
+    //     QueryMsg::GetCollateralInterest { } => {
+    //         to_binary(&query_collateral_rates(deps, env)?)
+    //     }
+    // }
 }
 
 /// Check for duplicate assets in a Vec<Asset>

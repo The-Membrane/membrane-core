@@ -8,13 +8,17 @@ use membrane::osmosis_proxy::Config;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct TokenInfo {
+    /// Current minted supply
     pub current_supply: Uint128,
+    /// Max supply 
     pub max_supply: Option<Uint128>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
 pub struct PendingTokenInfo {
+    /// Chosen subdenom
     pub subdenom: String,
+    /// Max supply
     pub max_supply: Option<Uint128>,
 }
 

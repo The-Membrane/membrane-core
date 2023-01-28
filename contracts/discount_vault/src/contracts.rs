@@ -11,7 +11,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 
 use membrane::cdp::QueryMsg as CDPQueryMsg;
-use membrane::helpers::{multi_native_withdrawal_msg, get_pool_state_response};
+use membrane::helpers::{multi_native_withdrawal_msg, get_pool_state_response, accrue_user_positions};
 use membrane::discount_vault::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UserResponse};
 use membrane::types::{Asset, AssetInfo, VaultedLP, VaultUser, LPPoolInfo, Basket};
 
@@ -83,6 +83,8 @@ pub fn instantiate(
         .add_attribute("contract_address", env.contract.address))
 }
 
+/// Add a new LP to the accepted LPs list with the given pool id.
+/// Query info from Osmosis Proxy and validate that the LP contains the debt token.
 fn create_and_validate_LP_object(    
     querier: QuerierWrapper,
     pool_id: u64,
@@ -117,6 +119,7 @@ pub fn execute(
     }
 }
 
+/// Deposit accepted LPs into the vault.
 fn deposit(    
     deps: DepsMut,
     env: Env,
@@ -173,11 +176,13 @@ fn deposit(
         ]))
 }
 
+/// Withdraw LPs from the vault.
 fn withdraw(    
     deps: DepsMut,
     info: MessageInfo,
     mut withdrawal_assets: Vec<Asset>,
 ) -> Result<Response, ContractError>{
+    let config = CONFIG.load(deps.storage)?;
     let mut user = USERS.load(deps.storage, info.clone().sender)?;
 
     //Remove invalid & unowned assets
@@ -203,7 +208,7 @@ fn withdraw(
                 }
             }
         }
-        //If any withdrawals aren't fulfilled, i.e. at 0, then error  
+        //If any withdrawals aren't fulfilled, i.e. amount != 0, then error  
         if withdrawal_asset.amount != Uint128::zero(){
             return Err(ContractError::InvalidWithdrawal { val: withdrawal_assets[index].clone() })
         }
@@ -214,7 +219,17 @@ fn withdraw(
     //Create withdrawl_msgs
     let withdraw_msg = multi_native_withdrawal_msg(withdrawal_assets.clone(), info.clone().sender)?;
 
-    Ok(Response::new().add_message(withdraw_msg)
+    //Create Position accrual msgs to lock in user discounts before withdrawing
+    let accrual_msg = accrue_user_positions(
+        deps.querier, 
+        config.positions_contract.to_string(),
+        info.clone().sender.to_string(), 
+        PAGINATION_MAX_LIMIT as u32
+    )?;
+
+    Ok(Response::new()
+        .add_message(accrual_msg)
+        .add_message(withdraw_msg)
         .add_attributes(vec![
             attr("method", "withdraw"),
             attr("user", info.clone().sender),
@@ -222,6 +237,7 @@ fn withdraw(
         ]))
 }
 
+/// Change the owner of the contract.
 fn change_owner(    
     deps: DepsMut,
     info: MessageInfo,
@@ -248,6 +264,7 @@ fn change_owner(
     )
 }
 
+/// Add or remove LPs from list of accepted LPs.
 fn edit_LPs(    
     deps: DepsMut,
     info: MessageInfo,
@@ -289,6 +306,7 @@ fn edit_LPs(
     )
 }
 
+/// Validate assets and return only those that are accepted.
 fn validate_assets(
     funds: Vec<Coin>,
     accepted_LPs: Vec<LPPoolInfo>,
@@ -314,6 +332,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
+/// Return UserResponse for a given user. 
+/// Return the LP value so that the System Discounts contract can calculate the discount.
 fn get_user_response(
     deps: Deps, 
     env: Env, 
@@ -358,6 +378,7 @@ fn get_user_response(
     //Withdrawals of removed LPs still work tho
 }
 
+/// Return deposits for a given user.
 fn get_deposits(    
     deps: Deps, 
     option_limit: Option<u64>,

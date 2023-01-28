@@ -9,9 +9,8 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
-use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, withdrawal_msg};
+use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, withdrawal_msg, accrue_user_positions};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
-use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, ProposalStatus};
 use membrane::staking::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::vesting::{QueryMsg as Vesting_QueryMsg, RecipientsResponse};
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit, StakeDistributionLog, StakeDistribution};
@@ -47,7 +46,7 @@ pub fn instantiate(
             osmosis_proxy: None,
             incentive_schedule: msg.incentive_schedule.unwrap_or_else(|| StakeDistribution {
                 rate: Decimal::percent(10),
-                duration: 90,
+                duration: 365,
             }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
             unstaking_period: msg.unstaking_period.unwrap_or(3u64),
@@ -74,28 +73,21 @@ pub fn instantiate(
         };
     }
 
-    let mut attrs = vec![];
-
     //Set optional config parameters
     if let Some(dex_router) = msg.dex_router {
         config.dex_router = Some(deps.api.addr_validate(&dex_router)?);
-        attrs.push(attr("dex_router", dex_router));
     };
     if let Some(vesting_contract) = msg.vesting_contract {        
         config.vesting_contract = Some(deps.api.addr_validate(&vesting_contract)?);
-        attrs.push(attr("vesting_contract", vesting_contract));
     };
     if let Some(positions_contract) = msg.positions_contract {
         config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
-        attrs.push(attr("positions_contract", positions_contract));
     };
     if let Some(governance_contract) = msg.governance_contract {
         config.governance_contract = Some(deps.api.addr_validate(&governance_contract)?);
-        attrs.push(attr("governance_contract", governance_contract));
     };
     if let Some(osmosis_proxy) = msg.osmosis_proxy {
         config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
-        attrs.push(attr("osmosis_proxy", osmosis_proxy));
     };
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
@@ -124,11 +116,11 @@ pub fn instantiate(
     
     Ok(Response::new()
         .add_attribute("method", "instantiate")
-        .add_attributes(attrs)
         .add_attribute("config", format!("{:?}", config))
         .add_attribute("contract_address", env.contract.address))
 }
 
+/// Return total MBRN vesting
 fn get_total_vesting(
     querier: QuerierWrapper,    
     vesting_contract: String,
@@ -183,7 +175,6 @@ pub fn execute(
         ExecuteMsg::Restake { mbrn_amount } => restake(deps, env, info, mbrn_amount),
         ExecuteMsg::ClaimRewards {
             claim_as_native,
-            claim_as_cw20,
             send_to,
             restake,
         } => claim_rewards(
@@ -191,7 +182,6 @@ pub fn execute(
             env,
             info,
             claim_as_native,
-            claim_as_cw20,
             send_to,
             restake,
         ),
@@ -214,12 +204,13 @@ pub fn execute(
                     .collect::<Vec<Asset>>()
             };
 
-            deposit_fee(deps, env, info, fee_assets)
+            deposit_fee(deps, env, fee_assets)
         },
         ExecuteMsg::TrimFeeEvents {  } => trim_fee_events(deps.storage, info),
     }
 }
 
+/// Update contract configuration
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
@@ -299,7 +290,7 @@ fn update_config(
     Ok(Response::new().add_attributes(attrs))
 }
 
-
+/// Stake MBRN
 pub fn stake(
     deps: DepsMut,
     env: Env,
@@ -358,8 +349,8 @@ pub fn stake(
     Ok(response.add_attributes(attrs))
 }
 
-//First call is an unstake
-//2nd call after unstake period is a withdrawal
+/// First call is an unstake
+/// 2nd call after unstake period is a withdrawal
 pub fn unstake(
     deps: DepsMut,
     env: Env,
@@ -371,7 +362,7 @@ pub fn unstake(
 
     let mut msgs = vec![];
 
-    //Can't unstake if there is an active proposal by user
+    // Can't unstake if there is an active proposal by user
     // let proposal_list = deps.querier.query::<ProposalListResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
     //     contract_addr: config.clone().governance_contract.unwrap().to_string(), 
     //     msg: to_binary(&Gov_QueryMsg::Proposals { start: None, limit: None })?
@@ -426,8 +417,17 @@ pub fn unstake(
     //List of coins to send
     let mut native_claims = vec![];
 
-    //If user can unstake, add to native claims list
+    //If user can withdraw, accrue their positions and add to native_claims
     if !withdrawable_amount.is_zero() {
+        //Create Position accrual msgs to lock in user discounts before withdrawing
+        // let accrual_msg = accrue_user_positions(
+        //     deps.querier, 
+        //     config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+        //     info.sender.clone().to_string(), 
+        //     32,
+        // )?;
+        // msgs.push(accrual_msg);
+
         //Push to native claims list
         native_claims.push(asset_to_coin(Asset {
             info: AssetInfo::NativeToken {
@@ -460,7 +460,7 @@ pub fn unstake(
         msgs.push(msg);
     }
 
-    //Create msg for accrued interest
+    //Create msg to mint accrued interest
     if !accrued_interest.is_zero() {
         let message = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
@@ -496,7 +496,7 @@ pub fn unstake(
     Ok(response.add_attributes(attrs).add_messages(msgs))
 }
 
-//Restake unstaking deposits for a user
+/// Restake unstaking deposits for a user
 fn restake(
     deps: DepsMut,
     env: Env,
@@ -540,7 +540,8 @@ fn restake(
     ]))
 }
 
-//Returns claimable assets, accrued interest, withdrawable amount
+/// Update deposits being withdrawn from.
+/// Returns claimable assets, accrued interest, withdrawable amount.
 fn withdraw_from_state(
     storage: &mut dyn Storage,
     env: Env,
@@ -730,14 +731,14 @@ fn withdraw_from_state(
     Ok((claimables, accrued_interest, withdrawable_amount))
 }
 
-//Sends available claims to info.sender
-//If asset is passed, the claims will be sent as said asset
+/// Sends available claims to info.sender or as specified in send_to.
+/// If claim_as is passed, the claims will be sent as said asset.
+/// If restake is true, the accrued ownership will be restaked.
 pub fn claim_rewards(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
     claim_as_native: Option<String>,
-    claim_as_cw20: Option<String>,
     send_to: Option<String>,
     restake: bool,
 ) -> Result<Response, ContractError> {
@@ -748,13 +749,6 @@ pub fn claim_rewards(
     let accrued_interest: Uint128;
     let user_claimables: Vec<Asset>;
 
-    //Only 1 toggle at a time
-    if claim_as_native.is_some() && claim_as_cw20.is_some() {
-        return Err(ContractError::CustomError {
-            val: "Can't claim as multiple assets, if not all claimable assets".to_string(),
-        });
-    }
-
     (messages, user_claimables, accrued_interest) = user_claims(
         deps.storage,
         deps.api,
@@ -763,7 +757,6 @@ pub fn claim_rewards(
         info.clone(),
         config.clone().dex_router,
         claim_as_native.clone(),
-        claim_as_cw20.clone(),
         send_to.clone(),
     )?;    
 
@@ -834,7 +827,6 @@ pub fn claim_rewards(
         .add_attribute("method", "claim")
         .add_attribute("user", info.sender)
         .add_attribute("claim_as_native", claim_as_native.unwrap_or_default())
-        .add_attribute("claim_as_cw20", claim_as_cw20.unwrap_or_default())
         .add_attribute("send_to", send_to.unwrap_or_default())
         .add_attribute("restake", restake.to_string())
         .add_attribute("mbrn_rewards", accrued_interest.to_string())
@@ -843,6 +835,7 @@ pub fn claim_rewards(
     Ok(res.add_messages(messages))
 }
 
+/// Calculates the accrued interest for a given stake
 fn accumulate_interest(stake: Uint128, rate: Decimal, time_elapsed: u64) -> StdResult<Uint128> {
     let applied_rate = rate.checked_mul(Decimal::from_ratio(
         Uint128::from(time_elapsed),
@@ -854,10 +847,10 @@ fn accumulate_interest(stake: Uint128, rate: Decimal, time_elapsed: u64) -> StdR
     Ok(accrued_interest)
 }
 
+/// Deposit assets for staking rewards
 fn deposit_fee(
     deps: DepsMut,
     env: Env,
-    info: MessageInfo,
     fee_assets: Vec<Asset>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
@@ -892,7 +885,7 @@ fn deposit_fee(
             fee: LiqAsset {
                 //Amount = Amount per Staked MBRN
                 info: asset.info,
-                amount: decimal_division(amount, decimal_total),
+                amount: decimal_division(amount, decimal_total)?,
             },
         });
     }
@@ -910,6 +903,7 @@ fn deposit_fee(
     ]))
 }
 
+/// Return claim messages for a given user 
 fn user_claims(
     storage: &mut dyn Storage,
     api: &dyn Api,
@@ -918,7 +912,6 @@ fn user_claims(
     info: MessageInfo,
     dex_router: Option<Addr>,
     claim_as_native: Option<String>,
-    claim_as_cw20: Option<String>,
     send_to: Option<String>,
 ) -> StdResult<(Vec<CosmosMsg>, Vec<Asset>, Uint128)> {
 
@@ -929,7 +922,7 @@ fn user_claims(
         get_user_claimables(storage, env, info.clone().sender)?;
 
     //If we are claiming the available assets without swaps
-    if claim_as_cw20.is_none() && claim_as_native.is_none() {
+    if claim_as_native.is_none() {
         for asset in user_claimables.clone() {
             if send_to.clone().is_none() {
                 messages.push(withdrawal_msg(asset, info.clone().sender)?);
@@ -945,63 +938,8 @@ fn user_claims(
                 AssetInfo::Token { address:_ } => { },
                 /////Starting token is native so msgs go straight to the router contract
                 AssetInfo::NativeToken { denom: _ } => {
-                    //Swap to Cw20 before sending or depositing
-                    if claim_as_cw20.is_some() {
-                        let valid_claim_addr =
-                            api.addr_validate(claim_as_cw20.clone().unwrap().as_ref())?;
-
-                        if send_to.clone().is_some() {
-                            //Send to Optional receipient
-                            let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
-                            //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterExecuteMsg::Swap {
-                                to: SwapToAssetsInput::Single(AssetInfo::Token {
-                                    address: valid_claim_addr,
-                                }),
-                                max_spread: Some(
-                                    config
-                                        .clone()
-                                        .max_spread
-                                        .unwrap_or_else(|| Decimal::percent(10)),
-                                ),
-                                recipient: Some(valid_receipient.to_string()),
-                                hook_msg: None,
-                            };
-
-                            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: config.clone().dex_router.unwrap().to_string(),
-                                msg: to_binary(&swap_hook)?,
-                                funds: vec![asset_to_coin(asset)?],
-                            });
-
-                            messages.push(message);
-                        } else {
-                            //Create Cw20 Router SwapMsgs
-                            let swap_hook = RouterExecuteMsg::Swap {
-                                to: SwapToAssetsInput::Single(AssetInfo::Token {
-                                    address: valid_claim_addr,
-                                }),
-                                max_spread: Some(
-                                    config
-                                        .clone()
-                                        .max_spread
-                                        .unwrap_or_else(|| Decimal::percent(10)),
-                                ),
-                                recipient: Some(info.clone().sender.to_string()),
-                                hook_msg: None,
-                            };
-
-                            let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: config.clone().dex_router.unwrap().to_string(),
-                                msg: to_binary(&swap_hook)?,
-                                funds: vec![asset_to_coin(asset)?],
-                            });
-
-                            messages.push(message);
-                        }
-                    }
                     //Swap to native before sending or depositing
-                    else if claim_as_native.is_some() {
+                    if claim_as_native.is_some() {
                         if send_to.clone().is_some() {
                             //Send to Optional receipient
                             let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
@@ -1065,6 +1003,7 @@ fn user_claims(
     Ok((messages, user_claimables, accrued_interest))
 }
 
+/// Return user claimables for a given user
 fn get_user_claimables(
     storage: &mut dyn Storage,
     env: Env,
@@ -1143,6 +1082,7 @@ fn get_user_claimables(
     Ok((claimables, accrued_interest))
 }
 
+/// Trim fee events to only include events after the earliest deposit
 fn trim_fee_events(
     storage: &mut dyn Storage,
     info: MessageInfo,
@@ -1171,7 +1111,7 @@ fn trim_fee_events(
     Ok(Response::new().add_attribute("trimmed", "true"))
 }
 
-//Get deposit's claimable fee based on which FeeEvents it experienced
+/// Get deposit's claimable fee assets based on which FeeEvents it experienced
 pub fn get_deposit_claimables(
     mut config: Config,
     incentive_schedule: StakeDistributionLog,

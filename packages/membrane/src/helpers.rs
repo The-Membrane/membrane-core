@@ -1,15 +1,17 @@
 use cosmwasm_std::{CosmosMsg, StdResult, Decimal, Binary, to_binary, WasmMsg, coin, StdError, Addr, Coin, BankMsg, Uint128, MessageInfo, Api, QuerierWrapper, Env, WasmQuery, QueryRequest};
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
-use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool}; 
+use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Owner, Position}; 
 use crate::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use crate::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use crate::liquidity_check::QueryMsg as LiquidityQueryMsg;
 use crate::stability_pool::QueryMsg as SP_QueryMsg;
+use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
 
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
 
+/// Returns asset liquidity from the liquidity check contract
 pub fn get_asset_liquidity(
     querier: QuerierWrapper,
     liquidity_contract: String,
@@ -23,6 +25,7 @@ pub fn get_asset_liquidity(
     Ok(total_pooled)   
 }
 
+/// Query Osmosis proxy for pool state then create & return LP withdraw msg
 pub fn pool_query_and_exit(
     querier: QuerierWrapper,
     env: Env,
@@ -60,6 +63,7 @@ pub fn pool_query_and_exit(
 
 }
 
+/// Returns [`PoolStateResponse`] from Osmosis proxy
 pub fn get_pool_state_response(
     querier: QuerierWrapper,
     osmosis_proxy: String,
@@ -74,6 +78,7 @@ pub fn get_pool_state_response(
     }))
 }
 
+/// Creates router swap msg between native assets
 pub fn router_native_to_native(
     router_addr: String,
     asset_to_sell: AssetInfo,
@@ -84,10 +89,10 @@ pub fn router_native_to_native(
     amount_to_sell: u128,
 ) -> StdResult<CosmosMsg>{
     if let AssetInfo::NativeToken { denom } = asset_to_sell {
-        if let AssetInfo::NativeToken { denom:_ } = asset_to_buy.clone() {
+        if let AssetInfo::NativeToken { denom:_ } = asset_to_buy {
 
             let router_msg = RouterExecuteMsg::Swap {
-                to: SwapToAssetsInput::Single(asset_to_buy.clone()), //Buy
+                to: SwapToAssetsInput::Single(asset_to_buy), //Buy
                 max_spread, 
                 recipient,
                 hook_msg,
@@ -106,13 +111,14 @@ pub fn router_native_to_native(
     
             Ok(msg)            
         } else {
-            return Err(StdError::GenericErr { msg: String::from("Native assets only") })
+            Err(StdError::GenericErr { msg: String::from("Native assets only") })
         }
     } else {
-        return Err(StdError::GenericErr { msg: String::from("Native assets only") })
+        Err(StdError::GenericErr { msg: String::from("Native assets only") })
     }
 }
 
+/// Returns Stability Pool liq premium
 pub fn query_stability_pool_fee(
     querier: QuerierWrapper,
     stability_pool: String,
@@ -129,6 +135,7 @@ pub fn query_stability_pool_fee(
     Ok(resp.liq_premium)
 }
 
+/// Get contract balances for list of assets
 pub fn get_contract_balances(
     querier: QuerierWrapper,
     env: Env,
@@ -149,6 +156,7 @@ pub fn get_contract_balances(
     Ok(balances)
 }
 
+/// Build withdraw msg for native assets
 pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
     if let AssetInfo::NativeToken { denom: _ } = asset.clone().info {
         let coin: Coin = asset_to_coin(asset)?;
@@ -158,15 +166,15 @@ pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
         });
         Ok(message)        
     } else {
-        return Err(StdError::GenericErr { msg: String::from("Native assets only") })
+        Err(StdError::GenericErr { msg: String::from("Native assets only") })
     }
 }
 
-//Don't use with AssetInfo::Token
+/// Builds withdraw msg for multiple native assets
 pub fn multi_native_withdrawal_msg(assets: Vec<Asset>, recipient: Addr) -> StdResult<CosmosMsg> {    
     let coins: Vec<Coin> = assets
         .into_iter()
-        .map(|asset| native_asset_to_coin(asset))
+        .map(native_asset_to_coin)
         .collect::<Vec<Coin>>();
     let message = CosmosMsg::Bank(BankMsg::Send {
         to_address: recipient.to_string(),
@@ -175,6 +183,7 @@ pub fn multi_native_withdrawal_msg(assets: Vec<Asset>, recipient: Addr) -> StdRe
     Ok(message)   
 }
 
+/// Converts native Asset to Coin
 pub fn native_asset_to_coin(asset: Asset) -> Coin {    
     Coin {
         denom: asset.info.to_string(),
@@ -182,6 +191,7 @@ pub fn native_asset_to_coin(asset: Asset) -> Coin {
     }    
 }
 
+/// Converts Asset to Coin
 pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {
     match asset.info {
         //
@@ -196,8 +206,8 @@ pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {
         }),
     }
 }
-
-//Refactored Terraswap function
+/// Asserts balance of native tokens sent to the contract
+/// Refactored Terraswap function.
 pub fn assert_sent_native_token_balance(
     asset_info: AssetInfo,
     message_info: &MessageInfo,
@@ -231,7 +241,7 @@ pub fn assert_sent_native_token_balance(
     Ok(asset)
 }
 
-//Validate Recipient
+/// Returns valid addr for contract usage
 pub fn validate_position_owner(
     deps: &dyn Api,
     info: MessageInfo,
@@ -240,6 +250,7 @@ pub fn validate_position_owner(
     recipient.map_or_else(|| Ok(info.sender), |x| deps.addr_validate(&x))
 }
 
+/// Accumulate interest to a given base amount
 pub fn accumulate_interest(base: Uint128, rate: Decimal, time_elapsed: u64) -> StdResult<Uint128> {
     let applied_rate = rate.checked_mul(Decimal::from_ratio(
         Uint128::from(time_elapsed),
@@ -247,4 +258,47 @@ pub fn accumulate_interest(base: Uint128, rate: Decimal, time_elapsed: u64) -> S
     ))?;
 
     Ok(base * applied_rate)
+}
+
+/// Return liquidity multiplier & SP cap ratio for an owner of the Osmosis Proxy contract
+pub fn get_owner_liquidity_multiplier(
+    querier: QuerierWrapper,
+    owner: String,
+    proxy_addr: String,
+) -> StdResult<(Decimal, Decimal)> {
+    let resp: Owner = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: proxy_addr,
+        msg: to_binary(&OsmoQueryMsg::GetOwner { owner })?,
+    }))?;
+
+    Ok((resp.liquidity_multiplier.unwrap_or_else(|| Decimal::zero()), resp.stability_pool_ratio.unwrap_or_else(|| Decimal::zero())))
+}
+
+/// Create accrual msg for User Positions
+pub fn accrue_user_positions(
+    querier: QuerierWrapper,
+    positions_contract: String,
+    user: String,
+    limit: u32,
+) -> StdResult<CosmosMsg> {
+
+    let user_positions = querier.query_wasm_smart::<Vec<Position>>(
+        positions_contract.to_string(),
+        &CDPQueryMsg::GetUserPositions { 
+            user: user.clone(),
+            limit: Some(limit),
+        })?;
+
+    let user_ids = user_positions.into_iter().map(|position| position.position_id).collect::<Vec<Uint128>>();
+
+    let accrual_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: positions_contract.to_string(),
+        msg: to_binary(&CDPExecuteMsg::Accrue { 
+            position_owner: Some(user.clone()),
+            position_ids: user_ids,
+        })?,
+        funds: vec![],
+    });
+
+    Ok(accrual_msg)
 }

@@ -62,7 +62,7 @@ fn partial_one_collateral_one_slot() {
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.total_credit_repaid, String::from("999"));
+    assert_eq!(resp.total_debt_repaid, String::from("999"));
 
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
@@ -70,9 +70,6 @@ fn partial_one_collateral_one_slot() {
         collateral_amount: Uint256::from(999u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -137,7 +134,7 @@ fn partial_one_collateral_one_slot_w_fees() {
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.total_credit_repaid, String::from("999"));
+    assert_eq!(resp.total_debt_repaid, String::from("999"));
 
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
@@ -145,9 +142,6 @@ fn partial_one_collateral_one_slot_w_fees() {
         collateral_amount: Uint256::from(1110u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -211,7 +205,7 @@ fn one_collateral_one_slot() {
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.total_credit_repaid, String::from("1000"));
+    assert_eq!(resp.total_debt_repaid, String::from("1000"));
 
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
@@ -219,9 +213,6 @@ fn one_collateral_one_slot() {
         collateral_amount: Uint256::from(1000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -286,7 +277,7 @@ fn one_collateral_one_slot_w_fees() {
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.total_credit_repaid, String::from("1000"));
+    assert_eq!(resp.total_debt_repaid, String::from("1000"));
 
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
@@ -294,9 +285,6 @@ fn one_collateral_one_slot_w_fees() {
         collateral_amount: Uint256::from(1112u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -380,7 +368,7 @@ fn two_slot_w_fees() {
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.total_credit_repaid, String::from("1900"));
+    assert_eq!(resp.total_debt_repaid, String::from("1900"));
 
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
@@ -388,9 +376,6 @@ fn two_slot_w_fees() {
         collateral_amount: Uint256::from(2000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -475,7 +460,7 @@ fn partial_two_slot_w_fees() {
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
     assert_eq!(resp.leftover_collateral, String::from("111"));
-    assert_eq!(resp.total_credit_repaid, String::from("2000"));
+    assert_eq!(resp.total_debt_repaid, String::from("2000"));
 
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
@@ -483,9 +468,6 @@ fn partial_two_slot_w_fees() {
         collateral_amount: Uint256::from(2111u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),
@@ -570,7 +552,7 @@ fn partial_two_slot_w_fees_bignums() {
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
     assert_eq!(resp.leftover_collateral, String::from("111111111"));
-    assert_eq!(resp.total_credit_repaid, String::from("2000000000"));
+    assert_eq!(resp.total_debt_repaid, String::from("2000000000"));
 
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: Decimal::one(),
@@ -578,9 +560,6 @@ fn partial_two_slot_w_fees_bignums() {
         collateral_amount: Uint256::from(2_111_111_111_u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
-        },
-        bid_with: AssetInfo::NativeToken {
-            denom: "cdt".to_string(),
         },
         position_id: Uint128::new(1u128),
         position_owner: "owner01".to_string(),

@@ -23,6 +23,9 @@ pub enum ContractError {
     #[error("The lockdrop hasn't ended")]
     LockdropOngoing {},
 
+    #[error("The launch has previously been initiated")]
+    LaunchHappened {},
+
     #[error("No user funds in the contract")]
     NotAUser {},
 

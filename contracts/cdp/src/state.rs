@@ -28,7 +28,6 @@ pub struct WithdrawPropagation {
     pub withdraw_amounts: Vec<Uint128>,
     pub contracts_prev_collateral_amount: Vec<Uint128>,
     pub position_info: UserInfo,
-    pub reply_order: Vec<usize>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -89,7 +88,7 @@ pub fn update_position_claims(
 
                 Ok(new_positions)
             } else {
-                return Err(StdError::GenericErr {
+                Err(StdError::GenericErr {
                     msg: "Invalid position owner".to_string(),
                 })
             }
@@ -130,7 +129,7 @@ pub fn get_target_position(
     position_id: Uint128,
 ) -> Result<(usize, Position), ContractError> {
     let positions: Vec<Position> = match POSITIONS.load(
-        storage, valid_position_owner.clone()
+        storage, valid_position_owner
     ){
         Err(_) => return Err(ContractError::NoUserPositions {}),
         Ok(positions) => positions,
@@ -138,7 +137,7 @@ pub fn get_target_position(
 
     match positions.into_iter().enumerate().find(|(_i, x)| x.position_id == position_id) {
         Some(position) => Ok(position),
-        None => return Err(ContractError::NonExistentPosition {}),
+        None => Err(ContractError::NonExistentPosition {}),
     }
 }
 
@@ -152,7 +151,7 @@ pub fn update_position(
 
     POSITIONS.update(
         storage,
-        valid_position_owner.clone(),
+        valid_position_owner,
         |old_positions| -> StdResult<Vec<Position>> {
             match old_positions {
                 Some(old_positions) => {
@@ -173,7 +172,7 @@ pub fn update_position(
                     Ok(new_positions)
                 },
                 None => {
-                    return Err(StdError::GenericErr {
+                    Err(StdError::GenericErr {
                         msg: "Invalid position owner".to_string(),
                     })
                 }

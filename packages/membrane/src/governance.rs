@@ -145,12 +145,12 @@ pub enum QueryMsg {
 pub struct Config {
     /// MBRN native token fulldenom
     pub mbrn_denom: String,
+    /// Minimum total stake required to submit a proposal
+    pub minimum_total_stake: Uint128,
     ///MBRN staking contract
     pub staking_contract_addr: Addr,
     /// Address of the vesting contract
     pub vesting_contract_addr: Addr,
-    ///Multiplier for vesting allocation voting power
-    pub vesting_voting_power_multiplier: Decimal,
     /// Proposal voting period
     pub proposal_voting_period: u64,
     /// Expedited Proposal voting period
@@ -235,12 +235,12 @@ impl Config {
 pub struct UpdateConfig {
     /// MBRN native token fulldenom
     pub mbrn_denom: Option<String>,
+    /// Minimum total stake required to submit a proposal
+    pub minimum_total_stake: Option<Uint128>,
     /// MBRN staking contract
     pub staking_contract: Option<String>,
     /// vesting' contract address
     pub vesting_contract_addr: Option<String>,
-    /// Multiplier for vesting' allocation voting power
-    pub vesting_voting_power_multiplier: Option<Decimal>,
     /// Proposal voting period
     pub proposal_voting_period: Option<u64>,
     /// Expedited Proposal voting period

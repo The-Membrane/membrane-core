@@ -600,7 +600,7 @@ fn handle_new_deposit_reply(
         Ok(result) => {
             //Load NEW_POSITION_INFO
             let new_position_user = NEW_POSITION_INFO.load(deps.storage)?;
-
+            
             //Get new Position_ID
             let instantiate_event = result
                 .events
@@ -649,7 +649,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-/// Returns a list of Position ID owned by this contract
+/// Returns a list of Position IDs owned by this contract
 fn query_positions(
     deps: Deps,
     option_limit: Option<u64>, //User limit
@@ -668,14 +668,14 @@ fn query_positions(
     };
     let mut positions: Vec<Uint128> = vec![];
 
-    let _iter = USERS
+    for user in USERS
         .range(deps.storage, start, None, Order::Ascending)
-        .take(limit)
-        .map(|user| {
+        .take(limit){
             let (_user, user_positions) = user.unwrap();
             
             positions.extend(user_positions);
-        });
+        }
+        
 
     Ok(positions)
 }

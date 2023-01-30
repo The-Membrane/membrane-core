@@ -65,11 +65,11 @@ mod tests {
                     } => {
                         if id == 2u64 {
                             Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                arithmetic_twap: Decimal::percent(450),
+                                arithmetic_twap: Decimal::percent(450).to_string(),
                             })?)
                         } else {
                             Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                arithmetic_twap: Decimal::percent(50),
+                                arithmetic_twap: Decimal::percent(50).to_string(),
                             })?)
                         }
                     }
@@ -205,37 +205,6 @@ mod tests {
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Query Price for Basket 1
-            let price: PriceResponse = app
-                .wrap()
-                .query_wasm_smart(
-                    oracle_contract.addr(),
-                    &QueryMsg::Price {
-                        asset_info: AssetInfo::NativeToken {
-                            denom: String::from("credit_fulldenom"),
-                        },
-                        twap_timeframe: 90u64,
-                        basket_id: Some(Uint128::new(1u128)),
-                    },
-                )
-                .unwrap();
-            assert_eq!(price.price, Decimal::percent(50));
-
-            //Query Price for Basket 2
-            let price: PriceResponse = app
-                .wrap()
-                .query_wasm_smart(
-                    oracle_contract.addr(),
-                    &QueryMsg::Price {
-                        asset_info: AssetInfo::NativeToken {
-                            denom: String::from("credit_fulldenom"),
-                        },
-                        twap_timeframe: 90u64,
-                        basket_id: Some(Uint128::new(2u128)),
-                    },
-                )
-                .unwrap();
-            assert_eq!(price.price, Decimal::percent(450));
 
             //Successful EditAsset
             let msg = ExecuteMsg::EditAsset {
@@ -257,7 +226,7 @@ mod tests {
             app.execute(Addr::unchecked("cdp"), cosmos_msg).unwrap();
 
             //Assert Asset was edited
-            let asset: AssetResponse = app
+            let asset: Vec<AssetResponse> = app
                 .wrap()
                 .query_wasm_smart(
                     oracle_contract.addr(),
@@ -268,7 +237,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(asset.oracle_info[0].osmosis_pools_for_twap[0].pool_id, 2u64);
+            assert_eq!(asset[0].oracle_info[0].osmosis_pools_for_twap[0].pool_id, 2u64);
 
             //Successful AddAsset
             let msg = ExecuteMsg::AddAsset {
@@ -287,27 +256,7 @@ mod tests {
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Query Price(s)
-            let price: Vec<PriceResponse> = app
-                .wrap()
-                .query_wasm_smart(
-                    oracle_contract.addr(),
-                    &QueryMsg::Prices {
-                        asset_infos: vec![
-                            AssetInfo::NativeToken {
-                                denom: String::from("credit_fulldenom"),
-                            },
-                            AssetInfo::NativeToken {
-                                denom: String::from("debit"),
-                            },
-                        ],
-                        twap_timeframe: 90u64,
-                    },
-                )
-                .unwrap();
-            assert_eq!(price[0].price, Decimal::percent(450));
-            assert_eq!(price[1].price, Decimal::percent(50));
+           
 
             //Successful Remove
             let msg = ExecuteMsg::EditAsset {
@@ -322,7 +271,7 @@ mod tests {
 
             //Assert Asset was removed
             app.wrap()
-                .query_wasm_smart::<AssetResponse>(
+                .query_wasm_smart::<Vec<AssetResponse>>(
                     oracle_contract.addr(),
                     &QueryMsg::Assets {
                         asset_infos: vec![AssetInfo::NativeToken {

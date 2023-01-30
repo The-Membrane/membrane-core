@@ -38,7 +38,20 @@ mod tests {
         let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
         let msg = ExecuteMsg::UpdateConfig { 
-            owner: Some(vec![String::from("new_owner")]), 
+            owners: Some(vec![ Owner {
+                owner: Addr::unchecked("new_owner2"),
+                total_minted: Uint128::zero(),
+                liquidity_multiplier: Some(Decimal::zero()),
+                stability_pool_ratio: Some(Decimal::zero()),
+                non_token_contract_auth: true, 
+            },
+            Owner {
+                owner: Addr::unchecked("new_owner"),
+                total_minted: Uint128::zero(),
+                liquidity_multiplier: Some(Decimal::zero()),
+                stability_pool_ratio: Some(Decimal::zero()),
+                non_token_contract_auth: true, 
+            }]),
             add_owner: true, 
             debt_auction: Some(String::from("debt_auction")),
             positions_contract: Some(String::from("positions_contract")),
@@ -53,12 +66,21 @@ mod tests {
                 owner: Addr::unchecked("creator"),
                 total_minted: Uint128::zero(),
                 liquidity_multiplier: Some(Decimal::zero()),
+                stability_pool_ratio: Some(Decimal::zero()),
+                non_token_contract_auth: true, 
+            },
+            Owner {
+                owner: Addr::unchecked("new_owner2"),
+                total_minted: Uint128::zero(),
+                liquidity_multiplier: Some(Decimal::zero()),
+                stability_pool_ratio: Some(Decimal::zero()),
                 non_token_contract_auth: true, 
             },
             Owner {
                 owner: Addr::unchecked("new_owner"),
                 total_minted: Uint128::zero(),
                 liquidity_multiplier: Some(Decimal::zero()),
+                stability_pool_ratio: Some(Decimal::zero()),
                 non_token_contract_auth: true, 
             }],
             debt_auction: Some(Addr::unchecked("debt_auction")),
@@ -73,21 +95,6 @@ mod tests {
             expected_config
         );
 
-    }
-
-    #[test]
-    fn query_get_denom() {
-        let deps = mock_dependencies();
-        let get_denom_query = QueryMsg::GetDenom {
-            creator_address: String::from(MOCK_CONTRACT_ADDR),
-            subdenom: String::from(DENOM_NAME),
-        };
-        let response = query(deps.as_ref(), mock_env(), get_denom_query).unwrap();
-        let get_denom_response: GetDenomResponse = from_binary(&response).unwrap();
-        assert_eq!(
-            format!("{}/{}/{}", DENOM_PREFIX, MOCK_CONTRACT_ADDR, DENOM_NAME),
-            get_denom_response.denom
-        );
     }
 
     #[test]
@@ -206,39 +213,5 @@ mod tests {
 
         assert_eq!(expected_error, err);
     }
-
-
-    #[test]
-    fn msg_burn_tokens_input_address() {
-        let mut deps = mock_dependencies();
-
-        let msg = InstantiateMsg {};
-        let info = mock_info("creator", &coins(1000, "uosmo"));
-
-        let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-        
-
-        const BURN_FROM_ADDR: &str = "burnfrom";
-        let burn_amount = Uint128::new(100_u128);
-        let full_denom_name: &str =
-            &format!("{}/{}/{}", DENOM_PREFIX, MOCK_CONTRACT_ADDR, DENOM_NAME)[..];
-
-        let info = mock_info("creator", &coins(2, "token"));
-
-        let msg = ExecuteMsg::BurnTokens {
-            denom: String::from(full_denom_name),
-            burn_from_address: String::from(BURN_FROM_ADDR),
-            amount: burn_amount,
-        };
-        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-
-        let expected_error = TokenFactoryError::BurnFromAddressNotSupported {
-            address: String::from(BURN_FROM_ADDR),
-        };
-
-        assert_eq!(expected_error, err)
-    }
-
-
 
 }

@@ -1,12 +1,12 @@
 use cosmwasm_std::{CosmosMsg, StdResult, Decimal, Binary, to_binary, WasmMsg, coin, StdError, Addr, Coin, BankMsg, Uint128, MessageInfo, Api, QuerierWrapper, Env, WasmQuery, QueryRequest};
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
-use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Owner, Position}; 
+use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Owner}; 
 use crate::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use crate::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use crate::liquidity_check::QueryMsg as LiquidityQueryMsg;
 use crate::stability_pool::QueryMsg as SP_QueryMsg;
-use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
+use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, PositionResponse};
 
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
@@ -281,8 +281,7 @@ pub fn accrue_user_positions(
     user: String,
     limit: u32,
 ) -> StdResult<CosmosMsg> {
-
-    let user_positions = querier.query_wasm_smart::<Vec<Position>>(
+    let user_positions = querier.query_wasm_smart::<Vec<PositionResponse>>(
         positions_contract.to_string(),
         &CDPQueryMsg::GetUserPositions { 
             user: user.clone(),

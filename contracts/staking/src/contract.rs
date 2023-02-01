@@ -9,7 +9,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
-use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, withdrawal_msg, accrue_user_positions};
+use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, withdrawal_msg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::vesting::{QueryMsg as Vesting_QueryMsg, RecipientsResponse};
@@ -330,8 +330,10 @@ pub fn stake(
     //Add to Totals
     let mut totals = TOTALS.load(deps.storage)?;
     if let Some(vesting_contract) = config.clone().vesting_contract{
-        if info.clone().sender == vesting_contract{
+        if info.clone().sender == vesting_contract {
             totals.vesting_contract += valid_asset.amount;
+        } else {
+            totals.stakers += valid_asset.amount;
         }
     } else {
         totals.stakers += valid_asset.amount;
@@ -479,6 +481,8 @@ pub fn unstake(
     if let Some(vesting_contract) = config.clone().vesting_contract{
         if info.clone().sender == vesting_contract{
             totals.vesting_contract -= withdrawable_amount;
+        } else {
+            totals.stakers -= withdrawable_amount;
         }
     } else {
         totals.stakers -= withdrawable_amount;

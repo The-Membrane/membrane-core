@@ -123,7 +123,7 @@ pub fn liquidate(
     let user_repay_amount = get_user_repay_amount(querier, config.clone(), basket.clone(), position_id, position_owner.clone(), &mut credit_repay_amount, &mut submessages)?;
     
     //Track total leftover repayment after the liq_queue
-    let mut liq_queue_leftover_credit_repayment: Decimal = credit_repay_amount;
+    let mut leftover_repayment: Decimal = credit_repay_amount;
 
     //Track repay_amount_per_asset
     let mut per_asset_repayment: Vec<Decimal> = vec![];
@@ -143,9 +143,9 @@ pub fn liquidate(
         info.sender.to_string(),
         caller_fee,
         collateral_assets.clone(), 
-        &mut credit_repay_amount, 
+        credit_repay_amount, 
         &mut leftover_position_value, 
-        &mut liq_queue_leftover_credit_repayment, 
+        &mut leftover_repayment, 
         repay_value, 
         cAsset_ratios, 
         cAsset_prices, 
@@ -166,7 +166,7 @@ pub fn liquidate(
         position_id, 
         valid_position_owner.clone(), 
         collateral_assets.clone(), 
-        &mut liq_queue_leftover_credit_repayment, 
+        &mut leftover_repayment, 
         &mut credit_repay_amount, 
         &mut leftover_position_value, 
         &mut submessages, 
@@ -396,9 +396,9 @@ fn per_asset_fulfillments(
     fee_recipient: String,
     caller_fee: Decimal,
     collateral_assets: Vec<cAsset>,
-    credit_repay_amount: &mut Decimal,
+    credit_repay_amount: Decimal,
     leftover_position_value: &mut Decimal,
-    liq_queue_leftover_credit_repayment: &mut Decimal,
+    leftover_repayment: &mut Decimal,
     repay_value: Decimal,
     cAsset_ratios: Vec<Decimal>,
     cAsset_prices: Vec<Decimal>,
@@ -413,7 +413,7 @@ fn per_asset_fulfillments(
         let mut fee_assets: Vec<Asset> = vec![];
 
         let repay_amount_per_asset =
-            decimal_multiplication(*credit_repay_amount, cAsset_ratios[num])?;
+            decimal_multiplication(credit_repay_amount, cAsset_ratios[num])?;
 
 
         let collateral_price = cAsset_prices[num];
@@ -532,8 +532,11 @@ fn per_asset_fulfillments(
 
             //Calculate how much the queue repaid in credit
             let queue_credit_repaid = Uint128::from_str(&res.total_debt_repaid)?;
-            *liq_queue_leftover_credit_repayment = decimal_subtraction(
-                *liq_queue_leftover_credit_repayment,
+
+            //Subtract that from the running total for potential leftovers
+            //i.e. after this function is over, this value will be the amount of credit that was not repaid
+            *leftover_repayment = decimal_subtraction(
+                *leftover_repayment,
                 Decimal::from_ratio(queue_credit_repaid, Uint128::new(1u128)),
             )?;
 
@@ -574,7 +577,7 @@ fn build_sp_sw_submsgs(
     position_id: Uint128,
     valid_position_owner: Addr,
     collateral_assets: Vec<cAsset>,
-    liq_queue_leftover_credit_repayment: &mut Decimal,
+    leftover_repayment: &mut Decimal,
     credit_repay_amount: &mut Decimal,
     leftover_position_value: &mut Decimal,
     submessages: &mut Vec<SubMsg>,
@@ -582,28 +585,27 @@ fn build_sp_sw_submsgs(
     user_repay_amount: Decimal,
 ) -> Result<(Decimal, Vec<CosmosMsg>,  Vec<CosmosMsg>), ContractError>{
     
-    let leftover_repayment = Decimal::zero();
     let sell_wall_repayment_amount: Decimal;
     let mut lp_withdraw_messages = vec![];
     let mut sell_wall_messages = vec![];
     
-    if config.stability_pool.is_some() && !liq_queue_leftover_credit_repayment.is_zero() {
+    if config.stability_pool.is_some() && !leftover_repayment.is_zero() {
         let sp_liq_fee = query_stability_pool_fee(querier, config.clone().stability_pool.unwrap().to_string())?;
 
         //If LTV is 90% and the fees are 10%, the position would pay everything to pay the liquidators.
         //So above that, the liquidators are losing the premium guarantee.
         // !( leftover_position_value >= leftover_repay_value * sp_fee)
 
-        //Bc the LQ has already repaid some
+        //Working on the LQ's leftovers
         let leftover_repayment_value = decimal_multiplication(
-            *liq_queue_leftover_credit_repayment,
+            *leftover_repayment,
             basket.credit_price,
         )?;
 
         //SP liq_fee Guarantee check
         if *leftover_position_value < decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee))?
         {
-            sell_wall_repayment_amount = *liq_queue_leftover_credit_repayment;
+            sell_wall_repayment_amount = *leftover_repayment;
 
             //Go straight to sell wall
             let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall(
@@ -622,7 +624,7 @@ fn build_sp_sw_submsgs(
 
             //Leftover's starts as the total LQ is supposed to pay,
             //and is subtracted by every successful LQ reply
-            let liq_queue_leftovers = decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment)?;
+            let liq_queue_leftovers = decimal_subtraction(*credit_repay_amount, *leftover_repayment)?;
 
             // Set repay values for reply msg
             let liquidation_propagation = LiquidationPropagation {
@@ -641,14 +643,14 @@ fn build_sp_sw_submsgs(
         } else {
             //Check for stability pool funds before any liquidation attempts
             //If no funds, go directly to the sell wall
-            let leftover_repayment = query_stability_pool_liquidatible(
+            let sp_leftover_repayment = query_stability_pool_liquidatible(
                 querier,
                 config.clone(),
-                *liq_queue_leftover_credit_repayment,
+                *leftover_repayment,
             )?;
 
-            if leftover_repayment > Decimal::zero() {
-                sell_wall_repayment_amount = leftover_repayment;
+            if sp_leftover_repayment > Decimal::zero() {
+                sell_wall_repayment_amount = sp_leftover_repayment;
 
                 //Sell wall remaining
                 let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall(
@@ -668,11 +670,11 @@ fn build_sp_sw_submsgs(
             }
 
             //Set Stability Pool repay_amount
-            let sp_repay_amount = decimal_subtraction(*liq_queue_leftover_credit_repayment, leftover_repayment)?;
+            let sp_repay_amount = decimal_subtraction(*leftover_repayment, sp_leftover_repayment)?;
 
             //Leftover's starts as the total LQ is supposed to pay, and is subtracted by every successful LQ reply
             let liq_queue_leftovers =
-                decimal_subtraction(*credit_repay_amount, *liq_queue_leftover_credit_repayment)?;
+                decimal_subtraction(*credit_repay_amount, *leftover_repayment)?;
             
             // Set repay values for reply msg
             let liquidation_propagation = LiquidationPropagation {
@@ -736,7 +738,7 @@ fn build_sp_sw_submsgs(
         LIQUIDATION.save(storage, &liquidation_propagation)?;
     }
 
-    Ok((leftover_repayment, lp_withdraw_messages, sell_wall_messages))
+    Ok((*leftover_repayment, lp_withdraw_messages, sell_wall_messages))
 }
 
 /// Returns LP withdrawal message use in liquidations

@@ -78,6 +78,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
 
 /// On error of an user's Stability Pool repayment, leave leftover handling to the SP reply unless SP wasn't called.
 /// If so, sell wall the leftover.
+#[allow(unused_variables)]
 pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.result.into_result() {
         Ok(_result) => {
@@ -217,6 +218,7 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
 }
 
 /// The reply used to handle all liquidation leftovers. Prioritizes use of the SP, then the sell wall.
+#[allow(unused_variables)]
 pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     //Initialize Response Attributes
     let mut attrs = vec![];
@@ -390,6 +392,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
 
 /// Send the liquidation queue its collateral reward.
 /// If the SP wasn't used, send leftovers to the sell wall.
+#[allow(unused_variables)]
 pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Response> {
     let mut attrs = vec![attr("method", "handle_liq_queue_reply")];
 
@@ -542,7 +545,7 @@ pub fn sell_wall_in_reply(
 ) -> StdResult<(Vec<CosmosMsg>, Vec<CosmosMsg>)>{
     
     //Sell wall asset's repayment amount
-    let (sell_wall_msgs, mut lp_withdraw_msgs) = sell_wall_using_ids(
+    let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall_using_ids(
         storage,
         querier,
         api,

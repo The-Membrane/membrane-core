@@ -26,6 +26,7 @@ pub const USER_SP_REPAY_REPLY_ID: u64 = 6u64;
 /// Confirms insolvency and calculates repayment amount,
 /// then sends liquidation messages to the modules if they have funds.
 /// If not, sell wall.
+#[allow(unused_variables)]
 pub fn liquidate(
     storage: &mut dyn Storage,
     api: &dyn Api,

@@ -63,7 +63,7 @@ pub fn instantiate(
             osmosis_proxy: None,
             incentive_schedule: msg.incentive_schedule.unwrap_or_else(|| StakeDistribution {
                 rate: Decimal::percent(10),
-                duration: 90,
+                duration: 365,
             }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
             unstaking_period: msg.unstaking_period.unwrap_or(3u64),
@@ -244,11 +244,8 @@ fn update_config(
     if let Some(max_spread) = max_spread {
         config.max_spread = Some(max_spread);
     };
-    if let Some(mut incentive_schedule) = incentive_schedule {
-        //Hard code a 20% maximum
-        if incentive_schedule.rate > Decimal::percent(20) {
-            incentive_schedule.rate = Decimal::percent(20);
-        }
+    if let Some(incentive_schedule) = incentive_schedule {
+        //Update incentive schedule
         config.incentive_schedule = incentive_schedule.clone();
 
         //Set Scheduling

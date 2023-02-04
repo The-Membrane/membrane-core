@@ -7,8 +7,6 @@ use crate::types::{AssetInfo, AssetOracleInfo, PriceInfo};
 pub struct InstantiateMsg {
     /// Contract owner, defaults to info.sender
     pub owner: Option<String>,
-    /// Osmosis Proxy contract address
-    pub osmosis_proxy: String,
     /// Positions contract address
     pub positions_contract: Option<String>,
 }
@@ -19,8 +17,6 @@ pub enum ExecuteMsg {
     UpdateConfig {
         /// Contract owner
         owner: Option<String>,
-        /// Osmosis Proxy contract address
-        osmosis_proxy: Option<String>,
         /// Positions contract address
         positions_contract: Option<String>,
     },
@@ -75,8 +71,6 @@ pub enum QueryMsg {
 pub struct Config {
     /// Contract owner
     pub owner: Addr,
-    /// Osmosis Proxy contract address
-    pub osmosis_proxy: Addr,
     /// Positions contract address
     pub positions_contract: Option<Addr>,
 }

@@ -45,3 +45,4 @@ wasm = "0.0.0"
 
 [dev-dependencies]
 cw-multi-test = "0.13.4"
+osmosis-test-tube = "14.1.1"

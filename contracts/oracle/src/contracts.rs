@@ -35,13 +35,11 @@ pub fn instantiate(
     if msg.owner.is_some() {
         config = Config {
             owner: deps.api.addr_validate(&msg.owner.unwrap())?,
-            osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             positions_contract: None,
         };
     } else {
         config = Config {
             owner: info.sender,
-            osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             positions_contract: None,
         };
     }
@@ -77,9 +75,8 @@ pub fn execute(
         } => edit_asset(deps, info, asset_info, oracle_info, remove),
         ExecuteMsg::UpdateConfig {
             owner,
-            osmosis_proxy,
             positions_contract,
-        } => update_config(deps, env, info, owner, osmosis_proxy, positions_contract),
+        } => update_config(deps, env, info, owner, positions_contract),
     }
 }
 
@@ -224,7 +221,6 @@ pub fn update_config(
     _env: Env,
     info: MessageInfo,
     owner: Option<String>,
-    osmosis_proxy: Option<String>,
     positions_contract: Option<String>,
 ) -> Result<Response, ContractError> {
     
@@ -243,9 +239,6 @@ pub fn update_config(
 
     if let Some(owner) = owner {
         config.owner = deps.api.addr_validate(&owner)?;
-    }
-    if let Some(osmosis_proxy) = osmosis_proxy {
-        config.osmosis_proxy = deps.api.addr_validate(&osmosis_proxy)?;
     }
     if let Some(positions_contract) = positions_contract {
         config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);

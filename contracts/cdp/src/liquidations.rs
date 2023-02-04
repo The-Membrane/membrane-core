@@ -796,7 +796,6 @@ pub fn sell_wall_using_ids(
     position_owner: Addr,
     repay_amount: Decimal,
 ) -> StdResult<(Vec<CosmosMsg>, Vec<CosmosMsg>)> {
-    
     let basket: Basket = BASKET.load(storage)?;
 
     let (_i, target_position) = match get_target_position(storage, position_owner.clone(), position_id){

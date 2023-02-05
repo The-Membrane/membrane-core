@@ -12,7 +12,7 @@ pub const MINIMUM_PROPOSAL_REQUIRED_QUORUM_PERCENTAGE: u64 = 33;
 pub const VOTING_PERIOD_INTERVAL: RangeInclusive<u64> = 14400..=14 * 14400; //1 to 14 days in blocks (6 seconds per block)
 pub const DELAY_INTERVAL: RangeInclusive<u64> = 7200..=14400; // from 0.5 to 1 day in blocks (6 seconds per block)
 pub const EXPIRATION_PERIOD_INTERVAL: RangeInclusive<u64> = 14400..=100800; //1 to 14 days in blocks (6 seconds per block)
-pub const STAKE_INTERVAL: RangeInclusive<u128> = 100000000..=600000000; // from 100 to 600 $MBRN
+pub const STAKE_INTERVAL: RangeInclusive<u128> = 1000000000..=9999999999; // from 1000 $MBRN
 
 /// Proposal validation attributes
 const MIN_TITLE_LENGTH: usize = 4;
@@ -220,9 +220,8 @@ impl Config {
 
         if !STAKE_INTERVAL.contains(&self.proposal_required_stake.u128()) {
             return Err(StdError::generic_err(format!(
-                "The required deposit for a proposal cannot be lower than {} or higher than {}",
+                "The required deposit for a proposal cannot be lower than {}",
                 STAKE_INTERVAL.start(),
-                STAKE_INTERVAL.end()
             )));
         }
 

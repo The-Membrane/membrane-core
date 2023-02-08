@@ -1,6 +1,6 @@
+#[cfg(not(feature = "library"))]
 use std::env;
 
-#[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, coin, to_binary, Addr, Api, BankMsg, Binary, CosmosMsg, Decimal, Deps,
@@ -45,7 +45,7 @@ pub fn instantiate(
             governance_contract: None,
             osmosis_proxy: None,
             incentive_schedule: msg.incentive_schedule.unwrap_or_else(|| StakeDistribution {
-                rate: Decimal::percent(10),
+                rate: Decimal::percent(25),
                 duration: 365,
             }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
@@ -62,7 +62,7 @@ pub fn instantiate(
             governance_contract: None,
             osmosis_proxy: None,
             incentive_schedule: msg.incentive_schedule.unwrap_or_else(|| StakeDistribution {
-                rate: Decimal::percent(10),
+                rate: Decimal::percent(25),
                 duration: 365,
             }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),

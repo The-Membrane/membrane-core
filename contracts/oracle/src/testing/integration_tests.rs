@@ -128,7 +128,6 @@ mod tests {
 
         let msg = InstantiateMsg {
             owner: None,
-            osmosis_proxy: osmosis_proxy_contract_addr.to_string(),
             positions_contract: Some("cdp".to_string()),
         };
 
@@ -365,7 +364,6 @@ mod tests {
             //Successful AddAsset
             let msg = ExecuteMsg::UpdateConfig { 
                 owner: Some(String::from("new_owner")), 
-                osmosis_proxy: Some(String::from("new_op_contract")),  
                 positions_contract: Some(String::from("new_pos_contract")), 
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -384,7 +382,6 @@ mod tests {
                 config, 
                 Config {
                     owner: Addr::unchecked("new_owner"), 
-                    osmosis_proxy:  Addr::unchecked("new_op_contract"),  
                     positions_contract: Some(Addr::unchecked("new_pos_contract")), 
             });
         }

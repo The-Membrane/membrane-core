@@ -5055,7 +5055,7 @@ mod tests {
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
                 vec![coin(1166, "lp_denom")]
             );
-
+            
             /////////SP Errors////
             ///
             let (mut app, cdp_contract, lq_contract) =

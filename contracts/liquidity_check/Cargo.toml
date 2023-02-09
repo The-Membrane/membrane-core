@@ -1,7 +1,7 @@
 [package]
 name = "liquidity_check"
 version = "0.1.0"
-authors = ["trix"]
+authors = ["Membrane Devs"]
 edition = "2018"
 
 exclude = [

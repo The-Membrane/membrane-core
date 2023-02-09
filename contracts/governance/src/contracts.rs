@@ -571,6 +571,7 @@ pub fn calc_voting_power(
     start_time: u64,
     vesting: bool,
     recipient: Option<String>,
+    quadratic_voting: bool,
 ) -> StdResult<Uint128> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -588,7 +589,7 @@ pub fn calc_voting_power(
         }))?
         .stakers;
 
-    let total: Uint128;
+    let mut total: Uint128;
     //If calculating vesting voting power, we take from recipient's allocation
     if !vesting {
         //Calc total voting power
@@ -635,6 +636,13 @@ pub fn calc_voting_power(
         //This isn't necessary but fulfills the compiler
         total = Uint128::zero();
     }
+
+    // Take square root of total stake if quadratic voting is enabled
+    if quadratic_voting {
+        let total_f64 = (total.u128() as f64).sqrt();
+        total = Uint128::from(total_f64 as u128);
+    }
+    
 
     Ok(total)
 }

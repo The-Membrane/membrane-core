@@ -286,7 +286,6 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
                 code_id: config.clone().oracle_id, 
                 msg: to_binary(&Oracle_InstantiateMsg {
                     owner: None,
-                    osmosis_proxy: valid_address.to_string(),
                     positions_contract: None,
                 })?, 
                 funds: vec![], 
@@ -1257,7 +1256,6 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                 msg: to_binary(&OracleExecuteMsg::UpdateConfig { 
                     owner: Some(addrs.clone().governance.to_string()), 
                     positions_contract: Some(addrs.clone().positions.to_string()),
-                    osmosis_proxy: None, 
                 })?, 
                 funds: vec![],
             }));

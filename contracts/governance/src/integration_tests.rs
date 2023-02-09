@@ -114,7 +114,7 @@ mod tests {
                         stakers: vec![
                             StakeDeposit {
                                 staker: Addr::unchecked(USER),
-                                amount: Uint128::new(100_000_002u128),
+                                amount: Uint128::new(1_000_000_002u128),
                                 stake_time: 1u64,
                                 unstake_start_time: None,
                             },
@@ -572,6 +572,7 @@ mod tests {
                                 "https://some2.link/".to_string(),
                             ]),
                             whitelist_remove: Some(vec!["https://some.link/".to_string()]),
+                            quadratic_voting: None,
                         }))
                         .unwrap(),
                         funds: vec![],
@@ -656,12 +657,12 @@ mod tests {
                 )
                 .unwrap();
 
-            // Check proposal votes
-            assert_eq!(proposal.for_power, Uint128::from(100_000_002u128));
-            assert_eq!(proposal.against_power, Uint128::from(60_000_000u128));
+            // Check proposal votes & assert quadratic weighing
+            assert_eq!(proposal.for_power, Uint128::from(31_622u128)); 
+            assert_eq!(proposal.against_power, Uint128::from(7_745u128));
 
-            assert_eq!(proposal_votes.for_power, Uint128::from(100_000_002u128));
-            assert_eq!(proposal_votes.against_power, Uint128::from(60_000_000u128));
+            assert_eq!(proposal_votes.for_power, Uint128::from(31_622u128));
+            assert_eq!(proposal_votes.against_power, Uint128::from(7_745u128));
 
             assert_eq!(proposal_for_voters, vec![Addr::unchecked("user")]);
             assert_eq!(proposal_against_voters, vec![Addr::unchecked("admin")]);
@@ -678,7 +679,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(voting_power_1, Uint128::new(100000002));
+            assert_eq!(voting_power_1, Uint128::new(31_622));
 
             //Query voting power
             let voting_power_2: Uint128 = app
@@ -692,7 +693,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(voting_power_2, Uint128::new(60000000));
+            assert_eq!(voting_power_2, Uint128::new(7_745));
 
             //Query total voting power
             let total_voting_power: Uint128 = app
@@ -881,6 +882,7 @@ mod tests {
                                 "https://some2.link/".to_string(),
                             ]),
                             whitelist_remove: Some(vec!["https://some.link/".to_string()]),
+                            quadratic_voting: None,
                         }))
                         .unwrap(),
                         funds: vec![],
@@ -996,6 +998,7 @@ mod tests {
                                 "https://some2.link/".to_string(),
                             ]),
                             whitelist_remove: Some(vec!["https://some.link/".to_string()]),
+                            quadratic_voting: None,
                         }))
                         .unwrap(),
                         funds: vec![],

@@ -12,7 +12,7 @@ pub const MINIMUM_PROPOSAL_REQUIRED_QUORUM_PERCENTAGE: u64 = 33;
 pub const VOTING_PERIOD_INTERVAL: RangeInclusive<u64> = 14400..=14 * 14400; //1 to 14 days in blocks (6 seconds per block)
 pub const DELAY_INTERVAL: RangeInclusive<u64> = 7200..=14400; // from 0.5 to 1 day in blocks (6 seconds per block)
 pub const EXPIRATION_PERIOD_INTERVAL: RangeInclusive<u64> = 14400..=100800; //1 to 14 days in blocks (6 seconds per block)
-pub const STAKE_INTERVAL: RangeInclusive<u128> = 1000000000..=9999999999; // from 1000 $MBRN
+pub const STAKE_INTERVAL: RangeInclusive<u128> = 1000000000..=5000000000; // from 1000 to 5000 $MBRN
 
 /// Proposal validation attributes
 const MIN_TITLE_LENGTH: usize = 4;
@@ -167,6 +167,8 @@ pub struct Config {
     pub proposal_required_threshold: Decimal,
     /// Whitelisted links
     pub whitelisted_links: Vec<String>,
+    /// Toggle quadratic voting
+    pub quadratic_voting: bool,
 }
 
 impl Config {
@@ -258,6 +260,8 @@ pub struct UpdateConfig {
     pub whitelist_remove: Option<Vec<String>>,
     /// Links to add to whitelist
     pub whitelist_add: Option<Vec<String>>,
+    /// Toggle quadratic voting
+    pub quadratic_voting: Option<bool>,
 }
 
 /// This structure stores data for a proposal.

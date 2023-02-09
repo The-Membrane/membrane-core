@@ -19,6 +19,7 @@ use membrane::staking::{
 };
 
 use std::str::FromStr;
+use num::integer::Roots;
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, PROPOSALS, PROPOSAL_COUNT};
@@ -66,6 +67,7 @@ pub fn instantiate(
         proposal_required_quorum: Decimal::from_str(&msg.proposal_required_quorum)?,
         proposal_required_threshold: Decimal::from_str(&msg.proposal_required_threshold)?,
         whitelisted_links: msg.whitelisted_links,
+        quadratic_voting: true,
     };
 
     config.validate()?;
@@ -163,6 +165,7 @@ pub fn submit_proposal(
         env.block.time.seconds(),
         vesting,
         recipient.clone(),
+        false, //No quadratic for proposal submissions
     )?;
     
     if voting_power < config.proposal_required_stake {
@@ -280,6 +283,7 @@ pub fn cast_vote(
         proposal.clone().start_time,
         vesting,
         recipient.clone(),
+        config.quadratic_voting,
     )?;
 
     if voting_power.is_zero() {
@@ -327,7 +331,7 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
     let total_votes = for_votes + against_votes;
 
     let total_voting_power =
-        calc_total_voting_power_at(deps.as_ref(), proposal.clone().start_time)?;
+        calc_total_voting_power_at(deps.as_ref(), proposal.clone().start_time, config.quadratic_voting)?;
 
     let mut proposal_quorum: Decimal = Decimal::zero();
     let mut proposal_threshold: Decimal = Decimal::zero();
@@ -527,7 +531,7 @@ pub fn update_config(
 }
 
 /// Calc total voting power at a specific time
-pub fn calc_total_voting_power_at(deps: Deps, start_time: u64) -> StdResult<Uint128> {
+pub fn calc_total_voting_power_at(deps: Deps, start_time: u64, quadratic_voting: bool) -> StdResult<Uint128> {
     let config = CONFIG.load(deps.storage)?;
 
     //Pulls stake from before Proposal's start_time
@@ -552,14 +556,22 @@ pub fn calc_total_voting_power_at(deps: Deps, start_time: u64) -> StdResult<Uint
         total = staked_mbrn
             .into_iter()
             .map(|stake| {
+                // Take square root of total stake if quadratic voting is enabled
+                if quadratic_voting {
+                    let stake_total_root = (stake.amount.u128()).sqrt();
+                    let stake_total = Uint128::from(stake_total_root);
+                    
+                    stake_total
+                } else {
+                    stake.amount
+                }
                 
-                stake.amount
                 
             })
             .collect::<Vec<Uint128>>()
             .into_iter()
             .sum();
-    }
+    }    
 
     Ok(total)
 }
@@ -599,7 +611,7 @@ pub fn calc_voting_power(
             total = staked_mbrn
                 .into_iter()
                 .map(|stake| {
-                    if stake.staker == sender {
+                    if stake.staker.to_string() == sender {
                         stake.amount
                     } else {
                         Uint128::zero()
@@ -633,17 +645,15 @@ pub fn calc_voting_power(
 
         total = allocation.amount;
     } else {
-        //This isn't necessary but fulfills the compiler
         total = Uint128::zero();
     }
-
+    
     // Take square root of total stake if quadratic voting is enabled
     if quadratic_voting {
-        let total_f64 = (total.u128() as f64).sqrt();
-        total = Uint128::from(total_f64 as u128);
-    }
+        let total_root = (total.u128()).sqrt();
+        total = Uint128::from(total_root);
+    }    
     
-
     Ok(total)
 }
 
@@ -670,11 +680,16 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 proposal.start_time,
                 vesting,
                 None,
+                CONFIG.load(deps.storage)?.quadratic_voting,
             )?)
         }
         QueryMsg::TotalVotingPower { proposal_id } => {
             let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
-            to_binary(&calc_total_voting_power_at(deps, proposal.start_time)?)
+            to_binary(&calc_total_voting_power_at(
+                deps, 
+                proposal.start_time,
+                CONFIG.load(deps.storage)?.quadratic_voting,
+            )?)
         }
         QueryMsg::ProposalVoters {
             proposal_id,

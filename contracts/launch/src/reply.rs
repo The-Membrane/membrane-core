@@ -402,7 +402,7 @@ pub fn handle_staking_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                 code_id: config.clone().vesting_id, 
                 msg: to_binary(&Vesting_InstantiateMsg {
                     owner: None,
-                    initial_allocation: Uint128::new(20_000_000_000_000),
+                    initial_allocation: Uint128::new(10_000_000_000_000),
                     labs_addr: config.clone().labs_addr.to_string(),
                     mbrn_denom: config.clone().mbrn_denom,
                     osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),
@@ -1195,8 +1195,14 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                     Owner {
                         owner: addrs.clone().positions, 
                         total_minted: Uint128::zero(),
-                        liquidity_multiplier: Some(Decimal::percent(360_00)), //0.55% (0.55% would be 180x but the liquidity contract only counts CDT so we double)
-                        stability_pool_ratio: Some(Decimal::one()), //CDP contracts gets full share of SP cap size (for now)
+                        //0.55% = 180x (the liquidity contract only counts CDT)
+                        //DAI's current multiple from Curve liquidity is 0.05% so assuming a 10x efficiency boost from stableswaps
+                        //and an additional 10% capital inefficiency from Membrane's lack of a PSM.
+                        //Can collateral demand out weigh liquidity? If it does we have the LQ & SP to liquidate & the demand for a discounted asset is a lot higher than the demand for market price.
+
+                        //Makes more sense to start low and scale up. The LM is our best capping mechanism. DAI's scaled with its Lindy and risk profile.
+                        liquidity_multiplier: Some(Decimal::percent(10_00)), //10x or 10% liquidity to supply ratio
+                        stability_pool_ratio: Some(Decimal::zero()), //CDP contracts gets 0% of the Stability Pool
                         non_token_contract_auth: false,
                     },
                     // No other owners mint CDT atm
@@ -1333,7 +1339,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::one(),
                     lp: true,
-                    stability_pool_ratio_for_debt_cap: Some(Decimal::percent(10)),
+                    stability_pool_ratio_for_debt_cap: Some(Decimal::percent(33)),
                 })
                 .collect::<Vec<SupplyCap>>();
             

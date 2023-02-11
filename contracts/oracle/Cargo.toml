@@ -45,4 +45,3 @@ wasm = "0.0.0"
 
 [dev-dependencies]
 cw-multi-test = "0.13.4"
-osmosis-testing = { git = "https://github.com/apollodao/osmosis-rust.git", branch = "osmosis-v13" }

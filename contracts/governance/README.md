@@ -6,3 +6,4 @@ Changes:
 - Add proposal voting period minimum for proposals with executables
 - Minimum total staked to submit proposals
 - Vesting contract can expedit proposals
+- Config can toggle quadratic voting

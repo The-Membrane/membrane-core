@@ -32,11 +32,11 @@ use osmosis_std::types::osmosis::lockup::QueryCondition;
 
 //Governance constants
 const PROPOSAL_VOTING_PERIOD: u64 = *VOTING_PERIOD_INTERVAL.start();
-const PROPOSAL_EFFECTIVE_DELAY: u64 = 14399;
-const PROPOSAL_EXPIRATION_PERIOD: u64 = 100799;
+const PROPOSAL_EFFECTIVE_DELAY: u64 = 0; //1 day
+const PROPOSAL_EXPIRATION_PERIOD: u64 = 100799; //14 days
 const PROPOSAL_REQUIRED_STAKE: u128 = *STAKE_INTERVAL.start();
-const PROPOSAL_REQUIRED_QUORUM: &str = "0.50";
-const PROPOSAL_REQUIRED_THRESHOLD: &str = "0.60";
+const PROPOSAL_REQUIRED_QUORUM: &str = "0.33";
+const PROPOSAL_REQUIRED_THRESHOLD: &str = "0.51";
 
 /// Called after the Osmosis Proxy (OP) reply to save created denoms
 pub fn handle_create_denom_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<Response>{ 
@@ -459,8 +459,8 @@ pub fn handle_vesting_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                     mbrn_staking_contract_addr: addrs.clone().staking.to_string(),
                     vesting_contract_addr: addrs.clone().vesting.to_string(),
                     vesting_voting_power_multiplier: Decimal::percent(50),
-                    proposal_voting_period: PROPOSAL_VOTING_PERIOD,
-                    expedited_proposal_voting_period: PROPOSAL_VOTING_PERIOD,
+                    proposal_voting_period: PROPOSAL_VOTING_PERIOD * 7, //7 days
+                    expedited_proposal_voting_period: PROPOSAL_VOTING_PERIOD * 3, //3 days
                     proposal_effective_delay: PROPOSAL_EFFECTIVE_DELAY,
                     proposal_expiration_period: PROPOSAL_EXPIRATION_PERIOD,
                     proposal_required_stake: Uint128::from(PROPOSAL_REQUIRED_STAKE),
@@ -1195,14 +1195,9 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                     Owner {
                         owner: addrs.clone().positions, 
                         total_minted: Uint128::zero(),
-                        //0.55% = 180x (the liquidity contract only counts CDT)
-                        //DAI's current multiple from Curve liquidity is 0.05% so assuming a 10x efficiency boost from stableswaps
-                        //and an additional 10% capital inefficiency from Membrane's lack of a PSM.
-                        //Can collateral demand out weigh liquidity? If it does we have the LQ & SP to liquidate & the demand for a discounted asset is a lot higher than the demand for market price.
-
                         //Makes more sense to start low and scale up. The LM is our best capping mechanism. DAI's scaled with its Lindy and risk profile.
                         liquidity_multiplier: Some(Decimal::percent(10_00)), //10x or 10% liquidity to supply ratio
-                        stability_pool_ratio: Some(Decimal::zero()), //CDP contracts gets 0% of the Stability Pool
+                        stability_pool_ratio: Some(Decimal::zero()), //CDP contracts gets 0% of the Stability Pool cap space initially
                         non_token_contract_auth: false,
                     },
                     // No other owners mint CDT atm

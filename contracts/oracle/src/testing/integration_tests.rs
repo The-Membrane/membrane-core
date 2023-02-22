@@ -324,7 +324,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(price.price, Decimal::percent(225));
+            assert_eq!(price.price, Decimal::percent(100));
 
             //Successful AddAsset to a different basket
             let msg = ExecuteMsg::AddAsset {

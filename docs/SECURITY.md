@@ -7,7 +7,7 @@ This document outlines security procedures and general policies for the `membran
 ## Reporting a Bug
 Security is something we take seriously at Membrane. Thanks for taking the time to improve the security of `membrane-core`. We appreciate your efforts and responsible disclosure and will make every effort to acknowledge your contributions.
 
-Please report security bugs by emailing Membrane at ________. Do not report it publicly on the GitHub issues tracker. Your report should detail the necessary steps to reproduce the security issue. We will acknowledge your email within 48 hours and send a detailed response indicating the next steps. After the initial reply to your report, we will keep you informed of the progress towards a fix and full announcement and may ask for additional information or guidance.
+Please report security bugs by emailing Membrane at membranefi@gmail.com. Do not report it publicly on the GitHub issues tracker. Your report should detail the necessary steps to reproduce the security issue. We will acknowledge your email within 48 hours and send a detailed response indicating the next steps. After the initial reply to your report, we will keep you informed of the progress towards a fix and full announcement and may ask for additional information or guidance.
 
 Report security bugs in third-party modules to the person or team maintaining the module.
 

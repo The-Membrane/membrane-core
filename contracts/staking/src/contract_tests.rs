@@ -80,7 +80,7 @@ fn update_config(){
             dex_router: Some( Addr::unchecked("new_router")), 
             max_spread: Some(Decimal::one()), 
             vesting_contract: Some( Addr::unchecked("new_bv")),             
-            incentive_schedule: StakeDistribution { rate: Decimal::percent(20), duration: 0 }, //Capped at 20% that's why it isn't 1
+            incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
             fee_wait_period: 1, 
             
         },

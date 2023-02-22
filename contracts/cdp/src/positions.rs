@@ -1235,7 +1235,7 @@ pub fn create_basket(
                 //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
                 let max_premium = match Uint128::new(95u128).checked_sub( asset.max_LTV * Uint128::new(100u128) ){
                     Ok( diff ) => diff,
-                    //A default to 10 assuming that will be the lowest sp_liq_fee
+                    //A default to 10 assuming that will be the highest sp_liq_fee
                     Err( _err ) => Uint128::new(10u128),
                 };
                 //We rather the LQ liquidate than the SP if possible so its max_premium will be at most the sp_liq fee...
@@ -1501,7 +1501,7 @@ pub fn edit_basket(
             //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
             let max_premium = match Uint128::new(95u128).checked_sub( new_cAsset.max_LTV * Uint128::new(100u128) ){
                 Ok( diff ) => diff,
-                //A default to 10 assuming that will be the lowest sp_liq_fee
+                //A default to 10 assuming that will be the highest sp_liq_fee
                 Err( _err ) => Uint128::new(10u128),
             };
 
@@ -1520,7 +1520,7 @@ pub fn edit_basket(
             //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
             let max_premium = match Uint128::new(95u128).checked_sub( new_cAsset.max_LTV * Uint128::new(100u128) ){
                 Ok( diff ) => diff,
-                //A default to 10 assuming that will be the lowest sp_liq_fee
+                //A default to 10 assuming that will be the highest sp_liq_fee
                 Err( _err ) => Uint128::new(10u128) 
                 ,
             };

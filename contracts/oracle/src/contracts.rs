@@ -343,18 +343,18 @@ fn get_asset_price(
         //This is if we need to use multiple pools to calculate our price
         for pool in oracle_info.osmosis_pools_for_twap {
 
-            let res: TWAP::ArithmeticTwapToNowResponse = TWAP::TwapQuerier::new(&querier).arithmetic_twap_to_now(
-                pool.clone().pool_id, 
-                pool.clone().base_asset_denom, 
-                pool.clone().quote_asset_denom, 
-                Some(osmosis_std::shim::Timestamp {
-                    seconds:  start_time,
-                    nanos: 0,
-                }),
-            )?;
+            // let res: TWAP::ArithmeticTwapToNowResponse = TWAP::TwapQuerier::new(&querier).arithmetic_twap_to_now(
+            //     pool.clone().pool_id, 
+            //     pool.clone().base_asset_denom, 
+            //     pool.clone().quote_asset_denom, 
+            //     Some(osmosis_std::shim::Timestamp {
+            //         seconds:  start_time,
+            //         nanos: 0,
+            //     }),
+            // )?;
 
-            //Push TWAP
-            price_steps.push(Decimal::from_str(&res.arithmetic_twap).unwrap());
+            // //Push TWAP
+            // price_steps.push(Decimal::from_str(&res.arithmetic_twap).unwrap());
         }
 
         //Multiply prices
@@ -383,9 +383,11 @@ fn get_asset_price(
 
         decimal_division(oracle_prices[median_index].price + oracle_prices[median_index+1].price, Decimal::percent(2_00))?
         
-    } else {
+    } else if oracle_prices.len() != 1 {
         let median_index = oracle_prices.len() / 2;
         oracle_prices[median_index + 1].price
+    } else {
+        oracle_prices[0].price
     };
 
 

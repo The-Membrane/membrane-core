@@ -2675,7 +2675,7 @@ mod tests {
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             assert_eq!( format!("{:?}", res.rates), 
-                String::from("[Decimal(Uint128(0)), Decimal(Uint128(0)), Decimal(Uint128(0)), Decimal(Uint128(2267180643486915))]"));
+                String::from("[Decimal(0), Decimal(0), Decimal(0), Decimal(0.002267180643486915)]"));
 
             //Call liquidate on CDP contract
             let msg = ExecuteMsg::Liquidate {
@@ -3079,7 +3079,7 @@ mod tests {
             assert_eq!(
                 format!("{:?}", res.rates),
                 String::from(
-                    "[Decimal(Uint128(0)), Decimal(Uint128(0)), Decimal(Uint128(0)), Decimal(Uint128(80001600032000639))]"
+                    "[Decimal(0), Decimal(0), Decimal(0), Decimal(0.080001600032000639)]"
                 )
             );
         }
@@ -3306,7 +3306,7 @@ mod tests {
             assert_eq!(
                 format!("{:?}", res.rates),
                 String::from(
-                    "[Decimal(Uint128(0)), Decimal(Uint128(0)), Decimal(Uint128(0)), Decimal(Uint128(47619365084656172))]"
+                    "[Decimal(0), Decimal(0), Decimal(0), Decimal(0.047619365084656172)]"
                 )
             );
 

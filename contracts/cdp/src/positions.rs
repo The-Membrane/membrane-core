@@ -602,7 +602,7 @@ pub fn repay(
     })?;
 
     //Burn repayment & send revenue to stakers
-    let burn_and_rev_msgs = credit_burn_msg(
+    let burn_and_rev_msgs = credit_burn_rev_msg(
         config.clone(),
         env.clone(),
         credit_asset.clone(),
@@ -1874,8 +1874,8 @@ pub fn credit_mint_msg(
     }
 }
 
-/// Creates a CosmosMsg to burn credit tokens
-pub fn credit_burn_msg(
+/// Creates a CosmosMsg to distribute debt tokens
+pub fn credit_burn_rev_msg(
     config: Config, 
     env: Env, 
     credit_asset: Asset,
@@ -1884,16 +1884,18 @@ pub fn credit_burn_msg(
 
     //Calculate the amount to burn
     let (burn_amount, revenue_amount) = {
-        //Is revenue being sent to stakers? If so, calculate
+        //If not sent to stakers, burn all
         if !basket.rev_to_stakers {
             (credit_asset.amount, Uint128::zero())
-        } else if !basket.pending_revenue.is_zero(){
-            
-            if basket.pending_revenue >= credit_asset.amount {
+
+            //if pending rev is != 0
+        } else if !basket.pending_revenue.is_zero() {
+            //If pending_revenue is >= credit_asset.amount && more than 1k CDT, send all to stakers
+            //Limits Repay gas costs for smaller users
+            if basket.pending_revenue >= credit_asset.amount && credit_asset.amount > Uint128::new(1_000_000_000){
                 (Uint128::zero(), credit_asset.amount)
             } else {
-                let burn = credit_asset.amount - basket.pending_revenue;
-                (burn, basket.pending_revenue)
+                (credit_asset.amount, Uint128::zero())
             }
 
         } else {

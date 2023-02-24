@@ -2769,12 +2769,13 @@ mod tests {
                 vec![]
             );
 
-            //Assert revenue & fees were sent.
+            //Assert fees were sent, revenue kept for a larger mint.
+            //coin(4782, "credit_fulldenom") in revenue
             assert_eq!(
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(4782, "credit_fulldenom"), coin(10, "lp_denom")]
+                vec![coin(10, "lp_denom")]
             );
             //The fee is 212 lp_denom
             assert_eq!(

@@ -1890,9 +1890,9 @@ pub fn credit_burn_rev_msg(
 
             //if pending rev is != 0
         } else if !basket.pending_revenue.is_zero() {
-            //If pending_revenue is >= credit_asset.amount && more than 1k CDT, send all to stakers
-            //Limits Repay gas costs for smaller users
-            if basket.pending_revenue >= credit_asset.amount && credit_asset.amount > Uint128::new(1_000_000_000){
+            //If pending_revenue is >= credit_asset.amount && more than 50 CDT, send all to stakers
+            //Limits Repay gas costs for smaller users & frequent management costs for larger
+            if basket.pending_revenue >= credit_asset.amount && credit_asset.amount > Uint128::new(50_000_000){
                 (Uint128::zero(), credit_asset.amount)
             } else {
                 (credit_asset.amount, Uint128::zero())

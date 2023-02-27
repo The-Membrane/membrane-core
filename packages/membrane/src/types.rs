@@ -510,13 +510,21 @@ pub struct AuctionRecipient {
 }
 
 #[cw_serde]
-pub struct Auction {
+pub struct DebtAuction {
     /// Remaining debt to repay
     pub remaining_recapitalization: Uint128,
     /// Positions to repay
     pub repayment_positions: Vec<RepayPosition>,
     /// Capital recipients
     pub send_to: Vec<AuctionRecipient>,
+    /// Auction start time
+    pub auction_start_time: u64,
+}
+
+#[cw_serde]
+pub struct FeeAuction {
+    /// Remaining debt to repay
+    pub auction_asset: Asset,
     /// Auction start time
     pub auction_start_time: u64,
 }

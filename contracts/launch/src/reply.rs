@@ -342,6 +342,7 @@ pub fn handle_oracle_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Resp
                 msg: to_binary(&Staking_InstantiateMsg {
                     owner: None,
                     positions_contract: None,
+                    auction_contract: None,
                     vesting_contract: None,
                     governance_contract: None,
                     osmosis_proxy: Some(addrs.osmosis_proxy.to_string()),
@@ -1134,7 +1135,7 @@ pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                     twap_timeframe: 60u64,
                     mbrn_denom: config.clone().mbrn_denom,
                     initial_discount: Decimal::percent(1),
-                    discount_increase_timeframe: 15 * 60, //15 minutes,
+                    discount_increase_timeframe: 36, //Discount will hit 100% in 1 hour, 1.6667% per minute
                     discount_increase: Decimal::percent(1),
                 })?, 
                 funds: vec![], 
@@ -1267,6 +1268,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                     msg: to_binary(&StakingExecuteMsg::UpdateConfig { 
                         owner: Some(addrs.clone().governance.to_string()), 
                         positions_contract: Some(addrs.clone().positions.to_string()),
+                        auction_contract: Some(addrs.clone().mbrn_auction.to_string()),
                         osmosis_proxy: None,
                         vesting_contract: Some(addrs.clone().vesting.to_string()),
                         governance_contract: Some(addrs.clone().governance.to_string()),

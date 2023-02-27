@@ -13,7 +13,7 @@ use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput}
 use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, withdrawal_msg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
-use membrane::debt_auction::ExecuteMsg as AuctionExecuteMsg;
+use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::staking::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::vesting::{QueryMsg as Vesting_QueryMsg, RecipientsResponse};
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit, StakeDistributionLog, StakeDistribution, Basket};

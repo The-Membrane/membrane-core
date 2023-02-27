@@ -5,7 +5,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::debt_auction::{ExecuteMsg, InstantiateMsg, QueryMsg, Config, UpdateConfig};
+use membrane::auction::{ExecuteMsg, InstantiateMsg, QueryMsg, Config, UpdateConfig};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;

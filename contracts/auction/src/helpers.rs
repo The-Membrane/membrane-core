@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{to_binary, Addr, Coin, CosmosMsg, StdResult, WasmMsg};
 
-use membrane::debt_auction::ExecuteMsg;
+use membrane::auction::ExecuteMsg;
 
 /// DebtContract is a wrapper around Addr that provides a lot of helpers
 /// for working with this.

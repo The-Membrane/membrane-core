@@ -16,7 +16,7 @@ use membrane::cdp::{InstantiateMsg as CDP_InstantiateMsg, EditBasket, ExecuteMsg
 use membrane::oracle::{InstantiateMsg as Oracle_InstantiateMsg, ExecuteMsg as OracleExecuteMsg};
 use membrane::liq_queue::InstantiateMsg as LQInstantiateMsg;
 use membrane::liquidity_check::InstantiateMsg as LCInstantiateMsg;
-use membrane::debt_auction::InstantiateMsg as DAInstantiateMsg;
+use membrane::auction::InstantiateMsg as DAInstantiateMsg;
 use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg};
 use membrane::margin_proxy::InstantiateMsg as ProxyInstantiateMsg;
 use membrane::system_discounts::InstantiateMsg as SystemDiscountInstantiateMsg;

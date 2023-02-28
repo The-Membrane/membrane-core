@@ -99,6 +99,8 @@ pub struct UpdateConfig {
     pub osmosis_proxy: Option<String>,
     /// MBRN Denom
     pub mbrn_denom: Option<String>,
+    /// CDT Denom
+    pub cdt_denom: Option<String>,
     /// Address of the positions contract
     pub positions_contract: Option<String>,
     /// Timeframe for MBRN TWAP in minutes

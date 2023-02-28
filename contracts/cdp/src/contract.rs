@@ -9,7 +9,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::debt_auction::ExecuteMsg as AuctionExecuteMsg;
+use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::helpers::assert_sent_native_token_balance;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
@@ -485,7 +485,7 @@ fn check_and_fulfill_bad_debt(
                     position_id,
                     position_owner: position_owner.to_string(),
                 }),
-                debt_asset: Asset {
+                auction_asset: Asset {
                     amount: bad_debt_amount,
                     info: basket.clone().credit_asset.info,
                 },

@@ -112,6 +112,9 @@ fn update_config(
     if let Some(mbrn_denom) = update.mbrn_denom {
         config.mbrn_denom = mbrn_denom;
     }
+    if let Some(cdt_denom) = update.cdt_denom {
+        config.cdt_denom = cdt_denom;
+    }
     if let Some(twap_timeframe) = update.twap_timeframe {
         config.twap_timeframe = twap_timeframe;
     }

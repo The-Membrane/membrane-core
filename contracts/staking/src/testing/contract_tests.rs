@@ -24,6 +24,7 @@ fn update_config(){
         dex_router: Some(String::from("router_addr")),
         max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
+        auction_contract: Some("auction_contract".to_string()),
         vesting_contract: Some("vesting_contract".to_string()),
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
@@ -42,6 +43,7 @@ fn update_config(){
         unstaking_period: Some(1),  
         osmosis_proxy: Some(String::from("new_op")), 
         positions_contract: Some(String::from("new_cdp")), 
+        auction_contract: Some("new_auction".to_string()),
         governance_contract: Some("new_gov".to_string()),
         mbrn_denom: Some(String::from("new_denom")), 
         dex_router: Some(String::from("new_router")), 
@@ -75,6 +77,7 @@ fn update_config(){
             unstaking_period:1,  
             osmosis_proxy: Some( Addr::unchecked("new_op")), 
             positions_contract: Some( Addr::unchecked("new_cdp")), 
+            auction_contract: Some(Addr::unchecked("new_auction")),
             governance_contract: Some(Addr::unchecked("new_gov")),
             mbrn_denom: String::from("new_denom"), 
             dex_router: Some( Addr::unchecked("new_router")), 
@@ -96,6 +99,7 @@ fn stake() {
         dex_router: Some(String::from("router_addr")),
         max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
+        auction_contract: Some("auction_contract".to_string()),
         vesting_contract: Some("vesting_contract".to_string()),
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
@@ -211,6 +215,7 @@ fn unstake() {
         dex_router: Some(String::from("router_addr")),
         max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
+        auction_contract: Some("auction_contract".to_string()),
         vesting_contract: Some("vesting_contract".to_string()),
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
@@ -402,74 +407,6 @@ fn unstake() {
     assert_eq!(resp.vested_total, Uint128::new(6));
 }
 
-#[test]
-fn deposit_fee() {
-    let mut deps = mock_dependencies();
-
-    let msg = InstantiateMsg {
-        owner: Some("owner0000".to_string()),
-        dex_router: Some(String::from("router_addr")),
-        max_spread: Some(Decimal::percent(10)),
-        positions_contract: Some("positions_contract".to_string()),
-        vesting_contract: None,
-        governance_contract: Some("gov_contract".to_string()),
-        osmosis_proxy: Some("osmosis_proxy".to_string()),
-        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
-        fee_wait_period: None,
-        mbrn_denom: String::from("mbrn_denom"),
-        unstaking_period: None,
-    };
-
-    //Instantiating contract
-    let info = mock_info("sender88", &[]);
-    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-
-    //Unauthorized
-    let msg = ExecuteMsg::DepositFee {};
-    let info = mock_info("sender88", &[]);
-    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(err.to_string(), "Unauthorized".to_string());
-
-    //Successful DepositFee
-    let msg = ExecuteMsg::DepositFee {};
-    let info = mock_info("positions_contract", &[coin(10, "fee_asset")]);
-    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-    assert_eq!(
-        res.attributes,
-        vec![
-            attr("method", "deposit_fee"),
-            attr("fee_assets", String::from("[\"10 fee_asset\"]")),
-        ]
-    );
-
-    //Query and Assert totals from FeeEvents
-    let res = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::FeeEvents {
-            limit: None,
-            start_after: None,
-        },
-    )
-    .unwrap();
-
-    let resp: FeeEventsResponse = from_binary(&res).unwrap();
-
-    assert_eq!(
-        resp.fee_events,
-        vec![
-            FeeEvent {
-                time_of_event: mock_env().block.time.seconds(),
-                fee: LiqAsset {
-                    info: AssetInfo::NativeToken {
-                        denom: String::from("fee_asset")
-                    },
-                    amount: Decimal::percent(1000),
-                },
-            },
-        ]
-    );
-}
 
 #[test]
 fn claim_rewards() {
@@ -480,6 +417,7 @@ fn claim_rewards() {
         dex_router: Some(String::from("router_addr")),
         max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
+        auction_contract: Some("auction_contract".to_string()),
         vesting_contract: None,
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),

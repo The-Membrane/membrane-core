@@ -9,6 +9,6 @@ pub mod state;
 
 #[cfg(test)]
 #[allow(unused_variables)]
-pub mod contract_tests;
+pub mod testing;
 
 pub use crate::error::ContractError;

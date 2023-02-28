@@ -4,7 +4,7 @@
 #![allow(non_camel_case_types)]
 pub mod apollo_router;
 pub mod vesting;
-pub mod debt_auction;
+pub mod auction;
 pub mod governance;
 pub mod liq_queue;
 pub mod liquidity_check;

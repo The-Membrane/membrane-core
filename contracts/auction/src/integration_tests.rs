@@ -4,7 +4,7 @@ mod tests {
 
     use crate::helpers::DebtContract;
 
-    use membrane::debt_auction::{ExecuteMsg, InstantiateMsg, QueryMsg};
+    use membrane::auction::{ExecuteMsg, InstantiateMsg, QueryMsg};
     use membrane::oracle::PriceResponse;
     use membrane::types::{Asset, AssetInfo, Basket, Auction};
 
@@ -285,7 +285,7 @@ mod tests {
         use super::*;
         use cosmwasm_std::BlockInfo;
         use membrane::{
-            debt_auction::{UpdateConfig, Config},
+            auction::{UpdateConfig, Config},
             types::{RepayPosition, UserInfo, AuctionRecipient},
         };
 
@@ -300,7 +300,7 @@ mod tests {
                     position_owner: String::from("owner"),
                 }),
                 send_to: None,
-                debt_asset: Asset {
+                auction_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
                     },
@@ -317,7 +317,7 @@ mod tests {
                     position_owner: String::from("owner"),
                 }),
                 send_to: None,
-                debt_asset: Asset {
+                auction_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
                     },
@@ -333,7 +333,7 @@ mod tests {
                 .query_wasm_smart(
                     debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
-                        debt_asset: Some(AssetInfo::NativeToken {
+                        auction_asset: Some(AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
                         }),
                         limit: None,
@@ -361,7 +361,7 @@ mod tests {
                     position_owner: String::from("owner"),
                 }),
                 send_to: None,
-                debt_asset: Asset {
+                auction_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
                     },
@@ -382,7 +382,7 @@ mod tests {
                 .query_wasm_smart(
                     debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
-                        debt_asset: Some(AssetInfo::NativeToken {
+                        auction_asset: Some(AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
                         }),
                         limit: None,
@@ -418,7 +418,7 @@ mod tests {
                 .query_wasm_smart(
                     debt_contract.addr(),
                     &QueryMsg::ValidDebtAssets {
-                        debt_asset: None,
+                        auction_asset: None,
                         limit: None,
                         start_without: None,
                     },
@@ -443,7 +443,7 @@ mod tests {
                     position_owner: String::from("owner"),
                 }),
                 send_to: None,
-                debt_asset: Asset {
+                auction_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
                     },
@@ -481,7 +481,7 @@ mod tests {
                 .query_wasm_smart(
                     debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
-                        debt_asset: Some(AssetInfo::NativeToken {
+                        auction_asset: Some(AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
                         }),
                         limit: None,
@@ -510,7 +510,7 @@ mod tests {
             let msg = ExecuteMsg::StartAuction {
                 repayment_position_info: None,
                 send_to: Some(String::from("send_to_me")),
-                debt_asset: Asset {
+                auction_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
                     },
@@ -526,7 +526,7 @@ mod tests {
                 .query_wasm_smart(
                     debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
-                        debt_asset: Some(AssetInfo::NativeToken {
+                        auction_asset: Some(AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
                         }),
                         limit: None,
@@ -552,7 +552,7 @@ mod tests {
                 .query_wasm_smart(
                     debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
-                        debt_asset: Some(AssetInfo::NativeToken {
+                        auction_asset: Some(AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
                         }),
                         limit: None,
@@ -592,7 +592,7 @@ mod tests {
                 .query_wasm_smart::<Vec<Auction>>(
                     debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
-                        debt_asset: Some(AssetInfo::NativeToken {
+                        auction_asset: Some(AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
                         }),
                         limit: None,
@@ -608,7 +608,7 @@ mod tests {
                 .query_wasm_smart(
                     debt_contract.addr(),
                     &QueryMsg::ValidDebtAssets {
-                        debt_asset: Some(AssetInfo::NativeToken {
+                        auction_asset: Some(AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
                         }),
                         limit: None,
@@ -635,7 +635,7 @@ mod tests {
                     position_owner: String::from("owner"),
                 }),
                 send_to: None,
-                debt_asset: Asset {
+                auction_asset: Asset {
                     info: AssetInfo::NativeToken {
                         denom: String::from("credit_fulldenom"),
                     },
@@ -645,21 +645,8 @@ mod tests {
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Successful RemoveAuction: InvalidAsset
-            let msg = ExecuteMsg::RemoveAuction {
-                debt_asset: AssetInfo::NativeToken {
-                    denom: String::from("invalid_asset"),
-                },
-            };
-            let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
             //Successful RemoveAuction
-            let msg = ExecuteMsg::RemoveAuction {
-                debt_asset: AssetInfo::NativeToken {
-                    denom: String::from("credit_fulldenom"),
-                },
-            };
+            let msg = ExecuteMsg::RemoveAuction {};
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
@@ -668,7 +655,7 @@ mod tests {
                 .query_wasm_smart::<Vec<Auction>>(
                     debt_contract.addr(),
                     &QueryMsg::OngoingAuctions {
-                        debt_asset: None,
+                        auction_asset: None,
                         limit: None,
                         start_without: None,
                     },
@@ -686,6 +673,7 @@ mod tests {
                 oracle_contract: Some(String::from("new_contract")),  
                 osmosis_proxy: Some(String::from("new_contract")),  
                 mbrn_denom: Some(String::from("new_denom")), 
+                cdt_denom: Some(String::from("new_cdt")),
                 positions_contract: Some(String::from("new_contract")),  
                 twap_timeframe: Some(0u64),
                 initial_discount: Some(Decimal::zero()), 
@@ -710,6 +698,7 @@ mod tests {
                     oracle_contract: Addr::unchecked("new_contract"),  
                     osmosis_proxy: Addr::unchecked("new_contract"),  
                     mbrn_denom: String::from("new_denom"), 
+                    cdt_denom: String::from("new_cdt"),
                     positions_contract: Addr::unchecked("new_contract"),  
                     twap_timeframe: 0u64,
                     initial_discount: Decimal::zero(), 

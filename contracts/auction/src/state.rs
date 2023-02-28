@@ -1,7 +1,7 @@
 use cw_storage_plus::{Item, Map};
 
 use membrane::types::{DebtAuction, FeeAuction};
-use membrane::debt_auction::Config;
+use membrane::auction::Config;
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const DEBT_AUCTION: Item<DebtAuction> = Item::new("ongoing_debt_auction"); //DebtAuction

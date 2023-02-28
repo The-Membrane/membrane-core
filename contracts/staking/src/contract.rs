@@ -888,9 +888,9 @@ fn deposit_fee(
         .into_iter()
         .filter(|fee_asset| fee_asset.info != cdt_denom)
         .collect::<Vec<Asset>>();
-
+    
     //Act if there are non-CDT assets
-    if !non_CDT_assets.len() == 0 {
+    if non_CDT_assets.len() != 0 {
         if let Some(auction_contract) = config.auction_contract {
             //Create auction msgs
             for asset in non_CDT_assets.clone() {
@@ -901,8 +901,9 @@ fn deposit_fee(
                         send_to: None, 
                         auction_asset: asset.clone(),
                     })?,
-                    funds: vec![],
+                    funds: vec![asset_to_coin(asset)?],
                 });
+
                 messages.push(message);
             }
         }
@@ -950,7 +951,7 @@ fn deposit_fee(
     }
 
     FEE_EVENTS.save(deps.storage, &fee_events)?;
-
+    
     Ok(Response::new().add_messages(messages).add_attributes(vec![
         attr("method", "deposit_fee"),
         attr("fee_assets", format!("{:?}", string_fee_assets)),

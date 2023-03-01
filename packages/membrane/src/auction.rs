@@ -41,7 +41,7 @@ pub enum ExecuteMsg {
     /// Swap for MBRN in any open CDT auction
     SwapForMBRN {},
     /// Swap for discounted non-CDT fees with MBRN
-    SwapWithMBRN {},
+    SwapWithMBRN { auction_asset: AssetInfo },
     /// Remove ongoing CDT auction, primarily for mistakes
     RemoveAuction {},
     /// Update config

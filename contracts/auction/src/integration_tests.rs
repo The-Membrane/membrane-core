@@ -6,7 +6,7 @@ mod tests {
 
     use membrane::auction::{ExecuteMsg, InstantiateMsg, QueryMsg};
     use membrane::oracle::PriceResponse;
-    use membrane::types::{Asset, AssetInfo, Basket, Auction};
+    use membrane::types::{Asset, AssetInfo, Basket, FeeAuction, DebtAuction};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
@@ -36,7 +36,12 @@ mod tests {
             denom: String,
             amount: Uint128,
             mint_to_address: String,
-        }
+        },
+        BurnTokens {
+            denom: String,
+            amount: Uint128,
+            burn_from_address: String,
+        },
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
@@ -61,6 +66,17 @@ mod tests {
                         mint_to_address,
                     } => {
                         if amount != Uint128::new(105_319u128) && amount != Uint128::new(1_063u128) && amount != Uint128::new(3_191)
+                        {
+                            panic!("{}", amount)
+                        }
+                        Ok(Response::new())
+                    },
+                    Osmo_MockExecuteMsg::BurnTokens {
+                        denom,
+                        amount,
+                        burn_from_address,
+                    } => {
+                        if amount != Uint128::new(93000u128) && amount != Uint128::new(940u128)
                         {
                             panic!("{}", amount)
                         }
@@ -203,7 +219,13 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked(USER),
-                vec![coin(99, "error"), coin(201_000, "credit_fulldenom")],
+                vec![coin(99, "error"), coin(201_000, "credit_fulldenom"), coin(96_000, "mbrn_denom"),],
+            )
+            .unwrap();
+            bank.init_balance(
+                storage,
+                &Addr::unchecked(ADMIN),
+                vec![coin(1_000_000, "fee_asset")],
             )
             .unwrap();
 
@@ -327,24 +349,18 @@ mod tests {
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Assert Auction Response
-            let auction: Vec<Auction> = app
+            //Assert DebtAuction Response
+            let auction: DebtAuction = app
                 .wrap()
                 .query_wasm_smart(
                     debt_contract.addr(),
-                    &QueryMsg::OngoingAuctions {
-                        auction_asset: Some(AssetInfo::NativeToken {
-                            denom: String::from("credit_fulldenom"),
-                        }),
-                        limit: None,
-                        start_without: None,
-                    },
+                    &QueryMsg::DebtAuction {},
                 )
                 .unwrap();
-            assert_eq!(auction[0].auction_start_time, 1571797419u64);
-            assert_eq!(auction[0].remaining_recapitalization, Uint128::new(100u128));
+            assert_eq!(auction.auction_start_time, 1571797419u64);
+            assert_eq!(auction.remaining_recapitalization, Uint128::new(100u128));
             assert_eq!(
-                auction[0].repayment_positions,
+                auction.repayment_positions,
                 vec![RepayPosition {
                     repayment: Uint128::new(100u128),
                     position_info: UserInfo {
@@ -376,24 +392,18 @@ mod tests {
             });
             app.execute(cdp_contract, cosmos_msg).unwrap();
 
-            //Assert Auction Response
-            let auction: Vec<Auction> = app
+            //Assert DebtAuction Response
+            let auction: DebtAuction = app
                 .wrap()
                 .query_wasm_smart(
                     debt_contract.addr(),
-                    &QueryMsg::OngoingAuctions {
-                        auction_asset: Some(AssetInfo::NativeToken {
-                            denom: String::from("credit_fulldenom"),
-                        }),
-                        limit: None,
-                        start_without: None,
-                    },
+                    &QueryMsg::DebtAuction {},
                 )
                 .unwrap();
-            assert_eq!(auction[0].auction_start_time, 1571797419u64); //Start_time doesn't change
-            assert_eq!(auction[0].remaining_recapitalization, Uint128::new(200u128));
+            assert_eq!(auction.auction_start_time, 1571797419u64); //Start_time doesn't change
+            assert_eq!(auction.remaining_recapitalization, Uint128::new(200u128));
             assert_eq!(
-                auction[0].repayment_positions,
+                auction.repayment_positions,
                 vec![
                     RepayPosition {
                         repayment: Uint128::new(100u128),
@@ -412,28 +422,168 @@ mod tests {
                 ]
             );
 
-            //Assert Asset is still valid
-            let valid_assets: Vec<AssetInfo> = app
+            //Successful FeeAuction
+            let msg = ExecuteMsg::StartAuction {
+                repayment_position_info: None,
+                send_to: None,
+                auction_asset: Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("fee_asset"),
+                    },
+                    amount: Uint128::new(100u128),
+                },
+            };
+            let cosmos_msg = debt_contract.call(msg, vec![coin(100, "fee_asset")]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Assert FeeAuction Response
+            let auction: Vec<FeeAuction> = app
                 .wrap()
                 .query_wasm_smart(
                     debt_contract.addr(),
-                    &QueryMsg::ValidDebtAssets {
-                        auction_asset: None,
+                    &QueryMsg::OngoingFeeAuctions {
+                        auction_asset: Some(AssetInfo::NativeToken {
+                            denom: String::from("fee_asset"),
+                        }),
                         limit: None,
-                        start_without: None,
+                        start_after: None,
                     },
                 )
                 .unwrap();
-            assert_eq!(
-                valid_assets,
-                vec![AssetInfo::NativeToken {
-                    denom: String::from("credit_fulldenom")
-                }]
-            );
+            assert_eq!(auction[0].auction_start_time, 1603333419);
+            assert_eq!(auction[0].auction_asset.amount, Uint128::new(100u128));
+
+            //Successful Start adding to existing auction
+            let msg = ExecuteMsg::StartAuction {
+                repayment_position_info: None,
+                send_to: None,
+                auction_asset: Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("fee_asset"),
+                    },
+                    amount: Uint128::new(100u128),
+                },
+            };
+            let cosmos_msg = debt_contract.call(msg, vec![coin(100, "fee_asset")]).unwrap();
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
+                chain_id: app.block_info().chain_id,
+            });
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Assert FeeAuction Response
+            let auction: Vec<FeeAuction> = app
+                .wrap()
+                .query_wasm_smart(
+                    debt_contract.addr(),
+                    &QueryMsg::OngoingFeeAuctions {
+                        auction_asset: Some(AssetInfo::NativeToken {
+                            denom: String::from("fee_asset"),
+                        }),
+                        limit: None,
+                        start_after: None,
+                    },
+                )
+                .unwrap();
+            assert_eq!(auction[0].auction_start_time, 1603333419); //Start_time doesn't change
+            assert_eq!(auction[0].auction_asset.amount, Uint128::new(200u128));
+
         }
 
         #[test]
-        fn swap_For_mbrn() {
+        fn swap_with_mbrn(){
+            let (mut app, debt_contract, cdp_contract) = proper_instantiate();
+
+            //Successful StartAuction: FeeAuction
+            let msg = ExecuteMsg::StartAuction {
+                repayment_position_info: None,
+                send_to: None,
+                auction_asset: Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("fee_asset"),
+                    },
+                    amount: Uint128::new(100_000u128),
+                },
+            };
+            let cosmos_msg = debt_contract.call(msg, vec![coin(100_000, "fee_asset")]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Errored Swap, invalid asset
+            let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
+            let cosmos_msg = debt_contract.call(msg, vec![coin(99, "error")]).unwrap();
+            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            assert_eq!(
+                err.root_cause().to_string(),
+                String::from("Generic error: Invalid asset sent to fulfill auction")
+            );
+
+            //Successful Partial Fill
+            let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
+            let cosmos_msg = debt_contract
+                .call(msg, vec![coin(93_000, "mbrn_denom")])
+                .unwrap();
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(300u64), //60 * 5 = 6% discount
+                chain_id: app.block_info().chain_id,
+            });
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            ///Burn amount asserted in mock contract definition
+            //Assert Auction partial fulfillment
+            let auction: Vec<FeeAuction> = app
+                .wrap()
+                .query_wasm_smart(
+                    debt_contract.addr(),
+                    &QueryMsg::OngoingFeeAuctions {
+                        auction_asset: Some(AssetInfo::NativeToken {
+                            denom: String::from("fee_asset"),
+                        }),
+                        limit: None,
+                        start_after: None,
+                    },
+                )
+                .unwrap();
+
+            assert_eq!(auction[0].auction_start_time, 1571797419u64);
+            assert_eq!(
+                auction[0].auction_asset.amount,
+                Uint128::new(1_000u128)
+            );
+
+            //Successful Overpay Swap
+            let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
+            let cosmos_msg = debt_contract
+                .call(msg, vec![coin(3_000, "mbrn_denom")])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            //Swap cost 940 MBRN for 1000 fee_asset
+            assert_eq!(
+                app.wrap().query_all_balances(USER).unwrap(),
+                vec![coin(201_000, "credit_fulldenom"), coin(99, "error"), coin(94_000, "fee_asset"), coin(2060, "mbrn_denom"),]
+            );
+
+            //Assert Auction is empty
+            let err = app
+                .wrap()
+                .query_wasm_smart::<Vec<FeeAuction>>(
+                    debt_contract.addr(),
+                    &QueryMsg::OngoingFeeAuctions {
+                        auction_asset: Some(AssetInfo::NativeToken {
+                            denom: String::from("fee_asset"),
+                        }),
+                        limit: None,
+                        start_after: None,
+                    },
+                )
+                .unwrap_err();
+            assert_eq!(err.to_string(), String::from("Generic error: Querier contract error: Generic error: Auction amount zeroed"));
+
+        }
+
+        #[test]
+        fn swap_for_mbrn() {
             let (mut app, debt_contract, cdp_contract) = proper_instantiate();
 
             //Successful StartAuction: Position Repayment
@@ -459,7 +609,7 @@ mod tests {
             let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
             assert_eq!(
                 err.root_cause().to_string(),
-                String::from("Invalid Asset: error")
+                String::from("Generic error: Invalid asset sent to fulfill auction")
             );
 
             //Successful Partial Fill
@@ -476,27 +626,21 @@ mod tests {
 
             ///Mint amount asserted in mock contract definition
             //Assert Auction partial fulfillment
-            let auction: Vec<Auction> = app
+            let auction: DebtAuction = app
                 .wrap()
                 .query_wasm_smart(
                     debt_contract.addr(),
-                    &QueryMsg::OngoingAuctions {
-                        auction_asset: Some(AssetInfo::NativeToken {
-                            denom: String::from("credit_fulldenom"),
-                        }),
-                        limit: None,
-                        start_without: None,
-                    },
+                    &QueryMsg::DebtAuction {},
                 )
                 .unwrap();
 
-            assert_eq!(auction[0].auction_start_time, 1571797419u64);
+            assert_eq!(auction.auction_start_time, 1571797419u64);
             assert_eq!(
-                auction[0].remaining_recapitalization,
+                auction.remaining_recapitalization,
                 Uint128::new(1_000u128)
             );
             assert_eq!(
-                auction[0].repayment_positions,
+                auction.repayment_positions,
                 vec![RepayPosition {
                     repayment: Uint128::new(1_000u128),
                     position_info: UserInfo {
@@ -521,21 +665,15 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Assert Auction Recap increase
-            let auction: Vec<Auction> = app
+            let auction: DebtAuction = app
                 .wrap()
                 .query_wasm_smart(
                     debt_contract.addr(),
-                    &QueryMsg::OngoingAuctions {
-                        auction_asset: Some(AssetInfo::NativeToken {
-                            denom: String::from("credit_fulldenom"),
-                        }),
-                        limit: None,
-                        start_without: None,
-                    },
+                    &QueryMsg::DebtAuction {},
                 )
                 .unwrap();
                 assert_eq!(
-                    auction[0].remaining_recapitalization,
+                    auction.remaining_recapitalization,
                     Uint128::new(101_000u128)
                 );
 
@@ -547,27 +685,21 @@ mod tests {
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Assert Auction partial fulfillment
-            let auction: Vec<Auction> = app
+            let auction: DebtAuction = app
                 .wrap()
                 .query_wasm_smart(
                     debt_contract.addr(),
-                    &QueryMsg::OngoingAuctions {
-                        auction_asset: Some(AssetInfo::NativeToken {
-                            denom: String::from("credit_fulldenom"),
-                        }),
-                        limit: None,
-                        start_without: None,
-                    },
+                    &QueryMsg::DebtAuction {},
                 )
                 .unwrap();
 
-            assert_eq!(auction[0].auction_start_time, 1571797419u64);
+            assert_eq!(auction.auction_start_time, 1571797419u64);
             assert_eq!(
-                auction[0].remaining_recapitalization,
+                auction.remaining_recapitalization,
                 Uint128::new(2_000u128)
             );
             assert_eq!(
-                auction[0].send_to,
+                auction.send_to,
                 vec![AuctionRecipient {
                     amount: Uint128::new(2_000),
                     recipient: Addr::unchecked("send_to_me"),
@@ -583,45 +715,19 @@ mod tests {
 
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(1_000, "credit_fulldenom"), coin(99, "error")]
+                vec![coin(1_000, "credit_fulldenom"), coin(99, "error"), coin(96_000, "mbrn_denom"),]
             );
 
             //Assert Auction is empty
-            let err = app
+            let auction = app
                 .wrap()
-                .query_wasm_smart::<Vec<Auction>>(
+                .query_wasm_smart::<DebtAuction>(
                     debt_contract.addr(),
-                    &QueryMsg::OngoingAuctions {
-                        auction_asset: Some(AssetInfo::NativeToken {
-                            denom: String::from("credit_fulldenom"),
-                        }),
-                        limit: None,
-                        start_without: None,
-                    },
-                )
-                .unwrap_err();
-            assert_eq!(err.to_string(), String::from("Generic error: Querier contract error: Generic error: Auction recapitalization amount empty"));
-
-            //Assert Asset is still valid
-            let valid_assets: Vec<AssetInfo> = app
-                .wrap()
-                .query_wasm_smart(
-                    debt_contract.addr(),
-                    &QueryMsg::ValidDebtAssets {
-                        auction_asset: Some(AssetInfo::NativeToken {
-                            denom: String::from("credit_fulldenom"),
-                        }),
-                        limit: None,
-                        start_without: None,
-                    },
+                    &QueryMsg::DebtAuction {},
                 )
                 .unwrap();
-            assert_eq!(
-                valid_assets,
-                vec![AssetInfo::NativeToken {
-                    denom: String::from("credit_fulldenom")
-                }]
-            );
+            assert_eq!(auction.remaining_recapitalization, Uint128::zero());
+
         }
 
         #[test]
@@ -650,15 +756,12 @@ mod tests {
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Assert Auction removal
-            app.wrap()
-                .query_wasm_smart::<Vec<Auction>>(
+            //Assert DebtAuction removal            
+            app
+                .wrap()
+                .query_wasm_smart::<DebtAuction>(
                     debt_contract.addr(),
-                    &QueryMsg::OngoingAuctions {
-                        auction_asset: None,
-                        limit: None,
-                        start_without: None,
-                    },
+                    &QueryMsg::DebtAuction {},
                 )
                 .unwrap_err();
         }

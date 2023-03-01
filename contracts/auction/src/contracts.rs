@@ -77,7 +77,7 @@ pub fn execute(
             auction_asset,
         } => start_auction(deps, env, info, repayment_position_info, send_to, auction_asset),
         ExecuteMsg::SwapForMBRN { } => swap_for_mbrn(deps, info, env),
-        ExecuteMsg::SwapWithMBRN { } => swap_with_mbrn(deps, info, env),
+        ExecuteMsg::SwapWithMBRN { auction_asset } => swap_with_mbrn(deps, info, env, auction_asset),
         ExecuteMsg::RemoveAuction { } => remove_auction(deps, info),
         ExecuteMsg::UpdateConfig ( update)  => update_config( deps, info, update ),
     }
@@ -143,7 +143,7 @@ fn start_auction(
     info: MessageInfo,
     user_info: Option<UserInfo>,
     send_to: Option<String>,
-    auction_asset: Asset,
+    mut auction_asset: Asset,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -160,6 +160,12 @@ fn start_auction(
     
     //If not CDT, start FeeAuction
     if auction_asset.info.to_string() != config.cdt_denom {
+        //Validate auction_asset
+        if info.funds.len() == 1 {
+            validate_asset(info.funds[0].clone(), auction_asset.info.to_string())?;
+            auction_asset.amount = info.funds[0].clone().amount;
+        } else { return Err(ContractError::CustomError { val: String::from("Must start only one auction & fees must be sent with intiation") }) }
+
         FEE_AUCTIONS.update(deps.storage, auction_asset.info.to_string(), |fee_auction| -> StdResult<FeeAuction> {
             match fee_auction {
                 Some(mut auction) => {
@@ -169,17 +175,14 @@ fn start_auction(
                     Ok(auction)
                 },
                 None => {
-                    //If None, create new auction
-                    let auction = FeeAuction {
+                    //If None, create new auction               
+                    Ok(FeeAuction {
                         auction_asset,
                         auction_start_time: env.block.time.seconds(),
-                    };
-                    
-                    Ok(auction)
+                    })
                 }
             }
         })?;
-
     } else {//If CDT, start DebtAuction
 
         //Both can't be Some
@@ -298,11 +301,11 @@ fn validate_asset(
 
 /// Swap MBRN for non-CDT asset at a discount
 /// Burn MBRN and send non-CDT asset to the sender.
-fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response, ContractError> {
+fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: AssetInfo) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
     let mut overpay = Uint128::zero();
-    let mut successful_swap_amount = Uint128::zero();
+    let successful_swap_amount;
 
     let mut msgs: Vec<CosmosMsg> = vec![];
     let mut attrs = vec![attr("method", "swap_with_mbrn")];
@@ -311,7 +314,7 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response
     let coin = validate_asset(info.funds[0].clone(), config.clone().mbrn_denom)?;
 
     //Get FeeAuction
-    let mut auction = FEE_AUCTIONS.load(deps.storage, coin.denom.clone())?;
+    let mut auction = FEE_AUCTIONS.load(deps.storage, auction_asset.clone().to_string())?;
 
     //If the auction is active, i.e. there is still debt to be repaid, swap for auctioned asset
     if !auction.auction_asset.amount.is_zero() {
@@ -358,17 +361,19 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response
             successful_swap_amount = auction.auction_asset.amount;
             auction.auction_asset.amount = Uint128::zero();
 
-        } else if mbrn_value < auction_asset_value{
+        } else if mbrn_value < auction_asset_value {
             //If the value of the sent MBRN is less than the value of the auction asset, set successful_swap_amount
             //Update auction asset amount
             successful_swap_amount = decimal_division(mbrn_value, auction_asset_price)? * Uint128::one();
             auction.auction_asset.amount = decimal_division((auction_asset_value - mbrn_value), auction_asset_price)? * Uint128::one();
+        } else {
+            successful_swap_amount = auction.auction_asset.amount;
+            auction.auction_asset.amount = Uint128::zero();
         }
-
 
         //Burn MBRN
         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.mbrn_denom.clone(),
+            contract_addr: config.clone().osmosis_proxy.to_string(),
             funds: vec![],
             msg: to_binary(&OsmoExecuteMsg::BurnTokens { 
                 denom: config.mbrn_denom.clone(),
@@ -387,7 +392,7 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response
         }));
 
         //Update Auction
-        FEE_AUCTIONS.save(deps.storage, coin.denom.clone(), &auction)?;
+        FEE_AUCTIONS.save(deps.storage, auction_asset.clone().to_string(), &auction)?;
 
         //If there is overpay, send it back to the sender
         if !overpay.is_zero() {
@@ -428,7 +433,7 @@ fn get_discount_ratio(
         Decimal::one(),
         (current_discount_increase + config.initial_discount),
     )?;
-
+    
     Ok(discount_ratio)
 }
 

@@ -580,6 +580,15 @@ mod tests {
                 .unwrap_err();
             assert_eq!(err.to_string(), String::from("Generic error: Querier contract error: Generic error: Auction amount zeroed"));
 
+            //Invalid Swap on 0'd Auction
+            let msg = ExecuteMsg::SwapWithMBRN {
+                auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }
+            };
+            let cosmos_msg = debt_contract
+                .call(msg, vec![coin(1_000, "mbrn_denom")])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
         }
 
         #[test]
@@ -712,7 +721,6 @@ mod tests {
                 .call(msg, vec![coin(3_000, "credit_fulldenom")])
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
-
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
                 vec![coin(1_000, "credit_fulldenom"), coin(99, "error"), coin(96_000, "mbrn_denom"),]
@@ -727,6 +735,13 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(auction.remaining_recapitalization, Uint128::zero());
+
+            //Invalid Swap on 0'd Auction
+            let msg = ExecuteMsg::SwapForMBRN {};
+            let cosmos_msg = debt_contract
+                .call(msg, vec![coin(1_000, "credit_fulldenom")])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
         }
 

@@ -406,6 +406,8 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
         }
 
         attrs.push(attr("auction_asset", auction.auction_asset.to_string()));
+    } else {
+        return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Auction ended") }));
     }
 
     Ok(Response::new().add_messages(msgs).add_attributes(attrs))
@@ -616,6 +618,8 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
             //Update DebtAuction limit
             auction.remaining_recapitalization -= coin.clone().amount;
         }
+    } else {
+        return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Auction ended") }));
     }
 
     //Send back overpayment

@@ -12,7 +12,7 @@ mod tests {
     use membrane::stability_pool::LiquidatibleResponse as SP_LiquidatibleResponse;
     use membrane::staking::Config as Staking_Config;
     use membrane::types::{
-        cAsset, Asset, AssetInfo, AssetOracleInfo, Deposit, LiqAsset, LiquidityInfo, TWAPPoolInfo,
+        cAsset, Asset, AssetInfo, AssetOracleInfo, Deposit, LiquidityInfo, TWAPPoolInfo,
         UserInfo, MultiAssetSupplyCap, AssetPool, StakeDistribution, Owner, PoolType, DebtCap
     };
 
@@ -1043,6 +1043,7 @@ mod tests {
                             fee_wait_period: 0,
                             unstaking_period: 0,
                             positions_contract: None,
+                            auction_contract: None,
                             vesting_contract: None,
                             governance_contract: None,
                             osmosis_proxy: None,
@@ -1702,8 +1703,6 @@ mod tests {
     }
 
     mod cdp {
-
-        use std::str::FromStr;
 
         use super::*;
         use cosmwasm_std::{coins, BlockInfo};
@@ -8262,6 +8261,7 @@ mod tests {
         }
 
         //#[test]
+        #[allow(dead_code)]
         fn close_position(){
             let (mut app, cdp_contract, lq_contract) =
                 proper_instantiate(false, false, false, false);

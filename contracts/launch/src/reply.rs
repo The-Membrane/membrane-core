@@ -139,7 +139,7 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
         //14 day guage
         let msg = MsgCreateGauge { 
             is_perpetual: false, 
-            owner: addrs.clone().governance.to_string(),
+            owner: env.clone().contract.address.to_string(),
             distribute_to: Some(QueryCondition { 
                 lock_query_type: 0, //ByDuration
                 denom: pool_denom,

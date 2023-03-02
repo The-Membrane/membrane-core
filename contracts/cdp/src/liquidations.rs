@@ -102,7 +102,7 @@ pub fn liquidate(
 
     let res = Response::new();
     let mut submessages = vec![];
-    let mut fee_messages: Vec<CosmosMsg> = vec![];
+    let mut caller_fee_messages: Vec<CosmosMsg> = vec![];
     let mut lp_withdraw_messages: Vec<CosmosMsg> = vec![];
 
     //cAsset_ratios including LP shares
@@ -132,7 +132,7 @@ pub fn liquidate(
 
     //Calculate caller & protocol fees 
     //and amount to send to the Liquidation Queue.
-    per_asset_fulfillments(
+    let protocol_fee_msg = per_asset_fulfillments(
         storage, 
         querier, 
         env.clone(), 
@@ -150,7 +150,7 @@ pub fn liquidate(
         cAsset_ratios, 
         cAsset_prices, 
         &mut submessages, 
-        &mut fee_messages, 
+        &mut caller_fee_messages, 
         &mut per_asset_repayment
     )?;
     
@@ -231,7 +231,7 @@ pub fn liquidate(
         Ok(res
             //.add_messages(lp_withdraw_msgs)
             .add_messages(sell_wall_msgs)
-            .add_messages(fee_messages)
+            .add_messages(caller_fee_messages)
             .add_submessages(submessages)
             .add_submessage(call_back)
             .add_attributes(vec![
@@ -245,7 +245,8 @@ pub fn liquidate(
         Ok(res
             //.add_messages(lp_withdraw_messages)
             .add_messages(sell_wall_messages)
-            .add_messages(fee_messages)
+            .add_messages(caller_fee_messages)
+            .add_message(protocol_fee_msg)
             .add_submessages(submessages)
             .add_submessage(call_back)
             .add_attributes(vec![
@@ -403,14 +404,14 @@ fn per_asset_fulfillments(
     cAsset_ratios: Vec<Decimal>,
     cAsset_prices: Vec<Decimal>,
     submessages: &mut Vec<SubMsg>,
-    fee_messages: &mut Vec<CosmosMsg>,
+    caller_fee_messages: &mut Vec<CosmosMsg>,
     per_asset_repayment: &mut Vec<Decimal>,
-) -> StdResult<()>{
+) -> StdResult<CosmosMsg>{
+    
+    let mut caller_coins: Vec<Coin> = vec![];
+    let mut protocol_coins: Vec<Coin> = vec![];
 
     for (num, cAsset) in collateral_assets.iter().enumerate() {
-        let mut caller_coins: Vec<Coin> = vec![];
-        let mut protocol_coins: Vec<Coin> = vec![];
-        let mut fee_assets: Vec<Asset> = vec![];
 
         let repay_amount_per_asset =
             decimal_multiplication(credit_repay_amount, cAsset_ratios[num])?;
@@ -479,24 +480,9 @@ fn per_asset_fulfillments(
                     amount: protocol_fee_in_collateral_amount,
                     ..cAsset.clone().asset
                 };
-                fee_assets.push(asset.clone());
                 protocol_coins.push(asset_to_coin(asset)?);
             }
         } 
-        //Create Msg to send all native token liq fees for fn caller
-        let msg = CosmosMsg::Bank(BankMsg::Send {
-            to_address: fee_recipient.clone(),
-            amount: caller_coins,
-        });
-        fee_messages.push(msg);
-        
-        //Create Msg to send all native token liq fees for MBRN to the staking contract
-        let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.clone().staking_contract.unwrap().to_string(),
-            msg: to_binary(&StakingExecuteMsg::DepositFee {})?,
-            funds: protocol_coins,
-        }); 
-        fee_messages.push(msg);
 
         /////////////LiqQueue calls//////
         if basket.clone().liq_queue.is_some() {
@@ -560,9 +546,23 @@ fn per_asset_fulfillments(
             let sub_msg: SubMsg = SubMsg::reply_always(msg, LIQ_QUEUE_REPLY_ID);
             submessages.push(sub_msg);
         }
-    }  
+    }
+    
+    //Create Msg to send all native token liq fees for fn caller
+    let msg = CosmosMsg::Bank(BankMsg::Send {
+        to_address: fee_recipient.clone(),
+        amount: caller_coins,
+    });
+    caller_fee_messages.push(msg);
+    
+    //Create Msg to send all native token liq fees for MBRN to the staking contract
+    let protocol_fee_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.clone().staking_contract.unwrap().to_string(),
+        msg: to_binary(&StakingExecuteMsg::DepositFee {})?,
+        funds: protocol_coins,
+    }); 
 
-    Ok(())
+    Ok(protocol_fee_msg)
 }
 
 /// This fucntion is used to build (sub)messages for the Stability Pool and sell wall.

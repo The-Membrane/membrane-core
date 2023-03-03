@@ -451,7 +451,7 @@ pub fn get_basket_debt_caps(
             } else if let Some(sp_ratio) = basket.clone().collateral_supply_caps[i].stability_pool_ratio_for_debt_cap{
                 //If cap is supposed to be based off of a ratio of SP liquidity, calculate                                
                 per_asset_debt_caps.push(
-                    decimal_multiplication(sp_cap_space, sp_ratio)? * Uint128::new(1)
+                    decimal_multiplication(sp_liquidity, sp_ratio)? * Uint128::new(1)
                 );
             } else {
                 //TVL Ratio * Cap 
@@ -465,4 +465,3 @@ pub fn get_basket_debt_caps(
     
     Ok(per_asset_debt_caps)
 }
-

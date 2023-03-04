@@ -309,6 +309,17 @@ fn unstake() {
         ]
     );
 
+    //Unstake more than Staked Error
+    let msg = ExecuteMsg::Unstake {
+        mbrn_amount: Some(Uint128::new(11_000_000u128)),
+    };
+    let info = mock_info("sender88", &[]);
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Custom Error val: \"Invalid withdrawal amount\"".to_string()
+    );
+
     //Successful Unstake w/o withdrawals to assert Restake
     let msg = ExecuteMsg::Unstake { mbrn_amount: None };
     let info = mock_info("sender88", &[]);

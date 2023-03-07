@@ -276,14 +276,29 @@ fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<Uint128> {
             msg: to_binary(&OsmoQueryMsg::PoolState { id })?,
         }))?;
 
-        let pooled_amount = if let Some(pooled_asset) = res
-            .assets
-            .into_iter()
-            .find(|coin| coin.denom == denom){
-                Uint128::from_str(&pooled_asset.amount).unwrap()
-            } else {
-                return Err(cosmwasm_std::StdError::GenericErr { msg: format!("This LP doesn't contain {}", denom) })
-            };
+        let pooled_amount: Uint128;
+        if let PoolType::StableSwap { pool_id } = info {
+            //Stableswaps aren't 50:50, we want to count what can be swapped for
+            pooled_amount = if let Some(pooled_asset) = res
+                .assets
+                .into_iter()
+                .find(|coin| coin.denom != denom){
+                    Uint128::from_str(&pooled_asset.amount).unwrap()
+                } else {
+                    return Err(cosmwasm_std::StdError::GenericErr { msg: format!("This LP only contains {}", denom) })
+                };
+        } else {
+            pooled_amount = if let Some(pooled_asset) = res
+                .assets
+                .into_iter()
+                .find(|coin| coin.denom == denom){
+                    Uint128::from_str(&pooled_asset.amount).unwrap()
+                } else {
+                    return Err(cosmwasm_std::StdError::GenericErr { msg: format!("This LP doesn't contain {}", denom) })
+                };
+        }
+
+        
 
         total_pooled += pooled_amount * multiplier;
     }

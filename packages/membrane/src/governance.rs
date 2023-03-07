@@ -151,6 +151,8 @@ pub struct Config {
     pub staking_contract_addr: Addr,
     /// Address of the vesting contract
     pub vesting_contract_addr: Addr,
+    ///Multiplier for vesting allocation voting power
+    pub vesting_voting_power_multiplier: Decimal,
     /// Proposal voting period
     pub proposal_voting_period: u64,
     /// Expedited Proposal voting period
@@ -242,6 +244,8 @@ pub struct UpdateConfig {
     pub staking_contract: Option<String>,
     /// vesting' contract address
     pub vesting_contract_addr: Option<String>,
+    /// Multiplier for vesting' allocation voting power
+    pub vesting_voting_power_multiplier: Option<Decimal>,
     /// Proposal voting period
     pub proposal_voting_period: Option<u64>,
     /// Expedited Proposal voting period

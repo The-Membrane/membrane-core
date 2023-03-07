@@ -59,6 +59,7 @@ pub fn instantiate(
         minimum_total_stake: Uint128::new(5_000_000_000_000),  //5M MBRN
         staking_contract_addr: deps.api.addr_validate(&msg.mbrn_staking_contract_addr)?,
         vesting_contract_addr: deps.api.addr_validate(&msg.vesting_contract_addr)?,
+        vesting_voting_power_multiplier: msg.vesting_voting_power_multiplier,
         proposal_voting_period: msg.proposal_voting_period,
         expedited_proposal_voting_period: msg.expedited_proposal_voting_period,
         proposal_effective_delay: msg.proposal_effective_delay,
@@ -632,7 +633,7 @@ pub fn calc_voting_power(
                 msg: to_binary(&VestingQueryMsg::Allocation { recipient })?,
             }))?;
             
-        total = allocation.amount;
+        total = allocation.amount * config.vesting_voting_power_multiplier;
     } else if vesting {
         //If vesting but recipient isn't passed, use the sender
         let recipient = sender;
@@ -644,7 +645,7 @@ pub fn calc_voting_power(
                 msg: to_binary(&VestingQueryMsg::Allocation { recipient: recipient })?,
             }))?;
 
-        total = allocation.amount;
+        total = allocation.amount * config.vesting_voting_power_multiplier;
     } else {
         total = Uint128::zero();
     }

@@ -32,4 +32,3 @@ Auomated mixed-asset debt market protocol powered by smart contracts on [Osmosis
 
 ## Docs
 [Documentation](https://membrane-finance.gitbook.io/membrane-docs/)
-![Contract Map](Flowcharts - Page 1.jpeg)

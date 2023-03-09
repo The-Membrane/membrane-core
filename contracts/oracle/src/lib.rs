@@ -9,4 +9,4 @@ pub mod state;
 
 #[cfg(test)]
 #[allow(unused_variables)]
-pub mod integration_tests;
+pub mod testing;

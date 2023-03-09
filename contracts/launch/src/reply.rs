@@ -16,7 +16,7 @@ use membrane::cdp::{InstantiateMsg as CDP_InstantiateMsg, EditBasket, ExecuteMsg
 use membrane::oracle::{InstantiateMsg as Oracle_InstantiateMsg, ExecuteMsg as OracleExecuteMsg};
 use membrane::liq_queue::InstantiateMsg as LQInstantiateMsg;
 use membrane::liquidity_check::InstantiateMsg as LCInstantiateMsg;
-use membrane::debt_auction::InstantiateMsg as DAInstantiateMsg;
+use membrane::auction::InstantiateMsg as DAInstantiateMsg;
 use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg};
 use membrane::margin_proxy::InstantiateMsg as ProxyInstantiateMsg;
 use membrane::system_discounts::InstantiateMsg as SystemDiscountInstantiateMsg;
@@ -32,11 +32,11 @@ use osmosis_std::types::osmosis::lockup::QueryCondition;
 
 //Governance constants
 const PROPOSAL_VOTING_PERIOD: u64 = *VOTING_PERIOD_INTERVAL.start();
-const PROPOSAL_EFFECTIVE_DELAY: u64 = 14399;
-const PROPOSAL_EXPIRATION_PERIOD: u64 = 100799;
+const PROPOSAL_EFFECTIVE_DELAY: u64 = 0; //1 day
+const PROPOSAL_EXPIRATION_PERIOD: u64 = 100799; //14 days
 const PROPOSAL_REQUIRED_STAKE: u128 = *STAKE_INTERVAL.start();
-const PROPOSAL_REQUIRED_QUORUM: &str = "0.50";
-const PROPOSAL_REQUIRED_THRESHOLD: &str = "0.60";
+const PROPOSAL_REQUIRED_QUORUM: &str = "0.33";
+const PROPOSAL_REQUIRED_THRESHOLD: &str = "0.51";
 
 /// Called after the Osmosis Proxy (OP) reply to save created denoms
 pub fn handle_create_denom_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<Response>{ 
@@ -139,7 +139,7 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
         //14 day guage
         let msg = MsgCreateGauge { 
             is_perpetual: false, 
-            owner: addrs.clone().governance.to_string(),
+            owner: env.clone().contract.address.to_string(),
             distribute_to: Some(QueryCondition { 
                 lock_query_type: 0, //ByDuration
                 denom: pool_denom,
@@ -286,7 +286,6 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
                 code_id: config.clone().oracle_id, 
                 msg: to_binary(&Oracle_InstantiateMsg {
                     owner: None,
-                    osmosis_proxy: valid_address.to_string(),
                     positions_contract: None,
                 })?, 
                 funds: vec![], 
@@ -343,6 +342,7 @@ pub fn handle_oracle_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Resp
                 msg: to_binary(&Staking_InstantiateMsg {
                     owner: None,
                     positions_contract: None,
+                    auction_contract: None,
                     vesting_contract: None,
                     governance_contract: None,
                     osmosis_proxy: Some(addrs.osmosis_proxy.to_string()),
@@ -403,7 +403,7 @@ pub fn handle_staking_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                 code_id: config.clone().vesting_id, 
                 msg: to_binary(&Vesting_InstantiateMsg {
                     owner: None,
-                    initial_allocation: Uint128::new(20_000_000_000_000),
+                    initial_allocation: Uint128::new(10_000_000_000_000),
                     labs_addr: config.clone().labs_addr.to_string(),
                     mbrn_denom: config.clone().mbrn_denom,
                     osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),
@@ -460,8 +460,8 @@ pub fn handle_vesting_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                     mbrn_staking_contract_addr: addrs.clone().staking.to_string(),
                     vesting_contract_addr: addrs.clone().vesting.to_string(),
                     vesting_voting_power_multiplier: Decimal::percent(50),
-                    proposal_voting_period: PROPOSAL_VOTING_PERIOD,
-                    expedited_proposal_voting_period: PROPOSAL_VOTING_PERIOD,
+                    proposal_voting_period: PROPOSAL_VOTING_PERIOD * 7, //7 days
+                    expedited_proposal_voting_period: PROPOSAL_VOTING_PERIOD * 3, //3 days
                     proposal_effective_delay: PROPOSAL_EFFECTIVE_DELAY,
                     proposal_expiration_period: PROPOSAL_EXPIRATION_PERIOD,
                     proposal_required_stake: Uint128::from(PROPOSAL_REQUIRED_STAKE),
@@ -680,7 +680,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                         },
                         amount: Uint128::from(0u128),
                     },
-                    max_borrow_LTV: Decimal::percent(40),
+                    max_borrow_LTV: Decimal::percent(45),
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
@@ -692,7 +692,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                         },
                         amount: Uint128::from(0u128),
                     },
-                    max_borrow_LTV: Decimal::percent(40),
+                    max_borrow_LTV: Decimal::percent(45),
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
@@ -854,7 +854,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                         },
                         amount: Uint128::from(0u128),
                     },
-                    max_borrow_LTV: Decimal::percent(40),
+                    max_borrow_LTV: Decimal::percent(45),
                     max_LTV: Decimal::percent(60),
                     pool_info: Some(PoolInfo { 
                         pool_id: config.clone().atomosmo_pool_id, 
@@ -920,7 +920,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                         },
                         amount: Uint128::from(0u128),
                     },
-                    max_borrow_LTV: Decimal::percent(40),
+                    max_borrow_LTV: Decimal::percent(45),
                     max_LTV: Decimal::percent(60),
                     pool_info: Some(PoolInfo { 
                         pool_id: config.clone().osmousdc_pool_id, 
@@ -1135,7 +1135,7 @@ pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                     twap_timeframe: 60u64,
                     mbrn_denom: config.clone().mbrn_denom,
                     initial_discount: Decimal::percent(1),
-                    discount_increase_timeframe: 15 * 60, //15 minutes,
+                    discount_increase_timeframe: 36, //Discount will hit 100% in 1 hour, 1.6667% per minute
                     discount_increase: Decimal::percent(1),
                 })?, 
                 funds: vec![], 
@@ -1196,8 +1196,9 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                     Owner {
                         owner: addrs.clone().positions, 
                         total_minted: Uint128::zero(),
-                        liquidity_multiplier: Some(Decimal::percent(360_00)), //0.55% (0.55% would be 180x but the liquidity contract only counts CDT so we double)
-                        stability_pool_ratio: Some(Decimal::one()), //CDP contracts gets full share of SP cap size (for now)
+                        //Makes more sense to start low and scale up. The LM is our best capping mechanism. DAI's scaled with its Lindy and risk profile.
+                        liquidity_multiplier: Some(Decimal::percent(10_00)), //10x or 10% liquidity to supply ratio
+                        stability_pool_ratio: Some(Decimal::zero()), //CDP contracts gets 0% of the Stability Pool cap space initially
                         non_token_contract_auth: false,
                     },
                     // No other owners mint CDT atm
@@ -1257,7 +1258,6 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                 msg: to_binary(&OracleExecuteMsg::UpdateConfig { 
                     owner: Some(addrs.clone().governance.to_string()), 
                     positions_contract: Some(addrs.clone().positions.to_string()),
-                    osmosis_proxy: None, 
                 })?, 
                 funds: vec![],
             }));
@@ -1268,6 +1268,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                     msg: to_binary(&StakingExecuteMsg::UpdateConfig { 
                         owner: Some(addrs.clone().governance.to_string()), 
                         positions_contract: Some(addrs.clone().positions.to_string()),
+                        auction_contract: Some(addrs.clone().mbrn_auction.to_string()),
                         osmosis_proxy: None,
                         vesting_contract: Some(addrs.clone().vesting.to_string()),
                         governance_contract: Some(addrs.clone().governance.to_string()),
@@ -1335,7 +1336,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                     debt_total: Uint128::zero(),
                     supply_cap_ratio: Decimal::one(),
                     lp: true,
-                    stability_pool_ratio_for_debt_cap: Some(Decimal::percent(10)),
+                    stability_pool_ratio_for_debt_cap: Some(Decimal::percent(33)),
                 })
                 .collect::<Vec<SupplyCap>>();
             

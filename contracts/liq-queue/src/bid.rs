@@ -20,6 +20,15 @@ const MAX_LIMIT: u32 = 2147483646;
 
 static PREFIX_EPOCH_SCALE_SUM: &[u8] = b"epoch_scale_sum";
 
+// Modifications from origin
+
+// - Automatic activation after wait_period elapses. This increases computation time in return for less reliance on external contract calls.
+// - Liquidations send the RepayMsg for the position in the Positions contract
+// - Prices are taken from input by the Positions contract, the messages are guaranteed the same block so the price will be block_time + Position's config oracle_time_limit second's old.
+// - The position is assumed insolvent since called by the Positions contract, ie there is no additional solvency check in this contract.
+// - ExecuteMsg::Liquidate doesn't take any assets up front, instead receiving assets in the Reply fn of the Positions contract
+// - Removed bid_with, instead saving the bid_asset from the Positions contract
+
 /// Create Bid and add to the corresponding Slot
 pub fn submit_bid(
     deps: DepsMut,

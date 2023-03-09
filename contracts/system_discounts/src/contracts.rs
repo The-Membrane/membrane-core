@@ -9,9 +9,9 @@ use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, U
 use membrane::stability_pool::{QueryMsg as SP_QueryMsg, ClaimsResponse};
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
 use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse};
-use membrane::cdp::{QueryMsg as CDP_QueryMsg, PositionsResponse};
+use membrane::cdp::{QueryMsg as CDP_QueryMsg, PositionResponse};
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
-use membrane::types::{AssetInfo, Position, Basket, Deposit, AssetPool};
+use membrane::types::{AssetInfo, Basket, Deposit, AssetPool};
 
 use crate::error::ContractError;
 use crate::state::CONFIG;
@@ -164,14 +164,13 @@ fn get_discount(
     let user_value_in_network = get_user_value_in_network(deps.querier, env, config.clone(), user.clone())?;
 
     //Get User's outstanding debt
-    let user_positions: Vec<Position> = deps.querier.query::<PositionsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    let user_positions: Vec<PositionResponse> = deps.querier.query::<Vec<PositionResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().positions_contract.to_string(),
         msg: to_binary(&CDP_QueryMsg::GetUserPositions {
             user: user.clone(),
             limit: None,
         })?,
-    }))?
-    .positions;
+    }))?;
 
     let user_outstanding_debt: Uint128 = user_positions
         .into_iter()    

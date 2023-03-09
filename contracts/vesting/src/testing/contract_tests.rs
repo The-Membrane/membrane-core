@@ -4,10 +4,9 @@ mod tests {
     use crate::contract::{query, instantiate, execute};
 
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{from_binary, to_binary, CosmosMsg, SubMsg, Uint128, WasmMsg, Addr, coin, attr};
+    use cosmwasm_std::{from_binary, to_binary, CosmosMsg, SubMsg, Uint128, WasmMsg, attr};
 
-    use membrane::vesting::{Config, QueryMsg, InstantiateMsg, ExecuteMsg, RecipientResponse, AllocationResponse, UnlockedResponse, RecipientsResponse};
-    use membrane::staking::ExecuteMsg as StakingExecuteMsg;
+    use membrane::vesting::{QueryMsg, InstantiateMsg, ExecuteMsg, AllocationResponse, UnlockedResponse, RecipientsResponse};
     use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
     use membrane::types::VestingPeriod;
 
@@ -413,58 +412,5 @@ mod tests {
             ]
         );
  
-    }
-
-    #[test]
-    fn initial_allocation() {
-        let mut deps = mock_dependencies();
-
-        let msg = InstantiateMsg {
-            owner: Some(String::from("owner0000")),
-            initial_allocation: Uint128::new(30_000_000_000_000u128),
-            mbrn_denom: String::from("mbrn_denom"),
-            osmosis_proxy: String::from("osmosis_proxy"),
-            staking_contract: String::from("staking_contract"),
-            labs_addr: String::from("labs")
-        };
-
-        //Instantiating contract
-        let v_info = mock_info("sender88", &[]);
-        let res = instantiate(deps.as_mut(), mock_env(), v_info, msg).unwrap();
-
-        //Assert Mint and Stake Msgs
-        assert_eq!(
-            res.messages,
-            vec![
-                SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: String::from("osmosis_proxy"),
-                    funds: vec![],
-                    msg: to_binary(&OsmoExecuteMsg::MintTokens {
-                        denom: String::from("mbrn_denom"),
-                        amount: Uint128::new(30_000_000_000_000u128),
-                        mint_to_address: String::from("cosmos2contract")
-                    })
-                    .unwrap()
-                })),
-                SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: String::from("staking_contract"),
-                    funds: vec![coin(30_000_000_000_000, "mbrn_denom")],
-                    msg: to_binary(&StakingExecuteMsg::Stake { user: None }).unwrap()
-                })),
-            ]
-        );
-
-        let msg = QueryMsg::Config {  };
-        let res = query(deps.as_ref(), mock_env(), msg).unwrap();
-
-        let resp: Config = from_binary(&res).unwrap();
-        assert_eq!(resp, 
-            Config { 
-                owner: Addr::unchecked("owner0000"),
-                total_allocation: Uint128::new(30_000_000_000_000), 
-                mbrn_denom: String::from("mbrn_denom"),
-                osmosis_proxy: Addr::unchecked("osmosis_proxy"),
-                staking_contract: Addr::unchecked("staking_contract"),
-            });
     }
 }

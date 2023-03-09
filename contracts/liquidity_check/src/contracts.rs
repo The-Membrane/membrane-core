@@ -22,6 +22,8 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 //Constants
 const MAX_LIMIT: u64 = 31u64;
 
+//Assumption that pools are 50:50 or 1:1 (Stableswap)
+
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
@@ -276,14 +278,29 @@ fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<Uint128> {
             msg: to_binary(&OsmoQueryMsg::PoolState { id })?,
         }))?;
 
-        let pooled_amount = if let Some(pooled_asset) = res
-            .assets
-            .into_iter()
-            .find(|coin| coin.denom == denom){
-                Uint128::from_str(&pooled_asset.amount).unwrap()
-            } else {
-                return Err(cosmwasm_std::StdError::GenericErr { msg: format!("This LP doesn't contain {}", denom) })
-            };
+        let pooled_amount: Uint128;
+        if let PoolType::StableSwap { pool_id: _ } = info {
+            //Stableswaps aren't 50:50, we want to count what can be swapped for
+            pooled_amount = if let Some(pooled_asset) = res
+                .assets
+                .into_iter()
+                .find(|coin| coin.denom != denom){
+                    Uint128::from_str(&pooled_asset.amount).unwrap()
+                } else {
+                    return Err(cosmwasm_std::StdError::GenericErr { msg: format!("This LP only contains {}", denom) })
+                };
+        } else {
+            pooled_amount = if let Some(pooled_asset) = res
+                .assets
+                .into_iter()
+                .find(|coin| coin.denom == denom){
+                    Uint128::from_str(&pooled_asset.amount).unwrap()
+                } else {
+                    return Err(cosmwasm_std::StdError::GenericErr { msg: format!("This LP doesn't contain {}", denom) })
+                };
+        }
+
+        
 
         total_pooled += pooled_amount * multiplier;
     }

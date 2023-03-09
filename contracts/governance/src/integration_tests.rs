@@ -114,7 +114,7 @@ mod tests {
                         stakers: vec![
                             StakeDeposit {
                                 staker: Addr::unchecked(USER),
-                                amount: Uint128::new(100_000_002u128),
+                                amount: Uint128::new(1_000_000_002u128),
                                 stake_time: 1u64,
                                 unstake_start_time: None,
                             },
@@ -131,7 +131,8 @@ mod tests {
                         positions_contract: Some(Addr::unchecked("")),
                         vesting_contract: Some(Addr::unchecked("")),
                         governance_contract: Some(Addr::unchecked("")),
-                        osmosis_proxy: Some(Addr::unchecked("")),
+                        osmosis_proxy: Some(Addr::unchecked("")),                        
+                        auction_contract: Some(Addr::unchecked("")),
                         incentive_schedule: StakeDistribution {
                             rate: Decimal::zero(),
                             duration: 0,
@@ -142,39 +143,42 @@ mod tests {
                         dex_router: Some(Addr::unchecked("")),
                         max_spread: Some(Decimal::zero()),
                     })?),
-                    Staking_MockQueryMsg::TotalStaked {  } => Ok(to_binary(&Uint128::new(5_000_000_000_001u128))?),
+                    Staking_MockQueryMsg::TotalStaked {  } => Ok(to_binary(&TotalStakedResponse {
+                        total_not_including_vested: Uint128::new(5_000_000_000_001u128),
+                        vested_total: Uint128::zero(),   
+                    })?),
                 }
             },
         );
         Box::new(contract)
     }
 
-    //Mock BV Contract
+    //Mock Vesting Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum BV_MockExecuteMsg {}
+    pub enum Vesting_MockExecuteMsg {}
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub struct BV_MockInstantiateMsg {}
+    pub struct Vesting_MockInstantiateMsg {}
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum BV_MockQueryMsg {
+    pub enum Vesting_MockQueryMsg {
         Allocation { recipient: String },
     }
 
     pub fn bv_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
-            |deps, _, info, msg: BV_MockExecuteMsg| -> StdResult<Response> {
+            |deps, _, info, msg: Vesting_MockExecuteMsg| -> StdResult<Response> {
                 Ok(Response::default())
             },
             |_, _, _, _: Staking_MockInstantiateMsg| -> StdResult<Response> {
                 Ok(Response::default())
             },
-            |_, _, msg: BV_MockQueryMsg| -> StdResult<Binary> {
+            |_, _, msg: Vesting_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    BV_MockQueryMsg::Allocation { recipient } => {
+                    Vesting_MockQueryMsg::Allocation { recipient } => {
                         Ok(to_binary(&AllocationResponse {
                             amount: Uint128::new(1000000000),
                             amount_withdrawn: Uint128::zero(),
@@ -559,6 +563,7 @@ mod tests {
                             mbrn_denom: None,
                             staking_contract: None,
                             vesting_contract_addr: None,
+                            vesting_voting_power_multiplier: None,
                             minimum_total_stake: None,
                             proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
                             expedited_proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
@@ -572,6 +577,7 @@ mod tests {
                                 "https://some2.link/".to_string(),
                             ]),
                             whitelist_remove: Some(vec!["https://some.link/".to_string()]),
+                            quadratic_voting: None,
                         }))
                         .unwrap(),
                         funds: vec![],
@@ -656,12 +662,12 @@ mod tests {
                 )
                 .unwrap();
 
-            // Check proposal votes
-            assert_eq!(proposal.for_power, Uint128::from(100_000_002u128));
-            assert_eq!(proposal.against_power, Uint128::from(60_000_000u128));
+            // Check proposal votes & assert quadratic weighing
+            assert_eq!(proposal.for_power, Uint128::from(31_622u128)); 
+            assert_eq!(proposal.against_power, Uint128::from(7_745u128));
 
-            assert_eq!(proposal_votes.for_power, Uint128::from(100_000_002u128));
-            assert_eq!(proposal_votes.against_power, Uint128::from(60_000_000u128));
+            assert_eq!(proposal_votes.for_power, Uint128::from(31_622u128));
+            assert_eq!(proposal_votes.against_power, Uint128::from(7_745u128));
 
             assert_eq!(proposal_for_voters, vec![Addr::unchecked("user")]);
             assert_eq!(proposal_against_voters, vec![Addr::unchecked("admin")]);
@@ -678,7 +684,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(voting_power_1, Uint128::new(100000002));
+            assert_eq!(voting_power_1, Uint128::new(31_622));
 
             //Query voting power
             let voting_power_2: Uint128 = app
@@ -692,7 +698,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(voting_power_2, Uint128::new(60000000));
+            assert_eq!(voting_power_2, Uint128::new(7_745));
 
             //Query total voting power
             let total_voting_power: Uint128 = app
@@ -868,6 +874,7 @@ mod tests {
                             mbrn_denom: None,
                             staking_contract: None,
                             vesting_contract_addr: None,
+                            vesting_voting_power_multiplier: None,
                             minimum_total_stake: None,
                             proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
                             expedited_proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
@@ -881,6 +888,7 @@ mod tests {
                                 "https://some2.link/".to_string(),
                             ]),
                             whitelist_remove: Some(vec!["https://some.link/".to_string()]),
+                            quadratic_voting: None,
                         }))
                         .unwrap(),
                         funds: vec![],
@@ -983,6 +991,7 @@ mod tests {
                             mbrn_denom: None,
                             staking_contract: None,
                             vesting_contract_addr: None,
+                            vesting_voting_power_multiplier: None,
                             minimum_total_stake: None,
                             proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
                             expedited_proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
@@ -996,6 +1005,7 @@ mod tests {
                                 "https://some2.link/".to_string(),
                             ]),
                             whitelist_remove: Some(vec!["https://some.link/".to_string()]),
+                            quadratic_voting: None,
                         }))
                         .unwrap(),
                         funds: vec![],

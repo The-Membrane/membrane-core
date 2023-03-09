@@ -5,7 +5,7 @@ use cosmwasm_std::{ coin, coins, from_binary, Decimal, MemoryStorage, OwnedDeps,
 use membrane::stability_pool::{
     ClaimsResponse, ExecuteMsg, InstantiateMsg, QueryMsg,
 };
-use membrane::types::{Asset, AssetInfo, AssetPool, LiqAsset};
+use membrane::types::{Asset, AssetInfo, AssetPool};
 
 const ITERATIONS: u32 = 1u32;
 

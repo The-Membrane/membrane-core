@@ -367,7 +367,7 @@ pub fn accrue(
     let price_difference: Decimal;
     let mut credit_price_rate: Decimal = Decimal::zero();
 
-    ////Controller barriers to reduce risk of manipulation///
+    ////Credit Price Controller barriers to reduce risk of manipulation
     //Liquidity above 2M
     //At least 3% of total supply as liquidity
     let liquidity = get_asset_liquidity(querier, config.clone().liquidity_contract.unwrap().to_string(), basket.clone().credit_asset.info)?;

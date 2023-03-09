@@ -368,8 +368,8 @@ fn withdrawal_from_state(
                             >= (config.unstaking_period * SECONDS_PER_DAY)
                         {
                             withdrawable = true;
-                        }
-                        //If unstaking period hasn't passed do nothing
+                        } //If unstaking period hasn't passed do nothing
+
                     } else {
                         //Set unstaking time for the amount getting withdrawn
                         //Create a Deposit object for the amount not getting unstaked
@@ -383,11 +383,15 @@ fn withdrawal_from_state(
                                 ..deposit_item.clone()
                             });
 
-                            //Set new deposit amount
+                            //Set new deposit state
                             deposit_item.amount = withdrawal_amount;
-                        }
+                            deposit_item.unstake_time = Some(env.block.time.seconds());
 
-                        deposit_item.unstake_time = Some(env.block.time.seconds());
+                        } else if withdrawal_amount != Decimal::zero() {
+                            //Set unstaking time
+                            deposit_item.unstake_time = Some(env.block.time.seconds());
+                        }
+                        
                     }
                 } else {
                     //Allow regular withdraws if from CDP Repay fn

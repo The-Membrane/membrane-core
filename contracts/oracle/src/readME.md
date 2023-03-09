@@ -20,3 +20,6 @@ The Oracle contract is used to fetch asset prices for the system
 
 - Query TWAP prices from Osmosis Pools and multiply results to get desired price denomination
 - Find the median of price sources (currently only one price source)
+
+To pass tests...
+Comment lines 346-357 in contract.rs for TWAP

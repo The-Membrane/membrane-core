@@ -2,7 +2,7 @@ use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Uint128, Addr};
 
 use crate::{
-    governance::ProposalMessage,
+    governance::{ProposalMessage, ProposalVoteOption},
     types::{Allocation, Asset, VestingPeriod},
 };
 
@@ -66,6 +66,13 @@ pub enum ExecuteMsg {
         messages: Option<Vec<ProposalMessage>>,
         /// Toggle for expedited proposal
         expedited: bool,
+    },
+    /// Vote on a proposal
+    CastVote {
+        /// Proposal identifier
+        proposal_id: u64,
+        /// Vote option
+        vote: ProposalVoteOption,
     },
     /// Update contract config
     UpdateConfig {

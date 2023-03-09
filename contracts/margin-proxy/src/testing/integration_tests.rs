@@ -77,7 +77,10 @@ mod tests {
                     CDP_MockExecuteMsg::Deposit {
                         position_id,
                         position_owner
-                    } => Ok(Response::default()),
+                    } => Ok(Response::default().add_attributes(vec![
+                                attr("position_id", position_id.unwrap_or_else(|| Uint128::one())),
+                                attr("position_owner", position_owner.unwrap_or_else(|| String::from(USER))),
+                            ])),
                     CDP_MockExecuteMsg::IncreaseDebt {
                         position_id,
                         amount,
@@ -111,16 +114,15 @@ mod tests {
                         user,
                         limit,
                     } => {
-                        Ok(to_binary(&PositionsResponse {
-                            user: String::from(USER),
-                            positions: vec![
-                                Position { 
-                                    position_id: Uint128::new(1),
-                                    collateral_assets: vec![],
-                                    credit_amount: Uint128::new(1),
-                                }
-                            ],
-                        })?)
+                        Ok(to_binary(&vec![PositionResponse {
+                            position_id: Uint128::new(1),
+                            collateral_assets: vec![],
+                            credit_amount: Uint128::new(1),  
+                            cAsset_ratios: vec![],
+                            basket_id: Uint128::new(1),
+                            avg_borrow_LTV: Decimal::zero(),
+                            avg_max_LTV: Decimal::zero(),                              
+                        }])?)
                     },
                     CDP_MockQueryMsg::GetPosition { 
                         position_id,
@@ -157,7 +159,6 @@ mod tests {
                             credit_price: Decimal::zero(),
                             liq_queue: None,
                             base_interest_rate: Decimal::zero(),
-                            liquidity_multiplier: Decimal::zero(),
                             pending_revenue: Uint128::zero(),
                             negative_rates: false,
                             cpc_margin_of_error: Decimal::zero(),

@@ -3,7 +3,7 @@ mod tests {
     use crate::contracts::{instantiate, execute};
     
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{to_binary, CosmosMsg, SubMsg, Uint128, Decimal, WasmMsg, coin};
+    use cosmwasm_std::{to_binary, CosmosMsg, SubMsg, Decimal, WasmMsg, coin};
 
     use membrane::margin_proxy::{InstantiateMsg, ExecuteMsg};
     use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;

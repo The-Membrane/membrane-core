@@ -362,15 +362,15 @@ pub fn mint_tokens(
     let (authorized, owner_index) = validate_authority(config.clone(), info.clone());
     if !authorized {
         return Err(TokenFactoryError::Unauthorized {});
-    }
-    
+    }    
 
+    //Validate mint_to_address
     deps.api.addr_validate(&mint_to_address)?;
 
     if amount.eq(&Uint128::new(0_u128)) {
         return Result::Err(TokenFactoryError::ZeroAmount {});
     }
-
+    //Validate denom
     validate_denom(denom.clone())?;
 
     //Debt Auction can mint over max supply
@@ -476,8 +476,7 @@ pub fn mint_tokens(
             .add_attribute("denom", denom)
             .add_attribute("amount", amount)
             .add_attribute("mint_to_address", mint_to_address)
-            .add_messages(vec![mint_tokens_msg, send_msg])
-            ;
+            .add_messages(vec![mint_tokens_msg, send_msg]);
     }
 
     Ok(res)

@@ -8,7 +8,7 @@ mod tests {
     use membrane::types::{Asset, AssetInfo, VestingPeriod};
 
     use cosmwasm_std::{
-        coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, BlockInfo
+        coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
     use schemars::JsonSchema;
@@ -271,8 +271,7 @@ mod tests {
     }
 
     mod builders {
-
-        use membrane::vesting::{Config, UnlockedResponse};
+        use membrane::vesting::Config;
 
         use super::*;
 

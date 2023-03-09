@@ -10,9 +10,9 @@ pub const MAX_PROPOSAL_REQUIRED_THRESHOLD_PERCENTAGE: u64 = 100;
 pub const MAX_PROPOSAL_REQUIRED_QUORUM_PERCENTAGE: u64 = 100;
 pub const MINIMUM_PROPOSAL_REQUIRED_QUORUM_PERCENTAGE: u64 = 33;
 pub const VOTING_PERIOD_INTERVAL: RangeInclusive<u64> = 14400..=14 * 14400; //1 to 14 days in blocks (6 seconds per block)
-pub const DELAY_INTERVAL: RangeInclusive<u64> = 7200..=14400; // from 0.5 to 1 day in blocks (6 seconds per block)
+pub const DELAY_INTERVAL: RangeInclusive<u64> = 0..=14400; // from 0 to 1 day in blocks (6 seconds per block)
 pub const EXPIRATION_PERIOD_INTERVAL: RangeInclusive<u64> = 14400..=100800; //1 to 14 days in blocks (6 seconds per block)
-pub const STAKE_INTERVAL: RangeInclusive<u128> = 100000000..=600000000; // from 100 to 600 $MBRN
+pub const STAKE_INTERVAL: RangeInclusive<u128> = 1000000000..=5000000000; // from 1000 to 5000 $MBRN
 
 /// Proposal validation attributes
 const MIN_TITLE_LENGTH: usize = 4;
@@ -151,6 +151,8 @@ pub struct Config {
     pub staking_contract_addr: Addr,
     /// Address of the vesting contract
     pub vesting_contract_addr: Addr,
+    ///Multiplier for vesting allocation voting power
+    pub vesting_voting_power_multiplier: Decimal,
     /// Proposal voting period
     pub proposal_voting_period: u64,
     /// Expedited Proposal voting period
@@ -167,6 +169,8 @@ pub struct Config {
     pub proposal_required_threshold: Decimal,
     /// Whitelisted links
     pub whitelisted_links: Vec<String>,
+    /// Toggle quadratic voting
+    pub quadratic_voting: bool,
 }
 
 impl Config {
@@ -220,9 +224,8 @@ impl Config {
 
         if !STAKE_INTERVAL.contains(&self.proposal_required_stake.u128()) {
             return Err(StdError::generic_err(format!(
-                "The required deposit for a proposal cannot be lower than {} or higher than {}",
+                "The required deposit for a proposal cannot be lower than {}",
                 STAKE_INTERVAL.start(),
-                STAKE_INTERVAL.end()
             )));
         }
 
@@ -241,6 +244,8 @@ pub struct UpdateConfig {
     pub staking_contract: Option<String>,
     /// vesting' contract address
     pub vesting_contract_addr: Option<String>,
+    /// Multiplier for vesting' allocation voting power
+    pub vesting_voting_power_multiplier: Option<Decimal>,
     /// Proposal voting period
     pub proposal_voting_period: Option<u64>,
     /// Expedited Proposal voting period
@@ -259,6 +264,8 @@ pub struct UpdateConfig {
     pub whitelist_remove: Option<Vec<String>>,
     /// Links to add to whitelist
     pub whitelist_add: Option<Vec<String>>,
+    /// Toggle quadratic voting
+    pub quadratic_voting: Option<bool>,
 }
 
 /// This structure stores data for a proposal.

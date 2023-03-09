@@ -9,6 +9,8 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     /// Positions contract address
     pub positions_contract: Option<String>,
+    /// Auction contract address
+    pub auction_contract: Option<String>,
     /// Vesting contract address
     pub vesting_contract: Option<String>,
     /// Governance contract address
@@ -36,6 +38,8 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         /// Positions contract address
         positions_contract: Option<String>,
+        /// Auction contract address
+        auction_contract: Option<String>,
         /// Vesting contract address
         vesting_contract: Option<String>,
         /// Governance contract address
@@ -139,6 +143,8 @@ pub struct Config {
     pub unstaking_period: u64,
     /// Positions contract address
     pub positions_contract: Option<Addr>,
+    /// Auction contract address
+    pub auction_contract: Option<Addr>,
     /// Vesting contract address
     pub vesting_contract: Option<Addr>,
     /// Governance contract address

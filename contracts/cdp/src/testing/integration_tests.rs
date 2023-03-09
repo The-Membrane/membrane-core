@@ -12,7 +12,7 @@ mod tests {
     use membrane::stability_pool::LiquidatibleResponse as SP_LiquidatibleResponse;
     use membrane::staking::Config as Staking_Config;
     use membrane::types::{
-        cAsset, Asset, AssetInfo, AssetOracleInfo, Deposit, LiqAsset, LiquidityInfo, TWAPPoolInfo,
+        cAsset, Asset, AssetInfo, AssetOracleInfo, Deposit, LiquidityInfo, TWAPPoolInfo,
         UserInfo, MultiAssetSupplyCap, AssetPool, StakeDistribution, Owner, PoolType, DebtCap
     };
 
@@ -331,7 +331,6 @@ mod tests {
     pub enum SP_MockQueryMsg {
         CheckLiquidatible { amount: Decimal },
         AssetPool { },
-        AssetDeposits { user: String },
     }
 
     pub fn stability_pool_contract() -> Box<dyn Contract<Empty>> {
@@ -681,21 +680,12 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockQueryMsg {
-        SpotPrice {
-            asset: String,
-        },
         PoolState {
             id: u64,
         },
         GetDenom {
             creator_address: String,
             subdenom: String,
-        },
-        ArithmeticTwapToNow {
-            id: u64,
-            quote_asset_denom: String,
-            base_asset_denom: String,
-            start_time: i64,
         },
         GetTokenInfo {
             denom: String,
@@ -750,11 +740,6 @@ mod tests {
             },
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Osmo_MockQueryMsg::SpotPrice { asset: _ } => {
-                        Ok(to_binary(&SpotPriceResponse {
-                            price: Decimal::one(),
-                        })?)
-                    }
                     Osmo_MockQueryMsg::PoolState { id } => {
                         if id == 99u64 {
                             Ok(to_binary(&PoolStateResponse {
@@ -774,22 +759,6 @@ mod tests {
                     } => Ok(to_binary(&GetDenomResponse {
                         denom: String::from("credit_fulldenom"),
                     })?),
-                    Osmo_MockQueryMsg::ArithmeticTwapToNow {
-                        id: _,
-                        quote_asset_denom: _,
-                        base_asset_denom,
-                        start_time: _,
-                    } => {
-                        if base_asset_denom == String::from("base") {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(100),
-                            })?)
-                        } else {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(100),
-                            })?)
-                        }
-                    }
                     Osmo_MockQueryMsg::GetTokenInfo { denom } => {
                         Ok(to_binary(&TokenInfoResponse {
                             denom,
@@ -1043,6 +1012,7 @@ mod tests {
                             fee_wait_period: 0,
                             unstaking_period: 0,
                             positions_contract: None,
+                            auction_contract: None,
                             vesting_contract: None,
                             governance_contract: None,
                             osmosis_proxy: None,
@@ -1702,8 +1672,6 @@ mod tests {
     }
 
     mod cdp {
-
-        use std::str::FromStr;
 
         use super::*;
         use cosmwasm_std::{coins, BlockInfo};
@@ -2675,7 +2643,7 @@ mod tests {
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             assert_eq!( format!("{:?}", res.rates), 
-                String::from("[Decimal(Uint128(0)), Decimal(Uint128(0)), Decimal(Uint128(0)), Decimal(Uint128(2267180643486915))]"));
+                String::from("[Decimal(0), Decimal(0), Decimal(0), Decimal(0.002267180643486915)]"));
 
             //Call liquidate on CDP contract
             let msg = ExecuteMsg::Liquidate {
@@ -2769,12 +2737,13 @@ mod tests {
                 vec![]
             );
 
-            //Assert revenue & fees were sent.
+            //Assert fees were sent, revenue kept for a larger mint.
+            //coin(4782, "credit_fulldenom") in revenue
             assert_eq!(
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(4782, "credit_fulldenom"), coin(10, "lp_denom")]
+                vec![coin(10, "lp_denom")]
             );
             //The fee is 212 lp_denom
             assert_eq!(
@@ -3079,7 +3048,7 @@ mod tests {
             assert_eq!(
                 format!("{:?}", res.rates),
                 String::from(
-                    "[Decimal(Uint128(0)), Decimal(Uint128(0)), Decimal(Uint128(0)), Decimal(Uint128(80001600032000639))]"
+                    "[Decimal(0), Decimal(0), Decimal(0), Decimal(0.080001600032000639)]"
                 )
             );
         }
@@ -3306,7 +3275,7 @@ mod tests {
             assert_eq!(
                 format!("{:?}", res.rates),
                 String::from(
-                    "[Decimal(Uint128(0)), Decimal(Uint128(0)), Decimal(Uint128(0)), Decimal(Uint128(47619365084656172))]"
+                    "[Decimal(0), Decimal(0), Decimal(0), Decimal(0.047619365084656172)]"
                 )
             );
 
@@ -5055,7 +5024,7 @@ mod tests {
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
                 vec![coin(1166, "lp_denom")]
             );
-
+            
             /////////SP Errors////
             ///
             let (mut app, cdp_contract, lq_contract) =
@@ -8261,6 +8230,7 @@ mod tests {
         }
 
         //#[test]
+        #[allow(dead_code)]
         fn close_position(){
             let (mut app, cdp_contract, lq_contract) =
                 proper_instantiate(false, false, false, false);

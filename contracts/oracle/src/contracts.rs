@@ -35,13 +35,11 @@ pub fn instantiate(
     if msg.owner.is_some() {
         config = Config {
             owner: deps.api.addr_validate(&msg.owner.unwrap())?,
-            osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             positions_contract: None,
         };
     } else {
         config = Config {
             owner: info.sender,
-            osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             positions_contract: None,
         };
     }
@@ -77,9 +75,8 @@ pub fn execute(
         } => edit_asset(deps, info, asset_info, oracle_info, remove),
         ExecuteMsg::UpdateConfig {
             owner,
-            osmosis_proxy,
             positions_contract,
-        } => update_config(deps, env, info, owner, osmosis_proxy, positions_contract),
+        } => update_config(deps, env, info, owner, positions_contract),
     }
 }
 
@@ -224,7 +221,6 @@ pub fn update_config(
     _env: Env,
     info: MessageInfo,
     owner: Option<String>,
-    osmosis_proxy: Option<String>,
     positions_contract: Option<String>,
 ) -> Result<Response, ContractError> {
     
@@ -243,9 +239,6 @@ pub fn update_config(
 
     if let Some(owner) = owner {
         config.owner = deps.api.addr_validate(&owner)?;
-    }
-    if let Some(osmosis_proxy) = osmosis_proxy {
-        config.osmosis_proxy = deps.api.addr_validate(&osmosis_proxy)?;
     }
     if let Some(positions_contract) = positions_contract {
         config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
@@ -350,7 +343,7 @@ fn get_asset_price(
         //This is if we need to use multiple pools to calculate our price
         for pool in oracle_info.osmosis_pools_for_twap {
 
-            let res: TWAP::ArithmeticTwapToNowResponse = TWAP::TwapQuerier::new(&querier).arithmetic_twap_to_now(
+            let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
                 pool.clone().pool_id, 
                 pool.clone().base_asset_denom, 
                 pool.clone().quote_asset_denom, 
@@ -361,7 +354,7 @@ fn get_asset_price(
             )?;
 
             //Push TWAP
-            price_steps.push(Decimal::from_str(&res.arithmetic_twap).unwrap());
+            price_steps.push(Decimal::from_str(&res.geometric_twap).unwrap());
         }
 
         //Multiply prices
@@ -390,9 +383,11 @@ fn get_asset_price(
 
         decimal_division(oracle_prices[median_index].price + oracle_prices[median_index+1].price, Decimal::percent(2_00))?
         
-    } else {
+    } else if oracle_prices.len() != 1 {
         let median_index = oracle_prices.len() / 2;
         oracle_prices[median_index + 1].price
+    } else {
+        oracle_prices[0].price
     };
 
 

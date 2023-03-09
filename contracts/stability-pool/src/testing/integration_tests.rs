@@ -3,9 +3,10 @@ mod tests {
 
     use crate::helpers::SPContract;
 
+    use membrane::cdp::PositionResponse;
     use membrane::osmosis_proxy::{TokenInfoResponse};
     use membrane::stability_pool::{ClaimsResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::types::{Asset, AssetInfo, AssetPool, LiqAsset};
+    use membrane::types::{Asset, AssetInfo, AssetPool, UserInfo, Deposit};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
@@ -104,6 +105,15 @@ mod tests {
     #[serde(rename_all = "snake_case")]
     pub enum CDP_MockExecuteMsg {
         LiqRepay {},
+        Accrue { 
+            position_owner: Option<String>, 
+            position_ids: Vec<Uint128>
+        },
+        Repay {
+            position_id: Uint128,
+            position_owner: Option<String>, 
+            send_excess_to: Option<String>, 
+        }
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
@@ -112,17 +122,28 @@ mod tests {
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum CDP_MockQueryMsg {}
+    pub enum CDP_MockQueryMsg {
+        GetUserPositions {
+            user: String,
+            limit: Option<u32>,
+        }
+    }
 
     pub fn cdp_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: CDP_MockExecuteMsg| -> StdResult<Response> {
-                match msg {
-                    CDP_MockExecuteMsg::LiqRepay {} => Ok(Response::default()),
-                }
+                    Ok(Response::default())
             },
             |_, _, _, _: CDP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
-            |_, _, _: CDP_MockQueryMsg| -> StdResult<Binary> { to_binary(&MockResponse {}) },
+            |_, _, _: CDP_MockQueryMsg| -> StdResult<Binary> { to_binary(&vec![PositionResponse { 
+                position_id: Uint128::one(),
+                collateral_assets: vec![],
+                cAsset_ratios: vec![],
+                credit_amount: Uint128::one(),
+                basket_id: Uint128::one(),
+                avg_borrow_LTV: Decimal::one(),
+                avg_max_LTV: Decimal::one()
+            }]) },
         );
         Box::new(contract)
     }
@@ -162,7 +183,7 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked(USER),
-                vec![coin(100_000, "credit")],
+                vec![coin(200_000, "credit")],
             )
             .unwrap();
             bank.init_balance(
@@ -275,6 +296,298 @@ mod tests {
 
         use super::*;
         use cosmwasm_std::BlockInfo;
+        use membrane::stability_pool::Config;
+
+        #[test]
+        fn cdp_repay() {
+            let (mut app, sp_contract, cw20_addr, cdp_contract_addr) = proper_instantiate();
+
+            //Deposit credit to AssetPool
+            let deposit_msg = ExecuteMsg::Deposit { user: None };
+            let cosmos_msg = sp_contract
+                .call(deposit_msg, vec![coin(100_000, "credit")])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Repay credit to CDP: Error
+            let repay_msg = ExecuteMsg::Repay {
+                user_info: UserInfo {
+                    position_id: Uint128::new(1u128),
+                    position_owner: String::from(USER),
+                },
+                repayment: Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("credit"),
+                    },
+                    amount: Uint128::new(1u128),
+                },
+            };
+            let cosmos_msg = sp_contract.call(repay_msg, vec![]).unwrap();
+            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("Unauthorized"));
+
+            //Repay credit to CDP: Error 
+            let repay_msg = ExecuteMsg::Repay {
+                user_info: UserInfo {
+                    position_id: Uint128::new(1u128),
+                    position_owner: String::from(USER),
+                },
+                repayment: Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("invalid"),
+                    },
+                    amount: Uint128::new(1u128),
+                },
+            };
+            let cosmos_msg = sp_contract.call(repay_msg, vec![]).unwrap();
+            let err = app.execute(cdp_contract_addr.clone(), cosmos_msg).unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("Asset pool hasn't been added for this asset yet"));
+
+            //Repay credit to CDP: Error. User no funds in SP
+            let repay_msg = ExecuteMsg::Repay {
+                user_info: UserInfo {
+                    position_id: Uint128::new(1u128),
+                    position_owner: String::from("no_funds"),
+                },
+                repayment: Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("credit"),
+                    },
+                    amount: Uint128::new(0u128),
+                },
+            };
+            let cosmos_msg = sp_contract.call(repay_msg, vec![]).unwrap();
+            let err = app.execute(cdp_contract_addr.clone(), cosmos_msg).unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("Invalid withdrawal"));
+
+            //Repay credit to CDP: Error. User no funds in SP
+            let repay_msg = ExecuteMsg::Repay {
+                user_info: UserInfo {
+                    position_id: Uint128::new(1u128),
+                    position_owner: String::from(USER),
+                },
+                repayment: Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("credit"),
+                    },
+                    amount: Uint128::new(100_001u128),
+                },
+            };
+            let cosmos_msg = sp_contract.call(repay_msg, vec![]).unwrap();
+            let err = app.execute(cdp_contract_addr.clone(), cosmos_msg).unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("Invalid withdrawal"));
+
+            //Repay credit to CDP: Error. User no funds in SP
+            let repay_msg = ExecuteMsg::Repay {
+                user_info: UserInfo {
+                    position_id: Uint128::new(1u128),
+                    position_owner: String::from(USER),
+                },
+                repayment: Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("credit"),
+                    },
+                    amount: Uint128::new(100_000u128),
+                },
+            };
+            let cosmos_msg = sp_contract.call(repay_msg, vec![]).unwrap();
+            let res = app.execute(cdp_contract_addr.clone(), cosmos_msg).unwrap();
+            assert_eq!(app.wrap()
+                    .query_all_balances(cdp_contract_addr.clone())
+                    .unwrap(),
+                vec![coin(100_000, "credit")]);
+
+            //Assert State saved correctly
+            //Query AssetPool
+            let resp: AssetPool = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None })
+                .unwrap();
+
+            assert_eq!(resp.credit_asset.to_string(), "0 credit".to_string());
+            assert_eq!(resp.liq_premium.to_string(), "0".to_string());
+            assert_eq!(resp.deposits.len().to_string(), "0".to_string());
+        }
+
+        #[test]
+        fn withdrawal() {
+            let (mut app, sp_contract, cw20_addr, cdp_contract_addr) = proper_instantiate();
+
+            //Deposit credit to AssetPool: #1
+            let deposit_msg = ExecuteMsg::Deposit { user: None };
+            let cosmos_msg = sp_contract
+                .call(deposit_msg, vec![coin(100_000, "credit")])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Deposit credit to AssetPool: #2
+            let deposit_msg = ExecuteMsg::Deposit { user: None };
+            let cosmos_msg = sp_contract
+                .call(deposit_msg, vec![coin(100_000, "credit")])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Withdraw: Invalid "Amount too high"
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(200_001u128) };
+            let cosmos_msg = sp_contract
+                .call(withdraw_msg, vec![])
+                .unwrap();
+            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            assert_eq!(
+                err.root_cause().to_string(),
+                String::from("Invalid withdrawal")
+            );
+            //Withdraw all of first, 1 of 2nd Deposit: Success
+            //First msg begins unstaking
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_001u128) };
+            let cosmos_msg = sp_contract
+                .call(withdraw_msg, vec![])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Query to make sure the remaining amount of the 2nd "credit" deposit is still staked
+            let resp: AssetPool = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None })
+                .unwrap();
+            assert_eq!(
+                resp.deposits,
+                vec![
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(100_000_00),
+                        deposit_time: app.block_info().time.seconds(),
+                        last_accrued: app.block_info().time.seconds(),
+                        unstake_time: Some(app.block_info().time.seconds()),
+                    },
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(1_00),
+                        deposit_time: app.block_info().time.seconds(),
+                        last_accrued: app.block_info().time.seconds(),
+                        unstake_time: Some(app.block_info().time.seconds()),
+                    },
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(99_999_00),
+                        deposit_time: app.block_info().time.seconds(),
+                        last_accrued: app.block_info().time.seconds(),
+                        unstake_time: None,
+                    }
+                ]
+            );
+
+            //Restake
+            let restake_msg = ExecuteMsg::Restake { restake_amount: Decimal::percent(100_001_00) };
+            let cosmos_msg = sp_contract
+                .call(restake_msg, vec![])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Assert restake
+            let resp: AssetPool = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None })
+                .unwrap();
+            assert_eq!(
+                resp.deposits,
+                vec![
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(100_000_00),
+                        deposit_time: app.block_info().time.seconds(),
+                        last_accrued: app.block_info().time.seconds(),
+                        unstake_time: None,
+                    },
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(1_00),
+                        deposit_time: app.block_info().time.seconds(),
+                        last_accrued: app.block_info().time.seconds(),
+                        unstake_time: None,
+                    },
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(99_999_00),
+                        deposit_time: app.block_info().time.seconds(),
+                        last_accrued: app.block_info().time.seconds(),
+                        unstake_time: None,
+                    }
+                ]
+            );
+
+            //Rewithdrawl Success
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_001u128) };
+            let cosmos_msg = sp_contract
+                .call(withdraw_msg, vec![])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Assert unstaking time was set correctly
+            let resp: AssetPool = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None })
+                .unwrap();
+            assert_eq!(
+                resp.deposits,
+                vec![
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(100_000_00),
+                        deposit_time: app.block_info().time.seconds(),
+                        last_accrued: app.block_info().time.seconds(),
+                        unstake_time: Some(app.block_info().time.seconds()),
+                    },
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(1_00),
+                        deposit_time: app.block_info().time.seconds(),
+                        last_accrued: app.block_info().time.seconds(),
+                        unstake_time: Some(app.block_info().time.seconds()),
+                    },
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(99_999_00),
+                        deposit_time: app.block_info().time.seconds(),
+                        last_accrued: app.block_info().time.seconds(),
+                        unstake_time: None,
+                    }
+                ]
+            );
+
+            //Withdrawl Success
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_001u128) };
+            let cosmos_msg = sp_contract
+                .call(withdraw_msg, vec![])
+                .unwrap();
+            app.set_block(
+                BlockInfo {
+                    height: app.block_info().height,
+                    time: app.block_info().time.plus_seconds(86400u64), //Added a day
+                    chain_id: app.block_info().chain_id,
+                }
+            );
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Assert success
+            let resp: AssetPool = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None })
+                .unwrap();
+            assert_eq!(
+                resp.deposits,
+                vec![
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(99_999_00),
+                        //This isn't the current block time bc this deposit wsa never edited
+                        deposit_time: 1571797419, 
+                        last_accrued: 1571797419,
+                        unstake_time: None,
+                    }
+                ]
+            );
+        }
 
         #[test]
         fn accrue_incentives() {
@@ -301,7 +614,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(sp_contract.addr(), &query_msg)
                 .unwrap();
-            assert_eq!(total_incentives, Uint128::new(8800));
+            assert_eq!(total_incentives, Uint128::new(10000));
 
             //Initial withdrawal to start unstaking
             let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::from(100_000u128) };
@@ -323,7 +636,7 @@ mod tests {
                     info: AssetInfo::NativeToken {
                         denom: String::from("mbrn_denom")
                     },
-                    amount: Uint128::new(8_800u128),
+                    amount: Uint128::new(10_000u128),
                 },]
             );
 
@@ -342,7 +655,7 @@ mod tests {
                 time: app.block_info().time.plus_seconds(31536000u64), //Added a year
                 chain_id: app.block_info().chain_id,
             });
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();           
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Incentives during distributions
 
@@ -354,12 +667,12 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
             
             //QueryRate
-            let query_msg = QueryMsg::Rate { };
-            let rate: Decimal = app
+            let query_msg = QueryMsg::Config { };
+            let config: Config = app
                 .wrap()
                 .query_wasm_smart(sp_contract.addr(), &query_msg)
                 .unwrap();
-            assert_eq!(rate.to_string(), String::from("0.088"));
+            assert_eq!(config.incentive_rate.to_string(), String::from("0.1"));
 
             //Claim accrued incentives 
             let claim_msg = ExecuteMsg::Claim { };

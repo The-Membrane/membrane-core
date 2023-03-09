@@ -4,6 +4,7 @@ mod tests {
 
     use crate::helpers::VaultContract;
 
+    use membrane::cdp::PositionResponse;
     use membrane::discount_vault::{ExecuteMsg, InstantiateMsg, QueryMsg, UserResponse};
     use membrane::types::{AssetInfo, Position, Asset, Basket, PoolStateResponse, LPPoolInfo};
 
@@ -84,10 +85,14 @@ mod tests {
                     },
                     CDP_MockQueryMsg::GetUserPositions { user, limit } => {
                         Ok(to_binary(&vec![ 
-                            Position { 
+                            PositionResponse { 
                                 position_id: Uint128::one(), 
                                 collateral_assets: vec![], 
                                 credit_amount: Uint128::one(),
+                                cAsset_ratios: vec![],
+                                basket_id: Uint128::one(),
+                                avg_borrow_LTV: Decimal::zero(),
+                                avg_max_LTV: Decimal::zero(),
                             }
                         ])?)
                     },

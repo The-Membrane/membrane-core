@@ -7,7 +7,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 
 use membrane::vesting::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
-use membrane::governance::{ExecuteMsg as GovExecuteMsg, ProposalMessage};
+use membrane::governance::{ExecuteMsg as GovExecuteMsg, ProposalMessage, ProposalVoteOption};
 use membrane::math::decimal_division;
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
@@ -96,6 +96,7 @@ pub fn execute(
             messages,
             expedited
         } => submit_proposal(deps, info, title, description, link, messages, expedited),
+        ExecuteMsg::CastVote { proposal_id, vote } => cast_vote(deps, info, proposal_id, vote),
         ExecuteMsg::UpdateConfig {
             owner,
             mbrn_denom,
@@ -155,6 +156,44 @@ fn submit_proposal(
         None => Err(ContractError::InvalidRecipient {}),
     }
 }
+
+/// Calls the Governance contract CastVoteMsg
+fn cast_vote(
+    deps: DepsMut,
+    info: MessageInfo,
+    proposal_id: u64,
+    vote: ProposalVoteOption,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let recipients = RECIPIENTS.load(deps.storage)?;
+
+    match recipients
+        
+        .into_iter()
+        .find(|recipient| recipient.recipient == info.sender)
+    {
+        Some(recipient) => {
+            let message = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.owner.to_string(),
+                msg: to_binary(&GovExecuteMsg::CastVote {
+                    proposal_id,
+                    vote,
+                    recipient: Some(recipient.recipient.to_string()),
+                })?,
+                funds: vec![],
+            });
+
+            Ok(Response::new()
+                .add_attributes(vec![
+                    attr("method", "cast_vote"),
+                    attr("voter", recipient.recipient.to_string()),
+                ])
+                .add_message(message))
+        }
+        None => Err(ContractError::InvalidRecipient {}),
+    }
+}
+
 
 /// Claim a Recipient's proportion of staking rewards that were previously claimed using ClaimFeesForContract
 fn claim_fees_for_recipient(deps: DepsMut, info: MessageInfo) -> Result<Response, ContractError> {

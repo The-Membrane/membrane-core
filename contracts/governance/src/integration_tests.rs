@@ -143,39 +143,42 @@ mod tests {
                         dex_router: Some(Addr::unchecked("")),
                         max_spread: Some(Decimal::zero()),
                     })?),
-                    Staking_MockQueryMsg::TotalStaked {  } => Ok(to_binary(&Uint128::new(5_000_000_000_001u128))?),
+                    Staking_MockQueryMsg::TotalStaked {  } => Ok(to_binary(&TotalStakedResponse {
+                        total_not_including_vested: Uint128::new(5_000_000_000_001u128),
+                        vested_total: Uint128::zero(),   
+                    })?),
                 }
             },
         );
         Box::new(contract)
     }
 
-    //Mock BV Contract
+    //Mock Vesting Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum BV_MockExecuteMsg {}
+    pub enum Vesting_MockExecuteMsg {}
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub struct BV_MockInstantiateMsg {}
+    pub struct Vesting_MockInstantiateMsg {}
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum BV_MockQueryMsg {
+    pub enum Vesting_MockQueryMsg {
         Allocation { recipient: String },
     }
 
     pub fn bv_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
-            |deps, _, info, msg: BV_MockExecuteMsg| -> StdResult<Response> {
+            |deps, _, info, msg: Vesting_MockExecuteMsg| -> StdResult<Response> {
                 Ok(Response::default())
             },
             |_, _, _, _: Staking_MockInstantiateMsg| -> StdResult<Response> {
                 Ok(Response::default())
             },
-            |_, _, msg: BV_MockQueryMsg| -> StdResult<Binary> {
+            |_, _, msg: Vesting_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    BV_MockQueryMsg::Allocation { recipient } => {
+                    Vesting_MockQueryMsg::Allocation { recipient } => {
                         Ok(to_binary(&AllocationResponse {
                             amount: Uint128::new(1000000000),
                             amount_withdrawn: Uint128::zero(),

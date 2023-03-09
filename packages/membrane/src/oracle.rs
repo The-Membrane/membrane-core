@@ -59,7 +59,7 @@ pub enum QueryMsg {
         /// Timeframe in minutes
         twap_timeframe: u64,
     },
-    /// Return asset oracle info
+    /// Return list of asset oracle info
     Assets {
         /// List of asset infos
         asset_infos: Vec<AssetInfo> 

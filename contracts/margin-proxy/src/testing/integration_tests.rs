@@ -114,16 +114,15 @@ mod tests {
                         user,
                         limit,
                     } => {
-                        Ok(to_binary(&PositionsResponse {
-                            user: String::from(USER),
-                            positions: vec![
-                                Position { 
-                                    position_id: Uint128::new(1),
-                                    collateral_assets: vec![],
-                                    credit_amount: Uint128::new(1),
-                                }
-                            ],
-                        })?)
+                        Ok(to_binary(&vec![PositionResponse {
+                            position_id: Uint128::new(1),
+                            collateral_assets: vec![],
+                            credit_amount: Uint128::new(1),  
+                            cAsset_ratios: vec![],
+                            basket_id: Uint128::new(1),
+                            avg_borrow_LTV: Decimal::zero(),
+                            avg_max_LTV: Decimal::zero(),                              
+                        }])?)
                     },
                     CDP_MockQueryMsg::GetPosition { 
                         position_id,

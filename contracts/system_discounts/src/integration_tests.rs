@@ -64,16 +64,15 @@ mod tests {
                         user,
                         limit,
                     } => {
-                        Ok(to_binary(&PositionsResponse {
-                            user: String::from(USER),
-                            positions: vec![
-                                Position { 
-                                    position_id: Uint128::new(1),
-                                    collateral_assets: vec![],
-                                    credit_amount: Uint128::new(500),
-                                }
-                            ],
-                        })?)
+                        Ok(to_binary(&vec![PositionResponse {
+                            position_id: Uint128::new(1),
+                            collateral_assets: vec![],
+                            credit_amount: Uint128::new(500),
+                            cAsset_ratios: vec![],
+                            basket_id: Uint128::new(1),
+                            avg_borrow_LTV: Decimal::zero(),
+                            avg_max_LTV: Decimal::zero(),
+                        }])?)
                     },
                     CDP_MockQueryMsg::GetBasket { } => {
                         Ok(to_binary(&Basket {
@@ -183,6 +182,7 @@ mod tests {
                             fee_wait_period: 0,
                             unstaking_period: 0,
                             positions_contract: None,
+                            auction_contract: None,
                             vesting_contract: None,
                             governance_contract: None,
                             osmosis_proxy: None,

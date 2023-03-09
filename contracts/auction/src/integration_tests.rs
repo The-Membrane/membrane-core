@@ -144,6 +144,7 @@ mod tests {
         Repay {
             position_id: Uint128,
             position_owner: Option<String>,
+            send_excess_to: Option<String>, 
         },
     }
 
@@ -164,6 +165,7 @@ mod tests {
                     CDP_MockExecuteMsg::Repay {
                         position_id,
                         position_owner,
+                        send_excess_to,
                     } => Ok(Response::default()),
                 }
             },

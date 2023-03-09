@@ -38,14 +38,7 @@ mod tests {
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Osmo_MockQueryMsg {
-        ArithmeticTwapToNow {
-            id: u64,
-            quote_asset_denom: String,
-            base_asset_denom: String,
-            start_time: i64,
-        },
-    }
+    pub enum Osmo_MockQueryMsg {}
 
     pub fn osmosis_proxy_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
@@ -56,24 +49,7 @@ mod tests {
                 Ok(Response::default())
             },
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
-                match msg {
-                    Osmo_MockQueryMsg::ArithmeticTwapToNow {
-                        id,
-                        quote_asset_denom,
-                        base_asset_denom,
-                        start_time,
-                    } => {
-                        if id == 2u64 {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                arithmetic_twap: Decimal::percent(450).to_string(),
-                            })?)
-                        } else {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                arithmetic_twap: Decimal::percent(50).to_string(),
-                            })?)
-                        }
-                    }
-                }
+                Ok(Response::default().into())
             },
         );
         Box::new(contract)

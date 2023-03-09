@@ -22,6 +22,8 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 //Constants
 const MAX_LIMIT: u64 = 31u64;
 
+//Assumption that pools are 50:50 or 1:1 (Stableswap)
+
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
@@ -277,7 +279,7 @@ fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<Uint128> {
         }))?;
 
         let pooled_amount: Uint128;
-        if let PoolType::StableSwap { pool_id } = info {
+        if let PoolType::StableSwap { pool_id: _ } = info {
             //Stableswaps aren't 50:50, we want to count what can be swapped for
             pooled_amount = if let Some(pooled_asset) = res
                 .assets

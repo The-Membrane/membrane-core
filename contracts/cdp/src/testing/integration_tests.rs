@@ -331,7 +331,6 @@ mod tests {
     pub enum SP_MockQueryMsg {
         CheckLiquidatible { amount: Decimal },
         AssetPool { },
-        AssetDeposits { user: String },
     }
 
     pub fn stability_pool_contract() -> Box<dyn Contract<Empty>> {
@@ -681,21 +680,12 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockQueryMsg {
-        SpotPrice {
-            asset: String,
-        },
         PoolState {
             id: u64,
         },
         GetDenom {
             creator_address: String,
             subdenom: String,
-        },
-        ArithmeticTwapToNow {
-            id: u64,
-            quote_asset_denom: String,
-            base_asset_denom: String,
-            start_time: i64,
         },
         GetTokenInfo {
             denom: String,
@@ -750,11 +740,6 @@ mod tests {
             },
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Osmo_MockQueryMsg::SpotPrice { asset: _ } => {
-                        Ok(to_binary(&SpotPriceResponse {
-                            price: Decimal::one(),
-                        })?)
-                    }
                     Osmo_MockQueryMsg::PoolState { id } => {
                         if id == 99u64 {
                             Ok(to_binary(&PoolStateResponse {
@@ -774,22 +759,6 @@ mod tests {
                     } => Ok(to_binary(&GetDenomResponse {
                         denom: String::from("credit_fulldenom"),
                     })?),
-                    Osmo_MockQueryMsg::ArithmeticTwapToNow {
-                        id: _,
-                        quote_asset_denom: _,
-                        base_asset_denom,
-                        start_time: _,
-                    } => {
-                        if base_asset_denom == String::from("base") {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(100),
-                            })?)
-                        } else {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(100),
-                            })?)
-                        }
-                    }
                     Osmo_MockQueryMsg::GetTokenInfo { denom } => {
                         Ok(to_binary(&TokenInfoResponse {
                             denom,

@@ -448,7 +448,7 @@ impl EditBasket {
     }
 } 
 
-/// Response for Positions
+/// Response for GetUserPositions
 #[cw_serde]
 pub struct PositionResponse {
     /// Position ID
@@ -470,7 +470,7 @@ pub struct PositionResponse {
 }
 
 #[cw_serde]
-pub struct PositionsResponse {
+pub struct BasketPositionsResponse {
     /// Position user
     pub user: String,
     /// List of Positions

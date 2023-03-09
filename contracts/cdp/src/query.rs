@@ -12,7 +12,7 @@ use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::cdp::{
     Config, BadDebtResponse, CollateralInterestResponse,
-    InsolvencyResponse, InterestResponse, PositionResponse, PositionsResponse,
+    InsolvencyResponse, InterestResponse, PositionResponse, BasketPositionsResponse,
 };
 
 use membrane::types::{
@@ -168,7 +168,7 @@ pub fn query_basket_positions(
     deps: Deps,
     start_after: Option<String>,
     limit: Option<u32>,
-) -> StdResult<Vec<PositionsResponse>> {
+) -> StdResult<Vec<BasketPositionsResponse>> {
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
 
     let start = if let Some(start) = start_after {
@@ -183,7 +183,7 @@ pub fn query_basket_positions(
         .take(limit)
         .map(|item| {
             let (k, v) = item?;
-            Ok(PositionsResponse {
+            Ok(BasketPositionsResponse {
                 user: k.to_string(),
                 positions: v,
             })

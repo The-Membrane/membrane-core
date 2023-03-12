@@ -6,8 +6,8 @@ mod tests {
 
     use membrane::apollo_router::SwapToAssetsInput;
     use membrane::margin_proxy::{ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::cdp::{PositionsResponse, PositionResponse};
-    use membrane::types::{AssetInfo, Position, cAsset, Asset, Basket};
+    use membrane::cdp::PositionResponse;
+    use membrane::types::{AssetInfo, cAsset, Asset, Basket};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal, attr,

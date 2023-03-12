@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use membrane::staking::{ExecuteMsg, InstantiateMsg, QueryMsg, FeeEventsResponse};
-    use membrane::types::{AssetInfo, AssetOracleInfo, TWAPPoolInfo, StakeDistribution, Asset, UserInfo, Basket, FeeEvent, LiqAsset};
+    use membrane::types::{AssetInfo, StakeDistribution, Asset, UserInfo, Basket, FeeEvent, LiqAsset};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128, CosmosMsg, Coin, WasmMsg,
@@ -10,7 +10,7 @@ mod tests {
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 
-    const USER: &str = "user";
+    //const USER: &str = "user";
     const ADMIN: &str = "admin";
 
     /// StakingContract is a wrapper around Addr that provides a lot of helpers

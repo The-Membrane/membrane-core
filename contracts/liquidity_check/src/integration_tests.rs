@@ -63,7 +63,7 @@ mod tests {
                             })?)
                         } else {
                             Ok(to_binary(&PoolStateResponse {
-                                assets: vec![coin(49_999, "credit_fulldenom")],
+                                assets: vec![coin(49_999, "credit_fulldenom"), coin(49_999, "fiat_coin")],
                                 shares: coin(0, "shares"),
                             })?)
                         }

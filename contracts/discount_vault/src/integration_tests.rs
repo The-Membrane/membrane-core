@@ -6,7 +6,7 @@ mod tests {
 
     use membrane::cdp::PositionResponse;
     use membrane::discount_vault::{ExecuteMsg, InstantiateMsg, QueryMsg, UserResponse};
-    use membrane::types::{AssetInfo, Position, Asset, Basket, PoolStateResponse, LPPoolInfo};
+    use membrane::types::{AssetInfo, Asset, Basket, PoolStateResponse, LPPoolInfo};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal, BlockInfo

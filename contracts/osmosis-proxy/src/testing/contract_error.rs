@@ -5,7 +5,4 @@ use thiserror::Error;
 pub enum ContractError {
     #[error("{0}")]
     Std(#[from] StdError),
-
-    #[error("Invalid full denom '{full_denom}'")]
-    InvalidFullDenom { full_denom: String },
 }

@@ -9,10 +9,10 @@ use cosmwasm_std::{
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
-    Config, ExecuteMsg, FeeEventsResponse, InstantiateMsg, QueryMsg, RewardsResponse,
+    Config, ExecuteMsg, InstantiateMsg, QueryMsg, RewardsResponse,
     StakedResponse, TotalStakedResponse, StakerResponse,
 };
-use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit, StakeDistribution};
+use membrane::types::{Asset, AssetInfo, StakeDeposit, StakeDistribution};
 
 #[test]
 fn update_config(){

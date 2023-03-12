@@ -10,7 +10,6 @@ mod tests {
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
-    use osmosis_std::types::osmosis::twap::v1beta1::ArithmeticTwapToNowResponse;
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 
@@ -40,6 +39,10 @@ mod tests {
     #[serde(rename_all = "snake_case")]
     pub enum Osmo_MockQueryMsg {}
 
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub struct MockResponse {}
+
     pub fn osmosis_proxy_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Osmo_MockExecuteMsg| -> StdResult<Response> {
@@ -49,7 +52,7 @@ mod tests {
                 Ok(Response::default())
             },
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
-                Ok(Response::default().into())
+                Ok(to_binary(&MockResponse {})?)
             },
         );
         Box::new(contract)

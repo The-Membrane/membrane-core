@@ -10,7 +10,7 @@ mod tests {
         ExecuteMsg, InstantiateMsg, QueryMsg, STAKE_INTERVAL, VOTING_PERIOD_INTERVAL,
     };
     use membrane::staking::{
-        Config as StakingConfig, StakedResponse,
+        Config as StakingConfig, StakedResponse, TotalStakedResponse
     };
     use membrane::types::{StakeDeposit, VestingPeriod, StakeDistribution};
 

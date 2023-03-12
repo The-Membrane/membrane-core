@@ -1,15 +1,14 @@
 #[cfg(test)]
 mod tests {
     use cosmwasm_std::testing::{
-        mock_env, mock_info, mock_dependencies, MockApi, MockStorage, MOCK_CONTRACT_ADDR,
+        mock_env, mock_info, mock_dependencies, MOCK_CONTRACT_ADDR,
     };
     use cosmwasm_std::{
-        coins, from_binary, Attribute, Uint128, CosmosMsg, OwnedDeps, Querier, StdError, Addr, Decimal
+        coins, from_binary, Uint128, StdError, Addr, Decimal
     };
     use membrane::types::Owner;
-    use std::marker::PhantomData;
 
-    use membrane::osmosis_proxy::{InstantiateMsg, ExecuteMsg, QueryMsg, GetDenomResponse, Config};
+    use membrane::osmosis_proxy::{InstantiateMsg, ExecuteMsg, QueryMsg, Config};
 
     use crate::TokenFactoryError;
     use crate::contract::{instantiate, execute, query};

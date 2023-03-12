@@ -4,13 +4,13 @@ mod tests {
 
     use crate::helpers::DiscountsContract;
 
-    use membrane::cdp::PositionsResponse;
+    use membrane::cdp::PositionResponse;
     use membrane::system_discounts::{ExecuteMsg, InstantiateMsg, QueryMsg};
     use membrane::stability_pool::ClaimsResponse;
     use membrane::staking::{StakerResponse, RewardsResponse, Config as Staking_Config};
     use membrane::oracle::PriceResponse;
     use membrane::discount_vault::UserResponse as Discount_UserResponse;
-    use membrane::types::{Asset, AssetInfo, AssetPool, Basket, Position, Deposit, StakeDistribution};
+    use membrane::types::{Asset, AssetInfo, AssetPool, Basket, Deposit, StakeDistribution};
 
     use cosmwasm_std::{
         to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal,

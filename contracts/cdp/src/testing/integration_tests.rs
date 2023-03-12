@@ -21,7 +21,7 @@ mod tests {
         Uint128,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
-    use osmo_bindings::{ArithmeticTwapToNowResponse, PoolStateResponse, SpotPriceResponse};
+    use osmo_bindings::PoolStateResponse;
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 
@@ -437,9 +437,6 @@ mod tests {
                         liq_premium: Decimal::percent(10),
                         deposits: vec![],
                     })?),
-                    SP_MockQueryMsg::AssetDeposits {
-                        user: _,
-                    } => Ok(to_binary::<Vec<Deposit>>(&vec![])?),
                 }
             },
         );
@@ -487,9 +484,6 @@ mod tests {
                         liq_premium: Decimal::percent(10),
                         deposits: vec![],
                     })?),
-                    SP_MockQueryMsg::AssetDeposits {
-                        user: _,
-                    } => Ok(to_binary::<Vec<Deposit>>(&vec![])?),
                 }
             },
         );
@@ -542,16 +536,6 @@ mod tests {
                             unstake_time: None,
                         }],
                     })?),
-                    SP_MockQueryMsg::AssetDeposits {
-                        user: _,
-                    } => Ok(to_binary(&vec![Deposit {
-                            user: Addr::unchecked(USER),
-                            amount: Decimal::percent(222_00),
-                            deposit_time: 0u64,
-                            last_accrued: 0u64,
-                            unstake_time: None,
-                        }],
-                    )?),
                 }
             },
         );
@@ -596,9 +580,6 @@ mod tests {
                         liq_premium: Decimal::percent(10),
                         deposits: vec![],
                     })?),
-                    SP_MockQueryMsg::AssetDeposits {
-                        user: _,
-                    } => Ok(to_binary::<Vec<Deposit>>(&vec![])?),
                 }
             },
         );
@@ -643,9 +624,6 @@ mod tests {
                         liq_premium: Decimal::percent(3400),
                         deposits: vec![],
                     })?),
-                    SP_MockQueryMsg::AssetDeposits {
-                        user: _,
-                    } => Ok(to_binary::<Vec<Deposit>>(&vec![])?),
                 }
             },
         );
@@ -825,11 +803,6 @@ mod tests {
             },
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Osmo_MockQueryMsg::SpotPrice { asset: _ } => {
-                        Ok(to_binary(&SpotPriceResponse {
-                            price: Decimal::one(),
-                        })?)
-                    }
                     Osmo_MockQueryMsg::PoolState { id } => {
                         if id == 99u64 {
                             Ok(to_binary(&PoolStateResponse {
@@ -849,22 +822,6 @@ mod tests {
                     } => Ok(to_binary(&GetDenomResponse {
                         denom: String::from("credit_fulldenom"),
                     })?),
-                    Osmo_MockQueryMsg::ArithmeticTwapToNow {
-                        id: _,
-                        quote_asset_denom: _,
-                        base_asset_denom,
-                        start_time: _,
-                    } => {
-                        if base_asset_denom == String::from("base") {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(100),
-                            })?)
-                        } else {
-                            Ok(to_binary(&ArithmeticTwapToNowResponse {
-                                twap: Decimal::percent(100),
-                            })?)
-                        }
-                    }
                     Osmo_MockQueryMsg::GetTokenInfo { denom } => {
                         Ok(to_binary(&TokenInfoResponse {
                             denom,
@@ -1676,9 +1633,8 @@ mod tests {
         use super::*;
         use cosmwasm_std::{coins, BlockInfo};
         use membrane::cdp::{
-            BadDebtResponse, CollateralInterestResponse, Config,
-            ExecuteMsg, InsolvencyResponse, PositionResponse,
-            PositionsResponse, InterestResponse,
+            BadDebtResponse, CollateralInterestResponse, Config, BasketPositionsResponse,
+            ExecuteMsg, InsolvencyResponse, PositionResponse, InterestResponse
         };
         use membrane::types::{InsolventPosition, LPAssetInfo, PoolInfo, SupplyCap, UserInfo, Basket};
 
@@ -2077,7 +2033,7 @@ mod tests {
                 limit: None,
             };
 
-            let resp: Vec<PositionsResponse> = app
+            let resp: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &msg.clone())
                 .unwrap();
@@ -7502,7 +7458,7 @@ mod tests {
                 limit: None,
             };
 
-            let resp: Vec<PositionsResponse> = app
+            let resp: Vec<PositionResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &msg.clone())
                 .unwrap();

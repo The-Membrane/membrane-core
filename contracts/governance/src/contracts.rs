@@ -698,12 +698,14 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             vote_option,
             start,
             limit,
+            specific_user
         } => to_binary(&query_proposal_voters(
             deps,
             proposal_id,
             vote_option,
             start,
             limit,
+            specific_user
         )?),
     }
 }
@@ -756,6 +758,7 @@ pub fn query_proposal_voters(
     vote_option: ProposalVoteOption,
     start: Option<u64>,
     limit: Option<u32>,
+    specific_user: Option<String>,
 ) -> StdResult<Vec<Addr>> {
     let limit = limit.unwrap_or(DEFAULT_VOTERS_LIMIT).min(MAX_VOTERS_LIMIT);
     let start = start.unwrap_or_default();
@@ -765,6 +768,15 @@ pub fn query_proposal_voters(
     let voters = match vote_option {
         ProposalVoteOption::For => proposal.for_voters,
         ProposalVoteOption::Against => proposal.against_voters,
+    };
+
+    if let Some(specific_user) = specific_user {
+        let specific_user = deps.api.addr_validate(&specific_user)?;
+        if voters.contains(&specific_user) {
+            return Ok(vec![specific_user]);
+        } else {
+            return Err(cosmwasm_std::StdError::GenericErr { msg: format!("User did not vote for this option in proposal {}", proposal_id) })
+        }
     };
 
     Ok(voters

@@ -360,9 +360,18 @@ fn get_asset_price(
         //Multiply prices
         let price = {
             let mut final_price = Decimal::one();
+            //If no prices were queried, return error
+            if price_steps.len() == 0 {
+                return Err(StdError::GenericErr {
+                    msg: String::from("No TWAP prices found"),
+                });
+            } 
+
+            //Multiply prices to get the desired Quote
             for price in price_steps {
                 final_price = decimal_multiplication(final_price, price)?;
-            }
+            } 
+            
 
             final_price
         };
@@ -381,6 +390,7 @@ fn get_asset_price(
     let price = if oracle_prices.len() % 2 == 0 {
         let median_index = oracle_prices.len() / 2;
 
+        //Add the two middle prices and divide by 2
         decimal_division(oracle_prices[median_index].price + oracle_prices[median_index+1].price, Decimal::percent(2_00))?
         
     } else if oracle_prices.len() != 1 {

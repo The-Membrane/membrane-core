@@ -289,10 +289,10 @@ mod tests {
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Query Price
-            let price: PriceResponse = app
+            //Query Price: No TWAP found
+            let err = app
                 .wrap()
-                .query_wasm_smart(
+                .query_wasm_smart::<PriceResponse>(
                     oracle_contract.addr(),
                     &QueryMsg::Price {
                         asset_info: AssetInfo::NativeToken {
@@ -302,8 +302,7 @@ mod tests {
                         basket_id: Some(Uint128::new(1u128)),
                     },
                 )
-                .unwrap();
-            assert_eq!(price.price, Decimal::percent(100));
+                .unwrap_err();
 
             //Successful AddAsset to a different basket
             let msg = ExecuteMsg::AddAsset {

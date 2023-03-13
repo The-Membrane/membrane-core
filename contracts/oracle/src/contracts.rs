@@ -343,18 +343,18 @@ fn get_asset_price(
         //This is if we need to use multiple pools to calculate our price
         for pool in oracle_info.osmosis_pools_for_twap {
 
-            let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
-                pool.clone().pool_id, 
-                pool.clone().base_asset_denom, 
-                pool.clone().quote_asset_denom, 
-                Some(osmosis_std::shim::Timestamp {
-                    seconds:  start_time,
-                    nanos: 0,
-                }),
-            )?;
+            // let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
+            //     pool.clone().pool_id, 
+            //     pool.clone().base_asset_denom, 
+            //     pool.clone().quote_asset_denom, 
+            //     Some(osmosis_std::shim::Timestamp {
+            //         seconds:  start_time,
+            //         nanos: 0,
+            //     }),
+            // )?;
 
-            //Push TWAP
-            price_steps.push(Decimal::from_str(&res.geometric_twap).unwrap());
+            // //Push TWAP
+            // price_steps.push(Decimal::from_str(&res.geometric_twap).unwrap());
         }
 
         //Multiply prices

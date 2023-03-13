@@ -137,7 +137,7 @@ fn get_total_vesting(
 
     let recipients = querier.query::<RecipientsResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
         contract_addr: vesting_contract, 
-        msg: to_binary(&Vesting_QueryMsg::Recipients {  })?
+        msg: to_binary(&Vesting_QueryMsg::Recipients { })?
     }))?;    
 
     Ok(recipients.get_total_vesting())

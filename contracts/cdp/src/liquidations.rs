@@ -253,7 +253,7 @@ pub fn liquidate(
                 attr("method", "liquidate"),
                 attr(
                     "propagation_info",
-                    format!("{:?}", liquidation_propagation.unwrap_or_default()),
+                    format!("{:?}", liquidation_propagation.unwrap_or_else(|| String::from("None"))),
                 ),
             ]))
     }

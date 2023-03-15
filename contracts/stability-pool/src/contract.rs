@@ -293,7 +293,7 @@ pub fn withdraw(
         let mut skip_unstaking = false;
         //If unstaking time is 0, skip unstaking
         if config.unstaking_period == 0 { skip_unstaking = true; }
-        
+
         //Go thru each deposit and withdraw request from state
         let (withdrawable, new_pool) = withdrawal_from_state(
             deps.storage,
@@ -377,26 +377,30 @@ fn withdrawal_from_state(
 
                     } else {
                         //Set unstaking time for the amount getting withdrawn
-                        //Create a Deposit object for the amount not getting unstaked
+                        //Create a Deposit object for the amount getting unstaked so the original deposit doesn't lose its position
                         if deposit_item.amount > withdrawal_amount
                             && withdrawal_amount != Decimal::zero()
                         {
-                            //Set new deposit
+                            //Set returning_deposit
                             returning_deposit = Some(Deposit {
                                 amount: deposit_item.amount - withdrawal_amount,
-                                unstake_time: None,
+                                unstake_time:None,
                                 ..deposit_item.clone()
                             });
 
-                            //Set new deposit state
+                            //Update existing deposit state
                             deposit_item.amount = withdrawal_amount;
                             deposit_item.unstake_time = Some(env.block.time.seconds());
+
+                            //Set withdrawal_amount to 0
+                            withdrawal_amount = Decimal::zero();
 
                         } else if withdrawal_amount != Decimal::zero() {
                             //Set unstaking time
                             deposit_item.unstake_time = Some(env.block.time.seconds());
-                        }
-                        
+                            //Subtract from withdrawal_amount 
+                            withdrawal_amount -= deposit_item.amount;
+                        }                        
                     }
                 } else {
                     //Allow regular withdraws if from CDP Repay fn
@@ -409,14 +413,6 @@ fn withdrawal_from_state(
                 //If not withdrawable we only edit withdraw amount to make sure the deposits...
                 //..that would get parsed through in a valid withdrawal get their unstaking_time set/checked
                 if withdrawal_amount != Decimal::zero() && deposit_item.amount > withdrawal_amount {
-                    if withdrawable {
-                        //Add to withdrawable
-                        withdrawable_amount += withdrawal_amount * Uint128::new(1u128);
-
-                        //Subtract from deposit.amount
-                        deposit_item.amount -= withdrawal_amount;                        
-                    }
-
                     //Calc incentives
                     let accrued_incentives = match accrue_incentives(
                         storage,
@@ -432,18 +428,26 @@ fn withdrawal_from_state(
                         }
                     };
                     mbrn_incentives += accrued_incentives;
-                    
-                    withdrawal_amount = Decimal::zero();
 
-                } else if withdrawal_amount != Decimal::zero() && deposit_item.amount <= withdrawal_amount{
-                    //If it's less than amount, 0 the deposit and substract it from the withdrawal amount
-                    withdrawal_amount -= deposit_item.amount;
+                    if withdrawable {
+                        //Add to withdrawable
+                        withdrawable_amount += withdrawal_amount * Uint128::new(1u128);
+
+                        //Subtract from deposit.amount
+                        deposit_item.amount -= withdrawal_amount;      
+
+                        withdrawal_amount = Decimal::zero();                  
+                    }
+
+                } else if withdrawal_amount != Decimal::zero() && deposit_item.amount <= withdrawal_amount {
 
                     if withdrawable {
                         //Add to withdrawable_amount
                         withdrawable_amount += deposit_item.amount * Uint128::new(1u128);                        
 
-                        deposit_item.amount = Decimal::zero();
+                        //If the deposit is less than withdrawal amount, substract it from the withdrawal amount and 0 the deposit 
+                        withdrawal_amount -= deposit_item.amount;
+                        deposit_item.amount = Decimal::zero();                
                     }
 
                     //Calc incentives
@@ -465,6 +469,7 @@ fn withdrawal_from_state(
 
                 withdrawable = false;
             }
+            
             deposit_item
         })
         .collect::<Vec<Deposit>>()
@@ -472,7 +477,7 @@ fn withdrawal_from_state(
         .filter(|deposit| deposit.amount != Decimal::zero())
         .collect::<Vec<Deposit>>();
 
-    //Push returning_deposit if some
+    //Sets returning_deposit to the back of the line, if some
     if let Some(deposit) = returning_deposit {
         new_deposits.push(deposit);
     }//Set new deposits

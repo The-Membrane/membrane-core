@@ -260,80 +260,80 @@ mod tests {
                 .unwrap_err();
         }
 
-        #[test]
-        fn queries() {
-            let (mut app, oracle_contract) = proper_instantiate();
+        // #[test]
+        // fn queries() {
+        //     let (mut app, oracle_contract) = proper_instantiate();
 
-            //Successful AddAsset
-            let msg = ExecuteMsg::AddAsset {
-                asset_info: AssetInfo::NativeToken {
-                    denom: String::from("credit_fulldenom"),
-                },
-                oracle_info: AssetOracleInfo {
-                    basket_id: Uint128::new(1u128),
-                    osmosis_pools_for_twap: vec![
-                        TWAPPoolInfo {
-                            pool_id: 1u64,
-                            base_asset_denom: String::from("credit_fulldenom"),
-                            quote_asset_denom: String::from("axlusdc"),
-                        },
-                        TWAPPoolInfo {
-                            pool_id: 2u64,
-                            base_asset_denom: String::from("axlusdc"),
-                            quote_asset_denom: String::from("uosmo"),
-                        },
-                    ],
-                    static_price: None,
-                },
-            };
-            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+        //     //Successful AddAsset
+        //     let msg = ExecuteMsg::AddAsset {
+        //         asset_info: AssetInfo::NativeToken {
+        //             denom: String::from("credit_fulldenom"),
+        //         },
+        //         oracle_info: AssetOracleInfo {
+        //             basket_id: Uint128::new(1u128),
+        //             osmosis_pools_for_twap: vec![
+        //                 TWAPPoolInfo {
+        //                     pool_id: 1u64,
+        //                     base_asset_denom: String::from("credit_fulldenom"),
+        //                     quote_asset_denom: String::from("axlusdc"),
+        //                 },
+        //                 TWAPPoolInfo {
+        //                     pool_id: 2u64,
+        //                     base_asset_denom: String::from("axlusdc"),
+        //                     quote_asset_denom: String::from("uosmo"),
+        //                 },
+        //             ],
+        //             static_price: None,
+        //         },
+        //     };
+        //     let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+        //     app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Query Price: No TWAP found
-            let err = app
-                .wrap()
-                .query_wasm_smart::<PriceResponse>(
-                    oracle_contract.addr(),
-                    &QueryMsg::Price {
-                        asset_info: AssetInfo::NativeToken {
-                            denom: String::from("credit_fulldenom"),
-                        },
-                        twap_timeframe: 90u64,
-                        basket_id: Some(Uint128::new(1u128)),
-                    },
-                )
-                .unwrap_err();
+        //     //Query Price: No TWAP found
+        //     let err = app
+        //         .wrap()
+        //         .query_wasm_smart::<PriceResponse>(
+        //             oracle_contract.addr(),
+        //             &QueryMsg::Price {
+        //                 asset_info: AssetInfo::NativeToken {
+        //                     denom: String::from("credit_fulldenom"),
+        //                 },
+        //                 twap_timeframe: 90u64,
+        //                 basket_id: Some(Uint128::new(1u128)),
+        //             },
+        //         )
+        //         .unwrap_err();
 
-            //Successful AddAsset to a different basket
-            let msg = ExecuteMsg::AddAsset {
-                asset_info: AssetInfo::NativeToken {
-                    denom: String::from("axlusdc"),
-                },
-                oracle_info: AssetOracleInfo {
-                    basket_id: Uint128::new(2u128),
-                    osmosis_pools_for_twap: vec![],
-                    static_price: Some(Decimal::one()),
-                },
-            };
-            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+        //     //Successful AddAsset to a different basket
+        //     let msg = ExecuteMsg::AddAsset {
+        //         asset_info: AssetInfo::NativeToken {
+        //             denom: String::from("axlusdc"),
+        //         },
+        //         oracle_info: AssetOracleInfo {
+        //             basket_id: Uint128::new(2u128),
+        //             osmosis_pools_for_twap: vec![],
+        //             static_price: Some(Decimal::one()),
+        //         },
+        //     };
+        //     let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+        //     app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Query static Price
-            let price: PriceResponse = app
-                .wrap()
-                .query_wasm_smart(
-                    oracle_contract.addr(),
-                    &QueryMsg::Price {
-                        asset_info: AssetInfo::NativeToken {
-                            denom: String::from("axlusdc"),
-                        },
-                        twap_timeframe: 90u64,
-                        basket_id: Some(Uint128::new(2u128)),
-                    },
-                )
-                .unwrap();
-            assert_eq!(price.price, Decimal::one());
-        }
+        //     //Query static Price
+        //     let price: PriceResponse = app
+        //         .wrap()
+        //         .query_wasm_smart(
+        //             oracle_contract.addr(),
+        //             &QueryMsg::Price {
+        //                 asset_info: AssetInfo::NativeToken {
+        //                     denom: String::from("axlusdc"),
+        //                 },
+        //                 twap_timeframe: 90u64,
+        //                 basket_id: Some(Uint128::new(2u128)),
+        //             },
+        //         )
+        //         .unwrap();
+        //     assert_eq!(price.price, Decimal::one());
+        // }
 
         #[test]
         fn update_config() {

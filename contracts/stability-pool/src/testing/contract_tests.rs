@@ -916,7 +916,7 @@ fn claims() {
     let _res = execute(deps.as_mut(), mock_env(), info.clone(), distribute_msg).unwrap();
    
     //Claim
-    let claim_msg = ExecuteMsg::Claim {};
+    let claim_msg = ExecuteMsg::ClaimRewards {};
     let info = mock_info("sender88", &[]);
     let res = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap();
 
@@ -935,13 +935,13 @@ fn claims() {
     ]);
     
     //Claim: Error, nothing to claim
-    let claim_msg = ExecuteMsg::Claim {};
+    let claim_msg = ExecuteMsg::ClaimRewards {};
     let info = mock_info("sender88", &[]);
     let res = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap();
     assert_eq!(res.attributes[2].value, "[]".to_string());
 
     //Claim
-    let claim_msg = ExecuteMsg::Claim {};
+    let claim_msg = ExecuteMsg::ClaimRewards {};
     let info = mock_info("2nduser", &[]);
     let res = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap();
 

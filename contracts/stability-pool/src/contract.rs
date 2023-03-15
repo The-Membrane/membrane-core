@@ -106,7 +106,7 @@ pub fn execute(
         ExecuteMsg::Withdraw { amount } => withdraw(deps, env, info, amount),
         ExecuteMsg::Restake { restake_amount } => restake(deps, env, info, restake_amount),
         ExecuteMsg::Liquidate { liq_amount } => liquidate(deps, info, liq_amount),
-        ExecuteMsg::Claim {} => claim(deps, env, info),
+        ExecuteMsg::ClaimRewards {} => claim(deps, env, info),
         ExecuteMsg::Distribute {
             distribution_assets,
             distribution_asset_ratios,
@@ -239,6 +239,7 @@ fn accrue_incentives(
     //Set last_accrued
     deposit.last_accrued = env.block.time.seconds();
 
+    //This calcs the amount of CDT to incentivize so the rate is acting as if MBRN = CDT (1:1) 
     let mut incentives = accumulate_interest(stake, rate, time_elapsed)?;
     let mut total_incentives = INCENTIVES.load(storage)?;
 
@@ -289,6 +290,10 @@ pub fn withdraw(
     if total_user_deposits < Decimal::from_ratio(amount, Uint128::new(1u128)) {
         return Err(ContractError::InvalidWithdrawal {});
     } else {
+        let mut skip_unstaking = false;
+        //If unstaking time is 0, skip unstaking
+        if config.unstaking_period == 0 { skip_unstaking = true; }
+        
         //Go thru each deposit and withdraw request from state
         let (withdrawable, new_pool) = withdrawal_from_state(
             deps.storage,
@@ -297,7 +302,7 @@ pub fn withdraw(
             info.clone().sender,
             Decimal::from_ratio(amount, Uint128::new(1u128)),
             asset_pool.clone(),
-            false,
+            skip_unstaking,
         )?;
 
         //Update pool

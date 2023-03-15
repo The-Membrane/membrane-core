@@ -421,7 +421,7 @@ mod tests {
             //Check that the rewards were sent
             assert_eq!(
                 app.wrap().query_all_balances("user_1").unwrap(),
-                vec![coin(1000, "credit_fulldenom")]
+                vec![coin(1000, "credit_fulldenom"), coin(9_999_000, "mbrn_denom")]
             );
                 
             //Claim As Native: Assert claim was saved and can't be double claimed

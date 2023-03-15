@@ -675,7 +675,7 @@ mod tests {
             assert_eq!(config.incentive_rate.to_string(), String::from("0.1"));
 
             //Claim accrued incentives 
-            let claim_msg = ExecuteMsg::Claim { };
+            let claim_msg = ExecuteMsg::ClaimRewards { };
             let cosmos_msg = sp_contract.call(claim_msg, vec![]).unwrap();
             app.set_block(BlockInfo {
                 height: app.block_info().height,
@@ -745,12 +745,12 @@ mod tests {
             );
 
             //Claim 
-            let claim_msg = ExecuteMsg::Claim { };
+            let claim_msg = ExecuteMsg::ClaimRewards { };
             let cosmos_msg = sp_contract.call(claim_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Claim but get nothing
-            let claim_msg = ExecuteMsg::Claim { };
+            let claim_msg = ExecuteMsg::ClaimRewards { };
             let cosmos_msg = sp_contract.call(claim_msg, vec![]).unwrap();
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
             assert_eq!(res.events[1].attributes[3].value, "[]".to_string());

@@ -15,7 +15,7 @@ use membrane::stability_pool::{
     Config, ClaimsResponse, ExecuteMsg, InstantiateMsg, LiquidatibleResponse,
     QueryMsg, DepositPositionResponse, UpdateConfig
 };
-use membrane::types::{Asset, AssetInfo, AssetPool, Deposit, UserInfo};
+use membrane::types::{Asset, AssetInfo, AssetPool, Deposit};
 
 #[test]
 fn deposit() {

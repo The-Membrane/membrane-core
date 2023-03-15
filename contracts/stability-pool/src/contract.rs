@@ -234,6 +234,7 @@ fn accrue_incentives(
             env.block.time.seconds() - deposit.last_accrued
         },
     };    
+    
     let rate: Decimal = config.clone().incentive_rate;
 
     //Set last_accrued
@@ -363,6 +364,22 @@ fn withdrawal_from_state(
             //Only edit user deposits
             if deposit_item.user == user {
                 is_user = true;
+                
+                //Calc incentives for the deposit
+                let accrued_incentives = match accrue_incentives(
+                    storage,
+                    env.clone(),
+                    config.clone(),
+                    deposit_item.amount * Uint128::new(1u128),
+                    &mut deposit_item,
+                ){
+                    Ok(incentive) => incentive,
+                    Err(err) => {
+                        error = Some(err);
+                        Uint128::zero()
+                    }
+                };
+                mbrn_incentives += accrued_incentives;
 
                 /////Check if deposit is withdrawable
                 if !skip_unstaking {
@@ -413,21 +430,6 @@ fn withdrawal_from_state(
                 //If not withdrawable we only edit withdraw amount to make sure the deposits...
                 //..that would get parsed through in a valid withdrawal get their unstaking_time set/checked
                 if withdrawal_amount != Decimal::zero() && deposit_item.amount > withdrawal_amount {
-                    //Calc incentives
-                    let accrued_incentives = match accrue_incentives(
-                        storage,
-                        env.clone(),
-                        config.clone(),
-                        withdrawal_amount * Uint128::new(1u128),
-                        &mut deposit_item,
-                    ){
-                        Ok(incentive) => incentive,
-                        Err(err) => {
-                            error = Some(err);
-                            Uint128::zero()
-                        }
-                    };
-                    mbrn_incentives += accrued_incentives;
 
                     if withdrawable {
                         //Add to withdrawable
@@ -448,27 +450,11 @@ fn withdrawal_from_state(
                         //If the deposit is less than withdrawal amount, substract it from the withdrawal amount and 0 the deposit 
                         withdrawal_amount -= deposit_item.amount;
                         deposit_item.amount = Decimal::zero();                
-                    }
-
-                    //Calc incentives
-                    let accrued_incentives = match accrue_incentives(
-                        storage,
-                        env.clone(),
-                        config.clone(),
-                        deposit_item.amount * Uint128::new(1u128),
-                        &mut deposit_item,
-                    ){
-                        Ok(incentive) => incentive,
-                        Err(err) => {
-                            error = Some(err);
-                            Uint128::zero()
-                        }
-                    };
-                    mbrn_incentives += accrued_incentives;                    
+                    }          
                 }
 
                 withdrawable = false;
-            }
+            }                    
             
             deposit_item
         })

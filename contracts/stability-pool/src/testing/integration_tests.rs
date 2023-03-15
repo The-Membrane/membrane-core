@@ -580,9 +580,9 @@ mod tests {
                     Deposit {
                         user: Addr::unchecked(USER),
                         amount: Decimal::percent(99_999_00),
-                        //This isn't the current block time bc this deposit wsa never edited
                         deposit_time: 1571797419, 
-                        last_accrued: 1571797419,
+                        //Updated during the withdrawal
+                        last_accrued: 1571883819,
                         unstake_time: None,
                     }
                 ]

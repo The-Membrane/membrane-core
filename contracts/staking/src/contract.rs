@@ -10,6 +10,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
+use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, ProposalStatus};
 use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, withdrawal_msg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
@@ -136,7 +137,7 @@ fn get_total_vesting(
 
     let recipients = querier.query::<RecipientsResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
         contract_addr: vesting_contract, 
-        msg: to_binary(&Vesting_QueryMsg::Recipients {  })?
+        msg: to_binary(&Vesting_QueryMsg::Recipients { })?
     }))?;    
 
     Ok(recipients.get_total_vesting())
@@ -362,6 +363,50 @@ pub fn stake(
     Ok(response.add_attributes(attrs))
 }
 
+/// Can't Unstake if...
+/// 1. There is an active proposal by the address
+/// 2. The address has voted for a proposal that has passed but not yet executed
+pub fn can_this_addr_unstake(
+    querier: QuerierWrapper,
+    user: Addr,
+    config: Config,
+) -> Result<(), ContractError> {
+    
+    //Can't unstake if there is an active proposal by user
+    let proposal_list = querier.query::<ProposalListResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+        contract_addr: config.clone().governance_contract.unwrap().to_string(), 
+        msg: to_binary(&Gov_QueryMsg::Proposals { start: None, limit: None })?
+    }))?;
+
+    for proposal in proposal_list.clone().proposal_list {
+        if proposal.submitter == user && proposal.status == ProposalStatus::Active {
+            return Err(ContractError::CustomError { val: String::from("Can't unstake while your proposal is active") })
+        }
+    }
+
+    //Can't unstake if the user has voted for a proposal that has passed but not yet executed    
+    //Get list of proposals that have passed & have executables
+    for proposal in proposal_list.proposal_list {
+        if proposal.status == ProposalStatus::Passed && proposal.messages.is_some() {
+            //Get list of voters for this proposal
+            let _voters = querier.query_wasm_smart::<Vec<Addr>>(
+                config.clone().governance_contract.unwrap().to_string(), 
+                &Gov_QueryMsg::ProposalVoters { 
+                    proposal_id: proposal.proposal_id.into(), 
+                    vote_option: membrane::governance::ProposalVoteOption::For, 
+                    start: None, 
+                    limit: None,
+                    specific_user: Some(user.to_string())
+                }
+            )?;
+            // if the query doesn't error then the user has voted For this proposal
+            return Err(ContractError::CustomError { val: String::from("Can't unstake if the proposal you helped pass hasn't executed its messages yet") })
+        }
+    }
+
+    Ok(())
+}
+
 /// First call is an unstake
 /// 2nd call after unstake period is a withdrawal
 pub fn unstake(
@@ -375,16 +420,8 @@ pub fn unstake(
 
     let mut msgs = vec![];
 
-    // Can't unstake if there is an active proposal by user
-    // let proposal_list = deps.querier.query::<ProposalListResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
-    //     contract_addr: config.clone().governance_contract.unwrap().to_string(), 
-    //     msg: to_binary(&Gov_QueryMsg::Proposals { start: None, limit: None })?
-    // }))?;
-    // for proposal in proposal_list.proposal_list {
-    //     if proposal.submitter == info.sender && proposal.status == ProposalStatus::Active {
-    //         return Err(ContractError::CustomError { val: String::from("Can't unstake while your proposal is active") })
-    //     }
-    // }
+    //Restrict unstaking
+    // can_this_addr_unstake(deps.querier, info.clone(), config.clone())?;
 
     //Get total Stake
     let total_stake = {
@@ -833,6 +870,13 @@ pub fn claim_rewards(
         });
     }
 
+    //Error if there is nothing to claim
+    if messages.is_empty() {
+        return Err(ContractError::CustomError {
+            val: String::from("Nothing to claim"),
+        });
+    }
+
     let user_claimables_string: Vec<String> = user_claimables
         .into_iter()
         .map(|claims| claims.to_string())
@@ -841,8 +885,8 @@ pub fn claim_rewards(
     let res = Response::new()
         .add_attribute("method", "claim")
         .add_attribute("user", info.sender)
-        .add_attribute("claim_as_native", claim_as_native.unwrap_or_default())
-        .add_attribute("send_to", send_to.unwrap_or_default())
+        .add_attribute("claim_as_native", claim_as_native.unwrap_or_else(|| String::from("None")))
+        .add_attribute("send_to", send_to.unwrap_or_else(|| String::from("None")))
         .add_attribute("restake", restake.to_string())
         .add_attribute("mbrn_rewards", accrued_interest.to_string())
         .add_attribute("fee_rewards", format!("{:?}", user_claimables_string));
@@ -937,7 +981,7 @@ fn deposit_fee(
     let decimal_total = Decimal::from_ratio(total, Uint128::new(1u128));
     
     //Add new Fee Event
-    for asset in fee_assets.clone() {
+    for asset in fee_assets.clone() {        
         let amount = Decimal::from_ratio(asset.amount, Uint128::new(1u128));
         
         fee_events.push(FeeEvent {
@@ -1051,10 +1095,10 @@ fn user_claims(
         }
     } else {
         return Err(StdError::GenericErr {
-            msg: String::from("Can't claim as without a DEX router"),
+            msg: String::from("Can't 'claim as' without a DEX router"),
         });
     }
-
+    
     Ok((messages, user_claimables, accrued_interest))
 }
 

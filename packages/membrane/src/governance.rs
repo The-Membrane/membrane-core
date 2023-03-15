@@ -121,10 +121,12 @@ pub enum QueryMsg {
         proposal_id: u64,
         /// Proposal vote option
         vote_option: ProposalVoteOption,
-        /// Id from which to start querying
+        /// Index from which to start querying
         start: Option<u64>,
-        /// The amount of proposals to return
+        /// The amount of voters to return
         limit: Option<u32>,
+        /// Specific user to query for
+        specific_user: Option<String>,
     },
     /// Return information about a specific proposal
     Proposal { proposal_id: u64 },

@@ -32,7 +32,7 @@ pub fn query_queues(
         let start_after = &start_after.unwrap();
 
         let start = asset_list.iter().position(|info| info.equal(start_after));
-        let start = start.unwrap_or_default();
+        let start = start.unwrap();
 
         for index in start..asset_list.len() {
             let queue = QUEUES.load(deps.storage, asset_list[index].to_string())?;

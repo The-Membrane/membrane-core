@@ -310,7 +310,7 @@ pub fn update_basket_debt(
                 if cap.asset_info.equal(&cAsset.asset.info) {
                     if add_to_debt {
                         //Assert its not over the cap
-                        //IF the debt is adding to interest then we allow it to exceed the cap
+                        //IF the debt is added from interest then we allow it to exceed the cap
                         if (cap.debt_total + asset_debt[index]) <= cAsset_caps[i] || interest_accrual {
                             cap.debt_total += asset_debt[index];
                         } else {

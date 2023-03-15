@@ -6,7 +6,7 @@ use std::convert::TryInto;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Binary, Deps, DepsMut, Env, MessageInfo,
+    attr, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Addr,
     Reply, Response, StdError, StdResult, Uint128, SubMsg, CosmosMsg, BankMsg, coins, Decimal, Order,
 };
 use cw2::set_contract_version;
@@ -402,8 +402,9 @@ pub fn mint_tokens(
                 let cap = decimal_multiplication(liquidity_multiplier,  Decimal::from_ratio(cdp_liquidity, Uint128::one()))?
                 * Uint128::one();
 
-                //Assert mints are below the owner's LM * liquidity
-                if owner.total_minted + amount <= cap {
+                //Assert mints are below the owner's LM * liquidity 
+                //Or if the owner is the positions contract; (Position contract has interest rate incentives to reduce debt)
+                if owner.total_minted + amount <= cap || owner.owner == config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")) {
                     //Update total_minted
                     owner.total_minted += amount;
                 } else { return Err(TokenFactoryError::MintCapped {  }) }

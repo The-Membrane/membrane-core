@@ -42,13 +42,13 @@ pub enum ExecuteMsg {
         restake_amount: Decimal,
     },
     /// Claim ALL liquidation revenue && MBRN incentives
-    Claim {},
+    ClaimRewards {},
     /// Use assets from an Asset pool to liquidate for a Position (Positions Contract)
     Liquidate {
         /// Liquidation amount
         liq_amount: Decimal,
     },
-    /// Distributes liquidated funds to users
+    /// Positions contract distributes liquidated funds to users
     Distribute {
         /// Assets to distribute
         distribution_assets: Vec<Asset>,

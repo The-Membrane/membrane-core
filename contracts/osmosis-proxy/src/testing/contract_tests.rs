@@ -191,7 +191,6 @@ mod tests {
         let info = mock_info("creator", &coins(1000, "uosmo"));
         let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
         
-
         const NEW_ADMIN_ADDR: &str = "newadmin";
 
         let mint_amount = Uint128::new(100_u128);
@@ -212,5 +211,38 @@ mod tests {
 
         assert_eq!(expected_error, err);
     }
+
+    // #[test]
+    // fn mint_limits() {
+    //     let mut deps = mock_dependencies();
+
+    //     let msg = InstantiateMsg {};
+    //     let info = mock_info("creator", &vec![]);
+    //     let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //     const NEW_ADMIN_ADDR: &str = "newadmin";
+    //     let mint_amount = Uint128::new(100_u128);
+    //     let info = mock_info("creator", &vec![]);
+    //     let full_denom_name: &str = &format!("{}/{}/addr", DENOM_PREFIX, DENOM_NAME);
+
+    //     //Successful Mint
+    //     let msg = ExecuteMsg::MintTokens {
+    //         denom: String::from(full_denom_name),
+    //         amount: mint_amount,
+    //         mint_to_address: String::from(NEW_ADMIN_ADDR),
+    //     };
+
+    //     let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+    //     assert_eq!(res.attributes[3].value, String::from("100"));
+
+    //     //Minting more than max supply: Error
+    //     let msg = ExecuteMsg::MintTokens {
+    //         denom: String::from(full_denom_name),
+    //         amount: mint_amount,
+    //         mint_to_address: String::from(NEW_ADMIN_ADDR),
+    //     };
+
+    //     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    // }
 
 }

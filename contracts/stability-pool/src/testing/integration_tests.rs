@@ -516,7 +516,7 @@ mod tests {
                 ]
             );
 
-            //Rewithdrawl Success
+            //Reunstake Success
             let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_001u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
@@ -555,8 +555,8 @@ mod tests {
                 ]
             );
 
-            //Withdrawl Success
-            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_001u128) };
+            //Withdrawl Success that adds another unstaking deposit
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_002u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
                 .unwrap();
@@ -579,10 +579,17 @@ mod tests {
                 vec![
                     Deposit {
                         user: Addr::unchecked(USER),
-                        amount: Decimal::percent(99_999_00),
+                        amount: Decimal::percent(1_00),
+                        deposit_time: 1571797419, 
+                        last_accrued: app.block_info().time.seconds(),
+                        unstake_time: Some(app.block_info().time.seconds()),
+                    },
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(99_998_00),
                         deposit_time: 1571797419, 
                         //Updated during the withdrawal
-                        last_accrued: 1571883819,
+                        last_accrued: app.block_info().time.seconds(),
                         unstake_time: None,
                     }
                 ]

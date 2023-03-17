@@ -274,11 +274,6 @@ pub fn cast_vote(
         return Err(ContractError::VotingPeriodEnded {});
     }
 
-    if proposal.for_voters.contains(&info.sender) || proposal.against_voters.contains(&info.sender)
-    {
-        return Err(ContractError::UserAlreadyVoted {});
-    }
-
     let voting_power = calc_voting_power(
         deps.as_ref(),
         info.sender.to_string(),
@@ -290,6 +285,16 @@ pub fn cast_vote(
 
     if voting_power.is_zero() {
         return Err(ContractError::NoVotingPower {});
+    }
+
+    //Remove previous vote
+    if let Some((vote, _)) = proposal.for_voters.clone().into_iter().enumerate().find(|(_, voter)| voter == &info.sender) {
+        proposal.for_voters.remove(vote);
+        proposal.for_power = proposal.for_power.checked_sub(voting_power)?;
+
+    } else if let Some((vote, _)) = proposal.against_voters.clone().into_iter().enumerate().find(|(_, voter)| voter == &info.sender) {
+        proposal.against_voters.remove(vote);
+        proposal.against_power = proposal.against_power.checked_sub(voting_power)?;
     }
 
     match vote_option {

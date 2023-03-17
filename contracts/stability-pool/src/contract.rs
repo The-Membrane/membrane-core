@@ -234,7 +234,7 @@ fn accrue_incentives(
             env.block.time.seconds() - deposit.last_accrued
         },
     };    
-    
+
     let rate: Decimal = config.clone().incentive_rate;
 
     //Set last_accrued
@@ -625,7 +625,8 @@ pub fn liquidate(
     ]))
 }
 
-/// Calculate which and how much each user gets distributed from the liquidation
+/// Calculate which and how much each user gets distributed from the liquidation.
+/// Distributions are done in order of the Deposit list, not deposit_time.
 pub fn distribute_funds(
     deps: DepsMut,
     info: MessageInfo,

@@ -15,7 +15,7 @@ use membrane::stability_pool::{
     Config, ClaimsResponse, ExecuteMsg, InstantiateMsg, LiquidatibleResponse,
     QueryMsg, DepositPositionResponse, UpdateConfig
 };
-use membrane::types::{Asset, AssetInfo, AssetPool, Deposit, UserInfo};
+use membrane::types::{Asset, AssetInfo, AssetPool, Deposit};
 
 #[test]
 fn deposit() {
@@ -35,6 +35,7 @@ fn deposit() {
         },
         osmosis_proxy: String::from("osmosis_proxy"),
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         max_incentives: None,
@@ -136,6 +137,7 @@ fn withdrawal() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 
@@ -320,6 +322,7 @@ fn liquidate() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 
@@ -407,6 +410,7 @@ fn liquidate_bignums() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 
@@ -474,6 +478,7 @@ fn distribute() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 
@@ -706,6 +711,7 @@ fn distribute_bignums() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 
@@ -869,6 +875,7 @@ fn claims() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 
@@ -957,170 +964,170 @@ fn claims() {
 }
 
 
-fn cdp_repay() {
-    let mut deps = mock_dependencies();
+// fn cdp_repay() {
+//     let mut deps = mock_dependencies();
 
-    let msg = InstantiateMsg {
-        owner: Some("sender88".to_string()),
-        asset_pool: AssetPool {
-            credit_asset: Asset {
-                info: AssetInfo::NativeToken {
-                    denom: "credit".to_string(),
-                },
-                amount: Uint128::zero(),
-            },
-            liq_premium: Decimal::zero(),
-            deposits: vec![],
-        },
-        osmosis_proxy: String::from("osmosis_proxy"),
-        mbrn_denom: String::from("mbrn_denom"),
-        incentive_rate: None,
-        positions_contract: String::from("positions_contract"),
-        max_incentives: None,
-    };
+//     let msg = InstantiateMsg {
+//         owner: Some("sender88".to_string()),
+//         asset_pool: AssetPool {
+//             credit_asset: Asset {
+//                 info: AssetInfo::NativeToken {
+//                     denom: "credit".to_string(),
+//                 },
+//                 amount: Uint128::zero(),
+//             },
+//             liq_premium: Decimal::zero(),
+//             deposits: vec![],
+//         },
+//         osmosis_proxy: String::from("osmosis_proxy"),
+//         mbrn_denom: String::from("mbrn_denom"),
+//         incentive_rate: None,
+//         positions_contract: String::from("positions_contract"),
+//         max_incentives: None,
+//     };
 
-    //Instantiating contract
-    let info = mock_info("sender88", &[]);
-    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+//     //Instantiating contract
+//     let info = mock_info("sender88", &[]);
+//     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-    //Successful Deposit
-    let deposit_msg = ExecuteMsg::Deposit { user: None };
-    let info = mock_info("sender88", &coins(5_000_000_000_000, "credit"));
-    let res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
+//     //Successful Deposit
+//     let deposit_msg = ExecuteMsg::Deposit { user: None };
+//     let info = mock_info("sender88", &coins(5_000_000_000_000, "credit"));
+//     let res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
-    //Repay: Error( Unauthorized )
-    let repay_msg = ExecuteMsg::Repay {
-        user_info: UserInfo {
-            position_id: Uint128::new(1u128),
-            position_owner: String::from("sender88"),
-        },
-        repayment: Asset {
-            info: AssetInfo::NativeToken {
-                denom: String::from("credit"),
-            },
-            amount: Uint128::new(1u128),
-        },
-    };
-    let info = mock_info("sender88", &[]);
-    let err = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap_err();
-    if let ContractError::Unauthorized {} = err {
-    } else {
-        panic!("{}", err.to_string());
-    };
+//     //Repay: Error( Unauthorized )
+//     let repay_msg = ExecuteMsg::Repay {
+//         user_info: UserInfo {
+//             position_id: Uint128::new(1u128),
+//             position_owner: String::from("sender88"),
+//         },
+//         repayment: Asset {
+//             info: AssetInfo::NativeToken {
+//                 denom: String::from("credit"),
+//             },
+//             amount: Uint128::new(1u128),
+//         },
+//     };
+//     let info = mock_info("sender88", &[]);
+//     let err = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap_err();
+//     if let ContractError::Unauthorized {} = err {
+//     } else {
+//         panic!("{}", err.to_string());
+//     };
 
-    //Repay: Error( InvalidAsset )
-    let repay_msg = ExecuteMsg::Repay {
-        user_info: UserInfo {
-            position_id: Uint128::new(1u128),
-            position_owner: String::from("sender88"),
-        },
-        repayment: Asset {
-            info: AssetInfo::NativeToken {
-                denom: String::from("invalid"),
-            },
-            amount: Uint128::new(1u128),
-        },
-    };
-    let info = mock_info("positions_contract", &[]);
-    let err = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap_err();
-    if let ContractError::InvalidAsset {} = err {
-        /////
-    } else {
-        panic!("{}", err.to_string());
-    };
+//     //Repay: Error( InvalidAsset )
+//     let repay_msg = ExecuteMsg::Repay {
+//         user_info: UserInfo {
+//             position_id: Uint128::new(1u128),
+//             position_owner: String::from("sender88"),
+//         },
+//         repayment: Asset {
+//             info: AssetInfo::NativeToken {
+//                 denom: String::from("invalid"),
+//             },
+//             amount: Uint128::new(1u128),
+//         },
+//     };
+//     let info = mock_info("positions_contract", &[]);
+//     let err = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap_err();
+//     if let ContractError::InvalidAsset {} = err {
+//         /////
+//     } else {
+//         panic!("{}", err.to_string());
+//     };
 
-    //Repay: Error( InvalidWithdrawal )
-    //No funds
-    let repay_msg = ExecuteMsg::Repay {
-        user_info: UserInfo {
-            position_id: Uint128::new(1u128),
-            position_owner: String::from("no_funds"),
-        },
-        repayment: Asset {
-            info: AssetInfo::NativeToken {
-                denom: String::from("credit"),
-            },
-            amount: Uint128::new(0u128),
-        },
-    };
-    let info = mock_info("positions_contract", &[]);
-    let err = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap_err();
-    if let ContractError::InvalidWithdrawal {} = err {
-        /////
-    } else {
-        panic!("{}", err.to_string());
-    };
+//     //Repay: Error( InvalidWithdrawal )
+//     //No funds
+//     let repay_msg = ExecuteMsg::Repay {
+//         user_info: UserInfo {
+//             position_id: Uint128::new(1u128),
+//             position_owner: String::from("no_funds"),
+//         },
+//         repayment: Asset {
+//             info: AssetInfo::NativeToken {
+//                 denom: String::from("credit"),
+//             },
+//             amount: Uint128::new(0u128),
+//         },
+//     };
+//     let info = mock_info("positions_contract", &[]);
+//     let err = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap_err();
+//     if let ContractError::InvalidWithdrawal {} = err {
+//         /////
+//     } else {
+//         panic!("{}", err.to_string());
+//     };
 
-    //Repay: Error( InvalidWithdrawal )
-    //Repayment above total user deposits
-    let repay_msg = ExecuteMsg::Repay {
-        user_info: UserInfo {
-            position_id: Uint128::new(1u128),
-            position_owner: String::from("no_funds"),
-        },
-        repayment: Asset {
-            info: AssetInfo::NativeToken {
-                denom: String::from("credit"),
-            },
-            amount: Uint128::new(1u128),
-        },
-    };
-    let info = mock_info("positions_contract", &[]);
-    let err = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap_err();
-    if let ContractError::InvalidWithdrawal {} = err {
-        /////
-    } else {
-        panic!("{}", err.to_string());
-    };
+//     //Repay: Error( InvalidWithdrawal )
+//     //Repayment above total user deposits
+//     let repay_msg = ExecuteMsg::Repay {
+//         user_info: UserInfo {
+//             position_id: Uint128::new(1u128),
+//             position_owner: String::from("no_funds"),
+//         },
+//         repayment: Asset {
+//             info: AssetInfo::NativeToken {
+//                 denom: String::from("credit"),
+//             },
+//             amount: Uint128::new(1u128),
+//         },
+//     };
+//     let info = mock_info("positions_contract", &[]);
+//     let err = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap_err();
+//     if let ContractError::InvalidWithdrawal {} = err {
+//         /////
+//     } else {
+//         panic!("{}", err.to_string());
+//     };
 
-    //Repay: Success
-    let repay_msg = ExecuteMsg::Repay {
-        user_info: UserInfo {
-            position_id: Uint128::new(1u128),
-            position_owner: String::from("sender88"),
-        },
-        repayment: Asset {
-            info: AssetInfo::NativeToken {
-                denom: String::from("credit"),
-            },
-            amount: Uint128::new(5_000_000_000_000u128),
-        },
-    };
-    let info = mock_info("positions_contract", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap();
-    assert_eq!(
-        res.messages,
-        vec![SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: String::from("positions_contract"),
-            funds: coins(5_000_000_000_000, "credit"),
-            msg: to_binary(&CDP_ExecuteMsg::Repay {
-                position_id: Uint128::new(1u128),
-                position_owner: Some(String::from("sender88")),
-                send_excess_to: Some(String::from("sender88")),
-            })
-            .unwrap(),
-        }))]
-    );
+//     //Repay: Success
+//     let repay_msg = ExecuteMsg::Repay {
+//         user_info: UserInfo {
+//             position_id: Uint128::new(1u128),
+//             position_owner: String::from("sender88"),
+//         },
+//         repayment: Asset {
+//             info: AssetInfo::NativeToken {
+//                 denom: String::from("credit"),
+//             },
+//             amount: Uint128::new(5_000_000_000_000u128),
+//         },
+//     };
+//     let info = mock_info("positions_contract", &[]);
+//     let res = execute(deps.as_mut(), mock_env(), info, repay_msg).unwrap();
+//     assert_eq!(
+//         res.messages,
+//         vec![SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+//             contract_addr: String::from("positions_contract"),
+//             funds: coins(5_000_000_000_000, "credit"),
+//             msg: to_binary(&CDP_ExecuteMsg::Repay {
+//                 position_id: Uint128::new(1u128),
+//                 position_owner: Some(String::from("sender88")),
+//                 send_excess_to: Some(String::from("sender88")),
+//             })
+//             .unwrap(),
+//         }))]
+//     );
 
-    //Assert State saved correctly
-    //Query AssetPool
-    let res = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::AssetPool {
-            user: None,
-            deposit_limit: None,
-            start_after: None,
-        },
-    )
-    .unwrap();
+//     //Assert State saved correctly
+//     //Query AssetPool
+//     let res = query(
+//         deps.as_ref(),
+//         mock_env(),
+//         QueryMsg::AssetPool {
+//             user: None,
+//             deposit_limit: None,
+//             start_after: None,
+//         },
+//     )
+//     .unwrap();
 
-    let resp: AssetPool = from_binary(&res).unwrap();
+//     let resp: AssetPool = from_binary(&res).unwrap();
 
-    assert_eq!(resp.credit_asset.to_string(), "0 credit".to_string());
-    assert_eq!(resp.liq_premium.to_string(), "0".to_string());
-    assert_eq!(resp.deposits.len().to_string(), "0".to_string());
-}
+//     assert_eq!(resp.credit_asset.to_string(), "0 credit".to_string());
+//     assert_eq!(resp.liq_premium.to_string(), "0".to_string());
+//     assert_eq!(resp.deposits.len().to_string(), "0".to_string());
+// }
 
 #[test]
 fn update_config(){
@@ -1143,6 +1150,7 @@ fn update_config(){
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 
@@ -1156,7 +1164,8 @@ fn update_config(){
         max_incentives: Some(Uint128::new(100)), 
         unstaking_period: Some(1),  
         osmosis_proxy: Some(String::from("new_op")), 
-        positions_contract: Some(String::from("new_cdp")), 
+        positions_contract: Some(String::from("new_cdp")),
+        oracle_contract: Some(String::from("new_oracle")),
         mbrn_denom: Some(String::from("new_denom")), 
     });
 
@@ -1185,7 +1194,8 @@ fn update_config(){
             max_incentives: Uint128::new(100),
             unstaking_period: 1,  
             osmosis_proxy: Addr::unchecked("new_op"), 
-            positions_contract: Addr::unchecked("new_cdp"), 
+            positions_contract: Addr::unchecked("new_cdp"),
+            oracle_contract: Addr::unchecked("new_oracle"), 
             mbrn_denom: String::from("new_denom"), 
         },
     );
@@ -1211,6 +1221,7 @@ fn capital_ahead_of_deposits() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 

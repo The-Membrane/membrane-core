@@ -742,6 +742,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     max_incentives: None,
                     osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),
                     positions_contract: addrs.clone().positions.to_string(),
+                    oracle_contract: addrs.clone().oracle.to_string(),
                     mbrn_denom: config.clone().mbrn_denom,
                 })?, 
                 funds: vec![], 

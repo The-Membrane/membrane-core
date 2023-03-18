@@ -642,7 +642,7 @@ pub fn end_of_launch(
     }.into();
     let sub_msg = SubMsg::reply_on_success(msg, BALANCER_POOL_REPLY_ID);
     sub_msgs.push(sub_msg);
-    //USDC Stableswap
+    //axlUSDC Stableswap
     let msg: CosmosMsg = MsgCreateStableswapPool {
         sender: env.contract.address.to_string(),
         pool_params: Some(SSPoolParams {

@@ -655,20 +655,6 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     })?, 
                     funds: vec![],
                 }));
-            /// USDC
-            msgs.push(
-                CosmosMsg::Wasm(WasmMsg::Execute { 
-                    contract_addr: addrs.clone().oracle.to_string(), 
-                    msg: to_binary(&OracleExecuteMsg::AddAsset { 
-                        asset_info: AssetInfo::NativeToken { denom: config.clone().usdc_denom }, 
-                        oracle_info: AssetOracleInfo { 
-                            basket_id: Uint128::one(), 
-                            osmosis_pools_for_twap: vec![],
-                            static_price: Some(Decimal::one()),
-                        },
-                    })?, 
-                    funds: vec![],
-                }));
 
             //CreateBasket
             let msg = CDPExecuteMsg::CreateBasket {
@@ -694,18 +680,6 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     },
                     max_borrow_LTV: Decimal::percent(45),
                     max_LTV: Decimal::percent(60),
-                    pool_info: None,
-                    rate_index: Decimal::one(),
-                },
-                cAsset {
-                    asset: Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: config.clone().usdc_denom,
-                        },
-                        amount: Uint128::from(0u128),
-                    },
-                    max_borrow_LTV: Decimal::percent(90),
-                    max_LTV: Decimal::percent(96),
                     pool_info: None,
                     rate_index: Decimal::one(),
                 }],
@@ -811,7 +785,7 @@ pub fn handle_sp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
     }    
 }
 
-/// Add LQ to Basket alongside both LPs & 3/5 SupplyCaps.
+/// Add LQ to Basket alongside 1 LP & 3/4 SupplyCaps.
 /// Instantiate Liquidity Check
 pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
@@ -846,7 +820,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
             ADDRESSES.save(deps.storage, &addrs)?;
 
             let mut msgs = vec![];
-            //Add LQ to Basket alongside 1/2 LPs & 3/5 SupplyCaps
+            //Add LQ to Basket alongside only LP & 3/4 SupplyCaps
             let msg = CDPExecuteMsg::EditBasket(EditBasket {
                 added_cAsset: Some(cAsset {
                     asset: Asset {
@@ -886,16 +860,6 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
                     stability_pool_ratio_for_debt_cap: None,
-                },
-                SupplyCap {
-                    asset_info: AssetInfo::NativeToken {
-                        denom: config.clone().usdc_denom,
-                    },
-                    current_supply: Uint128::zero(),
-                    debt_total: Uint128::zero(),
-                    supply_cap_ratio: Decimal::percent(100),
-                    lp: false,
-                    stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 credit_asset_twap_price_source: None,
@@ -911,43 +875,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 msg: to_binary(&msg)?, 
                 funds: vec![], 
             });
-            msgs.push(msg);
-            //Add 2/2 LPs
-            let msg = CDPExecuteMsg::EditBasket(EditBasket {
-                added_cAsset: Some(cAsset {
-                    asset: Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: config.clone().osmousdc_pool_id.to_string(), //This gets auto-filled
-                        },
-                        amount: Uint128::from(0u128),
-                    },
-                    max_borrow_LTV: Decimal::percent(45),
-                    max_LTV: Decimal::percent(60),
-                    pool_info: Some(PoolInfo { 
-                        pool_id: config.clone().osmousdc_pool_id, 
-                        asset_infos: vec![
-                            LPAssetInfo { info: AssetInfo::NativeToken { denom: config.clone().osmo_denom }, decimals: 6, ratio: Decimal::percent(50) },
-                            LPAssetInfo { info: AssetInfo::NativeToken { denom: config.clone().usdc_denom }, decimals: 6, ratio: Decimal::percent(50) }], 
-                    }),
-                    rate_index: Decimal::one(),
-                }),
-                liq_queue: None,
-                collateral_supply_caps: None,
-                base_interest_rate: None,
-                credit_asset_twap_price_source: None,
-                negative_rates: None,
-                cpc_margin_of_error: None,
-                frozen: None,
-                rev_to_stakers: None,
-                multi_asset_supply_caps: None,
-                credit_pool_infos: None,
-            });
-            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-                contract_addr: addrs.clone().positions.to_string(), 
-                msg: to_binary(&msg)?, 
-                funds: vec![], 
-            });
-            msgs.push(msg);            
+            msgs.push(msg);  
                        
             //Instantiate Liquidity Check
             let lc_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 

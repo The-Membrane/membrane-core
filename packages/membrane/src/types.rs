@@ -254,8 +254,6 @@ pub struct AssetOracleInfo {
     pub basket_id: Uint128,
     /// Osmosis pools for TWAP
     pub osmosis_pools_for_twap: Vec<TWAPPoolInfo>,
-    /// Ability to set a static price
-    pub static_price: Option<Decimal>,
 }
 
 impl fmt::Display for AssetOracleInfo {

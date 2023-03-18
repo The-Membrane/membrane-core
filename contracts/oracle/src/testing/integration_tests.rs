@@ -141,7 +141,6 @@ mod tests {
                         base_asset_denom: String::from("credit_fulldenom"),
                         quote_asset_denom: String::from("axlusdc"),
                     }],
-                    static_price: None,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -159,7 +158,6 @@ mod tests {
                         base_asset_denom: String::from("credit_fulldenom"),
                         quote_asset_denom: String::from("axlusdc"),
                     }],
-                    static_price: None,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -177,7 +175,6 @@ mod tests {
                         base_asset_denom: String::from("credit_fulldenom"),
                         quote_asset_denom: String::from("axlusdc"),
                     }],
-                    static_price: None,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -196,7 +193,6 @@ mod tests {
                         base_asset_denom: String::from("credit_fulldenom"),
                         quote_asset_denom: String::from("uosmo"),
                     }],
-                    static_price: None,
                 }),
                 remove: false,
             };
@@ -229,7 +225,6 @@ mod tests {
                         base_asset_denom: String::from("debit"),
                         quote_asset_denom: String::from("uosmo"),
                     }],
-                    static_price: None,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();

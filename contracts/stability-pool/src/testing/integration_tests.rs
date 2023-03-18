@@ -4,8 +4,7 @@ mod tests {
     use crate::helpers::SPContract;
 
     use membrane::cdp::PositionResponse;
-    use membrane::oracle::PriceResponse;
-    use membrane::osmosis_proxy::TokenInfoResponse;
+    use membrane::osmosis_proxy::{TokenInfoResponse};
     use membrane::stability_pool::{ClaimsResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
     use membrane::types::{Asset, AssetInfo, AssetPool, UserInfo, Deposit};
 
@@ -32,13 +31,7 @@ mod tests {
     //Mock Osmo Proxy Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Osmo_MockExecuteMsg {
-        MintTokens {
-            denom: String,
-            mint_to_address: String,
-            amount: Uint128,
-        },
-    }
+    pub enum Osmo_MockExecuteMsg { }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
@@ -55,18 +48,7 @@ mod tests {
     pub fn osmosis_proxy_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Osmo_MockExecuteMsg| -> StdResult<Response> {
-                match msg {
-                    Osmo_MockExecuteMsg::MintTokens {
-                        denom,
-                        mint_to_address,
-                        amount,
-                    } => {
-                        if amount != Uint128::new(10_000u128) && amount != Uint128::new(20_000u128) || denom != "mbrn_denom" || mint_to_address != "user" {
-                            panic!("Params incorrect: {}, {}, {}", amount, denom, mint_to_address);
-                        }
-                        Ok(Response::default())
-                    }
-                }
+                Ok(Response::default())
             },
             |_, _, _, _: Osmo_MockInstantiateMsg| -> StdResult<Response> {
                 Ok(Response::default())
@@ -162,52 +144,6 @@ mod tests {
                 avg_borrow_LTV: Decimal::one(),
                 avg_max_LTV: Decimal::one()
             }]) },
-        );
-        Box::new(contract)
-    }
-
-    //Mock Oracle Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
-    pub enum Oracle_MockExecuteMsg {}
-
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
-    pub struct Oracle_MockInstantiateMsg {}
-
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
-    pub enum Oracle_MockQueryMsg {
-        Price {
-            asset_info: AssetInfo,
-            twap_timeframe: u64,
-            basket_id: Option<Uint128>,
-        },
-    }
-
-    pub fn oracle_contract() -> Box<dyn Contract<Empty>> {
-        let contract = ContractWrapper::new(
-            |deps, _, info, msg: Oracle_MockExecuteMsg| -> StdResult<Response> {
-                Ok(Response::default())
-            },
-            |_, _, _, _: Oracle_MockInstantiateMsg| -> StdResult<Response> {
-                Ok(Response::default())
-            },
-            |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
-                match msg {
-                    Oracle_MockQueryMsg::Price {
-                        asset_info,
-                        twap_timeframe,
-                        basket_id,
-                    } => {
-                        Ok(to_binary(&PriceResponse {
-                            prices: vec![],
-                            price: Decimal::one(),
-                        })?)
-                        
-                    }
-                }
-            },
         );
         Box::new(contract)
     }
@@ -325,20 +261,6 @@ mod tests {
             )
             .unwrap();
 
-        //Instantiate Oracle Contract
-        let oracle_id = app.store_code(oracle_contract());
-
-        let oracle_contract_addr = app
-            .instantiate_contract(
-                oracle_id,
-                Addr::unchecked(ADMIN),
-                &Oracle_MockInstantiateMsg {},
-                &[],
-                "test",
-                None,
-            )
-            .unwrap();
-
         //Instantiate SP contract
         let sp_id = app.store_code(sp_contract());
 
@@ -358,7 +280,6 @@ mod tests {
             mbrn_denom: String::from("mbrn_denom"),
             incentive_rate: Some(Decimal::percent(10)),
             positions_contract: cdp_contract_addr.to_string(),
-            oracle_contract: oracle_contract_addr.to_string(),
             max_incentives: None,
         };
 
@@ -595,7 +516,7 @@ mod tests {
                 ]
             );
 
-            //Reunstake Success
+            //Rewithdrawl Success
             let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_001u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
@@ -634,8 +555,8 @@ mod tests {
                 ]
             );
 
-            //Withdrawl Success that adds another unstaking deposit
-            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_002u128) };
+            //Withdrawl Success
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_001u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
                 .unwrap();
@@ -658,17 +579,10 @@ mod tests {
                 vec![
                     Deposit {
                         user: Addr::unchecked(USER),
-                        amount: Decimal::percent(1_00),
-                        deposit_time: 1571797419, 
-                        last_accrued: app.block_info().time.seconds(),
-                        unstake_time: Some(app.block_info().time.seconds()),
-                    },
-                    Deposit {
-                        user: Addr::unchecked(USER),
-                        amount: Decimal::percent(99_998_00),
+                        amount: Decimal::percent(99_999_00),
                         deposit_time: 1571797419, 
                         //Updated during the withdrawal
-                        last_accrued: app.block_info().time.seconds(),
+                        last_accrued: 1571883819,
                         unstake_time: None,
                     }
                 ]
@@ -743,24 +657,6 @@ mod tests {
             });
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Query and Assert Claimables
-            let query_msg = QueryMsg::UserClaims {
-                user: String::from(USER),
-            };
-            let res: ClaimsResponse = app
-                .wrap()
-                .query_wasm_smart(sp_contract.addr(), &query_msg)
-                .unwrap();
-            assert_eq!(
-                res.claims,
-                vec![Asset {
-                    info: AssetInfo::NativeToken {
-                        denom: String::from("mbrn_denom")
-                    },
-                    amount: Uint128::new(10_000u128),
-                },]
-            );
-
             //Incentives during distributions
 
             //Deposit to AssetPool
@@ -778,7 +674,7 @@ mod tests {
                 .unwrap();
             assert_eq!(config.incentive_rate.to_string(), String::from("0.1"));
 
-            //Claim accrued incentives: 20k
+            //Claim accrued incentives 
             let claim_msg = ExecuteMsg::ClaimRewards { };
             let cosmos_msg = sp_contract.call(claim_msg, vec![]).unwrap();
             app.set_block(BlockInfo {

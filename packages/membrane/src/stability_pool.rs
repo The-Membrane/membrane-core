@@ -18,6 +18,8 @@ pub struct InstantiateMsg {
     pub osmosis_proxy: String,
     /// Positions contract address
     pub positions_contract: String,
+    /// Oracle contract address
+    pub oracle_contract: String,
     /// MBRN denom
     pub mbrn_denom: String,
 }
@@ -117,6 +119,8 @@ pub struct Config {
     pub osmosis_proxy: Addr,
     /// Positions contract address
     pub positions_contract: Addr,
+    /// Oracle contract address
+    pub oracle_contract: Addr,
 }
 
 #[cw_serde]
@@ -133,6 +137,8 @@ pub struct UpdateConfig {
     pub osmosis_proxy: Option<String>,
     /// Positions contract address
     pub positions_contract: Option<String>,
+    /// Oracle contract address
+    pub oracle_contract: Option<String>,
     /// MBRN denom
     pub mbrn_denom: Option<String>,
 }

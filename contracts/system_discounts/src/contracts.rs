@@ -1,6 +1,6 @@
 use cosmwasm_std::{
     entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo,
-    QueryRequest, Response, StdResult, Uint128, WasmQuery, QuerierWrapper,
+    QueryRequest, Response, StdResult, Uint128, WasmQuery, QuerierWrapper, Addr,
 };
 use cw2::set_contract_version;
 
@@ -56,7 +56,7 @@ pub fn instantiate(
         staking_contract,
         stability_pool_contract: deps.api.addr_validate(&msg.stability_pool_contract)?,
         lockdrop_contract: None,
-        discount_vault_contract: None,
+        discount_vault_contract: vec![],
         minimum_time_in_network: msg.minimum_time_in_network,
     };
     //Store optionals
@@ -64,7 +64,7 @@ pub fn instantiate(
         config.lockdrop_contract = Some(deps.api.addr_validate(&lockdrop_contract)?);
     }
     if let Some(discount_vault_contract) = msg.discount_vault_contract{
-        config.discount_vault_contract = Some(deps.api.addr_validate(&discount_vault_contract)?);
+        config.discount_vault_contract.push(deps.api.addr_validate(&discount_vault_contract)?);
     }
 
     CONFIG.save(deps.storage, &config)?;
@@ -128,8 +128,14 @@ fn update_config(
     if let Some(addr) = update.lockdrop_contract {
         config.lockdrop_contract = Some(deps.api.addr_validate(&addr)?);
     }
-    if let Some(addr) = update.discount_vault_contract {
-        config.discount_vault_contract = Some(deps.api.addr_validate(&addr)?);
+    if let Some((addr, add)) = update.discount_vault_contract {
+        let addr = deps.api.addr_validate(&addr)?;
+        //Add or remove address
+        if add {
+            config.discount_vault_contract.push(addr);
+        } else {
+            config.discount_vault_contract.retain(|x| x != &addr);
+        }
     }
     if let Some(time) = update.minimum_time_in_network {
         config.minimum_time_in_network = time;
@@ -222,8 +228,10 @@ fn get_user_value_in_network(
     total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone(), mbrn_price)?;
     total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price.clone(), credit_price.clone())?;
 
-    if config.discount_vault_contract.is_some(){
-        total_value += get_discounts_vault_value(querier, config.clone(), user.clone())?;
+    if config.discount_vault_contract.len() != 0 {
+        for discount_vault in config.clone().discount_vault_contract {
+            total_value += get_discounts_vault_value(querier, discount_vault, user.clone(), config.clone().minimum_time_in_network)?;
+        }
     }   
     
     Ok( total_value )
@@ -232,16 +240,17 @@ fn get_user_value_in_network(
 /// Return value of LPs in the discount vault
 fn get_discounts_vault_value(
     querier: QuerierWrapper,
-    config: Config,
+    discount_vault: Addr,
     user: String,
+    minimum_time_in_network: u64,
 ) -> StdResult<Decimal>{
 
      //Get user info from the Gauge Vault
      let user = querier.query::<Discount_UserResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().discount_vault_contract.unwrap().to_string(),
+        contract_addr: discount_vault.to_string(),
         msg: to_binary(&Discount_QueryMsg::User {
             user,
-            minimum_deposit_time: Some(config.minimum_time_in_network),
+            minimum_deposit_time: Some(minimum_time_in_network),
         })?,
     }))?;
 

@@ -5,7 +5,7 @@ use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
     DepsMut, Env, MessageInfo, Response, StdError, StdResult,
-    Storage, Uint128, WasmMsg, QuerierWrapper,
+    Storage, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 
@@ -13,11 +13,10 @@ use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::stability_pool::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig,
 };
-use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::types::{
     Asset, AssetInfo, AssetPool, Deposit, User, UserInfo, UserRatio,
 };
-use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest, accrue_user_positions, query_asset_price};
+use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest, accrue_user_positions};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
@@ -41,7 +40,7 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     let mut config = Config {
         owner: info.sender,
-        incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(5)),
+        incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(10)),
         max_incentives: msg
             .max_incentives
             .unwrap_or_else(|| Uint128::new(10_000_000_000_000)),
@@ -49,7 +48,6 @@ pub fn instantiate(
         mbrn_denom: msg.mbrn_denom,
         osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
         positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
-        oracle_contract: deps.api.addr_validate(&msg.oracle_contract)?,
     };
 
     //Set optional config parameters
@@ -160,10 +158,6 @@ fn update_config(
         config.positions_contract = deps.api.addr_validate(&positions_contract)?;
         attrs.push(attr("new_positions_contract", positions_contract));
     }
-    if let Some(oracle_contract) = update.oracle_contract {
-        config.oracle_contract = deps.api.addr_validate(&oracle_contract)?;
-        attrs.push(attr("new_oracle_contract", oracle_contract));
-    }
     if let Some(incentive_rate) = update.incentive_rate {
         config.incentive_rate = incentive_rate;
         attrs.push(attr("new_incentive_rate", incentive_rate.to_string()));
@@ -226,7 +220,6 @@ pub fn deposit(
 /// Assert max incentives limit.
 fn accrue_incentives(
     storage: &mut dyn Storage,
-    querier: QuerierWrapper,
     env: Env,
     config: Config,
     stake: Uint128,
@@ -241,7 +234,7 @@ fn accrue_incentives(
             env.block.time.seconds() - deposit.last_accrued
         },
     };    
-
+    
     let rate: Decimal = config.clone().incentive_rate;
 
     //Set last_accrued
@@ -249,19 +242,6 @@ fn accrue_incentives(
 
     //This calcs the amount of CDT to incentivize so the rate is acting as if MBRN = CDT (1:1) 
     let mut incentives = accumulate_interest(stake, rate, time_elapsed)?;
-
-    //Get MBRN price
-    let mbrn_price: Decimal = query_asset_price(
-        querier, 
-        config.clone().oracle_contract.into(), 
-        AssetInfo::NativeToken { denom: config.clone().mbrn_denom },
-        60,
-        None,
-    )?;
-
-    //Transmute CDT amount to MBRN incentive amount
-    incentives = decimal_division(Decimal::from_ratio(incentives, Uint128::one()), mbrn_price)? * Uint128::one();
-
     let mut total_incentives = INCENTIVES.load(storage)?;
 
     //Assert that incentives aren't over max, set 0 if so.
@@ -318,7 +298,6 @@ pub fn withdraw(
         //Go thru each deposit and withdraw request from state
         let (withdrawable, new_pool) = withdrawal_from_state(
             deps.storage,
-            deps.querier,
             env.clone(),
             config.clone(),
             info.clone().sender,
@@ -361,7 +340,6 @@ pub fn withdraw(
 /// Add any claimables to user claims.
 fn withdrawal_from_state(
     storage: &mut dyn Storage,
-    querier: QuerierWrapper,
     env: Env,
     config: Config,
     user: Addr,
@@ -390,7 +368,6 @@ fn withdrawal_from_state(
                 //Calc incentives for the deposit
                 let accrued_incentives = match accrue_incentives(
                     storage,
-                    querier,
                     env.clone(),
                     config.clone(),
                     deposit_item.amount * Uint128::new(1u128),
@@ -648,8 +625,7 @@ pub fn liquidate(
     ]))
 }
 
-/// Calculate which and how much each user gets distributed from the liquidation.
-/// Distributions are done in order of the Deposit list, not deposit_time.
+/// Calculate which and how much each user gets distributed from the liquidation
 pub fn distribute_funds(
     deps: DepsMut,
     info: MessageInfo,
@@ -736,7 +712,6 @@ pub fn distribute_funds(
                     if env.block.time.seconds() > deposit.last_accrued {
                         let accrued_incentives = accrue_incentives(
                             deps.storage,
-                            deps.querier,
                             env.clone(),
                             config.clone(),
                             remaining_repayment * Uint128::new(1u128),
@@ -757,7 +732,6 @@ pub fn distribute_funds(
                         //Calc MBRN incentives
                         let accrued_incentives = accrue_incentives(
                             deps.storage,
-                            deps.querier,
                             env.clone(),
                             config.clone(),
                             deposit.amount * Uint128::new(1u128),
@@ -879,7 +853,6 @@ fn repay(
             //Go thru each deposit and withdraw request from state
             let (_withdrawable, new_pool) = withdrawal_from_state(
                 deps.storage,
-                deps.querier,
                 env,
                 config.clone(),
                 position_owner.clone(),
@@ -963,33 +936,13 @@ fn user_claims_msgs(
     info: MessageInfo,
 ) -> Result<(Vec<CosmosMsg>, Vec<Asset>), ContractError> {
     let user = USERS.load(storage, info.clone().sender)?;
-    let config = CONFIG.load(storage)?;
-
     let mut messages: Vec<CosmosMsg> = vec![];
     let mut native_claims = vec![];
 
     //Aggregate native token sends
     for asset in user.clone().claimable_assets {
-        if let AssetInfo::NativeToken { denom } = asset.clone().info{
-
-            //if asset is MBRN, add a MBRN mint message
-            if denom == config.clone().mbrn_denom {
-                let mint_msg = OP_ExecuteMsg::MintTokens {
-                    denom: config.clone().mbrn_denom,
-                    mint_to_address: info.sender.to_string(),
-                    amount: asset.amount,
-                };
-                let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: config.osmosis_proxy.to_string(),
-                    msg: to_binary(&mint_msg)?,
-                    funds: vec![],
-                });
-                messages.push(msg);
-            } else {
-                //Add to native list
-                native_claims.push(asset_to_coin(asset.clone())?);  
-            }
-        
+        if let AssetInfo::NativeToken { denom: _ } = asset.clone().info{
+            native_claims.push(asset_to_coin(asset)?);
         }
     }    
 

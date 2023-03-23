@@ -63,10 +63,14 @@ pub fn handle_create_denom_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdRes
 }
 
 /// Save Balancer Pool IDs
-pub fn handle_balancer_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<Response>{
+pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{
     match msg.clone().result.into_result() {
         Ok(result) => {
         let mut credit_pools = CREDIT_POOL_IDS.load(deps.storage)?;
+        let addrs = ADDRESSES.load(deps.storage)?;
+        let config = CONFIG.load(deps.storage)?;
+
+        let mut msgs: Vec<CosmosMsg> = vec![];
         
         //Get Balancer Pool denom from Response
         if let Some(b) = result.data {
@@ -78,8 +82,52 @@ pub fn handle_balancer_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<
             //Save Pool ID
             //OSMO pool replies first
             if credit_pools.osmo == 0 {
+                // OSMO/CDT pool
                 credit_pools.osmo = res.pool_id;
+
+                //Mint MBRN for Incentives
+                let op_msg = OPExecuteMsg::MintTokens { 
+                    denom: config.clone().mbrn_denom, 
+                    amount: Uint128::new(1_000_000_000_000), 
+                    mint_to_address: env.clone().contract.address.to_string(),
+                };
+                let op_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: addrs.clone().osmosis_proxy.to_string(), 
+                    msg: to_binary(&op_msg)?, 
+                    funds: vec![], 
+                });
+                msgs.push(op_msg);
+                
+                //Get Balancer denom from Response
+                let pool_denom = deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                    contract_addr: addrs.clone().osmosis_proxy.to_string(), 
+                    msg: to_binary(&OPQueryMsg::PoolState {
+                        id: res.pool_id,
+                    })?,
+                }))?.shares.denom;
+                
+
+                //Incentivize the OSMO/CDT pool
+                //14 day guage
+                let msg = MsgCreateGauge { 
+                    is_perpetual: false, 
+                    owner: env.clone().contract.address.to_string(),
+                    distribute_to: Some(QueryCondition { 
+                        lock_query_type: 0, //ByDuration
+                        denom: pool_denom,
+                        duration: Some(Duration { seconds: 14 * SECONDS_PER_DAY as i64, nanos: 0 }), 
+                        timestamp: None,
+                    }), 
+                    coins: vec![Coin {
+                        denom: config.clone().mbrn_denom, 
+                        amount: String::from("1_000_000_000_000"),
+                    }], 
+                    start_time: None, 
+                    num_epochs_paid_over: 90, //days
+                }.into();
+                msgs.push(msg);
             } else {
+                // ATOM/CDT Pool
                 credit_pools.atom = res.pool_id;
             }
 
@@ -87,6 +135,7 @@ pub fn handle_balancer_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<
         }
 
         Ok(Response::new()
+            .add_messages(msgs)
             .add_attribute("pools_saved", format!("{:?}", credit_pools.to_vec()))
         )
     },

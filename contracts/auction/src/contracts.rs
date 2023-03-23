@@ -391,9 +391,13 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
             }],
         }));
 
-        //Update Auction
-        FEE_AUCTIONS.save(deps.storage, auction_asset.clone().to_string(), &auction)?;
-
+        //Update or Remove Auction
+        if auction.auction_asset.amount.is_zero() {
+            FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
+        } else {
+            FEE_AUCTIONS.save(deps.storage, auction_asset.clone().to_string(), &auction)?;
+        }
+        
         //If there is overpay, send it back to the sender
         if !overpay.is_zero() {
             msgs.push(CosmosMsg::Bank(BankMsg::Send {
@@ -636,8 +640,12 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
         )?);
     }
 
-    //Save new auction
-    DEBT_AUCTION.save(deps.storage, &auction)?;
+    //Save or Remove auction
+    if auction.remaining_recapitalization.is_zero() {
+        DEBT_AUCTION.remove(deps.storage);
+    } else {
+        DEBT_AUCTION.save(deps.storage, &auction)?;
+    }
       
     Ok(Response::new().add_messages(msgs))
 }

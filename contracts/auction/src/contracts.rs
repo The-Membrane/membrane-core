@@ -397,7 +397,7 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
         } else {
             FEE_AUCTIONS.save(deps.storage, auction_asset.clone().to_string(), &auction)?;
         }
-        
+
         //If there is overpay, send it back to the sender
         if !overpay.is_zero() {
             msgs.push(CosmosMsg::Bank(BankMsg::Send {
@@ -677,17 +677,12 @@ fn get_ongoing_fee_auctions(
     //If querying a specific auction
     if let Some(auction_asset) = auction_asset {
         if let Ok(auction) = FEE_AUCTIONS.load(deps.storage, auction_asset.to_string()) {
-            //Skip zeroed auctions
-            if !auction.auction_asset.amount.is_zero() {
-                Ok(vec![auction.clone()])
-            } else {
-                Err(StdError::GenericErr {
-                    msg: String::from("Auction amount zeroed"),
-                })
-            }
+            //Zeroed auctions are removed ahead of time
+            Ok(vec![auction.clone()])
+            
         } else {
             Err(StdError::GenericErr {
-                msg: format!("Auction asset: {}, has never had an auction", auction_asset),
+                msg: format!("Auction asset: {}, auction has ended", auction_asset),
             })
         }
     } else {
@@ -701,10 +696,9 @@ fn get_ongoing_fee_auctions(
             //Load auction
             if let Ok(auction) = FEE_AUCTIONS.load(deps.storage, asset.to_string()) {
                 //Add Response
-                //Skip zeroed aucitons
-                if !auction.auction_asset.amount.is_zero() {
-                    resp.push( auction.clone() );
-                }
+                //Zeroed auctions are removed ahead of time
+                resp.push( auction.clone() );
+                
             } else {
                 return Err(StdError::GenericErr {
                     msg: format!("Invalid auction swap asset: {}", asset),

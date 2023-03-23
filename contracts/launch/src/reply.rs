@@ -46,7 +46,7 @@ pub fn handle_create_denom_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdRes
         let addrs = ADDRESSES.load(deps.storage)?;
         
         //Get denoms
-        let denoms: Vec<String> = deps.querier.query_wasm_smart::<Vec<String>>(addrs.osmosis_proxy, &OPQueryMsg::GetContractDenoms { limit: None })?;
+        let denoms: Vec<String> = deps.querier.query_wasm_smart(addrs.osmosis_proxy, &OPQueryMsg::GetContractDenoms { limit: None })?;
         //We know CDT is first
         config.credit_denom = denoms[0].clone();
         config.mbrn_denom = denoms[1].clone();
@@ -1297,7 +1297,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                 }));
             
             /////Query saved share tokens in Position's contract & add Supply Caps for them
-            let basket = deps.querier.query_wasm_smart::<Basket>(
+            let basket: Basket = deps.querier.query_wasm_smart(
                 addrs.clone().positions.to_string(), 
             &CDPQueryMsg::GetBasket {  }
             )?;

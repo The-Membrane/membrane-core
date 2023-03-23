@@ -142,10 +142,11 @@ pub fn submit_proposal(
     let config = CONFIG.load(deps.storage)?;
 
     //Assert minimum total stake from staking contract
-    let total_staked = deps.querier.query_wasm_smart::<TotalStakedResponse>(
+    let res: TotalStakedResponse = deps.querier.query_wasm_smart(
         config.staking_contract_addr,
         &StakingQueryMsg::TotalStaked {  },
-    )?.total_not_including_vested;
+    )?;
+    let total_staked = res.total_not_including_vested;
     
     if total_staked < config.minimum_total_stake {
         return Err(ContractError::InsufficientTotalStake { minimum: config.minimum_total_stake.into() });

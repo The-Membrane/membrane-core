@@ -49,10 +49,11 @@ pub fn instantiate(
     }
 
     //Set CDT denom
-    config.cdt_denom = deps.querier.query_wasm_smart::<Basket>(
+    let basket: Basket = deps.querier.query_wasm_smart(
         config.clone().positions_contract, 
-        &CDPQueryMsg::GetBasket{ })?
-        .credit_asset.info.to_string();
+        &CDPQueryMsg::GetBasket{ })?;
+        
+    config.cdt_denom = basket.credit_asset.info.to_string();
 
     //Save Config
     CONFIG.save(deps.storage, &config)?;
@@ -320,7 +321,7 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
     if !auction.auction_asset.amount.is_zero() {
 
         //Get MBRN price
-        let mbrn_price = deps.querier.query_wasm_smart::<PriceResponse>(
+        let res: PriceResponse = deps.querier.query_wasm_smart(
             config.clone().oracle_contract.to_string(), 
             &OracleQueryMsg::Price {
                     asset_info: AssetInfo::NativeToken {
@@ -328,10 +329,11 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
                     },
                     twap_timeframe: config.clone().twap_timeframe,
                     basket_id: None,
-                })?.price;
+                })?;
+        let mbrn_price = res.price;
                 
         //Get auction asset price
-        let auction_asset_price = deps.querier.query_wasm_smart::<PriceResponse>(
+        let res: PriceResponse = deps.querier.query_wasm_smart(
             config.clone().oracle_contract.to_string(), 
             &OracleQueryMsg::Price {
                     asset_info: AssetInfo::NativeToken {
@@ -339,7 +341,8 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
                     },
                     twap_timeframe: config.clone().twap_timeframe,
                     basket_id: None,
-                })?.price;
+                })?;
+        let auction_asset_price = res.price;
 
         //Get value of sent MBRN
         let mbrn_value = decimal_multiplication(mbrn_price, Decimal::from_ratio(coin.amount, Uint128::one()))?;
@@ -464,15 +467,16 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
 
         let swap_amount = Decimal::from_ratio(coin.amount, Uint128::new(1u128));                
 
-        let mbrn_price = deps.querier.query_wasm_smart::<PriceResponse>(
+        let res: PriceResponse = deps.querier.query_wasm_smart(
             config.clone().oracle_contract.to_string(), 
-        &OracleQueryMsg::Price {
-                asset_info: AssetInfo::NativeToken {
-                    denom: config.clone().mbrn_denom,
-                },
-                twap_timeframe: config.clone().twap_timeframe,
-                basket_id: None,
-            })?.price;
+            &OracleQueryMsg::Price {
+                    asset_info: AssetInfo::NativeToken {
+                        denom: config.clone().mbrn_denom,
+                    },
+                    twap_timeframe: config.clone().twap_timeframe,
+                    basket_id: None,
+                })?;
+        let mbrn_price = res.price;
 
         //Get credit price at peg to further incentivize recapitalization
         let basket_credit_price = deps

@@ -332,11 +332,11 @@ fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, reci
     let mut allocation_ratios: Vec<Decimal> = vec![];
 
     //Get Contract's MBRN staked amount
-    let staked_mbrn = querier.query_wasm_smart::<StakerResponse>(
+    let res: StakerResponse = querier.query_wasm_smart(
         config.staking_contract, 
         &StakingQueryMsg::UserStake { staker: env.contract.address.to_string() }
-    )?
-    .total_staked;
+    )?;
+    let staked_mbrn = res.total_staked;
 
     for recipient in recipients.clone() {
         //Initialize allocation 

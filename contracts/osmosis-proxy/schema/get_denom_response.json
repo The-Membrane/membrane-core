@@ -7,7 +7,9 @@
   ],
   "properties": {
     "denom": {
+      "description": "Token full denom",
       "type": "string"
     }
-  }
+  },
+  "additionalProperties": false
 }

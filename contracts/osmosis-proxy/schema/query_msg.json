@@ -3,6 +3,44 @@
   "title": "QueryMsg",
   "oneOf": [
     {
+      "description": "Return contract config",
+      "type": "object",
+      "required": [
+        "config"
+      ],
+      "properties": {
+        "config": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Return Owner",
+      "type": "object",
+      "required": [
+        "get_owner"
+      ],
+      "properties": {
+        "get_owner": {
+          "type": "object",
+          "required": [
+            "owner"
+          ],
+          "properties": {
+            "owner": {
+              "description": "Owner address",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Return GetDenomResponse",
       "type": "object",
       "required": [
         "get_denom"
@@ -16,18 +54,46 @@
           ],
           "properties": {
             "creator_address": {
+              "description": "Denom creator address",
               "type": "string"
             },
             "subdenom": {
+              "description": "Subdenom of the token",
               "type": "string"
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
-      "description": "For a given pool ID, list all tokens traded on it with current liquidity (spot). As well as the total number of LP shares and their denom",
+      "description": "Return list of denoms owned by the contract",
+      "type": "object",
+      "required": [
+        "get_contract_denoms"
+      ],
+      "properties": {
+        "get_contract_denoms": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "description": "Response limit",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "For a given pool ID, list all tokens traded on it with current liquidity (spot). As well as the total number of LP shares and their denom. Queried from Osmosis.",
       "type": "object",
       "required": [
         "pool_state"
@@ -40,51 +106,19 @@
           ],
           "properties": {
             "id": {
+              "description": "Pool ID",
               "type": "integer",
               "format": "uint64",
               "minimum": 0.0
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
-      "type": "object",
-      "required": [
-        "arithmetic_twap_to_now"
-      ],
-      "properties": {
-        "arithmetic_twap_to_now": {
-          "type": "object",
-          "required": [
-            "base_asset_denom",
-            "id",
-            "quote_asset_denom",
-            "start_time"
-          ],
-          "properties": {
-            "base_asset_denom": {
-              "type": "string"
-            },
-            "id": {
-              "type": "integer",
-              "format": "uint64",
-              "minimum": 0.0
-            },
-            "quote_asset_denom": {
-              "type": "string"
-            },
-            "start_time": {
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    {
+      "description": "Return TokenInfoResponse",
       "type": "object",
       "required": [
         "get_token_info"
@@ -97,21 +131,11 @@
           ],
           "properties": {
             "denom": {
+              "description": "Native token denom",
               "type": "string"
             }
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "required": [
-        "config"
-      ],
-      "properties": {
-        "config": {
-          "type": "object"
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

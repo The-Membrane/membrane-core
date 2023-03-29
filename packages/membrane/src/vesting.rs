@@ -168,7 +168,7 @@ impl RecipientsResponse {
 
         for recipient in self.clone().recipients {
             if let Some(allocation) = recipient.allocation{
-                total_vesting += allocation.amount;
+                total_vesting += allocation.remaining_amount;
             }
         }
 

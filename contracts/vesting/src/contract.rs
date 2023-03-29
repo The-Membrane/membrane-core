@@ -55,7 +55,7 @@ pub fn instantiate(
         Recipient { 
             recipient: deps.api.addr_validate(&msg.labs_addr)?, 
             allocation: Some(Allocation { 
-                amount: msg.initial_allocation, 
+                remaining_amount: msg.initial_allocation, 
                 amount_withdrawn: Uint128::zero(), 
                 start_time_of_allocation: env.block.time.seconds(), 
                 vesting_period: VestingPeriod { cliff: 730, linear: 365 },
@@ -342,10 +342,10 @@ fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, reci
         //Initialize allocation 
         let allocation = recipient.clone().allocation.unwrap();
         
-        //Ratio of base Recipient's allocation.amount to total_staked
+        //Ratio of base Recipient's allocation.remaining_amount to total_staked
         allocation_ratios.push(decimal_division(
             Decimal::from_ratio(
-                allocation.amount,
+                allocation.remaining_amount,
                 Uint128::new(1u128),
             ),
             Decimal::from_ratio(staked_mbrn, Uint128::new(1u128)),
@@ -489,7 +489,7 @@ pub fn get_unlocked_amount(
 
             let newly_unlocked: Uint128;
             if !ratio_unlocked.is_zero() {
-                newly_unlocked = (ratio_unlocked * allocation.clone().amount)
+                newly_unlocked = (ratio_unlocked * allocation.clone().remaining_amount)
                     - allocation.clone().amount_withdrawn;
             } else {
                 newly_unlocked = Uint128::zero();
@@ -501,8 +501,8 @@ pub fn get_unlocked_amount(
             allocation.amount_withdrawn += newly_unlocked;
         } else {
             //Unlock full amount
-            unlocked_amount += allocation.clone().amount - allocation.clone().amount_withdrawn;
-            allocation.amount_withdrawn += allocation.clone().amount;
+            unlocked_amount += allocation.clone().remaining_amount - allocation.clone().amount_withdrawn;
+            allocation.amount_withdrawn += allocation.clone().remaining_amount;
         }
     }
 
@@ -539,7 +539,7 @@ fn add_allocation(
                         .map(|mut stored_recipient| {
                             if stored_recipient.recipient == recipient {
                                 stored_recipient.allocation = Some(Allocation {
-                                    amount: allocation,
+                                    remaining_amount: allocation,
                                     amount_withdrawn: Uint128::zero(),
                                     start_time_of_allocation: env.block.time.seconds(),
                                     vesting_period: vesting_period.clone(),
@@ -577,13 +577,13 @@ fn add_allocation(
                                 let mut stored_allocation = stored_recipient.allocation.unwrap();                               
 
                                 //Decrease stored_allocation.amount & set new_allocation
-                                stored_allocation.amount = match stored_allocation.amount.checked_sub(allocation){
+                                stored_allocation.remaining_amount = match stored_allocation.remaining_amount.checked_sub(allocation){
                                     Ok(diff) => {
                                     
                                         //Set new_allocation
                                         new_allocation = Some(
                                             Allocation { 
-                                                amount: allocation, 
+                                                remaining_amount: allocation, 
                                                 amount_withdrawn: Uint128::zero(),
                                                 ..stored_allocation.clone()
                                             }
@@ -595,7 +595,7 @@ fn add_allocation(
                                         //Set new_allocation
                                         new_allocation = Some(
                                             Allocation { 
-                                                amount: stored_allocation.amount, 
+                                                remaining_amount: stored_allocation.remaining_amount, 
                                                 amount_withdrawn: Uint128::zero(),
                                                 ..stored_allocation.clone()
                                             }
@@ -637,7 +637,7 @@ fn add_allocation(
     let mut allocation_total: Uint128 = Uint128::zero();
     for recipient in RECIPIENTS.load(deps.storage)?.into_iter() {
          if recipient.allocation.is_some() {
-             allocation_total += recipient.allocation.unwrap().amount;
+             allocation_total += recipient.allocation.unwrap().remaining_amount;
          }
     }
 

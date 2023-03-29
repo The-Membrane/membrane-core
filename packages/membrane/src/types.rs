@@ -488,8 +488,8 @@ pub struct Recipient {
 
 #[cw_serde]
 pub struct Allocation {
-    /// Amount of asset allocated
-    pub amount: Uint128,
+    /// Remaining amount of allocation
+    pub remaining_amount: Uint128,
     /// Amount of asset withdrawn
     pub amount_withdrawn: Uint128,
     /// Start time of allocation in seconds

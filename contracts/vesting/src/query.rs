@@ -21,7 +21,7 @@ pub fn query_allocation(deps: Deps, recipient: String) -> StdResult<AllocationRe
     if recipient.allocation.is_some() {
         let allocation = recipient.allocation.unwrap();
         Ok(AllocationResponse {
-            amount: allocation.amount,
+            amount: allocation.remaining_amount,
             amount_withdrawn: allocation.amount_withdrawn,
             start_time_of_allocation: allocation.start_time_of_allocation,
             vesting_period: allocation.vesting_period,

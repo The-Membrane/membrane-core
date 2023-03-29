@@ -186,7 +186,7 @@ fn withdraw(
     let config = CONFIG.load(deps.storage)?;
     let mut user = USERS.load(deps.storage, info.clone().sender)?;
 
-    //Remove invalid & unowned assets
+    //Remove unowned assets
     for (index, asset) in withdrawal_assets.clone().into_iter().enumerate(){
         if let false = user.clone().vaulted_lps.into_iter().any(|deposit| deposit.gamm.equal(&asset.info)){
             withdrawal_assets.remove(index);
@@ -371,6 +371,8 @@ fn get_user_response(
         }
     }
     //Multiply LP value by 2 to account for the non-debt side
+    //Assumption of a 50:50 LP, meaning unbalanced stableswaps are boosted
+    //This could be a "bug" but for now it's a feature to benefit LPs during distressed times
     LP_value = LP_value * Uint128::new(2);
 
     Ok(UserResponse { user, deposits: vault_user.vaulted_lps, discount_value: LP_value })

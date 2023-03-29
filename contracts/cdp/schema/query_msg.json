@@ -3,18 +3,21 @@
   "title": "QueryMsg",
   "oneOf": [
     {
+      "description": "Returns the contract's config",
       "type": "object",
       "required": [
         "config"
       ],
       "properties": {
         "config": {
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Returns Positions owned by a user",
       "type": "object",
       "required": [
         "get_user_positions"
@@ -26,17 +29,8 @@
             "user"
           ],
           "properties": {
-            "basket_id": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Uint128"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "limit": {
+              "description": "Response limiter",
               "type": [
                 "integer",
                 "null"
@@ -45,14 +39,17 @@
               "minimum": 0.0
             },
             "user": {
+              "description": "User to query",
               "type": "string"
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Returns a single Position",
       "type": "object",
       "required": [
         "get_position"
@@ -61,26 +58,24 @@
         "get_position": {
           "type": "object",
           "required": [
-            "basket_id",
             "position_id",
             "position_owner"
           ],
           "properties": {
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            },
             "position_id": {
               "$ref": "#/definitions/Uint128"
             },
             "position_owner": {
               "type": "string"
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Returns Positions in the contract's Basket",
       "type": "object",
       "required": [
         "get_basket_positions"
@@ -88,14 +83,9 @@
       "properties": {
         "get_basket_positions": {
           "type": "object",
-          "required": [
-            "basket_id"
-          ],
           "properties": {
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            },
             "limit": {
+              "description": "Response limiter",
               "type": [
                 "integer",
                 "null"
@@ -104,17 +94,20 @@
               "minimum": 0.0
             },
             "start_after": {
+              "description": "Start after this user address",
               "type": [
                 "string",
                 "null"
               ]
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Returns the contract's Basket",
       "type": "object",
       "required": [
         "get_basket"
@@ -122,51 +115,13 @@
       "properties": {
         "get_basket": {
           "type": "object",
-          "required": [
-            "basket_id"
-          ],
-          "properties": {
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            }
-          }
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
-      "type": "object",
-      "required": [
-        "get_all_baskets"
-      ],
-      "properties": {
-        "get_all_baskets": {
-          "type": "object",
-          "properties": {
-            "limit": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint32",
-              "minimum": 0.0
-            },
-            "start_after": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Uint128"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    {
+      "description": "Returns Basket collateral debt caps",
       "type": "object",
       "required": [
         "get_basket_debt_caps"
@@ -174,19 +129,13 @@
       "properties": {
         "get_basket_debt_caps": {
           "type": "object",
-          "required": [
-            "basket_id"
-          ],
-          "properties": {
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            }
-          }
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Returns Positions with bad debt in the Basket",
       "type": "object",
       "required": [
         "get_basket_bad_debt"
@@ -194,53 +143,13 @@
       "properties": {
         "get_basket_bad_debt": {
           "type": "object",
-          "required": [
-            "basket_id"
-          ],
-          "properties": {
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            }
-          }
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
-      "type": "object",
-      "required": [
-        "get_basket_insolvency"
-      ],
-      "properties": {
-        "get_basket_insolvency": {
-          "type": "object",
-          "required": [
-            "basket_id"
-          ],
-          "properties": {
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            },
-            "limit": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint32",
-              "minimum": 0.0
-            },
-            "start_after": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    {
+      "description": "Returns insolvency status of a Position",
       "type": "object",
       "required": [
         "get_position_insolvency"
@@ -249,46 +158,44 @@
         "get_position_insolvency": {
           "type": "object",
           "required": [
-            "basket_id",
             "position_id",
             "position_owner"
           ],
           "properties": {
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            },
             "position_id": {
-              "$ref": "#/definitions/Uint128"
+              "description": "Position ID to query",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Uint128"
+                }
+              ]
             },
             "position_owner": {
+              "description": "Position owner to query",
               "type": "string"
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Returns credit redemption rate",
       "type": "object",
       "required": [
-        "get_basket_interest"
+        "get_credit_rate"
       ],
       "properties": {
-        "get_basket_interest": {
+        "get_credit_rate": {
           "type": "object",
-          "required": [
-            "basket_id"
-          ],
-          "properties": {
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            }
-          }
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Returns Basket collateral interest rates",
       "type": "object",
       "required": [
         "get_collateral_interest"
@@ -296,26 +203,21 @@
       "properties": {
         "get_collateral_interest": {
           "type": "object",
-          "required": [
-            "basket_id"
-          ],
-          "properties": {
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            }
-          }
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Used internally to test state propagation",
       "type": "object",
       "required": [
         "propagation"
       ],
       "properties": {
         "propagation": {
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

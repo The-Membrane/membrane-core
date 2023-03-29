@@ -7,7 +7,7 @@ mod tests {
     use membrane::types::{AssetInfo, AssetOracleInfo, TWAPPoolInfo};
 
     use cosmwasm_std::{
-        coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
+        coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
     use schemars::JsonSchema;
@@ -123,7 +123,7 @@ mod tests {
     mod oracle {
 
         use super::*;
-        use membrane::oracle::{Config, AssetResponse, PriceResponse};
+        use membrane::oracle::{Config, AssetResponse};
 
         #[test]
         fn add_edit() {

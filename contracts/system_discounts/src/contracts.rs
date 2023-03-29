@@ -1,17 +1,22 @@
+use std::str::FromStr;
+
 use cosmwasm_std::{
     entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo,
     QueryRequest, Response, StdResult, Uint128, WasmQuery, QuerierWrapper, Addr,
 };
 use cw2::set_contract_version;
 
+use osmosis_std::shim::Duration;
+use osmosis_std::types::osmosis::lockup::{LockupQuerier, AccountLockedLongerDurationDenomResponse};
+
 use membrane::math::{decimal_multiplication, decimal_division};
 use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
 use membrane::stability_pool::{QueryMsg as SP_QueryMsg, ClaimsResponse};
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
-use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse};
+use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse, Config as DV_Config};
 use membrane::cdp::{QueryMsg as CDP_QueryMsg, PositionResponse};
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
-use membrane::types::{AssetInfo, Basket, Deposit, AssetPool};
+use membrane::types::{AssetInfo, Basket, Deposit, AssetPool, LPPoolInfo};
 
 use crate::error::ContractError;
 use crate::state::CONFIG;
@@ -211,6 +216,7 @@ fn get_user_value_in_network(
         msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
     }))?;
     let credit_price = basket.clone().credit_price;
+    let credit_denom = basket.clone().credit_asset.info;
 
     let mbrn_price = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().oracle_contract.to_string(),
@@ -222,19 +228,93 @@ fn get_user_value_in_network(
     }))?
     .price;
 
-    //Initialize total_value
+    //Initialize variables
     let mut total_value = Decimal::zero();
+    let mut accepted_lps: Vec<LPPoolInfo> = vec![];
+    let mut valid_denoms: Vec<AssetInfo> = vec![];
 
     total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone(), mbrn_price)?;
     total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price.clone(), credit_price.clone())?;
-
+    
     if config.discount_vault_contract.len() != 0 {
         for discount_vault in config.clone().discount_vault_contract {
-            total_value += get_discounts_vault_value(querier, discount_vault, user.clone(), config.clone().minimum_time_in_network)?;
+            total_value += get_discounts_vault_value(querier, discount_vault.clone(), user.clone(), config.clone().minimum_time_in_network)?;
+
+            //Add to accepted LPs
+            let res: DV_Config = querier.query_wasm_smart(discount_vault, &Discount_QueryMsg::Config {  })?;
+
+            for lp in res.accepted_LPs {
+                if let false = accepted_lps.contains(&lp) {
+                    accepted_lps.push(lp);
+                }
+            }
         }
+        valid_denoms = accepted_lps.clone().into_iter().map(|x| x.share_token).collect::<Vec<AssetInfo>>();    
     }   
+
+    total_value += get_incentive_gauge_value(querier, valid_denoms, user.clone(), config.clone().minimum_time_in_network, credit_price.clone(), credit_denom.to_string())?;
     
     Ok( total_value )
+}
+
+/// Return value of LPs in Osmosis Incentive Lockups
+fn get_incentive_gauge_value(
+    querier: QuerierWrapper,
+    valid_denoms: Vec<AssetInfo>,
+    user: String,
+    minimum_time_in_network: u64,
+    debt_price: Decimal,
+    debt_denom: String,
+) -> StdResult<Decimal>{
+    //Initialize total value
+    let mut total_value = Decimal::zero();
+
+    //Parse through all valid denoms
+    for denom in valid_denoms {
+        let res: AccountLockedLongerDurationDenomResponse = LockupQuerier::account_locked_longer_duration_denom(
+            &LockupQuerier::new(&querier),
+            user.clone(),
+            Some(Duration { 
+                seconds: (minimum_time_in_network * SECONDS_PER_DAY) as i64, 
+                nanos: 0 }),
+            denom.to_string(),
+        )?;
+
+
+        let mut user_locked_debt = vec![];
+        //Parse through all locked coins
+        for user_lock_period in res.locks.clone().into_iter(){
+            user_locked_debt.extend(
+                user_lock_period.coins
+                    .into_iter()
+                    .filter(|coin| coin.denom == debt_denom)
+            )
+        }
+
+        //Get total locked debt
+        let mut total_locked_debt = Uint128::zero();
+
+        for coin in user_locked_debt {
+            total_locked_debt += Uint128::from_str(&coin.amount)?;
+        }
+        
+        //Get total locked debt value
+        let total_debt_value = decimal_multiplication(
+            Decimal::from_ratio(total_locked_debt, Uint128::one()),
+            debt_price
+        )?;
+        
+        //Multiply LP value by 2 to account for the non-debt side
+        //Assumption of a 50:50 LP, meaning unbalanced stableswaps are boosted
+        //This could be a "bug" but for now it's a feature to benefit LPs during distressed times
+        total_value = decimal_multiplication(
+            Decimal::percent(200),
+            total_debt_value
+        )?;
+
+    }
+    
+    Ok(total_value)
 }
 
 /// Return value of LPs in the discount vault

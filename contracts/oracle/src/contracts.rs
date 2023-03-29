@@ -30,7 +30,7 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-
+    
     let mut config: Config;
     if msg.owner.is_some() {
         config = Config {
@@ -323,7 +323,7 @@ fn get_asset_price(
             })
         }
     };
-
+    
     //twap_timeframe = MINUTES * MILLISECONDS_PER_MINUTE
     let twap_timeframe: i64 = (twap_timeframe as i64 * MILLISECONDS_PER_MINUTE);
     let start_time: i64 = current_unix_time - twap_timeframe;

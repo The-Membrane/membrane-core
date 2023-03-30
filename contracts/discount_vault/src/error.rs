@@ -16,6 +16,9 @@ pub enum ContractError {
     #[error("Attempted withdrawal over available claims: {val:?}")]
     InvalidWithdrawal { val: Asset },
 
+    #[error("Deposits closed")]
+    DepositsDisabled {},
+
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },
     // Add any other custom errors you like here.

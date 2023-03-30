@@ -45,6 +45,7 @@ pub fn instantiate(
             positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
             osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             accepted_LPs: vec![],
+            deposits_enabled: false,
         };
     } else {
         config = Config {
@@ -52,6 +53,7 @@ pub fn instantiate(
             positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
             osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             accepted_LPs: vec![],
+            deposits_enabled: false,
         };
     }
     let mut err: Option<StdError> = None;
@@ -117,6 +119,7 @@ pub fn execute(
         ExecuteMsg::Withdraw { withdrawal_assets } => withdraw(deps, info, withdrawal_assets),
         ExecuteMsg::ChangeOwner { owner } => change_owner(deps, info, owner),
         ExecuteMsg::EditAcceptedLPs { pool_ids, remove } => edit_LPs(deps, info, pool_ids, remove),
+        ExecuteMsg::ToggleDeposits { enable } => toggle_deposits(deps, info, enable),
     }
 }
 
@@ -127,7 +130,12 @@ fn deposit(
     info: MessageInfo,
 ) -> Result<Response, ContractError>{
     let config = CONFIG.load(deps.storage)?;
+
+    //Check if deposits are enabled
+    if config.deposits_enabled == false { return Err(ContractError::DepositsDisabled {  }) }
+
     let valid_assets = validate_assets(info.clone().funds, config.clone().accepted_LPs);
+    
     if valid_assets.len() < info.clone().funds.len(){ return Err(ContractError::InvalidAsset {  }) }
 
     //Add deposits to User
@@ -306,6 +314,31 @@ fn edit_LPs(
             attr("removed", remove.to_string())]),
     )
 }
+
+/// Toggle the ability to deposit LPs.
+fn toggle_deposits(    
+    deps: DepsMut,
+    info: MessageInfo,
+    toggle: bool,
+) -> Result<Response, ContractError>{
+    let mut config = CONFIG.load(deps.storage)?;
+
+    //Validate Authority
+    if info.clone().sender != config.clone().owner{ return Err(ContractError::Unauthorized {  }) }
+
+    //Toggle
+    config.deposits_enabled = toggle;
+
+    //Save config
+    CONFIG.save(deps.storage, &config)?;
+
+    Ok(Response::new()
+        .add_attributes(vec![
+            attr("method", "toggle_deposit"),
+            attr("toggle", toggle.to_string())]),
+    )
+}
+
 
 /// Validate assets and return only those that are accepted.
 fn validate_assets(

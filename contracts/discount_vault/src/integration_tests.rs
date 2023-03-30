@@ -239,6 +239,21 @@ mod tests {
         fn deposit() {
             let (mut app, vault_contract) = proper_instantiate();
 
+            //Deposits disabled: Error
+            let msg = ExecuteMsg::Deposit { };
+            let cosmos_msg = vault_contract.call(msg, vec![coin(100, "gamm/pool/1")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //Enable deposits Unauthorized: Error 
+            let msg = ExecuteMsg::ToggleDeposits { enable: true };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //Enable deposits
+            let msg = ExecuteMsg::ToggleDeposits { enable: true };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
             //Deposit invalid asset: Error
             let msg = ExecuteMsg::Deposit { };
             let cosmos_msg = vault_contract.call(msg, vec![coin(100, "gamm/pool/0")]).unwrap();
@@ -313,6 +328,11 @@ mod tests {
         #[test]
         fn withdraw() {
             let (mut app, vault_contract) = proper_instantiate();
+
+            //Enable deposits
+            let msg = ExecuteMsg::ToggleDeposits { enable: true };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Deposit: Success
             let msg = ExecuteMsg::Deposit { };

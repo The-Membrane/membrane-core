@@ -37,6 +37,10 @@ pub enum ExecuteMsg {
         /// Add or remove
         remove: bool,
     },
+    ToggleDeposits {
+        /// Enable or disable deposits
+        enable: bool,
+    },
 }
 
 #[cw_serde]
@@ -70,6 +74,8 @@ pub struct Config {
     pub osmosis_proxy: Addr,
     /// List of accepted Osmosis LP pool ids, assumption that the LP is 50:50
     pub accepted_LPs: Vec<LPPoolInfo>,
+    /// Allow deposits?
+    pub deposits_enabled: bool,
 }
 
 #[cw_serde]

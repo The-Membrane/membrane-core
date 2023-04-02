@@ -37,10 +37,8 @@ pub enum ExecuteMsg {
         /// Add or remove
         remove: bool,
     },
-    ToggleDeposits {
-        /// Enable or disable deposits
-        enable: bool,
-    },
+    /// Enable or disable deposits
+    ToggleDeposits { enable: bool },
 }
 
 #[cw_serde]

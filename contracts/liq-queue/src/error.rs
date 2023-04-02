@@ -39,6 +39,9 @@ pub enum ContractError {
     #[error("Variable overflow due to mismanaged state")]
     MismanagedState {},
 
+    #[error("Waiting bids are full at {max_waiting_bids:?}")]
+    TooManyWaitingBids { max_waiting_bids: u64 },
+
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },
     // Add any other custom errors you like here.

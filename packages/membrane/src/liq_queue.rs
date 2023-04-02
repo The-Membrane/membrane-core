@@ -13,6 +13,10 @@ pub struct InstantiateMsg {
     pub positions_contract: String,
     /// Waiting period before bids are activated
     pub waiting_period: u64, 
+    /// Minimum bid amount
+    pub minimum_bid: Uint128,
+    /// Maximum total bids
+    pub maximum_waiting_bids: u64,
 }
 
 #[cw_serde]
@@ -82,6 +86,10 @@ pub enum ExecuteMsg {
         positions_contract: Option<String>,
         /// Waiting period before bids are activated
         waiting_period: Option<u64>,
+        /// Minimum bid amount
+        minimum_bid: Option<Uint128>,
+        /// Maximum waiting bids
+        maximum_waiting_bids: Option<u64>,
     },
 }
 
@@ -170,6 +178,10 @@ pub struct Config {
     pub waiting_period: u64, 
     /// Bid with asset
     pub bid_asset: AssetInfo,
+    /// Minimum bid amount
+    pub minimum_bid: Uint128,
+    /// Maximum total bids
+    pub maximum_waiting_bids: u64,
 }
 
 #[cw_serde]

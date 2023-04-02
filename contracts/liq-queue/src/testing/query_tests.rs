@@ -18,6 +18,8 @@ fn query_liquidatible() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -83,6 +85,8 @@ fn query_bid() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -216,6 +220,8 @@ fn query_slots_queues() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);

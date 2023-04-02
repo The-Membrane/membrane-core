@@ -16,6 +16,8 @@ fn one_bidder_distribution() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -108,6 +110,8 @@ fn two_bidder_distribution() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 1u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -268,6 +272,8 @@ fn two_bidder_distribution_big_number() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -428,6 +434,8 @@ fn one_user_two_slots() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -586,6 +594,8 @@ fn completely_empty_pool() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -758,6 +768,8 @@ fn product_truncated_to_zero() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -869,6 +881,8 @@ fn two_bidder_distribution_multiple_common_slots() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 1u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -1066,6 +1080,8 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -1259,6 +1275,8 @@ fn not_enough_bid_for_collateral() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 1u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);

@@ -22,6 +22,8 @@ fn proper_initialization() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("addr0000", &[]);
@@ -43,6 +45,8 @@ fn proper_initialization() {
             bid_asset: AssetInfo::NativeToken {
                 denom: String::from("cdt"),
             },
+            minimum_bid: Uint128::zero(),
+            maximum_waiting_bids: 100u64,
         }
     );
 }
@@ -55,6 +59,8 @@ fn update_config() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("addr0000", &[]);
@@ -65,6 +71,8 @@ fn update_config() {
         owner: Some("owner0001".to_string()),
         positions_contract: None,
         waiting_period: None,
+        minimum_bid: None,
+        maximum_waiting_bids: None,
     };
 
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -83,6 +91,8 @@ fn update_config() {
             bid_asset: AssetInfo::NativeToken {
                 denom: String::from("cdt"),
             },
+            minimum_bid: Uint128::zero(),
+            maximum_waiting_bids: 100u64,
         }
     );
 
@@ -92,6 +102,8 @@ fn update_config() {
         owner: None,
         positions_contract: None,
         waiting_period: Some(100u64),
+        minimum_bid: Some(Uint128::one()),
+        maximum_waiting_bids: Some(10),
     };
 
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -109,7 +121,9 @@ fn update_config() {
             added_assets: Some(vec![]),
             bid_asset: AssetInfo::NativeToken {
                 denom: String::from("cdt"),
-            },
+            },            
+            minimum_bid: Uint128::one(),
+            maximum_waiting_bids: 10u64,
         }
     );
 
@@ -119,6 +133,8 @@ fn update_config() {
         owner: Some("addr0000".to_string()),
         positions_contract: None,
         waiting_period: Some(60u64),
+        minimum_bid: None,
+        maximum_waiting_bids: None,
     };
 
     let res = execute(deps.as_mut(), mock_env(), info, msg);
@@ -140,6 +156,8 @@ fn submit_bid() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::new(2),
+        maximum_waiting_bids: 0u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -228,6 +246,33 @@ fn submit_bid() {
         })
     );
 
+    //Invalid Bid amount
+    let invalid_msg = ExecuteMsg::SubmitBid {
+        bid_input: BidInput {
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo".to_string(),
+            },
+            liq_premium: 1u8,
+        },
+        bid_owner: None,
+    };
+
+    let info = mock_info(
+        "addr0000",
+        &[Coin {
+            denom: "cdt".to_string(),
+            amount: Uint128::from(1u128),
+        }],
+    );
+
+    let err = execute(deps.as_mut(), mock_env(), info.clone(), invalid_msg).unwrap_err();
+    assert_eq!(
+        err,
+        ContractError::Std(StdError::GenericErr {
+            msg: "Bid amount too small, minimum is 2".to_string()
+        })
+    );
+
     //Invalid Premium
     let invalid_msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
@@ -249,6 +294,38 @@ fn submit_bid() {
 
     let err = execute(deps.as_mut(), mock_env(), info.clone(), invalid_msg).unwrap_err();
     assert_eq!(err, ContractError::InvalidPremium {});
+
+    // AddQueue w/ no bid threshold, i.e. bids go straight to waiting
+    let queue_msg = ExecuteMsg::AddQueue {
+        bid_for: AssetInfo::NativeToken {
+            denom: "not_osmo".to_string(),
+        },
+        max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
+        bid_threshold: Uint256::from(0u128),
+    };
+    let info = mock_info("owner0000", &[]);
+    execute(deps.as_mut(), mock_env(), info, queue_msg).unwrap();
+    let waiting_msg = ExecuteMsg::SubmitBid {
+        bid_input: BidInput {
+            bid_for: AssetInfo::NativeToken {
+                denom: "not_osmo".to_string(),
+            },
+            liq_premium: 1u8,
+        },
+        bid_owner: None,
+    };
+
+    let info = mock_info(
+        "addr0000",
+        &[Coin {
+            denom: "cdt".to_string(),
+            amount: Uint128::from(1000000u128),
+        }],
+    );
+    //To get past the bid_threshold check
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), waiting_msg.clone()).unwrap();
+    let err = execute(deps.as_mut(), mock_env(), info.clone(), waiting_msg).unwrap_err();
+    assert_eq!(err, ContractError::TooManyWaitingBids { max_waiting_bids: 0 });
 
     //Successful Bid
     let env = mock_env();
@@ -296,6 +373,8 @@ fn retract_bid() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::new(2),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -348,6 +427,21 @@ fn retract_bid() {
         })
     );
 
+    //Withdrawal too small
+    let msg = ExecuteMsg::RetractBid {
+        bid_id: Uint128::new(1u128),
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        amount: Some(Uint256::from(999999u128)),
+    };
+    let info = mock_info("addr0000", &[]);
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+    assert_eq!(
+        err,
+        ContractError::InvalidWithdrawal {  }
+    );
+
     //Successful RetractBid
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::new(1u128),
@@ -395,6 +489,8 @@ fn execute_bid() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -444,7 +540,7 @@ fn execute_bid() {
     };
 
     // unauthorized attempt
-    let unauth_info = mock_info("asset0000", &[]); // only owner can execute
+    let unauth_info = mock_info("asset0000", &[]); // only owner or positions can execute
     let env = mock_env();
     let err = execute(
         deps.as_mut(),
@@ -505,6 +601,8 @@ fn claim_liquidations() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -592,6 +690,8 @@ fn update_queue() {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("addr0000", &[]);

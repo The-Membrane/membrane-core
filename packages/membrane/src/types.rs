@@ -183,7 +183,9 @@ pub struct User {
 #[cw_serde]
 pub struct PremiumSlot {
     /// Bids in the slot
-    pub bids: Vec<Bid>,
+    pub bids: Vec<Bid>,    
+    /// Waiting bids in the slot
+    pub waiting_bids: Vec<Bid>,
     /// Liquidation premium
     pub liq_premium: Decimal256,
     /// Sum snapshot

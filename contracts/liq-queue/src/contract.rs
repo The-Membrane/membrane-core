@@ -28,6 +28,8 @@ use crate::state::{CONFIG, QUEUES};
 // - The position is assumed insolvent since called by the Positions contract, ie there is no additional solvency check in this contract.
 // - ExecuteMsg::Liquidate doesn't take any assets up front, instead receiving assets in the Reply fn of the Positions contract
 // - Removed bid_with, instead saving the bid_asset from the Positions contract
+// - Added minimum_bid amount & maximum_waiting_bids to config
+// - Created a separate Vector for PremiumSlot waiting bids
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:liq-queue";
@@ -63,6 +65,8 @@ pub fn instantiate(
             waiting_period: msg.waiting_period,
             added_assets: Some(vec![]),
             bid_asset,
+            minimum_bid: msg.minimum_bid,
+            maximum_waiting_bids: msg.maximum_waiting_bids,
         };
     } else {
         config = Config {
@@ -71,6 +75,8 @@ pub fn instantiate(
             waiting_period: msg.waiting_period,
             added_assets: Some(vec![]),
             bid_asset,
+            minimum_bid: msg.minimum_bid,
+            maximum_waiting_bids: msg.maximum_waiting_bids,
         };
     }
 
@@ -136,12 +142,16 @@ pub fn execute(
             owner,
             positions_contract,
             waiting_period,
+            minimum_bid,
+            maximum_waiting_bids,
         } => update_config(
             deps,
             info,
             owner,
             positions_contract,
             waiting_period,
+            minimum_bid,
+            maximum_waiting_bids,
         ),
     }
 } //Functions assume Cw20 asset amounts are taken from Messageinfo
@@ -153,6 +163,8 @@ fn update_config(
     owner: Option<String>,
     positions_contract: Option<String>,
     waiting_period: Option<u64>,
+    minimum_bid: Option<Uint128>,
+    maximum_waiting_bids: Option<u64>,
 ) -> Result<Response, ContractError> {
 
     let mut config = CONFIG.load(deps.storage)?;
@@ -182,6 +194,12 @@ fn update_config(
     }
     if waiting_period.is_some() {
         config.waiting_period = waiting_period.unwrap();
+    }
+    if let Some(minimum_bid) = minimum_bid {
+        config.minimum_bid = minimum_bid;
+    }
+    if let Some(maximum_waiting_bids) = maximum_waiting_bids {
+        config.maximum_waiting_bids = maximum_waiting_bids;
     }
 
     CONFIG.save(deps.storage, &config)?;
@@ -250,6 +268,7 @@ fn add_queue(
     for premium in 0..max_premium_plus_1 as u64 {
         slots.push(PremiumSlot {
             bids: vec![],
+            waiting_bids: vec![],
             liq_premium: Decimal256::percent(premium), //This is a hard coded 1% per slot
             sum_snapshot: Decimal256::zero(),
             product_snapshot: Decimal256::one(),

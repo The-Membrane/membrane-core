@@ -266,9 +266,10 @@ fn accrue_incentives(
     let mut incentives = accumulate_interest(stake, rate, time_elapsed)?;
     let mut total_incentives = INCENTIVES.load(storage)?;
 
-    //Assert that incentives aren't over max, set 0 if so.
+    //Assert that incentives aren't over max, set to remaining cap if so.
     if total_incentives + incentives > config.max_incentives {
-        incentives = Uint128::zero();
+        incentives = config.max_incentives - total_incentives;
+        INCENTIVES.save(storage, &config.max_incentives)?;
     } else {
         total_incentives += incentives;
         INCENTIVES.save(storage, &total_incentives)?;

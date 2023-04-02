@@ -241,16 +241,23 @@ fn accrue_incentives(
     //Time elapsed starting from now or unstake time
     let time_elapsed = match deposit.unstake_time {
         Some( unstake_time ) => {
+
+            let last_accrued = deposit.last_accrued;
+            
             //Set last_accrued
             deposit.last_accrued = unstake_time;
 
-            unstake_time - deposit.last_accrued
+            //Calculate time elapsed
+            unstake_time - last_accrued
         },
         None => {
+            let last_accrued = deposit.last_accrued;
+            
             //Set last_accrued
             deposit.last_accrued = env.block.time.seconds();
 
-            env.block.time.seconds() - deposit.last_accrued
+            //Calculate time elapsed
+            env.block.time.seconds() - last_accrued
         },
     };    
     let rate: Decimal = config.clone().incentive_rate;
@@ -465,7 +472,7 @@ fn withdrawal_from_state(
                     
                     withdrawal_amount = Decimal::zero();
 
-                } else if withdrawal_amount != Decimal::zero() && deposit_item.amount <= withdrawal_amount{
+                } else if withdrawal_amount != Decimal::zero() && deposit_item.amount <= withdrawal_amount {
                     //If it's less than amount, 0 the deposit and substract it from the withdrawal amount
                     withdrawal_amount -= deposit_item.amount;
 
@@ -517,7 +524,7 @@ fn withdrawal_from_state(
             val: error.unwrap().to_string(),
         });
     }
-
+    
     //If there are incentives
     if !mbrn_incentives.is_zero() {
         //Add incentives to User Claims

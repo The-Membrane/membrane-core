@@ -424,12 +424,12 @@ mod tests {
             //Deposit credit to AssetPool: #2
             let deposit_msg = ExecuteMsg::Deposit { user: None };
             let cosmos_msg = sp_contract
-                .call(deposit_msg, vec![coin(100_000, "credit")])
+                .call(deposit_msg, vec![coin(5, "credit")])
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Withdraw: Invalid "Amount too high"
-            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(200_001u128) };
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_006u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
                 .unwrap();
@@ -438,9 +438,9 @@ mod tests {
                 err.root_cause().to_string(),
                 String::from("Invalid withdrawal")
             );
-            //Withdraw all of first, 1 of 2nd Deposit: Success
+            //Withdraw all of first, and 2nd Deposit: Success
             //First msg begins unstaking
-            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_001u128) };
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_004u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
                 .unwrap();
@@ -468,18 +468,11 @@ mod tests {
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: Some(app.block_info().time.seconds()),
                     },
-                    Deposit {
-                        user: Addr::unchecked(USER),
-                        amount: Decimal::percent(99_995_00),
-                        deposit_time: app.block_info().time.seconds(),
-                        last_accrued: app.block_info().time.seconds(),
-                        unstake_time: None,
-                    }
                 ]
             );
 
             //Restake
-            let restake_msg = ExecuteMsg::Restake { restake_amount: Decimal::percent(100_001_00) };
+            let restake_msg = ExecuteMsg::Restake { restake_amount: Decimal::percent(100_004_00) };
             let cosmos_msg = sp_contract
                 .call(restake_msg, vec![])
                 .unwrap();
@@ -507,18 +500,11 @@ mod tests {
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: None,
                     },
-                    Deposit {
-                        user: Addr::unchecked(USER),
-                        amount: Decimal::percent(99_995_00),
-                        deposit_time: app.block_info().time.seconds(),
-                        last_accrued: app.block_info().time.seconds(),
-                        unstake_time: None,
-                    }
                 ]
             );
 
             //Rewithdrawl Success
-            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_001u128) };
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_004u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
                 .unwrap();
@@ -546,13 +532,6 @@ mod tests {
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: Some(app.block_info().time.seconds()),
                     },
-                    Deposit {
-                        user: Addr::unchecked(USER),
-                        amount: Decimal::percent(99_995_00),
-                        deposit_time: app.block_info().time.seconds(),
-                        last_accrued: app.block_info().time.seconds(),
-                        unstake_time: None,
-                    }
                 ]
             );
 
@@ -577,16 +556,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 resp.deposits,
-                vec![
-                    Deposit {
-                        user: Addr::unchecked(USER),
-                        amount: Decimal::percent(99_995_00),
-                        //This isn't the current block time bc this deposit was never edited
-                        deposit_time: 1571797419, 
-                        last_accrued: 1571797419,
-                        unstake_time: None,
-                    }
-                ]
+                vec![ ]
             );
         }
 

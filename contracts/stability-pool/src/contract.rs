@@ -408,7 +408,13 @@ fn withdrawal_from_state(
                             //If withdrawal amount is less than minimum deposit amount, set withdrawal amount to minimum deposit amount
                             //This ensures all Deposits are at least the minimum deposit amount
                             if withdrawal_amount * Uint128::new(1u128) < config.minimum_deposit_amount {
+                                //If withdrawal amount is less than minimum deposit amount, set withdrawal amount to minimum deposit amount
                                 withdrawal_amount = Decimal::from_ratio(config.minimum_deposit_amount, Uint128::one());
+
+                                //If the resulting deposit amount is less than minimum deposit amount, withdraw it all
+                                if deposit_item.amount - withdrawal_amount < withdrawal_amount {
+                                    withdrawal_amount = deposit_item.amount;
+                                }
                             }
 
                             //Set new deposit

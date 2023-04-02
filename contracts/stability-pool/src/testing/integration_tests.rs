@@ -619,7 +619,6 @@ mod tests {
 
             //Initial withdrawal to start unstaking
             let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::from(100_000u128) };
-
             let cosmos_msg = sp_contract.call(withdraw_msg.clone(), vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
@@ -641,7 +640,24 @@ mod tests {
                 },]
             );
 
-            //Query Incentives and assert that there are none after being added to claimables
+            //Skip unstaking period
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
+                chain_id: app.block_info().chain_id,
+            });
+            //Restake
+            let restake_msg = ExecuteMsg::Restake { restake_amount: Decimal::percent(100_000_00) };
+            let cosmos_msg = sp_contract
+                .call(restake_msg, vec![])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            //Rewithdraw
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::from(100_000u128) };
+            let cosmos_msg = sp_contract.call(withdraw_msg.clone(), vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Query Incentives and assert that there are none after being added to claimables & no retroactive rewards from a malfunctioning restake
             let query_msg = QueryMsg::UnclaimedIncentives { user: String::from(USER) };
             let total_incentives: Uint128 = app
                 .wrap()

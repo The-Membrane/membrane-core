@@ -571,16 +571,35 @@ fn restake(
     info: MessageInfo,
     mut restake_amount: Decimal,
 ) -> Result<Response, ContractError> {
+    //Initialize variables
     let initial_restake = restake_amount;
+    let mut incentives = Uint128::zero();
+    let mut error: Option<StdError> = None;
 
     let mut asset_pool = ASSET.load(deps.storage)?;
-
+    let config = CONFIG.load(deps.storage)?;
+    
     //Attempt restaking 
     asset_pool.deposits = asset_pool
         .deposits
         .into_iter()
         .map(|mut deposit| {
             if deposit.user == info.clone().sender && !restake_amount.is_zero() {
+
+                //Accrue the deposit's incentives
+                incentives += match accrue_incentives(
+                    deps.storage, 
+                    env.clone(), 
+                    config.clone(),
+                    deposit.amount * Uint128::new(1u128), 
+                    &mut deposit){
+                        Ok(incentive) => incentive,
+                        Err(err) => {
+                            error = Some(err);
+                            Uint128::zero()
+                        }
+                    };
+
                 if deposit.amount >= restake_amount {
                     //Zero restake_amount
                     restake_amount = Decimal::zero();
@@ -601,6 +620,38 @@ fn restake(
         })
         .collect::<Vec<Deposit>>();
 
+    //Return error from the accrue_incentives function if Some()
+    if let Some(error) = error {
+        return Err(ContractError::CustomError {
+            val: error.to_string(),
+        });
+    }
+
+    //Save accrued incentives to user claims
+    USERS.update(
+        deps.storage,
+        info.sender,
+        |user_claims| -> Result<User, ContractError> {
+            match user_claims {
+                Some(mut user) => {
+                    user.claimable_assets.push(Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: config.clone().mbrn_denom,
+                        },
+                        amount: incentives,
+                    });
+                    Ok(user)
+                }
+                None => {
+                    Ok(User {
+                        claimable_assets: vec![Asset {
+                            info: AssetInfo::NativeToken {
+                                denom: config.clone().mbrn_denom,
+                            },
+                            amount: incentives,
+                        }],
+            })}}},
+    )?;
 
     //Save new Deposits
     ASSET.save(deps.storage, &asset_pool)?;

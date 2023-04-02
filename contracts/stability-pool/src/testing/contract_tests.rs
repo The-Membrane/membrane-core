@@ -341,7 +341,6 @@ fn liquidate() {
     };
 
     let mut coin = coins(11, "credit");
-    coin.append(&mut coins(11, "2ndcredit"));
     //Instantiating contract
     let info = mock_info("sender88", &coin);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
@@ -429,7 +428,6 @@ fn liquidate_bignums() {
     };
 
     let mut coin = coins(11_000_000_000_000, "credit");
-    coin.append(&mut coins(11_000_000_000_000, "2ndcredit"));
     //Instantiating contract
     let info = mock_info("sender88", &coin);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();

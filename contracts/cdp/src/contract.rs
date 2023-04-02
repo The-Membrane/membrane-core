@@ -327,6 +327,10 @@ fn edit_cAsset(
                 if LTV < Decimal::percent(100) && LTV < asset.max_LTV {
                     asset.max_borrow_LTV = LTV;
                     attrs.push(attr("max_borrow_LTV", LTV.to_string()));
+                } else {
+                    return Err(ContractError::CustomError {
+                        val:String::from("Invalid borrow LTV"),
+                    })
                 }
             }
             new_asset = asset;

@@ -38,10 +38,12 @@ fn deposit() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     let mut coin = coins(11, "credit");
     coin.append(&mut coins(11, "2ndcredit"));
+
     //Instantiating contract
     let info = mock_info("sender88", &coin);
     let res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
@@ -57,14 +59,12 @@ fn deposit() {
         vec![attr("method", "instantiate"), attr("config", format!("{:?}", resp)), attr("contract_address", "cosmos2contract")]
     );
 
-    //Depositing an invalid asset
+    //Depositing an invalid asset: Error
     let deposit_msg = ExecuteMsg::Deposit { user: None };
     let mut coinz = coins(10, "notcredit");
     coinz.extend(coins(10, "notnotnotcredit"));
 
     let invalid_info = mock_info("sender88", &coinz);
-
-    //Fail due to Invalid Asset
     let _err = execute(deps.as_mut(), mock_env(), invalid_info, deposit_msg).unwrap_err();
 
     //Query position data to make sure it was NOT saved to state
@@ -83,9 +83,20 @@ fn deposit() {
         panic!("State wasn't saved correctly");
     }
 
-    //Successful attempt
+    //Depositing below minimum: Error
+    let mut minimum_coin = coins(4, "credit");
+    let minimum_info = mock_info("sender88", &minimum_coin);
     let deposit_msg = ExecuteMsg::Deposit { user: None };
-
+    let err = execute(deps.as_mut(), mock_env(), minimum_info, deposit_msg).unwrap_err();
+    match err {
+        ContractError::MinimumDeposit { min } => assert_eq!(min, Uint128::new(5)),
+        _ => panic!("Unexpected error: {:?}", err),
+    }
+    
+    //Successful attempt
+    let mut coin = coins(11, "credit");
+    let info = mock_info("sender88", &coin);
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
     let res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     assert_eq!(
@@ -137,6 +148,7 @@ fn withdrawal() {
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5),
     };
 
     //Instantiating contract
@@ -321,6 +333,7 @@ fn liquidate() {
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     let mut coin = coins(11, "credit");
@@ -408,6 +421,7 @@ fn liquidate_bignums() {
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     let mut coin = coins(11_000_000_000_000, "credit");
@@ -475,6 +489,7 @@ fn distribute() {
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     //Instantiating contract
@@ -707,6 +722,7 @@ fn distribute_bignums() {
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     //Instantiating contract
@@ -870,6 +886,7 @@ fn claims() {
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     //Instantiating contract
@@ -977,6 +994,7 @@ fn cdp_repay() {
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     //Instantiating contract
@@ -1144,6 +1162,7 @@ fn update_config(){
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     //Instantiating contract
@@ -1155,6 +1174,7 @@ fn update_config(){
         incentive_rate: Some(Decimal::one()), 
         max_incentives: Some(Uint128::new(100)), 
         unstaking_period: Some(1),  
+        minimum_deposit_amount: Some(Uint128::new(10)),
         osmosis_proxy: Some(String::from("new_op")), 
         positions_contract: Some(String::from("new_cdp")), 
         mbrn_denom: Some(String::from("new_denom")), 
@@ -1183,7 +1203,8 @@ fn update_config(){
             owner: Addr::unchecked("new_owner"),
             incentive_rate: Decimal::one(), 
             max_incentives: Uint128::new(100),
-            unstaking_period: 1,  
+            unstaking_period: 1,
+            minimum_deposit_amount: Uint128::new(10),
             osmosis_proxy: Addr::unchecked("new_op"), 
             positions_contract: Addr::unchecked("new_cdp"), 
             mbrn_denom: String::from("new_denom"), 
@@ -1212,6 +1233,7 @@ fn capital_ahead_of_deposits() {
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     //Instantiating contract

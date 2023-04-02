@@ -14,6 +14,8 @@ pub struct InstantiateMsg {
     pub incentive_rate: Option<Decimal>,
     /// Max incentives 
     pub max_incentives: Option<Uint128>,
+    /// Minimum bid amount
+    pub minimum_deposit_amount: Uint128,
     /// Osmosis Proxy contract address
     pub osmosis_proxy: String,
     /// Positions contract address
@@ -111,6 +113,8 @@ pub struct Config {
     pub max_incentives: Uint128,
     /// Unstaking period in days
     pub unstaking_period: u64,
+    /// Minimum bid amount
+    pub minimum_deposit_amount: Uint128,
     /// MBRN denom
     pub mbrn_denom: String,
     /// Osmosis Proxy contract address
@@ -129,6 +133,8 @@ pub struct UpdateConfig {
     pub max_incentives: Option<Uint128>,
     /// Unstaking period in days
     pub unstaking_period: Option<u64>,
+    /// Minimum bid amount
+    pub minimum_deposit_amount: Option<Uint128>,
     /// Osmosis Proxy contract address
     pub osmosis_proxy: Option<String>,
     /// Positions contract address

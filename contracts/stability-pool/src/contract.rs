@@ -45,6 +45,7 @@ pub fn instantiate(
             .max_incentives
             .unwrap_or_else(|| Uint128::new(10_000_000_000_000)),
         unstaking_period: 1u64,
+        minimum_deposit_amount: msg.minimum_deposit_amount,
         mbrn_denom: msg.mbrn_denom,
         osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
         positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
@@ -166,6 +167,10 @@ fn update_config(
         config.max_incentives = max_incentives;
         attrs.push(attr("new_max_incentives", max_incentives.to_string()));
     }
+    if let Some(minimum_deposit_amount) = update.minimum_deposit_amount {
+        config.minimum_deposit_amount = minimum_deposit_amount;
+        attrs.push(attr("new_minimum_deposit_amount", minimum_deposit_amount.to_string()));
+    }
     if let Some(new_unstaking_period) = update.unstaking_period {
         config.unstaking_period = new_unstaking_period;
         attrs.push(attr("new_unstaking_period", new_unstaking_period.to_string()));
@@ -185,6 +190,14 @@ pub fn deposit(
     position_owner: Option<String>,
     asset: Asset,
 ) -> Result<Response, ContractError> {
+    //Load Config
+    let config = CONFIG.load(deps.storage)?;
+
+    //Assert minimum deposit amount
+    if asset.amount < config.minimum_deposit_amount {
+        return Err(ContractError::MinimumDeposit { min: config.minimum_deposit_amount });
+    }
+
     let valid_owner_addr = validate_position_owner(deps.api, info, position_owner)?;
 
     //Adding to Asset_Pool totals and deposit's list
@@ -381,6 +394,12 @@ fn withdrawal_from_state(
                         if deposit_item.amount > withdrawal_amount
                             && withdrawal_amount != Decimal::zero()
                         {
+                            //If withdrawal amount is less than minimum deposit amount, set withdrawal amount to minimum deposit amount
+                            //This ensures all Deposits are at least the minimum deposit amount
+                            if withdrawal_amount * Uint128::new(1u128) < config.minimum_deposit_amount {
+                                withdrawal_amount = Decimal::from_ratio(config.minimum_deposit_amount, Uint128::one());
+                            }
+
                             //Set new deposit
                             returning_deposit = Some(Deposit {
                                 amount: deposit_item.amount - withdrawal_amount,
@@ -414,7 +433,15 @@ fn withdrawal_from_state(
                         withdrawable_amount += withdrawal_amount * Uint128::new(1u128);
 
                         //Subtract from deposit.amount
-                        deposit_item.amount -= withdrawal_amount;                        
+                        deposit_item.amount -= withdrawal_amount;
+
+                        //Check if deposit is below minimum
+                        if deposit_item.amount * Uint128::new(1u128) < config.minimum_deposit_amount {
+                            //If it is, add to withdrawable
+                            withdrawable_amount += deposit_item.amount * Uint128::new(1u128);
+                            //Set deposit amount to 0
+                            deposit_item.amount = Decimal::zero();
+                        }                      
                     }
 
                     //Calc incentives
@@ -474,7 +501,9 @@ fn withdrawal_from_state(
 
     //Push returning_deposit if some
     if let Some(deposit) = returning_deposit {
-        new_deposits.push(deposit);
+        if deposit.amount != Decimal::zero() {
+            new_deposits.push(deposit);
+        }
     }//Set new deposits
     pool.deposits = new_deposits;
     //Subtract withdrawable from total pool amount

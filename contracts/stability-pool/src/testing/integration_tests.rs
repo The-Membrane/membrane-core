@@ -281,6 +281,7 @@ mod tests {
             incentive_rate: Some(Decimal::percent(10)),
             positions_contract: cdp_contract_addr.to_string(),
             max_incentives: None,
+            minimum_deposit_amount: Uint128::new(5),
         };
 
         let sp_contract_addr = app
@@ -462,14 +463,14 @@ mod tests {
                     },
                     Deposit {
                         user: Addr::unchecked(USER),
-                        amount: Decimal::percent(1_00),
+                        amount: Decimal::percent(5_00),
                         deposit_time: app.block_info().time.seconds(),
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: Some(app.block_info().time.seconds()),
                     },
                     Deposit {
                         user: Addr::unchecked(USER),
-                        amount: Decimal::percent(99_999_00),
+                        amount: Decimal::percent(99_995_00),
                         deposit_time: app.block_info().time.seconds(),
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: None,
@@ -501,14 +502,14 @@ mod tests {
                     },
                     Deposit {
                         user: Addr::unchecked(USER),
-                        amount: Decimal::percent(1_00),
+                        amount: Decimal::percent(5_00),
                         deposit_time: app.block_info().time.seconds(),
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: None,
                     },
                     Deposit {
                         user: Addr::unchecked(USER),
-                        amount: Decimal::percent(99_999_00),
+                        amount: Decimal::percent(99_995_00),
                         deposit_time: app.block_info().time.seconds(),
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: None,
@@ -540,14 +541,14 @@ mod tests {
                     },
                     Deposit {
                         user: Addr::unchecked(USER),
-                        amount: Decimal::percent(1_00),
+                        amount: Decimal::percent(5_00),
                         deposit_time: app.block_info().time.seconds(),
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: Some(app.block_info().time.seconds()),
                     },
                     Deposit {
                         user: Addr::unchecked(USER),
-                        amount: Decimal::percent(99_999_00),
+                        amount: Decimal::percent(99_995_00),
                         deposit_time: app.block_info().time.seconds(),
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: None,
@@ -579,8 +580,8 @@ mod tests {
                 vec![
                     Deposit {
                         user: Addr::unchecked(USER),
-                        amount: Decimal::percent(99_999_00),
-                        //This isn't the current block time bc this deposit wsa never edited
+                        amount: Decimal::percent(99_995_00),
+                        //This isn't the current block time bc this deposit was never edited
                         deposit_time: 1571797419, 
                         last_accrued: 1571797419,
                         unstake_time: None,

@@ -61,6 +61,11 @@ mod tests {
             max_premium: Uint128,
             bid_threshold: Uint256,
         },
+        UpdateQueue {
+            bid_for: AssetInfo,
+            max_premium: Option<Uint128>,
+            bid_threshold: Option<Uint256>,
+        },
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
@@ -107,6 +112,17 @@ mod tests {
                         max_premium,
                         bid_threshold,
                     } => Ok(Response::new()),
+                    LQ_MockExecuteMsg::UpdateQueue {
+                        bid_for,
+                        max_premium,
+                        bid_threshold,
+                    } => {
+                        let premium = max_premium.unwrap_or_default();
+                        if premium != Uint128::new(10) && premium != Uint128::new(12) {
+                            panic!("{}", premium);
+                        }
+                        Ok(Response::new())
+                    },
                 }
             },
             |_, _, _, _: LQ_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -174,6 +190,11 @@ mod tests {
                         max_premium: _,
                         bid_threshold: _,
                     } => Ok(Response::new()),
+                    LQ_MockExecuteMsg::UpdateQueue {
+                        bid_for,
+                        max_premium,
+                        bid_threshold,
+                    } => Ok(Response::new()),
                 }
             },
             |_, _, _, _: LQ_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -219,6 +240,11 @@ mod tests {
                         bid_for: _,
                         max_premium: _,
                         bid_threshold: _,
+                    } => Ok(Response::new()),
+                    LQ_MockExecuteMsg::UpdateQueue {
+                        bid_for,
+                        max_premium,
+                        bid_threshold,
                     } => Ok(Response::new()),
                 }
             },
@@ -283,6 +309,11 @@ mod tests {
                         bid_for: _,
                         max_premium: _,
                         bid_threshold: _,
+                    } => Ok(Response::new()),
+                    LQ_MockExecuteMsg::UpdateQueue {
+                        bid_for,
+                        max_premium,
+                        bid_threshold,
                     } => Ok(Response::new()),
                 }
             },
@@ -7571,13 +7602,30 @@ mod tests {
             let cosmos_msg = cdp_contract.call(edit_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap_err();
 
+            //Add liq-queue to the initial basket
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                added_cAsset: None,
+                liq_queue: Some(lq_contract.addr().to_string()),
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
             //Successfull edit
             let edit_msg = ExecuteMsg::EditcAsset {
                 asset: AssetInfo::NativeToken {
                     denom: "debit".to_string(),
                 },
-                max_borrow_LTV: Some(Decimal::percent(99)),
-                max_LTV: Some(Decimal::percent(100)),
+                max_borrow_LTV: Some(Decimal::percent(82)),
+                max_LTV: Some(Decimal::percent(83)),
             };
             let cosmos_msg = cdp_contract.call(edit_msg, vec![]).unwrap();
             let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7593,9 +7641,31 @@ mod tests {
 
             assert_eq!(
                 resp.collateral_types[0].max_borrow_LTV,
-                Decimal::percent(99)
+                Decimal::percent(82)
             );
-            assert_eq!(resp.collateral_types[0].max_LTV, Decimal::percent(100));
+            assert_eq!(resp.collateral_types[0].max_LTV, Decimal::percent(83));
+
+            //Error: Borrow LTV too high
+            let edit_msg = ExecuteMsg::EditcAsset {
+                asset: AssetInfo::NativeToken {
+                    denom: "debit".to_string(),
+                },
+                max_borrow_LTV: Some(Decimal::percent(100)),
+                max_LTV: Some(Decimal::percent(100)),
+            };
+            let cosmos_msg = cdp_contract.call(edit_msg, vec![]).unwrap();
+            let err = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap_err();
+
+            //Successfull edit
+            let edit_msg = ExecuteMsg::EditcAsset {
+                asset: AssetInfo::NativeToken {
+                    denom: "debit".to_string(),
+                },
+                max_borrow_LTV: None,
+                max_LTV: Some(Decimal::percent(100)),
+            };
+            let cosmos_msg = cdp_contract.call(edit_msg, vec![]).unwrap();
+            let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
         }
 
         #[test]

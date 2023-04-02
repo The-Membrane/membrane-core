@@ -92,6 +92,10 @@ fn deposit() {
         ContractError::MinimumDeposit { min } => assert_eq!(min, Uint128::new(5)),
         _ => panic!("Unexpected error: {:?}", err),
     }
+
+    // Deposit too many assets: Error
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
+    let err = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap_err();
     
     //Successful attempt
     let mut coin = coins(11, "credit");

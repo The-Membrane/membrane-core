@@ -519,6 +519,14 @@ mod tests {
                 err.root_cause().to_string(),
                 String::from("Generic error: Invalid asset sent to fulfill auction")
             );
+            //Errored Swap, multiple assets sent
+            let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
+            let cosmos_msg = debt_contract.call(msg, vec![coin(93_000, "mbrn_denom"), coin(99, "error")]).unwrap();
+            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            assert_eq!(
+                err.root_cause().to_string(),
+                String::from("Generic error: Only one coin can be sent")
+            );
 
             //Successful Partial Fill
             let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
@@ -621,6 +629,14 @@ mod tests {
             assert_eq!(
                 err.root_cause().to_string(),
                 String::from("Generic error: Invalid asset sent to fulfill auction")
+            );
+            //Errored Swap, multiple assets sent
+            let msg = ExecuteMsg::SwapForMBRN {};
+            let cosmos_msg = debt_contract.call(msg, vec![coin(99_000, "credit_fulldenom"), coin(99, "error")]).unwrap();
+            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            assert_eq!(
+                err.root_cause().to_string(),
+                String::from("Generic error: Only one coin can be sent")
             );
 
             //Successful Partial Fill

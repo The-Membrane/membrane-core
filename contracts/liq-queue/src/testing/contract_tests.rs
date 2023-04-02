@@ -155,7 +155,7 @@ fn submit_bid() {
     let info = mock_info("owner0000", &[]);
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-    //Invalid bid_fpr
+    //Invalid bid_for
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
             bid_for: AssetInfo::NativeToken {

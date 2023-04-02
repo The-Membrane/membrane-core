@@ -311,6 +311,9 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
     let mut attrs = vec![attr("method", "swap_with_mbrn")];
 
     //Validate MBRN send
+    if info.funds.len() != 1 {
+        return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Only one coin can be sent") }));
+    }
     let coin = validate_asset(info.funds[0].clone(), config.clone().mbrn_denom)?;
 
     //Get FeeAuction
@@ -450,6 +453,9 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
     let mut msgs: Vec<CosmosMsg> = vec![];
     let mut attrs = vec![attr("method", "swap_for_mbrn")];
 
+    if info.funds.len() != 1 {
+        return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Only one coin can be sent") }));
+    }
     let coin = validate_asset(info.funds[0].clone(), config.clone().cdt_denom)?;
 
     //Get DebtAuction

@@ -96,12 +96,12 @@ pub fn execute(
         ExecuteMsg::Deposit { user } => {
             //Outputs asset objects w/ correct amounts
             let valid_assets = validate_assets(deps.storage, vec![AssetInfo::NativeToken { denom: info.clone().funds[0].clone().denom }], info.clone(), true)?;
-            if valid_assets.is_empty() {
+            if valid_assets.is_empty() || info.clone().funds.len() > 1 {
                 return Err(ContractError::CustomError {
-                    val: "No valid assets".to_string(),
+                    val: "No valid asset or more than one asset sent".to_string(),
                 });
             }
-
+			
             deposit(deps, env, info, user, valid_assets[0].clone())
         }
         ExecuteMsg::Withdraw { amount } => withdraw(deps, env, info, amount),

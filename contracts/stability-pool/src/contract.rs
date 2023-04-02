@@ -241,17 +241,20 @@ fn accrue_incentives(
     //Time elapsed starting from now or unstake time
     let time_elapsed = match deposit.unstake_time {
         Some( unstake_time ) => {
+            //Set last_accrued
+            deposit.last_accrued = unstake_time;
+
             unstake_time - deposit.last_accrued
         },
         None => {
+            //Set last_accrued
+            deposit.last_accrued = env.block.time.seconds();
+
             env.block.time.seconds() - deposit.last_accrued
         },
     };    
     let rate: Decimal = config.clone().incentive_rate;
-
-    //Set last_accrued
-    deposit.last_accrued = env.block.time.seconds();
-
+    
     //This calcs the amount of CDT to incentivize so the rate is acting as if MBRN = CDT (1:1) 
     let mut incentives = accumulate_interest(stake, rate, time_elapsed)?;
     let mut total_incentives = INCENTIVES.load(storage)?;
@@ -1207,7 +1210,7 @@ fn get_user_incentives(
                         };
                     }                    
                     
-                    deposit.last_accrued = env.block.time.seconds();
+                    deposit.last_accrued = unstake_time;
                 },
                 None => {
                     let time_elapsed = env.block.time.seconds() - deposit.last_accrued;

@@ -184,10 +184,10 @@ pub fn query_premium_slots(
         .min((queue.max_premium.u128() + 1) as u8) as usize;
 
     let temp = queue.slots.into_iter();
-
+    
     if start_after.is_some() {
         temp.filter(|slot| {
-            slot.liq_premium > Decimal256::from_uint256(Uint256::from(start_after.unwrap() as u128))
+            (slot.liq_premium * Decimal256::from_uint256(Uint256::from(100 as u128))) > Decimal256::from_uint256(Uint256::from(start_after.unwrap() as u128))
         })
         .take(limit)
         .map(|slot| {

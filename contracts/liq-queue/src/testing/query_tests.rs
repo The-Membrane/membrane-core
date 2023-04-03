@@ -285,7 +285,7 @@ fn query_slots_queues() {
         bid_for: AssetInfo::NativeToken {
             denom: "atom".to_string(),
         },
-        start_after: None,
+        start_after: Some(1),
         limit: Some(2),
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
@@ -296,7 +296,7 @@ fn query_slots_queues() {
             SlotResponse {
                 bids: vec![],
                 waiting_bids: vec![],
-                liq_premium: Decimal256::percent(0).to_string(),
+                liq_premium: Decimal256::percent(2).to_string(),
                 sum_snapshot: Uint128::zero().to_string(),
                 product_snapshot: Decimal::one().to_string(),
                 total_bid_amount: Uint128::zero().to_string(),
@@ -308,7 +308,7 @@ fn query_slots_queues() {
             SlotResponse {
                 bids: vec![],
                 waiting_bids: vec![],
-                liq_premium: Decimal256::percent(1).to_string(),
+                liq_premium: Decimal256::percent(3).to_string(),
                 sum_snapshot: Uint128::zero().to_string(),
                 product_snapshot: Decimal::one().to_string(),
                 total_bid_amount: Uint128::zero().to_string(),

@@ -2,7 +2,7 @@ use crate::contract::{execute, instantiate, query};
 use crate::ContractError;
 
 use membrane::liq_queue::{
-    BidResponse, Config, ExecuteMsg, InstantiateMsg, QueryMsg, QueueResponse, ClaimsResponse,
+    BidResponse, Config, ExecuteMsg, InstantiateMsg, QueryMsg, QueueResponse, ClaimsResponse, SlotResponse,
 };
 use membrane::math::{Decimal256, Uint256};
 use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
@@ -727,6 +727,7 @@ fn update_queue() {
         Uint256::from(1_000_000_000u128)
     );
 
+    //Successful update
     let msg = ExecuteMsg::UpdateQueue {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -736,12 +737,26 @@ fn update_queue() {
     };
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
+    //Query to Assert
     let queue_response: QueueResponse =
         from_binary(&query(deps.as_ref(), mock_env(), query_msg).unwrap()).unwrap();
-
     assert_eq!(queue_response.max_premium, Uint128::new(20u128));
     assert_eq!(
         queue_response.bid_threshold,
         Uint256::from(500_000_000u128)
     );
+
+    //Query Slots to Assert increase
+    let query_msg = QueryMsg::PremiumSlots { 
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
+        start_after: None,
+        limit: None, 
+    };
+    let slots_response: Vec<SlotResponse> = from_binary(&query(deps.as_ref(), mock_env(), query_msg).unwrap()).unwrap();
+    assert_eq!(slots_response.len(), 21);
+    assert_eq!(slots_response[11].liq_premium, "0.11".to_string());
+    assert_eq!(slots_response[20].liq_premium, "0.2".to_string());
+
 }

@@ -188,6 +188,8 @@ pub struct Config {
 pub struct SlotResponse {
     /// List of bids
     pub bids: Vec<Bid>,
+    /// List of waiting bids
+    pub waiting_bids: Vec<Bid>,
     /// Liquidation premium 
     pub liq_premium: String,
     /// Sum Snapshot

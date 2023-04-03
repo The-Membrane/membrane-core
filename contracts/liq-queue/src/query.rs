@@ -158,6 +158,7 @@ pub fn query_premium_slot(
 
     Ok(SlotResponse {
         bids: slot.bids,
+        waiting_bids: slot.waiting_bids,
         liq_premium: slot.liq_premium.to_string(),
         sum_snapshot: slot.sum_snapshot.to_string(),
         product_snapshot: slot.product_snapshot.to_string(),
@@ -177,10 +178,10 @@ pub fn query_premium_slots(
     limit: Option<u8>,
 ) -> StdResult<Vec<SlotResponse>> {
     let queue = QUEUES.load(deps.storage, bid_for.to_string())?;
-
+    
     let limit = limit
-        .unwrap_or_else(|| queue.max_premium.u128() as u8)
-        .min(queue.max_premium.u128() as u8) as usize;
+        .unwrap_or_else(|| (queue.max_premium.u128() + 1) as u8)
+        .min((queue.max_premium.u128() + 1) as u8) as usize;
 
     let temp = queue.slots.into_iter();
 
@@ -192,6 +193,7 @@ pub fn query_premium_slots(
         .map(|slot| {
             Ok(SlotResponse {
                 bids: slot.bids,
+                waiting_bids: slot.waiting_bids,
                 liq_premium: slot.liq_premium.to_string(),
                 sum_snapshot: slot.sum_snapshot.to_string(),
                 product_snapshot: slot.product_snapshot.to_string(),
@@ -208,6 +210,7 @@ pub fn query_premium_slots(
             .map(|slot| {
                 Ok(SlotResponse {
                     bids: slot.bids,
+                    waiting_bids: slot.waiting_bids,
                     liq_premium: slot.liq_premium.to_string(),
                     sum_snapshot: slot.sum_snapshot.to_string(),
                     product_snapshot: slot.product_snapshot.to_string(),

@@ -228,8 +228,38 @@ fn edit_queue(
 
     let mut queue = QUEUES.load(deps.storage, bid_for.to_string())?;
 
-    if max_premium.is_some() {
-        queue.max_premium = max_premium.unwrap();
+    if let Some(new_premium) = max_premium {
+        let new_premium_delta = match new_premium.checked_sub(queue.max_premium) {
+            Ok(delta) => delta,
+            Err(_err) => Uint128::zero(),
+        };
+
+        //Add new slots if there is a positive delta
+        if !new_premium_delta.is_zero() {
+
+            let premium_floor = (queue.max_premium.u128() + 1) as u64;
+            let premium_ceiling = (new_premium.u128()) as u64;
+    
+            for premium in premium_floor..=premium_ceiling {
+                queue.slots.push(PremiumSlot {
+                    bids: vec![],
+                    waiting_bids: vec![],
+                    liq_premium: Decimal256::percent(premium), //This is a hard coded 1% per slot
+                    sum_snapshot: Decimal256::zero(),
+                    product_snapshot: Decimal256::one(),
+                    total_bid_amount: Uint256::zero(),
+                    last_total: 0u64,
+                    current_epoch: Uint128::zero(),
+                    current_scale: Uint128::zero(),
+                    residue_collateral: Decimal256::zero(),
+                    residue_bid: Decimal256::zero(),
+                });
+            }
+            
+            //Set new max premium
+            queue.max_premium = new_premium;
+        }
+
     }
     if bid_threshold.is_some() {
         queue.bid_threshold = bid_threshold.unwrap();

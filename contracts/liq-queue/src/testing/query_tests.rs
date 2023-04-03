@@ -295,6 +295,7 @@ fn query_slots_queues() {
         vec![
             SlotResponse {
                 bids: vec![],
+                waiting_bids: vec![],
                 liq_premium: Decimal256::percent(0).to_string(),
                 sum_snapshot: Uint128::zero().to_string(),
                 product_snapshot: Decimal::one().to_string(),
@@ -306,6 +307,7 @@ fn query_slots_queues() {
             },
             SlotResponse {
                 bids: vec![],
+                waiting_bids: vec![],
                 liq_premium: Decimal256::percent(1).to_string(),
                 sum_snapshot: Uint128::zero().to_string(),
                 product_snapshot: Decimal::one().to_string(),
@@ -364,6 +366,7 @@ fn query_slots_queues() {
                 epoch_snapshot: Uint128::zero(),
                 scale_snapshot: Uint128::zero(),
             }],
+            waiting_bids: vec![],
             liq_premium: Decimal256::percent(1).to_string(),
             sum_snapshot: Uint128::zero().to_string(),
             product_snapshot: Decimal::one().to_string(),

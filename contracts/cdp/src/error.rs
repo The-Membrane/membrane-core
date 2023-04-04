@@ -66,6 +66,9 @@ pub enum ContractError {
     #[error("Invalid target_LTV for debt increase: {target_LTV}")]
     InvalidLTV { target_LTV: Decimal },
 
+    #[error("Maximum position number reached")]
+    MaxPositionsReached {},
+
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },
     // Add any other custom errors you like here.

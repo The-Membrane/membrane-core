@@ -39,6 +39,9 @@ pub const WITHDRAW_REPLY_ID: u64 = 4u64;
 pub const CLOSE_POSITION_REPLY_ID: u64 = 5u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
+//Constants
+const MAX_POSITIONS_AMOUNT: u32 = 10;
+
 
 /// Deposit collateral to existing position. New or existing collateral.
 /// Anyone can deposit, to any position. Owner restrictions for withdrawals.
@@ -70,6 +73,12 @@ pub fn deposit(
     let new_assets;
 
     if let Ok(mut positions) = POSITIONS.load(deps.storage, valid_owner_addr.clone()){
+
+        //Enforce max positions
+        if positions.len() >= MAX_POSITIONS_AMOUNT as usize {
+            return Err(ContractError::MaxPositionsReached {});
+        }
+
         //Add collateral to the position_id or Create a new position 
         if let Some(position_id) = position_id {
             //Find the position

@@ -7765,11 +7765,11 @@ mod tests {
             app.send_tokens(
                 Addr::unchecked(USER),
                 Addr::unchecked("owner"),
-                &vec![coin(11, "2nddebit")],
+                &vec![coin(11, "2nddebit"), coin(11, "debit")],
             )
             .unwrap();
             let cosmos_msg = cdp_contract
-                .call(exec_msg, vec![coin(11, "debit"), coin(11, "2nddebit")])
+                .call(exec_msg.clone(), vec![coin(11, "debit"), coin(11, "2nddebit")])
                 .unwrap();
             let res = app.execute(Addr::unchecked("owner"), cosmos_msg).unwrap();
 
@@ -7789,6 +7789,21 @@ mod tests {
                 ]
             );
             assert_eq!(response.attributes[4].value, String::from("[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(11) }, Asset { info: NativeToken { denom: \"2nddebit\" }, amount: Uint128(11) }]") );
+
+            //Test max Position amount
+            let cosmos_msg = cdp_contract
+                .call(exec_msg, vec![coin(1, "debit")])
+                .unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            //This one should fail
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap_err();
         }
 
         #[test]

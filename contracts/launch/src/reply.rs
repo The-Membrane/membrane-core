@@ -740,6 +740,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     },
                     incentive_rate: None,
                     max_incentives: None,
+                    minimum_deposit_amount: Some(Uint128::new(5_000_000)), //5
                     osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),
                     positions_contract: addrs.clone().positions.to_string(),
                     mbrn_denom: config.clone().mbrn_denom,
@@ -796,6 +797,8 @@ pub fn handle_sp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                     owner: Some(addrs.clone().governance.to_string()),
                     positions_contract: addrs.clone().positions.to_string(),
                     waiting_period: 60u64,
+                    minimum_bid: Uint128::new(5_000_000), //5
+                    maximum_waiting_bids: 5_000u64, //5,000
                 })?, 
                 funds: vec![], 
                 label: String::from("liquidation_queue"), 

@@ -503,7 +503,7 @@ pub fn query_price(
     let stored_price_res = read_price(storage, &asset_info);
     
     //Use the stored price if within the oracle_time_limit
-    if let Ok(stored_price) = stored_price_res {
+    if let Ok(ref stored_price) = stored_price_res {
         let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
 
         if time_elapsed <= config.oracle_time_limit {
@@ -523,7 +523,15 @@ pub fn query_price(
         Ok(res) => {
             res.price
         }
-        Err(err) => { return Err(err) }
+        Err(err) => {
+            //Use the stored price if the oracle is down
+            if let Ok(stored_price) = stored_price_res {
+                return Ok(stored_price.price)
+            } else {
+                //Only possible if the first ever price fetch for an asset fails
+                return Err(StdError::generic_err(format!("Oracle is down: {}", err)))
+            }
+        }
     };
 
     Ok(price)

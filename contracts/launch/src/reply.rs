@@ -740,7 +740,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     },
                     incentive_rate: None,
                     max_incentives: None,
-                    minimum_deposit_amount: Some(Uint128::new(5_000_000)), //5
+                    minimum_deposit_amount: Uint128::new(5_000_000), //5
                     osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),
                     positions_contract: addrs.clone().positions.to_string(),
                     mbrn_denom: config.clone().mbrn_denom,

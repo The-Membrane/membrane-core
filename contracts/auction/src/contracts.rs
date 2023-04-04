@@ -364,14 +364,23 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
             successful_swap_amount = auction.auction_asset.amount;
             auction.auction_asset.amount = Uint128::zero();
 
+            //Delete Auction
+            FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
+
         } else if mbrn_value < auction_asset_value {
             //If the value of the sent MBRN is less than the value of the auction asset, set successful_swap_amount
             //Update auction asset amount
             successful_swap_amount = decimal_division(mbrn_value, auction_asset_price)? * Uint128::one();
             auction.auction_asset.amount = decimal_division((auction_asset_value - mbrn_value), auction_asset_price)? * Uint128::one();
+            
+            //Update Auction
+            FEE_AUCTIONS.save(deps.storage, auction_asset.clone().to_string(), &auction)?;
         } else {
             successful_swap_amount = auction.auction_asset.amount;
             auction.auction_asset.amount = Uint128::zero();
+
+            //Delete Auction
+            FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
         }
 
         //Burn MBRN
@@ -393,9 +402,6 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
                 amount: successful_swap_amount,
             }],
         }));
-
-        //Update Auction
-        FEE_AUCTIONS.save(deps.storage, auction_asset.clone().to_string(), &auction)?;
 
         //If there is overpay, send it back to the sender
         if !overpay.is_zero() {
@@ -642,8 +648,12 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
         )?);
     }
 
-    //Save new auction
-    DEBT_AUCTION.save(deps.storage, &auction)?;
+    //Update or Remove DebtAuction 
+    if auction.remaining_recapitalization.is_zero() {
+        DEBT_AUCTION.remove(deps.storage);
+    } else {
+        DEBT_AUCTION.save(deps.storage, &auction)?;
+    }
       
     Ok(Response::new().add_messages(msgs))
 }
@@ -685,7 +695,7 @@ fn get_ongoing_fee_auctions(
             }
         } else {
             Err(StdError::GenericErr {
-                msg: format!("Auction asset: {}, has never had an auction", auction_asset),
+                msg: format!("Auction asset: {}, doesn't have an ongoing auction", auction_asset),
             })
         }
     } else {

@@ -588,7 +588,7 @@ mod tests {
                     },
                 )
                 .unwrap_err();
-            assert_eq!(err.to_string(), String::from("Generic error: Querier contract error: Generic error: Auction amount zeroed"));
+            assert_eq!(err.to_string(), String::from("Generic error: Querier contract error: Generic error: Auction asset: fee_asset, doesn't have an ongoing auction"));
 
             //Invalid Swap on 0'd Auction
             let msg = ExecuteMsg::SwapWithMBRN {
@@ -744,16 +744,15 @@ mod tests {
                 vec![coin(1_000, "credit_fulldenom"), coin(99, "error"), coin(96_000, "mbrn_denom"),]
             );
 
-            //Assert Auction is empty
+            //Assert Auction is empty & therefore removed
             let auction = app
                 .wrap()
                 .query_wasm_smart::<DebtAuction>(
                     debt_contract.addr(),
                     &QueryMsg::DebtAuction {},
                 )
-                .unwrap();
-            assert_eq!(auction.remaining_recapitalization, Uint128::zero());
-
+                .unwrap_err();
+            
             //Invalid Swap on 0'd Auction
             let msg = ExecuteMsg::SwapForMBRN {};
             let cosmos_msg = debt_contract

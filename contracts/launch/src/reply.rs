@@ -36,7 +36,7 @@ const PROPOSAL_EFFECTIVE_DELAY: u64 = 0; //1 day
 const PROPOSAL_EXPIRATION_PERIOD: u64 = 100799; //14 days
 const PROPOSAL_REQUIRED_STAKE: u128 = *STAKE_INTERVAL.start();
 const PROPOSAL_REQUIRED_QUORUM: &str = "0.33";
-const PROPOSAL_REQUIRED_THRESHOLD: &str = "0.51";
+const PROPOSAL_REQUIRED_THRESHOLD: &str = "0.66";
 
 /// Called after the Osmosis Proxy (OP) reply to save created denoms
 pub fn handle_create_denom_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<Response>{ 
@@ -96,7 +96,6 @@ pub fn handle_balancer_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<
 
 /// Save and add Stableswap Pool ID & pool denom to necessary contracts.
 /// Mint MBRN for Stableswap Incentives.
-/// Send MBRN/OSMO to Governance.
 pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{    
     match msg.clone().result.into_result() {
         Ok(result) => {
@@ -201,22 +200,8 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             msg: to_binary(&msg)?, 
             funds: vec![], 
         });
-        msgs.push(msg);
-        
-        //Query contract balance of MBRN-OSMO LP
-        let gamm_coin = match deps.querier.query_all_balances(env.contract.address)?
-            .into_iter()
-            .find( |a| a.denom.contains("gamm")){
-                Some(gamm_denom) => gamm_denom,
-                None => return Err(StdError::GenericErr { msg: String::from("No MBRN-OSMO LP found") })
-            };
-        //Send gamm_coin NativeToken to Governance
-        let msg = BankMsg::Send {
-            to_address: addrs.clone().governance.to_string(),
-            amount: vec![gamm_coin],
-        };
-        msgs.push(msg.into());
-            
+        msgs.push(msg);       
+                 
 
         Ok(Response::new()
             .add_messages(msgs)

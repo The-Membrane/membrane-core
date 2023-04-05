@@ -440,10 +440,18 @@ fn get_discount_ratio(
         ),
         config.discount_increase,
     )?;
+
+    //Ensure discount is not greater than 1
+    let current_discount = if (current_discount_increase + config.initial_discount) > Decimal::one() {
+        Decimal::one()
+    } else {
+        current_discount_increase + config.initial_discount
+    };
+
     let discount_ratio = decimal_subtraction(
         Decimal::one(),
-        (current_discount_increase + config.initial_discount),
-    )?;
+        current_discount,
+    )?;    
     
     Ok(discount_ratio)
 }

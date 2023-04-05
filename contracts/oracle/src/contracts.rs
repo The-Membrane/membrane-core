@@ -19,9 +19,6 @@ use crate::state::{ASSETS, CONFIG};
 const CONTRACT_NAME: &str = "oracle";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-// Time unit conversion rates
-const MILLISECONDS_PER_MINUTE: i64 = 60_000i64;
-
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
@@ -320,8 +317,8 @@ fn get_asset_price(
         });
     };
 
-    //twap_timeframe = MINUTES * MILLISECONDS_PER_MINUTE
-    let twap_timeframe: u64 = (twap_timeframe as i64 * MILLISECONDS_PER_MINUTE);
+    //twap_timeframe = MINUTES * SECONDS_PER_MINUTE
+    let twap_timeframe: u64 = (twap_timeframe * 60);
     let start_time: u64 = env.block.time.seconds() - twap_timeframe;
 
     let mut oracle_prices = vec![];
@@ -416,7 +413,7 @@ fn get_asset_prices(
         price_responses.push(get_asset_price(
             deps.storage,
             deps.querier,
-            env,
+            env.clone(),
             asset,
             twap_timeframe,
             None,

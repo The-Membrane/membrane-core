@@ -1,5 +1,4 @@
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use cosmwasm_std::{
     attr, entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper,
@@ -250,7 +249,7 @@ pub fn update_config(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::Price {
@@ -260,6 +259,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         } => to_binary(&get_asset_price(
             deps.storage,
             deps.querier,
+            env,
             asset_info,
             twap_timeframe,
             basket_id,
@@ -267,7 +267,11 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Prices {
             asset_infos,
             twap_timeframe,
-        } => to_binary(&get_asset_prices(deps, asset_infos, twap_timeframe)?),
+        } => to_binary(&get_asset_prices(
+            deps, 
+            env,
+            asset_infos,
+            twap_timeframe)?),
         QueryMsg::Assets { asset_infos } => to_binary(&get_assets(deps, asset_infos)?),
     }
 }
@@ -291,6 +295,7 @@ fn get_assets(deps: Deps, asset_infos: Vec<AssetInfo>) -> StdResult<Vec<AssetRes
 fn get_asset_price(
     storage: &dyn Storage,
     querier: QuerierWrapper,
+    env: Env,
     asset_info: AssetInfo,
     twap_timeframe: u64, //in minutes
     basket_id_field: Option<Uint128>,
@@ -315,18 +320,9 @@ fn get_asset_price(
         });
     };
 
-    let current_unix_time = match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(duration) => duration.as_millis() as i64,
-        Err(_) => {
-            return Err(StdError::GenericErr {
-                msg: String::from("SystemTime before UNIX EPOCH!"),
-            })
-        }
-    };
-
     //twap_timeframe = MINUTES * MILLISECONDS_PER_MINUTE
-    let twap_timeframe: i64 = (twap_timeframe as i64 * MILLISECONDS_PER_MINUTE);
-    let start_time: i64 = current_unix_time - twap_timeframe;
+    let twap_timeframe: u64 = (twap_timeframe as i64 * MILLISECONDS_PER_MINUTE);
+    let start_time: u64 = env.block.time.seconds() - twap_timeframe;
 
     let mut oracle_prices = vec![];
 
@@ -348,7 +344,7 @@ fn get_asset_price(
                 pool.clone().base_asset_denom, 
                 pool.clone().quote_asset_denom, 
                 Some(osmosis_std::shim::Timestamp {
-                    seconds:  start_time,
+                    seconds:  start_time as i64,
                     nanos: 0,
                 }),
             )?;
@@ -410,6 +406,7 @@ fn get_asset_price(
 /// Return list of asset price info as list of PriceResponse
 fn get_asset_prices(
     deps: Deps,
+    env: Env,
     asset_infos: Vec<AssetInfo>,
     twap_timeframe: u64,
 ) -> StdResult<Vec<PriceResponse>> {
@@ -419,6 +416,7 @@ fn get_asset_prices(
         price_responses.push(get_asset_price(
             deps.storage,
             deps.querier,
+            env,
             asset,
             twap_timeframe,
             None,

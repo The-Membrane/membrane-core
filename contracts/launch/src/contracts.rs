@@ -54,7 +54,7 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
 
     //Need to send 20 OSMO for CreateDenom Msgs
-    if info.funds[0].amount != Uint128::new(20_000_00) && info.funds[0].denom != String::from("uosmo"){ return Err(ContractError::NeedOsmo {}) }
+    if info.funds[0].amount != Uint128::new(20_000_000) && info.funds[0].denom != String::from("uosmo"){ return Err(ContractError::NeedOsmo {}) }
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
@@ -289,7 +289,7 @@ fn withdraw(
 }
 
 /// Claim unlocked MBRN rewards
-fn claim(    
+fn claim (    
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
@@ -308,9 +308,10 @@ fn claim(
     let mut user_ratios = INCENTIVE_RATIOS.load(deps.storage)?;
     
     if user_ratios.is_empty(){
-        calc_ticket_distribution(deps.storage, &mut lockdrop)?;
-
-        user_ratios = INCENTIVE_RATIOS.load(deps.storage)?;
+        user_ratios = calc_ticket_distribution(&mut lockdrop)?;
+        
+        //Save user incentive ratios
+        INCENTIVE_RATIOS.save(deps.storage, &user_ratios)?;
     }
     
     //Claim any unlocked incentives
@@ -327,7 +328,7 @@ fn claim(
         let time_since_lockdrop_end = env.block.time.seconds() - lockdrop.withdrawal_end;       
 
         for (_i, deposit) in user.clone().deposits.into_iter().enumerate() {
-            //Unlock any deposits that have passed their lock duration
+            //Unlock deposit rewards that have passed their lock duration
             if time_since_lockdrop_end > deposit.lock_up_duration * SECONDS_PER_DAY {
                 withdrawable_tickets += deposit.deposit * Uint128::from((deposit.lock_up_duration + 1) as u128);
             }
@@ -411,9 +412,8 @@ fn get_user_incentives(
 
 /// Calculate the ratio of incentives each user is entitled to
 fn calc_ticket_distribution(
-    storage: &mut dyn Storage,
     lockdrop: &mut Lockdrop,
-) -> StdResult<()>{
+) -> StdResult<Vec<UserRatio>>{
     let mut error: Option<StdError> = None;
 
     let user_totals = lockdrop.clone().locked_users
@@ -457,12 +457,15 @@ fn calc_ticket_distribution(
         })
         .collect::<Vec<UserRatio>>();
 
-    //Save user incentive ratios
-    INCENTIVE_RATIOS.save(storage, &user_ratios)
+    Ok(user_ratios)
 }
 
 /// Validate that the lockdrop asset is present in the message
 fn validate_lockdrop_asset(info: MessageInfo, lockdrop_asset: AssetInfo) -> StdResult<Asset>{
+    if info.clone().funds.len() > 1 {
+        return Err(StdError::GenericErr { msg: format!("Invalid assets sent") })
+    }
+
     if let Some(lockdrop_asset) = info.clone().funds
         .into_iter()
         .find(|coin| coin.denom == lockdrop_asset.to_string()){
@@ -512,8 +515,32 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::Lockdrop {} => to_binary(&LOCKDROP.load(deps.storage)?),
+        QueryMsg::ContractAddresses {} => to_binary(&ADDRESSES.load(deps.storage)?),
         QueryMsg::IncentiveDistribution {} => to_binary(&INCENTIVE_RATIOS.load(deps.storage)?),
+        QueryMsg::UserIncentives { user } => to_binary(&calc_user_incentives(deps.storage, user)?),
     }
+}
+
+/// Calculate and return user incentives
+fn calc_user_incentives(
+    storage: &dyn Storage,
+    user: String,
+) -> StdResult<Uint128>{
+    let mut user_ratios = INCENTIVE_RATIOS.load(storage)?;
+    let mut lockdrop = LOCKDROP.load(storage)?;
+
+    if user_ratios.is_empty(){
+        user_ratios = calc_ticket_distribution(&mut lockdrop)?;
+    }
+    
+    //Calc any unlocked incentives
+    let incentives = get_user_incentives(
+        user_ratios,
+        user,
+        lockdrop.num_of_incentives,
+    )?;
+
+    Ok(incentives)
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

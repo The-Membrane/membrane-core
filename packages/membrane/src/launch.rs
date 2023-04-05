@@ -67,8 +67,12 @@ pub enum QueryMsg {
     Config {},
     /// Returns Lockdrop object
     Lockdrop {},
+    /// Return Protocol Addresses
+    ContractAddresses {},
     /// Returns MBRN lockup distributions
     IncentiveDistribution {},
+    /// Returns User incentive distribution
+    UserIncentives { user: String },
 }
 
 #[cw_serde]

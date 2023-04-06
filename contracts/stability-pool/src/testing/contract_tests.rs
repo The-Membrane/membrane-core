@@ -549,7 +549,7 @@ fn distribute() {
             },
             Asset {
                 info: AssetInfo::NativeToken {
-                    denom: "2nddebit".to_string(),
+                    denom: "second_debit".to_string(),
                 },
                 amount: Uint128::new(100u128),
             },
@@ -559,7 +559,7 @@ fn distribute() {
     };
 
     let mut coin = coins(100, "debit");
-    coin.append(&mut coins(100, "2nddebit"));
+    coin.append(&mut coins(100, "second_debit"));
 
     let cdp_info = mock_info("positions_contract", &coin);
 
@@ -570,7 +570,7 @@ fn distribute() {
         vec![
             attr("method", "distribute"),
             attr("credit_asset", "credit"),
-            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100) }, Asset { info: NativeToken { denom: \"2nddebit\" }, amount: Uint128(100) }]"),
+            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100) }, Asset { info: NativeToken { denom: \"second_debit\" }, amount: Uint128(100) }]"),
         ]
     );
 
@@ -586,8 +586,8 @@ fn distribute() {
 
     let resp: ClaimsResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.claims[0].to_string(), "100 debit".to_string());
-    assert_eq!(resp.claims[1].to_string(), "25 2nddebit".to_string());
+    assert_eq!(resp.claims[0].to_string(), "100debit".to_string());
+    assert_eq!(resp.claims[1].to_string(), "25second_debit".to_string());
 
     //Query and assert 2ndUser claimables
     let res = query(
@@ -601,7 +601,7 @@ fn distribute() {
 
     let resp: ClaimsResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.claims[0].to_string(), "75 2nddebit".to_string());
+    assert_eq!(resp.claims[0].to_string(), "75second_debit".to_string());
 
     //Query position data to make sure 0 is leftover for "user"
     let res = query(
@@ -639,7 +639,7 @@ fn distribute() {
     let cdp_info = mock_info("positions_contract", &vec![]);
     let _res = execute(deps.as_mut(), mock_env(), cdp_info, liq_msg).unwrap();
 
-    //2nd Distribute to only th 2nduser
+    //2nd Distribute to only the 2nduser
     let distribute_msg = ExecuteMsg::Distribute {
         distribution_assets: vec![
             Asset {
@@ -650,7 +650,7 @@ fn distribute() {
             },
             Asset {
                 info: AssetInfo::NativeToken {
-                    denom: "2nddebit".to_string(),
+                    denom: "second_debit".to_string(),
                 },
                 amount: Uint128::new(100u128),
             },
@@ -660,18 +660,16 @@ fn distribute() {
     };
     
     let mut coin = coins(100, "debit");
-    coin.append(&mut coins(100, "2nddebit"));
+    coin.append(&mut coins(100, "second_debit"));
 
     let cdp_info = mock_info("positions_contract", &coin);
-
     let res = execute(deps.as_mut(), mock_env(), cdp_info, distribute_msg).unwrap();
-
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "distribute"),
             attr("credit_asset", "credit"),
-            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100) }, Asset { info: NativeToken { denom: \"2nddebit\" }, amount: Uint128(100) }]"),
+            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100) }, Asset { info: NativeToken { denom: \"second_debit\" }, amount: Uint128(100) }]"),
         ]
     );
 
@@ -689,15 +687,15 @@ fn distribute() {
 
     assert_eq!(
         resp.claims,
-        vec![            
-            Asset {
-                info: AssetInfo::NativeToken { denom: "2nddebit".to_string() },
+        vec![
+            Coin {
+                denom: "debit".to_string(),
+                amount: Uint128::new(100)
+            },      
+            Coin {
+                denom: "second_debit".to_string(),
                 amount: Uint128::new(175)
             },
-            Asset {
-                info: AssetInfo::NativeToken { denom: "debit".to_string() },
-                amount: Uint128::new(100)
-            }
         ],
     )
 
@@ -780,7 +778,7 @@ fn distribute_bignums() {
             },
             Asset {
                 info: AssetInfo::NativeToken {
-                    denom: "2nddebit".to_string(),
+                    denom: "second_debit".to_string(),
                 },
                 amount: Uint128::new(100_000_000_000_000u128),
             },
@@ -790,7 +788,7 @@ fn distribute_bignums() {
     };
 
     let mut coin = coins(100_000_000_000_000, "debit");
-    coin.append(&mut coins(100_000_000_000_000, "2nddebit"));
+    coin.append(&mut coins(100_000_000_000_000, "second_debit"));
 
     let info = mock_info("positions_contract", &coin);
 
@@ -801,7 +799,7 @@ fn distribute_bignums() {
         vec![
             attr("method", "distribute"),
             attr("credit_asset", "credit"),
-            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100000000000000) }, Asset { info: NativeToken { denom: \"2nddebit\" }, amount: Uint128(100000000000000) }]"),
+            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100000000000000) }, Asset { info: NativeToken { denom: \"second_debit\" }, amount: Uint128(100000000000000) }]"),
         ]
     );
 
@@ -819,11 +817,11 @@ fn distribute_bignums() {
 
     assert_eq!(
         resp.claims[0].to_string(),
-        "100000000000000 debit".to_string()
+        "100000000000000debit".to_string()
     );
     assert_eq!(
         resp.claims[1].to_string(),
-        "25000000000000 2nddebit".to_string()
+        "25000000000000second_debit".to_string()
     );
 
     //Query and assert User claimables
@@ -840,7 +838,7 @@ fn distribute_bignums() {
 
     assert_eq!(
         resp.claims[0].to_string(),
-        "75000000000000 2nddebit".to_string()
+        "75000000000000second_debit".to_string()
     );
 
     //Query position data to assert leftovers
@@ -919,7 +917,7 @@ fn claims() {
             },
             Asset {
                 info: AssetInfo::NativeToken {
-                    denom: "2nddebit".to_string(),
+                    denom: "second_debit".to_string(),
                 },
                 amount: Uint128::new(100u128),
             },
@@ -929,7 +927,7 @@ fn claims() {
     };
 
     let mut coin = coins(100, "debit");
-    coin.append(&mut coins(100, "2nddebit"));
+    coin.append(&mut coins(100, "second_debit"));
 
     let info = mock_info("positions_contract", &coin);
     let _res = execute(deps.as_mut(), mock_env(), info.clone(), distribute_msg).unwrap();
@@ -942,22 +940,23 @@ fn claims() {
     assert_eq!(res.messages, vec![
         SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
             to_address: "sender88".to_string(),
-            amount: vec![Coin {
-                denom: "debit".to_string(),
-                amount: Uint128::new(100u128)
-            },
-            Coin {
-                denom: "2nddebit".to_string(),
-                amount: Uint128::new(25u128)
-            }],
+            amount: vec![
+                Coin {
+                    denom: "debit".to_string(),
+                    amount: Uint128::new(100u128)
+                },
+                Coin {
+                    denom: "second_debit".to_string(),
+                    amount: Uint128::new(25u128)
+                }, 
+            ],
         }))
     ]);
     
     //Claim: Error, nothing to claim
     let claim_msg = ExecuteMsg::ClaimRewards {};
     let info = mock_info("sender88", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap();
-    assert_eq!(res.attributes[2].value, "[]".to_string());
+    let err = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap_err();
 
     //Claim
     let claim_msg = ExecuteMsg::ClaimRewards {};
@@ -968,7 +967,7 @@ fn claims() {
         SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
             to_address: "2nduser".to_string(),
             amount: vec![Coin {
-                denom: "2nddebit".to_string(),
+                denom: "second_debit".to_string(),
                 amount: Uint128::new(75u128)
             }],
         }))

@@ -143,7 +143,7 @@ pub fn query_user_claims(deps: Deps, user: String) -> StdResult<ClaimsResponse> 
     match USERS.load(deps.storage, valid_user) {
         Ok(user) => {
             Ok(ClaimsResponse {
-                claims: user.claimable_assets,
+                claims: user.claimable_assets.to_vec(),
             })
         }
         Err(_) => {

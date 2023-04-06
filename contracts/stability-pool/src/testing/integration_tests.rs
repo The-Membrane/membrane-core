@@ -296,7 +296,7 @@ mod tests {
     mod stability_pool {
 
         use super::*;
-        use cosmwasm_std::BlockInfo;
+        use cosmwasm_std::{BlockInfo, Coin};
         use membrane::stability_pool::Config;
 
         #[test]
@@ -602,10 +602,8 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.claims,
-                vec![Asset {
-                    info: AssetInfo::NativeToken {
-                        denom: String::from("mbrn_denom")
-                    },
+                vec![Coin {
+                    denom: String::from("mbrn_denom"),
                     amount: Uint128::new(10_000u128),
                 },]
             );
@@ -716,17 +714,13 @@ mod tests {
             assert_eq!(
                 res.claims,
                 vec![
-                    Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: String::from("mbrn_denom")
-                        },
-                        amount: Uint128::new(10_000u128),
-                    },
-                    Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: String::from("debit")
-                        },
+                    Coin {
+                        denom: String::from("debit"),
                         amount: Uint128::new(100u128),
+                    },
+                    Coin {
+                        denom: String::from("mbrn_denom"),
+                        amount: Uint128::new(10_000u128),
                     },
                 ]
             );
@@ -739,8 +733,7 @@ mod tests {
             //Claim but get nothing
             let claim_msg = ExecuteMsg::ClaimRewards { };
             let cosmos_msg = sp_contract.call(claim_msg, vec![]).unwrap();
-            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
-            assert_eq!(res.events[1].attributes[3].value, "[]".to_string());
+            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
         }
     }

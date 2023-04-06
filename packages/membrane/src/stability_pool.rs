@@ -1,6 +1,6 @@
 use cosmwasm_schema::cw_serde;
 
-use cosmwasm_std::{Decimal, Uint128, Addr};
+use cosmwasm_std::{Decimal, Uint128, Addr, Coin};
 
 use crate::types::{Asset, AssetPool, Deposit, UserInfo};
 
@@ -152,7 +152,7 @@ pub struct LiquidatibleResponse {
 #[cw_serde]
 pub struct ClaimsResponse {
     /// Claimable assets
-    pub claims: Vec<Asset>,
+    pub claims: Vec<Coin>,
 }
 
 #[cw_serde]

@@ -6,6 +6,7 @@ use crate::{math::{Decimal256, Uint256}, liq_queue::QueueResponse};
 
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Decimal, Uint128, StdError};
+use cw_coins::Coins;
 
 use osmosis_std::types::cosmos::base::v1beta1::Coin;
 
@@ -177,7 +178,7 @@ impl Bid {
 #[cw_serde]
 pub struct User {
     /// Claimable assets earned from liquidations
-    pub claimable_assets: Vec<Asset>,
+    pub claimable_assets: Coins,
 }
 
 #[cw_serde]

@@ -1,13 +1,15 @@
 use std::env;
+use std::str::FromStr;
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
     DepsMut, Env, MessageInfo, Response, StdError, StdResult,
-    Storage, Uint128, WasmMsg,
+    Storage, Uint128, WasmMsg, coin,
 };
 use cw2::set_contract_version;
+use cw_coins::Coins;
 
 use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::stability_pool::{
@@ -541,23 +543,14 @@ fn withdrawal_from_state(
             |user_claims| -> Result<User, ContractError> {
                 match user_claims {
                     Some(mut user) => {
-                        user.claimable_assets.push(Asset {
-                            info: AssetInfo::NativeToken {
-                                denom: config.clone().mbrn_denom,
-                            },
-                            amount: mbrn_incentives,
-                        });
+                        user.claimable_assets.add(&coin(mbrn_incentives.u128(), config.clone().mbrn_denom))?;
+                                
                         Ok(user)
                     }
                     None => {
                         if is_user {
                             Ok(User {
-                                claimable_assets: vec![Asset {
-                                    info: AssetInfo::NativeToken {
-                                        denom: config.clone().mbrn_denom,
-                                    },
-                                    amount: mbrn_incentives,
-                                }],
+                                claimable_assets: Coins::from_str(&coin(mbrn_incentives.u128(), config.clone().mbrn_denom).to_string())?,
                             })
                         } else {
                             Err(ContractError::CustomError {
@@ -634,30 +627,23 @@ fn restake(
     }
 
     //Save accrued incentives to user claims
-    USERS.update(
-        deps.storage,
-        info.sender,
-        |user_claims| -> Result<User, ContractError> {
-            match user_claims {
-                Some(mut user) => {
-                    user.claimable_assets.push(Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: config.clone().mbrn_denom,
-                        },
-                        amount: incentives,
-                    });
-                    Ok(user)
-                }
-                None => {
-                    Ok(User {
-                        claimable_assets: vec![Asset {
-                            info: AssetInfo::NativeToken {
-                                denom: config.clone().mbrn_denom,
-                            },
-                            amount: incentives,
-                        }],
-            })}}},
-    )?;
+    if !incentives.is_zero(){
+        USERS.update(
+            deps.storage,
+            info.sender,
+            |user_claims| -> Result<User, ContractError> {
+                match user_claims {
+                    Some(mut user) => {
+                        user.claimable_assets.add(&coin(incentives.u128(), config.clone().mbrn_denom))?;
+
+                        Ok(user)
+                    }
+                    None => {
+                        Ok(User {
+                            claimable_assets: Coins::from_str(&coin(incentives.u128(), config.clone().mbrn_denom).to_string())?,
+                })}}},
+        )?;
+    }
 
     //Save new Deposits
     ASSET.save(deps.storage, &asset_pool)?;
@@ -1040,40 +1026,26 @@ pub fn claim(
 fn user_claims_msgs(
     storage: &mut dyn Storage,
     info: MessageInfo,
-) -> Result<(Vec<CosmosMsg>, Vec<Asset>), ContractError> {
+) -> Result<(Vec<CosmosMsg>, Vec<Coin>), ContractError> {
     let user = USERS.load(storage, info.clone().sender)?;
     let mut messages: Vec<CosmosMsg> = vec![];
-    let mut native_claims = vec![];
 
     //Aggregate native token sends
-    for asset in user.clone().claimable_assets {
-        if let AssetInfo::NativeToken { denom: _ } = asset.clone().info{
-            native_claims.push(asset_to_coin(asset)?);
-        }
-    }    
+    let native_claims = user.clone().claimable_assets.to_vec();
 
     if native_claims != vec![] {
         let msg = CosmosMsg::Bank(BankMsg::Send {
             to_address: info.sender.to_string(),
-            amount: native_claims,
+            amount: native_claims.clone(),
         });
         messages.push(msg);
     }
 
     //Remove User's claims
-    USERS.update(storage, info.sender, |user| -> StdResult<User> {
-        match user {
-            Some(mut user) => {
-                user.claimable_assets = vec![];
-                Ok(user)
-            },
-            None => {
-                Err(StdError::GenericErr { msg: "No User found".to_string() })
-            },
-        }
-    })?;
+    //We can fully remove because all claims will be native tokens 
+    USERS.remove(storage, info.sender);
 
-    Ok((messages, user.claimable_assets))
+    Ok((messages, native_claims))
 }
 
 /// Split distribution assets to users based on ratios
@@ -1156,46 +1128,30 @@ fn add_to_user_claims(
     distribution_asset: AssetInfo,
     send_amount: Uint128,
 ) -> StdResult<()>{
-    //Add to existing user claims
-    USERS.update(
-        storage,
-        user,
-        |user| -> StdResult<User> {
-            match user {
-                Some(mut user) => {
-                    //Find Asset in user state
-                    match user.clone().claimable_assets
-                        .into_iter()
-                        .enumerate()
-                        .find(|(_i, asset)| {
-                        asset.info.equal(&distribution_asset)
-                    }) {
-                        Some((i, _asset)) => {
-                            //Add amount
-                            user.claimable_assets[i].amount += send_amount;
-                        }
-                        None => {
-                            user.claimable_assets.push(Asset {
-                                amount: send_amount,
-                                info: distribution_asset,
-                            });
-                        }
-                    }
+        if !send_amount.is_zero(){
+        //Add to existing user claims
+        USERS.update(
+            storage,
+            user,
+            |user| -> StdResult<User> {
+                match user {
+                    Some(mut user) => {
+                        //Add Coin to user claims
+                        user.claimable_assets.add(&coin(send_amount.u128(), distribution_asset.to_string()))?;
+                        if user.claimable_assets.len() > 2 as usize {panic!("{:?}", user.claimable_assets)}
 
-                    Ok(user)
+                        Ok(user)
+                    }
+                    None => {
+                        //Create object for user
+                        Ok(User {
+                            claimable_assets: Coins::from_str(&coin(send_amount.u128(), distribution_asset.to_string()).to_string())?,
+                        })
+                    }
                 }
-                None => {
-                    //Create object for user
-                    Ok(User {
-                        claimable_assets: vec![Asset {
-                            amount: send_amount,
-                            info: distribution_asset,
-                        }],
-                    })
-                }
-            }
-        },
-    )?;
+            },
+        )?;
+    }
 
     Ok(())
 }

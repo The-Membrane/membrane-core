@@ -361,7 +361,7 @@ fn get_sp_value(
         let price = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.clone().oracle_contract.to_string(),
             msg: to_binary(&Oracle_QueryMsg::Price {
-                asset_info: asset.info,
+                asset_info: AssetInfo::NativeToken { denom: asset.denom },
                 twap_timeframe: 60,
                 basket_id: None,
             })?,

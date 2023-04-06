@@ -1128,7 +1128,6 @@ pub fn validate_bid_input(deps: &dyn Storage, bid_input: BidInput) -> Result<(),
     match QUEUES.load(deps, bid_input.bid_for.to_string()) {
         Ok(queue) => {
             if bid_input.liq_premium <= queue.max_premium.u128() as u8
-                && queue.bid_asset.info.equal(&queue.bid_asset.info)
             {
                 Ok(())
             } else {

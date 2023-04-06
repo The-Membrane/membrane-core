@@ -523,14 +523,9 @@ pub fn query_price(
         Ok(res) => {
             res.price
         }
-        Err(err) => {
-            //Use the stored price if the oracle is down
-            if let Ok(stored_price) = stored_price_res {
-                return Ok(stored_price.price)
-            } else {
-                //Only possible if the first ever price fetch for an asset fails
-                return Err(StdError::generic_err(format!("Oracle is down: {}", err)))
-            }
+        Err(_err) => {
+            //if the oracle is down, 0 the price
+            Decimal::zero()
         }
     };
 

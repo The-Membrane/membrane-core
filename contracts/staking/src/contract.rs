@@ -693,9 +693,9 @@ fn withdraw_from_state(
                     }
                     //Zero withdrawal_amount
                     withdrawal_amount = Uint128::zero();
-                } else if withdrawal_amount != Uint128::zero()
-                    && deposit.amount <= withdrawal_amount
-                {
+
+                } else if withdrawal_amount != Uint128::zero() && deposit.amount <= withdrawal_amount {
+
                     //Calc claimables from this deposit
                     let (deposit_claimables, deposit_interest) = match get_deposit_claimables(
                         config.clone(),
@@ -736,7 +736,7 @@ fn withdraw_from_state(
                         withdrawable_amount += deposit.amount;
                         deposit.amount = Uint128::zero();
                     } else {
-                        //Ee, Set the unstaking_start_time and stake_time to now
+                        //Else, Set the unstaking_start_time and stake_time to now
                         deposit.unstake_start_time = Some(env.block.time.seconds());
                         //Since we claimed rewards
                         deposit.stake_time = env.block.time.seconds();

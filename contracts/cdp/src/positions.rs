@@ -1919,18 +1919,20 @@ pub fn credit_burn_rev_msg(
     let mut messages = vec![];
     
     if let AssetInfo::NativeToken { denom } = credit_asset.clone().info {
-        if let Some(addr) = config.osmosis_proxy{
-            //Create burn msg
-            let burn_message = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: addr.to_string(),
-                msg: to_binary(&OsmoExecuteMsg::BurnTokens {
-                    denom,
-                    amount: burn_amount,
-                    burn_from_address: env.contract.address.to_string(),
-                })?,
-                funds: vec![],
-            });
-            messages.push(burn_message);
+        if let Some(addr) = config.osmosis_proxy {
+            if !burn_amount.is_zero() {    
+                //Create burn msg
+                let burn_message = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: addr.to_string(),
+                    msg: to_binary(&OsmoExecuteMsg::BurnTokens {
+                        denom,
+                        amount: burn_amount,
+                        burn_from_address: env.contract.address.to_string(),
+                    })?,
+                    funds: vec![],
+                });
+                messages.push(burn_message);
+            }
 
             //Create DepositFee Msg
             if !revenue_amount.is_zero() && config.staking_contract.is_some(){

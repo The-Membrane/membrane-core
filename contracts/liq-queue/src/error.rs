@@ -41,6 +41,9 @@ pub enum ContractError {
 
     #[error("Waiting bids are full at {max_waiting_bids:?}")]
     TooManyWaitingBids { max_waiting_bids: u64 },
+    
+    #[error("Bid threshold is outside of the bid threshold range")]
+    InvalidBidThreshold {},
 
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },

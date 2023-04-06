@@ -1172,8 +1172,8 @@ fn update_config(){
     
     let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
         owner: Some(String::from("new_owner")),
-        incentive_rate: Some(Decimal::one()), 
-        max_incentives: Some(Uint128::new(100)), 
+        incentive_rate: Some(Decimal::percent(20)), 
+        max_incentives: Some(Uint128::new(1_000_000)), 
         unstaking_period: Some(1),  
         minimum_deposit_amount: Some(Uint128::new(10)),
         osmosis_proxy: Some(String::from("new_op")), 
@@ -1202,8 +1202,8 @@ fn update_config(){
         config,
         Config {
             owner: Addr::unchecked("new_owner"),
-            incentive_rate: Decimal::one(), 
-            max_incentives: Uint128::new(100),
+            incentive_rate: Decimal::percent(20), 
+            max_incentives: Uint128::new(1_000_000),
             unstaking_period: 1,
             minimum_deposit_amount: Uint128::new(10),
             osmosis_proxy: Addr::unchecked("new_op"), 

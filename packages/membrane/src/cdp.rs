@@ -1,4 +1,4 @@
-use cosmwasm_std::{Addr, Decimal, Uint128, StdResult, Api};
+use cosmwasm_std::{Addr, Decimal, Uint128, StdResult, Api, StdError};
 use cosmwasm_schema::cw_serde;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -328,6 +328,10 @@ impl UpdateConfig {
             config.discounts_contract = Some(api.addr_validate(&discounts_contract)?);
         }
         if let Some(liq_fee) = self.liq_fee {
+            //Enforce 0-100% range
+            if liq_fee > Decimal::percent(100) || liq_fee < Decimal::zero() {
+                return Err(StdError::GenericErr{ msg: "Liquidation fee must be between 0-100%".to_string() });
+            }
             config.liq_fee = liq_fee;
         }
         if let Some(debt_minimum) = self.debt_minimum {
@@ -346,9 +350,17 @@ impl UpdateConfig {
             config.credit_twap_timeframe = credit_twap_timeframe;
         }
         if let Some(cpc_multiplier) = self.cpc_multiplier {
+            //Enforce 0-1k%
+            if cpc_multiplier > Decimal::percent(10_00) || cpc_multiplier < Decimal::zero() {
+                return Err(StdError::GenericErr{ msg: "CPC multiplier must be between 0-10000%".to_string() });
+            }
             config.cpc_multiplier = cpc_multiplier;
         }
         if let Some(rate_slope_multiplier) = self.rate_slope_multiplier {
+            //Enforce 0-1k%
+            if rate_slope_multiplier > Decimal::percent(10_00) || rate_slope_multiplier < Decimal::zero() {
+                return Err(StdError::GenericErr{ msg: "Rate slope multiplier must be between 0-10000%".to_string() });
+            }            
             config.rate_slope_multiplier = rate_slope_multiplier;
         }
         Ok(())

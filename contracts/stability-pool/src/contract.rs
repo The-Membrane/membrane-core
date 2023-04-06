@@ -162,10 +162,22 @@ fn update_config(
         attrs.push(attr("new_positions_contract", positions_contract));
     }
     if let Some(incentive_rate) = update.incentive_rate {
+        //Enforce incentive rate range of 0-20%
+        if incentive_rate > Decimal::percent(20) {
+            return Err(ContractError::CustomError {
+                val: "Incentive rate cannot be greater than 20%".to_string(),
+            });
+        }
         config.incentive_rate = incentive_rate;
         attrs.push(attr("new_incentive_rate", incentive_rate.to_string()));
     }
     if let Some(max_incentives) = update.max_incentives {
+        //Enforce max incentive range of 1M - 10M
+        if max_incentives < Uint128::from(1_000_000u128) || max_incentives > Uint128::from(10_000_000u128) {
+            return Err(ContractError::CustomError {
+                val: "Max incentives must be between 1M and 10M".to_string(),
+            });
+        }
         config.max_incentives = max_incentives;
         attrs.push(attr("new_max_incentives", max_incentives.to_string()));
     }
@@ -174,6 +186,12 @@ fn update_config(
         attrs.push(attr("new_minimum_deposit_amount", minimum_deposit_amount.to_string()));
     }
     if let Some(new_unstaking_period) = update.unstaking_period {
+        //Enforce unstaking period range of 1-7 days
+        if new_unstaking_period < 1 || new_unstaking_period > 7 {
+            return Err(ContractError::CustomError {
+                val: "Unstaking period must be between 1 and 7 days".to_string(),
+            });
+        }
         config.unstaking_period = new_unstaking_period;
         attrs.push(attr("new_unstaking_period", new_unstaking_period.to_string()));
     }

@@ -229,6 +229,11 @@ fn edit_queue(
     let mut queue = QUEUES.load(deps.storage, bid_for.to_string())?;
 
     if let Some(new_premium) = max_premium {
+        //Enforce max_premium range of 1%-50%
+        if new_premium > Uint128::from(50u128) || new_premium < Uint128::from(1u128) {
+            return Err(ContractError::InvalidPremium {});
+        }
+
         let new_premium_delta = match new_premium.checked_sub(queue.max_premium) {
             Ok(delta) => delta,
             Err(_err) => Uint128::zero(),
@@ -261,8 +266,12 @@ fn edit_queue(
         }
 
     }
-    if bid_threshold.is_some() {
-        queue.bid_threshold = bid_threshold.unwrap();
+    if let Some(bid_threshold) = bid_threshold {
+        //Enforce bid_threshold range of 1M-10M
+        if bid_threshold > Uint256::from(10_000_000u128) || bid_threshold < Uint256::from(1_000_000u128) {
+            return Err(ContractError::InvalidBidThreshold {});
+        } 
+        queue.bid_threshold = bid_threshold;
     }
 
     QUEUES.save(deps.storage, bid_for.to_string(), &queue)?;

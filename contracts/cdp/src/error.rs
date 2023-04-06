@@ -66,6 +66,9 @@ pub enum ContractError {
     #[error("Invalid target_LTV for debt increase: {target_LTV}")]
     InvalidLTV { target_LTV: Decimal },
 
+    #[error("Invalid Max LTV")]
+    InvalidMaxLTV { max_LTV: Decimal },
+
     #[error("Maximum position number reached")]
     MaxPositionsReached {},
 

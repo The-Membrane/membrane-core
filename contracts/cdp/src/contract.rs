@@ -295,6 +295,10 @@ fn edit_cAsset(
             attrs.push(attr("asset", asset.asset.info.to_string()));
 
             if let Some(LTV) = max_LTV {
+                //Enforce 1-100% range
+                if LTV > Decimal::percent(100) || LTV < Decimal::percent(1) {
+                    return Err(ContractError::InvalidMaxLTV { max_LTV: LTV });
+                }
                 asset.max_LTV = LTV;
 
                 //Edit the asset's liq_queue max_premium

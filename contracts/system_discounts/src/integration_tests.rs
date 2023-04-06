@@ -13,7 +13,7 @@ mod tests {
     use membrane::types::{Asset, AssetInfo, AssetPool, Basket, Deposit, StakeDistribution};
 
     use cosmwasm_std::{
-        to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal,
+        to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal, Coin,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
     
@@ -264,8 +264,8 @@ mod tests {
                         user: _,
                     } => Ok(to_binary(&ClaimsResponse {
                         claims: vec![
-                            Asset {
-                                info: AssetInfo::NativeToken { denom: String::from("juicy_claims") },
+                            Coin {
+                                denom: String::from("juicy_claims"),
                                 amount: Uint128::new(4),
                             }
                         ],

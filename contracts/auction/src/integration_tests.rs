@@ -810,10 +810,10 @@ mod tests {
                 mbrn_denom: Some(String::from("new_denom")), 
                 cdt_denom: Some(String::from("new_cdt")),
                 positions_contract: Some(String::from("new_contract")),  
-                twap_timeframe: Some(0u64),
-                initial_discount: Some(Decimal::zero()), 
-                discount_increase_timeframe: Some(0u64), 
-                discount_increase: Some(Decimal::zero()), 
+                twap_timeframe: Some(61u64),
+                initial_discount: Some(Decimal::percent(2)), 
+                discount_increase_timeframe: Some(61u64), 
+                discount_increase: Some(Decimal::percent(4)), 
             });
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -835,10 +835,10 @@ mod tests {
                     mbrn_denom: String::from("new_denom"), 
                     cdt_denom: String::from("new_cdt"),
                     positions_contract: Addr::unchecked("new_contract"),  
-                    twap_timeframe: 0u64,
-                    initial_discount: Decimal::zero(), 
-                    discount_increase_timeframe: 0u64, 
-                    discount_increase: Decimal::zero(), 
+                    twap_timeframe: 61u64,
+                    initial_discount: Decimal::percent(2), 
+                    discount_increase_timeframe: 61u64, 
+                    discount_increase: Decimal::percent(4), 
                 },
             );
         }

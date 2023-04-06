@@ -201,6 +201,12 @@ fn update_config(
         config.positions_contract = deps.api.addr_validate(&addr)?;
     }
     if let Some(multiplier) = stableswap_multiplier {
+        //Assert multiplier is between 1 and 10
+        if multiplier > Decimal::percent(10_00) || multiplier < Decimal::one() {
+            return Err(ContractError::CustomError {
+                val: String::from("Stableswap multiplier must be between 1 and 10"),
+            });
+        }
         config.stableswap_multiplier = multiplier;
     }
 

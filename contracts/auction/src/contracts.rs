@@ -116,15 +116,31 @@ fn update_config(
         config.cdt_denom = cdt_denom;
     }
     if let Some(twap_timeframe) = update.twap_timeframe {
+        //Enforce 1 hr - 8 hr timeframe
+        if twap_timeframe < 60 || twap_timeframe > 480 {
+            return Err(ContractError::CustomError { val: String::from("Invalid TWAP timeframe") });
+        }
         config.twap_timeframe = twap_timeframe;
     }
     if let Some(initial_discount) = update.initial_discount {
+        //Enforce 1% - 10% discount
+        if initial_discount < Decimal::percent(1) || initial_discount > Decimal::percent(10) {
+            return Err(ContractError::CustomError { val: String::from("Invalid initial discount") });
+        }
         config.initial_discount = initial_discount;
     }
     if let Some(discount_increase_timeframe) = update.discount_increase_timeframe {
+        //Enforce 10 sec - 300 sec timeframe
+        if discount_increase_timeframe < 10 || discount_increase_timeframe > 300 {
+            return Err(ContractError::CustomError { val: String::from("Invalid discount increase timeframe") });
+        }
         config.discount_increase_timeframe = discount_increase_timeframe;
     }
     if let Some(discount_increase) = update.discount_increase {
+        //Enforce 1% - 5% discount
+        if discount_increase < Decimal::percent(1) || discount_increase > Decimal::percent(5) {
+            return Err(ContractError::CustomError { val: String::from("Invalid discount increase") });
+        }
         config.discount_increase = discount_increase;
     }
 

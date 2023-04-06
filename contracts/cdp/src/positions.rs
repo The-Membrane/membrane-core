@@ -1591,7 +1591,6 @@ pub fn edit_basket(
                     oracle_info: Some(AssetOracleInfo {
                         basket_id: basket.clone().basket_id,
                         osmosis_pools_for_twap: vec![credit_twap],
-                        static_price: None,
                     }),
                     remove: false,
                 })?,

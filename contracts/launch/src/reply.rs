@@ -617,7 +617,6 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                                     quote_asset_denom: config.clone().usdc_denom.to_string(),  
                                 },
                             ],
-                            static_price: None,
                         },
                     })?, 
                     funds: vec![],
@@ -635,7 +634,6 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                                 base_asset_denom: config.clone().osmo_denom.to_string(), 
                                 quote_asset_denom: config.clone().usdc_denom.to_string(),  
                             }],
-                            static_price: None,
                         },
                     })?, 
                     funds: vec![],
@@ -649,7 +647,6 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                         oracle_info: AssetOracleInfo { 
                             basket_id: Uint128::one(), 
                             osmosis_pools_for_twap: vec![],
-                            static_price: Some(Decimal::one()),
                         },
                     })?, 
                     funds: vec![],

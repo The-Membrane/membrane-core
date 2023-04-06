@@ -726,7 +726,7 @@ pub fn liquidate(
         attr("method", "liquidate"),
         attr(
             "leftover_repayment",
-            format!("{} {}", leftover, asset_pool.credit_asset.info),
+           leftover.to_string(),
         ),
     ]))
 }

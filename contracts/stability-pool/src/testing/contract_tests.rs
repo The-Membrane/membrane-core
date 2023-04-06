@@ -384,7 +384,7 @@ fn liquidate() {
         res.attributes,
         vec![
             attr("method", "liquidate"),
-            attr("leftover_repayment", "1 credit"),
+            attr("leftover_repayment", "1"),
         ]
     );
 
@@ -451,7 +451,7 @@ fn liquidate_bignums() {
         res.attributes,
         vec![
             attr("method", "liquidate"),
-            attr("leftover_repayment", "0 credit"),
+            attr("leftover_repayment", "0"),
         ]
     );
 

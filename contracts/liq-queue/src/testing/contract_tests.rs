@@ -69,7 +69,6 @@ fn update_config() {
     // update owner
     let msg = ExecuteMsg::UpdateConfig {
         owner: Some("owner0001".to_string()),
-        positions_contract: None,
         waiting_period: None,
         minimum_bid: None,
         maximum_waiting_bids: None,
@@ -100,7 +99,6 @@ fn update_config() {
     let info = mock_info("owner0001", &[]);
     let msg = ExecuteMsg::UpdateConfig {
         owner: None,
-        positions_contract: None,
         waiting_period: Some(100u64),
         minimum_bid: Some(Uint128::one()),
         maximum_waiting_bids: Some(10),
@@ -131,7 +129,6 @@ fn update_config() {
     let info = mock_info("owner0000", &[]);
     let msg = ExecuteMsg::UpdateConfig {
         owner: Some("addr0000".to_string()),
-        positions_contract: None,
         waiting_period: Some(60u64),
         minimum_bid: None,
         maximum_waiting_bids: None,
@@ -733,7 +730,7 @@ fn update_queue() {
             denom: "osmo".to_string(),
         },
         max_premium: Some(Uint128::new(20u128)),
-        bid_threshold: Some(Uint256::from(500_000_000u128)),
+        bid_threshold: Some(Uint256::from(5_000_000u128)),
     };
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -743,7 +740,7 @@ fn update_queue() {
     assert_eq!(queue_response.max_premium, Uint128::new(20u128));
     assert_eq!(
         queue_response.bid_threshold,
-        Uint256::from(500_000_000u128)
+        Uint256::from(5_000_000u128)
     );
 
     //Query Slots to Assert increase

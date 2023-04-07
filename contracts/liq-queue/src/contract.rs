@@ -3,14 +3,13 @@ use std::env;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, QueryRequest, Response,
-    StdResult, Uint128, WasmQuery,
+    attr, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response,
+    StdResult, Uint128, 
 };
 use cw2::set_contract_version;
 use membrane::liq_queue::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::{Decimal256, Uint256};
-use membrane::cdp::QueryMsg as CDP_QueryMsg;
-use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue, Basket};
+use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue};
 
 use crate::bid::{claim_liquidations, execute_liquidation, retract_bid, submit_bid};
 use crate::error::ContractError;
@@ -140,7 +139,6 @@ pub fn execute(
         } => edit_queue(deps, info, bid_for, max_premium, bid_threshold),
         ExecuteMsg::UpdateConfig {
             owner,
-            positions_contract,
             waiting_period,
             minimum_bid,
             maximum_waiting_bids,
@@ -148,7 +146,6 @@ pub fn execute(
             deps,
             info,
             owner,
-            positions_contract,
             waiting_period,
             minimum_bid,
             maximum_waiting_bids,
@@ -161,7 +158,6 @@ fn update_config(
     deps: DepsMut,
     info: MessageInfo,
     owner: Option<String>,
-    positions_contract: Option<String>,
     waiting_period: Option<u64>,
     minimum_bid: Option<Uint128>,
     maximum_waiting_bids: Option<u64>,
@@ -176,21 +172,6 @@ fn update_config(
 
     if owner.is_some() {
         config.owner = deps.api.addr_validate(&owner.unwrap())?;
-    }
-    if positions_contract.is_some() {
-        config.positions_contract = deps.api.addr_validate(&positions_contract.unwrap())?;
-
-        //Get bid_asset from Basket
-        let bid_asset = deps
-            .querier
-            .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.clone().positions_contract.to_string(),
-                msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
-            }))?
-            .credit_asset
-            .info;
-
-        config.bid_asset = bid_asset;
     }
     if waiting_period.is_some() {
         config.waiting_period = waiting_period.unwrap();

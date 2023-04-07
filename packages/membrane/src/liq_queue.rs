@@ -82,8 +82,6 @@ pub enum ExecuteMsg {
     UpdateConfig {
         /// Contract owner
         owner: Option<String>,
-        /// Positions contract address
-        positions_contract: Option<String>,
         /// Waiting period before bids are activated
         waiting_period: Option<u64>,
         /// Minimum bid amount

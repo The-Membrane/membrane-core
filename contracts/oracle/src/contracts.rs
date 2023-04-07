@@ -203,7 +203,7 @@ fn add_asset(
 
                 attrs.push(attr("added", "true"));
             } else {
-                attrs.push(attr("added", "false"));
+                return Err(ContractError::DuplicateOracle { basket_id: oracle_info.basket_id.to_string()});
             }
         }
     }

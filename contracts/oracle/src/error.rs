@@ -11,6 +11,9 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
+    #[error("Duplicate basket_id for this asset: {basket_id:?}")]
+    DuplicateOracle { basket_id: String },
+
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },
 }

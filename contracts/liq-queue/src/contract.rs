@@ -240,10 +240,11 @@ fn edit_queue(
                     residue_bid: Decimal256::zero(),
                 });
             }
-            
-            //Set new max premium
-            queue.max_premium = new_premium;
         }
+      
+            
+        //Set new max premium
+        queue.max_premium = new_premium;
 
     }
     if let Some(bid_threshold) = bid_threshold {

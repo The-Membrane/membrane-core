@@ -356,7 +356,7 @@ impl UpdateConfig {
         if let Some(cpc_multiplier) = self.cpc_multiplier {
             //Enforce 0-1k%
             if cpc_multiplier > Decimal::percent(10_00) || cpc_multiplier < Decimal::zero() {
-                return Err(StdError::GenericErr{ msg: "CPC multiplier must be between 0-10000%".to_string() });
+                return Err(StdError::GenericErr{ msg: "CPC multiplier must be between 0-1000%".to_string() });
             }
             config.cpc_multiplier = cpc_multiplier;
         }

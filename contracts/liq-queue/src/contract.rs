@@ -4,12 +4,13 @@ use std::env;
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response,
-    StdResult, Uint128, 
+    StdResult, Uint128, QueryRequest, WasmQuery, 
 };
 use cw2::set_contract_version;
+use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::liq_queue::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::{Decimal256, Uint256};
-use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue};
+use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue, Basket};
 
 use crate::bid::{claim_liquidations, execute_liquidation, retract_bid, submit_bid};
 use crate::error::ContractError;
@@ -46,16 +47,14 @@ pub fn instantiate(
     let positions_contract = deps.api.addr_validate(&msg.positions_contract)?;
     
     //Get bid_asset from Basket
-    // let bid_asset = deps
-    //     .querier
-    //     .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
-    //         contract_addr: positions_contract.to_string(),
-    //         msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
-    //     }))?
-    //     .credit_asset
-    //     .info;
-    //Comment out above and use below for testing
-    let bid_asset = AssetInfo::NativeToken { denom: String::from("cdt") };
+    let bid_asset = deps
+        .querier
+        .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: positions_contract.to_string(),
+            msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
+        }))?
+        .credit_asset
+        .info;
 
     if msg.owner.is_some() {
         config = Config {

@@ -341,6 +341,10 @@ impl UpdateConfig {
             config.base_debt_cap_multiplier = base_debt_cap_multiplier;
         }
         if let Some(oracle_time_limit) = self.oracle_time_limit {
+            //Assert oracle time limit is max the collateral_twap_timeframe
+            if oracle_time_limit > config.collateral_twap_timeframe * 60 {
+                return Err(StdError::GenericErr{ msg: "Oracle time limit ceiling is the collateral twap timeframe".to_string() });
+            }
             config.oracle_time_limit = oracle_time_limit;
         }
         if let Some(collateral_twap_timeframe) = self.collateral_twap_timeframe {

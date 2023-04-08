@@ -1273,6 +1273,12 @@ fn get_user_incentives(
 
         deposit
     }).collect::<Vec<Deposit>>();
+
+    //Return error if any
+    if let Some(err) = error {
+        return Err(err);
+    }
+
     //Set new deposits
     asset_pool.deposits = new_deposits;
 

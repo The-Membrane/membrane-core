@@ -370,17 +370,20 @@ fn get_asset_price(
     
 
     //////If AssetOracleInfo gets more fields we can just push those prices here////
+    
+    //Sort prices
+    oracle_prices.sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap());
 
     //Get Median price
-    let price = if oracle_prices.len() % 2 == 0 {
+    let median_price = if oracle_prices.len() % 2 == 0 {
         let median_index = oracle_prices.len() / 2;
 
-        //Add the two middle prices and divide by 2
-        decimal_division(oracle_prices[median_index].price + oracle_prices[median_index+1].price, Decimal::percent(2_00))?
+        //Add the two middle oracle_prices and divide by 2
+        decimal_division(oracle_prices[median_index].price + oracle_prices[median_index-1].price, Decimal::percent(2_00)).unwrap()
         
     } else if oracle_prices.len() != 1 {
         let median_index = oracle_prices.len() / 2;
-        oracle_prices[median_index + 1].price
+        oracle_prices[median_index].price
     } else {
         oracle_prices[0].price
     };
@@ -388,7 +391,7 @@ fn get_asset_price(
 
     Ok(PriceResponse {
         prices: oracle_prices,
-        price,
+        price: median_price,
     })
 }
 

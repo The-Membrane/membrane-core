@@ -4,7 +4,7 @@ mod tests {
     use crate::helpers::OracleContract;
 
     use membrane::oracle::{ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::types::{AssetInfo, AssetOracleInfo, TWAPPoolInfo};
+    use membrane::types::{AssetInfo, AssetOracleInfo, TWAPPoolInfo, PriceInfo};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
@@ -124,6 +124,7 @@ mod tests {
 
         use super::*;
         use membrane::oracle::{Config, AssetResponse, PriceResponse};
+        use membrane::math::decimal_division;
 
         #[test]
         fn add_edit() {
@@ -329,6 +330,83 @@ mod tests {
         //         .unwrap();
         //     assert_eq!(price.price, Decimal::one());
         // }
+
+        #[test]
+        fn median_test() {
+            //Create a vector of PriceInfo
+            let mut prices: Vec<PriceInfo> = vec![];
+            prices.push(PriceInfo {
+                price: Decimal::from_ratio(3u128, 1u128),
+                source: String::from("osmosis"),
+            });
+
+            prices.sort_by(|a, b| a.price.cmp(&b.price));
+                        
+            //Get Median price
+            let median_price = if prices.len() % 2 == 0 {
+                let median_index = prices.len() / 2;
+
+                //Add the two middle prices and divide by 2
+                decimal_division(prices[median_index].price + prices[median_index-1].price, Decimal::percent(2_00)).unwrap()
+                
+            } else if prices.len() != 1 {
+                let median_index = prices.len() / 2;
+                prices[median_index].price
+            } else {
+                prices[0].price
+            };
+
+            assert_eq!(median_price, Decimal::from_ratio(3u128, 1u128));
+
+            //Add another price
+            prices.push(PriceInfo {
+                price: Decimal::from_ratio(2u128, 1u128),
+                source: String::from("osmosis"),
+            });
+
+            prices.sort_by(|a, b| a.price.cmp(&b.price));
+                        
+            //Get Median price
+            let median_price = if prices.len() % 2 == 0 {
+                let median_index = prices.len() / 2;
+
+                //Add the two middle prices and divide by 2
+                decimal_division(prices[median_index].price + prices[median_index-1].price, Decimal::percent(2_00)).unwrap()
+                
+            } else if prices.len() != 1 {
+                let median_index = prices.len() / 2;
+                prices[median_index].price
+            } else {
+                prices[0].price
+            };
+
+            //Median should be 2.5 from 2 and 3
+            assert_eq!(median_price, Decimal::from_ratio(5u128, 2u128));
+
+            //Add another price
+            prices.push(PriceInfo {
+                price: Decimal::from_ratio(1u128, 2u128),
+                source: String::from("osmosis"),
+            });
+
+            prices.sort_by(|a, b| a.price.cmp(&b.price));
+                        
+            //Get Median price
+            let median_price = if prices.len() % 2 == 0 {
+                let median_index = prices.len() / 2;
+
+                //Add the two middle prices and divide by 2
+                decimal_division(prices[median_index].price + prices[median_index-1].price, Decimal::percent(2_00)).unwrap()
+                
+            } else if prices.len() != 1 {
+                let median_index = prices.len() / 2;
+                prices[median_index].price
+            } else {
+                prices[0].price
+            };
+
+            assert_eq!(median_price, Decimal::from_ratio(2u128, 1u128));
+        }
 
         #[test]
         fn update_config() {

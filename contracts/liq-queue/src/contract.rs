@@ -55,7 +55,7 @@ pub fn instantiate(
         }))?
         .credit_asset
         .info;
-
+    
     if msg.owner.is_some() {
         config = Config {
             owner: deps.api.addr_validate(&msg.owner.unwrap())?,

@@ -33,6 +33,12 @@ pub fn submit_bid(
 
     let valid_owner_addr = validate_position_owner(deps.api, info.clone(), bid_owner)?;
 
+    let mut attrs = vec![
+        attr("method", "deposit"),
+        attr("bid_owner", valid_owner_addr.to_string()),
+        attr("bid_input", bid_input.to_string()),
+    ];
+
     validate_bid_input(deps.storage, bid_input.clone())?;
     let mut queue: Queue = QUEUES.load(deps.storage, bid_input.bid_for.to_string())?;
 
@@ -63,26 +69,73 @@ pub fn submit_bid(
                 epoch_snapshot: Uint128::zero(),
                 scale_snapshot: Uint128::zero(),
             };
-
+            
             //Increment bid_id
             queue.current_bid_id += Uint128::new(1u128);
 
             //Add to total_queue_amount and total_slot_amount if below bid_threshold
             if slot.total_bid_amount <= queue.bid_threshold {
-                queue.bid_asset.amount += bid_asset.amount;
-                slot.total_bid_amount += bid.amount;
+                //If the whole bid + the current bid total is less than the bid threshold, activate the whole bid
+                if slot.total_bid_amount + bid.amount <= queue.bid_threshold {
+                    //Add active bid amounts to the queue and slot
+                    queue.bid_asset.amount += bid_asset.amount;
+                    slot.total_bid_amount += bid.amount;
+
+                    process_bid_activation(&mut bid, &mut slot);
                 
-                process_bid_activation(&mut bid, &mut slot);
+                    //Add bid to active bids
+                    slot.bids.push(bid.clone());    
+
+                    //Set the (remaining) bid to 0 which will skip the waiting queue logic
+                    bid.amount = Uint256::zero();
+
+                    attrs.extend(vec![
+                        attr("bid_id", bid.id.to_string()),
+                        attr("bid", bid_asset.amount.to_string()),
+                    ]);
+
+                } else { //Activate the amount within the bid threshold and send the rest to the waiting queue
+                    let mut amount_sent_to_wait = slot.total_bid_amount + bid.amount - queue.bid_threshold;
+                    
+                    //Create clone for the active bid
+                    let mut bid_clone = bid.clone();
+
+                    //If the waiting amount isn't going to be at least the minimum bid, activate the whole bid
+                    if amount_sent_to_wait >= config.minimum_bid.into(){                        
+                        //Set the clone to the remaining active amount
+                        bid_clone.amount = bid.amount - amount_sent_to_wait;
+
+                        //Update bid_id to reflect the clone and increment
+                        bid.id = queue.current_bid_id;
+                        queue.current_bid_id += Uint128::new(1u128);    
+
+                    } else { amount_sent_to_wait = Uint256::zero() }
+
+                    //Add active bid amounts to the queue and slot
+                    queue.bid_asset.amount += bid_asset.amount - Uint128::new(u128::from(amount_sent_to_wait));
+                    slot.total_bid_amount += bid_clone.amount;
+
+                    process_bid_activation(&mut bid_clone, &mut slot);
+
+                    attrs.push(attr("bid_id", bid_clone.id.to_string()));
+                    attrs.push(attr("bid", (bid_asset.amount- Uint128::new(u128::from(amount_sent_to_wait))).to_string()));
                 
-                //Add bid to active bids
-                slot.bids.push(bid);    
-            } else {
+                    //Add bid_clone to active bids
+                    slot.bids.push(bid_clone);    
+
+                    //Set the (remaining) bid to the amount to send to the waiting queue
+                    bid.amount = amount_sent_to_wait;
+                }  
+            } 
+            
+            //Set the (remaining) bid to waiting 
+            if bid.amount >= config.minimum_bid.into() && !bid.amount.is_zero() {
                 //Set wait time
                 // calculate wait_end from current time
                 bid.wait_end = Some(env.block.time.plus_seconds(config.waiting_period).seconds());
 
                 //Add bid to waiting bids           
-                slot.waiting_bids.push(bid);
+                slot.waiting_bids.push(bid.clone());
 
                 //Enforce maximum number of waiting bids
                 if slot.waiting_bids.len() > config.maximum_waiting_bids as usize {
@@ -90,6 +143,11 @@ pub fn submit_bid(
                         max_waiting_bids: config.maximum_waiting_bids,
                     });
                 }
+
+                attrs.extend(vec![
+                    attr("bid_id", bid.id.to_string()),
+                    attr("bid", bid.amount.to_string()),
+                ]);
             }
 
             slot
@@ -118,13 +176,9 @@ pub fn submit_bid(
 
     //Response build
     let response = Response::new();
+    
 
-    Ok(response.add_attributes(vec![
-        attr("method", "deposit"),
-        attr("bid_owner", valid_owner_addr.to_string()),
-        attr("bid_input", bid_input.to_string()),
-        attr("bid", bid_asset.to_string()),
-    ]))
+    Ok(response.add_attributes(attrs))
 }
 
 /// Activate bid
@@ -1074,7 +1128,7 @@ pub fn read_bid(deps: &dyn Storage, bid_id: Uint128, bid_for: AssetInfo) -> StdR
                 //Check in waiting bids
                 match slot.waiting_bids.into_iter().find(|bid| bid.id.eq(&bid_id)) {
                     Some(bid) => read_bid = Some(bid),
-                    None => {}
+                    None => { }
                 }
             }
         }

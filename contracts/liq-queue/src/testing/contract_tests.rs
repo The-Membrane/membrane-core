@@ -165,7 +165,7 @@ fn submit_bid() {
             denom: "osmo".to_string(),
         },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
-        bid_threshold: Uint256::from(1_000_000_000u128),
+        bid_threshold: Uint256::from(1_000_000u128),
     };
     let info = mock_info("owner0000", &[]);
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -293,6 +293,7 @@ fn submit_bid() {
     assert_eq!(err, ContractError::InvalidPremium {});
 
     // AddQueue w/ no bid threshold, i.e. bids go straight to waiting
+    //Used to test waiting bid cap
     let queue_msg = ExecuteMsg::AddQueue {
         bid_for: AssetInfo::NativeToken {
             denom: "not_osmo".to_string(),
@@ -316,18 +317,24 @@ fn submit_bid() {
         "addr0000",
         &[Coin {
             denom: "cdt".to_string(),
-            amount: Uint128::from(1000000u128),
+            amount: Uint128::from(1_000_000u128),
         }],
     );
-    //To get past the bid_threshold check
-    let res = execute(deps.as_mut(), mock_env(), info.clone(), waiting_msg.clone()).unwrap();
+    //Error during bid for the queue with no threshold
     let err = execute(deps.as_mut(), mock_env(), info.clone(), waiting_msg).unwrap_err();
     assert_eq!(err, ContractError::TooManyWaitingBids { max_waiting_bids: 0 });
 
-    //Successful Bid
+    //Successful Bid for the queue with a threshold
     let env = mock_env();
     let wait_end = env.block.time.plus_seconds(60u64);
-    execute(deps.as_mut(), env, info, msg).unwrap();
+    let info = mock_info(
+        "addr0000",
+        &[Coin {
+            denom: "cdt".to_string(),
+            amount: Uint128::from(1_000_001u128),
+        }],
+    );
+    execute(deps.as_mut(), env, info, msg.clone()).unwrap();
 
    
     let bid_response: BidResponse = from_binary(
@@ -345,17 +352,123 @@ fn submit_bid() {
     )
     .unwrap();
 
+    //This should have 1_000_001 bc the remaining would've been below the minimum bid amount
     assert_eq!(
         bid_response,
         BidResponse {
             id: Uint128::from(1u128),
             user: "addr0000".to_string(),
-            amount: Uint256::from(1000000u128),
+            amount: Uint256::from(1000001u128),
             liq_premium: 10u8,
             product_snapshot: Decimal256::one(),
             sum_snapshot: Decimal256::zero(),
             pending_liquidated_collateral: Uint256::zero(),
             wait_end: None,
+            epoch_snapshot: Uint128::zero(),
+            scale_snapshot: Uint128::zero(),
+        }
+    );
+
+    //Add new queue
+    let queue_msg = ExecuteMsg::AddQueue {
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo_again".to_string(),
+        },
+        max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
+        bid_threshold: Uint256::from(1_000_000u128),
+    };
+    let info = mock_info("owner0000", &[]);
+    execute(deps.as_mut(), mock_env(), info, queue_msg).unwrap();
+
+    //Change config to allow 1 waiting bid
+    let config_msg = ExecuteMsg::UpdateConfig {
+        maximum_waiting_bids: Some(1),
+        owner: None,
+        waiting_period: None,
+        minimum_bid: None,
+        
+    };
+    let info = mock_info("owner0000", &[]);
+    execute(deps.as_mut(), mock_env(), info, config_msg).unwrap();
+
+    //Successful Bid that should create 1 active and 1 waiting bid at the minimum bid amount
+    let msg = ExecuteMsg::SubmitBid {
+        bid_input: BidInput {
+            bid_for: AssetInfo::NativeToken {
+                denom: "osmo_again".to_string(),
+            },
+            liq_premium: 10u8,
+        },
+        bid_owner: None,
+    };
+    let env = mock_env();
+    let wait_end = env.block.time.plus_seconds(60u64);
+    let info = mock_info(
+        "addr0000",
+        &[Coin {
+            denom: "cdt".to_string(),
+            amount: Uint128::from(1_000_002u128),
+        }],
+    );
+    let res = execute(deps.as_mut(), env, info, msg).unwrap();
+
+    let bid_response: BidResponse = from_binary(
+        &query(
+            deps.as_ref(),
+            mock_env(),
+            QueryMsg::Bid {
+                bid_for: AssetInfo::NativeToken {
+                    denom: "osmo_again".to_string(),
+                },
+                bid_id: Uint128::from(1u128),
+            },
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        bid_response,
+        BidResponse {
+            id: Uint128::from(1u128),
+            user: "addr0000".to_string(),
+            amount: Uint256::from(1_000_000u128),
+            liq_premium: 10u8,
+            product_snapshot: Decimal256::one(),
+            sum_snapshot: Decimal256::zero(),
+            pending_liquidated_collateral: Uint256::zero(),
+            wait_end: None,
+            epoch_snapshot: Uint128::zero(),
+            scale_snapshot: Uint128::zero(),
+        }
+    );
+
+    let bid_response: BidResponse = from_binary(
+        &query(
+            deps.as_ref(),
+            mock_env(),
+            QueryMsg::Bid {
+                bid_for: AssetInfo::NativeToken {
+                    denom: "osmo_again".to_string(),
+                },
+                bid_id: Uint128::from(2u128),
+            },
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        bid_response,
+        BidResponse {
+            id: Uint128::from(2u128),
+            user: "addr0000".to_string(),
+            amount: Uint256::from(2u128),
+            liq_premium: 10u8,
+            product_snapshot: Decimal256::one(),
+            sum_snapshot: Decimal256::zero(),
+            pending_liquidated_collateral: Uint256::zero(),
+            wait_end: Some(1571797479),
             epoch_snapshot: Uint128::zero(),
             scale_snapshot: Uint128::zero(),
         }

@@ -229,6 +229,7 @@ pub fn liquidate(
             .add_messages(lp_withdraw_msgs)
             .add_messages(sell_wall_msgs)
             .add_messages(caller_fee_messages)
+            .add_message(protocol_fee_msg)
             .add_submessages(submessages)
             .add_submessage(call_back)
             .add_attributes(vec![

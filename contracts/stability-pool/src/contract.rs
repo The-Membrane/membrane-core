@@ -1225,7 +1225,7 @@ fn get_user_incentives(
     mut asset_pool: AssetPool,
     rate: Decimal,
 ) -> StdResult<Uint128>{
-    let mut total_incentives = Uint128::zero();
+    let mut total_user_incentives = Uint128::zero();
     let mut error: Option<StdError> = None;
 
     //Calc and add new_incentives
@@ -1240,7 +1240,7 @@ fn get_user_incentives(
     
                     if time_elapsed != 0 {
                         //Add accrued incentives
-                        total_incentives += match accumulate_interest(stake, rate, time_elapsed){
+                        total_user_incentives += match accumulate_interest(stake, rate, time_elapsed){
                             Ok(incentives) => incentives,
                             Err(err) => {
                                 error = Some(err);
@@ -1257,7 +1257,7 @@ fn get_user_incentives(
     
                     if time_elapsed != 0 {
                         //Add accrued incentives
-                        total_incentives += match accumulate_interest(stake, rate, time_elapsed){
+                        total_user_incentives += match accumulate_interest(stake, rate, time_elapsed){
                             Ok(incentives) => incentives,
                             Err(err) => {
                                 error = Some(err);
@@ -1279,7 +1279,18 @@ fn get_user_incentives(
     //Save pool
     ASSET.save( storage, &asset_pool )?;
 
-    Ok(total_incentives)
+    let mut total_incentives = INCENTIVES.load(storage)?;
+    let config = CONFIG.load(storage)?;
+    //Assert that incentives aren't over max, set to remaining cap if so.
+    if total_incentives + total_user_incentives > config.max_incentives {
+        total_user_incentives = config.max_incentives - total_incentives;
+        INCENTIVES.save(storage, &config.max_incentives)?;
+    } else {
+        total_incentives += total_user_incentives;
+        INCENTIVES.save(storage, &total_incentives)?;
+    }
+
+    Ok(total_user_incentives)
 }
 
 

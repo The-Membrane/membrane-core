@@ -574,9 +574,6 @@ pub fn repay(
     let mut messages = vec![];
     let mut excess_repayment = Uint128::zero();
 
-    //Assert that the correct credit_asset was sent
-    assert_credit_asset(basket.clone(), credit_asset.clone())?;
-
     //Repay amount sent
     target_position.credit_amount = match target_position.credit_amount.checked_sub(credit_asset.amount){
         Ok(difference) => difference,
@@ -1987,27 +1984,6 @@ pub fn read_price(
     let key = asset_token.to_string();
     let price_bucket: Item<StoredPrice> = Item::new(&key);
     price_bucket.load(storage)
-}
-
-/// Asserts that the credit asset is equal to the basket's credit asset
-fn assert_credit_asset(
-    basket: Basket,
-    credit_asset: Asset,
-)-> Result<(), ContractError>{
-    match credit_asset.info {
-        AssetInfo::Token { address: _ } => { return Err(ContractError::InvalidCredit {}) },
-        AssetInfo::NativeToken { denom: submitted_denom } => {
-            if let AssetInfo::NativeToken { denom } = basket.credit_asset.info {
-                if submitted_denom != denom {
-                    return Err(ContractError::InvalidCredit {})
-                }
-            } else {
-                return Err(ContractError::InvalidCredit {})
-            }
-        }
-    }
-
-    Ok(())
 }
 
 /// Checks if any cAsset amount is zero

@@ -990,7 +990,7 @@ fn check_debt_increase_state(
 
     //Assert that credit_amount is equal to the origin + what was added
     if target_position.credit_amount != prev_credit_amount + increase_amount {
-        return Err(ContractError::CustomError { val: String::from("Conditional 1: Possible state error") })
+        return Err(ContractError::CustomError { val: String::from("Conditional 1: increase_debt() state error found, saved credit_amount higher than desired.") })
     }
 
     Ok(())

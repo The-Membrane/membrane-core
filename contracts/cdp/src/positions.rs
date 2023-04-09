@@ -1641,7 +1641,13 @@ pub fn mint_revenue(
 ) -> Result<Response, ContractError> {
     
     //Can't send_to and repay_for at the same time
-    if send_to.is_some() && repay_for.is_some() || send_to.is_none() && repay_for.is_none(){
+    if send_to.is_some() && repay_for.is_some() {
+        return Err(ContractError::CustomError {
+            val: String::from("Can't send_to and repay_for at the same time"),
+        });
+    }
+    //There must be at least 1 destination address
+    if send_to.is_none() && repay_for.is_none(){
         return Err(ContractError::CustomError {
             val: String::from("Destination address is required"),
         });

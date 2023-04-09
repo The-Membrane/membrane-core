@@ -402,6 +402,14 @@ fn get_asset_prices(
     asset_infos: Vec<AssetInfo>,
     twap_timeframe: u64,
 ) -> StdResult<Vec<PriceResponse>> {
+
+    //Enforce Vec max size
+    if asset_infos.len() > 50 {
+        return Err(StdError::GenericErr {
+            msg: String::from("Max asset_infos length is 50"),
+        });
+    }
+
     let mut price_responses = vec![];
 
     for asset in asset_infos {

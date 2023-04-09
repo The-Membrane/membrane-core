@@ -1254,6 +1254,7 @@ pub fn create_basket(
                     msg: to_binary(&LQ_ExecuteMsg::AddQueue {
                         bid_for: asset.clone().asset.info,
                         max_premium,
+                        //Bid total before bids go to the waiting queue
                         bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
                     })?,
                     funds: vec![],

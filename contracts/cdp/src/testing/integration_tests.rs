@@ -1,6 +1,8 @@
 
 mod tests {
 
+    use std::str::FromStr;
+
     use crate::helpers::{CDPContract, LQContract};
 
     use membrane::apollo_router::SwapToAssetsInput;
@@ -1597,6 +1599,8 @@ mod tests {
             debt_minimum: Uint128::new(2000u128),
             collateral_twap_timeframe: 60u64,
             credit_twap_timeframe: 480u64,
+            rate_slope_multiplier: Decimal::from_str("0.618").unwrap(),
+            base_debt_cap_multiplier: Uint128::new(21u128),
         };
         let cdp_contract_addr = app
             .instantiate_contract(cdp_id, Addr::unchecked(ADMIN), &msg, &[], "test", None)

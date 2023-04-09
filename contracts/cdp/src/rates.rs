@@ -14,6 +14,7 @@ use crate::state::{CONFIG, BASKET, get_target_position, update_position};
 
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
+const MINIMUM_LIQUIDITY: Uint128 = Uint128::new(2_000_000_000_000u128);
 
 /// Accrue interest for a list of Positions
 pub fn external_accrue_call(
@@ -384,7 +385,8 @@ pub fn accrue(
             Decimal::one()        
         }
     };
-    if liquidity_ratio < Decimal::percent(3) || liquidity < Uint128::new(2_000_000_000_000u128){
+    //If liquidity is low, skip accrual
+    if liquidity_ratio < Decimal::percent(3) || liquidity < MINIMUM_LIQUIDITY{
         //Set time_elapsed to 0 to skip repayment accrual
         time_elapsed = 0u64;
     }

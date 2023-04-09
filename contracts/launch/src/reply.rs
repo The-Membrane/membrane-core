@@ -1,4 +1,5 @@
 use std::convert::TryInto;
+use std::str::FromStr;
 
 use cosmwasm_std::{
     to_binary, Decimal, DepsMut, Env, WasmMsg, WasmQuery,
@@ -534,6 +535,8 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     debt_minimum: Uint128::new(2000_000_000u128),
                     collateral_twap_timeframe: 60u64,
                     credit_twap_timeframe: 480u64,
+                    rate_slope_multiplier: Decimal::from_str("0.618").unwrap(),
+                    base_debt_cap_multiplier: Uint128::new(21u128),
                     stability_pool: None,
                     dex_router: Some(config.clone().apollo_router.to_string()),
                     staking_contract: Some(addrs.clone().staking.to_string()),

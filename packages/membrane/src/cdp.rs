@@ -21,7 +21,11 @@ pub struct InstantiateMsg {
     /// Timeframe for Collateral TWAPs in minutes
     pub collateral_twap_timeframe: u64, 
     /// Timeframe for Credit TWAP in minutes
-    pub credit_twap_timeframe: u64,     
+    pub credit_twap_timeframe: u64,    
+    /// Interest rate slope multiplier
+    pub rate_slope_multiplier: Decimal, 
+    /// Base debt cap multiplier
+    pub base_debt_cap_multiplier: Uint128,
     /// Stability Pool contract
     pub stability_pool: Option<String>,
     /// Apollo DEX Router contract

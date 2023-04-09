@@ -1,5 +1,4 @@
 use std::env;
-use std::str::FromStr;
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
@@ -63,9 +62,9 @@ pub fn instantiate(
         discounts_contract: None,
         oracle_time_limit: msg.oracle_time_limit,
         cpc_multiplier: Decimal::one(), 
-        rate_slope_multiplier: Decimal::from_str("0.618").unwrap(),
+        rate_slope_multiplier: msg.rate_slope_multiplier,
         debt_minimum: msg.debt_minimum,
-        base_debt_cap_multiplier: Uint128::new(21u128),
+        base_debt_cap_multiplier: msg.base_debt_cap_multiplier,
         collateral_twap_timeframe: msg.collateral_twap_timeframe,
         credit_twap_timeframe: msg.credit_twap_timeframe,
     };

@@ -1254,8 +1254,9 @@ pub fn create_basket(
                     msg: to_binary(&LQ_ExecuteMsg::AddQueue {
                         bid_for: asset.clone().asset.info,
                         max_premium,
-                        //Bid total before bids go to the waiting queue
-                        bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
+                        //Bid total before bids go to the waiting queue. 
+                        //Threshold should be larger than the largest single liquidation amount to prevent waiting bids from causing InsufficientBids errors.
+                        bid_threshold: Uint256::from(10_000_000_000_000u128), //10 million
                     })?,
                     funds: vec![],
                 }));
@@ -1517,7 +1518,9 @@ pub fn edit_basket(
                 msg: to_binary(&LQ_ExecuteMsg::AddQueue {
                     bid_for: new_cAsset.clone().asset.info,
                     max_premium,
-                    bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
+                    //Bid total before bids go to the waiting queue. 
+                    //Threshold should be larger than the largest single liquidation amount to prevent waiting bids from causing InsufficientBids errors.
+                    bid_threshold: Uint256::from(10_000_000_000_000u128), //10 million
                 })?,
                 funds: vec![],
             }));
@@ -1537,7 +1540,9 @@ pub fn edit_basket(
                 msg: to_binary(&LQ_ExecuteMsg::AddQueue {
                     bid_for: new_cAsset.clone().asset.info,
                     max_premium,
-                    bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
+                    //Bid total before bids go to the waiting queue. 
+                    //Threshold should be larger than the largest single liquidation amount to prevent waiting bids from causing InsufficientBids errors.
+                    bid_threshold: Uint256::from(10_000_000_000_000u128), //10 million
                 })?,
                 funds: vec![],
             }));

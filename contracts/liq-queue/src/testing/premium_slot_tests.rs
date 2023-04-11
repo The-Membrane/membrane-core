@@ -446,7 +446,7 @@ fn one_user_two_slots() {
             denom: "osmo".to_string(),
         },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
-        bid_threshold: Uint256::zero(),
+        bid_threshold: Uint256::from(5_000_000_000_000u128),
     };
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -595,7 +595,7 @@ fn completely_empty_pool() {
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
-        maximum_waiting_bids: 100u64,
+        maximum_waiting_bids: 10u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -606,7 +606,7 @@ fn completely_empty_pool() {
             denom: "osmo".to_string(),
         },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
-        bid_threshold: Uint256::zero(),
+        bid_threshold: Uint256::from(5_000_000_000_000u128),
     };
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -671,7 +671,7 @@ fn completely_empty_pool() {
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: BidResponse = from_binary(&res).unwrap();
-    assert!(!resp.product_snapshot.is_zero(),);
+    assert!(!resp.product_snapshot.is_zero());
     assert!(resp.epoch_snapshot == Uint128::from(1u128)); // epoch increased
 
     let msg = QueryMsg::PremiumSlot {
@@ -769,7 +769,7 @@ fn product_truncated_to_zero() {
         positions_contract: String::from("positions_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
-        maximum_waiting_bids: 100u64,
+        maximum_waiting_bids: 2u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -780,7 +780,7 @@ fn product_truncated_to_zero() {
             denom: "osmo".to_string(),
         },
         max_premium: Uint128::new(30u128), //A slot for each premium is created when queue is created
-        bid_threshold: Uint256::from(10000u128),
+        bid_threshold: Uint256::from(10_000_000_000u128),
     };
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -893,7 +893,7 @@ fn two_bidder_distribution_multiple_common_slots() {
             denom: "osmo".to_string(),
         },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
-        bid_threshold: Uint256::zero(),
+        bid_threshold: Uint256::from(5_000_000_000_000u128),
     };
 
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -1092,7 +1092,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
             denom: "osmo".to_string(),
         },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
-        bid_threshold: Uint256::zero(),
+        bid_threshold: Uint256::from(5_000_000_000_000u128),
     };
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 

@@ -103,7 +103,7 @@ pub struct Queue {
     pub slots: Vec<PremiumSlot>,
     /// Current bid ID
     pub current_bid_id: Uint128,
-    /// Minimum bid amount in the queue before waiting period is set to 0
+    /// Minimum bid amount in the queue before waiting period is set to 0. Threshold should be larger than the largest single liquidation amount.
     pub bid_threshold: Uint256,
 }
 

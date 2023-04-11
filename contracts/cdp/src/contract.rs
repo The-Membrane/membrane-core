@@ -49,6 +49,8 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
 
+
+
     let mut config = Config {
         liq_fee: msg.liq_fee,
         owner: info.sender,

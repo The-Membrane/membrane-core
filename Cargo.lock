@@ -208,7 +208,7 @@ dependencies = [
  "serde-json-wasm",
  "sha2 0.10.6",
  "thiserror",
- "uint",
+ "uint 0.9.5",
 ]
 
 [[package]]
@@ -708,6 +708,7 @@ dependencies = [
  "schemars",
  "serde",
  "thiserror",
+ "uint 0.8.5",
 ]
 
 [[package]]
@@ -752,7 +753,6 @@ dependencies = [
 name = "membrane"
 version = "0.1.0"
 dependencies = [
- "bigint",
  "cosmwasm-schema",
  "cosmwasm-std",
  "cosmwasm-storage",
@@ -766,6 +766,7 @@ dependencies = [
  "schemars",
  "serde",
  "thiserror",
+ "uint 0.8.5",
 ]
 
 [[package]]
@@ -1100,6 +1101,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustc-hex"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e75f6a532d0fd9f7f13144f392b6ad56a32696bfcd9c78f797f16bbb6f072d6"
+
+[[package]]
 name = "ryu"
 version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1338,6 +1345,18 @@ name = "typenum"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "497961ef93d974e23eb6f433eb5fe1b7930b659f06d12dec6fc44a8f554c0bba"
+
+[[package]]
+name = "uint"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9db035e67dfaf7edd9aebfe8676afcd63eed53c8a4044fed514c8cccf1835177"
+dependencies = [
+ "byteorder",
+ "crunchy 0.2.2",
+ "rustc-hex",
+ "static_assertions",
+]
 
 [[package]]
 name = "uint"

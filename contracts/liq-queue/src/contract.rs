@@ -30,6 +30,7 @@ use crate::state::{CONFIG, QUEUES};
 // - Removed bid_with, instead saving the bid_asset from the Positions contract
 // - Added minimum_bid amount & maximum_waiting_bids to config
 // - Created a separate Vector for PremiumSlot waiting bids
+// - Submitted bids on the (bid) threshold get split into 1 active bid & 1 waiting bid
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:liq-queue";

@@ -1256,7 +1256,7 @@ pub fn create_basket(
                         max_premium,
                         //Bid total before bids go to the waiting queue. 
                         //Threshold should be larger than the largest single liquidation amount to prevent waiting bids from causing InsufficientBids errors.
-                        bid_threshold: Uint256::from(10_000_000_000_000u128), //10 million
+                        bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
                     })?,
                     funds: vec![],
                 }));
@@ -1520,7 +1520,7 @@ pub fn edit_basket(
                     max_premium,
                     //Bid total before bids go to the waiting queue. 
                     //Threshold should be larger than the largest single liquidation amount to prevent waiting bids from causing InsufficientBids errors.
-                    bid_threshold: Uint256::from(10_000_000_000_000u128), //10 million
+                    bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
                 })?,
                 funds: vec![],
             }));
@@ -1542,7 +1542,7 @@ pub fn edit_basket(
                     max_premium,
                     //Bid total before bids go to the waiting queue. 
                     //Threshold should be larger than the largest single liquidation amount to prevent waiting bids from causing InsufficientBids errors.
-                    bid_threshold: Uint256::from(10_000_000_000_000u128), //10 million
+                    bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
                 })?,
                 funds: vec![],
             }));

@@ -78,8 +78,9 @@ mod tests {
                         amount,
                         mint_to_address,
                     } => {
-                        if amount != Uint128::new(8_219) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1") {
-                            panic!("MintTokens called with incorrect parameters");
+                        if (amount != Uint128::new(8_219) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1")) 
+                        && (amount != Uint128::new(8) || denom != String::from("mbrn_denom") || mint_to_address != String::from("contract3")){
+                            panic!("MintTokens called with incorrect parameters, {}, {}, {}", amount, denom, mint_to_address);
                         }
                         Ok(Response::default())
                     }
@@ -240,7 +241,7 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked("coin_God"),
-                vec![coin(100_000_000, "debit"), coin(100_000_000, "2nddebit")],
+                vec![coin(100_000_000, "debit"), coin(100_000_000, "2nddebit"), coin(100_000_000, "mbrn_denom")]
             )
             .unwrap();
             bank.init_balance(
@@ -331,7 +332,7 @@ mod tests {
     #[cfg(test)]
     mod staking {
         use super::*;
-        use membrane::staking::TotalStakedResponse;
+        use membrane::staking::{TotalStakedResponse, StakerResponse};
         
         #[test]
         fn deposit_fee_and_claim() {
@@ -433,6 +434,42 @@ mod tests {
             let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap_err();
 
+            //User stake before Restake
+            let resp_before: StakerResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    staking_contract.addr(),
+                    &QueryMsg::UserStake { staker: String::from("user_1") },
+                )
+                .unwrap();
+
+            //Add staking rewards
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(86_400u64 * 30u64), //Added 30 days
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Claim As Native: Restake
+            let claim_msg = ExecuteMsg::ClaimRewards {
+                claim_as_native: None,
+                send_to: None,
+                restake: true,
+            };
+            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
+
+            //User stake after Restake
+            let resp_after: StakerResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    staking_contract.addr(),
+                    &QueryMsg::UserStake { staker: String::from("user_1") },
+                )
+                .unwrap();
+
+            //Assert that the stake was restaked
+            assert_eq!(resp_before.total_staked + Uint128::new(8), resp_after.total_staked);
         }
 
         #[test]

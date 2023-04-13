@@ -889,6 +889,7 @@ pub fn claim_rewards(
     let accrued_interest: Uint128;
     let user_claimables: Vec<Asset>;
 
+    //Get user claim msgs and accrued interest
     (messages, user_claimables, accrued_interest) = user_claims(
         deps.storage,
         deps.api,
@@ -905,14 +906,14 @@ pub fn claim_rewards(
         if info.sender != config.clone().vesting_contract.unwrap_or_else(|| Addr::unchecked("")) && !accrued_interest.is_zero() {
             //Who to send to?
             if send_to.is_some() {
-                let valid_receipient = deps.api.addr_validate(&send_to.clone().unwrap())?;
+                let valid_recipient = deps.api.addr_validate(&send_to.clone().unwrap())?;
 
                 let message = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
                     msg: to_binary(&OsmoExecuteMsg::MintTokens {
                         denom: config.mbrn_denom,
                         amount: accrued_interest,
-                        mint_to_address: valid_receipient.to_string(),
+                        mint_to_address: valid_recipient.to_string(),
                     })?,
                     funds: vec![],
                 });
@@ -1110,13 +1111,32 @@ fn user_claims(
 
     //If we are claiming the available assets without swaps
     if claim_as_native.is_none() {
-        for asset in user_claimables.clone() {
-            if send_to.clone().is_none() {
-                messages.push(withdrawal_msg(asset, info.clone().sender)?);
-            } else {
-                let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
-                messages.push(withdrawal_msg(asset, valid_receipient)?);
-            }
+        //If we are sending to the sender
+        if send_to.clone().is_none() {                
+            //Send to sender
+            let rewards_msgs = create_rewards_msgs(
+                config.clone(), 
+                user_claimables.clone(), 
+                Uint128::zero(), //Dont send interest here
+                info.clone().sender.to_string(), 
+                vec![],
+            )?;
+            
+            return Ok((rewards_msgs, user_claimables, accrued_interest))
+        } else {
+            //Validate recipient
+            let valid_recipient = api.addr_validate(&send_to.clone().unwrap())?;
+
+            //Send to recipient
+            let rewards_msgs = create_rewards_msgs(
+                config.clone(), 
+                user_claimables.clone(), 
+                Uint128::zero(), //Dont send interest here
+                valid_recipient.to_string(), 
+                vec![],
+            )?;
+
+            return Ok((rewards_msgs, user_claimables, accrued_interest))
         }
     } else if dex_router.is_some() {
         //Router usage
@@ -1128,8 +1148,8 @@ fn user_claims(
                     //Swap to native before sending or depositing
                     if claim_as_native.is_some() {
                         if send_to.clone().is_some() {
-                            //Send to Optional receipient
-                            let valid_receipient = api.addr_validate(&send_to.clone().unwrap())?;
+                            //Send to Optional recipient
+                            let valid_recipient = api.addr_validate(&send_to.clone().unwrap())?;
                             //Create Native Router SwapMsgs
                             let swap_hook = RouterExecuteMsg::Swap {
                                 to: SwapToAssetsInput::Single(AssetInfo::NativeToken {
@@ -1141,7 +1161,7 @@ fn user_claims(
                                         .max_spread
                                         .unwrap_or_else(|| Decimal::percent(10)),
                                 ),
-                                recipient: Some(valid_receipient.to_string()),
+                                recipient: Some(valid_recipient.to_string()),
                                 hook_msg: None,
                             };
 
@@ -1197,7 +1217,9 @@ fn get_user_claimables(
     staker: Addr,
 ) -> StdResult<(Vec<Asset>, Uint128)> {
 
+    //Load state
     let config = CONFIG.load(storage)?;
+    let incentive_schedule = INCENTIVE_SCHEDULING.load(storage)?;
 
     let deposits: Vec<StakeDeposit> = STAKED
         .load(storage)?
@@ -1220,28 +1242,15 @@ fn get_user_claimables(
 
     //Get claimables per deposit
     for deposit in deposits {
-        let (deposit_claimables, deposit_interest) = get_deposit_claimables(
-            config.clone(),
-            INCENTIVE_SCHEDULING.load(storage)?,
-            env.clone(),
-            fee_events.clone(),
-            deposit.clone(),
+        add_deposit_claimables(
+            config.clone(), 
+            incentive_schedule.clone(), 
+            env.clone(), 
+            fee_events.clone(), 
+            deposit.clone(), 
+            &mut claimables, 
+            &mut accrued_interest
         )?;
-        accrued_interest += deposit_interest;
-
-        //Condense like Assets
-        for claim_asset in deposit_claimables {
-            //Check if asset is already in the list of claimables and add accordingly
-            match claimables
-                .clone()
-                .into_iter()
-                .enumerate()
-                .find(|(_i, asset)| asset.info == claim_asset.info)
-            {
-                Some((index, _asset)) => claimables[index].amount += claim_asset.amount,
-                None => claimables.push(claim_asset),
-            }
-        }
 
         //Total deposits
         total_deposits += deposit.amount;

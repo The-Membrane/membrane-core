@@ -679,7 +679,7 @@ fn withdraw_from_state(
                     } else {
                         
                         //Since we claimed rewards
-                        deposit.stake_time = env.block.time.seconds();
+                        deposit.stake_time = env.block.time.seconds();                        
                         
                         //Set unstaking time for the amount getting withdrawn
                         //Create a StakeDeposit object for the amount not getting unstaked
@@ -691,8 +691,7 @@ fn withdraw_from_state(
                         });
                         
                         //Set new deposit amount
-                        deposit.amount = withdrawal_amount;
-                        
+                        deposit.amount = withdrawal_amount;                       
 
                         //Set the unstaking_start_time and stake_time to now
                         deposit.unstake_start_time = Some(env.block.time.seconds());
@@ -1264,7 +1263,6 @@ pub fn get_deposit_claimables(
     //Calc MBRN denominated rewards
     let deposit_interest = if !config.incentive_schedule.rate.is_zero() {
         let time_elapsed = env.block.time.seconds() - deposit.stake_time;
-        if deposit.amount == Uint128::new(4_999_999) {panic!("{:?}, {}", deposit, time_elapsed)}
         accumulate_interest(deposit.amount, config.incentive_schedule.rate, time_elapsed)?
     } else {
         Uint128::zero()

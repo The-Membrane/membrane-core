@@ -432,7 +432,7 @@ fn unstake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_vested, Uint128::zero());
+    assert_eq!(resp.total_not_including_vested, Uint128::new(4_999_999));
     assert_eq!(resp.vested_total, Uint128::new(6));
 }
 

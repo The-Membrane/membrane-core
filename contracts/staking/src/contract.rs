@@ -11,7 +11,7 @@ use cw2::set_contract_version;
 
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, ProposalStatus};
-use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, withdrawal_msg};
+use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
@@ -363,50 +363,6 @@ pub fn stake(
     Ok(response.add_attributes(attrs))
 }
 
-/// Can't Unstake if...
-/// 1. There is an active proposal by the address
-/// 2. The address has voted for a proposal that has passed but not yet executed
-pub fn can_this_addr_unstake(
-    querier: QuerierWrapper,
-    user: Addr,
-    config: Config,
-) -> Result<(), ContractError> {
-    
-    //Can't unstake if there is an active proposal by user
-    let proposal_list = querier.query::<ProposalListResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
-        contract_addr: config.clone().governance_contract.unwrap().to_string(), 
-        msg: to_binary(&Gov_QueryMsg::Proposals { start: None, limit: None })?
-    }))?;
-
-    for proposal in proposal_list.clone().proposal_list {
-        if proposal.submitter == user && proposal.status == ProposalStatus::Active {
-            return Err(ContractError::CustomError { val: String::from("Can't unstake while your proposal is active") })
-        }
-    }
-
-    //Can't unstake if the user has voted for a proposal that has passed but not yet executed    
-    //Get list of proposals that have passed & have executables
-    for proposal in proposal_list.proposal_list {
-        if proposal.status == ProposalStatus::Passed && proposal.messages.is_some() {
-            //Get list of voters for this proposal
-            let _voters = querier.query_wasm_smart::<Vec<Addr>>(
-                config.clone().governance_contract.unwrap().to_string(), 
-                &Gov_QueryMsg::ProposalVoters { 
-                    proposal_id: proposal.proposal_id.into(), 
-                    vote_option: membrane::governance::ProposalVoteOption::For, 
-                    start: None, 
-                    limit: None,
-                    specific_user: Some(user.to_string())
-                }
-            )?;
-            // if the query doesn't error then the user has voted For this proposal
-            return Err(ContractError::CustomError { val: String::from("Can't unstake if the proposal you helped pass hasn't executed its messages yet") })
-        }
-    }
-
-    Ok(())
-}
-
 /// First call is an unstake
 /// 2nd call after unstake period is a withdrawal
 pub fn unstake(
@@ -615,6 +571,214 @@ fn restake(
     ]))
 }
 
+/// Sends available claims to info.sender or as specified in send_to.
+/// If claim_as is passed, the claims will be sent as said asset.
+/// If restake is true, the accrued ownership will be restaked.
+pub fn claim_rewards(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    claim_as_native: Option<String>,
+    send_to: Option<String>,
+    restake: bool,
+) -> Result<Response, ContractError> {
+
+    let config: Config = CONFIG.load(deps.storage)?;
+
+    let mut messages: Vec<CosmosMsg>;
+    let accrued_interest: Uint128;
+    let user_claimables: Vec<Asset>;
+
+    //Get user claim msgs and accrued interest
+    (messages, user_claimables, accrued_interest) = user_claims(
+        deps.storage,
+        deps.api,
+        env.clone(),
+        config.clone(),
+        info.clone(),
+        config.clone().dex_router,
+        claim_as_native.clone(),
+        send_to.clone(),
+    )?;    
+
+    //Create MBRN Mint Msg
+    if config.osmosis_proxy.is_some() {
+        if info.sender != config.clone().vesting_contract.unwrap_or_else(|| Addr::unchecked("")) && !accrued_interest.is_zero() {
+            //Who to send to?
+            if send_to.is_some() {
+                let valid_recipient = deps.api.addr_validate(&send_to.clone().unwrap())?;
+
+                let message = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+                    msg: to_binary(&OsmoExecuteMsg::MintTokens {
+                        denom: config.mbrn_denom,
+                        amount: accrued_interest,
+                        mint_to_address: valid_recipient.to_string(),
+                    })?,
+                    funds: vec![],
+                });
+                messages.push(message);
+            } else if restake {
+                //Mint to contract
+                let message = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+                    msg: to_binary(&OsmoExecuteMsg::MintTokens {
+                        denom: config.clone().mbrn_denom,
+                        amount: accrued_interest,
+                        mint_to_address: env.contract.address.to_string(),
+                    })?,
+                    funds: vec![],
+                });
+                messages.push(message);
+                //Stake for user
+                let message = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: env.contract.address.to_string(),
+                    msg: to_binary(&ExecuteMsg::Stake {
+                        user: Some(info.sender.to_string()),
+                    })?,
+                    funds: vec![coin(accrued_interest.u128(), config.mbrn_denom)],
+                });
+                messages.push(message);
+            } else {
+                //Send stake to sender
+                let message = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: config.osmosis_proxy.unwrap().to_string(),
+                    msg: to_binary(&OsmoExecuteMsg::MintTokens {
+                        denom: config.mbrn_denom,
+                        amount: accrued_interest,
+                        mint_to_address: info.sender.to_string(),
+                    })?,
+                    funds: vec![],
+                });
+                messages.push(message);
+            }
+        }
+    } else {
+        return Err(ContractError::CustomError {
+            val: String::from("No proxy contract setup"),
+        });
+    }
+
+    //Error if there is nothing to claim
+    if messages.is_empty() {
+        return Err(ContractError::CustomError {
+            val: String::from("Nothing to claim"),
+        });
+    }
+
+    let user_claimables_string: Vec<String> = user_claimables
+        .into_iter()
+        .map(|claims| claims.to_string())
+        .collect::<Vec<String>>();
+
+    let res = Response::new()
+        .add_attribute("method", "claim")
+        .add_attribute("user", info.sender)
+        .add_attribute("claim_as_native", claim_as_native.unwrap_or_else(|| String::from("None")))
+        .add_attribute("send_to", send_to.unwrap_or_else(|| String::from("None")))
+        .add_attribute("restake", restake.to_string())
+        .add_attribute("mbrn_rewards", accrued_interest.to_string())
+        .add_attribute("fee_rewards", format!("{:?}", user_claimables_string));
+
+    Ok(res.add_messages(messages))
+}
+
+/// Deposit assets for staking rewards
+fn deposit_fee(
+    deps: DepsMut,
+    env: Env,
+    fee_assets: Vec<Asset>,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let mut messages: Vec<CosmosMsg> = vec![];
+
+    //Create response attribute
+    let string_fee_assets = fee_assets.clone()
+        .into_iter()
+        .map(|asset| asset.to_string())
+        .collect::<Vec<String>>();
+
+    //Get CDT denom
+    let cdt_denom = deps.querier.query_wasm_smart::<Basket>(
+        config.positions_contract.unwrap_or_else(|| Addr::unchecked("")), 
+        &CDP_QueryMsg::GetBasket{ })?
+        .credit_asset.info;
+
+    //If fee asset isn't CDT, send to Fee Auction if the contract is set
+    let non_CDT_assets = fee_assets.clone()
+        .into_iter()
+        .filter(|fee_asset| fee_asset.info != cdt_denom)
+        .collect::<Vec<Asset>>();
+    
+    //Act if there are non-CDT assets
+    if non_CDT_assets.len() != 0 {
+        if let Some(auction_contract) = config.auction_contract {
+            //Create auction msgs
+            for asset in non_CDT_assets.clone() {
+                let message: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: auction_contract.to_string(),
+                    msg: to_binary(&AuctionExecuteMsg::StartAuction { 
+                        repayment_position_info: None, 
+                        send_to: None, 
+                        auction_asset: asset.clone(),
+                    })?,
+                    funds: vec![asset_to_coin(asset)?],
+                });
+
+                messages.push(message);
+            }
+        }
+    }
+
+    //Remove non-CDT assets from fee assets
+    let CDT_assets = fee_assets.clone()
+        .into_iter()
+        .filter(|fee_asset| fee_asset.info == cdt_denom)
+        .collect::<Vec<Asset>>();
+
+    //Load Fee Events
+    let mut fee_events = FEE_EVENTS.load(deps.storage)?;
+
+    //Load Total staked
+    let mut totals = TOTALS.load(deps.storage)?;
+
+    //Update vesting total
+    if let Some(vesting_contract) = config.vesting_contract {        
+        let vesting_total = get_total_vesting(deps.querier, vesting_contract.to_string())?;
+
+        totals.vesting_contract = vesting_total;
+        TOTALS.save(deps.storage, &totals)?;
+    }
+
+    //Set total
+    let mut total = totals.vesting_contract + totals.stakers;
+    if total.is_zero() {
+        total = Uint128::new(1u128)
+    }
+    let decimal_total = Decimal::from_ratio(total, Uint128::new(1u128));
+    
+    //Add new Fee Event
+    for asset in CDT_assets.clone() {        
+        let amount = Decimal::from_ratio(asset.amount, Uint128::new(1u128));
+        
+        fee_events.push(FeeEvent {
+            time_of_event: env.block.time.seconds(),
+            fee: LiqAsset {
+                //Amount = Amount per Staked MBRN
+                info: asset.info,
+                amount: decimal_division(amount, decimal_total)?,
+            },
+        });
+    }
+
+    FEE_EVENTS.save(deps.storage, &fee_events)?;
+    
+    Ok(Response::new().add_messages(messages).add_attributes(vec![
+        attr("method", "deposit_fee"),
+        attr("fee_assets", format!("{:?}", string_fee_assets)),
+    ]))
+}
+
 /// Create rewards msgs from claimables and accrued interest
 fn create_rewards_msgs(
     config: Config,
@@ -697,6 +861,49 @@ fn add_deposit_claimables(
         {
             Some((index, _asset)) => claimables[index].amount += claim_asset.amount,
             None => claimables.push(claim_asset),
+        }
+    }
+
+    Ok(())
+}
+/// Can't Unstake if...
+/// 1. There is an active proposal by the address
+/// 2. The address has voted for a proposal that has passed but not yet executed
+pub fn can_this_addr_unstake(
+    querier: QuerierWrapper,
+    user: Addr,
+    config: Config,
+) -> Result<(), ContractError> {
+    
+    //Can't unstake if there is an active proposal by user
+    let proposal_list = querier.query::<ProposalListResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+        contract_addr: config.clone().governance_contract.unwrap().to_string(), 
+        msg: to_binary(&Gov_QueryMsg::Proposals { start: None, limit: None })?
+    }))?;
+
+    for proposal in proposal_list.clone().proposal_list {
+        if proposal.submitter == user && proposal.status == ProposalStatus::Active {
+            return Err(ContractError::CustomError { val: String::from("Can't unstake while your proposal is active") })
+        }
+    }
+
+    //Can't unstake if the user has voted for a proposal that has passed but not yet executed    
+    //Get list of proposals that have passed & have executables
+    for proposal in proposal_list.proposal_list {
+        if proposal.status == ProposalStatus::Passed && proposal.messages.is_some() {
+            //Get list of voters for this proposal
+            let _voters = querier.query_wasm_smart::<Vec<Addr>>(
+                config.clone().governance_contract.unwrap().to_string(), 
+                &Gov_QueryMsg::ProposalVoters { 
+                    proposal_id: proposal.proposal_id.into(), 
+                    vote_option: membrane::governance::ProposalVoteOption::For, 
+                    start: None, 
+                    limit: None,
+                    specific_user: Some(user.to_string())
+                }
+            )?;
+            // if the query doesn't error then the user has voted For this proposal
+            return Err(ContractError::CustomError { val: String::from("Can't unstake if the proposal you helped pass hasn't executed its messages yet") })
         }
     }
 
@@ -871,117 +1078,6 @@ fn withdraw_from_state(
     Ok((claimables, accrued_interest, withdrawable_amount))
 }
 
-/// Sends available claims to info.sender or as specified in send_to.
-/// If claim_as is passed, the claims will be sent as said asset.
-/// If restake is true, the accrued ownership will be restaked.
-pub fn claim_rewards(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    claim_as_native: Option<String>,
-    send_to: Option<String>,
-    restake: bool,
-) -> Result<Response, ContractError> {
-
-    let config: Config = CONFIG.load(deps.storage)?;
-
-    let mut messages: Vec<CosmosMsg>;
-    let accrued_interest: Uint128;
-    let user_claimables: Vec<Asset>;
-
-    //Get user claim msgs and accrued interest
-    (messages, user_claimables, accrued_interest) = user_claims(
-        deps.storage,
-        deps.api,
-        env.clone(),
-        config.clone(),
-        info.clone(),
-        config.clone().dex_router,
-        claim_as_native.clone(),
-        send_to.clone(),
-    )?;    
-
-    //Create MBRN Mint Msg
-    if config.osmosis_proxy.is_some() {
-        if info.sender != config.clone().vesting_contract.unwrap_or_else(|| Addr::unchecked("")) && !accrued_interest.is_zero() {
-            //Who to send to?
-            if send_to.is_some() {
-                let valid_recipient = deps.api.addr_validate(&send_to.clone().unwrap())?;
-
-                let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-                    msg: to_binary(&OsmoExecuteMsg::MintTokens {
-                        denom: config.mbrn_denom,
-                        amount: accrued_interest,
-                        mint_to_address: valid_recipient.to_string(),
-                    })?,
-                    funds: vec![],
-                });
-                messages.push(message);
-            } else if restake {
-                //Mint to contract
-                let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-                    msg: to_binary(&OsmoExecuteMsg::MintTokens {
-                        denom: config.clone().mbrn_denom,
-                        amount: accrued_interest,
-                        mint_to_address: env.contract.address.to_string(),
-                    })?,
-                    funds: vec![],
-                });
-                messages.push(message);
-                //Stake for user
-                let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: env.contract.address.to_string(),
-                    msg: to_binary(&ExecuteMsg::Stake {
-                        user: Some(info.sender.to_string()),
-                    })?,
-                    funds: vec![coin(accrued_interest.u128(), config.mbrn_denom)],
-                });
-                messages.push(message);
-            } else {
-                //Send stake to sender
-                let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: config.osmosis_proxy.unwrap().to_string(),
-                    msg: to_binary(&OsmoExecuteMsg::MintTokens {
-                        denom: config.mbrn_denom,
-                        amount: accrued_interest,
-                        mint_to_address: info.sender.to_string(),
-                    })?,
-                    funds: vec![],
-                });
-                messages.push(message);
-            }
-        }
-    } else {
-        return Err(ContractError::CustomError {
-            val: String::from("No proxy contract setup"),
-        });
-    }
-
-    //Error if there is nothing to claim
-    if messages.is_empty() {
-        return Err(ContractError::CustomError {
-            val: String::from("Nothing to claim"),
-        });
-    }
-
-    let user_claimables_string: Vec<String> = user_claimables
-        .into_iter()
-        .map(|claims| claims.to_string())
-        .collect::<Vec<String>>();
-
-    let res = Response::new()
-        .add_attribute("method", "claim")
-        .add_attribute("user", info.sender)
-        .add_attribute("claim_as_native", claim_as_native.unwrap_or_else(|| String::from("None")))
-        .add_attribute("send_to", send_to.unwrap_or_else(|| String::from("None")))
-        .add_attribute("restake", restake.to_string())
-        .add_attribute("mbrn_rewards", accrued_interest.to_string())
-        .add_attribute("fee_rewards", format!("{:?}", user_claimables_string));
-
-    Ok(res.add_messages(messages))
-}
 
 /// Calculates the accrued interest for a given stake
 fn accumulate_interest(stake: Uint128, rate: Decimal, time_elapsed: u64) -> StdResult<Uint128> {
@@ -993,102 +1089,6 @@ fn accumulate_interest(stake: Uint128, rate: Decimal, time_elapsed: u64) -> StdR
     let accrued_interest = stake * applied_rate;
 
     Ok(accrued_interest)
-}
-
-/// Deposit assets for staking rewards
-fn deposit_fee(
-    deps: DepsMut,
-    env: Env,
-    mut fee_assets: Vec<Asset>,
-) -> Result<Response, ContractError> {
-    let config = CONFIG.load(deps.storage)?;
-    let mut messages: Vec<CosmosMsg> = vec![];
-
-    //Response attribute
-    let string_fee_assets = fee_assets.clone()
-        .into_iter()
-        .map(|asset| asset.to_string())
-        .collect::<Vec<String>>();
-
-    //Get CDT denom
-    let cdt_denom = deps.querier.query_wasm_smart::<Basket>(
-        config.positions_contract.unwrap_or_else(|| Addr::unchecked("")), 
-        &CDP_QueryMsg::GetBasket{ })?
-        .credit_asset.info;
-
-    //If fee asset isn't CDT, send to Fee Auction if the contract is set
-    let non_CDT_assets = fee_assets.clone()
-        .into_iter()
-        .filter(|fee_asset| fee_asset.info != cdt_denom)
-        .collect::<Vec<Asset>>();
-    
-    //Act if there are non-CDT assets
-    if non_CDT_assets.len() != 0 {
-        if let Some(auction_contract) = config.auction_contract {
-            //Create auction msgs
-            for asset in non_CDT_assets.clone() {
-                let message: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: auction_contract.to_string(),
-                    msg: to_binary(&AuctionExecuteMsg::StartAuction { 
-                        repayment_position_info: None, 
-                        send_to: None, 
-                        auction_asset: asset.clone(),
-                    })?,
-                    funds: vec![asset_to_coin(asset)?],
-                });
-
-                messages.push(message);
-            }
-        }
-    }
-
-    //Remove non-CDT assets from fee assets
-    fee_assets = fee_assets.clone()
-        .into_iter()
-        .filter(|fee_asset| fee_asset.info == cdt_denom)
-        .collect::<Vec<Asset>>();
-
-    //Load Fee Events
-    let mut fee_events = FEE_EVENTS.load(deps.storage)?;
-
-    //Load Total staked
-    let mut totals = TOTALS.load(deps.storage)?;
-
-    //Update vesting total
-    if let Some(vesting_contract) = config.vesting_contract {        
-        let vesting_total = get_total_vesting(deps.querier, vesting_contract.to_string())?;
-
-        totals.vesting_contract = vesting_total;
-        TOTALS.save(deps.storage, &totals)?;
-    }
-
-    //Set total
-    let mut total = totals.vesting_contract + totals.stakers;
-    if total.is_zero() {
-        total = Uint128::new(1u128)
-    }
-    let decimal_total = Decimal::from_ratio(total, Uint128::new(1u128));
-    
-    //Add new Fee Event
-    for asset in fee_assets.clone() {        
-        let amount = Decimal::from_ratio(asset.amount, Uint128::new(1u128));
-        
-        fee_events.push(FeeEvent {
-            time_of_event: env.block.time.seconds(),
-            fee: LiqAsset {
-                //Amount = Amount per Staked MBRN
-                info: asset.info,
-                amount: decimal_division(amount, decimal_total)?,
-            },
-        });
-    }
-
-    FEE_EVENTS.save(deps.storage, &fee_events)?;
-    
-    Ok(Response::new().add_messages(messages).add_attributes(vec![
-        attr("method", "deposit_fee"),
-        attr("fee_assets", format!("{:?}", string_fee_assets)),
-    ]))
 }
 
 /// Return claim messages for a given user 
@@ -1286,7 +1286,7 @@ fn trim_fee_events(
 
     let config = CONFIG.load(storage)?;
 
-    if info.sender != config.owner{ return Err( ContractError::Unauthorized {  } )}
+    if info.sender != config.owner { return Err( ContractError::Unauthorized {  } )}
 
     let mut fee_events = FEE_EVENTS.load(storage)?;
     let stakers = STAKED.load(storage)?;
@@ -1299,7 +1299,7 @@ fn trim_fee_events(
             .collect::<Vec<FeeEvent>>();
     }
     //In a situation where no one is staked the contract will need to be upgraded to handle its assets
-    //This won't happen as long as the builder's allcoaiton is vesting so the functionality isn't necessary rn
+    //This won't happen as long as the builder's allocation is vesting so the functionality isn't necessary rn
     
     //Save Fee events
     FEE_EVENTS.save(storage, &fee_events)?;

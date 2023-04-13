@@ -2,7 +2,7 @@
 use std::env;
 
 
-use cosmwasm_std::entry_point;
+use cosmwasm_std::{entry_point, Coin};
 use cosmwasm_std::{
     attr, coin, to_binary, Addr, Api, BankMsg, Binary, CosmosMsg, Decimal, Deps,
     DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg, QueryRequest, WasmQuery, QuerierWrapper,
@@ -418,8 +418,6 @@ pub fn unstake(
     let config = CONFIG.load(deps.storage)?;
     let fee_events = FEE_EVENTS.load(deps.storage)?;
 
-    let mut msgs = vec![];
-
     //Restrict unstaking
     // can_this_addr_unstake(deps.querier, info.clone(), config.clone())?;
 
@@ -487,44 +485,14 @@ pub fn unstake(
         })?);
     }
 
-    //Create msg for claimable fees
-    if claimables != vec![] {
-        //Aggregate native tokens
-        for asset in claimables {
-            match asset.clone().info {
-                AssetInfo::Token { address: _ } => {
-                    return Err(ContractError::CustomError {
-                        val: String::from("Non-native token unclaimable"),
-                    });
-                }
-                AssetInfo::NativeToken { denom: _ } => {
-                    native_claims.push(asset_to_coin(asset)?);
-                }
-            }
-        }
-    }
-
-    if native_claims != vec![] {
-        let msg = CosmosMsg::Bank(BankMsg::Send {
-            to_address: info.sender.to_string(),
-            amount: native_claims,
-        });
-        msgs.push(msg);
-    }
-
-    //Create msg to mint accrued interest
-    if !accrued_interest.is_zero() {
-        let message = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-            msg: to_binary(&OsmoExecuteMsg::MintTokens {
-                denom: config.clone().mbrn_denom,
-                amount: accrued_interest,
-                mint_to_address: info.sender.to_string(),
-            })?,
-            funds: vec![],
-        });
-        msgs.push(message);
-    }
+    //Create claimable msgs
+    let claims_msgs = create_rewards_msgs(
+        config.clone(), 
+        claimables.clone(), 
+        accrued_interest.clone(),
+        info.clone().sender.to_string(),
+        native_claims,
+    )?;
 
     //Update Totals
     let mut totals = TOTALS.load(deps.storage)?;
@@ -547,7 +515,7 @@ pub fn unstake(
         attr("unstake_amount", withdrawable_amount.to_string()),
     ];
 
-    Ok(response.add_attributes(attrs).add_messages(msgs))
+    Ok(response.add_attributes(attrs).add_messages(claims_msgs))
 }
 
 /// Restake unstaking deposits for a user
@@ -557,9 +525,18 @@ fn restake(
     info: MessageInfo,
     mut restake_amount: Uint128,
 ) -> Result<Response, ContractError> {
+    //Load state
+    let config = CONFIG.load(deps.storage)?;
+    let incentive_schedule = INCENTIVE_SCHEDULING.load(deps.storage)?;
+    let fee_events = FEE_EVENTS.load(deps.storage)?;
 
+    //Initialize variables
+    let mut claimables: Vec<Asset> = vec![];
+    let mut accrued_interest = Uint128::zero();
     let initial_restake = restake_amount;
+    let mut error: Option<StdError> = None;
 
+    //Iterate through deposits
     let restaked_deposits: Vec<StakeDeposit> = STAKED
         .load(deps.storage)?
         .into_iter()
@@ -569,12 +546,42 @@ fn restake(
                     //Zero restake_amount
                     restake_amount = Uint128::zero();
 
+                    //Add claimables from this deposit
+                    match add_deposit_claimables(
+                        config.clone(),
+                        incentive_schedule.clone(),
+                        env.clone(),
+                        fee_events.clone(),
+                        deposit.clone(),
+                        &mut claimables,
+                        &mut accrued_interest,
+                    ) {
+                        Ok(res) => res,
+                        Err(err) => 
+                            error = Some(err)                        
+                    };
+
                     //Restake
                     deposit.unstake_start_time = None;
                     deposit.stake_time = env.block.time.seconds();
                 } else if deposit.amount < restake_amount {
                     //Sub from restake_amount
                     restake_amount -= deposit.amount;
+
+                    //Add claimables from this deposit
+                    match add_deposit_claimables(
+                        config.clone(),
+                        incentive_schedule.clone(),
+                        env.clone(),
+                        fee_events.clone(),
+                        deposit.clone(),
+                        &mut claimables,
+                        &mut accrued_interest,
+                    ) {
+                        Ok(res) => res,
+                        Err(err) => 
+                            error = Some(err)                        
+                    };
 
                     //Restake
                     deposit.unstake_start_time = None;
@@ -585,13 +592,115 @@ fn restake(
         })
         .collect::<Vec<StakeDeposit>>();
 
+    //Return error if any
+    if let Some(err) = error {
+        return Err(ContractError::Std(err));
+    }
+
+    //Create rewards msgs
+    let rewards_msgs = create_rewards_msgs(
+        config.clone(),
+        claimables,
+        accrued_interest,
+        info.clone().sender.to_string(),
+        vec![],
+    )?;
+
     //Save new Deposits
     STAKED.save(deps.storage, &restaked_deposits)?;
 
-    Ok(Response::new().add_attributes(vec![
+    Ok(Response::new().add_messages(rewards_msgs).add_attributes(vec![
         attr("method", "restake"),
         attr("restake_amount", initial_restake),
     ]))
+}
+
+/// Create rewards msgs from claimables and accrued interest
+fn create_rewards_msgs(
+    config: Config,
+    claimables: Vec<Asset>,
+    accrued_interest: Uint128,
+    user: String,
+    mut native_claims: Vec<Coin>,
+) -> StdResult<Vec<CosmosMsg>>{
+
+    let mut msgs: Vec<CosmosMsg> = vec![];
+
+    //Create msg for claimable fees
+    if claimables != vec![] {
+        //Aggregate native tokens
+        for asset in claimables {
+            match asset.clone().info {
+                AssetInfo::Token { address: _ } => {
+                    return Err(StdError::GenericErr { msg: String::from("Non-native token unclaimable") })
+                }
+                AssetInfo::NativeToken { denom: _ } => {
+                    native_claims.push(asset_to_coin(asset)?);
+                }
+            }
+        }
+    }
+
+    if native_claims != vec![] {
+        let msg = CosmosMsg::Bank(BankMsg::Send {
+            to_address: user.clone(),
+            amount: native_claims,
+        });
+        msgs.push(msg);
+    }
+
+    //Create msg to mint accrued interest
+    if !accrued_interest.is_zero() {
+        let message = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+            msg: to_binary(&OsmoExecuteMsg::MintTokens {
+                denom: config.clone().mbrn_denom,
+                amount: accrued_interest,
+                mint_to_address: user,
+            })?,
+            funds: vec![],
+        });
+        msgs.push(message);
+    }
+
+    Ok(msgs)
+}
+
+/// Get deposit claims and add to list of claims/total interest
+fn add_deposit_claimables(
+    config: Config,
+    incentive_schedule: StakeDistributionLog,
+    env: Env,
+    fee_events: Vec<FeeEvent>,
+    deposit: StakeDeposit,
+    claimables: &mut Vec<Asset>,
+    accrued_interest: &mut Uint128,
+) -> StdResult<()>{
+    //Calc claimables from this deposit
+    let (deposit_claimables, deposit_interest) = get_deposit_claimables(
+        config.clone(),
+        incentive_schedule.clone(),
+        env.clone(),
+        fee_events.clone(),
+        deposit.clone(),
+    )?;
+    *accrued_interest += deposit_interest;
+
+    //Condense like Assets
+    for claim_asset in deposit_claimables {
+        //Check if asset is already in the list of claimables and add according
+        match claimables
+            .clone()
+            .into_iter()
+            .enumerate()
+            .find(|(_i, asset)| asset.info == claim_asset.info)
+        {
+            Some((index, _asset)) => claimables[index].amount += claim_asset.amount,
+            None => claimables.push(claim_asset),
+        }
+    }
+
+    Ok(())
 }
 
 /// Update deposits being withdrawn from.
@@ -635,36 +744,21 @@ fn withdraw_from_state(
 
                 //Subtract from each deposit until there is none left to withdraw
                 if withdrawal_amount != Uint128::zero() && deposit.amount > withdrawal_amount {
-                    if deposit.amount == Uint128::new(5_000_001) {panic!()}
-                    //Calc claimables from this deposit
-                    let (deposit_claimables, deposit_interest) = match get_deposit_claimables(
+                    
+                    //Add claimables from this deposit
+                    match add_deposit_claimables(
                         config.clone(),
                         incentive_schedule.clone(),
                         env.clone(),
                         fee_events.clone(),
                         deposit.clone(),
+                        &mut claimables,
+                        &mut accrued_interest,
                     ) {
                         Ok(res) => res,
-                        Err(err) => {
-                            error = Some(err);
-                            (vec![], Uint128::zero())
-                        }
+                        Err(err) => 
+                            error = Some(err)                        
                     };
-                    accrued_interest += deposit_interest;
-
-                    //Condense like Assets
-                    for claim_asset in deposit_claimables {
-                        //Check if asset is already in the list of claimables and add according
-                        match claimables
-                            .clone()
-                            .into_iter()
-                            .enumerate()
-                            .find(|(_i, asset)| asset.info == claim_asset.info)
-                        {
-                            Some((index, _asset)) => claimables[index].amount += claim_asset.amount,
-                            None => claimables.push(claim_asset),
-                        }
-                    }
 
                     //If withdrawable...
                     //Set partial deposit total
@@ -702,35 +796,20 @@ fn withdraw_from_state(
 
                 } else if withdrawal_amount != Uint128::zero() && deposit.amount <= withdrawal_amount {
 
-                    //Calc claimables from this deposit
-                    let (deposit_claimables, deposit_interest) = match get_deposit_claimables(
+                    //Add claimables from this deposit
+                    match add_deposit_claimables(
                         config.clone(),
                         incentive_schedule.clone(),
                         env.clone(),
                         fee_events.clone(),
                         deposit.clone(),
+                        &mut claimables,
+                        &mut accrued_interest,
                     ) {
                         Ok(res) => res,
-                        Err(err) => {
-                            error = Some(err);
-                            (vec![], Uint128::zero())
-                        }
+                        Err(err) => 
+                            error = Some(err)                        
                     };
-                    accrued_interest += deposit_interest;
-
-                    //Condense like Assets
-                    for claim_asset in deposit_claimables {
-                        //Check if asset is already in the list of claimables and add accordingly
-                        match claimables
-                            .clone()
-                            .into_iter()
-                            .enumerate()
-                            .find(|(_i, asset)| asset.info == claim_asset.info)
-                        {
-                            Some((index, _asset)) => claimables[index].amount += claim_asset.amount,
-                            None => claimables.push(claim_asset),
-                        }
-                    }
 
                     //Since it's less than the Deposit amount, substract it from the withdrawal amount
                     withdrawal_amount -= deposit.amount;

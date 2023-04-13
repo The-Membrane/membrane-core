@@ -295,12 +295,16 @@ fn unstake() {
         ]
     );
 
+    //Skip 3 days
+    let mut env = mock_env();
+    env.block.time = env.block.time.plus_seconds(259200); //3 days
+
     //Successful Restake to reset the deposits
     let msg = ExecuteMsg::Restake {
         mbrn_amount: Uint128::new(10_000_000u128),
     };
     let info = mock_info("sender88", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -308,6 +312,19 @@ fn unstake() {
             attr("restake_amount", String::from("10000000")),
         ]
     );
+    //Assert that restake claims work
+    assert_eq!(res.messages, vec![        
+        SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: String::from("osmosis_proxy"),
+            funds: vec![],
+            msg: to_binary(&OsmoExecuteMsg::MintTokens {
+                denom: String::from("mbrn_denom"),
+                amount: Uint128::new(8_219u128), //3 days of rewards for 10_000_000
+                mint_to_address: String::from("sender88")
+            })
+            .unwrap()
+        }))
+    ]);
 
     //Unstake more than Staked Error
     let msg = ExecuteMsg::Unstake {
@@ -319,8 +336,7 @@ fn unstake() {
         err.to_string(),
         "Custom Error val: \"Invalid withdrawal amount\"".to_string()
     );
-    
-    let mut env = mock_env();
+        
     env.block.time = env.block.time.plus_seconds(259200 *2); //6 days
 
     //Successful partial unstake w/o withdrawals to assert Restake

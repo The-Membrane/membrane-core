@@ -493,7 +493,9 @@ pub fn unstake(
         for asset in claimables {
             match asset.clone().info {
                 AssetInfo::Token { address: _ } => {
-                    msgs.push(withdrawal_msg(asset, info.clone().sender)?);
+                    return Err(ContractError::CustomError {
+                        val: String::from("Non-native token unclaimable"),
+                    });
                 }
                 AssetInfo::NativeToken { denom: _ } => {
                     native_claims.push(asset_to_coin(asset)?);
@@ -606,26 +608,28 @@ fn withdraw_from_state(
     let deposits = STAKED.load(storage)?;
 
     let mut new_deposit_total = Uint128::zero();
-    let mut claimables: Vec<Asset> = vec![];
     let mut accrued_interest = Uint128::zero();
-    let mut error: Option<StdError> = None;
     let mut withdrawable_amount = Uint128::zero();
-    let mut withdrawable = false;
+    
+    let mut claimables: Vec<Asset> = vec![];
+    let mut error: Option<StdError> = None;
+    let mut this_deposit_is_withdrawable = false;
 
     let mut returning_deposit: Option<StakeDeposit> = None;
 
+    //Iterate through deposits
     let mut new_deposits: Vec<StakeDeposit> = deposits
         .into_iter()
         .map(|mut deposit| {
             //Only edit user deposits
             if deposit.staker == staker {
                 //If the deposit has started unstaking
-                if deposit.unstake_start_time.is_some() {
+                if let Some(deposit_unstake_start) = deposit.unstake_start_time {
                     //If the unstake period has been fulfilled
-                    if env.block.time.seconds() - deposit.unstake_start_time.unwrap()
+                    if env.block.time.seconds() - deposit_unstake_start
                         >= config.unstaking_period
                     {
-                        withdrawable = true;
+                        this_deposit_is_withdrawable = true;
                     }
                 }
 
@@ -665,33 +669,31 @@ fn withdraw_from_state(
                     //Set partial deposit total
                     //Set current deposit to 0
                     //Add withdrawal_amount to withdrawable_amount
-                    if withdrawable {
+                    if this_deposit_is_withdrawable {
                         new_deposit_total = deposit.amount - withdrawal_amount;
                         deposit.amount = Uint128::zero();
                         withdrawable_amount += withdrawal_amount;
                     } else {
                         //Set unstaking time for the amount getting withdrawn
                         //Create a StakeDeposit object for the amount not getting unstaked
-                        if deposit.amount > withdrawal_amount
-                            && withdrawal_amount != Uint128::zero()
-                        {
-                            //Set new deposit
-                            returning_deposit = Some(StakeDeposit {
-                                amount: deposit.amount - withdrawal_amount,
-                                unstake_start_time: None,
-                                ..deposit.clone()
-                            });
+                        //Set new deposit
+                        returning_deposit = Some(StakeDeposit {
+                            amount: deposit.amount - withdrawal_amount,
+                            unstake_start_time: None,
+                            ..deposit.clone()
+                        });
 
-                            //Set new deposit amount
-                            deposit.amount = withdrawal_amount;
-                        }
+                        //Set new deposit amount
+                        deposit.amount = withdrawal_amount;
+                        
 
                         //Set the unstaking_start_time and stake_time to now
                         deposit.unstake_start_time = Some(env.block.time.seconds());
                         //Since we claimed rewards
                         deposit.stake_time = env.block.time.seconds();
                     }
-                    //Zero withdrawal_amount
+
+                    //Zero withdrawal_amount since the deposit total fulfills the withdrawal
                     withdrawal_amount = Uint128::zero();
 
                 } else if withdrawal_amount != Uint128::zero() && deposit.amount <= withdrawal_amount {
@@ -714,7 +716,7 @@ fn withdraw_from_state(
 
                     //Condense like Assets
                     for claim_asset in deposit_claimables {
-                        //Check if asset is already in the list of claimables and add according
+                        //Check if asset is already in the list of claimables and add accordingly
                         match claimables
                             .clone()
                             .into_iter()
@@ -726,13 +728,13 @@ fn withdraw_from_state(
                         }
                     }
 
-                    //If it's less than amount, substract it from the withdrawal amount
+                    //Since it's less than the Deposit amount, substract it from the withdrawal amount
                     withdrawal_amount -= deposit.amount;
 
                     //If withdrawable...
                     //Add deposit amount to withdrawable_amount
                     //Set current deposit to 0
-                    if withdrawable {
+                    if this_deposit_is_withdrawable {
                         withdrawable_amount += deposit.amount;
                         deposit.amount = Uint128::zero();
                     } else {
@@ -763,7 +765,8 @@ fn withdraw_from_state(
         return Err(error.unwrap());
     }
 
-    //Push returning_deposit if some
+    //Push returning_deposit if Some
+    //This can be done outside the loop bc it can only happen once
     if let Some(deposit) = returning_deposit {
         new_deposits.push(deposit);
     }
@@ -1230,7 +1233,7 @@ pub fn get_deposit_claimables(
 
     //Condense like Assets
     for event in events_experienced {
-        //Check if asset is already in the list of claimables and add according
+        //Check if asset is already in the list of claimables and add accordingly
         match claimables
             .clone()
             .into_iter()
@@ -1252,8 +1255,12 @@ pub fn get_deposit_claimables(
     }
 
     //Calc MBRN denominated rewards
-    let time_elapsed = env.block.time.seconds() - deposit.stake_time;
-    let deposit_interest = accumulate_interest(deposit.amount, config.incentive_schedule.rate, time_elapsed)?;
+    let deposit_interest = if !config.incentive_schedule.rate.is_zero() {
+        let time_elapsed = env.block.time.seconds() - deposit.stake_time;
+        accumulate_interest(deposit.amount, config.incentive_schedule.rate, time_elapsed)?
+    } else {
+        Uint128::zero()
+    };
 
     Ok((claimables, deposit_interest))
 }

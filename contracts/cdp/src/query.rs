@@ -540,6 +540,13 @@ pub fn get_asset_values(
     assets: Vec<cAsset>,
     config: Config,
 ) -> StdResult<(Vec<Decimal>, Vec<Decimal>)> {
+    //Enforce Vec max size
+    if assets.len() > 50 {
+        return Err(StdError::GenericErr {
+            msg: String::from("Max asset_infos length is 50"),
+        });
+    }
+
     //Getting proportions for position collateral to calculate avg LTV
     //Using the index in the for loop to parse through the assets Vec and collateral_assets Vec
     //, as they are now aligned due to the collateral check w/ the Config's data

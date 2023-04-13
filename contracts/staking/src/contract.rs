@@ -11,7 +11,7 @@ use cw2::set_contract_version;
 
 use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, ProposalStatus};
-use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin};
+use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, accrue_user_positions};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
@@ -375,7 +375,7 @@ pub fn unstake(
     let fee_events = FEE_EVENTS.load(deps.storage)?;
 
     //Restrict unstaking
-    // can_this_addr_unstake(deps.querier, info.clone(), config.clone())?;
+    can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
 
     //Get total Stake
     let total_stake = {
@@ -418,19 +418,20 @@ pub fn unstake(
         fee_events,
     )?;
 
-    //List of coins to send
+    //Initialize variables
     let mut native_claims = vec![];
+    let mut msgs = vec![];
 
     //If user can withdraw, accrue their positions and add to native_claims
     if !withdrawable_amount.is_zero() {
         //Create Position accrual msgs to lock in user discounts before withdrawing
-        // let accrual_msg = accrue_user_positions(
-        //     deps.querier, 
-        //     config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-        //     info.sender.clone().to_string(), 
-        //     32,
-        // )?;
-        // msgs.push(accrual_msg);
+        let accrual_msg = accrue_user_positions(
+            deps.querier, 
+            config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+            info.sender.clone().to_string(), 
+            32,
+        )?;
+        msgs.push(accrual_msg);
 
         //Push to native claims list
         native_claims.push(asset_to_coin(Asset {
@@ -449,6 +450,7 @@ pub fn unstake(
         info.clone().sender.to_string(),
         native_claims,
     )?;
+    msgs.extend(claims_msgs);
 
     //Update Totals
     let mut totals = TOTALS.load(deps.storage)?;
@@ -471,7 +473,7 @@ pub fn unstake(
         attr("unstake_amount", withdrawable_amount.to_string()),
     ];
 
-    Ok(response.add_attributes(attrs).add_messages(claims_msgs))
+    Ok(response.add_attributes(attrs).add_messages(msgs))
 }
 
 /// Restake unstaking deposits for a user

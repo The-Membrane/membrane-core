@@ -697,6 +697,7 @@ pub(crate) fn set_slot_total(
     //If elapsed time is less than wait_period && total is above threshold, don't recalculate/activate any bids
     //This can increase wait_period but decreases runtime for recurrent liquidations
     if (block_time - slot.last_total) < config.waiting_period
+        && slot.total_bid_amount >= queue.bid_threshold
     {
         return (Ok(slot));
     }

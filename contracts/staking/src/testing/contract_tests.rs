@@ -319,17 +319,36 @@ fn unstake() {
         err.to_string(),
         "Custom Error val: \"Invalid withdrawal amount\"".to_string()
     );
+    
+    let mut env = mock_env();
+    env.block.time = env.block.time.plus_seconds(259200 *2); //6 days
 
-    //Successful Unstake w/o withdrawals to assert Restake
-    let msg = ExecuteMsg::Unstake { mbrn_amount: None };
+    //Successful partial unstake w/o withdrawals to assert Restake
+    let msg = ExecuteMsg::Unstake { mbrn_amount: Some(Uint128::new(5000001)) };
     let info = mock_info("sender88", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "unstake"),
             attr("staker", String::from("sender88")),
             attr("unstake_amount", String::from("0")),
+        ]
+    );
+    //Bc its a normal staker, they should have accrued interest
+    assert_eq!(
+        res.messages,
+        vec![
+            SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: String::from("osmosis_proxy"),
+                funds: vec![],
+                msg: to_binary(&OsmoExecuteMsg::MintTokens {
+                    denom: String::from("mbrn_denom"),
+                    amount: Uint128::new(16_438u128), //6 days of rewards for 10_000_000
+                    mint_to_address: String::from("sender88")
+                })
+                .unwrap()
+            }))
         ]
     );
 
@@ -347,8 +366,7 @@ fn unstake() {
             attr("unstake_amount", String::from("0")),
         ]
     );
-
-    let mut env = mock_env();
+    
     env.block.time = env.block.time.plus_seconds(259200); //3 days
 
     //Successful Unstake w/ withdrawals after unstaking period
@@ -360,7 +378,7 @@ fn unstake() {
         vec![
             attr("method", "unstake"),
             attr("staker", String::from("sender88")),
-            attr("unstake_amount", String::from("10000000")),
+            attr("unstake_amount", String::from("5000001")),
         ]
     );
     //Bc its a normal staker, they should have accrued interest as well
@@ -369,14 +387,14 @@ fn unstake() {
         vec![
             SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
                 to_address: String::from("sender88"),
-                amount: coins(10_000_000, "mbrn_denom"),
+                amount: coins(5_000_001, "mbrn_denom"),
             })),
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from("osmosis_proxy"),
                 funds: vec![],
                 msg: to_binary(&OsmoExecuteMsg::MintTokens {
                     denom: String::from("mbrn_denom"),
-                    amount: Uint128::new(8_219u128),
+                    amount: Uint128::new(8_218u128), //This being 8218 asserts that the returning deposit.stake_time got sync'd correctly with the withdrawn Deposit
                     mint_to_address: String::from("sender88")
                 })
                 .unwrap()

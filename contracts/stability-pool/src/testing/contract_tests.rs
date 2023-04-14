@@ -1170,6 +1170,7 @@ fn update_config(){
     let info = mock_info("sender88", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
     
+    //Update Config
     let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
         owner: Some(String::from("new_owner")),
         incentive_rate: Some(Decimal::percent(20)), 
@@ -1185,6 +1186,49 @@ fn update_config(){
         deps.as_mut(),
         mock_env(),
         mock_info("sender88", &vec![]),
+        msg,
+    )
+    .unwrap();
+
+    //Query Config
+    let res = query(
+        deps.as_ref(),
+        mock_env(),
+        QueryMsg::Config {},
+    )
+    .unwrap();
+    let config: Config = from_binary(&res).unwrap();
+
+    assert_eq!(
+        config,
+        Config {
+            owner: Addr::unchecked("sender88"),
+            incentive_rate: Decimal::percent(20), 
+            max_incentives: Uint128::new(1_000_000),
+            unstaking_period: 1,
+            minimum_deposit_amount: Uint128::new(10),
+            osmosis_proxy: Addr::unchecked("new_op"), 
+            positions_contract: Addr::unchecked("new_cdp"), 
+            mbrn_denom: String::from("new_denom"), 
+        },
+    );
+
+    //Transfer ownership
+    let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
+        owner: None,
+        incentive_rate: None,
+        max_incentives: None,
+        unstaking_period: None,
+        minimum_deposit_amount: None,
+        osmosis_proxy: None,
+        positions_contract: None,
+        mbrn_denom: None,
+    });
+
+    execute(
+        deps.as_mut(),
+        mock_env(),
+        mock_info("new_owner", &vec![]),
         msg,
     )
     .unwrap();

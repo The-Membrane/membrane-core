@@ -22,7 +22,7 @@ use membrane::math::decimal_division;
 
 use crate::error::ContractError;
 use crate::query::{query_user_stake, query_staker_rewards, query_staked, query_fee_events, query_totals};
-use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, TOTALS, INCENTIVE_SCHEDULING};
+use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, TOTALS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:staking";
@@ -243,7 +243,12 @@ fn update_config(
 
     //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
     }
 
     let mut attrs = vec![attr("method", "update_config")];
@@ -251,7 +256,10 @@ fn update_config(
     //Match Optionals
     if let Some(owner) = owner {
         let valid_addr = deps.api.addr_validate(&owner)?;
-        config.owner = valid_addr.clone();
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+        attrs.push(attr("owner_transfer", valid_addr));     
     };
     if let Some(max_spread) = max_spread {
         config.max_spread = Some(max_spread);
@@ -297,8 +305,8 @@ fn update_config(
 
     //Save new Config
     CONFIG.save(deps.storage, &config)?;
-
     attrs.push(attr("updated_config", format!("{:?}", config)));
+    
     Ok(Response::new().add_attributes(attrs))
 }
 

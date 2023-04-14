@@ -13,7 +13,7 @@ use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceR
 use membrane::types::{AssetInfo, AssetOracleInfo, PriceInfo};
 
 use crate::error::ContractError;
-use crate::state::{ASSETS, CONFIG};
+use crate::state::{ASSETS, CONFIG, OWNERSHIP_TRANSFER};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "oracle";
@@ -219,30 +219,43 @@ pub fn update_config(
     owner: Option<String>,
     positions_contract: Option<String>,
 ) -> Result<Response, ContractError> {
-    
     let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs = vec![attr("method", "update_config")];
 
-    //Owner or Positions contract can Add_assets
+    //Assert Authority or transfer ownership 
     if info.sender != config.owner {
-        if config.positions_contract.is_some() {
-            if info.sender != config.clone().positions_contract.unwrap() {
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
+        } else {
+            //Owner or Positions contract can Add_assets
+            if let Some(positions_contract) = config.clone().positions_contract {
+                if info.sender != positions_contract {
+                    return Err(ContractError::Unauthorized {});
+                }
+            } else {
                 return Err(ContractError::Unauthorized {});
             }
-        } else {
-            return Err(ContractError::Unauthorized {});
-        }
-    }
+        }    
+    } 
+    
+    
 
     if let Some(owner) = owner {
-        config.owner = deps.api.addr_validate(&owner)?;
+        let valid_addr = deps.api.addr_validate(&owner)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+        attrs.push(attr("owner_transfer", valid_addr));  
     }
     if let Some(positions_contract) = positions_contract {
         config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
     }
 
     CONFIG.save(deps.storage, &config)?;
+    attrs.push(attr("updated_config", format!("{:?}", config)));
 
-    Ok(Response::new().add_attribute("action", "update_config"))
+    Ok(Response::new().add_attributes(attrs))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

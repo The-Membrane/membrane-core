@@ -18,7 +18,7 @@ use crate::query::{
     query_bid, query_bids_by_user, query_liquidatible, query_premium_slot,
     query_premium_slots, query_queues, query_user_claims,
 };
-use crate::state::{CONFIG, QUEUES};
+use crate::state::{CONFIG, QUEUES, OWNERSHIP_TRANSFER};
 
 // Modifications from origin
 
@@ -162,17 +162,26 @@ fn update_config(
     minimum_bid: Option<Uint128>,
     maximum_waiting_bids: Option<u64>,
 ) -> Result<Response, ContractError> {
-
     let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs = vec![attr("method", "update_config")];
 
-    //Only owner can update
+    //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
     }
 
-    if owner.is_some() {
-        config.owner = deps.api.addr_validate(&owner.unwrap())?;
-    }
+    if let Some(owner) = owner {
+        let valid_addr = deps.api.addr_validate(&owner)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+        attrs.push(attr("owner_transfer", valid_addr));     
+    };
     if waiting_period.is_some() {
         config.waiting_period = waiting_period.unwrap();
     }
@@ -185,11 +194,9 @@ fn update_config(
 
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::new().add_attributes(vec![
-        attr("method", "update_config"),
-        attr("owner", config.owner.to_string()),
-        attr("waiting_period", config.waiting_period.to_string()),
-    ]))
+    attrs.push(attr("updated_config", format!("{:?}", config)));  
+
+    Ok(Response::new().add_attributes(attrs))
 }
 
 /// Edit queue

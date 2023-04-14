@@ -412,13 +412,37 @@ mod tests {
         fn update_config() {
             let (mut app, oracle_contract) = proper_instantiate();
 
-            //Successful AddAsset
+            //Successful UpdateConfig
             let msg = ExecuteMsg::UpdateConfig { 
                 owner: Some(String::from("new_owner")), 
                 positions_contract: Some(String::from("new_pos_contract")), 
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            
+            //Query Liquidity
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    oracle_contract.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            assert_eq!(
+                config, 
+                Config {
+                    owner: Addr::unchecked(ADMIN), 
+                    positions_contract: Some(Addr::unchecked("new_pos_contract")), 
+            });
+
+            //Successful ownership transfer
+            let msg = ExecuteMsg::UpdateConfig { 
+                owner: None,
+                positions_contract: None,
+            };
+            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
 
             
             //Query Liquidity

@@ -12,3 +12,5 @@ pub const COMPOSITION_CHECK: Item<PositionResponse> = Item::new("composition_che
 pub const NEW_POSITION_INFO: Item<Addr> = Item::new("new_position_info"); //User
 pub const NUM_OF_LOOPS: Item<Option<u64>> = Item::new("num_of_loops");
 pub const LOOP_PARAMETERS: Item<(Addr, Decimal)> = Item::new("loop_parameters"); //User, target_LTV
+
+pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");

@@ -19,3 +19,5 @@ pub const ASSET: Item<AssetPool> = Item::new("asset"); //Acts as the asset WL an
 pub const PROP: Item<Propagation> = Item::new("propagation");
 pub const INCENTIVES: Item<Uint128> = Item::new("incentives_total");
 pub const USERS: Map<Addr, User> = Map::new("users"); //Used to map claims to users
+
+pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");

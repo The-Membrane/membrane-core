@@ -18,7 +18,7 @@ use membrane::helpers::withdrawal_msg;
 
 use crate::error::ContractError;
 use crate::query::{query_allocation, query_unlocked, query_recipients, query_recipient};
-use crate::state::{CONFIG, RECIPIENTS};
+use crate::state::{CONFIG, RECIPIENTS, OWNERSHIP_TRANSFER};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:vesting";
@@ -368,14 +368,24 @@ fn update_config(
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
+    //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
     }
 
     let mut attrs = vec![attr("method", "update_config")];
 
     if let Some(owner) = owner {
-        config.owner = deps.api.addr_validate(&owner)?;
+        let valid_addr = deps.api.addr_validate(&owner)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+        attrs.push(attr("owner_transfer", valid_addr));  
     };
     if let Some(osmosis_proxy) = osmosis_proxy {
         config.osmosis_proxy = deps.api.addr_validate(&osmosis_proxy)?;
@@ -391,8 +401,8 @@ fn update_config(
     };
 
     CONFIG.save(deps.storage, &config)?;
+    attrs.push(attr("updated_config", format!("{:?}", config)));
 
-    attrs.push(attr("config", format!("{:?}", config)));
     Ok(Response::new().add_attributes(attrs))
 }
 

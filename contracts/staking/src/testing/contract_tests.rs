@@ -69,11 +69,12 @@ fn update_config(){
     )
     .unwrap();
     let config: Config = from_binary(&res).unwrap();
-
+    
+    //No change yet
     assert_eq!(
         config,
         Config {
-            owner: Addr::unchecked("new_owner"),
+            owner: Addr::unchecked("sender88"),
             unstaking_period:1,  
             osmosis_proxy: Some( Addr::unchecked("new_op")), 
             positions_contract: Some( Addr::unchecked("new_cdp")), 
@@ -85,6 +86,82 @@ fn update_config(){
             vesting_contract: Some( Addr::unchecked("new_bv")),             
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
             fee_wait_period: 1, 
+            
+        },
+    );
+    //Previous owner can still update bc the ownership hasn't transferred yet
+    let msg = ExecuteMsg::UpdateConfig { 
+        owner: None,
+        unstaking_period: None,
+        osmosis_proxy: None,
+        positions_contract: None,
+        auction_contract: None,
+        governance_contract: None,
+        mbrn_denom: None,
+        dex_router: None,
+        max_spread: None,
+        vesting_contract: None,
+        incentive_schedule: None,
+        fee_wait_period: Some(2),
+    };
+
+    execute(
+        deps.as_mut(),
+        mock_env(),
+        mock_info("sender88", &vec![]),
+        msg,
+    )
+    .unwrap();
+
+    //New owner calls update_config
+    let msg = ExecuteMsg::UpdateConfig { 
+        owner: None,
+        unstaking_period: None,
+        osmosis_proxy: None,
+        positions_contract: None,
+        auction_contract: None,
+        governance_contract: None,
+        mbrn_denom: None,
+        dex_router: None,
+        max_spread: Some(Decimal::zero()),
+        vesting_contract: None,
+        incentive_schedule: None,
+        fee_wait_period: None,
+    };
+
+    execute(
+        deps.as_mut(),
+        mock_env(),
+        mock_info("new_owner", &vec![]),
+        msg,
+    )
+    .unwrap();
+
+    //Query Config
+    let res = query(
+        deps.as_ref(),
+        mock_env(),
+        QueryMsg::Config {},
+    )
+    .unwrap();
+    let config: Config = from_binary(&res).unwrap();
+
+    //Assert change after new_owner calls update_config
+    assert_eq!(
+        config,
+        Config {
+            owner: Addr::unchecked("new_owner"),
+            unstaking_period:1,  
+            osmosis_proxy: Some( Addr::unchecked("new_op")), 
+            positions_contract: Some( Addr::unchecked("new_cdp")), 
+            auction_contract: Some(Addr::unchecked("new_auction")),
+            governance_contract: Some(Addr::unchecked("new_gov")),
+            mbrn_denom: String::from("new_denom"), 
+            dex_router: Some( Addr::unchecked("new_router")), 
+            max_spread: Some(Decimal::zero()), 
+            vesting_contract: Some( Addr::unchecked("new_bv")),             
+            incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
+            fee_wait_period: 2, 
             
         },
     );

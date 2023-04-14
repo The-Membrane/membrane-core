@@ -14,7 +14,7 @@ use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, Posi
 use membrane::types::{AssetInfo, Basket};
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, COMPOSITION_CHECK, USERS, NEW_POSITION_INFO, NUM_OF_LOOPS, LOOP_PARAMETERS};
+use crate::state::{CONFIG, COMPOSITION_CHECK, USERS, NEW_POSITION_INFO, NUM_OF_LOOPS, LOOP_PARAMETERS, OWNERSHIP_TRANSFER};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "margin_proxy";
@@ -746,17 +746,26 @@ fn update_config(
     positions_contract: Option<String>,
     max_slippage: Option<Decimal>,
 ) -> Result<Response, ContractError> {
-
     let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs = vec![attr("method", "update_config")];
 
-    //Assert authority
+    //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
     }
 
     //Save optionals
     if let Some(addr) = owner {
-        config.owner = deps.api.addr_validate(&addr)?;
+        let valid_addr = deps.api.addr_validate(&addr)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+        attrs.push(attr("owner_transfer", valid_addr));  
     }
     if let Some(addr) = apollo_router_contract {
         config.apollo_router_contract = deps.api.addr_validate(&addr)?;
@@ -770,7 +779,8 @@ fn update_config(
 
     //Save Config
     CONFIG.save(deps.storage, &config)?;
+    attrs.push(attr("updated_config", format!("{:?}", config)));
 
-    Ok(Response::new())
+    Ok(Response::new().add_attributes(attrs))
 }
 

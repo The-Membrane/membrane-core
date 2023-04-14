@@ -463,7 +463,35 @@ mod tests {
             let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
             
-            //Query and Assert Claimables
+            //Query and Assert
+            let query_msg = QueryMsg::Config {  };
+            let res: Config = app
+                .wrap()
+                .query_wasm_smart(bv_contract.addr(), &query_msg)
+                .unwrap();
+            assert_eq!(
+                res,
+                Config { 
+                    owner: Addr::unchecked(ADMIN), 
+                    total_allocation: Uint128::new(50_000_000_000_001), 
+                    mbrn_denom: String::from("new_denom"), 
+                    osmosis_proxy: cw20_addr.clone(), 
+                    staking_contract: cw20_addr.clone(), 
+                }
+            );
+
+            //Update Config: Ownership transfer
+            let msg = ExecuteMsg::UpdateConfig { 
+                owner: None,
+                mbrn_denom: None,
+                osmosis_proxy: None,
+                staking_contract: None,
+                additional_allocation: None,
+            };
+            let cosmos_msg = bv_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
+            
+            //Query and Assert transfer
             let query_msg = QueryMsg::Config {  };
             let res: Config = app
                 .wrap()

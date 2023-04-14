@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 #[cfg(not(feature = "library"))]
 use cw_storage_plus::Bound;
-use cosmwasm_std::entry_point;
+use cosmwasm_std::{entry_point, Attribute};
 use cosmwasm_std::{
     attr, to_binary, Addr, Binary, Deps, Order,
     DepsMut, Env, MessageInfo, Response, StdError, StdResult, Uint128, QuerierWrapper, Coin,
@@ -16,7 +16,7 @@ use membrane::discount_vault::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, Use
 use membrane::types::{Asset, AssetInfo, VaultedLP, VaultUser, LPPoolInfo, Basket};
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, USERS};
+use crate::state::{CONFIG, USERS, OWNERSHIP_TRANSFER};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:discount_vault";
@@ -244,23 +244,31 @@ fn change_owner(
     owner: String,
 ) -> Result<Response, ContractError>{
     let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs: Vec<Attribute> = vec![attr("method", "change_owner")];
+    
+    //Assert Authority
+    if info.sender != config.owner {
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
 
-    //Validate Authority
-    if info.clone().sender != config.clone().owner{ return Err(ContractError::Unauthorized {  }) }
+            //Save new owner
+            CONFIG.save(deps.storage, &config)?;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
+    }
 
     //Validate owner
-    let valid_owner = deps.api.addr_validate(&owner)?;
+    let valid_addr = deps.api.addr_validate(&owner)?;
 
-    //Set owner
-    config.owner = valid_owner.clone();
+    //Set owner transfer state
+    OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+    attrs.push(attr("owner_transfer", valid_addr));  
 
-    //Save config
-    CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new()
-        .add_attributes(vec![
-            attr("method", "change_owner"),
-            attr("new_owner", valid_owner)]),
+        .add_attributes(attrs),
     )
 }
 

@@ -14,7 +14,7 @@ use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipien
 use membrane::helpers::withdrawal_msg;
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, DEBT_AUCTION, FEE_AUCTIONS};
+use crate::state::{CONFIG, DEBT_AUCTION, FEE_AUCTIONS, OWNERSHIP_TRANSFER};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "auctions";
@@ -90,15 +90,25 @@ fn update_config(
     update: UpdateConfig,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs = vec![attr("method", "update_config")];
 
-    //Assert authority
+    //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
     }
 
     //Save optionals
     if let Some(addr) = update.owner {
-        config.owner = deps.api.addr_validate(&addr)?;
+        let valid_addr = deps.api.addr_validate(&addr)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+        attrs.push(attr("owner_transfer", valid_addr));        
     }
     if let Some(addr) = update.oracle_contract {
         config.oracle_contract = deps.api.addr_validate(&addr)?;
@@ -147,7 +157,9 @@ fn update_config(
     //Save Config
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::new())
+    attrs.push(attr("updated_config", format!("{:?}", config)));
+
+    Ok(Response::new().add_attributes(attrs))
 }
 
 /// Start or add to ongoing Auction.

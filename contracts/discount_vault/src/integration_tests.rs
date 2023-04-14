@@ -383,6 +383,26 @@ mod tests {
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
+            //Owner unchanged until new owner accepts
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    vault_contract.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            assert_eq!(
+                config.owner.to_string(),        
+                String::from(ADMIN),
+            );
+
+            //Accept ownership
+            let msg = ExecuteMsg::ChangeOwner {
+                owner: String::from("different_owner"),
+            };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("different_owner"), cosmos_msg).unwrap();
+
             //Query Config
             let config: Config = app
                 .wrap()

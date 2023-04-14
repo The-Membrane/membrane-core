@@ -818,6 +818,22 @@ mod tests {
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
+            //New owner must call for ownership to change
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
+                owner: None,
+                oracle_contract: None,
+                osmosis_proxy: None,
+                mbrn_denom: None,
+                cdt_denom: None,
+                positions_contract: None,
+                twap_timeframe: None,
+                initial_discount: None,
+                discount_increase_timeframe: None,
+                discount_increase: Some(Decimal::percent(5)),
+            });
+            let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
+
             //Assert Config Response
             let config: Config = app
                 .wrap()
@@ -838,7 +854,7 @@ mod tests {
                     twap_timeframe: 61u64,
                     initial_discount: Decimal::percent(2), 
                     discount_increase_timeframe: 61u64, 
-                    discount_increase: Decimal::percent(4), 
+                    discount_increase: Decimal::percent(5), 
                 },
             );
         }

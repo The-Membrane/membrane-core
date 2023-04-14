@@ -77,13 +77,13 @@ fn update_config() {
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(0, res.messages.len());
 
-    // it worked, let's query the state
+    // Owner doesn't update until accepted
     let value: Config =
         from_binary(&query(deps.as_ref(), mock_env(), QueryMsg::Config {}).unwrap()).unwrap();
     assert_eq!(
         value,
         Config {
-            owner: Addr::unchecked("owner0001"),
+            owner: Addr::unchecked("addr0000"),
             positions_contract: Addr::unchecked("positions_contract"),
             waiting_period: 60u64,
             added_assets: Some(vec![]),
@@ -96,7 +96,7 @@ fn update_config() {
     );
 
     // Update left items
-    let info = mock_info("owner0001", &[]);
+    let info = mock_info("addr0000", &[]);
     let msg = ExecuteMsg::UpdateConfig {
         owner: None,
         waiting_period: Some(100u64),
@@ -113,7 +113,7 @@ fn update_config() {
     assert_eq!(
         value,
         Config {
-            owner: Addr::unchecked("owner0001"),
+            owner: Addr::unchecked("addr0000"),
             positions_contract: Addr::unchecked("positions_contract"),
             waiting_period: 100u64,
             added_assets: Some(vec![]),
@@ -143,6 +143,36 @@ fn update_config() {
         }
         _ => panic!("Msg sender is unauthorized to make this change"),
     }
+
+     // Accept ownership transfer
+     let info = mock_info("owner0001", &[]);
+     let msg = ExecuteMsg::UpdateConfig {
+         owner: None,
+         waiting_period: None,
+         minimum_bid: None,
+         maximum_waiting_bids: None,
+     };
+ 
+     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+     assert_eq!(0, res.messages.len());
+ 
+     // it worked, let's query the state
+     let value: Config =
+         from_binary(&query(deps.as_ref(), mock_env(), QueryMsg::Config {}).unwrap()).unwrap();
+     assert_eq!(
+         value,
+         Config {
+             owner: Addr::unchecked("owner0001"),
+             positions_contract: Addr::unchecked("positions_contract"),
+             waiting_period: 100u64,
+             added_assets: Some(vec![]),
+             bid_asset: AssetInfo::NativeToken {
+                 denom: String::from("cdt"),
+             },            
+             minimum_bid: Uint128::one(),
+             maximum_waiting_bids: 10u64,
+         }
+     );
 }
 
 #[test]

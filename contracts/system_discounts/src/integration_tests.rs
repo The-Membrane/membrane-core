@@ -508,6 +508,43 @@ mod tests {
             assert_eq!(
                 config, 
                 Config {
+                    owner: Addr::unchecked(ADMIN), 
+                    mbrn_denom: String::from("mbrn_denom"),
+                    positions_contract: Addr::unchecked("new_pos_contract"),                
+                    oracle_contract: Addr::unchecked("new_oracle_contract"), 
+                    staking_contract: Addr::unchecked("contract2"), 
+                    stability_pool_contract: Addr::unchecked("new_stability_pool_contract"), 
+                    lockdrop_contract: Some(Addr::unchecked("new_lockdrop_contract")), 
+                    discount_vault_contract: Some(Addr::unchecked("new_discount_vault_contract")), 
+                    minimum_time_in_network: 14,
+            });
+
+            //Successful ownership transfer
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
+                owner: None,
+                positions_contract: None,
+                oracle_contract: None,
+                staking_contract: None, 
+                stability_pool_contract: None,
+                lockdrop_contract: None,
+                discount_vault_contract: None,
+                minimum_time_in_network: None,
+            });
+            let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
+
+            
+            //Query Config
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    discounts_contract.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            assert_eq!(
+                config, 
+                Config {
                     owner: Addr::unchecked("new_owner"), 
                     mbrn_denom: String::from("mbrn_denom"),
                     positions_contract: Addr::unchecked("new_pos_contract"),                

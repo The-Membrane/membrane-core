@@ -391,7 +391,7 @@ mod tests {
         fn update_config() {
             let (mut app, margin_contract) = proper_instantiate();
 
-            //Successful AddAsset
+            //Successful UpdateConfig
             let msg = ExecuteMsg::UpdateConfig { 
                 owner: Some(String::from("new_owner")), 
                 positions_contract: Some(String::from("new_pos_contract")),
@@ -413,10 +413,38 @@ mod tests {
             assert_eq!(
                 config, 
                 Config {
-                    owner: Addr::unchecked("new_owner"), 
+                    owner: Addr::unchecked(ADMIN), 
                     positions_contract:  Addr::unchecked("new_pos_contract"), 
                     apollo_router_contract: Addr::unchecked("new_router_contract"),
                     max_slippage: Decimal::one(),
+            });
+
+            //Successful Ownership transfer
+            let msg = ExecuteMsg::UpdateConfig { 
+                owner: None,
+                positions_contract: None,
+                apollo_router_contract: None,
+                max_slippage: Some(Decimal::zero()),
+            };
+            let cosmos_msg = margin_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
+
+            
+            //Query Liquidity
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    margin_contract.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            assert_eq!(
+                config, 
+                Config {
+                    owner: Addr::unchecked("new_owner"), 
+                    positions_contract:  Addr::unchecked("new_pos_contract"), 
+                    apollo_router_contract: Addr::unchecked("new_router_contract"),
+                    max_slippage: Decimal::zero(),
             });
         }
     }

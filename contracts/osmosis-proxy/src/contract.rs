@@ -140,7 +140,7 @@ fn update_config(
                 config.owners.push( owner );
             }
         } else {
-            //Filter out owners
+            //Filter out owners that are in the owners list
             for owner in owners {
                 config.owners = config
                     .clone()

@@ -1,6 +1,6 @@
 use cosmwasm_std::{
     entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo,
-    QueryRequest, Response, StdResult, Uint128, WasmQuery, QuerierWrapper,
+    QueryRequest, Response, StdResult, Uint128, WasmQuery, QuerierWrapper, attr,
 };
 use cw2::set_contract_version;
 
@@ -14,7 +14,7 @@ use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
 use membrane::types::{AssetInfo, Basket, Deposit, AssetPool};
 
 use crate::error::ContractError;
-use crate::state::CONFIG;
+use crate::state::{CONFIG, OWNERSHIP_TRANSFER};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "system_discounts";
@@ -93,17 +93,26 @@ fn update_config(
     info: MessageInfo,
     update: UpdateConfig,
 ) -> Result<Response, ContractError> {
-
     let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs = vec![attr("method", "update_config")];
 
-    //Assert authority
+    //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
     }
 
     //Save optionals
     if let Some(addr) = update.owner {
-        config.owner = deps.api.addr_validate(&addr)?;
+        let valid_addr = deps.api.addr_validate(&addr)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+        attrs.push(attr("owner_transfer", valid_addr));    
     }
     if let Some(addr) = update.positions_contract {
         config.positions_contract = deps.api.addr_validate(&addr)?;

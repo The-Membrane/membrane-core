@@ -2,7 +2,7 @@ use membrane::types::{FeeEvent, StakeDeposit, StakeDistributionLog};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::Uint128;
+use cosmwasm_std::{Uint128, Addr};
 use cw_storage_plus::Item;
 
 use membrane::staking::Config;
@@ -18,3 +18,5 @@ pub const TOTALS: Item<Totals> = Item::new("totals");
 pub const STAKED: Item<Vec<StakeDeposit>> = Item::new("stake"); //Stack of deposits
 pub const FEE_EVENTS: Item<Vec<FeeEvent>> = Item::new("fee_events"); //<timestamp, asset> //The amount saved is the amount of the asset per MBRN staked
 pub const INCENTIVE_SCHEDULING: Item<StakeDistributionLog> = Item::new("stake_incentives_log"); 
+
+pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");

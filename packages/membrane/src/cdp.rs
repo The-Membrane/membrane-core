@@ -304,9 +304,6 @@ impl UpdateConfig {
         config: &mut Config,
     ) -> StdResult<()>{
         //Set Optionals
-        if let Some(owner) = self.owner {
-            config.owner = api.addr_validate(&owner)?;
-        }
         if let Some(stability_pool) = self.stability_pool {
             config.stability_pool = Some(api.addr_validate(&stability_pool)?);
         }

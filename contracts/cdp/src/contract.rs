@@ -34,7 +34,7 @@ use crate::query::{
 use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
 use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_close_position_reply};
 use crate::state::{
-    BASKET, CONFIG, LIQUIDATION, get_target_position, update_position,
+    BASKET, CONFIG, LIQUIDATION, get_target_position, update_position, OWNERSHIP_TRANSFER,
 };
 
 // version info for migration info
@@ -368,10 +368,26 @@ fn update_config(
     update: UpdateConfig,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs = vec![
+        attr("method", "update_config"),
+    ];
 
     //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
+    }
+    
+    if let Some(owner) = update.clone().owner {
+        let valid_addr = deps.api.addr_validate(&owner)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?; 
+        attrs.push(attr("owner_transfer", valid_addr));
     }
     
     //Update Config
@@ -379,11 +395,10 @@ fn update_config(
 
     //Save new Config
     CONFIG.save(deps.storage, &config)?;
-
-    Ok(Response::new().add_attributes(vec![
-        attr("method", "update_config"),
-        attr("updated_config", format!("{:?}", config))
-    ]))
+    
+    attrs.push(
+        attr("updated_config", format!("{:?}", config)));
+    Ok(Response::new().add_attributes(attrs))
 }
 
 /// Handle CallbackMsgs

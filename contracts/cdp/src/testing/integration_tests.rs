@@ -7535,7 +7535,7 @@ mod tests {
 
             //Update Config
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
-                owner: None, 
+                owner: Some(String::from("new_owner")), 
                 stability_pool: Some(String::from("new_sp")), 
                 dex_router: Some(String::from("new_router")),  
                 osmosis_proxy: Some(String::from("new_op")),  
@@ -7581,6 +7581,58 @@ mod tests {
                     collateral_twap_timeframe: 33u64, 
                     cpc_multiplier: Decimal::percent(50),
                     rate_slope_multiplier: Decimal::percent(2), 
+                }
+            );
+
+            //Update owner after new owner calls the function
+            //Update Config
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
+                owner: None, 
+                stability_pool: None, 
+                dex_router: None, 
+                osmosis_proxy: None, 
+                debt_auction: None, 
+                staking_contract: None, 
+                oracle_contract: None, 
+                liquidity_contract: None, 
+                discounts_contract: None, 
+                liq_fee: None, 
+                debt_minimum: None, 
+                base_debt_cap_multiplier: None, 
+                oracle_time_limit: None, 
+                credit_twap_timeframe: None, 
+                collateral_twap_timeframe: None, 
+                cpc_multiplier: None, 
+                rate_slope_multiplier: Some(Decimal::percent(3)), 
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
+
+            let resp: Config = app
+            .wrap()
+            .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {  }.clone())
+            .unwrap();
+
+            assert_eq!(
+                resp,
+                Config { 
+                    owner: Addr::unchecked("new_owner"), 
+                    stability_pool: Some( Addr::unchecked("new_sp")), 
+                    dex_router: Some( Addr::unchecked("new_router")),  
+                    osmosis_proxy: Some( Addr::unchecked("new_op")),  
+                    debt_auction: Some( Addr::unchecked("new_auction")),  
+                    staking_contract: Some( Addr::unchecked("new_staking")),  
+                    oracle_contract: Some( Addr::unchecked("new_oracle")),  
+                    liquidity_contract: Some( Addr::unchecked("new_liq_check")),
+                    discounts_contract: Some( Addr::unchecked("new_dc")),
+                    liq_fee: Decimal::percent(13), 
+                    debt_minimum: Uint128::zero(), 
+                    base_debt_cap_multiplier: Uint128::new(48497), 
+                    oracle_time_limit: 33u64, 
+                    credit_twap_timeframe: 33u64, 
+                    collateral_twap_timeframe: 33u64, 
+                    cpc_multiplier: Decimal::percent(50),
+                    rate_slope_multiplier: Decimal::percent(3), 
                 }
             );
 

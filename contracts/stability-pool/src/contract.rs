@@ -23,7 +23,7 @@ use membrane::math::{decimal_division, decimal_multiplication, decimal_subtracti
 
 use crate::error::ContractError;
 use crate::query::{query_user_incentives, query_liquidatible, query_user_claims, query_capital_ahead_of_deposits, query_asset_pool};
-use crate::state::{Propagation, ASSET, CONFIG, INCENTIVES, PROP, USERS};
+use crate::state::{Propagation, ASSET, CONFIG, INCENTIVES, PROP, USERS, OWNERSHIP_TRANSFER};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:stability-pool";
@@ -139,27 +139,32 @@ fn update_config(
 
     //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
     }
 
     let mut attrs = vec![attr("method", "update_config")];
 
     //Match Optionals
     if let Some(owner) = update.owner {
-        config.owner = deps.api.addr_validate(&owner)?;
-        attrs.push(attr("new_owner", owner));
+        let valid_addr = deps.api.addr_validate(&owner)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+        attrs.push(attr("owner_transfer", valid_addr));
     }
     if let Some(mbrn_denom) = update.mbrn_denom {
         config.mbrn_denom = mbrn_denom.clone();
-        attrs.push(attr("new_mbrn_denom", mbrn_denom));
     }
     if let Some(osmosis_proxy) = update.osmosis_proxy {
         config.osmosis_proxy = deps.api.addr_validate(&osmosis_proxy)?;
-        attrs.push(attr("new_osmosis_proxy", osmosis_proxy));
     }
     if let Some(positions_contract) = update.positions_contract {
         config.positions_contract = deps.api.addr_validate(&positions_contract)?;
-        attrs.push(attr("new_positions_contract", positions_contract));
     }
     if let Some(incentive_rate) = update.incentive_rate {
         //Enforce incentive rate range of 0-20%
@@ -169,7 +174,6 @@ fn update_config(
             });
         }
         config.incentive_rate = incentive_rate;
-        attrs.push(attr("new_incentive_rate", incentive_rate.to_string()));
     }
     if let Some(max_incentives) = update.max_incentives {
         //Enforce max incentive range of 1M - 10M
@@ -179,11 +183,9 @@ fn update_config(
             });
         }
         config.max_incentives = max_incentives;
-        attrs.push(attr("new_max_incentives", max_incentives.to_string()));
     }
     if let Some(minimum_deposit_amount) = update.minimum_deposit_amount {
         config.minimum_deposit_amount = minimum_deposit_amount;
-        attrs.push(attr("new_minimum_deposit_amount", minimum_deposit_amount.to_string()));
     }
     if let Some(new_unstaking_period) = update.unstaking_period {
         //Enforce unstaking period range of 1-7 days
@@ -193,11 +195,11 @@ fn update_config(
             });
         }
         config.unstaking_period = new_unstaking_period;
-        attrs.push(attr("new_unstaking_period", new_unstaking_period.to_string()));
     }
 
     //Save new Config
     CONFIG.save(deps.storage, &config)?;
+    attrs.push(attr("updated_config", format!("{:?}", config)));
 
     Ok(Response::new().add_attributes(attrs))
 }

@@ -12,7 +12,7 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     /// Initial allocation
     pub initial_allocation: Uint128,
-    /// Prelaunch contributor address
+    /// Address receiving pre-launch contributors allocation
     pub pre_launch_contributors: String,
     /// MBRN denom
     pub mbrn_denom: String,

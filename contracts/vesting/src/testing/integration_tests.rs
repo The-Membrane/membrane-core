@@ -248,7 +248,7 @@ mod tests {
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: osmosis_proxy_contract_addr.to_string(),
             staking_contract: staking_contract_addr.to_string(),
-            labs_addr: String::from("labs"),
+            pre_launch_contributors: String::from("labs"),
         };
 
         let bv_contract_addr = app

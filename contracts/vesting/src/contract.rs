@@ -14,7 +14,7 @@ use membrane::staking::{
     ExecuteMsg as StakingExecuteMsg, QueryMsg as StakingQueryMsg, RewardsResponse, StakerResponse,
 };
 use membrane::types::{Allocation, Asset, VestingPeriod, Recipient, AssetInfo};
-use membrane::helpers::{withdrawal_msg, asset_to_coin};
+use membrane::helpers::asset_to_coin;
 
 use crate::error::ContractError;
 use crate::query::{query_allocation, query_unlocked, query_recipients, query_recipient};
@@ -87,7 +87,7 @@ pub fn execute(
             vesting_period,
         } => add_allocation(deps, env, info, recipient, allocation, vesting_period),
         ExecuteMsg::WithdrawUnlocked {} => withdraw_unlocked(deps, env, info),
-        ExecuteMsg::ClaimFeesforContract {} => claim_fees_for_contract(deps, env),
+        ExecuteMsg::ClaimFeesforContract {} => claim_fees_for_contract(deps.storage, deps.querier, env),
         ExecuteMsg::ClaimFeesforRecipient {} => claim_fees_for_recipient(deps, info),
         ExecuteMsg::SubmitProposal {
             title,
@@ -202,7 +202,7 @@ fn claim_fees_for_recipient(deps: DepsMut, info: MessageInfo) -> Result<Response
     let mut recipients = RECIPIENTS.load(deps.storage)?;
 
     let mut messages: Vec<CosmosMsg> = vec![];
-    let claimables: Vec<Coin> = vec![];
+    let mut claimables: Vec<Coin> = vec![];
 
     //Find Recipient claimables
     match recipients
@@ -219,20 +219,20 @@ fn claim_fees_for_recipient(deps: DepsMut, info: MessageInfo) -> Result<Response
             }
 
             //Aggregate native claims
-            for (index, claimable) in recipient.clone().claimables.into_iter().enumerate() {
+            for claimable in recipient.clone().claimables {
                 if let AssetInfo::NativeToken { denom: _ } = claimable.info {
                     //Add Asset as Coin
-                    claimables.push(asset_to_coin(claimable.clone()));
-                    //Remove Asset from claimables
-                    recipients[i].claimables.remove(index);
+                    claimables.push(asset_to_coin(claimable.clone())?);
                 }     
             }
+            //Remove claimables from recipient
+            recipients[i].claimables = vec![];            
 
             //Create withdraw msg for all native tokens
             messages.push(
                 CosmosMsg::Bank(BankMsg::Send {
                     to_address: recipient.clone().recipient.to_string(),
-                    amount: claimables,
+                    amount: claimables.clone(),
                 })
             );
         }
@@ -314,7 +314,7 @@ fn claim_fees_for_contract(
             .filter(|recipient| recipient.allocation.is_none())
             .collect::<Vec<Recipient>>();
         new_recipients.extend(allocated_recipients);
-        RECIPIENTS.save(deps.storage, &new_recipients)?;
+        RECIPIENTS.save(storage, &new_recipients)?;
     }
 
     //Construct ClaimRewards Msg to Staking Contract
@@ -518,11 +518,8 @@ pub fn get_unlocked_amount(
             )?;
 
             let newly_unlocked: Uint128;
-            //Full unlock
-            if ratio_unlocked > Decimal::one() {
-                newly_unlocked = allocation.clone().amount - allocation.clone().amount_withdrawn;
-            }//Partial unlock
-            else if !ratio_unlocked.is_zero() {
+            //Partial unlock
+            if !ratio_unlocked.is_zero() {
                 newly_unlocked = (ratio_unlocked * allocation.clone().amount)
                     - allocation.clone().amount_withdrawn;
             }//Unlock nothing

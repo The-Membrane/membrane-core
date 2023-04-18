@@ -556,6 +556,9 @@ fn add_allocation(
 ) -> Result<Response, ContractError> {
     //Run claim_fees_for_contract beforehand to accurately allot claims before new allocations
     let res = claim_fees_for_contract(deps.storage, deps.querier, env.clone())?;
+    
+    //Validate recipient
+    let valid_recipient = deps.api.addr_validate(&recipient)?;
 
     let config = CONFIG.load(deps.storage)?;    
 
@@ -575,7 +578,7 @@ fn add_allocation(
                     recipients = recipients
                         .into_iter()
                         .map(|mut stored_recipient| {
-                            if stored_recipient.recipient == recipient {
+                            if stored_recipient.recipient == valid_recipient.to_string() {
                                 stored_recipient.allocation = Some(Allocation {
                                     amount: allocation,
                                     amount_withdrawn: Uint128::zero(),
@@ -594,9 +597,6 @@ fn add_allocation(
         //If None && called by an existing Recipient, subtract & delegate part of the allocation to the allotted recipient
         //Add new Recipient object for the new recipient 
         None => {
-            //Validate recipient
-            let valid_recipient = deps.api.addr_validate(&recipient)?;
-
             //Initialize new_allocation
             let mut new_allocation: Option<Allocation> = None;
 

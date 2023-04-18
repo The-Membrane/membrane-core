@@ -496,6 +496,11 @@ pub fn get_unlocked_amount(
     let mut allocation = allocation.unwrap();
     let mut unlocked_amount = Uint128::zero();
 
+    //Skip if allocation amount is 0
+    if allocation.amount == Uint128::zero() {
+        return Ok((unlocked_amount, allocation));
+    }
+
     //Calculate unlocked amount
     let time_passed = current_block_time - allocation.clone().start_time_of_allocation;
     let cliff_in_seconds = allocation.clone().vesting_period.cliff * SECONDS_IN_A_DAY;
@@ -513,10 +518,15 @@ pub fn get_unlocked_amount(
             )?;
 
             let newly_unlocked: Uint128;
-            if !ratio_unlocked.is_zero() {
+            //Full unlock
+            if ratio_unlocked > Decimal::one() {
+                newly_unlocked = allocation.clone().amount - allocation.clone().amount_withdrawn;
+            }//Partial unlock
+            else if !ratio_unlocked.is_zero() {
                 newly_unlocked = (ratio_unlocked * allocation.clone().amount)
                     - allocation.clone().amount_withdrawn;
-            } else {
+            }//Unlock nothing
+            else {
                 newly_unlocked = Uint128::zero();
             }
 

@@ -342,6 +342,7 @@ fn claim_fees_for_contract(
 }
 
 /// Get allocation ratios for list of recipients
+/// Only used for allocated recipients
 fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, recipients: &mut Vec<Recipient>) -> StdResult<Vec<Decimal>> {
     let mut allocation_ratios: Vec<Decimal> = vec![];
 
@@ -519,13 +520,13 @@ pub fn get_unlocked_amount(
                 newly_unlocked = Uint128::zero();
             }
 
-            unlocked_amount += newly_unlocked;
+            unlocked_amount = newly_unlocked;
 
             //Edit Allocation object
             allocation.amount_withdrawn += newly_unlocked;
         } else {
             //Unlock full amount
-            unlocked_amount += allocation.clone().amount - allocation.clone().amount_withdrawn;
+            unlocked_amount = allocation.clone().amount - allocation.clone().amount_withdrawn;
             allocation.amount_withdrawn += allocation.clone().amount;
         }
     }

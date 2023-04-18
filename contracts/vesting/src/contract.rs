@@ -2,7 +2,7 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
-    MessageInfo, QueryRequest, Response, StdResult, Uint128, WasmMsg, WasmQuery, QuerierWrapper, Storage,
+    MessageInfo, QueryRequest, Response, StdResult, Uint128, WasmMsg, WasmQuery, QuerierWrapper, Storage, Coin, BankMsg,
 };
 use cw2::set_contract_version;
 
@@ -13,8 +13,8 @@ use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
     ExecuteMsg as StakingExecuteMsg, QueryMsg as StakingQueryMsg, RewardsResponse, StakerResponse,
 };
-use membrane::types::{Allocation, Asset, VestingPeriod, Recipient};
-use membrane::helpers::withdrawal_msg;
+use membrane::types::{Allocation, Asset, VestingPeriod, Recipient, AssetInfo};
+use membrane::helpers::{withdrawal_msg, asset_to_coin};
 
 use crate::error::ContractError;
 use crate::query::{query_allocation, query_unlocked, query_recipients, query_recipient};
@@ -202,7 +202,7 @@ fn claim_fees_for_recipient(deps: DepsMut, info: MessageInfo) -> Result<Response
     let mut recipients = RECIPIENTS.load(deps.storage)?;
 
     let mut messages: Vec<CosmosMsg> = vec![];
-    let claimables: Vec<Asset> = vec![];
+    let claimables: Vec<Coin> = vec![];
 
     //Find Recipient claimables
     match recipients
@@ -218,13 +218,23 @@ fn claim_fees_for_recipient(deps: DepsMut, info: MessageInfo) -> Result<Response
                 });
             }
 
-            //Create withdraw msg for each claimable asset
-            for claimable in recipient.clone().claimables {
-                messages.push(withdrawal_msg(claimable, recipient.clone().recipient)?);
+            //Aggregate native claims
+            for (index, claimable) in recipient.clone().claimables.into_iter().enumerate() {
+                if let AssetInfo::NativeToken { denom: _ } = claimable.info {
+                    //Add Asset as Coin
+                    claimables.push(asset_to_coin(claimable.clone()));
+                    //Remove Asset from claimables
+                    recipients[i].claimables.remove(index);
+                }     
             }
 
-            //Set claims to Empty Vec
-            recipients[i].claimables = vec![];
+            //Create withdraw msg for all native tokens
+            messages.push(
+                CosmosMsg::Bank(BankMsg::Send {
+                    to_address: recipient.clone().recipient.to_string(),
+                    amount: claimables,
+                })
+            );
         }
         None => return Err(ContractError::InvalidRecipient {}),
     }

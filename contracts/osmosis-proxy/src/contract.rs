@@ -385,7 +385,7 @@ pub fn mint_tokens(
         //Set owner
         let mut owner = config.clone().owners[owner_index].clone();
         //Get CDP denom
-        let basket = deps.querier.query_wasm_smart::<Basket>(positions_contract, &CDPQueryMsg::GetBasket {  })?;
+        let basket: Basket = deps.querier.query_wasm_smart(positions_contract, &CDPQueryMsg::GetBasket {  })?;
 
         //If minting the CDP asset
         if denom == basket.clone().credit_asset.info.to_string() {            

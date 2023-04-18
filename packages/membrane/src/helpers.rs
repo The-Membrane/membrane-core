@@ -281,7 +281,7 @@ pub fn accrue_user_positions(
     user: String,
     limit: u32,
 ) -> StdResult<CosmosMsg> {
-    let user_positions = querier.query_wasm_smart::<Vec<PositionResponse>>(
+    let user_positions: Vec<PositionResponse> = querier.query_wasm_smart(
         positions_contract.to_string(),
         &CDPQueryMsg::GetUserPositions { 
             user: user.clone(),

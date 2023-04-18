@@ -95,7 +95,8 @@ fn create_and_validate_LP_object(
     let share_token = AssetInfo::NativeToken { denom: res.clone().shares.denom };
     
     //Get debt token
-    let debt_token = querier.query_wasm_smart::<Basket>(positions_contract, &CDPQueryMsg::GetBasket{  })?.credit_asset.info;
+    let basket_res: Basket = querier.query_wasm_smart(positions_contract, &CDPQueryMsg::GetBasket{  })?;
+    let debt_token = basket_res.credit_asset.info;
 
     if let false = res.clone().assets.into_iter().any(|deposit| deposit.denom == debt_token.to_string()){
         return Err(StdError::GenericErr { msg: format!("LP dosn't contain the debt token: {}", debt_token) })
@@ -360,7 +361,7 @@ fn get_user_response(
     
     //Get Positions Basket
     let basket: Basket = deps.querier
-        .query_wasm_smart::<Basket>(config.clone().positions_contract, &CDPQueryMsg::GetBasket{  })?;
+        .query_wasm_smart(config.clone().positions_contract, &CDPQueryMsg::GetBasket{  })?;
 
 
     let mut LP_value = Uint128::zero();

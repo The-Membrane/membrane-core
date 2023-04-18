@@ -2,7 +2,7 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
-    MessageInfo, QueryRequest, Response, StdResult, Uint128, WasmMsg, WasmQuery, QuerierWrapper,
+    MessageInfo, QueryRequest, Response, StdResult, Uint128, WasmMsg, WasmQuery, QuerierWrapper, Storage,
 };
 use cw2::set_contract_version;
 
@@ -53,7 +53,7 @@ pub fn instantiate(
     //Save Recipients w/ the Labs team as the first Recipient
     RECIPIENTS.save(deps.storage, &vec![
         Recipient { 
-            recipient: deps.api.addr_validate(&msg.labs_addr)?, 
+            recipient: deps.api.addr_validate(&msg.pre_launch_contributors)?, 
             allocation: Some(Allocation { 
                 amount: msg.initial_allocation, 
                 amount_withdrawn: Uint128::zero(), 
@@ -244,12 +244,16 @@ fn claim_fees_for_recipient(deps: DepsMut, info: MessageInfo) -> Result<Response
 }
 
 /// Claim staking rewards for allocated MBRN
-fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
+fn claim_fees_for_contract(
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+) -> Result<Response, ContractError> {
     //Load Config
-    let config = CONFIG.load(deps.storage)?;
+    let config = CONFIG.load(storage)?;
 
     //Query Rewards
-    let res: RewardsResponse = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+    let res: RewardsResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.staking_contract.to_string(),
         msg: to_binary(&StakingQueryMsg::StakerRewards {
             staker: env.contract.address.to_string(),
@@ -258,7 +262,7 @@ fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, Contract
 
     //Split rewards w/ recipients based on allocation amounts
     if res.claimables != vec![] {
-        let recipients = RECIPIENTS.load(deps.storage)?;
+        let recipients = RECIPIENTS.load(storage)?;
 
         let mut allocated_recipients: Vec<Recipient> = recipients
             .clone()
@@ -267,7 +271,7 @@ fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, Contract
             .collect::<Vec<Recipient>>();
 
         //Calculate allocation ratios
-        let allocation_ratios = get_allocation_ratios(deps.querier, env.clone(), config.clone(), &mut allocated_recipients)?;
+        let allocation_ratios = get_allocation_ratios(querier, env.clone(), config.clone(), &mut allocated_recipients)?;
         
         //Add Recipient's ratio of each claim asset to position
         for claim_asset in res.clone().claimables {
@@ -332,11 +336,11 @@ fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, reci
     let mut allocation_ratios: Vec<Decimal> = vec![];
 
     //Get Contract's MBRN staked amount
-    let staked_mbrn = querier.query_wasm_smart::<StakerResponse>(
+    let res: StakerResponse = querier.query_wasm_smart(
         config.staking_contract, 
         &StakingQueryMsg::UserStake { staker: env.contract.address.to_string() }
-    )?
-    .total_staked;
+    )?;
+    let staked_mbrn = res.total_staked;
 
     for recipient in recipients.clone() {
         //Initialize allocation 
@@ -529,6 +533,9 @@ fn add_allocation(
     allocation: Uint128,
     vesting_period: Option<VestingPeriod>,
 ) -> Result<Response, ContractError> {
+    //Run claim_fees_for_contract beforehand to accurately allot claims before new allocations
+    let res = claim_fees_for_contract(deps.storage, deps.querier, env.clone())?;
+
     let config = CONFIG.load(deps.storage)?;    
 
     match vesting_period {
@@ -656,7 +663,7 @@ fn add_allocation(
         return Err(ContractError::OverAllocated {});
     }
 
-    Ok(Response::new().add_attributes(vec![
+    Ok(res.add_attributes(vec![
         attr("method", "increase_allocation"),
         attr("recipient", recipient),
         attr("allocation_increase", String::from(allocation)),

@@ -536,7 +536,7 @@ fn get_discounted_interest(
     undiscounted_interest: Uint128,
 ) -> StdResult<Uint128>{
     //Get discount
-    let discount = querier.query_wasm_smart::<Decimal>(discounts_contract, &DiscountQueryMsg::UserDiscount { user })?;
+    let discount: Decimal = querier.query_wasm_smart(discounts_contract, &DiscountQueryMsg::UserDiscount { user })?;
 
     let discounted_interest = {
         let percent_of_interest = decimal_subtraction(Decimal::one(), discount)?;

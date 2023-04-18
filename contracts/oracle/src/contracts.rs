@@ -19,6 +19,7 @@ use crate::state::{ASSETS, CONFIG, OWNERSHIP_TRANSFER};
 const CONTRACT_NAME: &str = "oracle";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+#[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
     env: Env,

@@ -127,7 +127,7 @@ fn deposit(
     info: MessageInfo,
 ) -> Result<Response, ContractError>{
     let config = CONFIG.load(deps.storage)?;
-    let valid_assets = validate_assets(info.clone().funds, config.clone().accepted_LPs);
+    let valid_assets = validate_assets(info.clone().funds, config.clone().accepted_LPs)?;
     if valid_assets.len() < info.clone().funds.len(){ return Err(ContractError::InvalidAsset {  }) }
 
     //Add deposits to User
@@ -319,17 +319,24 @@ fn edit_LPs(
 fn validate_assets(
     funds: Vec<Coin>,
     accepted_LPs: Vec<LPPoolInfo>,
-) -> Vec<Asset>{
+) -> StdResult<Vec<Asset>>{
     let accepted_LPs = accepted_LPs.into_iter().map(|pool| pool.share_token).collect::<Vec<AssetInfo>>();
 
-    funds
+    let valid_assets: Vec<Asset> = funds
         .into_iter()
         .filter(|coin| accepted_LPs.clone().iter().any(|lp| lp.equal(&AssetInfo::NativeToken { denom: coin.clone().denom } )))
         .map(|coin| Asset {
             amount: coin.amount,
             info: AssetInfo::NativeToken { denom: coin.clone().denom },
         })
-        .collect::<Vec<Asset>>()    
+        .collect::<Vec<Asset>>();
+
+    //Assert that all assets are accepted
+    if funds.len() != valid_assets.len() {
+        return Err(StdError::GenericErr{msg: "Invalid asset(s)".into()})
+    }
+
+    Ok(valid_assets)
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

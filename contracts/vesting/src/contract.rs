@@ -553,6 +553,11 @@ fn add_allocation(
 ) -> Result<Response, ContractError> {
     //Run claim_fees_for_contract beforehand to accurately allot claims before new allocations
     let res = claim_fees_for_contract(deps.storage, deps.querier, env.clone())?;
+
+    //Assert allocation is not 0
+    if allocation.is_zero() {
+        return Err(ContractError::InvalidAllocation {});
+    }
     
     //Validate recipient
     let valid_recipient = deps.api.addr_validate(&recipient)?;

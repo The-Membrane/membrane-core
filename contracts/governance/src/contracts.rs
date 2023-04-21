@@ -444,7 +444,7 @@ pub fn remove_completed_proposal(
         proposal.status = ProposalStatus::Expired;
     }
 
-    if proposal.status != ProposalStatus::Expired && proposal.status != ProposalStatus::Rejected {
+    if proposal.status != ProposalStatus::Expired && proposal.status !=ProposalStatus::Rejected && (proposal.for_power + proposal.against_power) < config.proposal_required_quorum.to_uint_floor() {
         return Err(ContractError::ProposalNotCompleted {});
     }
 

@@ -6165,23 +6165,12 @@ mod tests {
                 )
                 .unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
+                .unwrap();          
 
-            ///Over Cap error
+            ///Successful increase over the cap
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(299_996u128)),
-                LTV: None,
-                mint_to_addr: None,
-            };
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap_err();
-
-            ///Successful increase on the cap
-            let msg = ExecuteMsg::IncreaseDebt {
-                position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(249_995u128)),
+                amount: Some(Uint128::from(249_997u128)),
                 LTV: None,
                 mint_to_addr: None,
             };
@@ -6214,7 +6203,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(83332), cap: Uint128(99998) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(166663), cap: Uint128(199996) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(83333), cap: Uint128(99998) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(166664), cap: Uint128(199996) }]")
             );
 
             //Completely withdraw 1st Deposit
@@ -6242,7 +6231,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(249994), cap: Uint128(299995) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(249996), cap: Uint128(299995) }]")
             );
         }
 

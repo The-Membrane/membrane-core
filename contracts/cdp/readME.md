@@ -101,10 +101,10 @@ The default fee is the Stability Pool's liquidation fee since if the LQ doesn't 
 
 ### To Pass Tests...
 In liquidations.rs for sell wall usage & liquidation LTV
-- Create a Static LTV & insolvent variable after line 77
-- Comment 229 & 246
+- Create a Static LTV of 90 & insolvent variable after line 77
+- Comment 229 & 244
 
 In reply.rs for sell wall usage 
-- Comment 109, 275, 308, 386
+- Comment 109, 275, 308, 386, 520
 
 

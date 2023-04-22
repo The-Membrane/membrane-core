@@ -155,7 +155,7 @@ pub fn update_debt_per_asset_in_position(
 ) -> Result<(), ContractError> {
     let mut basket: Basket = BASKET.load(storage)?;
 
-    //Note: Vec lengths need to match
+    //Note: Vec lengths need to match, enforced in withdraw()
     let (old_ratios, _) = get_cAsset_ratios(
         storage,
         env.clone(),
@@ -165,12 +165,7 @@ pub fn update_debt_per_asset_in_position(
     )?;
     let (new_ratios, _) = get_cAsset_ratios(storage, env.clone(), querier, new_assets, config)?;
 
-    let mut over_cap = false;
-    let mut assets_over_cap = vec![];
     let mut error: Option<StdError> = None;
-
-    //Calculate debt per asset caps
-    let cAsset_caps = get_basket_debt_caps(storage, querier, env, &mut basket)?;
 
     for i in 0..old_ratios.len() {
         match old_ratios[i].atomics().checked_sub(new_ratios[i].atomics()) {
@@ -190,14 +185,14 @@ pub fn update_debt_per_asset_in_position(
                                 }
                             };
                             //So we subtract the % difference in debt from said asset
-                            if let Ok(difference) = cap.debt_total.checked_sub( debt_difference * Uint128::new(1u128)) {
+                            if let Ok(debt_difference) = cap.debt_total.checked_sub( debt_difference * Uint128::new(1u128)) {
                                 if cap.current_supply.is_zero() {
                                     //This removes rounding errors that would slowly increase resting interest rates
                                     //Doesn't effect checks for bad debt since its basket debt not position.credit_amount
                                     //its a .000001 error, so shouldn't effect overall calcs or be profitably spammable
                                     cap.debt_total = Uint128::zero();
                                 } else {
-                                    cap.debt_total = difference;
+                                    cap.debt_total = debt_difference;
                                 }
                             };
                         }
@@ -213,8 +208,7 @@ pub fn update_debt_per_asset_in_position(
 
                 basket.collateral_supply_caps = basket.clone().collateral_supply_caps
                     .into_iter()
-                    .enumerate()
-                    .map(|(index, mut cap)| {
+                    .map(|mut cap| {
                         if cap.asset_info.equal(&old_assets[i].asset.info) {
                             let debt_difference = match decimal_multiplication(difference, credit_amount){
                                 Ok(debt_difference) => {
@@ -227,13 +221,8 @@ pub fn update_debt_per_asset_in_position(
                             };
                             let asset_debt = debt_difference * Uint128::new(1u128);
 
-                            //Assert its not over the cap
-                            if (cap.debt_total + asset_debt) <= cAsset_caps[index] {
-                                cap.debt_total += asset_debt;
-                            } else {
-                                over_cap = true;
-                                assets_over_cap.push(cap.asset_info.to_string());
-                            }
+                            //Add to debt total
+                            cap.debt_total += asset_debt;
                         }
 
                         cap
@@ -247,11 +236,6 @@ pub fn update_debt_per_asset_in_position(
         return Err(ContractError::Std(error));
     }
 
-    if over_cap {
-        return Err(ContractError::CustomError {
-            val: format!("Assets over debt cap: {:?}", assets_over_cap),
-        });
-    }
     BASKET.save(storage, &basket)?;
 
     Ok(())
@@ -280,12 +264,13 @@ pub fn update_basket_debt(
     let mut asset_debt = vec![];
     //Save the debt distribution per asset to a list
     for asset in cAsset_ratios {
-        asset_debt.push(asset * credit_amount);
+        let distro = decimal_multiplication(asset, Decimal::from_ratio(credit_amount, Uint128::one()))?;
+        asset_debt.push(distro.to_uint_floor());
     }
 
     //Update basket debt tally
     if add_to_debt {
-        basket.credit_asset.amount += credit_amount;
+        basket.credit_asset.amount += credit_amount;  
     } else {
         basket.credit_asset.amount = match basket.credit_asset.amount.checked_sub(credit_amount){
             Ok(diff) => diff,

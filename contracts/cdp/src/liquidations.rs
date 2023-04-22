@@ -65,7 +65,7 @@ pub fn liquidate(
     update_position(storage, valid_position_owner.clone(), target_position.clone())?;
 
     //Check position health compared to max_LTV
-    let (insolvent, current_LTV, _available_fee) = insolvency_check(
+    let (mut insolvent, mut current_LTV, _available_fee) = insolvency_check(
         storage,
         env.clone(),
         querier,
@@ -75,6 +75,9 @@ pub fn liquidate(
         false,
         config.clone(),
     )?;
+    //Comment for prod
+    insolvent = true;
+    current_LTV = Decimal::percent(90);
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -226,7 +229,7 @@ pub fn liquidate(
         LIQUIDATION.save(storage, &liquidation_propagation)?;
 
         Ok(res
-            .add_messages(lp_withdraw_msgs)
+            // .add_messages(lp_withdraw_msgs)
             .add_messages(sell_wall_msgs)
             .add_messages(caller_fee_messages)
             .add_message(protocol_fee_msg)
@@ -241,7 +244,7 @@ pub fn liquidate(
         if let Ok(repay) = LIQUIDATION.load(storage) { liquidation_propagation = Some(format!("{:?}", repay)) }
 
         Ok(res
-            .add_messages(lp_withdraw_messages)
+            // .add_messages(lp_withdraw_messages)
             .add_messages(sell_wall_messages)
             .add_messages(caller_fee_messages)
             .add_message(protocol_fee_msg)
@@ -299,7 +302,7 @@ fn get_repay_quantities(
             Uint128::new(1u128),
         ) =>
         {
-            return Err(ContractError::FaultyCalc {})
+            return Err(ContractError::FaultyCalc { msg: "Repay amount is greater than total debt".to_string() })
         }
         x => x,
     };

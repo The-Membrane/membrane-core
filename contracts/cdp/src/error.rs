@@ -60,8 +60,8 @@ pub enum ContractError {
     #[error("Info.sender is not the basket.owner")]
     NotBasketOwner {},
 
-    #[error("This calculation was out of desirable bounds")]
-    FaultyCalc {},
+    #[error("{msg}")]
+    FaultyCalc { msg: String },
 
     #[error("Invalid target_LTV for debt increase: {target_LTV}")]
     InvalidLTV { target_LTV: Decimal },

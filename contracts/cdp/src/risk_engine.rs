@@ -267,7 +267,6 @@ pub fn update_basket_debt(
     collateral_assets: Vec<cAsset>,
     credit_amount: Uint128,
     add_to_debt: bool,
-    interest_accrual: bool,
 ) -> Result<(), ContractError> {
     
     let (cAsset_ratios, _) = get_cAsset_ratios(
@@ -283,12 +282,6 @@ pub fn update_basket_debt(
     for asset in cAsset_ratios {
         asset_debt.push(asset * credit_amount);
     }
-    
-    let mut over_cap = false;
-    let mut assets_over_cap = vec![];
-
-    //Calculate debt per asset caps
-    let cAsset_caps = get_basket_debt_caps(storage, querier, env, basket)?;
 
     //Update basket debt tally
     if add_to_debt {
@@ -296,29 +289,28 @@ pub fn update_basket_debt(
     } else {
         basket.credit_asset.amount = match basket.credit_asset.amount.checked_sub(credit_amount){
             Ok(diff) => diff,
-            Err(_err) => return Err(ContractError::FaultyCalc {  })
+            //Basket debt amount should always equal outstanding debt
+            Err(_err) => return Err(ContractError::FaultyCalc { msg: "Basket debt amount should always equal outstanding debt".to_string() })
         };
     }
 
+    let mut err = None;
     //Update supply caps w/ new debt distribution
     for (index, cAsset) in collateral_assets.iter().enumerate() {
         basket.collateral_supply_caps = basket.clone().collateral_supply_caps
             .into_iter()
-            .enumerate()
-            .map(|(i, mut cap)| {
+            .map(|mut cap| {
                 //Add or subtract deposited amount to/from the correlated cAsset object
                 if cap.asset_info.equal(&cAsset.asset.info) {
                     if add_to_debt {
-                        //Assert its not over the cap
-                        //IF the debt is added from interest then we allow it to exceed the cap
-                        if (cap.debt_total + asset_debt[index]) <= cAsset_caps[i] || interest_accrual {
-                            cap.debt_total += asset_debt[index];
-                        } else {
-                            over_cap = true;
-                            assets_over_cap.push(cap.asset_info.to_string());
-                        }
+                        //It can go over the cap bc the interest rate will increase to disincentivize
+                        cap.debt_total += asset_debt[index];
+
                     } else if let Ok(difference) = cap.debt_total.checked_sub(asset_debt[index]) {
                         cap.debt_total = difference;
+                    } else {
+                        //Cap debt_total should always equal outstanding debt for the asset
+                        err = Some(Err(ContractError::FaultyCalc { msg: "Cap debt_total should always equal outstanding debt for the asset".to_string() }));
                     }
                 }
 
@@ -328,14 +320,8 @@ pub fn update_basket_debt(
 
     }
 
-    //Error if over the asset cap
-    if over_cap {
-        return Err(ContractError::CustomError {
-            val: format!(
-                "This increase of debt sets [ {:?} ] assets above the protocol debt cap",
-                assets_over_cap
-            ),
-        });
+    if let Some(error) = err {
+        return error
     }
 
     Ok(())

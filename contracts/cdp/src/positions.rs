@@ -647,7 +647,6 @@ pub fn repay(
         target_position.collateral_assets,
         credit_asset.amount - excess_repayment,
         false,
-        false,
     )?;
 
     //Save updated repayment price and debts
@@ -947,7 +946,6 @@ pub fn increase_debt(
                 target_position.collateral_assets,
                 amount,
                 true,
-                false,
             )?;
             
             //Save updated repayment price and debts

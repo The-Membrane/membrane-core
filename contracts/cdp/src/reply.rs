@@ -106,7 +106,7 @@ pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
                     deps.querier, 
                     &mut prop, 
                     repay_amount)?;
-                //messages.extend(lp_withdraw_msgs);
+                // messages.extend(lp_withdraw_msgs);
                 messages.extend(sell_wall_msgs);
 
             } else {                    
@@ -272,7 +272,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     deps.querier, 
                     &mut liquidation_propagation, 
                     repay_amount)?;
-                messages.extend(lp_withdraw_msgs);
+                // messages.extend(lp_withdraw_msgs);
                 messages.extend(sell_wall_msgs);
 
                 //Save to propagate
@@ -305,7 +305,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                         deps.querier, 
                         &mut liquidation_propagation, 
                         leftover_repayment)?;
-                    messages.extend(lp_withdraw_msgs);
+                    // messages.extend(lp_withdraw_msgs);
                     messages.extend(sell_wall_msgs);
 
                     LIQUIDATION.save(deps.storage, &liquidation_propagation)?;                   
@@ -383,7 +383,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             LIQUIDATION.save(deps.storage, &liquidation_propagation)?;
 
             Ok(Response::new()
-                .add_messages(lp_withdraw_msgs)
+                // .add_messages(lp_withdraw_msgs)
                 .add_messages(sell_wall_msgs)
                 .add_attributes(attrs))
         }

@@ -140,6 +140,7 @@ pub fn deposit(
                     &mut position.clone(),
                     &mut basket,
                     valid_owner_addr.to_string(),
+                    true
                 )?;
                 //Save Basket
                 BASKET.save(deps.storage, &basket)?;
@@ -244,6 +245,7 @@ fn create_position_in_deposit(
         &mut new_position,
         basket,
         valid_owner_addr.to_string(),
+        true
     )?;
     //Save Basket. This only doesn't overwrite the save in update_debt_per_asset_in_position() bc they are certain to never happen at the same time
     BASKET.save(storage, basket)?;
@@ -330,7 +332,8 @@ pub fn withdraw(
         env.clone(),
         &mut target_position,
         &mut basket,
-        valid_position_owner.to_string()
+        valid_position_owner.to_string(),
+        false
     )?;
 
     //For debt cap updates
@@ -566,6 +569,7 @@ pub fn repay(
         &mut target_position,
         &mut basket,
         valid_owner_addr.to_string(),
+        false
     )?;
     
     //Set prev_credit_amount
@@ -757,6 +761,7 @@ pub fn liq_repay(
         deps.querier,
         config.clone(),
         collateral_assets.clone(),
+        false
     )?;
 
     let repay_value = decimal_multiplication(
@@ -864,6 +869,7 @@ pub fn increase_debt(
         &mut target_position,
         &mut basket,
         info.sender.to_string(),
+        false
     )?;
 
     //Set prev_credit_amount
@@ -1745,7 +1751,8 @@ fn get_amount_from_LTV(
         env, 
         querier, 
         config, 
-        position.clone().collateral_assets
+        position.clone().collateral_assets,
+        false
     )?;
 
     //Target LTV can't be greater than possible borrowable LTV for the Position

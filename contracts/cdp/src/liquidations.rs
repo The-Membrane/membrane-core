@@ -56,6 +56,7 @@ pub fn liquidate(
         &mut target_position,
         &mut basket,
         position_owner.clone(),
+        false
     )?;
     
     //Save updated repayment price and basket debt
@@ -88,6 +89,7 @@ pub fn liquidate(
         querier,
         config.clone(),
         target_position.clone().collateral_assets,
+        false
     )?;
 
     //Get repay value and repay_amount

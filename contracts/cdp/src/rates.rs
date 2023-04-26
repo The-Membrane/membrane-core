@@ -55,7 +55,8 @@ pub fn external_accrue_call(
             env.clone(), 
             &mut position,
             &mut basket, 
-            info.sender.to_string()
+            info.sender.to_string(),
+            false
         )?;
 
         accrued_interest += position.clone().credit_amount - prev_loan;
@@ -357,6 +358,7 @@ pub fn accrue(
     position: &mut Position,
     basket: &mut Basket,
     user: String,
+    is_deposit_function: bool,
 ) -> StdResult<()> {
     let config = CONFIG.load(storage)?;
 
@@ -409,6 +411,7 @@ pub fn accrue(
             querier,
             vec![credit_asset],
             config.clone(),
+            is_deposit_function,
         )?
         .1[0];
 

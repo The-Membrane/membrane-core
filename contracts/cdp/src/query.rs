@@ -52,6 +52,7 @@ pub fn query_position(
         deps.querier,
         config.clone(),
         position.clone().collateral_assets,
+        false
     )?;
 
     accrue(
@@ -61,6 +62,7 @@ pub fn query_position(
         &mut position,
         &mut basket,
         user.to_string(),
+        false
     )?;
     
     Ok(PositionResponse {
@@ -108,6 +110,7 @@ pub fn query_user_positions(
             deps.querier,
             config.clone(),
             position.clone().collateral_assets,
+            false
         ) {
             Ok((borrow, max, value, prices)) => (borrow, max, value, prices),
             Err(err) => {
@@ -123,6 +126,7 @@ pub fn query_user_positions(
             &mut position,
             &mut basket,
             user.to_string(),
+            false
         ) {
             Ok(()) => {}
             Err(err) => error = Some(err),
@@ -267,6 +271,7 @@ pub fn query_position_insolvency(
         &mut target_position,
         &mut basket,
         position_owner.clone(),
+        false
     )?;
 
     ///
@@ -334,6 +339,7 @@ pub fn query_collateral_rates(
             deps.querier,
             vec![credit_asset],
             config,
+            false
         )?
         .1[0];
         //We divide w/ the greater number first so the quotient is always 1.__
@@ -412,6 +418,7 @@ pub fn query_basket_credit_interest(
             deps.querier,
             vec![credit_asset],
             config,
+            false
         )?
         .1[0];
 
@@ -464,6 +471,7 @@ pub fn get_cAsset_ratios(
         querier,
         collateral_assets,
         config,
+        false
     )?;
 
     let total_value: Decimal = cAsset_values.iter().sum();
@@ -489,6 +497,7 @@ pub fn query_price(
     env: Env,
     config: Config,
     asset_info: AssetInfo,
+    is_deposit_function: bool,
 ) -> StdResult<Decimal> {
     //Set timeframe
     let mut twap_timeframe: u64 = config.collateral_twap_timeframe;
@@ -502,12 +511,15 @@ pub fn query_price(
     //Try to use a stored price
     let stored_price_res = read_price(storage, &asset_info);
     
-    //Use the stored price if within the oracle_time_limit
-    if let Ok(ref stored_price) = stored_price_res {
-        let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
+    //If depositing, always query a new price to ensure removed asset aren't deposited
+    if !is_deposit_function {
+        //Use the stored price if within the oracle_time_limit
+        if let Ok(ref stored_price) = stored_price_res {
+            let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
 
-        if time_elapsed <= config.oracle_time_limit {
-            return Ok(stored_price.price)
+            if time_elapsed <= config.oracle_time_limit {
+                return Ok(stored_price.price)
+            }
         }
     }
     
@@ -539,6 +551,7 @@ pub fn get_asset_values(
     querier: QuerierWrapper,
     assets: Vec<cAsset>,
     config: Config,
+    is_deposit_function: bool,
 ) -> StdResult<(Vec<Decimal>, Vec<Decimal>)> {
     //Enforce Vec max size
     if assets.len() > 50 {
@@ -567,6 +580,7 @@ pub fn get_asset_values(
                         env.clone(),
                         config.clone(),
                         pool_asset.info,
+                        is_deposit_function,
                     )?;
                     //Append price
                     asset_prices.push(price);
@@ -589,6 +603,7 @@ pub fn get_asset_values(
                     env.clone(),
                     config.clone(),
                     cAsset.clone().asset.info,
+                    is_deposit_function,
                 )?;
 
                 cAsset_prices.push(price);
@@ -692,6 +707,7 @@ pub fn get_avg_LTV(
     querier: QuerierWrapper,
     config: Config,
     collateral_assets: Vec<cAsset>,
+    is_deposit_function: bool,
 ) -> StdResult<(Decimal, Decimal, Decimal, Vec<Decimal>)> {
     //Calc total value of collateral
     let (cAsset_values, cAsset_prices) = get_asset_values(
@@ -700,6 +716,7 @@ pub fn get_avg_LTV(
         querier,
         collateral_assets.clone(),
         config,
+        is_deposit_function,
     )?;
     
     //Calculate avg LTV & return values
@@ -775,7 +792,7 @@ pub fn insolvency_check(
 
     //Get avg LTVs
     let avg_LTVs: (Decimal, Decimal, Decimal, Vec<Decimal>) =
-        get_avg_LTV(storage, env, querier, config, collateral_assets.clone())?;
+        get_avg_LTV(storage, env, querier, config, collateral_assets.clone(), false)?;
 
     //Insolvency check
     insolvency_check_calc(avg_LTVs, collateral_assets, credit_amount, credit_price, max_borrow)

@@ -91,12 +91,22 @@ fn edit_asset(
 
     //Owner or Positions contract can edit_assets
     if info.sender != config.owner {
-        if config.positions_contract.is_some() {
-            if info.sender != config.positions_contract.unwrap() {
+        if let Some(positions_contract) = config.positions_contract.clone() {
+            if info.sender != positions_contract {
                 return Err(ContractError::Unauthorized {});
             }
         } else {
             return Err(ContractError::Unauthorized {});
+        }
+    }
+
+    //Can't remove assets currently used in positions
+    if remove {
+        if let Some(positions_contract) = config.positions_contract {
+            let positions_contract_balances = deps.querier.query_all_balances(&positions_contract)?;
+            if positions_contract_balances.iter().any(|coin| coin.denom == asset_info.to_string()) {
+                return Err(ContractError::AssetInUse { asset: asset_info.to_string() });
+            }
         }
     }
 

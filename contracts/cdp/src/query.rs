@@ -523,9 +523,9 @@ pub fn query_price(
         Ok(res) => {
             res.price
         }
-        Err(_err) => {
-            //if the oracle is down, 0 the price
-            Decimal::zero()
+        Err(err) => {
+            //if the oracle is down, error
+            return Err(err)
         }
     };
 

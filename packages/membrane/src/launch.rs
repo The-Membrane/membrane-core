@@ -4,8 +4,8 @@ use cosmwasm_schema::cw_serde;
 
 #[cw_serde]
 pub struct InstantiateMsg {
-    /// Emergent Labs multisig address
-    pub labs_addr: String,
+    /// Pre launch contributors address
+    pub pre_launch_contributors: String,
     /// Apollo router address
     pub apollo_router: String,
     /// Osmosis Proxy contract id
@@ -81,8 +81,8 @@ pub struct Config {
     pub mbrn_denom: String,
     /// Basket credit asset denom
     pub credit_denom: String,
-    /// Emergent Labs multisig address
-    pub labs_addr: Addr,
+    /// Pre launch contributors address
+    pub pre_launch_contributors: Addr,
     /// Apollo router address
     pub apollo_router: Addr,
     /// Amount of MBRN for launch incentives & LPs

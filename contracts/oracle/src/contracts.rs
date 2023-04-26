@@ -89,7 +89,7 @@ fn edit_asset(
 
     let config = CONFIG.load(deps.storage)?;
 
-    //Owner or Positions contract can Add_assets
+    //Owner or Positions contract can edit_assets
     if info.sender != config.owner {
         if config.positions_contract.is_some() {
             if info.sender != config.positions_contract.unwrap() {

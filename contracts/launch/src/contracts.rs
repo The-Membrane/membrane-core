@@ -61,7 +61,7 @@ pub fn instantiate(
     let config = Config {
         mbrn_denom: String::from(""),
         credit_denom: String::from(""),
-        labs_addr: deps.api.addr_validate(&msg.labs_addr)?,
+        pre_launch_contributors: deps.api.addr_validate(&msg.pre_launch_contributors)?,
         apollo_router: deps.api.addr_validate(&msg.apollo_router)?,
         mbrn_launch_amount: Uint128::new(10_000_000_000_000),
         osmosis_proxy_id: msg.osmosis_proxy_id,
@@ -487,7 +487,7 @@ fn update_config(
     let mut config = CONFIG.load(deps.storage)?;
 
     //Assert authority
-    if info.sender != config.clone().labs_addr {
+    if info.sender != config.clone().pre_launch_contributors {
         return Err(ContractError::Unauthorized {});
     }
 

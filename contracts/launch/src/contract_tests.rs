@@ -21,7 +21,7 @@ fn update_config(){
     let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
-        labs_addr: String::from("labs"),
+        pre_launch_contributors: String::from("labs"),
         apollo_router: String::from("router"),
         //Contract IDs
         osmosis_proxy_id: 0,
@@ -91,7 +91,7 @@ fn lock() {
     let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
-        labs_addr: String::from("labs"),
+        pre_launch_contributors: String::from("labs"),
         apollo_router: String::from("router"),
         //Contract IDs
         osmosis_proxy_id: 0,
@@ -181,7 +181,7 @@ fn withdraw() {
     let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
-        labs_addr: String::from("labs"),
+        pre_launch_contributors: String::from("labs"),
         apollo_router: String::from("router"),
         //Contract IDs
         osmosis_proxy_id: 0,
@@ -272,7 +272,7 @@ fn claim() {
     let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
-        labs_addr: String::from("labs"),
+        pre_launch_contributors: String::from("labs"),
         apollo_router: String::from("router"),
         //Contract IDs
         osmosis_proxy_id: 0,

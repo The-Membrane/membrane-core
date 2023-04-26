@@ -390,7 +390,7 @@ pub fn handle_staking_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                 msg: to_binary(&Vesting_InstantiateMsg {
                     owner: None,
                     initial_allocation: Uint128::new(10_000_000_000_000),
-                    labs_addr: config.clone().labs_addr.to_string(),
+                    pre_launch_contributors: config.clone().pre_launch_contributors.to_string(),
                     mbrn_denom: config.clone().mbrn_denom,
                     osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),
                     staking_contract: addrs.clone().staking.to_string(),

@@ -322,7 +322,7 @@ fn validate_assets(
 ) -> StdResult<Vec<Asset>>{
     let accepted_LPs = accepted_LPs.into_iter().map(|pool| pool.share_token).collect::<Vec<AssetInfo>>();
 
-    let valid_assets: Vec<Asset> = funds
+    let valid_assets: Vec<Asset> = funds.clone()
         .into_iter()
         .filter(|coin| accepted_LPs.clone().iter().any(|lp| lp.equal(&AssetInfo::NativeToken { denom: coin.clone().denom } )))
         .map(|coin| Asset {

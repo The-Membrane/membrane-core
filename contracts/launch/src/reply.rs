@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use cosmwasm_std::{
     to_binary, Decimal, DepsMut, Env, WasmMsg, WasmQuery,
-    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, coins, QueryRequest,
+    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, coins, QueryRequest, BankMsg,
 };
 use crate::error::ContractError;
 use crate::contracts::{SECONDS_PER_DAY, POSITIONS_REPLY_ID, DEBT_AUCTION_REPLY_ID, SYSTEM_DISCOUNTS_REPLY_ID, DISCOUNT_VAULT_REPLY_ID, CREATE_DENOM_REPLY_ID, ORACLE_REPLY_ID, STAKING_REPLY_ID, VESTING_REPLY_ID, LIQ_QUEUE_REPLY_ID, GOVERNANCE_REPLY_ID, STABILITY_POOL_REPLY_ID ,LIQUIDITY_CHECK_REPLY_ID};
@@ -97,6 +97,7 @@ pub fn handle_balancer_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<
 
 /// Save and add Stableswap Pool ID & pool denom to necessary contracts.
 /// Mint MBRN for Stableswap Incentives.
+/// Send MBRN/OSMO to Governance
 pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{    
     match msg.clone().result.into_result() {
         Ok(result) => {
@@ -202,6 +203,22 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             funds: vec![], 
         });
         msgs.push(msg);       
+
+        //Query contract balance of any GAMM shares 
+        //but we only care about MBRN-OSMO LP
+        let coins: Vec<cosmwasm_std::Coin> = deps.querier.query_all_balances(env.contract.address)?;
+        let gamm_coins = coins
+            .into_iter()
+            .filter( |coin| coin.denom.contains("gamm"))
+            .collect::<Vec<cosmwasm_std::Coin>>();
+            
+            
+        //Send gamm_coins to Governance
+        let msg = BankMsg::Send {
+            to_address: addrs.clone().governance.to_string(),
+            amount: gamm_coins,
+        };
+        msgs.push(msg.into());
                  
 
         Ok(Response::new()

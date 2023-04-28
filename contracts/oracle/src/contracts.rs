@@ -9,8 +9,9 @@ use cw2::set_contract_version;
 use osmosis_std::types::osmosis::twap::v1beta1 as TWAP;
 
 use membrane::math::{decimal_division, decimal_multiplication};
+use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg};
-use membrane::types::{AssetInfo, AssetOracleInfo, PriceInfo};
+use membrane::types::{AssetInfo, AssetOracleInfo, PriceInfo, Basket};
 
 use crate::error::ContractError;
 use crate::state::{ASSETS, CONFIG, OWNERSHIP_TRANSFER};
@@ -103,8 +104,8 @@ fn edit_asset(
     //Can't remove assets currently used in positions
     if remove {
         if let Some(positions_contract) = config.positions_contract {
-            let positions_contract_balances = deps.querier.query_all_balances(&positions_contract)?;
-            if positions_contract_balances.iter().any(|coin| coin.denom == asset_info.to_string()) {
+            let basket: Basket = deps.querier.query_wasm_smart(positions_contract, &CDP_QueryMsg::GetBasket {  })?;
+            if basket.collateral_supply_caps.iter().any(|cap| cap.asset_info == asset_info && cap.current_supply > Uint128::zero()) {
                 return Err(ContractError::AssetInUse { asset: asset_info.to_string() });
             }
         }

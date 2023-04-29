@@ -1,7 +1,16 @@
 
 # Membrane Contracts
 
-Auomated mixed-asset debt market protocol powered by smart contracts on [Osmosis](https://osmosis.zone).
+Membrane is a community-owned DAO that carries the torch of decentralization. The main protocol is a pegged token (stablecoin) stabilization system that uses collateralized debt in the form of CDPs to mint. A CDP is a loan that holds collateral and mints debt within the set LTV limits of the position. Typical CDPs are 1 collateral per position but Membrane enables bundles to mix-n-match collateral in a single position, enabling further risk control for the position owners.
+
+Typical liquidations auction off the full amount to bot caller in a first come first serve manner. Membrane’s liquidations are a 4 part filtration system that liquidate collateral at market driven fees until ultimately being backed by the Membrane network token. 
+From 1-4: 
+- Liquidation Queue for single collateral w/ dynamic fees 
+- Stability Pool for all collateral at a fixed fee
+- Market sales through a DEX router
+- Bad debt recapitalization through Membrane Debt Auctions
+
+Pegged token mints are handled by the Osmosis Proxy in a way that allows for multiple versions of the CDP contract to run in tandem. All external user facing contracts that hold funds should be immutable long term to allow the market to choose its upgrades. 
 
 ## Core CDP Contracts
 

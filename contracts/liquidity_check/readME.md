@@ -1,0 +1,3 @@
+# Liquidity Check Contract
+
+Every stablecoin protocol has some mechanism to limit supply growth, Membrane's is through liquidity. This contract queries CDT liquidity within Osmosis, but in the future it'll include the IBC conneced Interchain. There are currently 2 supported pool types, Balancer & Stableswap. These are differentiated because Stableswaps (SS) aren't 50:50 pools so the liquidity in CDT isn't going to be mirrored on the opposite side. So for SS, the paired asset is counted instead of CDT and there is an optional multiplier if the community decides to recognize the swap efficiency properties of the SS to boost the supply cap. 

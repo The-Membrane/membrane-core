@@ -41,4 +41,4 @@ Pegged token mints are handled by the Osmosis Proxy in a way that allows for mul
 
 
 ## Docs
-[Documentation](https://membrane-finance.gitbook.io/membrane-docs/)
+[Documentation](https://membrane-finance.gitbook.io/membrane-docs-1/)

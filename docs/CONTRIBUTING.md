@@ -66,7 +66,7 @@ can be difficult! If you are not sure how to create tests, please refer to exist
     - `cargo test`
 8. Push your changes to your repository.
     - `git push --set-upstream $YOUR_ORIGIN $YOUR_BRANCH_NAME`
-9. Create a pull request. Go to your [repository](https://github.com/$USER/membrane-core.git) and create a pull request 
+9. Create a pull request. Go to your repository and create a pull request 
 against Membrane's repository **main branch** as base.
 10. Follow up the discussions on the PR as there might be requests from other members.
 11. Wait for your PR to be approved and merged.

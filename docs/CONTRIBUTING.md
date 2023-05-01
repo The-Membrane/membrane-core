@@ -64,15 +64,12 @@ you are trying to achieve:
 can be difficult! If you are not sure how to create tests, please refer to existing ones or just ask us on our 
 [discord](https://discord.gg/ksT6cdHpbV). Please note that **Untested code will be rejected**
     - `cargo test`
-8. Setup and use the provided githooks! These help speed up the review process pointing out common issues before a CI check like lints. To install the hook, run `scripts/hooks/pre-commit.sh --install`
-9. Push your changes to your repository.
+8. Push your changes to your repository.
     - `git push --set-upstream $YOUR_ORIGIN $YOUR_BRANCH_NAME`
-10. Create a pull request. Go to your [repository](https://github.com/$USER/membrane-core.git) and create a pull request 
+9. Create a pull request. Go to your [repository](https://github.com/$USER/membrane-core.git) and create a pull request 
 against Membrane's repository **main branch** as base.
-    - Please fill in the template presented to you when creating the pull request, as it helps everybody understand what the PR is trying to achieve.
-    - Follow the instructions on the PR template. Consider that a pull request that doesn't follow the template or is not filled in properly *will be considered incomplete*.
-11. Follow up the discussions on the PR as there might be requests from other members.
-12. Wait for your PR to be approved and merged.
+10. Follow up the discussions on the PR as there might be requests from other members.
+11. Wait for your PR to be approved and merged.
 
 ## Helping out in the issue tracker
 
@@ -95,7 +92,7 @@ we make sure our code is safe by auditing via third party security firms. Nevert
 If you find a critical vulnerability, please do not report it publicly on the Github issues tracker. Instead, reach out to us 
 in private where we will discuss it in details.
 
-See how to [report security bugs](https://github.com/MembraneFinance/membrane-core/docs/SECURITY.md).
+See how to [report security bugs](https://github.com/MembraneFinance/membrane-core/blob/main/docs/SECURITY.md).
 
 ## Engaging with the community
 

@@ -88,7 +88,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                 //Mint MBRN for Incentives
                 let op_msg = OPExecuteMsg::MintTokens { 
                     denom: config.clone().mbrn_denom, 
-                    amount: Uint128::new(1_000_000_000_000), 
+                    amount: Uint128::new(1_500_000_000_000), 
                     mint_to_address: env.clone().contract.address.to_string(),
                 };
                 let op_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
@@ -120,10 +120,10 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                     }), 
                     coins: vec![Coin {
                         denom: config.clone().mbrn_denom, 
-                        amount: String::from("1_000_000_000_000"),
+                        amount: String::from("1_500_000_000_000"),
                     }], 
                     start_time: None, 
-                    num_epochs_paid_over: 90, //days
+                    num_epochs_paid_over: 180, //days
                 }.into();
                 msgs.push(msg);
             } else {
@@ -157,7 +157,7 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
         //Mint MBRN for Incentives
         let op_msg = OPExecuteMsg::MintTokens { 
             denom: config.clone().mbrn_denom, 
-            amount: Uint128::new(1_000_000_000_000), 
+            amount: Uint128::new(500_000_000_000), 
             mint_to_address: env.clone().contract.address.to_string(),
         };
         let op_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
@@ -197,7 +197,7 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             }), 
             coins: vec![Coin {
                 denom: config.clone().mbrn_denom, 
-                amount: String::from("1_000_000_000_000"),
+                amount: String::from("500_000_000_000"),
             }], 
             start_time: None, 
             num_epochs_paid_over: 90, //days

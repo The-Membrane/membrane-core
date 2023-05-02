@@ -386,9 +386,9 @@ pub struct EditBasket {
     pub multi_asset_supply_caps: Option<Vec<MultiAssetSupplyCap>>,
     /// Base interest rate
     pub base_interest_rate: Option<Decimal>,
-    /// Osmosis Pool info for credit TWAP price
+    /// Osmosis Pool info for credit->OSMO TWAP price
     /// Non-USD denominated baskets don't work due to the debt minimum
-    pub credit_asset_twap_price_source: Option<TWAPPoolInfo>,
+    pub credit_asset_twap_price_source: Option<(TWAPPoolInfo)>,
     /// Toggle allowance negative redemption rate
     pub negative_rates: Option<bool>, 
     /// Margin of error for difference in TWAP price and redemption price

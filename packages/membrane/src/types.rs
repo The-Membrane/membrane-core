@@ -255,13 +255,15 @@ pub struct StakeDistributionLog {
 pub struct AssetOracleInfo {
     /// Basket ID
     pub basket_id: Uint128,
-    /// Osmosis pools for TWAP
-    pub osmosis_pools_for_twap: Vec<TWAPPoolInfo>,
+    /// Osmosis pools for OSMO TWAP
+    pub pools_for_osmo_twap: Vec<TWAPPoolInfo>,
+    /// Bool to provide $1 static_price if the asset is USD-par
+    pub is_usd_par: bool,
 }
 
 impl fmt::Display for AssetOracleInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "osmosis_pool: {:?}", self.osmosis_pools_for_twap)
+        write!(f, "osmo_pools: {:?}, usd_par_pools: {:?}", self.pools_for_osmo_twap, self.pools_for_usd_par_twap)
     }
 }
 

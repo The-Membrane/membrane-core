@@ -2,16 +2,18 @@ use std::str::FromStr;
 
 use cosmwasm_std::{
     attr, entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper,
-    Response, StdError, StdResult, Storage, Uint128, 
+    Response, StdError, StdResult, Storage, Uint128, Addr, 
 };
 use cw2::set_contract_version;
+
+use pyth_sdk_cw::{PriceFeedResponse, query_price_feed, PriceIdentifier, PriceFeed};
 
 use osmosis_std::types::osmosis::twap::v1beta1 as TWAP;
 
 use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg};
-use membrane::types::{AssetInfo, AssetOracleInfo, PriceInfo, Basket};
+use membrane::types::{AssetInfo, AssetOracleInfo, PriceInfo, Basket, TWAPPoolInfo};
 
 use crate::error::ContractError;
 use crate::state::{ASSETS, CONFIG, OWNERSHIP_TRANSFER};
@@ -19,6 +21,11 @@ use crate::state::{ASSETS, CONFIG, OWNERSHIP_TRANSFER};
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "oracle";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+//  Static prices
+const STATIC_USD_PRICE: Decimal = Decimal::one();
+//Pyth Price ID
+const OSMO_USD_PRICE_ID: &str = "0x5867f5683c757393a0670ef0f701490950fe93fdb006d181c8265a831ac0c5c6";
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -28,18 +35,27 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-
+    
     let mut config: Config;
     if msg.owner.is_some() {
         config = Config {
             owner: deps.api.addr_validate(&msg.owner.unwrap())?,
             positions_contract: None,
+            pyth_osmosis_address: msg.pyth_osmosis_address.map_or(None, |addr| Some(deps.api.addr_validate(&addr).unwrap_or(Addr::unchecked("".to_string())))),
+            osmo_usd_pyth_feed_id: PriceIdentifier::from_hex(OSMO_USD_PRICE_ID).unwrap(),
+            pools_for_usd_par_twap: vec![],
         };
     } else {
         config = Config {
             owner: info.sender,
             positions_contract: None,
+            pyth_osmosis_address: msg.pyth_osmosis_address.map_or(None, |addr| Some(deps.api.addr_validate(&addr).unwrap_or(Addr::unchecked("".to_string())))),
+            osmo_usd_pyth_feed_id: PriceIdentifier::from_hex(OSMO_USD_PRICE_ID).unwrap(),
+            pools_for_usd_par_twap: vec![],
         };
+    }
+    if config.clone().pyth_osmosis_address.unwrap() == Addr::unchecked("".to_string()) {
+        config.pyth_osmosis_address = None;
     }
 
     if let Some(positions_contract) = msg.positions_contract {
@@ -74,7 +90,10 @@ pub fn execute(
         ExecuteMsg::UpdateConfig {
             owner,
             positions_contract,
-        } => update_config(deps, env, info, owner, positions_contract),
+            pyth_osmosis_address,
+            osmo_usd_pyth_feed_id,
+            pools_for_usd_par_twap
+        } => update_config(deps, env, info, owner, positions_contract, osmo_usd_pyth_feed_id, pyth_osmosis_address, pools_for_usd_par_twap),
     }
 }
 
@@ -230,6 +249,9 @@ pub fn update_config(
     info: MessageInfo,
     owner: Option<String>,
     positions_contract: Option<String>,
+    osmo_usd_pyth_feed_id: Option<PriceIdentifier>,
+    pyth_osmosis_address: Option<String>,
+    pools_for_usd_par_twap: Vec<TWAPPoolInfo>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     let mut attrs = vec![attr("method", "update_config")];
@@ -262,6 +284,15 @@ pub fn update_config(
     }
     if let Some(positions_contract) = positions_contract {
         config.positions_contract = Some(deps.api.addr_validate(&positions_contract)?);
+    }
+    if let Some(osmo_usd_pyth_feed_id) = osmo_usd_pyth_feed_id {
+        config.osmo_usd_pyth_feed_id = osmo_usd_pyth_feed_id;
+    }
+    if let Some(pyth_osmosis_address) = pyth_osmosis_address {
+        config.pyth_osmosis_address = Some(deps.api.addr_validate(&pyth_osmosis_address)?);
+    }
+    if !pools_for_usd_par_twap.is_empty() {
+        config.pools_for_usd_par_twap = pools_for_usd_par_twap;
     }
 
     CONFIG.save(deps.storage, &config)?;
@@ -322,7 +353,8 @@ fn get_asset_price(
     twap_timeframe: u64, //in minutes
     basket_id_field: Option<Uint128>,
 ) -> StdResult<PriceResponse> {
-    //Load Asset Info
+    //Load state
+    let config: Config = CONFIG.load(storage)?;
     let asset_oracle_info = ASSETS.load(storage, asset_info.to_string())?;
 
     let mut basket_id = Uint128::new(1u128); //Defaults to first basket assuming thats the USD basket
@@ -347,11 +379,13 @@ fn get_asset_price(
     let start_time: u64 = env.block.time.seconds() - twap_timeframe;
 
     let mut oracle_prices = vec![];
-    let mut price_steps = vec![];
+    let mut asset_price_in_osmo_steps = vec![];
+    let mut usd_par_prices = vec![];
+    let mut quote_price = Decimal::zero();
 
-    //Query price from the TWAP sources
-    //This is if we need to use multiple pools to calculate our price
-    for pool in oracle_info.osmosis_pools_for_twap {
+    //Query OSMO price from the TWAP sources
+    //This can use multiple pools to calculate our price
+    for pool in oracle_info.pools_for_osmo_twap {
 
         let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
             pool.clone().pool_id, 
@@ -364,59 +398,141 @@ fn get_asset_price(
         )?;
 
         //Push TWAP
-        price_steps.push(Decimal::from_str(&res.geometric_twap).unwrap());
+        asset_price_in_osmo_steps.push(Decimal::from_str(&res.geometric_twap)?);
     }
 
-    //Multiply prices
-    let price = {
+    //Multiply prices to denomiate in OSMO
+    let asset_price_in_osmo = {
         let mut final_price = Decimal::one();
-        //If no prices were queried, return error
-        if price_steps.len() == 0 {
+        //If no prices were queried, return error unless its OSMO
+        if asset_price_in_osmo_steps.len() == 0 && asset_info.to_string() != String::from("uosmo"){
             return Err(StdError::GenericErr {
-                msg: String::from("No TWAP prices found"),
+                msg: String::from("No OSMO TWAP prices found"),
             });
-        } 
+        }
 
-        //Multiply prices to get the desired Quote
-        for price in price_steps {
-            final_price = decimal_multiplication(final_price, price)?;
-        } 
+        //Find asset price in OSMO
+        if asset_info.to_string() == String::from("uosmo"){
+            final_price = Decimal::one();
+        } else {            
+            //Multiply prices to get the desired Quote
+            for price in asset_price_in_osmo_steps {
+                final_price = decimal_multiplication(final_price, price)?;
+            } 
+        }
         
 
         final_price
     };
     //Results in slight error: (https://medium.com/reflexer-labs/analysis-of-the-rai-twap-oracle-20a01af2e49d)
 
-    //Push TWAP
+    //Push OSMO TWAP price
     oracle_prices.push(PriceInfo {
         source: String::from("osmosis"),
-        price,
+        price: asset_price_in_osmo,
     });
-    
 
-    //////If AssetOracleInfo gets more fields we can just push those prices here////
-    
-    //Sort prices
-    oracle_prices.sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap());
+    //Has USD pricing failed?
+    let mut usd_price_failed = false;
 
-    //Get Median price
-    let median_price = if oracle_prices.len() % 2 == 0 {
-        let median_index = oracle_prices.len() / 2;
-
-        //Add the two middle oracle_prices and divide by 2
-        decimal_division(oracle_prices[median_index].price + oracle_prices[median_index-1].price, Decimal::percent(2_00)).unwrap()
+    //If we have an OSMO -> USD price feed, we will use that to calculate the peg price
+    if config.pyth_osmosis_address.is_some() {
         
-    } else if oracle_prices.len() != 1 {
-        let median_index = oracle_prices.len() / 2;
-        oracle_prices[median_index].price
-    } else {
-        oracle_prices[0].price
-    };
+        //Query OSMO -> USD price from Pyth
+        // If fail, skip to USD-par pricing
+        let price_feed_response: PriceFeedResponse = match query_price_feed(
+            &querier, 
+            config.pyth_osmosis_address.unwrap(),
+            config.osmo_usd_pyth_feed_id){
+                Ok(res) => res,
+                Err(_) => {
+                    usd_price_failed = true;
+                    PriceFeedResponse {
+                        price_feed: PriceFeed::default(),
+                    }
+                }
+            };
+            
+        if !usd_price_failed {
+            
+            let price_feed = price_feed_response.price_feed;
+            //Query unscaled price
+            let price = price_feed
+                .get_ema_price_no_older_than(env.block.time.seconds() as i64, twap_timeframe)
+                .ok_or_else(|| StdError::not_found("Current price is not available"))?;
+            //Scale price using given exponent        
+            let scaled_price = price.price as f64 * f64::powi(10.0, price.expo);
+            //Convert to Decimal and save as quote_price
+            quote_price = Decimal::from_str(&scaled_price.to_string())?;
 
+            //Push Pyth OSMO USD price
+            oracle_prices.push(PriceInfo {
+                source: String::from("pyth"),
+                price: quote_price,
+            });
+        }
+
+    } else {
+        usd_price_failed = true;
+    }
+
+    //If we don't have an OSMO -> USD price feed or it has failed, we will calculate the peg price using USD-par prices
+    if usd_price_failed {
+        
+        //Query OSMO -> USD-par prices from the TWAP sources
+        for pool in config.pools_for_usd_par_twap {
+
+            let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
+                pool.clone().pool_id, 
+                pool.clone().base_asset_denom, 
+                pool.clone().quote_asset_denom, 
+                Some(osmosis_std::shim::Timestamp {
+                    seconds:  start_time as i64,
+                    nanos: 0,
+                }),
+            )?;
+
+            //Push TWAP
+            usd_par_prices.push(Decimal::from_str(&res.geometric_twap)?);
+        }
+        
+        //Sort & Medianize OSMO -> USD-par prices
+        //Sort prices
+        usd_par_prices.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+
+        //Get Median price and set it as the quote price
+        quote_price = if usd_par_prices.len() % 2 == 0 {
+            let median_index = usd_par_prices.len() / 2;
+
+            //Add the two middle usd_par_prices and divide by 2
+            decimal_division(usd_par_prices[median_index] + usd_par_prices[median_index-1], Decimal::percent(2_00)).unwrap()
+            
+        } else if usd_par_prices.len() != 1 {
+            let median_index = usd_par_prices.len() / 2;
+            usd_par_prices[median_index]
+        } else {
+            usd_par_prices[0]
+        };
+
+        //Push Osmosis OSMO USD-par price
+        oracle_prices.push(PriceInfo {
+            source: String::from("osmosis"),
+            price: quote_price,
+        });
+    }
+
+    //quote_price is either OSMO -> USD or OSMO -> USD-par, prio to USD
+    //Find asset price using asset_price_in_osmo * quote price
+    let mut asset_price = decimal_multiplication(asset_price_in_osmo, quote_price)?;
+
+    //If the asset is USD-par the final price has to be less than the static price ($1) to be valid
+    if oracle_info.is_usd_par && asset_price > STATIC_USD_PRICE {
+        asset_price = STATIC_USD_PRICE;
+    }
 
     Ok(PriceResponse {
         prices: oracle_prices,
-        price: median_price,
+        price: asset_price,
     })
 }
 

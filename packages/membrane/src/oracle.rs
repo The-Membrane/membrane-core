@@ -1,7 +1,9 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Decimal, Uint128, Addr};
 
-use crate::types::{AssetInfo, AssetOracleInfo, PriceInfo};
+use pyth_sdk_cw::PriceIdentifier;
+
+use crate::types::{AssetInfo, AssetOracleInfo, PriceInfo, TWAPPoolInfo};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -9,6 +11,8 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     /// Positions contract address
     pub positions_contract: Option<String>,
+    /// Pyth Osmosis address
+    pub pyth_osmosis_address: Option<String>,
 }
 
 #[cw_serde]
@@ -19,6 +23,13 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         /// Positions contract address
         positions_contract: Option<String>,
+        /// OSMO/USD Pyth price feed id
+        osmo_usd_pyth_feed_id: Option<PriceIdentifier>,
+        /// Pyth Osmosis address
+        pyth_osmosis_address: Option<String>,
+        /// Osmosis pools for OSMO/USD-par TWAP.
+        /// Replaces saved state.
+        pools_for_usd_par_twap: Vec<TWAPPoolInfo>,
     },
     /// Add a new asset
     AddAsset {
@@ -73,6 +84,13 @@ pub struct Config {
     pub owner: Addr,
     /// Positions contract address
     pub positions_contract: Option<Addr>,
+    /// OSMO/USD Pyth price feed id
+    pub osmo_usd_pyth_feed_id: PriceIdentifier,
+    /// Pyth Osmosis address
+    pub pyth_osmosis_address: Option<Addr>,
+    /// Osmosis pools for OSMO/USD-par TWAP.
+    /// This list of pools will be used separately and medianized.
+    pub pools_for_usd_par_twap: Vec<TWAPPoolInfo>,
 }
 
 #[cw_serde]

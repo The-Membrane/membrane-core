@@ -1597,7 +1597,8 @@ pub fn edit_basket(
                     asset_info: basket.clone().credit_asset.info,
                     oracle_info: Some(AssetOracleInfo {
                         basket_id: basket.clone().basket_id,
-                        osmosis_pools_for_twap: vec![credit_twap],
+                        pools_for_osmo_twap: vec![credit_twap],
+                        is_usd_par: false,
                     }),
                     remove: false,
                 })?,

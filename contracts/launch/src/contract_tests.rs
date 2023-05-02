@@ -1,3 +1,5 @@
+use std::intrinsics::powf64;
+
 use crate::contracts::{execute, instantiate, query, SECONDS_PER_DAY};
 use crate::error::ContractError;
 
@@ -38,7 +40,6 @@ fn update_config(){
         system_discounts_id: 0,
         discount_vault_id: 0,
     };
-
     //Instantiating contract
     let info = mock_info("sender88", &[coin(20_000_000, "uosmo")]);
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();

@@ -290,6 +290,7 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
                 msg: to_binary(&Oracle_InstantiateMsg {
                     owner: None,
                     positions_contract: None,
+                    pyth_osmosis_address: None,
                 })?, 
                 funds: vec![], 
                 label: String::from("oracle"), 
@@ -623,13 +624,15 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                         asset_info: AssetInfo::NativeToken { denom: config.clone().atom_denom }, 
                         oracle_info: AssetOracleInfo { 
                             basket_id: Uint128::one(), 
-                            osmosis_pools_for_twap: vec![
+                            pools_for_osmo_twap: vec![
                                 //ATOM/OSMO
                                 TWAPPoolInfo { 
                                     pool_id: config.clone().atomosmo_pool_id, 
                                     base_asset_denom: config.clone().atom_denom.to_string(), 
                                     quote_asset_denom: config.clone().osmo_denom.to_string(),  
-                                },
+                                }
+                            ],
+                            pools_for_usd_par_twap: vec![                                
                                 //OSMO/USDC
                                 TWAPPoolInfo { 
                                     pool_id: config.clone().osmousdc_pool_id, 
@@ -637,6 +640,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                                     quote_asset_denom: config.clone().usdc_denom.to_string(),  
                                 },
                             ],
+                            is_usd_par: false
                         },
                     })?, 
                     funds: vec![],
@@ -649,11 +653,13 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                         asset_info: AssetInfo::NativeToken { denom: config.clone().osmo_denom }, 
                         oracle_info: AssetOracleInfo { 
                             basket_id: Uint128::one(), 
-                            osmosis_pools_for_twap: vec![TWAPPoolInfo { 
+                            pools_for_osmo_twap: vec![],
+                            pools_for_usd_par_twap: vec![TWAPPoolInfo { 
                                 pool_id: config.clone().osmousdc_pool_id, 
                                 base_asset_denom: config.clone().osmo_denom.to_string(), 
                                 quote_asset_denom: config.clone().usdc_denom.to_string(),  
                             }],
+                            is_usd_par: false
                         },
                     })?, 
                     funds: vec![],
@@ -666,7 +672,22 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                         asset_info: AssetInfo::NativeToken { denom: config.clone().usdc_denom }, 
                         oracle_info: AssetOracleInfo { 
                             basket_id: Uint128::one(), 
-                            osmosis_pools_for_twap: vec![],
+                            pools_for_osmo_twap: vec![
+                                TWAPPoolInfo { 
+                                    pool_id: config.clone().osmousdc_pool_id, 
+                                    quote_asset_denom: config.clone().usdc_denom.to_string(), 
+                                    base_asset_denom: config.clone().osmo_denom.to_string(),  
+                                }
+                            ],
+                            pools_for_usd_par_twap: vec![
+                                TWAPPoolInfo { 
+                                    pool_id: config.clone().osmousdc_pool_id, 
+                                    base_asset_denom: config.clone().osmo_denom.to_string(), 
+                                    quote_asset_denom: config.clone().usdc_denom.to_string(),  
+                                }
+                            ],
+                            is_usd_par: true
+                            
                         },
                     })?, 
                     funds: vec![],
@@ -1263,6 +1284,8 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                 msg: to_binary(&OracleExecuteMsg::UpdateConfig { 
                     owner: Some(addrs.clone().governance.to_string()), 
                     positions_contract: Some(addrs.clone().positions.to_string()),
+                    pyth_osmosis_address: None,
+                    osmo_usd_pyth_feed_id: None,
                 })?, 
                 funds: vec![],
             }));

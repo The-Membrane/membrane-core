@@ -1,5 +1,3 @@
-use std::intrinsics::powf64;
-
 use crate::contracts::{execute, instantiate, query, SECONDS_PER_DAY};
 use crate::error::ContractError;
 

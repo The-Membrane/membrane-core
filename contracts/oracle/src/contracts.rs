@@ -25,7 +25,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 //  Static prices
 const STATIC_USD_PRICE: Decimal = Decimal::one();
 //Pyth Price ID
-const OSMO_USD_PRICE_ID: &str = "0x5867f5683c757393a0670ef0f701490950fe93fdb006d181c8265a831ac0c5c6";
+const OSMO_USD_PRICE_ID: &str = "5867f5683c757393a0670ef0f701490950fe93fdb006d181c8265a831ac0c5c6";
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -54,7 +54,7 @@ pub fn instantiate(
             pools_for_usd_par_twap: vec![],
         };
     }
-    if config.clone().pyth_osmosis_address.unwrap() == Addr::unchecked("".to_string()) {
+    if config.clone().pyth_osmosis_address.is_some() && config.clone().pyth_osmosis_address.unwrap() == Addr::unchecked("".to_string()) {
         config.pyth_osmosis_address = None;
     }
 

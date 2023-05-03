@@ -4,7 +4,7 @@ mod tests {
     use crate::helpers::OracleContract;
 
     use membrane::oracle::{ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::types::{AssetInfo, AssetOracleInfo, TWAPPoolInfo, PriceInfo};
+    use membrane::types::{AssetInfo, AssetOracleInfo, TWAPPoolInfo, PriceInfo, Asset, Basket, SupplyCap};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
@@ -58,6 +58,65 @@ mod tests {
         Box::new(contract)
     }
 
+    //Mock Positions Contract
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub enum CDP_MockExecuteMsg {}
+
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub struct CDP_MockInstantiateMsg {}
+
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub enum CDP_MockQueryMsg {
+        GetBasket {},
+    }
+
+    pub fn cdp_contract() -> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: CDP_MockExecuteMsg| -> StdResult<Response> {
+                Ok(Response::default())
+            },
+            |_, _, _, _: CDP_MockInstantiateMsg| -> StdResult<Response> {
+                Ok(Response::default())
+            },
+            |_, _, msg: CDP_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    CDP_MockQueryMsg::GetBasket {} => Ok(to_binary(&Basket {
+                        basket_id: Uint128::zero(),
+                        current_position_id: Uint128::zero(),
+                        collateral_types: vec![],
+                        collateral_supply_caps: vec![
+                            SupplyCap { 
+                                asset_info: AssetInfo::NativeToken { denom: String::from("removable") }, 
+                                current_supply: Uint128::zero(), 
+                                debt_total: Uint128::zero(),  
+                                supply_cap_ratio: Decimal::zero(), 
+                                lp: false,
+                                stability_pool_ratio_for_debt_cap: None,
+                            },
+                        ],
+                        credit_asset: Asset { info: AssetInfo::NativeToken { denom: String::from("factory/cdt/#1") }, amount: Uint128::zero() },
+                        credit_price: Decimal::zero(),
+                        liq_queue: None,
+                        base_interest_rate: Decimal::zero(),
+                        pending_revenue: Uint128::zero(),
+                        negative_rates: false,
+                        cpc_margin_of_error: Decimal::zero(),
+                        multi_asset_supply_caps: vec![],
+                        frozen: false,
+                        rev_to_stakers: true,
+                        credit_last_accrued: 0,
+                        rates_last_accrued: 0,
+                        oracle_set: true,
+                    })?),
+                }
+            },
+        );
+        Box::new(contract)
+    }
+
     fn mock_app() -> App {
         AppBuilder::new().build(|router, _, storage| {
             let bank = BankKeeper::new();
@@ -85,7 +144,7 @@ mod tests {
         })
     }
 
-    fn proper_instantiate() -> (App, OracleContract) {
+    fn proper_instantiate() -> (App, OracleContract, Addr) {
         let mut app = mock_app();
 
         //Instaniate Osmosis Proxy
@@ -102,12 +161,27 @@ mod tests {
             )
             .unwrap();
 
+        //Instaniate Positions contract
+        let proxy_id = app.store_code(cdp_contract());
+
+        let cdp_contract_addr = app
+            .instantiate_contract(
+                proxy_id,
+                Addr::unchecked(ADMIN),
+                &CDP_MockInstantiateMsg {},
+                &[],
+                "test",
+                None,
+            )
+            .unwrap();
+
         //Instantiate Oracle contract
         let oracle_id = app.store_code(oracle_contract());
 
         let msg = InstantiateMsg {
             owner: None,
-            positions_contract: Some("cdp".to_string()),
+            positions_contract: Some(cdp_contract_addr.to_string()),
+            pyth_osmosis_address: None,
         };
 
         let oracle_contract_addr = app
@@ -116,19 +190,20 @@ mod tests {
 
         let oracle_contract = OracleContract(oracle_contract_addr);
 
-        (app, oracle_contract)
+        (app, oracle_contract, cdp_contract_addr)
     }
 
     #[cfg(test)]
     mod oracle {
 
         use super::*;
-        use membrane::oracle::{Config, AssetResponse, PriceResponse};
+        use membrane::oracle::{Config, AssetResponse};
         use membrane::math::decimal_division;
+        use pyth_sdk_cw::PriceIdentifier;
 
         #[test]
         fn add_edit() {
-            let (mut app, oracle_contract) = proper_instantiate();
+            let (mut app, oracle_contract, cdp_contract) = proper_instantiate();
 
             //Unauthorized AddAsset
             let msg = ExecuteMsg::AddAsset {
@@ -137,11 +212,12 @@ mod tests {
                 },
                 oracle_info: AssetOracleInfo {
                     basket_id: Uint128::new(1u128),
-                    osmosis_pools_for_twap: vec![TWAPPoolInfo {
+                    pools_for_osmo_twap: vec![TWAPPoolInfo {
                         pool_id: 1u64,
                         base_asset_denom: String::from("credit_fulldenom"),
-                        quote_asset_denom: String::from("axlusdc"),
+                        quote_asset_denom: String::from("uosmo"),
                     }],
+                    is_usd_par: false,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -154,11 +230,12 @@ mod tests {
                 },
                 oracle_info: AssetOracleInfo {
                     basket_id: Uint128::new(1u128),
-                    osmosis_pools_for_twap: vec![TWAPPoolInfo {
+                    pools_for_osmo_twap: vec![TWAPPoolInfo {
                         pool_id: 1u64,
                         base_asset_denom: String::from("credit_fulldenom"),
-                        quote_asset_denom: String::from("axlusdc"),
+                        quote_asset_denom: String::from("uosmo"),
                     }],
+                    is_usd_par: false,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -167,15 +244,16 @@ mod tests {
             //Successful AddAsset for Basket 2
             let msg = ExecuteMsg::AddAsset {
                 asset_info: AssetInfo::NativeToken {
-                    denom: String::from("credit_fulldenom"),
+                    denom: String::from("removable"),
                 },
                 oracle_info: AssetOracleInfo {
                     basket_id: Uint128::new(2u128),
-                    osmosis_pools_for_twap: vec![TWAPPoolInfo {
-                        pool_id: 2u64,
-                        base_asset_denom: String::from("credit_fulldenom"),
-                        quote_asset_denom: String::from("axlusdc"),
+                    pools_for_osmo_twap: vec![TWAPPoolInfo {
+                        pool_id: 1u64,
+                        base_asset_denom: String::from("removable"),
+                        quote_asset_denom: String::from("uosmo"),
                     }],
+                    is_usd_par: false,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -189,16 +267,17 @@ mod tests {
                 },
                 oracle_info: Some(AssetOracleInfo {
                     basket_id: Uint128::new(1u128),
-                    osmosis_pools_for_twap: vec![TWAPPoolInfo {
+                    pools_for_osmo_twap: vec![TWAPPoolInfo {
                         pool_id: 2u64,
                         base_asset_denom: String::from("credit_fulldenom"),
                         quote_asset_denom: String::from("uosmo"),
                     }],
+                    is_usd_par: false,
                 }),
                 remove: false,
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("cdp"), cosmos_msg).unwrap();
+            app.execute(cdp_contract.clone(), cosmos_msg).unwrap();
 
             //Assert Asset was edited
             let asset: Vec<AssetResponse> = app
@@ -212,7 +291,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(asset[0].oracle_info[0].osmosis_pools_for_twap[0].pool_id, 2u64);
+            assert_eq!(asset[0].oracle_info[0].pools_for_osmo_twap[0].pool_id, 2u64);
 
             //Successful AddAsset
             let msg = ExecuteMsg::AddAsset {
@@ -221,11 +300,12 @@ mod tests {
                 },
                 oracle_info: AssetOracleInfo {
                     basket_id: Uint128::new(1u128),
-                    osmosis_pools_for_twap: vec![TWAPPoolInfo {
+                    pools_for_osmo_twap: vec![TWAPPoolInfo {
                         pool_id: 1u64,
                         base_asset_denom: String::from("debit"),
                         quote_asset_denom: String::from("uosmo"),
                     }],
+                    is_usd_par: false,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -235,13 +315,13 @@ mod tests {
             //Successful Remove
             let msg = ExecuteMsg::EditAsset {
                 asset_info: AssetInfo::NativeToken {
-                    denom: String::from("credit_fulldenom"),
+                    denom: String::from("removable"),
                 },
                 oracle_info: None,
                 remove: true,
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("cdp"), cosmos_msg).unwrap();
+            app.execute(cdp_contract, cosmos_msg).unwrap();
 
             //Assert Asset was removed
             app.wrap()
@@ -249,7 +329,7 @@ mod tests {
                     oracle_contract.addr(),
                     &QueryMsg::Assets {
                         asset_infos: vec![AssetInfo::NativeToken {
-                            denom: String::from("credit_fulldenom"),
+                            denom: String::from("removable"),
                         }],
                     },
                 )
@@ -410,18 +490,21 @@ mod tests {
 
         #[test]
         fn update_config() {
-            let (mut app, oracle_contract) = proper_instantiate();
+            let (mut app, oracle_contract, cdp_contract) = proper_instantiate();
 
             //Successful UpdateConfig
             let msg = ExecuteMsg::UpdateConfig { 
                 owner: Some(String::from("new_owner")), 
                 positions_contract: Some(String::from("new_pos_contract")), 
+                pyth_osmosis_address: Some(String::from("new_pyth_osmosis_address")),
+                osmo_usd_pyth_feed_id: Some(PriceIdentifier::from_hex("63f341689d98a12ef60a5cff1d7f85c70a9e17bf1575f0e7c0b2512d48b1c8b3").unwrap()),
+                pools_for_usd_par_twap: vec![],
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             
-            //Query Liquidity
+            //Query Config
             let config: Config = app
                 .wrap()
                 .query_wasm_smart(
@@ -434,18 +517,24 @@ mod tests {
                 Config {
                     owner: Addr::unchecked(ADMIN), 
                     positions_contract: Some(Addr::unchecked("new_pos_contract")), 
+                    pyth_osmosis_address: Some(Addr::unchecked("new_pyth_osmosis_address")),
+                    osmo_usd_pyth_feed_id: PriceIdentifier::from_hex("63f341689d98a12ef60a5cff1d7f85c70a9e17bf1575f0e7c0b2512d48b1c8b3").unwrap(),
+                    pools_for_usd_par_twap: vec![],
             });
 
             //Successful ownership transfer
             let msg = ExecuteMsg::UpdateConfig { 
                 owner: None,
                 positions_contract: None,
+                pyth_osmosis_address: None,
+                osmo_usd_pyth_feed_id: None,
+                pools_for_usd_par_twap: vec![],
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
 
             
-            //Query Liquidity
+            //Query Config
             let config: Config = app
                 .wrap()
                 .query_wasm_smart(
@@ -458,6 +547,9 @@ mod tests {
                 Config {
                     owner: Addr::unchecked("new_owner"), 
                     positions_contract: Some(Addr::unchecked("new_pos_contract")), 
+                    pyth_osmosis_address: Some(Addr::unchecked("new_pyth_osmosis_address")),
+                    osmo_usd_pyth_feed_id: PriceIdentifier::from_hex("63f341689d98a12ef60a5cff1d7f85c70a9e17bf1575f0e7c0b2512d48b1c8b3").unwrap(),
+                    pools_for_usd_par_twap: vec![],
             });
         }
     }

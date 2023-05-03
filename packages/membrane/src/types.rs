@@ -263,7 +263,7 @@ pub struct AssetOracleInfo {
 
 impl fmt::Display for AssetOracleInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "osmo_pools: {:?}, usd_par_pools: {:?}", self.pools_for_osmo_twap, self.pools_for_usd_par_twap)
+        write!(f, "osmo_pools: {:?}, is_usd_par: {:?}", self.pools_for_osmo_twap, self.is_usd_par)
     }
 }
 

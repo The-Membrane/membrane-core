@@ -1149,11 +1149,12 @@ mod tests {
                             },
                             oracle_info: vec![AssetOracleInfo {
                                 basket_id: Uint128::new(1u128),
-                                osmosis_pools_for_twap: vec![TWAPPoolInfo {
+                                pools_for_osmo_twap: vec![TWAPPoolInfo {
                                     pool_id: 0u64,
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
                                 }],
+                                is_usd_par: false
                             }],
                         },
                         AssetResponse {
@@ -1162,11 +1163,12 @@ mod tests {
                             },
                             oracle_info: vec![AssetOracleInfo {
                                 basket_id: Uint128::new(1u128),
-                                osmosis_pools_for_twap: vec![TWAPPoolInfo {
+                                pools_for_osmo_twap: vec![TWAPPoolInfo {
                                     pool_id: 0u64,
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
                                 }],
+                                is_usd_par: false
                             }],
                         }
                     ])?),
@@ -1239,11 +1241,12 @@ mod tests {
                             },
                             oracle_info: vec![AssetOracleInfo {
                                 basket_id: Uint128::new(1u128),
-                                osmosis_pools_for_twap: vec![TWAPPoolInfo {
+                                pools_for_osmo_twap: vec![TWAPPoolInfo {
                                     pool_id: 0u64,
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
                                 }],
+                                is_usd_par: false
                             }],
                         },
                         AssetResponse {
@@ -1252,11 +1255,12 @@ mod tests {
                             },
                             oracle_info: vec![AssetOracleInfo {
                                 basket_id: Uint128::new(1u128),
-                                osmosis_pools_for_twap: vec![TWAPPoolInfo {
+                                pools_for_osmo_twap: vec![TWAPPoolInfo {
                                     pool_id: 0u64,
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
                                 }],
+                                is_usd_par: false
                             }],
                         }
                     ])?),

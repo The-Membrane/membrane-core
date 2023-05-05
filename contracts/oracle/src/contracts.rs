@@ -81,12 +81,12 @@ pub fn execute(
         ExecuteMsg::AddAsset {
             asset_info,
             oracle_info,
-        } => add_asset(deps, info, asset_info, oracle_info),
+        } => add_asset(deps, env, info, asset_info, oracle_info),
         ExecuteMsg::EditAsset {
             asset_info,
             oracle_info,
             remove,
-        } => edit_asset(deps, info, asset_info, oracle_info, remove),
+        } => edit_asset(deps, env, info, asset_info, oracle_info, remove),
         ExecuteMsg::UpdateConfig {
             owner,
             positions_contract,
@@ -181,6 +181,7 @@ fn edit_asset(
 /// Add an asset alongside its oracle info
 fn add_asset(
     deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     asset_info: AssetInfo,
     oracle_info: AssetOracleInfo,
@@ -216,7 +217,7 @@ fn add_asset(
     match ASSETS.load(deps.storage, asset_info.to_string()) {
         Err(_err) => {
             //Save new list to asset if its list is empty
-            ASSETS.save(deps.storage, asset_info.to_string(), &vec![oracle_info])?;
+            ASSETS.save(deps.storage, asset_info.to_string(), &vec![oracle_info.clone()])?;
             attrs.push(attr("added", "true"));
 
             
@@ -235,10 +236,10 @@ fn add_asset(
                     |oracle| -> Result<Vec<AssetOracleInfo>, ContractError> {
                         match oracle {
                             Some(mut oracle_list) => {
-                                oracle_list.push(oracle_info);
+                                oracle_list.push(oracle_info.clone());
                                 Ok(oracle_list)
                             }
-                            None => Ok(vec![oracle_info]),
+                            None => Ok(vec![oracle_info.clone()]),
                         }
                     },
                 )?;

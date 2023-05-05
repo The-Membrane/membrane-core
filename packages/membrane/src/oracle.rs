@@ -29,7 +29,7 @@ pub enum ExecuteMsg {
         pyth_osmosis_address: Option<String>,
         /// Osmosis pools for OSMO/USD-par TWAP.
         /// Replaces saved state.
-        pools_for_usd_par_twap: Vec<TWAPPoolInfo>,
+        pools_for_usd_par_twap: Option<Vec<TWAPPoolInfo>>,
     },
     /// Add a new asset
     AddAsset {
@@ -42,7 +42,7 @@ pub enum ExecuteMsg {
     EditAsset {
         /// Asset info
         asset_info: AssetInfo,
-        /// Asset's oracle info
+        /// Asset's oracle info. Replaces existing oracle info.
         oracle_info: Option<AssetOracleInfo>,
         /// Toggle to remove
         remove: bool,

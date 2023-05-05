@@ -21,7 +21,7 @@ use membrane::osmosis_proxy::{
 };
 use membrane::cdp::{QueryMsg as CDPQueryMsg};
 use membrane::types::{Pool, PoolStateResponse, Basket, Owner};
-use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, QueryDenomsFromCreatorResponse};
+use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, QueryDenomsFromCreatorResponse, MsgCreateDenomResponse};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:osmosis-proxy";
@@ -675,31 +675,31 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
 /// Find & save created full denom
 fn handle_create_denom_reply(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     msg: Reply,
 ) -> StdResult<Response> {
     match msg.result.into_result() {
-        Ok(_result) => {
+        Ok(result) => {
             //Load Pending TokenInfo
-            let PendingTokenInfo { subdenom, max_supply} = PENDING.load(deps.storage)?;
+            let PendingTokenInfo { subdenom:_, max_supply} = PENDING.load(deps.storage)?;
 
-            /// Query all denoms created by this contract
-            let tq = TokenFactory::TokenfactoryQuerier::new(&deps.querier);
-            let res: QueryDenomsFromCreatorResponse = tq.denoms_from_creator(env.contract.address.into_string())?;
-            let denom = if let Some(denom) = res.denoms.into_iter().find(|denom| denom.contains(&subdenom)){
-                denom
-            } else { return Err(StdError::GenericErr { msg: String::from("Cannot find created denom") }) };
-           
-
-            //Save Denom Info
-            TOKENS.save(
-                deps.storage,
-                denom,
-                &TokenInfo {
-                    current_supply: Uint128::zero(),
-                    max_supply,
-                },
-            )?;
+            if let Some(b) = result.data {
+                let res: MsgCreateDenomResponse = match b.try_into().map_err(TokenFactoryError::Std){
+                    Ok(res) => res,
+                    Err(err) => return Err(StdError::GenericErr { msg: String::from(err.to_string()) })
+                };
+                //Save Denom Info
+                TOKENS.save(
+                    deps.storage,
+                    res.new_token_denom.clone(),
+                    &TokenInfo {
+                        current_supply: Uint128::zero(),
+                        max_supply,
+                    },
+                )?;
+            } else {
+                return Err(StdError::GenericErr { msg: String::from("No data in reply") })
+            }
         } //We only reply on success
         Err(err) => return Err(StdError::GenericErr { msg: err }),
     }

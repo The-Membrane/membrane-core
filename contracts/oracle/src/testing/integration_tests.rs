@@ -498,7 +498,7 @@ mod tests {
                 positions_contract: Some(String::from("new_pos_contract")), 
                 pyth_osmosis_address: Some(String::from("new_pyth_osmosis_address")),
                 osmo_usd_pyth_feed_id: Some(PriceIdentifier::from_hex("63f341689d98a12ef60a5cff1d7f85c70a9e17bf1575f0e7c0b2512d48b1c8b3").unwrap()),
-                pools_for_usd_par_twap: vec![],
+                pools_for_usd_par_twap: None,
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -528,7 +528,7 @@ mod tests {
                 positions_contract: None,
                 pyth_osmosis_address: None,
                 osmo_usd_pyth_feed_id: None,
-                pools_for_usd_par_twap: vec![],
+                pools_for_usd_par_twap: None,
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();

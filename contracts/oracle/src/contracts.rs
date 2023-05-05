@@ -101,6 +101,7 @@ pub fn execute(
 /// or remove asset from the contract
 fn edit_asset(
     deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     asset_info: AssetInfo,
     oracle_info: Option<AssetOracleInfo>,
@@ -167,7 +168,12 @@ fn edit_asset(
         )?;
 
         attrs.push(attr("new_oracle_info", oracle_info.to_string()));
+
+        //Test the new price source
+        let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, Some(oracle_info.basket_id))?;
+        attrs.push(attr("price", format!("{:?}", price)));
     }
+        
 
     Ok(Response::new().add_attributes(attrs))
 }
@@ -212,6 +218,11 @@ fn add_asset(
             //Save new list to asset if its list is empty
             ASSETS.save(deps.storage, asset_info.to_string(), &vec![oracle_info])?;
             attrs.push(attr("added", "true"));
+
+            
+            //Test the new price source
+            let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, Some(oracle_info.basket_id))?;
+            attrs.push(attr("price", format!("{:?}", price)));
         }
         Ok(oracles) => {
             //Save oracle to asset, no duplicates
@@ -233,6 +244,11 @@ fn add_asset(
                 )?;
 
                 attrs.push(attr("added", "true"));
+
+                
+                //Test the new price source
+                let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, Some(oracle_info.basket_id))?;
+                attrs.push(attr("price", format!("{:?}", price)));
             } else {
                 return Err(ContractError::DuplicateOracle { basket_id: oracle_info.basket_id.to_string()});
             }
@@ -251,7 +267,7 @@ pub fn update_config(
     positions_contract: Option<String>,
     osmo_usd_pyth_feed_id: Option<PriceIdentifier>,
     pyth_osmosis_address: Option<String>,
-    pools_for_usd_par_twap: Vec<TWAPPoolInfo>,
+    pools_for_usd_par_twap: Option<Vec<TWAPPoolInfo>>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     let mut attrs = vec![attr("method", "update_config")];
@@ -291,8 +307,8 @@ pub fn update_config(
     if let Some(pyth_osmosis_address) = pyth_osmosis_address {
         config.pyth_osmosis_address = Some(deps.api.addr_validate(&pyth_osmosis_address)?);
     }
-    if !pools_for_usd_par_twap.is_empty() {
-        config.pools_for_usd_par_twap = pools_for_usd_par_twap;
+    if let Some(usd_par_pools) = pools_for_usd_par_twap{
+        config.pools_for_usd_par_twap = usd_par_pools;
     }
 
     CONFIG.save(deps.storage, &config)?;
@@ -460,10 +476,23 @@ fn get_asset_price(
             let price = price_feed
                 .get_ema_price_no_older_than(env.block.time.seconds() as i64, twap_timeframe)
                 .ok_or_else(|| StdError::not_found("Current price is not available"))?;
-            //Scale price using given exponent        
-            let scaled_price = price.price as f64 * f64::powi(10.0, price.expo);
-            //Convert to Decimal and save as quote_price
-            quote_price = Decimal::from_str(&scaled_price.to_string())?;
+            //Scale price using given exponent
+            match price.expo > 0 {
+                true => {
+                    quote_price = decimal_multiplication(
+                        Decimal::from_str(&price.price.to_string())?, 
+                        Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(price.expo as u32)?
+                    )?;
+                },
+                //If the exponent is negative we divide, it should be for most if not all
+                false => {
+                    quote_price = decimal_division(
+                        Decimal::from_str(&price.price.to_string())?, 
+                        Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(price.expo as u32)?
+                    )?;
+                }
+            };
+            
 
             //Push Pyth OSMO USD price
             oracle_prices.push(PriceInfo {

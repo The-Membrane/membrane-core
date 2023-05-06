@@ -583,12 +583,12 @@ pub struct Owner {
     pub owner: Addr,
     /// Total CDT minted
     pub total_minted: Uint128,
-    /// Liquidity multiplier for CDT mint caps
-    pub liquidity_multiplier: Option<Decimal>,
     /// Stability pool ratio allocated to CDT mint caps
     pub stability_pool_ratio: Option<Decimal>,
     /// Authority over non-token contract messages
     pub non_token_contract_auth: bool,
+    /// Is a position's contract?
+    pub is_position_contract: bool,
 }
 /// Launch
 #[cw_serde]

@@ -7,19 +7,20 @@ use std::convert::TryInto;
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Addr,
-    Reply, Response, StdError, StdResult, Uint128, SubMsg, CosmosMsg, BankMsg, coins, Decimal, Order,
+    Reply, Response, StdError, StdResult, Uint128, SubMsg, CosmosMsg, BankMsg, coins, Decimal, Order, QuerierWrapper,
 };
 use cw2::set_contract_version;
 use membrane::helpers::get_asset_liquidity;
-use membrane::math::decimal_multiplication;
+use membrane::math::{decimal_multiplication, decimal_division};
 use osmosis_std::types::osmosis::gamm::v1beta1::GammQuerier;
 
 use crate::error::TokenFactoryError;
 use crate::state::{TokenInfo, CONFIG, TOKENS, PENDING, PendingTokenInfo};
 use membrane::osmosis_proxy::{
-    Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse,
+    Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse, OwnerResponse,
 };
-use membrane::cdp::{QueryMsg as CDPQueryMsg};
+use membrane::cdp::{QueryMsg as CDPQueryMsg, Config as CDPConfig};
+use membrane::oracle::{QueryMsg as OracleQueryMsg, PriceResponse};
 use membrane::types::{Pool, PoolStateResponse, Basket, Owner};
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, QueryDenomsFromCreatorResponse, MsgCreateDenomResponse};
 
@@ -44,13 +45,15 @@ pub fn instantiate(
             Owner {
                 owner: info.sender.clone(),
                 total_minted: Uint128::zero(),
-                liquidity_multiplier: Some(Decimal::zero()),
                 stability_pool_ratio: Some(Decimal::zero()),
                 non_token_contract_auth: true, 
+                is_position_contract: false,
             }],
+        liquidity_multiplier: None,
         debt_auction: None,
         positions_contract: None,
         liquidity_contract: None,
+        oracle_contract: None,
     };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
@@ -100,12 +103,14 @@ pub fn execute(
         ExecuteMsg::UpdateConfig {
             owners,
             add_owner,
+            liquidity_multiplier,
             debt_auction,
             positions_contract,
             liquidity_contract,
-        } => update_config(deps, info, owners, debt_auction, positions_contract, liquidity_contract, add_owner),
-        ExecuteMsg::EditOwner { owner, liquidity_multiplier, stability_pool_ratio, non_token_contract_auth } => {
-            edit_owner(deps, info, owner, liquidity_multiplier, stability_pool_ratio, non_token_contract_auth)
+            oracle_contract,
+        } => update_config(deps, info, owners, liquidity_multiplier, debt_auction, positions_contract, liquidity_contract, oracle_contract, add_owner),
+        ExecuteMsg::EditOwner { owner, stability_pool_ratio, non_token_contract_auth } => {
+            edit_owner(deps, info, owner, stability_pool_ratio, non_token_contract_auth)
         }
     }
 }
@@ -116,10 +121,12 @@ fn update_config(
     deps: DepsMut,
     info: MessageInfo,
     owners: Option<Vec<Owner>>,
+    liquidity_multiplier: Option<Decimal>,
     debt_auction: Option<String>,
     positions_contract: Option<String>,
     liquidity_contract: Option<String>,
-    add_owner: bool,
+    oracle_contract: Option<String>,
+    add_owner: Option<bool>,
 ) -> Result<Response, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -129,27 +136,33 @@ fn update_config(
     }
 
     //Edit Owner
-    if let Some(owners) = owners {
-        if add_owner {
-            //Add all new owners
-            for owner in owners {
-                //Validate Owner address
-                deps.api.addr_validate(&owner.owner.to_string())?;
+    if add_owner.is_some() {        
+        if let Some(owners) = owners {
+            if add_owner.unwrap() {
+                //Add all new owners
+                for owner in owners {
+                    //Validate Owner address
+                    deps.api.addr_validate(&owner.owner.to_string())?;
 
-                //Add owner to config
-                config.owners.push( owner );
-            }
-        } else {
-            //Filter out owners that are in the owners list
-            for owner in owners {
-                config.owners = config
-                    .clone()
-                    .owners
-                    .into_iter()
-                    .filter(|stored_owner| stored_owner.owner.to_string() != owner.owner)
-                    .collect::<Vec<Owner>>();
+                    //Add owner to config
+                    config.owners.push( owner );
+                }
+            } else {
+                //Filter out owners that are in the owners list
+                for owner in owners {
+                    config.owners = config
+                        .clone()
+                        .owners
+                        .into_iter()
+                        .filter(|stored_owner| stored_owner.owner.to_string() != owner.owner)
+                        .collect::<Vec<Owner>>();
+                }
             }
         }
+    }
+    //Update Liquidity Multiplier
+    if let Some(liquidity_multiplier) = liquidity_multiplier {
+        config.liquidity_multiplier = Some(liquidity_multiplier);
     }
 
     //Edit Contracts
@@ -161,6 +174,9 @@ fn update_config(
     }
     if let Some(liquidity_contract) = liquidity_contract {
         config.liquidity_contract = Some(deps.api.addr_validate(&liquidity_contract)?);
+    }
+    if let Some(oracle_contract) = oracle_contract {
+        config.oracle_contract = Some(deps.api.addr_validate(&oracle_contract)?);
     }
 
     //Save Config
@@ -178,7 +194,6 @@ fn edit_owner(
     deps: DepsMut,
     info: MessageInfo,
     owner: String,
-    liquidity_multiplier: Option<Decimal>,
     stability_pool_ratio: Option<Decimal>,
     non_token_contract_auth: Option<bool>,
 ) -> Result<Response, TokenFactoryError>{
@@ -197,9 +212,6 @@ fn edit_owner(
         .enumerate()
         .find(|(_i, owner)| owner.owner == valid_owner_addr){
         //Update Optionals
-        if liquidity_multiplier.clone().is_some() {
-            owner.liquidity_multiplier = liquidity_multiplier;
-        }
         if stability_pool_ratio.clone().is_some() {
             owner.stability_pool_ratio = stability_pool_ratio;
         }
@@ -385,26 +397,32 @@ pub fn mint_tokens(
         //Set owner
         let mut owner = config.clone().owners[owner_index].clone();
         //Get CDP denom
-        let basket: Basket = deps.querier.query_wasm_smart(positions_contract, &CDPQueryMsg::GetBasket {  })?;
+        let basket: Basket = deps.querier.query_wasm_smart(positions_contract.clone(), &CDPQueryMsg::GetBasket {  })?;
 
         //If minting the CDP asset
         if denom == basket.clone().credit_asset.info.to_string() {            
             //If there is a mint limit on the owner
-            if let Some(liquidity_multiplier) = owner.liquidity_multiplier {
+            if let Some(_liquidity_multiplier) = config.liquidity_multiplier {
+
+                //Get Owner's liquidity multipler
+                let mut liquidity_multiplier = Decimal::zero();
+                if let Some(oracle) = config.clone().oracle_contract {
+                    liquidity_multiplier = get_owner_liquidity_multiplier(deps.querier, config.clone().owners, owner.clone().owner, oracle, positions_contract)?;
+                }
 
                 //Get liquidity 
-                let cdp_liquidity = get_asset_liquidity(
+                let debt_token_liquidity = get_asset_liquidity(
                     deps.querier, 
                     config.clone().liquidity_contract.unwrap().to_string(), 
                     basket.clone().credit_asset.info)?;
                 
                 //Calculate Owner's cap 
-                let cap = decimal_multiplication(liquidity_multiplier,  Decimal::from_ratio(cdp_liquidity, Uint128::one()))?
+                let cap = decimal_multiplication(liquidity_multiplier,  Decimal::from_ratio(debt_token_liquidity, Uint128::one()))?
                 * Uint128::one();
 
                 //Assert mints are below the owner's LM * liquidity 
                 //Or if the owner is the positions contract; (Position contract has interest rate incentives to reduce debt)
-                if owner.total_minted + amount <= cap || owner.owner == config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")) {
+                if owner.total_minted + amount <= cap || owner.is_position_contract {
                     //Update total_minted
                     owner.total_minted += amount;
                 } else { return Err(TokenFactoryError::MintCapped {  }) }
@@ -481,6 +499,67 @@ pub fn mint_tokens(
     }
 
     Ok(res)
+}
+
+/// Query's Position Basket collateral supplyCaps and finds the owner's ratio of the total supply
+fn get_owner_liquidity_multiplier(
+    querier: QuerierWrapper,
+    owners: Vec<Owner>,
+    owner: Addr,
+    oracle_contract: Addr,
+    positions_contract: Addr,
+) -> Result<Decimal, TokenFactoryError> {
+
+    //Initialize variables
+    let mut owner_totals: Vec<(Addr, Decimal)> = vec![];
+
+    //Get twap_timeframe
+    let cdp_config: CDPConfig = querier.query_wasm_smart(positions_contract, &CDPQueryMsg::Config {  })?;
+    let twap_timeframe = cdp_config.collateral_twap_timeframe;
+
+    //Get per owner collateral total value
+    for owner in owners {
+        //Must have GetBasket query
+        if owner.is_position_contract {
+            let basket: Basket = querier.query_wasm_smart(owner.clone().owner, &CDPQueryMsg::GetBasket {  })?;
+            let mut total = Decimal::zero();
+
+            //Parse thru assets and value them
+            for asset in basket.collateral_supply_caps {
+
+                //Get Price
+                let asset_price: PriceResponse = querier.query_wasm_smart(oracle_contract.clone(), &OracleQueryMsg::Price { 
+                    asset_info: asset.asset_info.clone(),
+                    twap_timeframe: twap_timeframe.clone(),
+                    basket_id: None,
+                })?;
+
+                //Get Value
+                let asset_value = decimal_multiplication(asset_price.price, Decimal::from_ratio(asset.current_supply, Uint128::one()))?;
+
+                //Add to total
+                total += asset_value;
+            }
+
+            owner_totals.push((owner.owner, total));
+        }
+    }
+
+    //Get total collateral value
+    let mut total_collateral_value = Decimal::zero();
+    for owner in owner_totals.clone() {
+        total_collateral_value += owner.1;
+    }
+
+    //Get owner's ratio of total collateral value
+    let mut owner_ratio = Decimal::zero();
+    for listed_owner in owner_totals {
+        if listed_owner.0 == owner {
+            owner_ratio = decimal_division(listed_owner.1, total_collateral_value)?;
+        }
+    }
+
+    Ok(owner_ratio)
 }
 
 /// Burns tokens 
@@ -566,10 +645,29 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 /// Returns state data regarding a specified contract owner
-fn get_contract_owner(deps: Deps, owner: String) -> StdResult<Owner> {
+fn get_contract_owner(deps: Deps, owner: String) -> StdResult<OwnerResponse> {
     let config = CONFIG.load(deps.storage)?;
-    if let Some(owner) = config.owners.into_iter().find(|stored_owner| stored_owner .owner == owner) {
-        Ok(owner)
+    if let Some(owner) = config.clone().owners.into_iter().find(|stored_owner| stored_owner .owner == owner) {
+
+        let liquidity_multiplier: Decimal = if config.oracle_contract.is_some() && config.positions_contract.is_some(){
+            match get_owner_liquidity_multiplier(
+                deps.querier, 
+                config.clone().owners, 
+                owner.clone().owner, 
+                config.oracle_contract.unwrap(), 
+                config.positions_contract.unwrap()
+            ){
+                Ok(liquidity_multiplier) => liquidity_multiplier,
+                Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+            }
+        } else {
+            Decimal::zero()
+        };
+
+        Ok(OwnerResponse {
+            owner, 
+            liquidity_multiplier
+        })
     } else {
         Err(StdError::generic_err("Owner not found"))
     }

@@ -40,21 +40,23 @@ mod tests {
             owners: Some(vec![ Owner {
                 owner: Addr::unchecked("new_owner2"),
                 total_minted: Uint128::zero(),
-                liquidity_multiplier: Some(Decimal::zero()),
                 stability_pool_ratio: Some(Decimal::zero()),
                 non_token_contract_auth: true, 
+                is_position_contract: false,
             },
             Owner {
                 owner: Addr::unchecked("new_owner"),
                 total_minted: Uint128::zero(),
-                liquidity_multiplier: Some(Decimal::zero()),
                 stability_pool_ratio: Some(Decimal::zero()),
                 non_token_contract_auth: true, 
+                is_position_contract: false,
             }]),
-            add_owner: true, 
+            liquidity_multiplier: Some(Decimal::zero()),
+            add_owner: Some(true), 
             debt_auction: Some(String::from("debt_auction")),
             positions_contract: Some(String::from("positions_contract")),
             liquidity_contract: Some(String::from("liquidity_contract")),
+            oracle_contract: Some(String::from("oracle_contract")),
         };
         let info = mock_info("creator", &coins(2, "token"));
         execute(deps.as_mut(), mock_env(), info, msg).unwrap();       
@@ -64,27 +66,29 @@ mod tests {
             owners: vec![ Owner {
                 owner: Addr::unchecked("creator"),
                 total_minted: Uint128::zero(),
-                liquidity_multiplier: Some(Decimal::zero()),
                 stability_pool_ratio: Some(Decimal::zero()),
                 non_token_contract_auth: true, 
+                is_position_contract: false,
             },
             Owner {
                 owner: Addr::unchecked("new_owner2"),
                 total_minted: Uint128::zero(),
-                liquidity_multiplier: Some(Decimal::zero()),
                 stability_pool_ratio: Some(Decimal::zero()),
                 non_token_contract_auth: true, 
+                is_position_contract: false,
             },
             Owner {
                 owner: Addr::unchecked("new_owner"),
                 total_minted: Uint128::zero(),
-                liquidity_multiplier: Some(Decimal::zero()),
                 stability_pool_ratio: Some(Decimal::zero()),
                 non_token_contract_auth: true, 
+                is_position_contract: false,
             }],
+            liquidity_multiplier: Some(Decimal::zero()),
             debt_auction: Some(Addr::unchecked("debt_auction")),
             positions_contract: Some(Addr::unchecked("positions_contract")),
             liquidity_contract: Some(Addr::unchecked("liquidity_contract")),
+            oracle_contract: Some(Addr::unchecked("oracle_contract")),
         };
 
         let response = query(deps.as_ref(), mock_env(), QueryMsg::Config {  }).unwrap();

@@ -1,9 +1,9 @@
 use cosmwasm_std::{CosmosMsg, StdResult, Decimal, Binary, to_binary, WasmMsg, coin, StdError, Addr, Coin, BankMsg, Uint128, MessageInfo, Api, QuerierWrapper, Env, WasmQuery, QueryRequest};
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
-use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Owner}; 
+use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool}; 
 use crate::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
-use crate::osmosis_proxy::QueryMsg as OsmoQueryMsg;
+use crate::osmosis_proxy::{QueryMsg as OsmoQueryMsg, OwnerResponse};
 use crate::liquidity_check::QueryMsg as LiquidityQueryMsg;
 use crate::stability_pool::QueryMsg as SP_QueryMsg;
 use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, PositionResponse};
@@ -266,12 +266,12 @@ pub fn get_owner_liquidity_multiplier(
     owner: String,
     proxy_addr: String,
 ) -> StdResult<(Decimal, Decimal)> {
-    let resp: Owner = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+    let resp: OwnerResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: proxy_addr,
         msg: to_binary(&OsmoQueryMsg::GetOwner { owner })?,
     }))?;
 
-    Ok((resp.liquidity_multiplier.unwrap_or_else(|| Decimal::zero()), resp.stability_pool_ratio.unwrap_or_else(|| Decimal::zero())))
+    Ok((resp.liquidity_multiplier, resp.owner.stability_pool_ratio.unwrap_or_else(|| Decimal::zero())))
 }
 
 /// Create accrual msg for User Positions

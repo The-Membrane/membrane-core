@@ -1203,51 +1203,53 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                         owner: addrs.clone().positions, 
                         total_minted: Uint128::zero(),
                         //Makes more sense to start low and scale up. The LM is our best capping mechanism. DAI's scaled with its Lindy and risk profile.
-                        liquidity_multiplier: Some(Decimal::percent(10_00)), //10x or 10% liquidity to supply ratio
-                        stability_pool_ratio: Some(Decimal::zero()), //CDP contracts gets 0% of the Stability Pool cap space initially
+                        stability_pool_ratio: Some(Decimal::zero()), //CDP contracts gets 0% of the Stability Pool cap space initially, let the DAO decide later on. Reduction of scale at launch is fine.
                         non_token_contract_auth: false,
+                        is_position_contract: true,
                     },
                     // No other owners mint CDT atm
                     Owner {
                         owner: addrs.clone().vesting, 
                         total_minted: Uint128::zero(),
-                        liquidity_multiplier: None,
                         stability_pool_ratio: None,
                         non_token_contract_auth: false,
+                        is_position_contract: false,
                     },
                     Owner {
                         owner: addrs.clone().staking, 
                         total_minted: Uint128::zero(),
-                        liquidity_multiplier: None,
                         stability_pool_ratio: None,
                         non_token_contract_auth: false,
+                        is_position_contract: false,
                     },
                     Owner {
                         owner: addrs.clone().stability_pool, 
                         total_minted: Uint128::zero(),
-                        liquidity_multiplier: None,
                         stability_pool_ratio: None,
                         non_token_contract_auth: false,
+                        is_position_contract: false,
                     },
                     Owner {
                         owner: addrs.clone().governance, 
                         total_minted: Uint128::zero(),
-                        liquidity_multiplier: None,
                         stability_pool_ratio: None,
                         non_token_contract_auth: true, //Governance has full control over the system but no need to mint CDT
+                        is_position_contract: false,
                     },
                     Owner {
                         owner: addrs.clone().mbrn_auction, 
                         total_minted: Uint128::zero(),
-                        liquidity_multiplier: None,
                         stability_pool_ratio: None,
                         non_token_contract_auth: false,
+                        is_position_contract: false,
                     }
                     ]), 
-                add_owner: true, 
+                liquidity_multiplier: Some(Decimal::percent(10_00)), //10x or 10% liquidity to supply ratio
+                add_owner: Some(true), 
                 debt_auction: Some(addrs.clone().mbrn_auction.to_string()), 
                 positions_contract: Some(addrs.clone().positions.to_string()), 
                 liquidity_contract: Some(addrs.clone().liquidity_check.to_string()),
+                oracle_contract: Some(addrs.clone().oracle.to_string()),
             };
             let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: addrs.clone().osmosis_proxy.to_string(), 

@@ -398,7 +398,7 @@ fn get_asset_price(
     let mut oracle_prices = vec![];
     let mut asset_price_in_osmo_steps = vec![];
     let mut usd_par_prices = vec![];
-    let mut quote_price = Decimal::zero();
+    let mut quote_price;
 
     //Query OSMO price from the TWAP sources
     //This can use multiple pools to calculate our price
@@ -507,7 +507,7 @@ fn get_asset_price(
     }
 
     //If we don't have an OSMO -> USD price feed or it has failed, we will calculate the peg price using USD-par prices
-    if usd_price_failed {
+    if usd_price_failed && !config.pools_for_usd_par_twap.is_empty(){
         
         //Query OSMO -> USD-par prices from the TWAP sources
         for pool in config.pools_for_usd_par_twap {
@@ -549,6 +549,8 @@ fn get_asset_price(
             source: String::from("osmosis"),
             price: quote_price,
         });
+    } else {
+        return Err(StdError::GenericErr { msg: String::from("No USD-par price feeds") })
     }
 
     //quote_price is either OSMO -> USD or OSMO -> USD-par, prio to USD

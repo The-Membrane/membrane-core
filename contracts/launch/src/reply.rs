@@ -1267,13 +1267,13 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                     positions_contract: Some(addrs.clone().positions.to_string()),
                     pyth_osmosis_address: None,
                     osmo_usd_pyth_feed_id: None,
-                    pools_for_usd_par_twap: vec![
+                    pools_for_usd_par_twap: Some(vec![
                         TWAPPoolInfo { 
                             pool_id: config.clone().osmousdc_pool_id, 
                             base_asset_denom: config.clone().osmo_denom.to_string(), 
                             quote_asset_denom: config.clone().usdc_denom.to_string(),  
                         }
-                    ]
+                    ])
                 })?, 
                 funds: vec![],
             }));

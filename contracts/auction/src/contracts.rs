@@ -206,7 +206,7 @@ fn start_auction(
                     //If None, create new auction               
                     Ok(FeeAuction {
                         auction_asset,
-                        auction_start_time: env.block.time.seconds(),
+                        auction_start_time: env.block.time.seconds() + 3600, //Add an hour delay
                     })
                 }
             }
@@ -347,8 +347,9 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
     //Get FeeAuction
     let mut auction = FEE_AUCTIONS.load(deps.storage, auction_asset.clone().to_string())?;
 
-    //If the auction is active, i.e. there is still debt to be repaid, swap for auctioned asset
-    if !auction.auction_asset.amount.is_zero() {
+    //If the auction is active, i.e. there is still debt to be repaid & auction has started
+    //...swap for auctioned asset
+    if !auction.auction_asset.amount.is_zero() && auction.auction_start_time <= env.block.time.seconds() {
 
         //Get MBRN price
         let res: PriceResponse = deps.querier.query_wasm_smart(
@@ -446,7 +447,7 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
 
         attrs.push(attr("auction_asset", auction.auction_asset.to_string()));
     } else {
-        return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Auction ended") }));
+        return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Auction isn't running now") }));
     }
 
     Ok(Response::new().add_messages(msgs).add_attributes(attrs))

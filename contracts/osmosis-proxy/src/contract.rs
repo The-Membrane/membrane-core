@@ -144,6 +144,13 @@ fn update_config(
                     //Validate Owner address
                     deps.api.addr_validate(&owner.owner.to_string())?;
 
+                    //Error if owner already exists
+                    for stored_owner in config.clone().owners {
+                        if stored_owner.owner == owner.owner {
+                            return Err(TokenFactoryError::AlreadyOwner {});
+                        }
+                    }
+
                     //Add owner to config
                     config.owners.push( owner );
                 }
@@ -407,7 +414,14 @@ pub fn mint_tokens(
                 //Get Owner's liquidity multipler
                 let mut liquidity_multiplier = Decimal::zero();
                 if let Some(oracle) = config.clone().oracle_contract {
-                    liquidity_multiplier = get_owner_liquidity_multiplier(deps.querier, config.clone().owners, owner.clone().owner, oracle, positions_contract)?;
+                    liquidity_multiplier = get_owner_liquidity_multiplier(
+                        deps.querier,
+                        config.clone().liquidity_multiplier.unwrap_or_else(|| Decimal::one()),
+                        config.clone().owners,
+                        owner.clone().owner,
+                        oracle, 
+                        positions_contract
+                    )?;
                 }
 
                 //Get liquidity 
@@ -504,6 +518,7 @@ pub fn mint_tokens(
 /// Query's Position Basket collateral supplyCaps and finds the owner's ratio of the total supply
 fn get_owner_liquidity_multiplier(
     querier: QuerierWrapper,
+    liquidity_multiplier: Decimal,
     owners: Vec<Owner>,
     owner: Addr,
     oracle_contract: Addr,
@@ -554,12 +569,13 @@ fn get_owner_liquidity_multiplier(
     //Get owner's ratio of total collateral value
     let mut owner_ratio = Decimal::zero();
     for listed_owner in owner_totals {
-        if listed_owner.0 == owner {
+        if listed_owner.0 == owner && total_collateral_value > Decimal::zero(){
             owner_ratio = decimal_division(listed_owner.1, total_collateral_value)?;
         }
     }
-
-    Ok(owner_ratio)
+    
+    //Return owner's liquidity multiplier
+    Ok(decimal_multiplication(owner_ratio, liquidity_multiplier)?)
 }
 
 /// Burns tokens 
@@ -652,6 +668,7 @@ fn get_contract_owner(deps: Deps, owner: String) -> StdResult<OwnerResponse> {
         let liquidity_multiplier: Decimal = if config.oracle_contract.is_some() && config.positions_contract.is_some(){
             match get_owner_liquidity_multiplier(
                 deps.querier, 
+                config.clone().liquidity_multiplier.unwrap_or_else(|| Decimal::one()),
                 config.clone().owners, 
                 owner.clone().owner, 
                 config.oracle_contract.unwrap(), 

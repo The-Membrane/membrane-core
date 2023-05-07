@@ -27,6 +27,9 @@ pub enum TokenFactoryError {
     #[error("Mint sends address over its unique cap")]
     MintCapped {},
 
+    #[error("Address is already a contract owner")]
+    AlreadyOwner {},
+
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },
 }

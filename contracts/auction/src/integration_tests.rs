@@ -304,7 +304,7 @@ mod tests {
         (app, debt_contract, cdp_contract_addr)
     }
 
-    mod debt_auction {
+    mod auction {
 
         use super::*;
         use cosmwasm_std::BlockInfo;

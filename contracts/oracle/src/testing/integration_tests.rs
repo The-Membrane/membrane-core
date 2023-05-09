@@ -211,9 +211,11 @@ mod tests {
     #[cfg(test)]
     mod oracle {
 
+        use std::str::FromStr;
+
         use super::*;
         use membrane::oracle::{Config, AssetResponse};
-        use membrane::math::decimal_division;
+        use membrane::math::{decimal_division, decimal_multiplication};
         use pyth_sdk_cw::PriceIdentifier;
 
         #[test]
@@ -501,6 +503,30 @@ mod tests {
             };
 
             assert_eq!(median_price, Decimal::from_ratio(2u128, 1u128));
+        }
+
+        #[test]
+        fn scaling_test() {
+            let mut quote_price = Decimal::zero();
+            let price = 78574968;
+            let expo: i32 = -6;
+            //Scale price using given exponent
+            match expo > 0 {
+                true => {
+                    quote_price = decimal_multiplication(
+                        Decimal::from_str(&price.to_string()).unwrap(), 
+                        Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(expo as u32).unwrap()
+                    ).unwrap();
+                },
+                //If the exponent is negative we divide, it should be for most if not all
+                false => {
+                    quote_price = decimal_division(
+                        Decimal::from_str(&price.to_string()).unwrap(), 
+                        Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow((expo*-1) as u32).unwrap()
+                    ).unwrap();
+                }
+            };
+            panic!("{}", quote_price);
         }
 
         #[test]

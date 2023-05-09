@@ -512,7 +512,7 @@ fn get_asset_price(
                 false => {
                     quote_price = decimal_division(
                         Decimal::from_str(&price.price.to_string())?, 
-                        Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(price.expo as u32)?
+                        Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow((price.expo*-1) as u32)?
                     )?;
                 }
             };

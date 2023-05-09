@@ -781,9 +781,9 @@ mod tests {
                         Ok(to_binary(&Owner {
                             owner: Addr::unchecked(""),
                             total_minted: Uint128::zero(),
-                            liquidity_multiplier: Some(Decimal::percent(500)),
                             stability_pool_ratio: Some(Decimal::one()),
                             non_token_contract_auth: true,
+                            is_position_contract: false,
                         })?)
                     },
                 }
@@ -866,9 +866,9 @@ mod tests {
                         Ok(to_binary(&Owner {
                             owner: Addr::unchecked(""),
                             total_minted: Uint128::zero(),
-                            liquidity_multiplier: Some(Decimal::percent(500_00)),
                             stability_pool_ratio: Some(Decimal::one()),
                             non_token_contract_auth: true,
+                            is_position_contract: false,
                         })?)
                     },
                 }

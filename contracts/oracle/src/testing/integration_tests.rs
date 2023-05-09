@@ -4,7 +4,8 @@ mod tests {
     use crate::helpers::OracleContract;
 
     use membrane::oracle::{ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::types::{AssetInfo, AssetOracleInfo, TWAPPoolInfo, PriceInfo, Asset, Basket, SupplyCap};
+    use membrane::osmosis_proxy::Config as OP_Config;
+    use membrane::types::{AssetInfo, AssetOracleInfo, TWAPPoolInfo, PriceInfo, Asset, Basket, SupplyCap, Owner};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
@@ -37,7 +38,9 @@ mod tests {
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Osmo_MockQueryMsg {}
+    pub enum Osmo_MockQueryMsg {
+        Config {},
+    }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
@@ -52,7 +55,24 @@ mod tests {
                 Ok(Response::default())
             },
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
-                Ok(to_binary(&MockResponse {})?)
+                match msg {
+                    Osmo_MockQueryMsg::Config {} => Ok(to_binary(&OP_Config {
+                        owners: vec![
+                            Owner { 
+                                owner: Addr::unchecked("contract1"), 
+                                total_minted: Uint128::zero(),
+                                stability_pool_ratio: None, 
+                                non_token_contract_auth: false,
+                                is_position_contract: true
+                            }
+                        ],
+                        liquidity_multiplier: None,
+                        debt_auction: None,
+                        positions_contract: None,
+                        liquidity_contract: None,
+                        oracle_contract: None,
+                    })?),
+                }
             },
         );
         Box::new(contract)
@@ -123,12 +143,6 @@ mod tests {
 
             bank.init_balance(
                 storage,
-                &Addr::unchecked("contract3"),
-                vec![coin(30_000_000_000_000, "mbrn_denom")],
-            )
-            .unwrap(); //contract3 = Builders contract
-            bank.init_balance(
-                storage,
                 &Addr::unchecked("coin_God"),
                 vec![coin(100_000_000, "debit"), coin(100_000_000, "2nddebit")],
             )
@@ -181,6 +195,7 @@ mod tests {
         let msg = InstantiateMsg {
             owner: None,
             positions_contract: Some(cdp_contract_addr.to_string()),
+            osmosis_proxy_contract: Some(osmosis_proxy_contract_addr.to_string()),
             pyth_osmosis_address: None,
         };
 
@@ -496,6 +511,7 @@ mod tests {
             let msg = ExecuteMsg::UpdateConfig { 
                 owner: Some(String::from("new_owner")), 
                 positions_contract: Some(String::from("new_pos_contract")), 
+                osmosis_proxy_contract: Some(String::from("new_osmosis_proxy_contract")),
                 pyth_osmosis_address: Some(String::from("new_pyth_osmosis_address")),
                 osmo_usd_pyth_feed_id: Some(PriceIdentifier::from_hex("63f341689d98a12ef60a5cff1d7f85c70a9e17bf1575f0e7c0b2512d48b1c8b3").unwrap()),
                 pools_for_usd_par_twap: None,
@@ -517,6 +533,7 @@ mod tests {
                 Config {
                     owner: Addr::unchecked(ADMIN), 
                     positions_contract: Some(Addr::unchecked("new_pos_contract")), 
+                    osmosis_proxy_contract: Some(Addr::unchecked("new_osmosis_proxy_contract")),
                     pyth_osmosis_address: Some(Addr::unchecked("new_pyth_osmosis_address")),
                     osmo_usd_pyth_feed_id: PriceIdentifier::from_hex("63f341689d98a12ef60a5cff1d7f85c70a9e17bf1575f0e7c0b2512d48b1c8b3").unwrap(),
                     pools_for_usd_par_twap: vec![],
@@ -526,6 +543,7 @@ mod tests {
             let msg = ExecuteMsg::UpdateConfig { 
                 owner: None,
                 positions_contract: None,
+                osmosis_proxy_contract: None,
                 pyth_osmosis_address: None,
                 osmo_usd_pyth_feed_id: None,
                 pools_for_usd_par_twap: None,
@@ -547,6 +565,7 @@ mod tests {
                 Config {
                     owner: Addr::unchecked("new_owner"), 
                     positions_contract: Some(Addr::unchecked("new_pos_contract")), 
+                    osmosis_proxy_contract: Some(Addr::unchecked("new_osmosis_proxy_contract")),
                     pyth_osmosis_address: Some(Addr::unchecked("new_pyth_osmosis_address")),
                     osmo_usd_pyth_feed_id: PriceIdentifier::from_hex("63f341689d98a12ef60a5cff1d7f85c70a9e17bf1575f0e7c0b2512d48b1c8b3").unwrap(),
                     pools_for_usd_par_twap: vec![],

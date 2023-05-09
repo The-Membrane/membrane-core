@@ -11,6 +11,8 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     /// Positions contract address
     pub positions_contract: Option<String>,
+    /// Osmosis Proxy contract address
+    pub osmosis_proxy_contract: Option<String>,
     /// Pyth Osmosis address
     pub pyth_osmosis_address: Option<String>,
 }
@@ -23,6 +25,8 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         /// Positions contract address
         positions_contract: Option<String>,
+        /// Osmosis Proxy contract address
+        osmosis_proxy_contract: Option<String>,
         /// OSMO/USD Pyth price feed id
         osmo_usd_pyth_feed_id: Option<PriceIdentifier>,
         /// Pyth Osmosis address
@@ -83,7 +87,11 @@ pub struct Config {
     /// Contract owner
     pub owner: Addr,
     /// Positions contract address
+    /// Can edit asset & config
     pub positions_contract: Option<Addr>,
+    /// Osmosis Proxy contract address
+    /// Used to check for removed assets in Positions Owners
+    pub osmosis_proxy_contract: Option<Addr>,
     /// OSMO/USD Pyth price feed id
     pub osmo_usd_pyth_feed_id: PriceIdentifier,
     /// Pyth Osmosis address

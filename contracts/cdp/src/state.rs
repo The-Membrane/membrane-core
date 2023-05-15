@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResult, StdError};
 use cw_storage_plus::{Item, Map};
 
-use membrane::types::{Asset, Basket, Position, UserInfo, AssetInfo, cAsset};
+use membrane::types::{Asset, Basket, Position, RedemptionInfo, UserInfo, AssetInfo, cAsset};
 use membrane::cdp::Config;
 
 use crate::ContractError;
@@ -39,8 +39,13 @@ pub struct ClosePositionPropagation {
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const BASKET: Item<Basket> = Item::new("basket"); 
-pub const POSITIONS: Map<Addr, Vec<Position>> = Map::new("positions"); //owner
+pub const POSITIONS: Map<Addr, Vec<Position>> = Map::new("positions"); //owner, list of positions
 
+/// CDT redemption premium, opt-in mechanism.
+/// This is the premium that the user will pay to redeem their debt token.
+pub const REDEMPTION_OPT_IN: Map<u128, Vec<RedemptionInfo>> = Map::new("redemption_opt_in"); 
+
+/// Config ownership transfer
 pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
 
 //Reply State Propagations

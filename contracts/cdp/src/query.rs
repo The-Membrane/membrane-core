@@ -12,12 +12,12 @@ use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::cdp::{
     Config, BadDebtResponse, CollateralInterestResponse,
-    InsolvencyResponse, InterestResponse, PositionResponse, BasketPositionsResponse,
+    InsolvencyResponse, InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse,
 };
 
 use membrane::types::{
     cAsset, AssetInfo, Basket, InsolventPosition, Position, PositionUserInfo,
-    UserInfo, DebtCap, PoolInfo, PoolStateResponse
+    UserInfo, DebtCap, PoolInfo, PoolStateResponse, RedemptionInfo, PremiumInfo
 };
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
@@ -26,7 +26,7 @@ use crate::positions::check_for_empty_position;
 use crate::rates::{accrue, get_interest_rates};
 use crate::risk_engine::get_basket_debt_caps;
 use crate::positions::read_price;
-use crate::state::{BASKET, CONFIG, POSITIONS, get_target_position};
+use crate::state::{BASKET, CONFIG, POSITIONS, get_target_position, REDEMPTION_OPT_IN};
 
 const MAX_LIMIT: u32 = 31;
 
@@ -543,6 +543,82 @@ pub fn query_price(
 
     Ok(price)
 }
+
+/// Get Basket Redeemability
+pub fn query_basket_redeemability(
+    deps: Deps,
+    position_owner: Option<String>,
+    start_after: Option<u128>,
+    limit: Option<u32>,
+) -> StdResult<RedeemabilityResponse>{
+    //Set premium start 
+    let start = start_after.unwrap_or(0u128);
+
+    let mut limit = limit.unwrap_or(MAX_LIMIT);
+
+    //Set valid address
+    let mut valid_address = None;
+    if let Some(_user) = position_owner.clone(){
+        valid_address = Some(deps.api.addr_validate(&_user)?);
+    }
+
+    //Initialize response
+    let mut res: Vec<PremiumInfo> = vec![];
+
+    //Query by premium
+    for premium in start..100u128 {
+        let users_of_premium: Vec<RedemptionInfo> = match REDEMPTION_OPT_IN.load(deps.storage, premium){
+            Ok(list)=> list,
+            Err(_err) => vec![], //If no users, return empty vec
+        };
+
+        //If there are users of this premium, add the state to the response
+        if !users_of_premium.is_empty(){
+
+            if let Some(_user) = position_owner.clone(){    
+                //Add to the user's info to the response if in the premium
+                let users_info_in_premium = users_of_premium
+                    .into_iter()
+                    .filter(|info: &RedemptionInfo| info.position_owner == valid_address.clone().unwrap())
+                    .collect::<Vec<RedemptionInfo>>();
+
+                if !users_info_in_premium.is_empty(){
+                    res.push(PremiumInfo {
+                        premium,
+                        users_of_premium: users_info_in_premium,
+                    });
+                }
+
+            } else {
+                //Assert limit 
+                if limit >= users_of_premium.len() as u32 {
+                    //Add all users in this premium
+                    res.push(PremiumInfo {
+                        premium,
+                        users_of_premium: users_of_premium.clone(),
+                    });
+                    //Update limit
+                    limit = limit.checked_sub(users_of_premium.len() as u32).unwrap_or(0u32);
+                } else {
+                    //Add up to the remaining limit
+                    let final_addition = users_of_premium.clone().into_iter().take(limit as usize).collect::<Vec<RedemptionInfo>>();
+
+                    res.push(PremiumInfo {
+                        premium,
+                        users_of_premium: final_addition,
+                    });
+                }
+            }            
+        }
+    }
+
+    Ok(
+        RedeemabilityResponse {
+            premium_infos: res,
+        }
+    )
+}
+
 
 /// Calculate cAsset values & returns a tuple of (cAsset_values, cAsset_prices)
 pub fn get_asset_values(

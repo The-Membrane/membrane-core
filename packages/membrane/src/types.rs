@@ -361,6 +361,33 @@ pub struct Position {
 }
 
 #[cw_serde]
+pub struct RedemptionInfo {
+    /// Position owner 
+    pub position_owner: Addr,
+    /// Position redemption info of the positions to be redeemed from
+    pub position_infos: Vec<PositionRedemption>,
+}
+
+#[cw_serde]
+pub struct PositionRedemption {
+    /// Position ID of the position to be redeemed from
+    pub position_id: Uint128,
+    /// Remaining available loan repayment in debt tokens
+    pub remaining_loan_repayment: Uint128,
+    /// Restricted collateral assets.
+    /// These aren't used for redemptions.
+    pub restricted_collateral_assets: Vec<String>,
+}
+
+#[cw_serde]
+pub struct PremiumInfo {
+    /// Premium
+    pub premium: u128,
+    /// IDs in the Premium
+    pub users_of_premium: Vec<RedemptionInfo>,
+}
+
+#[cw_serde]
 pub struct Basket {
     /// Basket ID
     pub basket_id: Uint128,

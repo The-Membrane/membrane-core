@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{
     cAsset, Asset, AssetInfo, InsolventPosition, Position, PositionUserInfo,
-    SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType, Basket, equal,
+    SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType, Basket, equal, PremiumInfo,
 };
 
 #[cw_serde]
@@ -94,6 +94,28 @@ pub enum ExecuteMsg {
         position_id: Uint128,
         /// Position owner to liquidate
         position_owner: String,
+    },
+    /// Redeem CDT for collateral
+    /// Redemption limit based on Position owner buy-in
+    RedeemCollateral {
+        /// Max % premium on the redeemed collateral`
+        max_collateral_premium: Option<u128>,
+    },
+    /// Edit Redeemability for owned Positions
+    EditRedeemability {
+        /// Position IDs to edit
+        position_ids: Vec<Uint128>,
+        /// Add or remove redeemability
+        redeemable: Option<bool>,
+        /// Edit premium on the redeemed collateral.
+        /// Can't set a 100% premium, as that would be a free loan repayment.
+        premium: Option<u128>,
+        /// Edit Max loan repayment %
+        max_loan_repayment: Option<Decimal>,
+        /// Restricted collateral assets.
+        /// These are restricted from use in redemptions.
+        /// Swaps the full list.
+        restricted_collateral_assets: Option<Vec<String>>,
     },
     /// Close a Position by selling collateral and repaying debt
     ClosePosition {
@@ -187,6 +209,15 @@ pub enum QueryMsg {
         position_id: Uint128,
         //Position owner to query
         position_owner: String,
+    },
+    /// Get Basket redeemability
+    GetBasketRedeemability {
+        /// Position owner to query.
+        position_owner: Option<String>,
+        /// Premium to start after 
+        start_after: Option<u128>,
+        /// Response limiter
+        limit: Option<u32>,
     },
     /// Returns Positions in the contract's Basket
     GetBasketPositions {
@@ -519,4 +550,10 @@ pub struct InterestResponse {
 pub struct CollateralInterestResponse {
     /// Collateral interest rates in the order of the collateral types
     pub rates: Vec<Decimal>,
+}
+
+#[cw_serde]
+pub struct RedeemabilityResponse {
+    /// State for each premium 
+    pub premium_infos: Vec<PremiumInfo>,
 }

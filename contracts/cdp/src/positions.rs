@@ -18,16 +18,16 @@ use membrane::staking::{ExecuteMsg as Staking_ExecuteMsg, QueryMsg as Staking_Qu
 use membrane::oracle::{ExecuteMsg as OracleExecuteMsg, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::{ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg };
 use membrane::stability_pool::ExecuteMsg as SP_ExecuteMsg;
-use membrane::math::{decimal_division, decimal_multiplication, Uint256};
+use membrane::math::{decimal_division, decimal_multiplication, Uint256, decimal_subtraction};
 use membrane::types::{
     cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, LiquidityInfo, Position,
-    StoredPrice, SupplyCap, UserInfo, PriceVolLimiter, PoolType
+    StoredPrice, SupplyCap, UserInfo, PriceVolLimiter, PoolType, RedemptionInfo, PositionRedemption
 };
 
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
 use crate::rates::accrue;
 use crate::risk_engine::{update_basket_tally, update_basket_debt, update_debt_per_asset_in_position};
-use crate::state::{CLOSE_POSITION, ClosePositionPropagation, BASKET, get_target_position, update_position_claims};
+use crate::state::{CLOSE_POSITION, ClosePositionPropagation, BASKET, get_target_position, update_position_claims, REDEMPTION_OPT_IN, update_position};
 use crate::{
     state::{
         WithdrawPropagation, CONFIG, POSITIONS, LIQUIDATION, WITHDRAW,
@@ -998,6 +998,452 @@ fn check_debt_increase_state(
     }
 
     Ok(())
+}
+
+/// Edit and Enable debt token Redemption for any address-owned Positions
+pub fn edit_redemption_info(
+    deps: DepsMut, 
+    info: MessageInfo,
+    // Position IDs to edit
+    mut position_ids: Vec<Uint128>,
+    // Add or remove redeemability
+    redeemable: Option<bool>,
+    // Edit premium on the redeemed collateral.
+    // Can't set a 100% premium, as that would be a free loan repayment.
+    updated_premium: Option<u128>,
+    // Edit Max loan repayment %
+    max_loan_repayment: Option<Decimal>,    
+    // Restricted collateral assets.
+    // These aren't used for redemptions.
+    restricted_collateral_assets: Option<Vec<String>>,
+) -> Result<Response, ContractError>{
+    //Check for valid premium
+    if let Some(premium) = updated_premium {
+        if premium > 99u128 {
+            return Err(ContractError::CustomError { val: String::from("Premium can't be greater than 99") })
+        }
+    }
+
+    //Check for valid max_loan_repayment
+    if let Some(max_loan_repayment) = max_loan_repayment {
+        if max_loan_repayment > Decimal::one() {
+            return Err(ContractError::CustomError { val: String::from("Max loan repayment can't be greater than 100%") })
+        }
+    }
+
+    //Position IDs must be specified & unique
+    if position_ids.is_empty() {
+        return Err(ContractError::CustomError { val: String::from("Position IDs must be specified") })
+    } else {
+        for id in position_ids.clone() {
+            if position_ids.iter().filter(|&n| *n == id).count() > 1 {
+                return Err(ContractError::CustomError { val: String::from("Position IDs must be unique") })
+            }
+        }
+    }
+
+    //////Additions//////
+    //Add PositionRedemption objects under the user in the desired premium while skipping duplicates, if redeemable is true or None
+    if !(redeemable.is_some() && !redeemable.unwrap()){
+        if let Some(updated_premium) = updated_premium {                
+            //Load premium we are adding to 
+            match REDEMPTION_OPT_IN.load(deps.storage, updated_premium){
+                Ok(mut users_of_premium)=> {
+                    //If the user already has a PositionRedemption, add the Position to the list
+                    if let Some ((user_index, mut user_positions)) = users_of_premium.clone().into_iter().enumerate().find(|(_, user)| user.position_owner == info.sender){
+                        //Iterate through the Position IDs
+                        for id in position_ids.clone() {
+                            //If the Position ID is not in the list, add it
+                            if !user_positions.position_infos.iter().any(|position| position.position_id == id){
+
+                                //Get target_position
+                                let target_position = match get_target_position(deps.storage, info.sender.clone(), id){
+                                    Ok((_, pos)) => pos,
+                                    Err(_e) => return Err(ContractError::CustomError { val: format!("User does not own position id: {}", id) })
+                                };
+
+                                user_positions.position_infos.push(PositionRedemption {
+                                    position_id: id,
+                                    remaining_loan_repayment: max_loan_repayment.unwrap_or(Decimal::one()) * target_position.credit_amount,
+                                    restricted_collateral_assets: restricted_collateral_assets.clone().unwrap_or(vec![]),
+                                });
+                            }
+
+                            //Remove the Position ID from the list, don't want to edit newly added RedemptionInfo
+                            position_ids.retain(|&x| x != id);
+                        }
+
+                        //Update the PositionRedemption
+                        users_of_premium[user_index] = user_positions;
+
+                        //Save the updated list
+                        REDEMPTION_OPT_IN.save(deps.storage, updated_premium, &users_of_premium)?;
+                    } //Add user to the premium state
+                    else {                            
+                        //Create new RedemptionInfo
+                        let new_redemption_info = create_redemption_info(
+                            deps.storage,
+                            position_ids.clone(), 
+                            max_loan_repayment.clone(), 
+                            info.clone().sender,
+                            restricted_collateral_assets.clone().unwrap_or(vec![]),
+                        )?;
+
+                        //Add the new RedemptionInfo to the list
+                        users_of_premium.push(new_redemption_info);
+
+                        //Save the updated list
+                        REDEMPTION_OPT_IN.save(deps.storage, updated_premium, &users_of_premium)?;
+                    }
+                },
+                //If no users, create a new list
+                Err(_err) => {
+                    //Create new RedemptionInfo
+                    let new_redemption_info = create_redemption_info(
+                        deps.storage,
+                        position_ids.clone(), 
+                        max_loan_repayment.clone(), 
+                        info.clone().sender,
+                        restricted_collateral_assets.clone().unwrap_or(vec![]),
+                    )?;
+
+                    //Save the new RedemptionInfo
+                    REDEMPTION_OPT_IN.save(deps.storage, updated_premium, &vec![new_redemption_info])?;
+                },
+            };
+        } else if (redeemable.is_some() && redeemable.unwrap()) && updated_premium.is_none(){
+            return Err(ContractError::CustomError { val: String::from("Can't set redeemable to true without specifying a premium") })
+        }
+    } 
+
+    //////Edits and Removals//////
+    //Parse through premium range to look for the Position IDs
+    for premium in 0..100u128 {
+        //Load premium we are editing
+        let mut users_of_premium: Vec<RedemptionInfo> = match REDEMPTION_OPT_IN.load(deps.storage, premium){
+            Ok(list)=> list,
+            Err(_err) => vec![], //If no users, return empty vec
+        };
+
+        //Query for Users in the premium as long as there are Position IDs left to find && there are users in the premium
+        if !position_ids.is_empty() && !users_of_premium.is_empty(){      
+            
+            //Iterate through users to find the Positions
+            if let Some ((user_index, mut user_positions)) = users_of_premium.clone().into_iter().enumerate().find(|(_, user)| user.position_owner == info.sender){
+                for id in position_ids.clone() {
+                    //If the Position ID is in the list, edit, update and remove from the list
+                    if let Some((position_index, _)) = user_positions.clone().position_infos.clone().into_iter().enumerate().find(|(_, position)| position.position_id == id){
+
+                        //Edit or Remove the Position from redeemability
+                        if let Some(redeemable) = redeemable {
+                            if !redeemable {
+                                user_positions.position_infos.remove(position_index);
+
+                                //If the user has no more positions, remove them from the premium
+                                if user_positions.position_infos.is_empty() {
+                                    users_of_premium.remove(user_index);
+                                    
+                                    //Save the updated list
+                                    REDEMPTION_OPT_IN.save(deps.storage, premium, &users_of_premium)?;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        //Update maximum loan repayment
+                        if let Some(max_loan_repayment) = max_loan_repayment {
+                            //Get target_position
+                            let target_position = match get_target_position(deps.storage, info.sender.clone(), id){
+                                Ok((_, pos)) => pos,
+                                Err(_e) => return Err(ContractError::CustomError { val: format!("User does not own position id: {}", id) })
+                            };
+
+                            user_positions.position_infos[position_index].remaining_loan_repayment = max_loan_repayment * target_position.credit_amount;
+                        }
+
+                        //To switch premiums we remove it from the list, it should've been added to its new list beforehand
+                        if let Some(updated_premium) = updated_premium {  
+                            if updated_premium != premium {
+                                user_positions.position_infos.remove(position_index);
+
+                                //If the user has no more positions, remove them from the premium
+                                if user_positions.position_infos.is_empty() {
+                                    users_of_premium.remove(user_index);
+                                    
+                                    //Save the updated list
+                                    REDEMPTION_OPT_IN.save(deps.storage, premium, &users_of_premium)?;
+                                    break;
+                                }
+                            }   
+                        }
+                        
+                        //Update restricted collateral assets
+                        if let Some(restricted_assets) = restricted_collateral_assets.clone() {
+                            //Map collateral assets to String
+                            let basket = BASKET.load(deps.storage)?;
+                            let collateral = basket.collateral_types.iter().map(|asset| asset.asset.info.to_string()).collect::<Vec<String>>();
+
+                            //If all restricted assets are valid, swap objects
+                            if restricted_assets.iter().all(|asset| collateral.contains(asset)) {
+                                user_positions.position_infos[position_index].restricted_collateral_assets = restricted_assets.clone();
+                            } else {
+                                return Err(ContractError::CustomError { val: format!("Invalid restricted asset, only collateral assets are viable to restrict") })
+                            }
+                        }
+
+                        //Update the Position
+                        users_of_premium[user_index] = user_positions.clone();
+
+                        //Save the updated list
+                        REDEMPTION_OPT_IN.save(deps.storage, premium, &users_of_premium)?;
+
+                        //Remove the Position ID from the list
+                        position_ids = position_ids
+                            .clone()
+                            .into_iter()
+                            .filter(|stored_id| stored_id != id)
+                            .collect::<Vec<Uint128>>();
+                    }
+                }
+            }
+        }
+    }
+
+
+    Ok(Response::new().add_attributes(vec![
+        attr("method", "edit_redemption_info"),
+        attr("positions_not_edited", format!("{:?}", position_ids))
+    ]))
+}
+
+fn create_redemption_info(
+    storage: &dyn Storage,
+    position_ids: Vec<Uint128>,
+    max_loan_repayment: Option<Decimal>,
+    position_owner: Addr,
+    restricted_collateral_assets: Vec<String>,
+) -> StdResult<RedemptionInfo>{
+    //Create list of PositionRedemptions
+    let mut position_infos = vec![];
+    
+    for id in position_ids.clone(){
+        //Get target_position
+        let target_position = match get_target_position(storage, position_owner.clone(), id){
+            Ok((_, pos)) => pos,
+            Err(_e) => return Err(StdError::GenericErr { msg: format!("User does not own position id: {}", id) })
+        };
+
+        //Add PositionRedemption to list
+        position_infos.push(PositionRedemption {
+            position_id: id,
+            remaining_loan_repayment: max_loan_repayment.unwrap_or(Decimal::one()) * target_position.credit_amount,
+            restricted_collateral_assets: restricted_collateral_assets.clone(),
+        });
+    }
+
+    Ok(RedemptionInfo { 
+        position_owner, 
+        position_infos 
+    })
+}
+
+/// Redeem the debt token for collateral for Positions that have opted in 
+/// The premium is set by the Position owner, ex: 1% premium = buying CDT at 99% of the peg price
+pub fn redeem_for_collateral(    
+    deps: DepsMut, 
+    env: Env,
+    info: MessageInfo,
+    max_collateral_premium: u128,
+) -> Result<Response, ContractError>{
+    //Load State
+    let config: Config = CONFIG.load(deps.storage)?;
+    let basket: Basket = BASKET.load(deps.storage)?;
+
+    let mut credit_amount;
+    let mut collateral_sends: Vec<Asset> = vec![];
+    
+    //Validate asset 
+    if info.clone().funds.len() != 1 || info.clone().funds[0].denom != basket.credit_asset.info.to_string(){
+        return Err(ContractError::CustomError { val: format!("Must send only the debt token: {}", basket.credit_asset.info) })
+    } else {
+        credit_amount = Decimal::from_ratio(Uint128::from(info.clone().funds[0].amount), Uint128::one());
+    }
+    //Set initial credit amount
+    let initial_credit_amount = credit_amount.clone();
+
+    //Set premium range
+    for premium in 0..=max_collateral_premium {
+        //Calc discount ratio
+        //(100%-premium)
+        let discount_ratio = decimal_subtraction(
+            Decimal::one(), 
+            Decimal::percent(premium as u64)
+        )?;
+
+        //Loop until all credit is redeemed
+        if !credit_amount.is_zero(){
+            
+            //Query for Users in the premium 
+            let mut users_of_premium: Vec<RedemptionInfo> = match REDEMPTION_OPT_IN.load(deps.storage, premium){
+                Ok(list)=> list,
+                Err(_err) => vec![], //If no users, return empty vec
+            };
+
+            //Parse thru Users
+            for (user_index, mut user) in users_of_premium.clone().into_iter().enumerate() {
+                //Parse thru Positions
+                for (pos_rdmpt_index, position_redemption_info) in user.clone().position_infos.into_iter().enumerate() {
+                    //Query for user Positions in the premium
+                    let (_i, mut target_position) = get_target_position(
+                        deps.storage, 
+                        user.clone().position_owner, 
+                        position_redemption_info.position_id
+                    )?;                    
+
+                    //Remove restricted collateral assets from target_position.collateral_assets
+                    for restricted_asset in position_redemption_info.restricted_collateral_assets {
+                        target_position.collateral_assets = target_position.collateral_assets.clone()
+                            .into_iter()
+                            .filter(|asset| asset.asset.info.to_string() != restricted_asset)
+                            .collect::<Vec<cAsset>>();
+                    }
+
+                    //Get cAsset ratios
+                    let (cAsset_ratios, _) = get_cAsset_ratios(
+                        deps.storage,
+                        env.clone(),
+                        deps.querier,
+                        target_position.clone().collateral_assets,
+                        config.clone(),
+                    )?;
+
+                    //Calc amount of credit that can be redeemed
+                    let redeemable_credit = Decimal::min(
+                        Decimal::from_ratio(position_redemption_info.remaining_loan_repayment, Uint128::one()),
+                        credit_amount
+                    );
+                    //Subtract redeemable from credit_amount 
+                    credit_amount = decimal_subtraction(credit_amount, redeemable_credit)?;
+                    //Subtract redeemable from remaining_loan_repayment
+                    user.position_infos[pos_rdmpt_index].remaining_loan_repayment = 
+                        position_redemption_info.remaining_loan_repayment - 
+                        redeemable_credit.to_uint_floor();
+
+                    //Set and Save user info with updated remaining_loan_repayment
+                    users_of_premium[user_index] = user.clone();
+                    REDEMPTION_OPT_IN.save(deps.storage, premium, &users_of_premium)?;
+
+                    // Calc credit_value
+                    //redeemable_credit * credit_price
+                    let credit_value = decimal_multiplication(
+                        Decimal::from_ratio(redeemable_credit.to_uint_floor(), Uint128::one()),
+                        basket.credit_price
+                    )?;
+                    // Calc redeemable value
+                    //credit_value * discount_ratio 
+                    let redeemable_value = decimal_multiplication(
+                        credit_value, 
+                        discount_ratio
+                    )?;
+
+                    //Calc collateral to send for each cAsset
+                    for (i, cAsset) in target_position.collateral_assets.iter().enumerate() {
+                        //Calc collateral to send
+                        let collateral_to_send = decimal_multiplication(
+                            redeemable_value, 
+                            cAsset_ratios[i]
+                        )?;
+
+                        //Add to send list
+                        if let Some(asset) = collateral_sends.iter_mut().find(|a| a.info == cAsset.asset.info) {
+                            asset.amount += collateral_to_send.clone().to_uint_floor();
+                        } else {
+                            collateral_sends.push(Asset {
+                                info: cAsset.asset.info.clone(),
+                                amount: collateral_to_send.clone().to_uint_floor(),
+                            });
+                        }
+                        
+                        //Update Position totals
+                        update_position_claims(
+                            deps.storage, 
+                            deps.querier, 
+                            env.clone(), 
+                            position_redemption_info.position_id, 
+                            user.clone().position_owner, 
+                            cAsset.asset.info.clone(), 
+                            collateral_to_send.to_uint_floor()
+                        )?;
+                    }
+
+                    //Reload target_position
+                    let (_i, mut target_position) = get_target_position(
+                        deps.storage, 
+                        user.clone().position_owner, 
+                        position_redemption_info.position_id
+                    )?;
+
+                    //Set position.credit_amount
+                    target_position.credit_amount -= redeemable_credit.to_uint_floor();
+
+                    //Update position.credit_amount
+                    update_position(
+                        deps.storage, 
+                        user.clone().position_owner, 
+                        target_position.clone()
+                    )?;
+                }
+            }
+        }
+    }
+
+    if credit_amount == initial_credit_amount {
+        return Err(ContractError::CustomError { val: format!("No collateral to redeem with a max premium of: {}", max_collateral_premium) })
+    }
+
+    //Convert collateral_sends to coins
+    let mut coins: Vec<Coin> = vec![];
+    for asset in collateral_sends {
+        coins.push(asset_to_coin(asset)?)
+    }
+
+    //Send collateral to user
+    let collateral_msg = BankMsg::Send {
+        to_address: info.clone().sender.to_string(),
+        amount: coins.clone(),
+    };
+
+    //If there is excess credit, send it back to user
+    if !credit_amount.is_zero() {
+        let credit_msg = BankMsg::Send {
+            to_address: info.clone().sender.to_string(),
+            amount: vec![Coin {
+                denom: basket.credit_asset.info.to_string(),
+                amount: credit_amount.to_uint_floor(),
+            }],
+        };
+        return Ok(Response::new()
+            .add_message(collateral_msg)
+            .add_message(credit_msg)
+            .add_attributes(vec![
+                attr("action", "redeem_for_collateral"),
+                attr("sender", info.clone().sender),
+                attr("redeemed_collateral", format!("{:?}", coins)),
+                attr("redeemed_credit", format!("{:?}", credit_amount)),
+            ])
+        )
+    }
+
+    //Response
+    Ok(Response::new()
+    .add_message(collateral_msg)
+    .add_attributes(vec![
+        attr("action", "redeem_for_collateral"),
+        attr("sender", info.clone().sender),
+        attr("redeemed_collateral", format!("{:?}", coins)),
+    ])
+)
+
 }
 
 /// Sell position collateral to fully repay debts.

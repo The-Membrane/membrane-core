@@ -22,14 +22,14 @@ use crate::risk_engine::assert_basket_assets;
 use crate::positions::{
     create_basket, deposit,
     edit_basket, increase_debt,
-    liq_repay, mint_revenue, repay,
+    liq_repay, mint_revenue, repay, redeem_for_collateral, edit_redemption_info,
     withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID,
 };
 use crate::query::{
     query_bad_debt, query_basket_credit_interest, query_basket_debt_caps,
     query_basket_positions, query_collateral_rates,
     query_position, query_position_insolvency,
-    query_user_positions,
+    query_user_positions, query_basket_redeemability,
 };
 use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
 use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_close_position_reply};
@@ -183,6 +183,25 @@ pub fn execute(
             )
         },
         ExecuteMsg::Accrue { position_owner, position_ids } => { external_accrue_call(deps, info, env, position_owner, position_ids) },
+        ExecuteMsg::RedeemCollateral { max_collateral_premium } => {
+            redeem_for_collateral(
+                deps, 
+                env, 
+                info, 
+                max_collateral_premium.unwrap_or(99u128)
+            )
+        },
+        ExecuteMsg::EditRedeemability { position_ids, redeemable, premium, max_loan_repayment, restricted_collateral_assets } => {
+            edit_redemption_info(
+                deps, 
+                info, 
+                position_ids, 
+                redeemable, 
+                premium, 
+                max_loan_repayment,
+                restricted_collateral_assets
+            )
+        },
         ExecuteMsg::ClosePosition { 
             position_id, 
             max_spread, 
@@ -589,6 +608,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             limit,
         )?),
         QueryMsg::GetBasket { } => to_binary(&BASKET.load(deps.storage)?),
+        QueryMsg::GetBasketRedeemability { position_owner, start_after, limit } => {
+            to_binary(&query_basket_redeemability(deps, position_owner, start_after, limit)?)
+        }
         QueryMsg::Propagation {} => to_binary(&LIQUIDATION.load(deps.storage)?),
         QueryMsg::GetBasketDebtCaps { } => {
             to_binary(&query_basket_debt_caps(deps, env)?)

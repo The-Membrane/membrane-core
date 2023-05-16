@@ -46,7 +46,7 @@ pub struct InstantiateMsg {
     pub proposal_required_stake: Uint128,
     /// Proposal required quorum
     pub proposal_required_quorum: String,
-    /// Proposal required threshold
+    /// Proposal required threshold for executable proposals
     pub proposal_required_threshold: String,
     /// Whitelisted links
     pub whitelisted_links: Vec<String>,
@@ -167,7 +167,7 @@ pub struct Config {
     pub proposal_required_stake: Uint128,
     /// Proposal required quorum
     pub proposal_required_quorum: Decimal,
-    /// Proposal required threshold
+    /// Proposal required threshold for executable proposals
     pub proposal_required_threshold: Decimal,
     /// Whitelisted links
     pub whitelisted_links: Vec<String>,
@@ -260,7 +260,7 @@ pub struct UpdateConfig {
     pub proposal_required_stake: Option<u128>,
     /// Proposal required quorum
     pub proposal_required_quorum: Option<String>,
-    /// Proposal required threshold
+    /// Proposal required threshold for executable proposals
     pub proposal_required_threshold: Option<String>,
     /// Links to remove from whitelist
     pub whitelist_remove: Option<Vec<String>>,

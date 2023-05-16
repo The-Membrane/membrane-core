@@ -327,7 +327,7 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
         return Err(ContractError::VotingPeriodNotEnded {});
     }
 
-    let config = CONFIG.load(deps.storage)?;
+    let mut config = CONFIG.load(deps.storage)?;
 
     let for_votes = proposal.for_power;
     let against_votes = proposal.against_power;
@@ -345,6 +345,11 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
 
     if !total_votes.is_zero() {
         proposal_threshold = Decimal::from_ratio(for_votes, total_votes);
+
+        //Set config.proposal_required_threshold to 50 if the proposal has no executables
+        if proposal.messages.is_none() || proposal.messages.clone().unwrap().is_empty() {
+            config.proposal_required_threshold = Decimal::percent(50);
+        }
     }
 
     // Determine the proposal result

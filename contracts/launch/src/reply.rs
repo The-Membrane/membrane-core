@@ -291,6 +291,7 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
                     owner: None,
                     positions_contract: None,
                     pyth_osmosis_address: None,
+                    osmosis_proxy_contract: None,
                 })?, 
                 funds: vec![], 
                 label: String::from("oracle"), 
@@ -1267,6 +1268,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                 msg: to_binary(&OracleExecuteMsg::UpdateConfig { 
                     owner: Some(addrs.clone().governance.to_string()), 
                     positions_contract: Some(addrs.clone().positions.to_string()),
+                    osmosis_proxy_contract: Some(addrs.clone().osmosis_proxy.to_string()),
                     pyth_osmosis_address: None,
                     osmo_usd_pyth_feed_id: None,
                     pools_for_usd_par_twap: Some(vec![

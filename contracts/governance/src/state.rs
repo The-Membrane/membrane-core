@@ -14,3 +14,7 @@ pub const PROPOSAL_COUNT: Item<Uint64> = Item::new("proposal_count");
 /// This is a map that contains information about all proposals
 /// <Proposal #, Proposal>
 pub const PROPOSALS: Map<String, Proposal> = Map::new("proposals");
+
+/// ## Description
+/// This is a map that contains information about pending proposals
+pub const PENDING_PROPOSALS: Map<String, Proposal> = Map::new("pending_proposals");

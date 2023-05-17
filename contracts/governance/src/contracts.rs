@@ -22,7 +22,7 @@ use std::str::FromStr;
 use num::integer::Roots;
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, PROPOSALS, PROPOSAL_COUNT};
+use crate::state::{CONFIG, PROPOSALS, PROPOSAL_COUNT, PENDING_PROPOSALS};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "mbrn-governance";
@@ -192,7 +192,7 @@ pub fn submit_proposal(
         }
     };    
 
-    let proposal = Proposal {
+    let mut proposal = Proposal {
         proposal_id: count,
         submitter: submitter.unwrap_or_else(|| info.sender.clone()),
         status: ProposalStatus::Active,
@@ -221,8 +221,16 @@ pub fn submit_proposal(
     };
 
     proposal.validate(config.whitelisted_links)?;
+    
+    //If proposal has insufficient alignment, send to pending
+    if proposal.aligned_power < config.proposal_required_stake {
+        //Set end block to 1 day from now
+        proposal.end_block = env.block.height + 14400;
+        PENDING_PROPOSALS.save(deps.storage, count.to_string(), &proposal)?;
+    } else {
+        PROPOSALS.save(deps.storage, count.to_string(), &proposal)?;
+    }
 
-    PROPOSALS.save(deps.storage, count.to_string(), &proposal)?;
 
     Ok(Response::new().add_attributes(vec![
         attr("action", "submit_proposal"),
@@ -255,7 +263,14 @@ pub fn cast_vote(
         vesting = true;
     }
 
-    let mut proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
+    //Load proposal
+    let mut proposal = match PROPOSALS.load(deps.storage, proposal_id.to_string()){
+        Ok(proposal) => proposal,
+        Err(_) => match PENDING_PROPOSALS.load(deps.storage, proposal_id.to_string()){
+            Ok(proposal) => proposal,
+            Err(err) => return Err(ContractError::Std(err)),
+        }
+    };
 
     if proposal.status != ProposalStatus::Active {
         return Err(ContractError::ProposalNotActive {});
@@ -329,6 +344,14 @@ pub fn cast_vote(
             }
             proposal.aligned_power = proposal.aligned_power.checked_add(voting_power)?;
             proposal.aligned_voters.push(info.sender.clone());
+
+            //If alignment is reached, move to active proposal state
+            if proposal.aligned_power >= config.proposal_required_stake {
+                //Remove from pending proposals
+                PENDING_PROPOSALS.remove(deps.storage, proposal_id.to_string());
+                //Add to active proposals
+                PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;
+            }
         }
     };
 
@@ -492,22 +515,44 @@ pub fn remove_completed_proposal(
     proposal_id: u64,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
+    let mut aligned = false;
 
-    let mut proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
+    //Load proposal
+    let mut proposal = match PROPOSALS.load(deps.storage, proposal_id.to_string()){
+        Ok(proposal) => {
+            aligned = true;
+            proposal
+        },
+        Err(_) => match PENDING_PROPOSALS.load(deps.storage, proposal_id.to_string()){
+            Ok(proposal) => proposal,
+            Err(err) => return Err(ContractError::Std(err)),
+        }
+    };
 
-    if env.block.height
+    if aligned {
+        
+        if env.block.height
         > (proposal.end_block + config.proposal_effective_delay + config.proposal_expiration_period)
-    {
-        proposal.status = ProposalStatus::Expired;
+        {
+            proposal.status = ProposalStatus::Expired;
+        }
+    } //If pending, expiration starts at end_block
+    else {
+        if env.block.height > proposal.end_block {
+            proposal.status = ProposalStatus::Expired;
+        }
     }
 
-    //Only remove if proposal is expired && rejected
-    //Save past proposals for historical purposes
-    if proposal.status != ProposalStatus::Expired && proposal.status != ProposalStatus::Rejected {
+    //If proposal is expired && rejected, remove
+    if proposal.status == ProposalStatus::Expired && proposal.status == ProposalStatus::Rejected{
+        PROPOSALS.remove(deps.storage, proposal_id.to_string());
+    } //If pending proposal is expired, remove
+     else if proposal.status == ProposalStatus::Expired && !aligned{
+        PENDING_PROPOSALS.remove(deps.storage, proposal_id.to_string());    
+    } else {
         return Err(ContractError::CantRemove {});
     }
-
-    PROPOSALS.remove(deps.storage, proposal_id.to_string());
+    
 
     Ok(Response::new()
         .add_attribute("action", "remove_completed_proposal")
@@ -724,6 +769,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::Proposals { start, limit } => to_binary(&query_proposals(deps, start, limit)?),
+        QueryMsg::PendingProposals { start, limit } => to_binary(&query_pending_proposals(deps, start, limit)?),
         QueryMsg::Proposal { proposal_id } => to_binary(&PROPOSALS.load(deps.storage, proposal_id.to_string())?),
         QueryMsg::ProposalVotes { proposal_id } => {
             to_binary(&query_proposal_votes(deps, proposal_id)?)
@@ -814,6 +860,50 @@ pub fn query_proposals(
     })
 }
 
+/// Return a list of Pending Proposals
+pub fn query_pending_proposals(
+    deps: Deps,
+    start: Option<u64>,
+    limit: Option<u32>,
+) -> StdResult<ProposalListResponse> {
+    let proposal_count = PROPOSAL_COUNT.load(deps.storage)?;
+
+    let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+    let start = start.map(|start| Bound::inclusive(start.to_string()));
+
+    let proposal_list = PENDING_PROPOSALS
+        .range(deps.storage, start, None, Order::Ascending)
+        .take(limit)
+        .map(|item| {
+            let (_, proposal) = item?;
+            Ok(ProposalResponse {
+                proposal_id: proposal.proposal_id,
+                submitter: proposal.submitter,
+                status: proposal.status,
+                aligned_power: proposal.aligned_power,
+                for_power: proposal.for_power,
+                against_power: proposal.against_power,
+                amendment_power: proposal.amendment_power,
+                removal_power: proposal.removal_power,
+                start_block: proposal.start_block,
+                start_time: proposal.start_time,
+                end_block: proposal.end_block,
+                delayed_end_block: proposal.delayed_end_block,
+                expiration_block: proposal.expiration_block,
+                title: proposal.title,
+                description: proposal.description,
+                link: proposal.link,
+                messages: proposal.messages,
+            })
+        })
+        .collect::<StdResult<Vec<_>>>()?;
+
+    Ok(ProposalListResponse {
+        proposal_count,
+        proposal_list,
+    })
+}
+
 /// Return a list of voters for a given proposal
 pub fn query_proposal_voters(
     deps: Deps,
@@ -863,6 +953,6 @@ pub fn query_proposal_votes(deps: Deps, proposal_id: u64) -> StdResult<ProposalV
         against_power: proposal.against_power,
         amendment_power: proposal.amendment_power,
         removal_power: proposal.removal_power,
-        alignment_power: proposal.aligned_power,
+        aligned_power: proposal.aligned_power,
     })
 }

@@ -1160,6 +1160,147 @@ mod tests {
         }
 
         #[test]
+        fn pending_proposals() {
+            let (mut app, gov_contract, bv_contract_addr) = proper_instantiate();
+
+            //Submit Proposal
+            let msg = ExecuteMsg::SubmitProposal {
+                title: "Test title!".to_string(),
+                description: "Test description!".to_string(),
+                link: Some(String::from("https://some.link/linker")),
+                messages: Some(vec![ProposalMessage {
+                    order: Uint64::new(1u64),
+                    msg: cosmwasm_std::CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: gov_contract.addr().to_string(),
+                        msg: to_binary(&ExecuteMsg::UpdateConfig(UpdateConfig {
+                            mbrn_denom: None,
+                            staking_contract: None,
+                            vesting_contract_addr: None,
+                            vesting_voting_power_multiplier: None,
+                            minimum_total_stake: None,
+                            proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
+                            expedited_proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
+                            proposal_effective_delay: None,
+                            proposal_expiration_period: None,
+                            proposal_required_stake: None,
+                            proposal_required_quorum: None,
+                            proposal_required_threshold: None,
+                            whitelist_add: Some(vec![
+                                "https://some1.link/".to_string(),
+                                "https://some2.link/".to_string(),
+                            ]),
+                            whitelist_remove: Some(vec!["https://some.link/".to_string()]),
+                            quadratic_voting: None,
+                        }))
+                        .unwrap(),
+                        funds: vec![],
+                    }),
+                }]),
+                recipient: None,
+                expedited: false,
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Query that its pending
+            let proposals: ProposalListResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::PendingProposals { start: None, limit: None },
+                )
+                .unwrap();
+            assert_eq!(proposals.proposal_list.len(), 1);
+
+            ////Cast Votes to align
+            let msg = ExecuteMsg::CastVote {
+                proposal_id: 1u64,
+                vote: ProposalVoteOption::Align,
+                recipient: Some(String::from("recipient")),
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            app
+                .execute(bv_contract_addr.clone(), cosmos_msg)
+                .unwrap();
+
+            //Assert that its now Active
+            let proposal: Proposal = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::Proposal { proposal_id: 1 },
+                )
+                .unwrap();
+
+            //Submit Proposal
+            let msg = ExecuteMsg::SubmitProposal {
+                title: "Test title!".to_string(),
+                description: "Test description!".to_string(),
+                link: Some(String::from("https://some.link/linker")),
+                messages: Some(vec![ProposalMessage {
+                    order: Uint64::new(1u64),
+                    msg: cosmwasm_std::CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: gov_contract.addr().to_string(),
+                        msg: to_binary(&ExecuteMsg::UpdateConfig(UpdateConfig {
+                            mbrn_denom: None,
+                            staking_contract: None,
+                            vesting_contract_addr: None,
+                            vesting_voting_power_multiplier: None,
+                            minimum_total_stake: None,
+                            proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
+                            expedited_proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
+                            proposal_effective_delay: None,
+                            proposal_expiration_period: None,
+                            proposal_required_stake: None,
+                            proposal_required_quorum: None,
+                            proposal_required_threshold: None,
+                            whitelist_add: Some(vec![
+                                "https://some1.link/".to_string(),
+                                "https://some2.link/".to_string(),
+                            ]),
+                            whitelist_remove: Some(vec!["https://some.link/".to_string()]),
+                            quadratic_voting: None,
+                        }))
+                        .unwrap(),
+                        funds: vec![],
+                    }),
+                }]),
+                recipient: None,
+                expedited: false,
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Remove completed pending proposal that expired without getting alignment       
+            // Remove expired proposal
+            app.update_block(|bi| {
+                bi.height += 14401;
+                bi.time = bi
+                    .time
+                    .plus_seconds(14401);
+            });
+
+            app.execute_contract(
+                Addr::unchecked(USER),
+                gov_contract.addr(),
+                &ExecuteMsg::RemoveCompletedProposal { proposal_id: 2 },
+                &[],
+            )
+            .unwrap();
+
+            //Assert removal
+            let proposals: ProposalListResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::PendingProposals { start: None, limit: None },
+                )
+                .unwrap();
+            assert_eq!(proposals.proposal_list.len(), 0);
+
+        }
+
+        #[test]
         fn unsuccessful_proposal() {
             let (mut app, gov_contract, bv_contract_addr) = proper_instantiate();
 

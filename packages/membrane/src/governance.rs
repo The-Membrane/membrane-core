@@ -115,6 +115,12 @@ pub enum QueryMsg {
         /// The amount of proposals to return
         limit: Option<u32>,
     },
+    PendingProposals {
+        /// Id from which to start querying
+        start: Option<u64>,
+        /// The amount of proposals to return
+        limit: Option<u32>,
+    },
     /// Return proposal voters of specified proposal
     ProposalVoters {
         /// Proposal unique id
@@ -490,7 +496,7 @@ pub struct ProposalVotesResponse {
     /// Total amount of `remove` votes for a proposal.
     pub removal_power: Uint128,
     /// Total amount of `align` votes for a proposal.
-    pub alignment_power: Uint128,
+    pub aligned_power: Uint128,
 }
 
 /// This structure describes a proposal list response.

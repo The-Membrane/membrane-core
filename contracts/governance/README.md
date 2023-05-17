@@ -8,4 +8,4 @@ Changes:
 - Vesting contract can expedit proposals 
 - Config can toggle quadratic voting
 - Amend and Remove VoteOptions, remove removes the proposal during end_proposal()
-- Proposals can be aligned with to make active if proposed by small holders
+- Proposals can be aligned with to make active if proposed by small holders, these are pending until aligned

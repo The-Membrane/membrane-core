@@ -279,6 +279,8 @@ pub struct Proposal {
     pub submitter: Addr,
     /// Status of the proposal
     pub status: ProposalStatus,
+    /// Aligned power of proposal
+    pub aligned_power: Uint128,
     /// `For` power of proposal
     pub for_power: Uint128,
     /// `Against` power of proposal
@@ -287,6 +289,8 @@ pub struct Proposal {
     pub amendment_power: Uint128,
     /// `Remove` power of proposal
     pub removal_power: Uint128,
+    /// Proposal boosters
+    pub aligned_voters: Vec<Addr>,
     /// `For` votes for the proposal
     pub for_voters: Vec<Addr>,
     /// `Against` votes for the proposal
@@ -324,6 +328,8 @@ pub struct ProposalResponse {
     pub submitter: Addr,
     /// Status of the proposal
     pub status: ProposalStatus,
+    /// Aligned power of proposal
+    pub aligned_power: Uint128,
     /// `For` power of proposal
     pub for_power: Uint128,
     /// `Against` power of proposal
@@ -455,6 +461,7 @@ pub enum ProposalVoteOption {
     Against,
     Amend,
     Remove,
+    Align,
 }
 
 impl Display for ProposalVoteOption {
@@ -464,6 +471,7 @@ impl Display for ProposalVoteOption {
             ProposalVoteOption::Against {} => fmt.write_str("against"),
             ProposalVoteOption::Amend {} => fmt.write_str("amend"),
             ProposalVoteOption::Remove {} => fmt.write_str("remove"),
+            ProposalVoteOption::Align {} => fmt.write_str("align"),
         }
     }
 }

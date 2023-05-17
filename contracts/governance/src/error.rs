@@ -52,6 +52,9 @@ pub enum ContractError {
 
     #[error("Total staked amount isn't greater than {minimum}")]
     InsufficientTotalStake { minimum: u128 },
+    
+    #[error("No need for further alignment to activate the proposal")]
+    AlignmentReached {},
 }
 
 impl From<OverflowError> for ContractError {

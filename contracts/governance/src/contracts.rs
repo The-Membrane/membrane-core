@@ -169,13 +169,8 @@ pub fn submit_proposal(
         vesting,
         recipient.clone(),
         false, //No quadratic for proposal submissions
-    )?;
+    )?; 
     
-    if voting_power < config.proposal_required_stake {
-        return Err(ContractError::InsufficientStake {});
-    }
-
-
     // Update the proposal count
     let count = PROPOSAL_COUNT.update(deps.storage, |c| -> StdResult<_> {
         Ok(c.checked_add(Uint64::new(1))?)
@@ -201,10 +196,12 @@ pub fn submit_proposal(
         proposal_id: count,
         submitter: submitter.unwrap_or_else(|| info.sender.clone()),
         status: ProposalStatus::Active,
+        aligned_power: voting_power,
         for_power: Uint128::zero(),
         against_power: Uint128::zero(),
         amendment_power: Uint128::zero(),
         removal_power: Uint128::zero(),
+        aligned_voters: vec![info.sender.clone()],
         for_voters: Vec::new(),
         against_voters: Vec::new(),
         amendment_voters: Vec::new(),
@@ -265,12 +262,12 @@ pub fn cast_vote(
     }
 
     //Can't vote on your own proposal
-    if proposal.submitter == info.sender {
+    if proposal.submitter == info.sender || proposal.aligned_voters.contains(&info.sender) {
         return Err(ContractError::Unauthorized {});
     } else if let Some(recipient) = recipient.clone() {
         let recipient = deps.api.addr_validate(&recipient)?;
 
-        if proposal.submitter == recipient {
+        if proposal.submitter == recipient || proposal.aligned_voters.contains(&recipient) {
             return Err(ContractError::Unauthorized {});
         }
     }
@@ -279,7 +276,7 @@ pub fn cast_vote(
         return Err(ContractError::VotingPeriodEnded {});
     }
 
-    if proposal.for_voters.contains(&info.sender) || proposal.against_voters.contains(&info.sender)
+    if proposal.for_voters.contains(&info.sender) || proposal.against_voters.contains(&info.sender) || proposal.amendment_voters.contains(&info.sender) || proposal.removal_voters.contains(&info.sender)
     {
         return Err(ContractError::UserAlreadyVoted {});
     }
@@ -299,20 +296,39 @@ pub fn cast_vote(
 
     match vote_option {
         ProposalVoteOption::For => {
+            if proposal.aligned_power < config.proposal_required_stake {
+                return Err(ContractError::ProposalNotActive {});
+            }
             proposal.for_power = proposal.for_power.checked_add(voting_power)?;
             proposal.for_voters.push(info.sender.clone());
         }
         ProposalVoteOption::Against => {
+            if proposal.aligned_power < config.proposal_required_stake {
+                return Err(ContractError::ProposalNotActive {});
+            }
             proposal.against_power = proposal.against_power.checked_add(voting_power)?;
             proposal.against_voters.push(info.sender.clone());
         }
         ProposalVoteOption::Amend => {
+            if proposal.aligned_power < config.proposal_required_stake {
+                return Err(ContractError::ProposalNotActive {});
+            }
             proposal.amendment_power = proposal.amendment_power.checked_add(voting_power)?;
             proposal.amendment_voters.push(info.sender.clone());
         }
         ProposalVoteOption::Remove => {
+            if proposal.aligned_power < config.proposal_required_stake {
+                return Err(ContractError::ProposalNotActive {});
+            }
             proposal.removal_power = proposal.removal_power.checked_add(voting_power)?;
             proposal.removal_voters.push(info.sender.clone());
+        }
+        ProposalVoteOption::Align => {
+            if proposal.aligned_power >= config.proposal_required_stake {
+                return Err(ContractError::AlignmentReached {});
+            }
+            proposal.aligned_power = proposal.aligned_power.checked_add(voting_power)?;
+            proposal.aligned_voters.push(info.sender.clone());
         }
     };
 
@@ -357,7 +373,8 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
     let mut removal_threshold: Decimal = Decimal::zero();
 
     if !total_voting_power.is_zero() {
-        proposal_quorum = Decimal::from_ratio(total_votes, total_voting_power);
+        proposal_quorum = Decimal::from_ratio(total_votes+proposal.aligned_power, total_voting_power);
+        //If aligned_power isn't added, proposals made by large holders can potentially never reach quorum
     }
 
     if !total_votes.is_zero() {
@@ -773,6 +790,7 @@ pub fn query_proposals(
                 proposal_id: proposal.proposal_id,
                 submitter: proposal.submitter,
                 status: proposal.status,
+                aligned_power: proposal.aligned_power,
                 for_power: proposal.for_power,
                 against_power: proposal.against_power,
                 amendment_power: proposal.amendment_power,
@@ -815,6 +833,7 @@ pub fn query_proposal_voters(
         ProposalVoteOption::Against => proposal.against_voters,
         ProposalVoteOption::Amend => proposal.amendment_voters,
         ProposalVoteOption::Remove => proposal.removal_voters,
+        ProposalVoteOption::Align => proposal.aligned_voters,
     };
 
     if let Some(specific_user) = specific_user {

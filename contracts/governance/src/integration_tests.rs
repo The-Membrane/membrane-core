@@ -180,7 +180,7 @@ mod tests {
                 match msg {
                     Vesting_MockQueryMsg::Allocation { recipient } => {
                         Ok(to_binary(&AllocationResponse {
-                            amount: Uint128::new(4000000000),
+                            amount: Uint128::new(10000000000000000000000),
                             amount_withdrawn: Uint128::zero(),
                             start_time_of_allocation: 0,
                             vesting_period: VestingPeriod {
@@ -300,7 +300,7 @@ mod tests {
         fn stake_minimum() {
             let (mut app, gov_contract, bv_contract_addr) = proper_instantiate();
 
-            //Submit Proposal Fail due to insufficient stake
+            //Submit Proposal: Under required stake 
             let msg = ExecuteMsg::SubmitProposal {
                 title: "Test title!".to_string(),
                 description: "Test description!".to_string(),
@@ -310,13 +310,52 @@ mod tests {
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
-            let err = app
+            app
                 .execute(Addr::unchecked("not_staked"), cosmos_msg)
+                .unwrap();
+
+            //Can't Vote bc proposal hasn't reached the required stake
+            let msg = ExecuteMsg::CastVote {
+                proposal_id: 1u64,
+                vote: ProposalVoteOption::For,
+                recipient: Some(String::from("recipient")),
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            let err = app
+                .execute(bv_contract_addr.clone(), cosmos_msg)
                 .unwrap_err();
-            assert_eq!(
-                err.root_cause().to_string(),
-                String::from("Insufficient stake!")
-            );
+            assert_eq!(err.root_cause().to_string(), String::from("Proposal not active!"));
+            //Align
+            let msg = ExecuteMsg::CastVote {
+                proposal_id: 1u64,
+                vote: ProposalVoteOption::Align,
+                recipient: Some(String::from("recipient")),
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            app
+                .execute(bv_contract_addr.clone(), cosmos_msg)
+                .unwrap();
+            // Fail bc they aligned with the proposal            
+            let msg = ExecuteMsg::CastVote {
+                proposal_id: 1u64,
+                vote: ProposalVoteOption::For,
+                recipient: Some(String::from("recipient")),
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            let err = app
+                .execute(bv_contract_addr.clone(), cosmos_msg)
+                .unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("Unauthorized"));
+            // Fail bc aligned has been reached
+            let msg = ExecuteMsg::CastVote {
+                proposal_id: 1u64,
+                vote: ProposalVoteOption::Align,
+                recipient: None,
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("No need for further alignment to activate the proposal"));
+
 
             //Successful submission
             let msg = ExecuteMsg::SubmitProposal {

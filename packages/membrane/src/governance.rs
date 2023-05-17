@@ -283,10 +283,18 @@ pub struct Proposal {
     pub for_power: Uint128,
     /// `Against` power of proposal
     pub against_power: Uint128,
+    /// `Amend` power of proposal
+    pub amendment_power: Uint128,
+    /// `Remove` power of proposal
+    pub removal_power: Uint128,
     /// `For` votes for the proposal
     pub for_voters: Vec<Addr>,
     /// `Against` votes for the proposal
     pub against_voters: Vec<Addr>,
+    /// `Amend` votes for the proposal
+    pub amendment_voters: Vec<Addr>,
+    /// `Remove` votes for the proposal
+    pub removal_voters: Vec<Addr>,
     /// Start block of proposal
     pub start_block: u64,
     /// Start time of proposal
@@ -320,6 +328,10 @@ pub struct ProposalResponse {
     pub for_power: Uint128,
     /// `Against` power of proposal
     pub against_power: Uint128,
+    /// `Amend` power of proposal
+    pub amendment_power: Uint128,
+    /// `Remove` power of proposal
+    pub removal_power: Uint128,
     /// Start block of proposal
     pub start_block: u64,
     /// Start time of proposal
@@ -399,6 +411,7 @@ impl Proposal {
 pub enum ProposalStatus {
     Active,
     Passed,
+    AmendmentDesired,
     Rejected,
     Executed,
     Expired,
@@ -409,6 +422,7 @@ impl Display for ProposalStatus {
         match self {
             ProposalStatus::Active {} => fmt.write_str("active"),
             ProposalStatus::Passed {} => fmt.write_str("passed"),
+            ProposalStatus::AmendmentDesired {} => fmt.write_str("amendment_required"),
             ProposalStatus::Rejected {} => fmt.write_str("rejected"),
             ProposalStatus::Executed {} => fmt.write_str("executed"),
             ProposalStatus::Expired {} => fmt.write_str("expired"),
@@ -439,6 +453,8 @@ pub struct ProposalVote {
 pub enum ProposalVoteOption {
     For,
     Against,
+    Amend,
+    Remove,
 }
 
 impl Display for ProposalVoteOption {
@@ -446,6 +462,8 @@ impl Display for ProposalVoteOption {
         match self {
             ProposalVoteOption::For {} => fmt.write_str("for"),
             ProposalVoteOption::Against {} => fmt.write_str("against"),
+            ProposalVoteOption::Amend {} => fmt.write_str("amend"),
+            ProposalVoteOption::Remove {} => fmt.write_str("remove"),
         }
     }
 }
@@ -459,6 +477,10 @@ pub struct ProposalVotesResponse {
     pub for_power: Uint128,
     /// Total amount of `against` votes for a proposal.
     pub against_power: Uint128,
+    /// Total amount of `amend` votes for a proposal.
+    pub amendment_power: Uint128,
+    /// Total amount of `remove` votes for a proposal.
+    pub removal_power: Uint128,
 }
 
 /// This structure describes a proposal list response.

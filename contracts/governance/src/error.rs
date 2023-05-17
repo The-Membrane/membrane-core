@@ -35,8 +35,8 @@ pub enum ContractError {
     #[error("Proposal not passed!")]
     ProposalNotPassed {},
 
-    #[error("Proposal not completed!")]
-    ProposalNotCompleted {},
+    #[error("Proposal can't be removed!")]
+    CantRemove {},
 
     #[error("Proposal delay not ended!")]
     ProposalDelayNotEnded {},

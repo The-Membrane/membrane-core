@@ -203,8 +203,12 @@ pub fn submit_proposal(
         status: ProposalStatus::Active,
         for_power: Uint128::zero(),
         against_power: Uint128::zero(),
+        amendment_power: Uint128::zero(),
+        removal_power: Uint128::zero(),
         for_voters: Vec::new(),
         against_voters: Vec::new(),
+        amendment_voters: Vec::new(),
+        removal_voters: Vec::new(),
         start_block: env.block.height,
         start_time: env.block.time.seconds(),
         end_block,
@@ -302,6 +306,14 @@ pub fn cast_vote(
             proposal.against_power = proposal.against_power.checked_add(voting_power)?;
             proposal.against_voters.push(info.sender.clone());
         }
+        ProposalVoteOption::Amend => {
+            proposal.amendment_power = proposal.amendment_power.checked_add(voting_power)?;
+            proposal.amendment_voters.push(info.sender.clone());
+        }
+        ProposalVoteOption::Remove => {
+            proposal.removal_power = proposal.removal_power.checked_add(voting_power)?;
+            proposal.removal_voters.push(info.sender.clone());
+        }
     };
 
     PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;
@@ -331,37 +343,60 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
 
     let for_votes = proposal.for_power;
     let against_votes = proposal.against_power;
-    let total_votes = for_votes + against_votes;
+    let amend_votes = proposal.amendment_power;
+    let removal_votes = proposal.removal_power;
+
+    let total_votes = for_votes + against_votes + amend_votes + removal_votes;
 
     let total_voting_power =
         calc_total_voting_power_at(deps.as_ref(), proposal.clone().start_time, config.quadratic_voting)?;
 
     let mut proposal_quorum: Decimal = Decimal::zero();
-    let mut proposal_threshold: Decimal = Decimal::zero();
+    let mut for_threshold: Decimal = Decimal::zero();
+    let mut amend_threshold: Decimal = Decimal::zero();
+    let mut removal_threshold: Decimal = Decimal::zero();
 
     if !total_voting_power.is_zero() {
         proposal_quorum = Decimal::from_ratio(total_votes, total_voting_power);
     }
 
     if !total_votes.is_zero() {
-        proposal_threshold = Decimal::from_ratio(for_votes, total_votes);
+        for_threshold = Decimal::from_ratio(for_votes, total_votes);
+        amend_threshold = Decimal::from_ratio(for_votes + amend_votes, total_votes);
+        removal_threshold = Decimal::from_ratio(removal_votes, total_votes);
 
         //Set config.proposal_required_threshold to 50 if the proposal has no executables
         if proposal.messages.is_none() || proposal.messages.clone().unwrap().is_empty() {
             config.proposal_required_threshold = Decimal::percent(50);
         }
     }
-
+    
+    let mut removed = false;
     // Determine the proposal result
     proposal.status = if proposal_quorum >= config.proposal_required_quorum
-        && proposal_threshold > config.proposal_required_threshold
+        && for_threshold > config.proposal_required_threshold
     {
         ProposalStatus::Passed
+    } //Amend check
+    else if proposal_quorum >= config.proposal_required_quorum
+        && amend_threshold > config.proposal_required_threshold {
+        ProposalStatus::AmendmentDesired
+    } // Removal check
+    else if proposal_quorum >= config.proposal_required_quorum
+        && removal_threshold > config.proposal_required_quorum {
+        //Remove from state
+        PROPOSALS.remove(deps.storage, proposal_id.to_string());
+        removed = true;
+
+        ProposalStatus::Rejected
     } else {
         ProposalStatus::Rejected
     };
 
-    PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;
+    //Update proposal if still in state
+    if !removed {
+        PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;    
+    }
 
     let response = Response::new().add_attributes(vec![
         attr("action", "end_proposal"),
@@ -449,8 +484,10 @@ pub fn remove_completed_proposal(
         proposal.status = ProposalStatus::Expired;
     }
 
-    if proposal.status != ProposalStatus::Expired && proposal.status !=ProposalStatus::Rejected && (proposal.for_power + proposal.against_power) < config.proposal_required_quorum.to_uint_floor() {
-        return Err(ContractError::ProposalNotCompleted {});
+    //Only remove if proposal is expired && rejected
+    //Save past proposals for historical purposes
+    if proposal.status != ProposalStatus::Expired && proposal.status != ProposalStatus::Rejected {
+        return Err(ContractError::CantRemove {});
     }
 
     PROPOSALS.remove(deps.storage, proposal_id.to_string());
@@ -639,7 +676,7 @@ pub fn calc_voting_power(
                 msg: to_binary(&VestingQueryMsg::Allocation { recipient })?,
             }))?;
             
-        total = allocation.amount * config.vesting_voting_power_multiplier;
+        total = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
     } else if vesting {
         //If vesting but recipient isn't passed, use the sender
         let recipient = sender;
@@ -651,7 +688,7 @@ pub fn calc_voting_power(
                 msg: to_binary(&VestingQueryMsg::Allocation { recipient: recipient })?,
             }))?;
 
-        total = allocation.amount * config.vesting_voting_power_multiplier;
+        total = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
     } else {
         total = Uint128::zero();
     }
@@ -738,6 +775,8 @@ pub fn query_proposals(
                 status: proposal.status,
                 for_power: proposal.for_power,
                 against_power: proposal.against_power,
+                amendment_power: proposal.amendment_power,
+                removal_power: proposal.removal_power,
                 start_block: proposal.start_block,
                 start_time: proposal.start_time,
                 end_block: proposal.end_block,
@@ -774,6 +813,8 @@ pub fn query_proposal_voters(
     let voters = match vote_option {
         ProposalVoteOption::For => proposal.for_voters,
         ProposalVoteOption::Against => proposal.against_voters,
+        ProposalVoteOption::Amend => proposal.amendment_voters,
+        ProposalVoteOption::Remove => proposal.removal_voters,
     };
 
     if let Some(specific_user) = specific_user {
@@ -801,5 +842,7 @@ pub fn query_proposal_votes(deps: Deps, proposal_id: u64) -> StdResult<ProposalV
         proposal_id,
         for_power: proposal.for_power,
         against_power: proposal.against_power,
+        amendment_power: proposal.amendment_power,
+        removal_power: proposal.removal_power,
     })
 }

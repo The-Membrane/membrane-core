@@ -863,5 +863,6 @@ pub fn query_proposal_votes(deps: Deps, proposal_id: u64) -> StdResult<ProposalV
         against_power: proposal.against_power,
         amendment_power: proposal.amendment_power,
         removal_power: proposal.removal_power,
+        alignment_power: proposal.aligned_power,
     })
 }

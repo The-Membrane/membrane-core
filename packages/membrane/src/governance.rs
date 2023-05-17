@@ -489,6 +489,8 @@ pub struct ProposalVotesResponse {
     pub amendment_power: Uint128,
     /// Total amount of `remove` votes for a proposal.
     pub removal_power: Uint128,
+    /// Total amount of `align` votes for a proposal.
+    pub alignment_power: Uint128,
 }
 
 /// This structure describes a proposal list response.

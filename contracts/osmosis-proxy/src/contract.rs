@@ -626,7 +626,10 @@ pub fn burn_tokens(
         |token_info| -> Result<TokenInfo, TokenFactoryError> {
             match token_info {
                 Some(mut token_info) => {
+                    //Update token_info
                     token_info.current_supply -= amount;
+                    token_info.burned_supply += amount;
+                    
                     Ok(token_info)
                 }
                 None => {
@@ -708,6 +711,7 @@ fn get_token_info(deps: Deps, denom: String) -> StdResult<TokenInfoResponse> {
         denom,
         current_supply: token_info.current_supply,
         max_supply: token_info.max_supply.unwrap_or_else(Uint128::zero),
+        burned_supply: token_info.burned_supply,
     })
     
 }
@@ -820,6 +824,7 @@ fn handle_create_denom_reply(
                     &TokenInfo {
                         current_supply: Uint128::zero(),
                         max_supply,
+                        burned_supply: Uint128::zero(),
                     },
                 )?;
             } else {

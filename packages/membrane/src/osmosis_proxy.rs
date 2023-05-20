@@ -153,4 +153,6 @@ pub struct TokenInfoResponse {
     pub current_supply: Uint128,
     /// Max supply
     pub max_supply: Uint128,
+    /// Burned supply
+    pub burned_supply: Uint128,
 }

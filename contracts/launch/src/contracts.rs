@@ -621,7 +621,7 @@ pub fn end_of_launch(
                 weight: String::from("50") 
             }
         ],
-        future_pool_governor: addrs.clone().governance.to_string(),
+        future_pool_governor: addrs.clone().osmosis_proxy.to_string(),
     };
     msgs.push(msg.into());
     //Create 3 CDT pools
@@ -643,7 +643,7 @@ pub fn end_of_launch(
                 weight: String::from("50") 
             }
         ],
-        future_pool_governor: addrs.clone().governance.to_string(),
+        future_pool_governor: addrs.clone().osmosis_proxy.to_string(),
     }.into();
     let sub_msg = SubMsg::reply_on_success(msg, BALANCER_POOL_REPLY_ID);
     sub_msgs.push(sub_msg);
@@ -665,7 +665,7 @@ pub fn end_of_launch(
                 weight: String::from("50") 
             }
         ],
-        future_pool_governor: addrs.clone().governance.to_string(),
+        future_pool_governor: addrs.clone().osmosis_proxy.to_string(),
     }.into();
     let sub_msg = SubMsg::reply_on_success(msg, BALANCER_POOL_REPLY_ID);
     sub_msgs.push(sub_msg);
@@ -680,7 +680,9 @@ pub fn end_of_launch(
             Coin { denom: config.clone().credit_denom, amount: "0".to_string() },
             Coin { denom: config.clone().usdc_denom, amount: "0".to_string() },
         ],
-        future_pool_governor: addrs.clone().governance.to_string(),
+        future_pool_governor: addrs.clone().osmosis_proxy.to_string(),
+        scaling_factor_controller: addrs.clone().osmosis_proxy.to_string(),
+        scaling_factors: vec![],
     }.into();
     let sub_msg = SubMsg::reply_on_success(msg, STABLESWAP_REPLY_ID);
     sub_msgs.push(sub_msg);

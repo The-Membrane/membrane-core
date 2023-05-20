@@ -998,7 +998,7 @@ dependencies = [
  "cw2 0.13.4",
  "itertools",
  "membrane",
- "osmosis-std 0.14.0",
+ "osmosis-std 0.15.2",
  "prost 0.11.6",
  "schemars",
  "serde",
@@ -1104,9 +1104,9 @@ dependencies = [
 
 [[package]]
 name = "pyth-sdk-cw"
-version = "1.0.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41d7ee5db1fd3fa7159ab2f586b5e855f6404ec12338324cbc5d1a25abc5a674"
+checksum = "c04e9f2961bce1ef13b09afcdb5aee7d4ddde83669e5f9d2824ba422cb00de48"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",

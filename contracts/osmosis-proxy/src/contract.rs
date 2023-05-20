@@ -13,6 +13,7 @@ use cw2::set_contract_version;
 use membrane::helpers::get_asset_liquidity;
 use membrane::math::{decimal_multiplication, decimal_division};
 use osmosis_std::types::osmosis::gamm::v1beta1::GammQuerier;
+use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
 
 use crate::error::TokenFactoryError;
 use crate::state::{TokenInfo, CONFIG, TOKENS, PENDING, PendingTokenInfo};
@@ -97,6 +98,7 @@ pub fn execute(
             amount,
             burn_from_address,
         } => burn_tokens(deps, env, info, denom, amount, burn_from_address),
+        ExecuteMsg::CreateOsmosisGauge { gauge_msg } => create_gauge(gauge_msg),
         ExecuteMsg::EditTokenMaxSupply { denom, max_supply } => {
             edit_token_max(deps, info, denom, max_supply)
         }
@@ -513,6 +515,14 @@ pub fn mint_tokens(
     }
 
     Ok(res)
+}
+
+/// Create Osmosis Incentive Gauge.
+/// Uses osmosis-std to make it easier for contracts to execute osmosis messages.
+fn create_gauge(
+    gauge_msg: MsgCreateGauge,
+) -> Result<Response, TokenFactoryError>{
+    Ok(Response::new().add_message(gauge_msg))
 }
 
 /// Query's Position Basket collateral supplyCaps and finds the owner's ratio of the total supply

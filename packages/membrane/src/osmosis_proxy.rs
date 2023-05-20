@@ -1,6 +1,8 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Uint128, Addr, Decimal};
 
+use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
+
 use crate::types::Owner;
 
 #[cw_serde]
@@ -41,6 +43,7 @@ pub enum ExecuteMsg {
         /// Burn from address
         burn_from_address: String,
     },
+    CreateOsmosisGauge { gauge_msg: MsgCreateGauge },
     /// Edit the max supply of a denom
     EditTokenMaxSupply {
         /// Native token denom

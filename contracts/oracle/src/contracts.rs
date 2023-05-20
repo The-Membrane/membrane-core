@@ -484,7 +484,8 @@ fn get_asset_price(
         let price_feed_response: PriceFeedResponse = match query_price_feed(
             &querier, 
             config.pyth_osmosis_address.unwrap(),
-            config.osmo_usd_pyth_feed_id){
+            config.osmo_usd_pyth_feed_id
+        ){
                 Ok(res) => res,
                 Err(_) => {
                     usd_price_failed = true;

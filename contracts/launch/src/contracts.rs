@@ -46,6 +46,7 @@ pub const BALANCER_POOL_REPLY_ID: u64 = 15;
 //Constants
 pub const SECONDS_PER_DAY: u64 = 86_400u64;
 
+#[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
     env: Env,

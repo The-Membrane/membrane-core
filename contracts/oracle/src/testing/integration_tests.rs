@@ -507,7 +507,7 @@ mod tests {
 
         #[test]
         fn scaling_test() {
-            let mut quote_price = Decimal::zero();
+            let quote_price;
             let price = 78574968;
             let expo: i32 = -6;
             //Scale price using given exponent

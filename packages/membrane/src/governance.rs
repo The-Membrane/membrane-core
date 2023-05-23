@@ -5,13 +5,16 @@ use std::ops::RangeInclusive;
 
 use self::helpers::is_safe_link;
 
+//Osmosis Constants
+pub const BLOCKS_PER_DAY: u64 = 2400; //6 sec blocks
+
 pub const MINIMUM_PROPOSAL_REQUIRED_THRESHOLD_PERCENTAGE: u64 = 51;
 pub const MAX_PROPOSAL_REQUIRED_THRESHOLD_PERCENTAGE: u64 = 100;
 pub const MAX_PROPOSAL_REQUIRED_QUORUM_PERCENTAGE: u64 = 100;
 pub const MINIMUM_PROPOSAL_REQUIRED_QUORUM_PERCENTAGE: u64 = 33;
-pub const VOTING_PERIOD_INTERVAL: RangeInclusive<u64> = 14400..=14 * 14400; //1 to 14 days in blocks (6 seconds per block)
-pub const DELAY_INTERVAL: RangeInclusive<u64> = 0..=14400; // from 0 to 1 day in blocks (6 seconds per block)
-pub const EXPIRATION_PERIOD_INTERVAL: RangeInclusive<u64> = 14400..=100800; //1 to 14 days in blocks (6 seconds per block)
+pub const VOTING_PERIOD_INTERVAL: RangeInclusive<u64> = BLOCKS_PER_DAY..=14 * BLOCKS_PER_DAY; //1 to 14 days in blocks (6 seconds per block)
+pub const DELAY_INTERVAL: RangeInclusive<u64> = 0..=BLOCKS_PER_DAY; // from 0 to 1 day in blocks (6 seconds per block)
+pub const EXPIRATION_PERIOD_INTERVAL: RangeInclusive<u64> = BLOCKS_PER_DAY..=14 * BLOCKS_PER_DAY; //1 to 14 days in blocks (6 seconds per block)
 pub const STAKE_INTERVAL: RangeInclusive<u128> = 1000000000..=5000000000; // from 1000 to 5000 $MBRN
 
 /// Proposal validation attributes

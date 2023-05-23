@@ -60,6 +60,7 @@ mod tests {
                             denom,
                             current_supply: Uint128::new(110_000u128),
                             max_supply: Uint128::zero(),
+                            burned_supply: Uint128::zero(),
                         })?)
                     }
                 }

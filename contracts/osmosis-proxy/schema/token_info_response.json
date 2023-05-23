@@ -3,11 +3,20 @@
   "title": "TokenInfoResponse",
   "type": "object",
   "required": [
+    "burned_supply",
     "current_supply",
     "denom",
     "max_supply"
   ],
   "properties": {
+    "burned_supply": {
+      "description": "Burned supply",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Uint128"
+        }
+      ]
+    },
     "current_supply": {
       "description": "Current supply",
       "allOf": [

@@ -25,8 +25,8 @@ mod tests {
     const ADMIN: &str = "admin";
 
     const PROPOSAL_VOTING_PERIOD: u64 = *VOTING_PERIOD_INTERVAL.start();
-    const PROPOSAL_EFFECTIVE_DELAY: u64 = 14399;
-    const PROPOSAL_EXPIRATION_PERIOD: u64 = 100799;
+    const PROPOSAL_EFFECTIVE_DELAY: u64 = 2399;
+    const PROPOSAL_EXPIRATION_PERIOD: u64 = 2399*14;
     const PROPOSAL_REQUIRED_STAKE: u128 = *STAKE_INTERVAL.start();
     const PROPOSAL_REQUIRED_QUORUM: &str = "0.50";
     const PROPOSAL_REQUIRED_THRESHOLD: &str = "0.60";
@@ -180,7 +180,7 @@ mod tests {
                 match msg {
                     Vesting_MockQueryMsg::Allocation { recipient } => {
                         Ok(to_binary(&AllocationResponse {
-                            amount: Uint128::new(10000000000000000000000),
+                            amount: Uint128::new(1000000000_000000),
                             amount_withdrawn: Uint128::zero(),
                             start_time_of_allocation: 0,
                             vesting_period: VestingPeriod {
@@ -866,12 +866,11 @@ mod tests {
             assert_eq!(res.proposal_list.len(), 1);
             assert_eq!(res.proposal_count, Uint64::from(1u32));
 
-            // Remove expired proposal
             app.update_block(|bi| {
                 bi.height += PROPOSAL_EXPIRATION_PERIOD + 1;
                 bi.time = bi.time.plus_seconds(6 * (PROPOSAL_EXPIRATION_PERIOD + 1));
             });
-
+            // Remove expired proposal
             app.execute_contract(
                 Addr::unchecked("user0"),
                 gov_contract.addr(),

@@ -1,5 +1,5 @@
 [package]
-name = "discounts"
+name = "system_discounts"
 version = "0.1.0"
 authors = ["Membrane Devs"]
 edition = "2018"

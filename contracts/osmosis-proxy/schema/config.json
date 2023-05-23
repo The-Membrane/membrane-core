@@ -28,6 +28,28 @@
         }
       ]
     },
+    "liquidity_multiplier": {
+      "description": "Liquidity multiplier for CDT mint caps. Ex: 5 = debt cap at 5x liquidity",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Decimal"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "oracle_contract": {
+      "description": "Oracle contract address",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Addr"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "owners": {
       "description": "List of owners",
       "type": "array",
@@ -36,7 +58,7 @@
       }
     },
     "positions_contract": {
-      "description": "Positions contract address",
+      "description": "Positions contract address, used to source a canonical debt token denom",
       "anyOf": [
         {
           "$ref": "#/definitions/Addr"
@@ -61,21 +83,15 @@
       "description": "Osmosis Proxy",
       "type": "object",
       "required": [
+        "is_position_contract",
         "non_token_contract_auth",
         "owner",
         "total_minted"
       ],
       "properties": {
-        "liquidity_multiplier": {
-          "description": "Liquidity multiplier for CDT mint caps",
-          "anyOf": [
-            {
-              "$ref": "#/definitions/Decimal"
-            },
-            {
-              "type": "null"
-            }
-          ]
+        "is_position_contract": {
+          "description": "Is a position's contract?",
+          "type": "boolean"
         },
         "non_token_contract_auth": {
           "description": "Authority over non-token contract messages",

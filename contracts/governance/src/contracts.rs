@@ -12,14 +12,13 @@ use membrane::governance::helpers::validate_links;
 use membrane::governance::{
     Config, ExecuteMsg, InstantiateMsg, Proposal, ProposalListResponse, ProposalMessage,
     ProposalResponse, ProposalStatus, ProposalVoteOption, ProposalVotesResponse, QueryMsg,
-    UpdateConfig,
+    UpdateConfig, BLOCKS_PER_DAY
 };
 use membrane::staking::{
     Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse,
 };
 
 use std::str::FromStr;
-use num::integer::Roots;
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, PROPOSALS, PROPOSAL_COUNT, PENDING_PROPOSALS};
@@ -33,6 +32,7 @@ const DEFAULT_LIMIT: u32 = 10;
 const MAX_LIMIT: u32 = 30;
 const DEFAULT_VOTERS_LIMIT: u32 = 100;
 const MAX_VOTERS_LIMIT: u32 = 250;
+
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -185,8 +185,8 @@ pub fn submit_proposal(
     let end_block: u64 = {
         if expedited {
             env.block.height + config.expedited_proposal_voting_period
-        } else if messages.is_some() && config.proposal_voting_period <  (7 * 14400){ //Proposals with executables have to be at least 7 days
-            env.block.height + (7 * 14400)
+        } else if messages.is_some() && config.proposal_voting_period <  (7 * BLOCKS_PER_DAY){ //Proposals with executables have to be at least 7 days
+            env.block.height + (7 * BLOCKS_PER_DAY)
         } else {
             env.block.height + config.proposal_voting_period
         }
@@ -296,14 +296,28 @@ pub fn cast_vote(
         return Err(ContractError::UserAlreadyVoted {});
     }
 
-    let voting_power = calc_voting_power(
-        deps.as_ref(),
-        info.sender.to_string(),
-        proposal.clone().start_time,
-        vesting,
-        recipient.clone(),
-        config.quadratic_voting,
-    )?;
+    let voting_power: Uint128 = {
+        if let ProposalVoteOption::Align = vote_option {
+            //Proposal alignment votes are not quadratic
+            calc_voting_power(
+                deps.as_ref(),
+                info.sender.to_string(),
+                proposal.clone().start_time,
+                vesting,
+                recipient.clone(),
+                false,
+            )?
+        } else {
+            calc_voting_power(
+                deps.as_ref(),
+                info.sender.to_string(),
+                proposal.clone().start_time,
+                vesting,
+                recipient.clone(),
+                config.quadratic_voting,
+            )?
+        }
+    };
 
     if voting_power.is_zero() {
         return Err(ContractError::NoVotingPower {});
@@ -543,13 +557,14 @@ pub fn remove_completed_proposal(
         }
     }
 
-    //If proposal is expired && rejected, remove
-    if proposal.status == ProposalStatus::Expired && proposal.status == ProposalStatus::Rejected{
-        PROPOSALS.remove(deps.storage, proposal_id.to_string());
-    } //If pending proposal is expired, remove
-     else if proposal.status == ProposalStatus::Expired && !aligned{
+    //If pending proposal is expired, remove
+    if proposal.status == ProposalStatus::Expired && !aligned{
         PENDING_PROPOSALS.remove(deps.storage, proposal_id.to_string());    
-    } else {
+    }
+    //If proposal is expired or rejected, remove
+    else if proposal.status == ProposalStatus::Expired || proposal.status == ProposalStatus::Rejected{
+        PROPOSALS.remove(deps.storage, proposal_id.to_string());
+    }  else {
         return Err(ContractError::CantRemove {});
     }
     
@@ -665,8 +680,7 @@ pub fn calc_total_voting_power_at(deps: Deps, start_time: u64, quadratic_voting:
             .map(|stake| {
                 // Take square root of total stake if quadratic voting is enabled
                 if quadratic_voting {
-                    let stake_total_root = (stake.amount.u128()).sqrt();
-                    let stake_total = Uint128::from(stake_total_root);
+                    let stake_total = Decimal::from_ratio(stake.amount, Uint128::one()).sqrt().to_uint_floor();
                     
                     stake_total
                 } else {
@@ -757,8 +771,7 @@ pub fn calc_voting_power(
     
     // Take square root of total stake if quadratic voting is enabled
     if quadratic_voting {
-        let total_root = (total.u128()).sqrt();
-        total = Uint128::from(total_root);
+        total = Decimal::from_ratio(total, Uint128::one()).sqrt().to_uint_floor();
     }    
     
     Ok(total)

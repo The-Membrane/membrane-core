@@ -775,6 +775,7 @@ mod tests {
                             denom,
                             current_supply: Uint128::new(200_000u128),
                             max_supply: Uint128::new(1_000_000_000_000_000u128),
+                            burned_supply: Uint128::zero(),
                         })?)
                     },
                     Osmo_MockQueryMsg::GetOwner { owner } => {
@@ -863,6 +864,7 @@ mod tests {
                             denom,
                             current_supply: Uint128::new(200_000u128),
                             max_supply: Uint128::new(1_000_000_000_000_000u128),
+                            burned_supply: Uint128::zero(),
                         })?)
                     },
                     Osmo_MockQueryMsg::GetOwner { owner } => {

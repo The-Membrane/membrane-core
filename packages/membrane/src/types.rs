@@ -723,6 +723,13 @@ impl AssetInfo {
             }
         }
     }
+
+    pub fn into_apollo_cw_asset(&self) -> apollo_cw_asset::AssetInfoBase<String> {
+        match self {
+            AssetInfo::Token { address } => apollo_cw_asset::AssetInfoBase::Cw20(address.to_string()),
+            AssetInfo::NativeToken { denom } => apollo_cw_asset::AssetInfoBase::Native(denom.to_string()),
+        }
+    }
 }
 
 pub fn equal(assets_1: &Vec<AssetInfo>, assets_2: &Vec<AssetInfo>) -> bool {

@@ -37,6 +37,7 @@ use crate::{
 
 pub const WITHDRAW_REPLY_ID: u64 = 4u64;
 pub const CLOSE_POSITION_REPLY_ID: u64 = 5u64;
+pub const ROUTER_REPLY_ID: u64 = 6u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 //Constants
@@ -1525,16 +1526,12 @@ pub fn close_position(
             
             //Create Router SubMsgs for each pool_asset
             for (i, pool_asset) in pool_info.asset_infos.into_iter().enumerate(){                
-                let router_msg = create_router_msg_to_buy_credit_and_repay(
-                    env.contract.address.to_string(), 
+                let router_msg = router_native_to_native(
                     config.clone().dex_router.unwrap().to_string(), 
-                    basket.clone().credit_asset.info, 
                     pool_asset.clone().info, 
-                    Uint128::from_str(&share_asset_amounts[i].clone().amount).unwrap(), 
-                    position_id, 
-                    info.clone().sender, 
-                    Some(max_spread), 
-                    send_to.clone()
+                    basket.clone().credit_asset.info, 
+                    None,
+                    Uint128::from_str(&share_asset_amounts[i].clone().amount).unwrap().u128(), 
                 )?;
 
                 let router_sub_msg = SubMsg::reply_on_success(router_msg, CLOSE_POSITION_REPLY_ID);
@@ -1542,16 +1539,12 @@ pub fn close_position(
             }                  
         } else {        
             //Create router subMsg to sell and repay, reply on success
-            let router_msg: CosmosMsg = create_router_msg_to_buy_credit_and_repay(
-                env.clone().contract.address.to_string(), 
+            let router_msg: CosmosMsg = router_native_to_native(
                 config.clone().dex_router.unwrap().to_string(), 
-                basket.clone().credit_asset.info, 
                 collateral_asset.clone().info, 
-                collateral_amount_to_sell, 
-                position_id, 
-                info.clone().sender, 
-                Some(max_spread), 
-                send_to.clone()
+                basket.clone().credit_asset.info, 
+                None,                 
+                collateral_amount_to_sell.into(),
             )?;
 
             let router_sub_msg = SubMsg::reply_on_success(router_msg, CLOSE_POSITION_REPLY_ID);
@@ -1580,35 +1573,6 @@ pub fn close_position(
         attr("position_id", position_id),
         attr("user", info.sender),
     ])) //If the sale incurred slippage and couldn't repay through the debt minimum, the subsequent withdraw msg will error and revert state 
-}
-
-/// Create Router Msg to buy basket.credit_asset w/ a native token and repay
-fn create_router_msg_to_buy_credit_and_repay(
-    positions_contract: String,
-    apollo_router_addr: String,
-    credit_asset: AssetInfo, //Credit asset
-    asset_to_sell: AssetInfo, 
-    amount_to_sell: Uint128,
-    position_id: Uint128,
-    position_owner: Addr,
-    max_spread: Option<Decimal>,
-    send_excess_to: Option<String>,
-) -> StdResult<CosmosMsg>{
-    let hook_msg = Some(to_binary(&ExecuteMsg::Repay {
-        position_id,
-        position_owner: Some(position_owner.to_string()),
-        send_excess_to,
-    })?);
-
-    router_native_to_native(
-        apollo_router_addr, 
-        asset_to_sell, 
-        credit_asset, 
-        max_spread, 
-        Some(positions_contract), //Repay credit to positions contract, 
-        hook_msg, 
-        amount_to_sell.into()
-    )
 }
 
 /// Create the contract's Basket.

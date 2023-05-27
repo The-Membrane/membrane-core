@@ -1,8 +1,10 @@
-use cosmwasm_std::{CosmosMsg, StdResult, Decimal, Binary, to_binary, WasmMsg, coin, StdError, Addr, Coin, BankMsg, Uint128, MessageInfo, Api, QuerierWrapper, Env, WasmQuery, QueryRequest};
+use cosmwasm_std::{CosmosMsg, StdResult, Decimal, to_binary, WasmMsg, coin, StdError, Addr, Coin, BankMsg, Uint128, MessageInfo, Api, QuerierWrapper, Env, WasmQuery, QueryRequest};
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
+use apollo_cw_asset::AssetInfoUnchecked;
+use cw_dex_router::msg::ExecuteMsg as RouterExecuteMsg;
+
 use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool}; 
-use crate::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use crate::osmosis_proxy::{QueryMsg as OsmoQueryMsg, OwnerResponse};
 use crate::liquidity_check::QueryMsg as LiquidityQueryMsg;
 use crate::stability_pool::QueryMsg as SP_QueryMsg;
@@ -83,19 +85,20 @@ pub fn router_native_to_native(
     router_addr: String,
     asset_to_sell: AssetInfo,
     asset_to_buy: AssetInfo,
-    max_spread: Option<Decimal>,
     recipient: Option<String>,
-    hook_msg: Option<Binary>,
     amount_to_sell: u128,
 ) -> StdResult<CosmosMsg>{
     if let AssetInfo::NativeToken { denom } = asset_to_sell {
         if let AssetInfo::NativeToken { denom:_ } = asset_to_buy {
 
-            let router_msg = RouterExecuteMsg::Swap {
-                to: SwapToAssetsInput::Single(asset_to_buy), //Buy
-                max_spread, 
-                recipient,
-                hook_msg,
+            let router_msg = RouterExecuteMsg::BasketLiquidate { 
+                offer_assets: vec![apollo_cw_asset::AssetUnchecked {
+                    info: AssetInfoUnchecked::Native(denom.clone()),
+                    amount: Uint128::new(amount_to_sell),
+                }].into(),
+                receive_asset: asset_to_buy.into_apollo_cw_asset(), 
+                minimum_receive: None, 
+                to: recipient 
             };
     
             let payment = coin(

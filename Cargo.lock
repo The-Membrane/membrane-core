@@ -20,6 +20,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "224afbd727c3d6e4b90103ece64b8d1b67fbb1973b1046c2281eed3f3803f800"
 
 [[package]]
+name = "apollo-cw-asset"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90fdd3af3b24bd7343c2b74b2bbe66ff53cc52327342e26ed207b3150f324c4a"
+dependencies = [
+ "cosmwasm-std",
+ "cw-storage-plus 1.0.1",
+ "cw20",
+ "schemars",
+ "serde",
+]
+
+[[package]]
+name = "apollo-utils"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b05ef4d29df7a8d2459008f09ba1c9f1f0aa7ac1bdfaa510029c0cf6921c2c2"
+dependencies = [
+ "apollo-cw-asset",
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cw20",
+]
+
+[[package]]
 name = "auction"
 version = "0.1.0"
 dependencies = [
@@ -148,7 +173,7 @@ dependencies = [
  "cw2 0.13.4",
  "membrane",
  "osmo-bindings",
- "osmosis-std",
+ "osmosis-std 0.15.2",
  "schemars",
  "serde",
  "thiserror",
@@ -315,6 +340,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "cw-controllers"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91440ce8ec4f0642798bc8c8cb6b9b53c1926c6dadaf0eed267a5145cd529071"
+dependencies = [
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cw-storage-plus 1.0.1",
+ "cw-utils 1.0.1",
+ "schemars",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "cw-dex"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77c4c002da51161e832615de09aa796e6915507418a7e4658204cd6c91ce89e7"
+dependencies = [
+ "apollo-cw-asset",
+ "apollo-utils",
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cw-storage-plus 1.0.1",
+ "cw-utils 1.0.1",
+ "cw20",
+ "osmosis-std 0.14.0",
+ "thiserror",
+]
+
+[[package]]
+name = "cw-dex-router"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81c676d4d069b16a4d3dd397319d57fcdb9ae2f6db1e6a63329e547c48bffe34"
+dependencies = [
+ "apollo-cw-asset",
+ "apollo-utils",
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cw-controllers",
+ "cw-dex",
+ "cw-storage-plus 1.0.1",
+ "cw2 1.0.1",
+ "cw20",
+ "thiserror",
+]
+
+[[package]]
 name = "cw-multi-test"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -375,6 +450,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cw-storage-plus"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "053a5083c258acd68386734f428a5a171b29f7d733151ae83090c6fcc9417ffa"
+dependencies = [
+ "cosmwasm-std",
+ "schemars",
+ "serde",
+]
+
+[[package]]
 name = "cw-utils"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -401,6 +487,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cw-utils"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c80e93d1deccb8588db03945016a292c3c631e6325d349ebb35d2db6f4f946f7"
+dependencies = [
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cw2 1.0.1",
+ "schemars",
+ "semver",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "cw2"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -420,6 +521,32 @@ checksum = "aa74c324af8e3506fd8d50759a265bead3f87402e413c840042af5d2808463d6"
 dependencies = [
  "cosmwasm-std",
  "cw-storage-plus 0.14.0",
+ "schemars",
+ "serde",
+]
+
+[[package]]
+name = "cw2"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8fb70cee2cf0b4a8ff7253e6bc6647107905e8eb37208f87d54f67810faa62f8"
+dependencies = [
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cw-storage-plus 1.0.1",
+ "schemars",
+ "serde",
+]
+
+[[package]]
+name = "cw20"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91666da6c7b40c8dd5ff94df655a28114efc10c79b70b4d06f13c31e37d60609"
+dependencies = [
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cw-utils 1.0.1",
  "schemars",
  "serde",
 ]
@@ -476,7 +603,7 @@ dependencies = [
  "cw-storage-plus 0.13.4",
  "cw2 0.13.4",
  "membrane",
- "osmosis-std",
+ "osmosis-std 0.15.2",
  "schemars",
  "serde",
  "thiserror",
@@ -683,7 +810,7 @@ dependencies = [
  "cw-storage-plus 0.13.4",
  "cw2 0.13.4",
  "membrane",
- "osmosis-std",
+ "osmosis-std 0.15.2",
  "schemars",
  "serde",
  "thiserror",
@@ -752,13 +879,16 @@ dependencies = [
 name = "membrane"
 version = "0.1.0"
 dependencies = [
+ "apollo-cw-asset",
  "cosmwasm-schema",
  "cosmwasm-std",
  "cosmwasm-storage",
  "cw-coins",
+ "cw-dex",
+ "cw-dex-router",
  "cw-storage-plus 0.13.4",
  "cw2 0.13.4",
- "osmosis-std",
+ "osmosis-std 0.15.2",
  "prost 0.11.6",
  "prost-types",
  "pyth-sdk-cw",
@@ -867,7 +997,7 @@ dependencies = [
  "cw-storage-plus 0.13.4",
  "cw2 0.13.4",
  "membrane",
- "osmosis-std",
+ "osmosis-std 0.15.2",
  "pyth-sdk-cw",
  "schemars",
  "serde",
@@ -888,18 +1018,46 @@ dependencies = [
 
 [[package]]
 name = "osmosis-std"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fc0a9075efd64ed5a8be3bf134cbf1080570d68384f2ad58ffaac6c00d063fd"
+dependencies = [
+ "chrono",
+ "cosmwasm-std",
+ "osmosis-std-derive 0.13.2",
+ "prost 0.11.6",
+ "prost-types",
+ "schemars",
+ "serde",
+ "serde-cw-value",
+]
+
+[[package]]
+name = "osmosis-std"
 version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a10a056b61279b3529aeaa623b0a4b37b39b4b7061e833ff963fb4bc614d5e13"
 dependencies = [
  "chrono",
  "cosmwasm-std",
- "osmosis-std-derive",
+ "osmosis-std-derive 0.15.2",
  "prost 0.11.6",
  "prost-types",
  "schemars",
  "serde",
  "serde-cw-value",
+]
+
+[[package]]
+name = "osmosis-std-derive"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a455e262a6fdfd3914f3a4e11e6bc0ce491901cb9d507d7856d7ef6e129e90c6"
+dependencies = [
+ "itertools",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -927,7 +1085,7 @@ dependencies = [
  "cw2 0.13.4",
  "itertools",
  "membrane",
- "osmosis-std",
+ "osmosis-std 0.15.2",
  "prost 0.11.6",
  "schemars",
  "serde",

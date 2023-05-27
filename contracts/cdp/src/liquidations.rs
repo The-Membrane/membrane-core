@@ -13,9 +13,9 @@ use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, Pool
 
 use crate::error::ContractError; 
 use crate::rates::accrue;
-use crate::positions::BAD_DEBT_REPLY_ID;
+use crate::positions::{BAD_DEBT_REPLY_ID, ROUTER_REPLY_ID};
 use crate::query::{insolvency_check, get_avg_LTV, get_cAsset_ratios};
-use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation, get_target_position, update_position, update_position_claims};
+use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation, get_target_position, update_position, update_position_claims, ROUTER_REPAY_MSG};
 
 
 //Liquidation reply ids
@@ -229,7 +229,7 @@ pub fn liquidate(
 
         Ok(res
             .add_messages(lp_withdraw_msgs)
-            .add_messages(sell_wall_msgs)
+            .add_submessages(sell_wall_msgs)
             .add_messages(caller_fee_messages)
             .add_message(protocol_fee_msg)
             .add_submessages(submessages)
@@ -244,7 +244,7 @@ pub fn liquidate(
 
         Ok(res
             .add_messages(lp_withdraw_messages)
-            .add_messages(sell_wall_messages)
+            .add_submessages(sell_wall_messages)
             .add_messages(caller_fee_messages)
             .add_message(protocol_fee_msg)
             .add_submessages(submessages)
@@ -583,7 +583,7 @@ fn build_sp_sw_submsgs(
     submessages: &mut Vec<SubMsg>,
     per_asset_repayment: Vec<Decimal>,
     user_repay_amount: Decimal,
-) -> Result<(Decimal, Vec<CosmosMsg>,  Vec<CosmosMsg>), ContractError>{
+) -> Result<(Decimal, Vec<CosmosMsg>,  Vec<SubMsg>), ContractError>{
     
     let sell_wall_repayment_amount: Decimal;
     let mut lp_withdraw_messages = vec![];
@@ -795,7 +795,7 @@ pub fn sell_wall_using_ids(
     position_id: Uint128,
     position_owner: Addr,
     repay_amount: Decimal,
-) -> StdResult<(Vec<CosmosMsg>, Vec<CosmosMsg>)> {
+) -> StdResult<(Vec<SubMsg>, Vec<CosmosMsg>)> {
     let basket: Basket = BASKET.load(storage)?;
 
     let (_i, target_position) = match get_target_position(storage, position_owner.clone(), position_id){
@@ -836,7 +836,7 @@ pub fn sell_wall(
     //For Repay msg
     position_id: Uint128,
     position_owner: String,
-) -> Result<(Vec<CosmosMsg>, Vec<CosmosMsg>), ContractError> {
+) -> Result<(Vec<SubMsg>, Vec<CosmosMsg>), ContractError> {
     //Load Config
     let config: Config = CONFIG.load(storage)?;   
 
@@ -921,20 +921,36 @@ pub fn sell_wall(
         let collateral_repay_value = decimal_multiplication(repay_value, ratio)?;
         let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?;                
 
-        let hook_msg = Some(to_binary(&ExecuteMsg::Repay {
+        let hook_msg = to_binary(&ExecuteMsg::Repay {
             position_id,
             position_owner: Some(position_owner.clone()),
             send_excess_to: Some(position_owner.clone()),
-        })?);
+        })?;
 
-        messages.push(router_native_to_native(
+        //Save Repay msg to be executed in the reply
+        match ROUTER_REPAY_MSG.load(storage){
+            Ok(mut list_of_binaries) => {
+                //Add binary to list & Save
+                list_of_binaries.push(hook_msg.clone());
+                ROUTER_REPAY_MSG.save(storage, &list_of_binaries)?;
+            },
+            Err(_err) => {
+                //Create new list & Save
+                let list_of_binaries = vec![hook_msg.clone()];
+                ROUTER_REPAY_MSG.save(storage, &list_of_binaries)?;
+            }
+        }
+
+        //Create router reply msg to repay debt after sales
+        let router_msg = router_native_to_native(
             config.clone().dex_router.unwrap().into(), 
             collateral_assets[index].clone().asset.info, 
             basket.clone().credit_asset.info, 
             None, 
-            None, 
-            hook_msg, 
-            (collateral_repay_amount * Uint128::new(1u128)).into())?);        
+            (collateral_repay_amount * Uint128::new(1u128)).into()
+        )?;
+        let sub_msg = SubMsg::reply_on_success(router_msg, ROUTER_REPLY_ID);
+        messages.push(sub_msg);        
     }
 
     Ok((messages, lp_withdraw_messages))

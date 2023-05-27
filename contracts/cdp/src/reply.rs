@@ -1,15 +1,59 @@
 use std::str::FromStr;
 
-use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, Api, CosmosMsg, Storage, QuerierWrapper};
+use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, Api, CosmosMsg, Storage, QuerierWrapper, Binary};
 
-use membrane::types::{AssetInfo, Asset};
+use membrane::types::{AssetInfo, Asset, Basket};
 use membrane::stability_pool::{ExecuteMsg as SP_ExecuteMsg};
 use membrane::cdp::{Config, ExecuteMsg};
 use membrane::math::decimal_subtraction;
-use membrane::helpers::{withdrawal_msg, get_contract_balances};
+use membrane::helpers::{withdrawal_msg, get_contract_balances, asset_to_coin};
 
-use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, CONFIG, BASKET, CLOSE_POSITION, ClosePositionPropagation, get_target_position, update_position_claims};
+use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, CONFIG, BASKET, CLOSE_POSITION, ClosePositionPropagation, get_target_position, update_position_claims, ROUTER_REPAY_MSG};
 use crate::liquidations::{query_stability_pool_liquidatible, STABILITY_POOL_REPLY_ID, sell_wall_using_ids};
+
+/// After a successful router swap, use the returned asset to repay the position's debt
+pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => {
+            //Load Basket
+            let basket: Basket = BASKET.load(deps.storage)?;
+            
+            //Query contract balance of the basket credit_asset
+            let credit_asset_balance = get_contract_balances(
+                deps.querier, 
+                env.clone(), 
+                vec![basket.credit_asset.info.clone()]
+            )?[0];
+
+            //Load repay msg binary from storage
+            let mut hook_msgs: Vec<Binary> = ROUTER_REPAY_MSG.load(deps.storage)?;
+            let hook_msg = hook_msgs[0].clone();
+
+            //Update hook_msgs to remove the first element
+            hook_msgs.remove(0);
+            ROUTER_REPAY_MSG.save(deps.storage, &hook_msgs)?;
+
+            //Create repay_msg with queried funds
+            //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted
+            let repay_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: env.contract.address.to_string(), 
+                msg: hook_msg, 
+                funds: vec![asset_to_coin(
+                    Asset { 
+                        info: basket.credit_asset.info.clone(),
+                        amount: credit_asset_balance.clone(),
+                    })?]
+            });
+
+            Ok(Response::new().add_message(repay_msg).add_attribute("amount_repaid", credit_asset_balance))
+        },
+        
+        Err(err) => {
+            //Its reply on success only
+            Ok(Response::new().add_attribute("error", err))
+        }
+    }    
+}
 
 /// On success, update position claims & attempt to withdraw leftover using a WithdrawMsg
 pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
@@ -88,7 +132,7 @@ pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
         Err(string) => {
             //If error, do nothing if the SP was used
             //The SP reply will handle the sell wall
-            let submessages: Vec<SubMsg> = vec![];
+            let mut submessages: Vec<SubMsg> = vec![];
             let mut messages = vec![];
             let mut repay_amount = Decimal::zero();
             let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
@@ -107,7 +151,7 @@ pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
                     &mut prop, 
                     repay_amount)?;
                 messages.extend(lp_withdraw_msgs);
-                messages.extend(sell_wall_msgs);
+                submessages.extend(sell_wall_msgs);
 
             } else {                    
                 //Since Error && SP was used (ie there will be a reply later in the execution)...
@@ -273,7 +317,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     &mut liquidation_propagation, 
                     repay_amount)?;
                 messages.extend(lp_withdraw_msgs);
-                messages.extend(sell_wall_msgs);
+                submessages.extend(sell_wall_msgs);
 
                 //Save to propagate
                 LIQUIDATION.save(deps.storage, &liquidation_propagation)?;
@@ -306,7 +350,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                         &mut liquidation_propagation, 
                         leftover_repayment)?;
                     messages.extend(lp_withdraw_msgs);
-                    messages.extend(sell_wall_msgs);
+                    submessages.extend(sell_wall_msgs);
 
                     LIQUIDATION.save(deps.storage, &liquidation_propagation)?;                   
                 }
@@ -384,7 +428,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
 
             Ok(Response::new()
                 .add_messages(lp_withdraw_msgs)
-                .add_messages(sell_wall_msgs)
+                .add_submessages(sell_wall_msgs)
                 .add_attributes(attrs))
         }
     }
@@ -518,7 +562,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 
                 return Ok(Response::new()
                     .add_messages(lp_withdraw_msgs)
-                    .add_messages(sell_wall_msgs)
+                    .add_submessages(sell_wall_msgs)
                     .add_attribute("error", string)
                     .add_attribute("sent_to_sell_wall", repay_amount.to_string()))
                
@@ -542,7 +586,7 @@ pub fn sell_wall_in_reply(
     querier: QuerierWrapper,
     prop: &mut LiquidationPropagation,
     repay_amount: Decimal,
-) -> StdResult<(Vec<CosmosMsg>, Vec<CosmosMsg>)>{
+) -> StdResult<(Vec<CosmosMsg>, Vec<SubMsg>)>{
     
     //Sell wall asset's repayment amount
     let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall_using_ids(

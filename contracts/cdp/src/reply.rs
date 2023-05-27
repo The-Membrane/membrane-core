@@ -1,4 +1,3 @@
-use core::panic;
 use std::str::FromStr;
 
 use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, Api, CosmosMsg, Storage, QuerierWrapper, Binary};
@@ -27,12 +26,7 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
             )?[0];
 
             //Load repay msg binary from storage
-            let mut hook_msgs: Vec<Binary> = ROUTER_REPAY_MSG.load(deps.storage)?;
-            let hook_msg = hook_msgs[0].clone();
-
-            //Update hook_msgs to remove the first element
-            hook_msgs.remove(0);
-            ROUTER_REPAY_MSG.save(deps.storage, &hook_msgs)?;
+            let hook_msg: Binary = ROUTER_REPAY_MSG.load(deps.storage)?;
 
             //Create repay_msg with queried funds
             //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted

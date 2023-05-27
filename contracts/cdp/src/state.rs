@@ -52,7 +52,7 @@ pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
 pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");
 pub const LIQUIDATION: Item<LiquidationPropagation> = Item::new("repay_propagation");
 pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");
-pub const ROUTER_REPAY_MSG: Item<Vec<Binary>> = Item::new("router_repay_msg");
+pub const ROUTER_REPAY_MSG: Item<Binary> = Item::new("router_repay_msg");
 
 
 //Helper functions

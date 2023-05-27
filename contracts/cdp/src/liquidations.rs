@@ -840,7 +840,7 @@ pub fn sell_wall(
     //Load Config
     let config: Config = CONFIG.load(storage)?;   
 
-    let mut messages = vec![];
+    let mut router_messages = vec![];
     let mut lp_withdraw_messages = vec![];
     let position_owner_addr = api.addr_validate(&position_owner)?;
 
@@ -928,18 +928,7 @@ pub fn sell_wall(
         })?;
 
         //Save Repay msg to be executed in the reply
-        match ROUTER_REPAY_MSG.load(storage){
-            Ok(mut list_of_binaries) => {
-                //Add binary to list & Save
-                list_of_binaries.push(hook_msg.clone());
-                ROUTER_REPAY_MSG.save(storage, &list_of_binaries)?;
-            },
-            Err(_err) => {
-                //Create new list & Save
-                let list_of_binaries = vec![hook_msg.clone()];
-                ROUTER_REPAY_MSG.save(storage, &list_of_binaries)?;
-            }
-        }
+        ROUTER_REPAY_MSG.save(storage, &hook_msg)?;
 
         //Create router reply msg to repay debt after sales
         let router_msg = router_native_to_native(
@@ -949,11 +938,15 @@ pub fn sell_wall(
             None, 
             (collateral_repay_amount * Uint128::new(1u128)).into()
         )?;
-        let sub_msg = SubMsg::reply_on_success(router_msg, ROUTER_REPLY_ID);
-        messages.push(sub_msg);        
+        let router_msg = SubMsg::new(router_msg);
+        router_messages.push(router_msg);        
     }
 
-    Ok((messages, lp_withdraw_messages))
+    //The last router message is updated to a ROUTER_REPLY_ID to repay the position after all sales are done.
+    let index = router_messages.clone().len()-1;
+    router_messages[index].id = ROUTER_REPLY_ID;
+    
+    Ok((router_messages, lp_withdraw_messages))
 }
 
 /// Returns leftover liquidatible amount from the stability pool

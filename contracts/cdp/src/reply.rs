@@ -1,3 +1,4 @@
+use core::panic;
 use std::str::FromStr;
 
 use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, Api, CosmosMsg, Storage, QuerierWrapper, Binary};
@@ -11,7 +12,7 @@ use membrane::helpers::{withdrawal_msg, get_contract_balances, asset_to_coin};
 use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, CONFIG, BASKET, CLOSE_POSITION, ClosePositionPropagation, get_target_position, update_position_claims, ROUTER_REPAY_MSG};
 use crate::liquidations::{query_stability_pool_liquidatible, STABILITY_POOL_REPLY_ID, sell_wall_using_ids};
 
-/// After a successful router swap, use the returned asset to repay the position's debt
+/// Only necessary after the last of successful router swaps, uses the returned asset to repay the position's debt
 pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.result.into_result() {
         Ok(_result) => {
@@ -81,7 +82,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 position_id, 
                 position_owner: Some(valid_position_owner.clone().to_string()),
                 send_excess_to: Some(valid_position_owner.clone().to_string()),
-             };
+            };
 
             //Create repay_msg with queried funds
             //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted
@@ -95,7 +96,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     })?]
             });
             
-            //Update position claims for each withdrawn + sold amount
+            //Update position claims for each asset withdrawn + sold
             for withdrawn_collateral in state_propagation.clone().withdrawn_assets{
 
                 update_position_claims(
@@ -122,28 +123,37 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             //Withdrawing everything thats left
             let assets_to_withdraw: Vec<Asset> = target_position.collateral_assets
                 .into_iter()
+                .filter(|cAsset| cAsset.asset.amount > Uint128::zero())
                 .map(|cAsset| cAsset.asset)
                 .collect::<Vec<Asset>>();
+            
+            if assets_to_withdraw.len() > 0 {                
+                //Create WithdrawMsg
+                let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: env.contract.address.to_string(), 
+                    msg: to_binary(& ExecuteMsg::Withdraw { 
+                        position_id, 
+                        assets: assets_to_withdraw, 
+                        send_to: state_propagation.send_to, 
+                    })?, 
+                    funds: vec![],
+                });
 
-            //Create WithdrawMsg
-            let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-                contract_addr: env.contract.address.to_string(), 
-                msg: to_binary(& ExecuteMsg::Withdraw { 
-                    position_id, 
-                    assets: assets_to_withdraw, 
-                    send_to: state_propagation.send_to, 
-                })?, 
-                funds: vec![],
-            });
-
-
-            //Response 
-            Ok(Response::new()
-                .add_message(repay_msg)
-                .add_attribute("amount_repaid", credit_asset_balance)
-                .add_message(withdraw_msg)
-                .add_attribute("sold_assets", format!("{:?}", state_propagation.withdrawn_assets))            
-            )
+                //Response 
+                Ok(Response::new()
+                    .add_message(repay_msg)
+                    .add_attribute("amount_repaid", credit_asset_balance)
+                    .add_message(withdraw_msg)
+                    .add_attribute("sold_assets", format!("{:?}", state_propagation.withdrawn_assets))            
+                )
+            } else {
+                //Response 
+                Ok(Response::new()
+                    .add_message(repay_msg)
+                    .add_attribute("amount_repaid", credit_asset_balance)
+                    .add_attribute("sold_assets", format!("{:?}", state_propagation.withdrawn_assets))            
+                )
+            }
         },
         
         Err(err) => {

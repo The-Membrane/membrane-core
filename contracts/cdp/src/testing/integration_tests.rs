@@ -787,7 +787,7 @@ mod tests {
                                 non_token_contract_auth: true,
                                 is_position_contract: false
                             },
-                            liquidity_multiplier: Decimal::one(),
+                            liquidity_multiplier: Decimal::percent(500),
                         })?)
                     },
                 }
@@ -876,7 +876,7 @@ mod tests {
                                 non_token_contract_auth: true,
                                 is_position_contract: false
                             },
-                            liquidity_multiplier: Decimal::one(),
+                            liquidity_multiplier: Decimal::percent(500),
                         })?)
                     },
                 }
@@ -8329,7 +8329,7 @@ mod tests {
                 .unwrap_err();
         }
 
-        //#[test]
+        #[test]
         #[allow(dead_code)]
         fn close_position(){
             let (mut app, cdp_contract, lq_contract) =
@@ -8528,22 +8528,12 @@ mod tests {
             app.execute(Addr::unchecked("smaller_bank"), cosmos_msg)
                 .unwrap_err();
 
-            //Close Position: Success. WithdrawMsg errors bc Router hasn't repaid the position
-            let msg = ExecuteMsg::ClosePosition { 
-                position_id: Uint128::from(1u128),
-                max_spread: Decimal::percent(1),
-                send_to: None,
-            };
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             //Send assets to mimic LP split
             app.send_tokens(
                 Addr::unchecked("bigger_bank"),
                 cdp_contract.addr(),
-                &[coin(100_000, "base"), coin(100_000, "quote")],
+                &[coin(100_000, "base"), coin(100_000, "quote"), coin(100_000, "credit_fulldenom")],
             ).unwrap();
-            let err = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap_err();
-            assert_eq!(err.root_cause().to_string(), String::from("Makes position insolvent"));
 
             //Close Position: Make sure huge spread doesn't over sell
             let msg = ExecuteMsg::ClosePosition { 
@@ -8552,9 +8542,74 @@ mod tests {
                 send_to: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            let err = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+            //Execute
+            let res = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Assert Position was deleted after Closing
+            app
+                .wrap()
+                .query_wasm_smart::<PositionResponse>(&cdp_contract.addr(), &QueryMsg::GetPosition { 
+                    position_id: Uint128::one(), 
+                    position_owner: String::from("bigger_bank")
+                })
                 .unwrap_err();
-            assert_eq!(err.root_cause().to_string(), String::from("Makes position insolvent"));
+
+            //Initial Deposit
+            //Current Position: 100_000 lp_denom
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some("bigger_bank".to_string()),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg,
+                    vec![Coin {
+                        denom: "lp_denom".to_string(),
+                        amount: Uint128::from(100_000u128),
+                    }],
+                )
+                .unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+
+            //Successful Increase
+            //Current Position: 100_000 lp_denom -> 100_000 credit_fulldenom: 50% LTV
+            let msg = ExecuteMsg::IncreaseDebt {
+                position_id: Uint128::from(2u128),
+                amount: Some(Uint128::from(100_000u128)),
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+
+            //Send assets to mimic LP split
+            app.send_tokens(
+                Addr::unchecked("bigger_bank"),
+                cdp_contract.addr(),
+                &[coin(100_000, "base"), coin(100_000, "quote"), coin(100_000, "credit_fulldenom")],
+            ).unwrap();
+
+            //Close Position: Success.
+            let msg = ExecuteMsg::ClosePosition { 
+                position_id: Uint128::from(2u128),
+                max_spread: Decimal::percent(1),
+                send_to: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            //Execute
+            let res = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Assert Position was deleted after Closing
+            app
+                .wrap()
+                .query_wasm_smart::<PositionResponse>(&cdp_contract.addr(), &QueryMsg::GetPosition { 
+                    position_id: Uint128::new(2), 
+                    position_owner: String::from("bigger_bank")
+                })
+                .unwrap_err();
+            
         }
 
         #[test]

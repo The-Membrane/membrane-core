@@ -162,7 +162,7 @@ pub fn deposit(
             } else {                
                 //If position_ID is passed but no position is found, Error. 
                 //In case its a mistake, don't want to add assets to a new position.
-                return Err(ContractError::NonExistentPosition {});
+                return Err(ContractError::NonExistentPosition { id: position_id });
             }
         } else { //If user doesn't pass an ID, we create a new position
             let (new_position_info, new_position) = create_position_in_deposit(
@@ -604,10 +604,19 @@ pub fn repay(
         //Even if it does, the subsequent withdrawal would then error
     }
 
+    //To indicate removed positions during ClosePosition
+    let mut removed = false;
     //Update Position
     POSITIONS.update(storage, valid_owner_addr.clone(), |positions: Option<Vec<Position>>| -> Result<Vec<Position>, ContractError> {
         let mut updating_positions = positions.unwrap();
-        updating_positions[position_index] = target_position.clone();
+
+        //If new position isn't empty, update
+        if !check_for_empty_position(updating_positions[position_index].clone().collateral_assets){
+            updating_positions[position_index] = target_position.clone();
+        } else { // remove old position
+            updating_positions.remove(position_index);
+            removed = true;
+        }
         
         Ok(updating_positions)
     })?;
@@ -657,14 +666,16 @@ pub fn repay(
     //Save updated repayment price and debts
     BASKET.save(storage, &basket)?;
 
-    //Check that state was saved correctly
-    check_repay_state(
-        storage,
-        credit_asset.amount, 
-        prev_credit_amount, 
-        position_id, 
-        valid_owner_addr
-    )?;
+    if !removed {
+        //Check that state was saved correctly
+        check_repay_state(
+            storage,
+            credit_asset.amount, 
+            prev_credit_amount, 
+            position_id, 
+            valid_owner_addr
+        )?;
+    }
     
     Ok(Response::new()
         .add_messages(messages)
@@ -1475,12 +1486,12 @@ pub fn close_position(
         )?
     };
     //Max_spread is added to the collateral amount to ensure enough credit is purchased
-    //Excess gets sent back to the position_owner during repayment
+    //Excess debt token gets sent back to the position_owner during repayment
 
     //Get cAsset_ratios for the target_position
     let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, config.clone())?;
 
-    let mut submessages = vec![];
+    let mut router_messages = vec![];
     let mut lp_withdraw_messages: Vec<CosmosMsg> = vec![];
     let mut withdrawn_assets = vec![];
 
@@ -1534,8 +1545,7 @@ pub fn close_position(
                     Uint128::from_str(&share_asset_amounts[i].clone().amount).unwrap().u128(), 
                 )?;
 
-                let router_sub_msg = SubMsg::reply_on_success(router_msg, CLOSE_POSITION_REPLY_ID);
-                submessages.push(router_sub_msg);                
+                router_messages.push(router_msg);                
             }                  
         } else {        
             //Create router subMsg to sell, repay in reply on success
@@ -1547,8 +1557,7 @@ pub fn close_position(
                 collateral_amount_to_sell.into(),
             )?;
 
-            let router_sub_msg = SubMsg::reply_on_success(router_msg, CLOSE_POSITION_REPLY_ID);
-            submessages.push(router_sub_msg);
+            router_messages.push(router_msg);
         }
     }
 
@@ -1566,10 +1575,15 @@ pub fn close_position(
         },
         send_to,
     })?;
+
+    //The last router message is updated to a CLOSE_POSITION_REPLY to close the position after all sales and repayments are done.
+    let sub_msg = SubMsg::reply_on_success(router_messages.pop().unwrap(), CLOSE_POSITION_REPLY_ID);
     
     Ok(Response::new()
-        .add_messages(lp_withdraw_messages)
-        .add_submessages(submessages).add_attributes(vec![
+        // .add_messages(lp_withdraw_messages)
+        .add_messages(router_messages)
+        .add_submessage(sub_msg)
+        .add_attributes(vec![
         attr("position_id", position_id),
         attr("user", info.sender),
     ])) //If the sale incurred slippage and couldn't repay through the debt minimum, the subsequent withdraw msg will error and revert state 

@@ -66,21 +66,27 @@ pub fn update_basket_tally(
     add_to_cAsset: bool,
 ) -> Result<(), ContractError> {
     let config = CONFIG.load(storage)?;
-
+    
+    // if !basket.collateral_supply_caps[3].current_supply.is_zero() {panic!("Basket: {:?}, {:?}", basket.collateral_supply_caps, collateral_assets)}
     //Update SupplyCap objects 
-    for cAsset in collateral_assets.iter() {
-
-        if let Some((index, mut cap)) = basket
-            .clone()
-            .collateral_supply_caps
+    for cAsset in collateral_assets.clone() {
+        if let Some((index, mut cap)) = basket.clone().collateral_supply_caps
             .into_iter()
             .enumerate()
             .find(|(_x, cap)| cap.asset_info.equal(&cAsset.asset.info))
         {
             if add_to_cAsset {
                 cap.current_supply += cAsset.asset.amount;
-            } else {
-                cap.current_supply -= cAsset.asset.amount;
+            } else {                
+                cap.current_supply = match cap.current_supply.checked_sub(cAsset.asset.amount){
+                    Ok(diff) => diff,
+                    Err(_) => return Err(ContractError::CustomError {
+                        val: format!(
+                            "Removal amount ({}) is greater than current supply ({}) for {}", 
+                            cAsset.asset.amount, cap.current_supply, cap.asset_info
+                        ),
+                    }),
+                }; 
             }
 
             //Update

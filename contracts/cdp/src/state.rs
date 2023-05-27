@@ -115,7 +115,7 @@ pub fn update_position_claims(
         rate_index: Decimal::one(),
     }];
 
-    let mut basket = BASKET.load(storage)?;
+    let mut basket = BASKET.load(storage)?;    
     match update_basket_tally(storage, querier, env, &mut basket, collateral_assets, false) {
         Ok(_res) => {
             BASKET.save(storage, &basket)?;
@@ -145,7 +145,7 @@ pub fn get_target_position(
 
     match positions.into_iter().enumerate().find(|(_i, x)| x.position_id == position_id) {
         Some(position) => Ok(position),
-        None => Err(ContractError::NonExistentPosition {}),
+        None => Err(ContractError::NonExistentPosition { id: position_id }),
     }
 }
 

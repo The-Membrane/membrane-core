@@ -1,4 +1,4 @@
-use cosmwasm_std::{StdError, Decimal};
+use cosmwasm_std::{StdError, Decimal, Uint128};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -27,8 +27,8 @@ pub enum ContractError {
     #[error("User has no positions in this basket")]
     NoUserPositions {},
 
-    #[error("Position doesn't exist")]
-    NonExistentPosition {},
+    #[error("Position doesn't exist: {id}")]
+    NonExistentPosition { id: Uint128},
 
     #[error("Basket doesn't exist")]
     NonExistentBasket {},

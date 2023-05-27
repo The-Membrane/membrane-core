@@ -17,8 +17,6 @@ pub struct InstantiateMsg {
     pub governance_contract: Option<String>,
     /// Osmosis Proxy contract address
     pub osmosis_proxy: Option<String>,
-    /// Dex router contract address
-    pub dex_router: Option<String>,
     /// Incentive scheduling
     pub incentive_schedule: Option<StakeDistribution>,
     /// Fee wait period in days
@@ -46,8 +44,6 @@ pub enum ExecuteMsg {
         governance_contract: Option<String>,
         /// Osmosis Proxy contract address
         osmosis_proxy: Option<String>,
-        /// Dex router contract address
-        dex_router: Option<String>,
         /// MBRN denom
         mbrn_denom: Option<String>,
         /// Incentive scheduling
@@ -76,9 +72,6 @@ pub enum ExecuteMsg {
     },
     /// Claim all claimables
     ClaimRewards {
-        /// Claim rewards as a native token full denom
-        ///NOTE: Claim_As is for liq_fees, not MBRN tokens.
-        claim_as_native: Option<String>,
         /// Send rewards to address
         send_to: Option<String>,
         /// Toggle to restake MBRN rewards
@@ -151,8 +144,6 @@ pub struct Config {
     pub governance_contract: Option<Addr>,
     /// Osmosis Proxy contract address
     pub osmosis_proxy: Option<Addr>,
-    /// Dex router contract address
-    pub dex_router: Option<Addr>,
     /// Max spread for dex swaps
     pub max_spread: Option<Decimal>,
 }

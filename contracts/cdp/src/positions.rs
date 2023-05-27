@@ -1538,7 +1538,7 @@ pub fn close_position(
                 submessages.push(router_sub_msg);                
             }                  
         } else {        
-            //Create router subMsg to sell and repay, reply on success
+            //Create router subMsg to sell, repay in reply on success
             let router_msg: CosmosMsg = router_native_to_native(
                 config.clone().dex_router.unwrap().to_string(), 
                 collateral_asset.clone().info, 

@@ -5,7 +5,7 @@ mod tests {
 
     use crate::helpers::{CDPContract, LQContract};
 
-    use membrane::apollo_router::SwapToAssetsInput;
+
     use membrane::liq_queue::LiquidatibleResponse as LQ_LiquidatibleResponse;
     use membrane::math::Uint256;
     use membrane::oracle::{AssetResponse, PriceResponse};
@@ -889,12 +889,12 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Router_MockExecuteMsg {
-        Swap {
-            to: SwapToAssetsInput,
-            max_spread: Option<Decimal>,
-            recipient: Option<String>,
-            hook_msg: Option<Binary>,
-        },
+        BasketLiquidate {
+            offer_assets: apollo_cw_asset::AssetListUnchecked,
+            receive_asset: apollo_cw_asset::AssetInfoUnchecked,
+            minimum_receive: Option<Uint128>,
+            to: Option<String>,
+        }
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
@@ -913,11 +913,12 @@ mod tests {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Router_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
-                    Router_MockExecuteMsg::Swap {
-                        to,
-                        max_spread,
-                        recipient,
-                        hook_msg,
+                    Router_MockExecuteMsg::
+                    BasketLiquidate {
+                        offer_assets,
+                        receive_asset,
+                        minimum_receive,
+                        to,      
                     } => {
                         Ok(Response::default())
                     }
@@ -1014,7 +1015,6 @@ mod tests {
                             vesting_contract: None,
                             governance_contract: None,
                             osmosis_proxy: None,
-                            dex_router: None,
                             max_spread: None,
                         })?)
                     }

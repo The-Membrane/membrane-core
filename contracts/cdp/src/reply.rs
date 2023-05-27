@@ -64,7 +64,36 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             
             //Create user info variables
             let valid_position_owner = deps.api.addr_validate(&state_propagation.position_info.position_owner)?;
-            let position_id = state_propagation.position_info.position_id; 
+            let position_id = state_propagation.position_info.position_id;             
+
+            //Load Basket
+            let basket: Basket = BASKET.load(deps.storage)?;
+            
+            //Query contract balance of the basket credit_asset
+            let credit_asset_balance = get_contract_balances(
+                deps.querier, 
+                env.clone(), 
+                vec![basket.credit_asset.info.clone()]
+            )?[0];
+
+            //Create repay_msg
+            let repay_msg = ExecuteMsg::Repay { 
+                position_id, 
+                position_owner: Some(valid_position_owner.clone().to_string()),
+                send_excess_to: Some(valid_position_owner.clone().to_string()),
+             };
+
+            //Create repay_msg with queried funds
+            //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted
+            let repay_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: env.contract.address.to_string(), 
+                msg: to_binary(&repay_msg)?, 
+                funds: vec![asset_to_coin(
+                    Asset { 
+                        info: basket.credit_asset.info.clone(),
+                        amount: credit_asset_balance.clone(),
+                    })?]
+            });
             
             //Update position claims for each withdrawn + sold amount
             for withdrawn_collateral in state_propagation.clone().withdrawn_assets{
@@ -83,7 +112,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             //Load position
             let (_i, target_position) = match get_target_position(
                 deps.storage, 
-                valid_position_owner, 
+                valid_position_owner.clone(), 
                 position_id, 
             ){
                 Ok(position) => position,
@@ -107,8 +136,12 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 funds: vec![],
             });
 
+
             //Response 
-            Ok(Response::new().add_message(withdraw_msg)
+            Ok(Response::new()
+                .add_message(repay_msg)
+                .add_attribute("amount_repaid", credit_asset_balance)
+                .add_message(withdraw_msg)
                 .add_attribute("sold_assets", format!("{:?}", state_propagation.withdrawn_assets))            
             )
         },

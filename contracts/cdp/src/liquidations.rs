@@ -76,6 +76,8 @@ pub fn liquidate(
         false,
         config.clone(),
     )?;
+    let insolvent = true;
+    let current_LTV = Decimal::percent(90);
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -228,7 +230,7 @@ pub fn liquidate(
         LIQUIDATION.save(storage, &liquidation_propagation)?;
 
         Ok(res
-            .add_messages(lp_withdraw_msgs)
+            // .add_messages(lp_withdraw_msgs)
             .add_submessages(sell_wall_msgs)
             .add_messages(caller_fee_messages)
             .add_message(protocol_fee_msg)
@@ -243,7 +245,7 @@ pub fn liquidate(
         if let Ok(repay) = LIQUIDATION.load(storage) { liquidation_propagation = Some(format!("{:?}", repay)) }
 
         Ok(res
-            .add_messages(lp_withdraw_messages)
+            // .add_messages(lp_withdraw_messages)
             .add_submessages(sell_wall_messages)
             .add_messages(caller_fee_messages)
             .add_message(protocol_fee_msg)

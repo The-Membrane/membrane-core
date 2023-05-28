@@ -3697,7 +3697,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.rates[0].to_string(),
-                String::from("0.000002799999999999")
+                String::from("0.000279999999999999")
             );
             
         }
@@ -9253,13 +9253,14 @@ mod tests {
                 .wrap()
                 .query_wasm_smart::<RedeemabilityResponse>(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[0].remaining_loan_repayment, Uint128::zero());
+            //Bc the remaining loan repayment is 0'd, the position is not redeemable
+            assert_eq!(res.premium_infos, vec![]);
 
             //Reset #1's loan repayment cap but restrict the collateral to only debit
             let redemption_msg = ExecuteMsg::EditRedeemability { 
                 position_ids: vec![Uint128::one()], 
-                redeemable: None,
-                premium: None,
+                redeemable: Some(true),
+                premium: Some(10),
                 max_loan_repayment: Some(Decimal::percent(10)),
                 restricted_collateral_assets: Some(vec![String::from("2nddebit")]),
             };

@@ -1341,8 +1341,19 @@ pub fn redeem_for_collateral(
                         position_redemption_info.remaining_loan_repayment - 
                         redeemable_credit.to_uint_floor();
 
-                    //Set and Save user info with updated remaining_loan_repayment
-                    users_of_premium[user_index] = user.clone();
+                    /////Set and Save user info with updated remaining_loan_repayment////
+                    //If remaining_loan_repayment is zero, remove PositionRedemption from user
+                    if user.position_infos[pos_rdmpt_index].remaining_loan_repayment.is_zero() {
+                        //Remove PositionRedemption from user
+                        user.position_infos.remove(pos_rdmpt_index);
+                        //Remove user if no more PositionRedemptions
+                        if user.position_infos.is_empty() {
+                            users_of_premium.remove(user_index);
+                        }
+                    } else {
+                        //Update user
+                        users_of_premium[user_index] = user.clone();
+                    }
                     REDEMPTION_OPT_IN.save(deps.storage, premium, &users_of_premium)?;
 
                     // Calc credit_value

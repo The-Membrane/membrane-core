@@ -140,8 +140,6 @@ mod tests {
                         unstaking_period: 0,
                         fee_wait_period: 0,
                         mbrn_denom: String::from("mbrn_denom"),
-                        dex_router: Some(Addr::unchecked("")),
-                        max_spread: Some(Decimal::zero()),
                     })?),
                     Staking_MockQueryMsg::TotalStaked {  } => Ok(to_binary(&TotalStakedResponse {
                         total_not_including_vested: Uint128::new(5_000_000_000_001u128),

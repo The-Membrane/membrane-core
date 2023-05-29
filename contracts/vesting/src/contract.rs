@@ -321,7 +321,6 @@ fn claim_fees_for_contract(
     let msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.staking_contract.to_string(),
         msg: to_binary(&StakingExecuteMsg::ClaimRewards {
-            claim_as_native: None,
             restake: false,
             send_to: None,
         })?,

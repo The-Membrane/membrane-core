@@ -4,7 +4,6 @@ mod tests {
 
     use crate::helpers::MarginContract;
 
-    use membrane::apollo_router::SwapToAssetsInput;
     use membrane::margin_proxy::{ExecuteMsg, InstantiateMsg, QueryMsg};
     use membrane::cdp::PositionResponse;
     use membrane::types::{AssetInfo, cAsset, Asset, Basket};
@@ -180,12 +179,7 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Router_MockExecuteMsg {
-        Swap {
-            to: SwapToAssetsInput,
-            max_spread: Option<Decimal>,
-            recipient: Option<String>,
-            hook_msg: Option<Binary>,
-        },
+        
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]

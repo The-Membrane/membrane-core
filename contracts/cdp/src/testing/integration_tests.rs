@@ -1015,7 +1015,6 @@ mod tests {
                             vesting_contract: None,
                             governance_contract: None,
                             osmosis_proxy: None,
-                            max_spread: None,
                         })?)
                     }
                 }

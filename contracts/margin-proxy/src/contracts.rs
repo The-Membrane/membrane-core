@@ -401,13 +401,12 @@ fn handle_loop_reply(
                 let msg = router_native_to_native(                    
                     config.clone().apollo_router_contract.to_string(),                    
                     credit_asset.clone().info,
-                    collateral,
-                    Some(config.clone().max_slippage),                     
+                    collateral,          
                     Some(config.clone().positions_contract.to_string()),
-                    hook_msg, 
                     (credit_to_sell * Uint128::new(1u128)).u128(),
                 )?;
-
+                //Add a reply msg to execute the hook msg
+                todo!();
                 messages.push(SubMsg::new(msg));
             }
             

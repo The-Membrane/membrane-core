@@ -186,8 +186,6 @@ mod tests {
                             vesting_contract: None,
                             governance_contract: None,
                             osmosis_proxy: None,
-                            dex_router: None,
-                            max_spread: None,
                         })?)
                     },
                     Staking_MockQueryMsg::StakerRewards { staker } => {

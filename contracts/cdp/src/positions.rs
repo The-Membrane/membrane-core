@@ -1591,7 +1591,7 @@ pub fn close_position(
     let sub_msg = SubMsg::reply_on_success(router_messages.pop().unwrap(), CLOSE_POSITION_REPLY_ID);
     
     Ok(Response::new()
-        // .add_messages(lp_withdraw_messages)
+        .add_messages(lp_withdraw_messages)
         .add_messages(router_messages)
         .add_submessage(sub_msg)
         .add_attributes(vec![

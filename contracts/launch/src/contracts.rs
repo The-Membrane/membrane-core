@@ -624,7 +624,8 @@ pub fn end_of_launch(
         ],
         future_pool_governor: addrs.clone().osmosis_proxy.to_string(),
     };
-    msgs.push(msg.into());
+    let sub_msg = SubMsg::reply_on_success(msg, BALANCER_POOL_REPLY_ID);
+    sub_msgs.push(sub_msg);
     //Create 3 CDT pools
     //OSMO
     let msg: CosmosMsg = MsgCreateBalancerPool {

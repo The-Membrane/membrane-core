@@ -315,8 +315,6 @@ mod tests {
             incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
             fee_wait_period: None,
             mbrn_denom: String::from("mbrn_denom"),
-            dex_router: Some(String::from("router_addr")),
-            max_spread: Some(Decimal::percent(10)),
             unstaking_period: None,
         };
 
@@ -391,7 +389,6 @@ mod tests {
 
             //No stake Error for ClaimRewards
             let msg = ExecuteMsg::ClaimRewards {
-                claim_as_native: None,
                 send_to: None,
                 restake: false,
             };
@@ -412,7 +409,6 @@ mod tests {
 
             //Claim As Native
             let claim_msg = ExecuteMsg::ClaimRewards {
-                claim_as_native: None,
                 send_to: None,
                 restake: false,
             };
@@ -427,7 +423,6 @@ mod tests {
                 
             //Claim As Native: Assert claim was saved and can't be double claimed
             let claim_msg = ExecuteMsg::ClaimRewards {
-                claim_as_native: None,
                 send_to: None,
                 restake: false,
             };
@@ -452,7 +447,6 @@ mod tests {
 
             //Claim As Native: Restake
             let claim_msg = ExecuteMsg::ClaimRewards {
-                claim_as_native: None,
                 send_to: None,
                 restake: true,
             };

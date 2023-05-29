@@ -6,10 +6,9 @@ use cosmwasm_std::{
     WasmMsg,
 };
 
-use membrane::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
-    Config, ExecuteMsg, InstantiateMsg, QueryMsg, RewardsResponse,
+    Config, ExecuteMsg, InstantiateMsg, QueryMsg, 
     StakedResponse, TotalStakedResponse, StakerResponse,
 };
 use membrane::types::{Asset, AssetInfo, StakeDeposit, StakeDistribution};
@@ -21,8 +20,6 @@ fn update_config(){
 
     let msg = InstantiateMsg {
         owner: None,
-        dex_router: Some(String::from("router_addr")),
-        max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
         auction_contract: Some("auction_contract".to_string()),
         vesting_contract: Some("vesting_contract".to_string()),
@@ -46,8 +43,6 @@ fn update_config(){
         auction_contract: Some("new_auction".to_string()),
         governance_contract: Some("new_gov".to_string()),
         mbrn_denom: Some(String::from("new_denom")), 
-        dex_router: Some(String::from("new_router")), 
-        max_spread: Some(Decimal::one()),
         vesting_contract: Some(String::from("new_bv")), 
         incentive_schedule: Some(StakeDistribution { rate: Decimal::one(), duration: 0 }),
         fee_wait_period: Some(1),  
@@ -81,8 +76,6 @@ fn update_config(){
             auction_contract: Some(Addr::unchecked("new_auction")),
             governance_contract: Some(Addr::unchecked("new_gov")),
             mbrn_denom: String::from("new_denom"), 
-            dex_router: Some( Addr::unchecked("new_router")), 
-            max_spread: Some(Decimal::one()), 
             vesting_contract: Some( Addr::unchecked("new_bv")),             
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
             fee_wait_period: 1, 
@@ -98,8 +91,6 @@ fn update_config(){
         auction_contract: None,
         governance_contract: None,
         mbrn_denom: None,
-        dex_router: None,
-        max_spread: None,
         vesting_contract: None,
         incentive_schedule: None,
         fee_wait_period: Some(2),
@@ -122,8 +113,6 @@ fn update_config(){
         auction_contract: None,
         governance_contract: None,
         mbrn_denom: None,
-        dex_router: None,
-        max_spread: Some(Decimal::zero()),
         vesting_contract: None,
         incentive_schedule: None,
         fee_wait_period: None,
@@ -157,8 +146,6 @@ fn update_config(){
             auction_contract: Some(Addr::unchecked("new_auction")),
             governance_contract: Some(Addr::unchecked("new_gov")),
             mbrn_denom: String::from("new_denom"), 
-            dex_router: Some( Addr::unchecked("new_router")), 
-            max_spread: Some(Decimal::zero()), 
             vesting_contract: Some( Addr::unchecked("new_bv")),             
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
             fee_wait_period: 2, 
@@ -173,8 +160,6 @@ fn stake() {
 
     let msg = InstantiateMsg {
         owner: Some("owner0000".to_string()),
-        dex_router: Some(String::from("router_addr")),
-        max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
         auction_contract: Some("auction_contract".to_string()),
         vesting_contract: Some("vesting_contract".to_string()),
@@ -289,8 +274,6 @@ fn unstake() {
 
     let msg = InstantiateMsg {
         owner: Some("owner0000".to_string()),
-        dex_router: Some(String::from("router_addr")),
-        max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
         auction_contract: Some("auction_contract".to_string()),
         vesting_contract: Some("vesting_contract".to_string()),

@@ -55,7 +55,6 @@ pub fn instantiate(
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
             unstaking_period: msg.unstaking_period.unwrap_or(3u64),
             mbrn_denom: msg.mbrn_denom,
-            max_spread: msg.max_spread,
         };
     } else {
         config = Config {
@@ -72,7 +71,6 @@ pub fn instantiate(
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
             unstaking_period: msg.unstaking_period.unwrap_or(3u64),
             mbrn_denom: msg.mbrn_denom,
-            max_spread: msg.max_spread,
         };
     }
 
@@ -148,7 +146,6 @@ pub fn execute(
         ExecuteMsg::UpdateConfig {
             owner,
             mbrn_denom,
-            max_spread,
             vesting_contract,
             governance_contract,
             osmosis_proxy,
@@ -171,7 +168,6 @@ pub fn execute(
             incentive_schedule,
             fee_wait_period,
             unstaking_period,
-            max_spread,
         ),
         ExecuteMsg::Stake { user } => stake(deps, env, info, user),
         ExecuteMsg::Unstake { mbrn_amount } => unstake(deps, env, info, mbrn_amount),
@@ -226,7 +222,6 @@ fn update_config(
     incentive_schedule: Option<StakeDistribution>,
     fee_wait_period: Option<u64>,
     unstaking_period: Option<u64>,
-    max_spread: Option<Decimal>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -249,9 +244,6 @@ fn update_config(
         //Set owner transfer state
         OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
         attrs.push(attr("owner_transfer", valid_addr));     
-    };
-    if let Some(max_spread) = max_spread {
-        config.max_spread = Some(max_spread);
     };
     if let Some(incentive_schedule) = incentive_schedule {
         //Update incentive schedule

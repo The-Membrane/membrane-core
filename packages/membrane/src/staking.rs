@@ -1,5 +1,5 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Decimal, Uint128, Addr};
+use cosmwasm_std::{Uint128, Addr};
 
 use crate::types::{Asset, FeeEvent, StakeDeposit, StakeDistribution};
 
@@ -25,8 +25,6 @@ pub struct InstantiateMsg {
     pub unstaking_period: Option<u64>,
     /// MBRN denom
     pub mbrn_denom: String,
-    /// Max spread for dex swaps
-    pub max_spread: Option<Decimal>,
 }
 
 #[cw_serde]
@@ -52,8 +50,6 @@ pub enum ExecuteMsg {
         unstaking_period: Option<u64>,
         /// Fee wait period in days
         fee_wait_period: Option<u64>,
-        /// Max spread for dex swaps
-        max_spread: Option<Decimal>,
     },
     /// Stake MBRN tokens
     Stake {
@@ -144,8 +140,6 @@ pub struct Config {
     pub governance_contract: Option<Addr>,
     /// Osmosis Proxy contract address
     pub osmosis_proxy: Option<Addr>,
-    /// Max spread for dex swaps
-    pub max_spread: Option<Decimal>,
 }
 
 #[cw_serde]

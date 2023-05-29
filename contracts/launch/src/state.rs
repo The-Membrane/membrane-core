@@ -46,3 +46,4 @@ pub const INCENTIVE_RATIOS: Item<Vec<UserRatio>> = Item::new("incentive_ratios")
 //Launch
 pub const ADDRESSES: Item<LaunchAddrs> = Item::new("addresses");
 pub const CREDIT_POOL_IDS: Item<CreditPools> = Item::new("credit_pools");
+pub const MBRN_POOL: Item<u64> = Item::new("mbrn_pool");

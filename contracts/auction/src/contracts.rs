@@ -38,7 +38,9 @@ pub fn instantiate(
         osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
         mbrn_denom: msg.mbrn_denom,
         cdt_denom: String::new(),
+        desired_asset: String::from("uosmo"),
         positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
+        governance_contract: deps.api.addr_validate(&msg.governance_contract)?,
         twap_timeframe: msg.twap_timeframe,
         initial_discount: msg.initial_discount,
         discount_increase_timeframe: msg.discount_increase_timeframe,
@@ -78,9 +80,9 @@ pub fn execute(
             auction_asset,
         } => start_auction(deps, env, info, repayment_position_info, send_to, auction_asset),
         ExecuteMsg::SwapForMBRN { } => swap_for_mbrn(deps, info, env),
-        ExecuteMsg::SwapWithMBRN { auction_asset } => swap_with_mbrn(deps, info, env, auction_asset),
+        ExecuteMsg::SwapWithMBRN { auction_asset } => swap_with_the_contracts_desired_asset(deps, info, env, auction_asset),
         ExecuteMsg::RemoveAuction { } => remove_auction(deps, info),
-        ExecuteMsg::UpdateConfig ( update)  => update_config( deps, info, update ),
+        ExecuteMsg::UpdateConfig ( update)  => update_config( deps, info, update),
     }
 }
 
@@ -120,11 +122,30 @@ fn update_config(
     if let Some(addr) = update.positions_contract {
         config.positions_contract = deps.api.addr_validate(&addr)?;
     }
+    if let Some(addr) = update.governance_contract {
+        config.governance_contract = deps.api.addr_validate(&addr)?;
+    }
     if let Some(mbrn_denom) = update.mbrn_denom {
         config.mbrn_denom = mbrn_denom;
     }
     if let Some(cdt_denom) = update.cdt_denom {
         config.cdt_denom = cdt_denom;
+    }
+    //Ensure desired asset has an oracle price
+    if let Some(asset) = update.desired_asset {
+        match deps.querier.query_wasm_smart::<PriceResponse>(
+            config.clone().oracle_contract, 
+            &OracleQueryMsg::Price { 
+                asset_info: AssetInfo::NativeToken { denom: asset.clone() }, 
+                twap_timeframe: config.twap_timeframe, 
+                basket_id: None,
+            }){
+                Ok(_) => {
+                    //Set desired asset
+                    config.desired_asset = asset;
+                },
+                Err(err) => return Err(ContractError::CustomError { val: err.to_string() }),
+            }
     }
     if let Some(twap_timeframe) = update.twap_timeframe {
         //Enforce 1 hr - 8 hr timeframe
@@ -318,7 +339,7 @@ fn validate_asset(
     valid_denom: String
 )-> StdResult<Coin>{
     if coin.denom != valid_denom {
-        return Err(StdError::generic_err("Invalid asset sent to fulfill auction"));
+        return Err(StdError::GenericErr{msg: format!("Invalid asset ({}) sent to fulfill auction. Must be {}", coin.denom, valid_denom)});
     }
 
     if coin.amount.is_zero() {
@@ -328,22 +349,22 @@ fn validate_asset(
     Ok(coin)
 }
 
-/// Swap MBRN for non-CDT asset at a discount
-/// Burn MBRN and send non-CDT asset to the sender.
-fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: AssetInfo) -> Result<Response, ContractError> {
+/// Swap desired asset for non-CDT asset at a discount
+/// Send desired asset to governance and send non-CDT asset to the sender.
+fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: AssetInfo) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
     let mut overpay = Uint128::zero();
     let successful_swap_amount;
 
     let mut msgs: Vec<CosmosMsg> = vec![];
-    let mut attrs = vec![attr("method", "swap_with_mbrn")];
+    let mut attrs = vec![attr("method", "swap_with_contract_desired_asset")];
 
     //Validate MBRN send
     if info.funds.len() != 1 {
         return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Only one coin can be sent") }));
     }
-    let coin = validate_asset(info.funds[0].clone(), config.clone().mbrn_denom)?;
+    let coin = validate_asset(info.funds[0].clone(), config.clone().desired_asset)?;
 
     //Get FeeAuction
     let mut auction = FEE_AUCTIONS.load(deps.storage, auction_asset.clone().to_string())?;
@@ -352,17 +373,17 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
     //...swap for auctioned asset
     if !auction.auction_asset.amount.is_zero() && auction.auction_start_time <= env.block.time.seconds() {
 
-        //Get MBRN price
+        //Get desired_asset price
         let res: PriceResponse = deps.querier.query_wasm_smart(
             config.clone().oracle_contract.to_string(), 
         &OracleQueryMsg::Price {
                 asset_info: AssetInfo::NativeToken {
-                    denom: config.clone().mbrn_denom,
+                    denom: config.clone().desired_asset,
                 },
                 twap_timeframe: config.clone().twap_timeframe,
                 basket_id: None,
             })?;
-        let mbrn_price = res.price;
+        let desired_asset_price = res.price;
                 
         //Get auction asset price
         let res: PriceResponse = deps.querier.query_wasm_smart(
@@ -376,8 +397,8 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
                 })?;
         let auction_asset_price = res.price;
 
-        //Get value of sent MBRN
-        let mbrn_value = decimal_multiplication(mbrn_price, Decimal::from_ratio(coin.amount, Uint128::one()))?;
+        //Get value of sent desired asset
+        let desired_asset_value = decimal_multiplication(desired_asset_price, Decimal::from_ratio(coin.amount, Uint128::one()))?;
 
         //Get value of auction asset - discount
         let mut auction_asset_value = decimal_multiplication(auction_asset_price, Decimal::from_ratio(auction.auction_asset.amount, Uint128::one()))?;
@@ -390,20 +411,20 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
         //Get successful_swap_amount
         //If the value of the sent MBRN is greater than the value of the auction asset, set overpay amount
         //Zero auction asset amount
-        if mbrn_value > auction_asset_value {
+        if desired_asset_value > auction_asset_value {
 
-            overpay = decimal_division((mbrn_value - auction_asset_value), mbrn_price)? * Uint128::one();
+            overpay = decimal_division((desired_asset_value - auction_asset_value), desired_asset_price)? * Uint128::one();
             successful_swap_amount = auction.auction_asset.amount;
             auction.auction_asset.amount = Uint128::zero();
 
             //Delete Auction
             FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
 
-        } else if mbrn_value < auction_asset_value {
+        } else if desired_asset_value < auction_asset_value {
             //If the value of the sent MBRN is less than the value of the auction asset, set successful_swap_amount
             //Update auction asset amount
-            successful_swap_amount = decimal_division(mbrn_value, auction_asset_price)? * Uint128::one();
-            auction.auction_asset.amount = decimal_division((auction_asset_value - mbrn_value), auction_asset_price)? * Uint128::one();
+            successful_swap_amount = decimal_division(desired_asset_value, auction_asset_price)? * Uint128::one();
+            auction.auction_asset.amount = decimal_division((auction_asset_value - desired_asset_value), auction_asset_price)? * Uint128::one();
             
             //Update Auction
             FEE_AUCTIONS.save(deps.storage, auction_asset.clone().to_string(), &auction)?;
@@ -415,15 +436,13 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
             FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
         }
 
-        //Burn MBRN
-        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.clone().osmosis_proxy.to_string(),
-            funds: vec![],
-            msg: to_binary(&OsmoExecuteMsg::BurnTokens { 
-                denom: config.mbrn_denom.clone(),
-                amount: coin.amount - overpay, 
-                burn_from_address: env.contract.address.to_string(),
-            })?,
+        //Send desired asset to governance
+        msgs.push(CosmosMsg::Bank(BankMsg::Send {
+            to_address: config.clone().governance_contract.to_string(),
+            amount: vec![Coin {
+                denom: config.clone().desired_asset,
+                amount: coin.amount - overpay,
+            }],
         }));
 
         //Send fee asset to the sender

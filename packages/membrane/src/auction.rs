@@ -13,6 +13,8 @@ pub struct InstantiateMsg {
     pub osmosis_proxy: String,
     /// Address of the positions contract
     pub positions_contract: String,
+    /// Address of the governance contract
+    pub governance_contract: String,
     /// Timeframe for MBRN TWAP in minutes
     pub twap_timeframe: u64,
     /// Native Denom of MBRN
@@ -35,7 +37,7 @@ pub enum ExecuteMsg {
         /// Use auction to buy CDT to send somewhere
         send_to: Option<String>,
         /// If CDT, recapitalize bad debt
-        /// If not, use auction to sell fees for MBRN
+        /// If not, use auction to sell fees for a desired asset
         auction_asset: Asset,
     },
     /// Swap for MBRN in any open CDT auction
@@ -77,8 +79,12 @@ pub struct Config {
     pub mbrn_denom: String,
     /// CDT Denom
     pub cdt_denom: String,
+    /// Asset to be bought by FeeAuctions
+    pub desired_asset: String,
     /// Address of the positions contract
     pub positions_contract: Addr,
+    /// Address of the governance contract
+    pub governance_contract: Addr,
     /// Timeframe for MBRN TWAP in minutes
     pub twap_timeframe: u64,
     /// Initial discount for MBRN in auction
@@ -86,7 +92,7 @@ pub struct Config {
     /// Timeframe for increase of discount in seconds
     pub discount_increase_timeframe: u64, 
     /// Increase in discount per unit of timeframe
-    pub discount_increase: Decimal,       
+    pub discount_increase: Decimal,
 }
 
 #[cw_serde]
@@ -101,8 +107,12 @@ pub struct UpdateConfig {
     pub mbrn_denom: Option<String>,
     /// CDT Denom
     pub cdt_denom: Option<String>,
+    /// Asset to be bought by FeeAuctions
+    pub desired_asset: Option<String>,
     /// Address of the positions contract
     pub positions_contract: Option<String>,
+    /// Address of the governance contract
+    pub governance_contract: Option<String>,
     /// Timeframe for MBRN TWAP in minutes
     pub twap_timeframe: Option<u64>,
     /// Initial discount for MBRN in auction

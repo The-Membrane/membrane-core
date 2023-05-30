@@ -127,10 +127,16 @@ mod tests {
                         asset_info,
                         twap_timeframe,
                         basket_id,
-                    } => Ok(to_binary(&PriceResponse {
-                        prices: vec![],
-                        price: Decimal::one(),
-                    })?)
+                    } => {
+                        if asset_info.to_string() == String::from("no_price"){
+                            return Err(cosmwasm_std::StdError::GenericErr { msg: String::from("Asset has no oracle price") })
+                        } else {
+                            Ok(to_binary(&PriceResponse {
+                                prices: vec![],
+                                price: Decimal::one(),
+                            })?)
+                        }
+                    }
                 }
             },
         );
@@ -221,7 +227,7 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked(USER),
-                vec![coin(99, "error"), coin(201_000, "credit_fulldenom"), coin(96_000, "mbrn_denom"),],
+                vec![coin(99, "error"), coin(201_000, "credit_fulldenom"), coin(96_000, "mbrn_denom"), coin(96_000, "uosmo")],
             )
             .unwrap();
             bank.init_balance(
@@ -288,6 +294,7 @@ mod tests {
             oracle_contract: oracle_contract_addr.to_string(),
             osmosis_proxy: osmosis_proxy_contract_addr.to_string(),
             positions_contract: cdp_contract_addr.to_string(),
+            governance_contract: String::from("contract0"),
             twap_timeframe: 90u64,
             mbrn_denom: String::from("mbrn_denom"),
             initial_discount: Decimal::percent(1),
@@ -517,11 +524,11 @@ mod tests {
             let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
             assert_eq!(
                 err.root_cause().to_string(),
-                String::from("Generic error: Invalid asset sent to fulfill auction")
+                String::from("Generic error: Invalid asset (error) sent to fulfill auction. Must be uosmo")
             );
             //Errored Swap, multiple assets sent
             let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
-            let cosmos_msg = debt_contract.call(msg, vec![coin(93_000, "mbrn_denom"), coin(99, "error")]).unwrap();
+            let cosmos_msg = debt_contract.call(msg, vec![coin(93_000, "uosmo"), coin(99, "error")]).unwrap();
             let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
             assert_eq!(
                 err.root_cause().to_string(),
@@ -531,7 +538,7 @@ mod tests {
             //Error: Auction hasn't started
             let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
             let cosmos_msg = debt_contract
-                .call(msg, vec![coin(93_000, "mbrn_denom")])
+                .call(msg, vec![coin(93_000, "uosmo")])
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
@@ -545,7 +552,7 @@ mod tests {
             //Successful Partial Fill
             let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
             let cosmos_msg = debt_contract
-                .call(msg, vec![coin(93_000, "mbrn_denom")])
+                .call(msg, vec![coin(93_000, "uosmo")])
                 .unwrap();
             app.set_block(BlockInfo {
                 height: app.block_info().height,
@@ -579,13 +586,13 @@ mod tests {
             //Successful Overpay Swap
             let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
             let cosmos_msg = debt_contract
-                .call(msg, vec![coin(3_000, "mbrn_denom")])
+                .call(msg, vec![coin(3_000, "uosmo")])
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
             //Swap cost 940 MBRN for 1000 fee_asset
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(201_000, "credit_fulldenom"), coin(99, "error"), coin(94_000, "fee_asset"), coin(2060, "mbrn_denom"),]
+                vec![coin(201_000, "credit_fulldenom"), coin(99, "error"), coin(94_000, "fee_asset"),  coin(96_000, "mbrn_denom"), coin(2060, "uosmo")]
             );
 
             //Assert Auction is empty
@@ -609,7 +616,7 @@ mod tests {
                 auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }
             };
             let cosmos_msg = debt_contract
-                .call(msg, vec![coin(1_000, "mbrn_denom")])
+                .call(msg, vec![coin(1_000, "uosmo")])
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
@@ -642,7 +649,7 @@ mod tests {
             let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
             assert_eq!(
                 err.root_cause().to_string(),
-                String::from("Generic error: Invalid asset sent to fulfill auction")
+                String::from("Generic error: Invalid asset (error) sent to fulfill auction. Must be credit_fulldenom")
             );
             //Errored Swap, multiple assets sent
             let msg = ExecuteMsg::SwapForMBRN {};
@@ -755,7 +762,7 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(1_000, "credit_fulldenom"), coin(99, "error"), coin(96_000, "mbrn_denom"),]
+                vec![coin(1_000, "credit_fulldenom"), coin(99, "error"), coin(96_000, "mbrn_denom"),  coin(96_000, "uosmo")]
             );
 
             //Assert Auction is empty & therefore removed
@@ -816,14 +823,35 @@ mod tests {
         fn update_config() {
             let (mut app, debt_contract, cdp_contract) = proper_instantiate();
 
+            //Update Config: Error invalid desired asset
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
+                owner: None,
+                oracle_contract: None,
+                osmosis_proxy: None,
+                mbrn_denom: None,
+                cdt_denom: None,
+                governance_contract: None,
+                desired_asset: Some(String::from("no_price")),
+                positions_contract: None,
+                twap_timeframe: None,
+                initial_discount: None,
+                discount_increase_timeframe: None,
+                discount_increase: None,
+            });
+            let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
+            let err = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: Generic error: Querier contract error: Generic error: Asset has no oracle price"));
+
             //Update Config
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
                 owner: Some(String::from("new_owner")), 
-                oracle_contract: Some(String::from("new_contract")),  
+                oracle_contract: None,  
                 osmosis_proxy: Some(String::from("new_contract")),  
                 mbrn_denom: Some(String::from("new_denom")), 
                 cdt_denom: Some(String::from("new_cdt")),
+                desired_asset: Some(String::from("i_choose_you")),
                 positions_contract: Some(String::from("new_contract")),  
+                governance_contract: Some(String::from("governance_contract")),
                 twap_timeframe: Some(61u64),
                 initial_discount: Some(Decimal::percent(2)), 
                 discount_increase_timeframe: Some(61u64), 
@@ -839,6 +867,8 @@ mod tests {
                 osmosis_proxy: None,
                 mbrn_denom: None,
                 cdt_denom: None,
+                governance_contract: None,
+                desired_asset: None,
                 positions_contract: None,
                 twap_timeframe: None,
                 initial_discount: None,
@@ -860,11 +890,13 @@ mod tests {
                 config,
                 Config {
                     owner: Addr::unchecked("new_owner"), 
-                    oracle_contract: Addr::unchecked("new_contract"),  
+                    oracle_contract: Addr::unchecked("contract1"),  
                     osmosis_proxy: Addr::unchecked("new_contract"),  
                     mbrn_denom: String::from("new_denom"), 
                     cdt_denom: String::from("new_cdt"),
+                    desired_asset: String::from("i_choose_you"),
                     positions_contract: Addr::unchecked("new_contract"),  
+                    governance_contract: Addr::unchecked("governance_contract"),
                     twap_timeframe: 61u64,
                     initial_discount: Decimal::percent(2), 
                     discount_increase_timeframe: 61u64, 

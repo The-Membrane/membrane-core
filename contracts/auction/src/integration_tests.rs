@@ -459,7 +459,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(auction[0].auction_start_time, 1603337019);
+            assert_eq!(auction[0].auction_start_time, 1603333419);
             assert_eq!(auction[0].auction_asset.amount, Uint128::new(100u128));
 
             //Successful Start adding to existing auction
@@ -495,7 +495,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(auction[0].auction_start_time, 1603337019); //Start_time doesn't change
+            assert_eq!(auction[0].auction_start_time, 1603333419); //Start_time doesn't change
             assert_eq!(auction[0].auction_asset.amount, Uint128::new(200u128));
 
         }
@@ -535,20 +535,6 @@ mod tests {
                 String::from("Generic error: Only one coin can be sent")
             );
 
-            //Error: Auction hasn't started
-            let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
-            let cosmos_msg = debt_contract
-                .call(msg, vec![coin(93_000, "uosmo")])
-                .unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
-
-            //Skip ahead 1 hour
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(3600u64),
-                chain_id: app.block_info().chain_id,
-            });
-
             //Successful Partial Fill
             let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
             let cosmos_msg = debt_contract
@@ -577,7 +563,7 @@ mod tests {
                 )
                 .unwrap();
 
-            assert_eq!(auction[0].auction_start_time, 1571801019u64);
+            assert_eq!(auction[0].auction_start_time, 1571797419);
             assert_eq!(
                 auction[0].auction_asset.amount,
                 Uint128::new(1_000u128)

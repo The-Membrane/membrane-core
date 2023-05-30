@@ -228,7 +228,7 @@ fn start_auction(
                     //If None, create new auction               
                     Ok(FeeAuction {
                         auction_asset,
-                        auction_start_time: env.block.time.seconds() + 3600, //Add an hour delay
+                        auction_start_time: env.block.time.seconds(),
                     })
                 }
             }

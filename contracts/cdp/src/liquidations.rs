@@ -113,7 +113,7 @@ pub fn liquidate(
         config.clone(),
     )?;
     //Set collateral_assets
-    let collateral_assets = target_position.clone().collateral_assets;
+    let mut collateral_assets = target_position.clone().collateral_assets;
 
     //Dynamic fee that goes to the caller (info.sender): current_LTV - max_LTV
     let caller_fee = decimal_subtraction(current_LTV, avg_max_LTV)?;
@@ -141,7 +141,7 @@ pub fn liquidate(
         valid_position_owner.clone(), 
         info.sender.to_string(),
         caller_fee,
-        collateral_assets.clone(), 
+        &mut collateral_assets, 
         credit_repay_amount, 
         &mut leftover_position_value, 
         &mut leftover_repayment, 
@@ -166,7 +166,7 @@ pub fn liquidate(
         valid_position_owner.clone(), 
         collateral_assets.clone(), 
         &mut leftover_repayment, 
-        &mut credit_repay_amount, 
+        credit_repay_amount, 
         &mut leftover_position_value, 
         &mut submessages, 
         per_asset_repayment, 
@@ -396,7 +396,7 @@ fn per_asset_fulfillments(
     valid_position_owner: Addr,
     fee_recipient: String,
     caller_fee: Decimal,
-    collateral_assets: Vec<cAsset>,
+    collateral_assets: &mut Vec<cAsset>,
     credit_repay_amount: Decimal,
     leftover_position_value: &mut Decimal,
     leftover_repayment: &mut Decimal,
@@ -411,7 +411,7 @@ fn per_asset_fulfillments(
     let mut caller_coins: Vec<Coin> = vec![];
     let mut protocol_coins: Vec<Coin> = vec![];
 
-    for (num, cAsset) in collateral_assets.iter().enumerate() {
+    for (num, cAsset) in collateral_assets.clone().iter().enumerate() {
 
         let repay_amount_per_asset =
             decimal_multiplication(credit_repay_amount, cAsset_ratios[num])?;
@@ -433,6 +433,8 @@ fn per_asset_fulfillments(
             cAsset.clone().asset.info,
             caller_fee_in_collateral_amount,
         )?;
+        //Update collateral_assets to reflect the fee
+        collateral_assets[num].asset.amount -= caller_fee_in_collateral_amount;
         
         //Subtract Protocol fee from Position's claims
         let protocol_fee_in_collateral_amount =
@@ -447,6 +449,9 @@ fn per_asset_fulfillments(
             cAsset.clone().asset.info,
             protocol_fee_in_collateral_amount,
         )?;
+        //Update collateral_assets to reflect the fee
+        collateral_assets[num].asset.amount -= protocol_fee_in_collateral_amount;
+        ///These updates are necessary bc the fees are always taken out so if the liquidation is SW only, it'll try to sell more than the position owns.
 
         //After fees are calculated, set collateral_repay_amount to the amount minus anything the user paid from the SP
         //Has to be after or user_repayment would disincentivize liquidations which would force a non-trivial debt minimum
@@ -578,7 +583,7 @@ fn build_sp_sw_submsgs(
     valid_position_owner: Addr,
     collateral_assets: Vec<cAsset>,
     leftover_repayment: &mut Decimal,
-    credit_repay_amount: &mut Decimal,
+    credit_repay_amount: Decimal,
     leftover_position_value: &mut Decimal,
     submessages: &mut Vec<SubMsg>,
     per_asset_repayment: Vec<Decimal>,
@@ -624,7 +629,7 @@ fn build_sp_sw_submsgs(
 
             //Leftover's starts as the total LQ is supposed to pay,
             //and is subtracted by every successful LQ reply
-            let liq_queue_leftovers = decimal_subtraction(*credit_repay_amount, *leftover_repayment)?;
+            let liq_queue_leftovers = decimal_subtraction(credit_repay_amount, *leftover_repayment)?;
 
             // Set repay values for reply msg
             let liquidation_propagation = LiquidationPropagation {
@@ -674,7 +679,7 @@ fn build_sp_sw_submsgs(
 
             //Leftover's starts as the total LQ is supposed to pay, and is subtracted by every successful LQ reply
             let liq_queue_leftovers =
-                decimal_subtraction(*credit_repay_amount, *leftover_repayment)?;
+                decimal_subtraction(credit_repay_amount, *leftover_repayment)?;
             
             // Set repay values for reply msg
             let liquidation_propagation = LiquidationPropagation {

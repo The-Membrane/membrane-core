@@ -56,7 +56,7 @@ pub struct Config {
     /// Lockdrop contract address
     pub lockdrop_contract: Option<Addr>,
     /// Discount vault contract address
-    pub discount_vault_contract: Option<Addr>,
+    pub discount_vault_contract: Vec<Addr>,
     /// Minimum time in network to be eligible for discounts, in days
     pub minimum_time_in_network: u64,
 }
@@ -76,7 +76,7 @@ pub struct UpdateConfig {
     /// Lockdrop contract address
     pub lockdrop_contract: Option<String>,
     /// Discount vault contract address
-    pub discount_vault_contract: Option<String>,
+    pub discount_vault_contract: Option<(String, bool)>, //Addr + Add or remove
     /// Minimum time in network to be eligible for discounts, in days
     pub minimum_time_in_network: Option<u64>,
 }

@@ -389,7 +389,7 @@ pub fn can_this_addr_unstake(
     for proposal in proposal_list.proposal_list {
         if proposal.status == ProposalStatus::Passed && proposal.messages.is_some() {
             //Get list of voters for this proposal
-            let _voters = querier.query_wasm_smart::<Vec<Addr>>(
+            let _voters: Vec<Addr> = querier.query_wasm_smart(
                 config.clone().governance_contract.unwrap().to_string(), 
                 &Gov_QueryMsg::ProposalVoters { 
                     proposal_id: proposal.proposal_id.into(), 
@@ -922,10 +922,10 @@ fn deposit_fee(
         .collect::<Vec<String>>();
 
     //Get CDT denom
-    let cdt_denom = deps.querier.query_wasm_smart::<Basket>(
+    let basket: Basket = deps.querier.query_wasm_smart(
         config.positions_contract.unwrap_or_else(|| Addr::unchecked("")), 
-        &CDP_QueryMsg::GetBasket{ })?
-        .credit_asset.info;
+        &CDP_QueryMsg::GetBasket{ })?;
+    let cdt_denom = basket.credit_asset.info;
 
     //If fee asset isn't CDT, send to Fee Auction if the contract is set
     let non_CDT_assets = fee_assets.clone()

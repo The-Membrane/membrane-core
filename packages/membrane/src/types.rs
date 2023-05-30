@@ -254,8 +254,6 @@ pub struct AssetOracleInfo {
     pub basket_id: Uint128,
     /// Osmosis pools for TWAP
     pub osmosis_pools_for_twap: Vec<TWAPPoolInfo>,
-    /// Ability to set a static price
-    pub static_price: Option<Decimal>,
 }
 
 impl fmt::Display for AssetOracleInfo {
@@ -490,8 +488,8 @@ pub struct Recipient {
 
 #[cw_serde]
 pub struct Allocation {
-    /// Amount of asset allocated
-    pub amount: Uint128,
+    /// Remaining amount of allocation
+    pub remaining_amount: Uint128,
     /// Amount of asset withdrawn
     pub amount_withdrawn: Uint128,
     /// Start time of allocation in seconds

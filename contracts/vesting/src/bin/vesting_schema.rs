@@ -1,10 +1,21 @@
-use cosmwasm_schema::write_api;
+use std::{fs::create_dir_all, env::current_dir};
 
-use membrane::vesting::{InstantiateMsg, ExecuteMsg, QueryMsg};
+use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
+
+use membrane::vesting::{InstantiateMsg, ExecuteMsg, QueryMsg, Config, RecipientResponse, RecipientsResponse, UnlockedResponse, AllocationResponse};
+
 fn main() {
-    write_api! {
-        instantiate: InstantiateMsg,
-        execute: ExecuteMsg,
-        query: QueryMsg,
-    }
+    let mut out_dir = current_dir().unwrap();
+    out_dir.push("schema");
+    create_dir_all(&out_dir).unwrap();
+    remove_schemas(&out_dir).unwrap();
+
+    export_schema(&schema_for!(InstantiateMsg), &out_dir);
+    export_schema(&schema_for!(ExecuteMsg), &out_dir);
+    export_schema(&schema_for!(QueryMsg), &out_dir);
+    export_schema(&schema_for!(Config), &out_dir);
+    export_schema(&schema_for!(RecipientResponse), &out_dir);
+    export_schema(&schema_for!(RecipientsResponse), &out_dir);
+    export_schema(&schema_for!(UnlockedResponse), &out_dir);
+    export_schema(&schema_for!(AllocationResponse), &out_dir);
 }

@@ -1121,7 +1121,6 @@ mod tests {
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
                                 }],
-                                static_price: None,
                             }],
                         },
                         AssetResponse {
@@ -1135,7 +1134,6 @@ mod tests {
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
                                 }],
-                                static_price: None,
                             }],
                         }
                     ])?),
@@ -1213,7 +1211,6 @@ mod tests {
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
                                 }],
-                                static_price: None,
                             }],
                         },
                         AssetResponse {
@@ -1227,7 +1224,6 @@ mod tests {
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
                                 }],
-                                static_price: None,
                             }],
                         }
                     ])?),

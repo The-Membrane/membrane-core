@@ -7,3 +7,4 @@ Changes:
 - Minimum total staked to submit proposals
 - Vesting contract can expedit proposals 
 - Config can toggle quadratic voting
+- Voter can change vote at any time

@@ -11,81 +11,104 @@
   ],
   "properties": {
     "collateral_twap_timeframe": {
+      "description": "Timeframe for Collateral TWAPs in minutes",
       "type": "integer",
       "format": "uint64",
       "minimum": 0.0
     },
     "credit_twap_timeframe": {
+      "description": "Timeframe for Credit TWAP in minutes",
       "type": "integer",
       "format": "uint64",
       "minimum": 0.0
     },
     "debt_auction": {
+      "description": "Debt Auction contract",
       "type": [
         "string",
         "null"
       ]
     },
     "debt_minimum": {
-      "$ref": "#/definitions/Uint128"
+      "description": "Minimum debt per position to ensure liquidatibility",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Uint128"
+        }
+      ]
     },
     "dex_router": {
+      "description": "Apollo DEX Router contract",
       "type": [
         "string",
         "null"
       ]
     },
-    "interest_revenue_collector": {
+    "discounts_contract": {
+      "description": "System Discounts contract",
       "type": [
         "string",
         "null"
       ]
     },
     "liq_fee": {
-      "$ref": "#/definitions/Decimal"
+      "description": "Protocol liquidation fee to restrict self liquidations",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Decimal"
+        }
+      ]
     },
     "liquidity_contract": {
+      "description": "Liquidity Check contract",
       "type": [
         "string",
         "null"
       ]
     },
     "oracle_contract": {
+      "description": "Oracle contract",
       "type": [
         "string",
         "null"
       ]
     },
     "oracle_time_limit": {
+      "description": "Seconds until oracle failure is acceoted",
       "type": "integer",
       "format": "uint64",
       "minimum": 0.0
     },
     "osmosis_proxy": {
+      "description": "Osmosis Proxy contract",
       "type": [
         "string",
         "null"
       ]
     },
     "owner": {
+      "description": "Contract Owner",
       "type": [
         "string",
         "null"
       ]
     },
     "stability_pool": {
+      "description": "Stability Pool contract",
       "type": [
         "string",
         "null"
       ]
     },
     "staking_contract": {
+      "description": "MBRN Staking contract",
       "type": [
         "string",
         "null"
       ]
     }
   },
+  "additionalProperties": false,
   "definitions": {
     "Decimal": {
       "description": "A fixed-point decimal value with 18 fractional digits, i.e. Decimal(1_000_000_000_000_000_000) == 1.0\n\nThe greatest possible value that can be represented is 340282366920938463463.374607431768211455 (which is (2^128 - 1) / 10^18)",

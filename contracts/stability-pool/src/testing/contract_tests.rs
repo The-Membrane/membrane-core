@@ -35,6 +35,7 @@ fn deposit() {
         },
         osmosis_proxy: String::from("osmosis_proxy"),
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         max_incentives: None,
@@ -136,6 +137,7 @@ fn withdrawal() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 
@@ -320,6 +322,7 @@ fn liquidate() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 
@@ -407,6 +410,7 @@ fn liquidate_bignums() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 
@@ -474,6 +478,7 @@ fn distribute() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 
@@ -706,6 +711,7 @@ fn distribute_bignums() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 
@@ -869,6 +875,7 @@ fn claims() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 
@@ -1143,6 +1150,7 @@ fn update_config(){
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 
@@ -1156,7 +1164,8 @@ fn update_config(){
         max_incentives: Some(Uint128::new(100)), 
         unstaking_period: Some(1),  
         osmosis_proxy: Some(String::from("new_op")), 
-        positions_contract: Some(String::from("new_cdp")), 
+        positions_contract: Some(String::from("new_cdp")),
+        oracle_contract: Some(String::from("new_oracle")),
         mbrn_denom: Some(String::from("new_denom")), 
     });
 
@@ -1185,7 +1194,8 @@ fn update_config(){
             max_incentives: Uint128::new(100),
             unstaking_period: 1,  
             osmosis_proxy: Addr::unchecked("new_op"), 
-            positions_contract: Addr::unchecked("new_cdp"), 
+            positions_contract: Addr::unchecked("new_cdp"),
+            oracle_contract: Addr::unchecked("new_oracle"), 
             mbrn_denom: String::from("new_denom"), 
         },
     );
@@ -1211,6 +1221,7 @@ fn capital_ahead_of_deposits() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         positions_contract: String::from("positions_contract"),
+        oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
     };
 

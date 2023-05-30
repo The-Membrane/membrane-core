@@ -30,7 +30,7 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-
+    
     let mut config: Config;
     if msg.owner.is_some() {
         config = Config {
@@ -323,67 +323,60 @@ fn get_asset_price(
             })
         }
     };
-
+    
     //twap_timeframe = MINUTES * MILLISECONDS_PER_MINUTE
     let twap_timeframe: i64 = (twap_timeframe as i64 * MILLISECONDS_PER_MINUTE);
     let start_time: i64 = current_unix_time - twap_timeframe;
 
     let mut oracle_prices = vec![];
 
-    //Set static price if some
-    if oracle_info.static_price.clone().is_some() {
-        oracle_prices.push(PriceInfo {
-            source: String::from("static_price"),
-            price: oracle_info.static_price.unwrap(),
-        });
-    } else {
-        let mut price_steps = vec![];
+    //Initialize price steps
+    let mut price_steps = vec![];
 
-        //Query price from the TWAP sources
-        //This is if we need to use multiple pools to calculate our price
-        for pool in oracle_info.osmosis_pools_for_twap {
+    //Query price from the TWAP sources
+    //This is if we need to use multiple pools to calculate our price
+    for pool in oracle_info.osmosis_pools_for_twap {
 
-            let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
-                pool.clone().pool_id, 
-                pool.clone().base_asset_denom, 
-                pool.clone().quote_asset_denom, 
-                Some(osmosis_std::shim::Timestamp {
-                    seconds:  start_time,
-                    nanos: 0,
-                }),
-            )?;
-
-            //Push TWAP
-            price_steps.push(Decimal::from_str(&res.geometric_twap).unwrap());
-        }
-
-        //Multiply prices
-        let price = {
-            let mut final_price = Decimal::one();
-            //If no prices were queried, return error
-            if price_steps.len() == 0 {
-                return Err(StdError::GenericErr {
-                    msg: String::from("No TWAP prices found"),
-                });
-            } 
-
-            //Multiply prices to get the desired Quote
-            for price in price_steps {
-                final_price = decimal_multiplication(final_price, price)?;
-            } 
-            
-
-            final_price
-        };
-        //Results in slight error: (https://medium.com/reflexer-labs/analysis-of-the-rai-twap-oracle-20a01af2e49d)
+        let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
+            pool.clone().pool_id, 
+            pool.clone().base_asset_denom, 
+            pool.clone().quote_asset_denom, 
+            Some(osmosis_std::shim::Timestamp {
+                seconds:  start_time,
+                nanos: 0,
+            }),
+        )?;
 
         //Push TWAP
-        oracle_prices.push(PriceInfo {
-            source: String::from("osmosis"),
-            price,
-        });
+        price_steps.push(Decimal::from_str(&res.geometric_twap).unwrap());
     }
 
+    //Multiply prices
+    let price = {
+        let mut final_price = Decimal::one();
+        //If no prices were queried, return error
+        if price_steps.len() == 0 {
+            return Err(StdError::GenericErr {
+                msg: String::from("No TWAP prices found"),
+            });
+        } 
+
+        //Multiply prices to get the desired Quote
+        for price in price_steps {
+            final_price = decimal_multiplication(final_price, price)?;
+        } 
+        
+
+        final_price
+    };
+    //Results in slight error: (https://medium.com/reflexer-labs/analysis-of-the-rai-twap-oracle-20a01af2e49d)
+
+    //Push TWAP
+    oracle_prices.push(PriceInfo {
+        source: String::from("osmosis"),
+        price,
+    });
+    
     //////If AssetOracleInfo gets more fields we can just push those prices here////
 
     //Get Median price

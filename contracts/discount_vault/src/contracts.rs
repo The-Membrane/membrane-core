@@ -45,6 +45,7 @@ pub fn instantiate(
             positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
             osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             accepted_LPs: vec![],
+            deposits_enabled: false,
         };
     } else {
         config = Config {
@@ -52,6 +53,7 @@ pub fn instantiate(
             positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
             osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             accepted_LPs: vec![],
+            deposits_enabled: false,
         };
     }
     let mut err: Option<StdError> = None;
@@ -95,7 +97,8 @@ fn create_and_validate_LP_object(
     let share_token = AssetInfo::NativeToken { denom: res.clone().shares.denom };
     
     //Get debt token
-    let debt_token = querier.query_wasm_smart::<Basket>(positions_contract, &CDPQueryMsg::GetBasket{  })?.credit_asset.info;
+    let basket: Basket = querier.query_wasm_smart(positions_contract, &CDPQueryMsg::GetBasket{  })?;
+    let debt_token = basket.credit_asset.info;
 
     if let false = res.clone().assets.into_iter().any(|deposit| deposit.denom == debt_token.to_string()){
         return Err(StdError::GenericErr { msg: format!("LP dosn't contain the debt token: {}", debt_token) })
@@ -116,6 +119,7 @@ pub fn execute(
         ExecuteMsg::Withdraw { withdrawal_assets } => withdraw(deps, info, withdrawal_assets),
         ExecuteMsg::ChangeOwner { owner } => change_owner(deps, info, owner),
         ExecuteMsg::EditAcceptedLPs { pool_ids, remove } => edit_LPs(deps, info, pool_ids, remove),
+        ExecuteMsg::ToggleDeposits { enable } => toggle_deposits(deps, info, enable),
     }
 }
 
@@ -126,7 +130,12 @@ fn deposit(
     info: MessageInfo,
 ) -> Result<Response, ContractError>{
     let config = CONFIG.load(deps.storage)?;
+
+    //Check if deposits are enabled
+    if config.deposits_enabled == false { return Err(ContractError::DepositsDisabled {  }) }
+
     let valid_assets = validate_assets(info.clone().funds, config.clone().accepted_LPs);
+    
     if valid_assets.len() < info.clone().funds.len(){ return Err(ContractError::InvalidAsset {  }) }
 
     //Add deposits to User
@@ -185,7 +194,7 @@ fn withdraw(
     let config = CONFIG.load(deps.storage)?;
     let mut user = USERS.load(deps.storage, info.clone().sender)?;
 
-    //Remove invalid & unowned assets
+    //Remove unowned assets
     for (index, asset) in withdrawal_assets.clone().into_iter().enumerate(){
         if let false = user.clone().vaulted_lps.into_iter().any(|deposit| deposit.gamm.equal(&asset.info)){
             withdrawal_assets.remove(index);
@@ -306,6 +315,31 @@ fn edit_LPs(
     )
 }
 
+/// Toggle the ability to deposit LPs.
+fn toggle_deposits(    
+    deps: DepsMut,
+    info: MessageInfo,
+    toggle: bool,
+) -> Result<Response, ContractError>{
+    let mut config = CONFIG.load(deps.storage)?;
+
+    //Validate Authority
+    if info.clone().sender != config.clone().owner{ return Err(ContractError::Unauthorized {  }) }
+
+    //Toggle
+    config.deposits_enabled = toggle;
+
+    //Save config
+    CONFIG.save(deps.storage, &config)?;
+
+    Ok(Response::new()
+        .add_attributes(vec![
+            attr("method", "toggle_deposit"),
+            attr("toggle", toggle.to_string())]),
+    )
+}
+
+
 /// Validate assets and return only those that are accepted.
 fn validate_assets(
     funds: Vec<Coin>,
@@ -352,7 +386,7 @@ fn get_user_response(
     
     //Get Positions Basket
     let basket: Basket = deps.querier
-        .query_wasm_smart::<Basket>(config.clone().positions_contract, &CDPQueryMsg::GetBasket{  })?;
+        .query_wasm_smart(config.clone().positions_contract, &CDPQueryMsg::GetBasket{  })?;
 
 
     let mut LP_value = Uint128::zero();
@@ -370,6 +404,8 @@ fn get_user_response(
         }
     }
     //Multiply LP value by 2 to account for the non-debt side
+    //Assumption of a 50:50 LP, meaning unbalanced stableswaps are boosted
+    //This could be a "bug" but for now it's a feature to benefit LPs during distressed times
     LP_value = LP_value * Uint128::new(2);
 
     Ok(UserResponse { user, deposits: vault_user.vaulted_lps, discount_value: LP_value })

@@ -138,14 +138,14 @@ pub enum QueryMsg {
         /// User address
         user: String,
     },
-    /// Returns PremiumSlotResponse
+    /// Returns SlotResponse
     PremiumSlot {
         /// Bid for asset
         bid_for: AssetInfo,
         /// Premium slot. Taken as % 50 = 50%.
         premium: u64, 
     },
-    /// Returns multiple PremiumSlotResponses
+    /// Returns multiple SlotResponse
     PremiumSlots {
         /// Bid for asset
         bid_for: AssetInfo,

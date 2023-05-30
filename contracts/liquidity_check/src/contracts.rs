@@ -38,14 +38,14 @@ pub fn instantiate(
             owner: deps.api.addr_validate(&owner)?,
             osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
-            stableswap_multiplier: Decimal::percent(10_00),
+            stableswap_multiplier: Decimal::one(),
         };
     } else {
         config = Config {
             owner: info.sender,
             osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
-            stableswap_multiplier: Decimal::percent(10_00),
+            stableswap_multiplier: Decimal::one(),
         };
     }
 

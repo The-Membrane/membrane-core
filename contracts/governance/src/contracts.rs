@@ -7,7 +7,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use cw_storage_plus::Bound;
 
-use membrane::vesting::{AllocationResponse, QueryMsg as VestingQueryMsg};
+use membrane::vesting::{AllocationResponse, QueryMsg as VestingQueryMsg, RecipientsResponse};
 use membrane::governance::helpers::validate_links;
 use membrane::governance::{
     Config, ExecuteMsg, InstantiateMsg, Proposal, ProposalListResponse, ProposalMessage,
@@ -142,10 +142,11 @@ pub fn submit_proposal(
     let config = CONFIG.load(deps.storage)?;
 
     //Assert minimum total stake from staking contract
-    let total_staked = deps.querier.query_wasm_smart::<TotalStakedResponse>(
+    let res: TotalStakedResponse = deps.querier.query_wasm_smart(
         config.staking_contract_addr,
         &StakingQueryMsg::TotalStaked {  },
-    )?.total_not_including_vested;
+    )?;
+    let total_staked = res.total_not_including_vested;
     
     if total_staked < config.minimum_total_stake {
         return Err(ContractError::InsufficientTotalStake { minimum: config.minimum_total_stake.into() });
@@ -274,11 +275,6 @@ pub fn cast_vote(
         return Err(ContractError::VotingPeriodEnded {});
     }
 
-    if proposal.for_voters.contains(&info.sender) || proposal.against_voters.contains(&info.sender)
-    {
-        return Err(ContractError::UserAlreadyVoted {});
-    }
-
     let voting_power = calc_voting_power(
         deps.as_ref(),
         info.sender.to_string(),
@@ -290,6 +286,16 @@ pub fn cast_vote(
 
     if voting_power.is_zero() {
         return Err(ContractError::NoVotingPower {});
+    }
+
+    //Remove previous vote
+    if let Some((vote, _)) = proposal.for_voters.clone().into_iter().enumerate().find(|(_, voter)| voter == &info.sender) {
+        proposal.for_voters.remove(vote);
+        proposal.for_power = proposal.for_power.checked_sub(voting_power)?;
+
+    } else if let Some((vote, _)) = proposal.against_voters.clone().into_iter().enumerate().find(|(_, voter)| voter == &info.sender) {
+        proposal.against_voters.remove(vote);
+        proposal.against_power = proposal.against_power.checked_sub(voting_power)?;
     }
 
     match vote_option {
@@ -333,7 +339,11 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
     let total_votes = for_votes + against_votes;
 
     let total_voting_power =
-        calc_total_voting_power_at(deps.as_ref(), proposal.clone().start_time, config.quadratic_voting)?;
+        calc_total_voting_power_at(
+            deps.as_ref(), 
+            proposal.clone().start_time, 
+            config.quadratic_voting,
+        )?;
 
     let mut proposal_quorum: Decimal = Decimal::zero();
     let mut proposal_threshold: Decimal = Decimal::zero();
@@ -533,7 +543,11 @@ pub fn update_config(
 }
 
 /// Calc total voting power at a specific time
-pub fn calc_total_voting_power_at(deps: Deps, start_time: u64, quadratic_voting: bool) -> StdResult<Uint128> {
+pub fn calc_total_voting_power_at(
+    deps: Deps,
+    start_time: u64,
+    quadratic_voting: bool,
+) -> StdResult<Uint128> {
     let config = CONFIG.load(deps.storage)?;
 
     //Pulls stake from before Proposal's start_time
@@ -550,29 +564,44 @@ pub fn calc_total_voting_power_at(deps: Deps, start_time: u64, quadratic_voting:
         }))?
         .stakers;
 
+    //Initialize total voting power
+    let mut total: Uint128;
+
     //Calc total voting power
-    let total: Uint128;
     if staked_mbrn == vec![] {
         total = Uint128::zero()
     } else {
         total = staked_mbrn
             .into_iter()
             .map(|stake| {
-                // Take square root of total stake if quadratic voting is enabled
-                if quadratic_voting {
-                    let stake_total_root = (stake.amount.u128()).sqrt();
-                    let stake_total = Uint128::from(stake_total_root);
-                    
-                    stake_total
-                } else {
-                    stake.amount
-                }
-                
+                stake.amount               
                 
             })
             .collect::<Vec<Uint128>>()
             .into_iter()
             .sum();
+
+        //Get Vesting Recipients
+        let recipients = deps
+            .querier
+            .query::<RecipientsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: config.vesting_contract_addr.to_string(),
+                msg: to_binary(&VestingQueryMsg::Recipients {  })?,
+            }))?;
+        
+        //Add voting power of each vesting recipient
+        for recipient in recipients.recipients {
+            if let Some(allocation) = recipient.allocation {
+                total += allocation.remaining_amount * config.vesting_voting_power_multiplier;
+            }            
+        }
+        
+    }
+        
+    // Take square root of total stake if quadratic voting is enabled
+    if quadratic_voting {
+        let total_root = (total.u128()).sqrt();
+        total = Uint128::from(total_root);
     }    
 
     Ok(total)

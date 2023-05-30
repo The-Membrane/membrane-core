@@ -6,10 +6,32 @@ use crate::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
 use crate::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use crate::liquidity_check::QueryMsg as LiquidityQueryMsg;
 use crate::stability_pool::QueryMsg as SP_QueryMsg;
+use crate::oracle::PriceResponse;
 use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, PositionResponse};
 
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
+
+/// Returns asset price from the oracle contract 
+/// with the assumption that its the shared oracle contract.
+pub fn query_asset_price(
+    querier: QuerierWrapper,
+    oracle_contract: String,
+    asset_info: AssetInfo,
+    twap_timeframe: u64,
+    basket_id: Option<Uint128>,
+) -> StdResult<Decimal> {
+    let res: PriceResponse = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: oracle_contract,
+        msg: to_binary(&crate::oracle::QueryMsg::Price {
+            asset_info,
+            twap_timeframe,
+            basket_id,
+        })?,
+    }))?;
+
+    Ok(res.price)
+}
 
 /// Returns asset liquidity from the liquidity check contract
 pub fn get_asset_liquidity(
@@ -281,7 +303,7 @@ pub fn accrue_user_positions(
     user: String,
     limit: u32,
 ) -> StdResult<CosmosMsg> {
-    let user_positions = querier.query_wasm_smart::<Vec<PositionResponse>>(
+    let user_positions: Vec<PositionResponse> = querier.query_wasm_smart(
         positions_contract.to_string(),
         &CDPQueryMsg::GetUserPositions { 
             user: user.clone(),

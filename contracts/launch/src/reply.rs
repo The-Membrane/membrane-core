@@ -46,7 +46,7 @@ pub fn handle_create_denom_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdRes
         let addrs = ADDRESSES.load(deps.storage)?;
         
         //Get denoms
-        let denoms: Vec<String> = deps.querier.query_wasm_smart::<Vec<String>>(addrs.osmosis_proxy, &OPQueryMsg::GetContractDenoms { limit: None })?;
+        let denoms: Vec<String> = deps.querier.query_wasm_smart(addrs.osmosis_proxy, &OPQueryMsg::GetContractDenoms { limit: None })?;
         //We know CDT is first
         config.credit_denom = denoms[0].clone();
         config.mbrn_denom = denoms[1].clone();
@@ -63,10 +63,14 @@ pub fn handle_create_denom_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdRes
 }
 
 /// Save Balancer Pool IDs
-pub fn handle_balancer_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<Response>{
+pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{
     match msg.clone().result.into_result() {
         Ok(result) => {
         let mut credit_pools = CREDIT_POOL_IDS.load(deps.storage)?;
+        let addrs = ADDRESSES.load(deps.storage)?;
+        let config = CONFIG.load(deps.storage)?;
+
+        let mut msgs: Vec<CosmosMsg> = vec![];
         
         //Get Balancer Pool denom from Response
         if let Some(b) = result.data {
@@ -78,8 +82,52 @@ pub fn handle_balancer_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<
             //Save Pool ID
             //OSMO pool replies first
             if credit_pools.osmo == 0 {
+                // OSMO/CDT pool
                 credit_pools.osmo = res.pool_id;
+
+                //Mint MBRN for Incentives
+                let op_msg = OPExecuteMsg::MintTokens { 
+                    denom: config.clone().mbrn_denom, 
+                    amount: Uint128::new(1_500_000_000_000), 
+                    mint_to_address: env.clone().contract.address.to_string(),
+                };
+                let op_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: addrs.clone().osmosis_proxy.to_string(), 
+                    msg: to_binary(&op_msg)?, 
+                    funds: vec![], 
+                });
+                msgs.push(op_msg);
+                
+                //Get Balancer denom from Response
+                let pool_denom = deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                    contract_addr: addrs.clone().osmosis_proxy.to_string(), 
+                    msg: to_binary(&OPQueryMsg::PoolState {
+                        id: res.pool_id,
+                    })?,
+                }))?.shares.denom;
+                
+
+                //Incentivize the OSMO/CDT pool
+                //14 day guage
+                let msg = MsgCreateGauge { 
+                    is_perpetual: false, 
+                    owner: env.clone().contract.address.to_string(),
+                    distribute_to: Some(QueryCondition { 
+                        lock_query_type: 0, //ByDuration
+                        denom: pool_denom,
+                        duration: Some(Duration { seconds: 14 * SECONDS_PER_DAY as i64, nanos: 0 }), 
+                        timestamp: None,
+                    }), 
+                    coins: vec![Coin {
+                        denom: config.clone().mbrn_denom, 
+                        amount: String::from("1_500_000_000_000"),
+                    }], 
+                    start_time: None, 
+                    num_epochs_paid_over: 180, //days
+                }.into();
+                msgs.push(msg);
             } else {
+                // ATOM/CDT Pool
                 credit_pools.atom = res.pool_id;
             }
 
@@ -87,6 +135,7 @@ pub fn handle_balancer_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdResult<
         }
 
         Ok(Response::new()
+            .add_messages(msgs)
             .add_attribute("pools_saved", format!("{:?}", credit_pools.to_vec()))
         )
     },
@@ -108,7 +157,7 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
         //Mint MBRN for Incentives
         let op_msg = OPExecuteMsg::MintTokens { 
             denom: config.clone().mbrn_denom, 
-            amount: Uint128::new(1_000_000_000_000), 
+            amount: Uint128::new(500_000_000_000), 
             mint_to_address: env.clone().contract.address.to_string(),
         };
         let op_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
@@ -148,7 +197,7 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             }), 
             coins: vec![Coin {
                 denom: config.clone().mbrn_denom, 
-                amount: String::from("1_000_000_000_000"),
+                amount: String::from("500_000_000_000"),
             }], 
             start_time: None, 
             num_epochs_paid_over: 90, //days
@@ -632,7 +681,6 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                                     quote_asset_denom: config.clone().usdc_denom.to_string(),  
                                 },
                             ],
-                            static_price: None,
                         },
                     })?, 
                     funds: vec![],
@@ -650,21 +698,6 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                                 base_asset_denom: config.clone().osmo_denom.to_string(), 
                                 quote_asset_denom: config.clone().usdc_denom.to_string(),  
                             }],
-                            static_price: None,
-                        },
-                    })?, 
-                    funds: vec![],
-                }));
-            /// USDC
-            msgs.push(
-                CosmosMsg::Wasm(WasmMsg::Execute { 
-                    contract_addr: addrs.clone().oracle.to_string(), 
-                    msg: to_binary(&OracleExecuteMsg::AddAsset { 
-                        asset_info: AssetInfo::NativeToken { denom: config.clone().usdc_denom }, 
-                        oracle_info: AssetOracleInfo { 
-                            basket_id: Uint128::one(), 
-                            osmosis_pools_for_twap: vec![],
-                            static_price: Some(Decimal::one()),
                         },
                     })?, 
                     funds: vec![],
@@ -694,18 +727,6 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     },
                     max_borrow_LTV: Decimal::percent(45),
                     max_LTV: Decimal::percent(60),
-                    pool_info: None,
-                    rate_index: Decimal::one(),
-                },
-                cAsset {
-                    asset: Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: config.clone().usdc_denom,
-                        },
-                        amount: Uint128::from(0u128),
-                    },
-                    max_borrow_LTV: Decimal::percent(90),
-                    max_LTV: Decimal::percent(96),
                     pool_info: None,
                     rate_index: Decimal::one(),
                 }],
@@ -742,6 +763,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     max_incentives: None,
                     osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),
                     positions_contract: addrs.clone().positions.to_string(),
+                    oracle_contract: addrs.clone().oracle.to_string(),
                     mbrn_denom: config.clone().mbrn_denom,
                 })?, 
                 funds: vec![], 
@@ -810,7 +832,7 @@ pub fn handle_sp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
     }    
 }
 
-/// Add LQ to Basket alongside both LPs & 3/5 SupplyCaps.
+/// Add LQ to Basket alongside 1 LP & 3/4 SupplyCaps.
 /// Instantiate Liquidity Check
 pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
@@ -845,7 +867,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
             ADDRESSES.save(deps.storage, &addrs)?;
 
             let mut msgs = vec![];
-            //Add LQ to Basket alongside 1/2 LPs & 3/5 SupplyCaps
+            //Add LQ to Basket alongside only LP & 3/4 SupplyCaps
             let msg = CDPExecuteMsg::EditBasket(EditBasket {
                 added_cAsset: Some(cAsset {
                     asset: Asset {
@@ -885,16 +907,6 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
                     stability_pool_ratio_for_debt_cap: None,
-                },
-                SupplyCap {
-                    asset_info: AssetInfo::NativeToken {
-                        denom: config.clone().usdc_denom,
-                    },
-                    current_supply: Uint128::zero(),
-                    debt_total: Uint128::zero(),
-                    supply_cap_ratio: Decimal::percent(100),
-                    lp: false,
-                    stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 credit_asset_twap_price_source: None,
@@ -910,43 +922,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 msg: to_binary(&msg)?, 
                 funds: vec![], 
             });
-            msgs.push(msg);
-            //Add 2/2 LPs
-            let msg = CDPExecuteMsg::EditBasket(EditBasket {
-                added_cAsset: Some(cAsset {
-                    asset: Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: config.clone().osmousdc_pool_id.to_string(), //This gets auto-filled
-                        },
-                        amount: Uint128::from(0u128),
-                    },
-                    max_borrow_LTV: Decimal::percent(45),
-                    max_LTV: Decimal::percent(60),
-                    pool_info: Some(PoolInfo { 
-                        pool_id: config.clone().osmousdc_pool_id, 
-                        asset_infos: vec![
-                            LPAssetInfo { info: AssetInfo::NativeToken { denom: config.clone().osmo_denom }, decimals: 6, ratio: Decimal::percent(50) },
-                            LPAssetInfo { info: AssetInfo::NativeToken { denom: config.clone().usdc_denom }, decimals: 6, ratio: Decimal::percent(50) }], 
-                    }),
-                    rate_index: Decimal::one(),
-                }),
-                liq_queue: None,
-                collateral_supply_caps: None,
-                base_interest_rate: None,
-                credit_asset_twap_price_source: None,
-                negative_rates: None,
-                cpc_margin_of_error: None,
-                frozen: None,
-                rev_to_stakers: None,
-                multi_asset_supply_caps: None,
-                credit_pool_infos: None,
-            });
-            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-                contract_addr: addrs.clone().positions.to_string(), 
-                msg: to_binary(&msg)?, 
-                funds: vec![], 
-            });
-            msgs.push(msg);            
+            msgs.push(msg);  
                        
             //Instantiate Liquidity Check
             let lc_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
@@ -1321,7 +1297,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                 }));
             
             /////Query saved share tokens in Position's contract & add Supply Caps for them
-            let basket = deps.querier.query_wasm_smart::<Basket>(
+            let basket: Basket = deps.querier.query_wasm_smart(
                 addrs.clone().positions.to_string(), 
             &CDPQueryMsg::GetBasket {  }
             )?;

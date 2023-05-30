@@ -490,7 +490,7 @@ mod tests {
                 staking_contract: None, 
                 stability_pool_contract: Some(String::from("new_stability_pool_contract")), 
                 lockdrop_contract: Some(String::from("new_lockdrop_contract")), 
-                discount_vault_contract: Some(String::from("new_discount_vault_contract")), 
+                discount_vault_contract: Some((String::from("new_discount_vault_contract"), true)), 
                 minimum_time_in_network: Some(14),
             });
             let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
@@ -515,9 +515,24 @@ mod tests {
                     staking_contract: Addr::unchecked("contract2"), 
                     stability_pool_contract: Addr::unchecked("new_stability_pool_contract"), 
                     lockdrop_contract: Some(Addr::unchecked("new_lockdrop_contract")), 
-                    discount_vault_contract: Some(Addr::unchecked("new_discount_vault_contract")), 
+                    discount_vault_contract: vec![Addr::unchecked("contract3"), Addr::unchecked("new_discount_vault_contract")], 
                     minimum_time_in_network: 14,
             });
+
+            //Remove old discount vault
+            //Successful UpdateConfig
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
+                owner: None, 
+                positions_contract: None,                 
+                oracle_contract: None, 
+                staking_contract: None, 
+                stability_pool_contract: None, 
+                lockdrop_contract: None, 
+                discount_vault_contract: Some((String::from("contract3"), false)), 
+                minimum_time_in_network: None,
+            });
+            let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
         }
     }
 }

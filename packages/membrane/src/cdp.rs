@@ -12,7 +12,7 @@ use crate::types::{
 pub struct InstantiateMsg {
     /// Contract Owner
     pub owner: Option<String>,
-    /// Seconds until oracle failure is acceoted
+    /// Seconds until oracle failure is accepted
     pub oracle_time_limit: u64, 
     /// Minimum debt per position to ensure liquidatibility 
     pub debt_minimum: Uint128, 

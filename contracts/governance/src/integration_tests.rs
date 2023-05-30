@@ -180,7 +180,7 @@ mod tests {
                 match msg {
                     Vesting_MockQueryMsg::Allocation { recipient } => {
                         Ok(to_binary(&AllocationResponse {
-                            amount: Uint128::new(1000000000),
+                            amount: Uint128::new(4000000000),
                             amount_withdrawn: Uint128::zero(),
                             start_time_of_allocation: 0,
                             vesting_period: VestingPeriod {
@@ -296,7 +296,7 @@ mod tests {
             ProposalVoteOption, ProposalVotesResponse, UpdateConfig, Proposal
         };
 
-        //#[test]
+        #[test]
         fn stake_minimum() {
             let (mut app, gov_contract, bv_contract_addr) = proper_instantiate();
 
@@ -343,7 +343,7 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
         }
 
-        //#[test]
+        #[test]
         fn submit_proposal() {
             let (mut app, gov_contract, bv_contract_addr) = proper_instantiate();
 
@@ -546,7 +546,7 @@ mod tests {
             );
         }
 
-        //#[test]
+        #[test]
         fn successful_proposal() {
             let (mut app, gov_contract, bv_contract_addr) = proper_instantiate();
 
@@ -714,6 +714,70 @@ mod tests {
                 .unwrap();
             assert_eq!(total_voting_power, voting_power_1 + voting_power_2);
 
+            //Change the initial "Against" to For
+            let msg = ExecuteMsg::CastVote {
+                proposal_id: 1u64,
+                vote: ProposalVoteOption::For,
+                recipient: None,
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Assertations
+            let proposal: Proposal = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::Proposal { proposal_id: 1 },
+                )
+                .unwrap();
+
+            let proposal_votes: ProposalVotesResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::ProposalVotes { proposal_id: 1 },
+                )
+                .unwrap();
+
+            let proposal_for_voters: Vec<Addr> = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::ProposalVoters {
+                        proposal_id: 1,
+                        vote_option: ProposalVoteOption::For,
+                        start: None,
+                        limit: None,
+                        specific_user: None,
+                    },
+                )
+                .unwrap();
+
+            let proposal_against_voters: Vec<Addr> = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::ProposalVoters {
+                        proposal_id: 1,
+                        vote_option: ProposalVoteOption::Against,
+                        start: None,
+                        limit: None,
+                        specific_user: None,
+                    },
+                )
+                .unwrap();
+
+            // Check proposal votes & assert quadratic weighing
+            assert_eq!(proposal.for_power, Uint128::new(39_367)); 
+            assert_eq!(proposal.against_power, Uint128::zero());
+
+            assert_eq!(proposal_votes.for_power, Uint128::new(39_367));
+            assert_eq!(proposal_votes.against_power, Uint128::zero());
+
+            assert_eq!(proposal_for_voters, vec![Addr::unchecked("user"), Addr::unchecked("admin")]);
+            assert_eq!(proposal_against_voters.len(), 0 as usize);
+
             // Skip voting period
             app.update_block(|bi| {
                 bi.height += 7 * PROPOSAL_VOTING_PERIOD + 1;
@@ -859,7 +923,7 @@ mod tests {
             
         }
 
-        //#[test]
+        #[test]
         fn unsuccessful_proposal() {
             let (mut app, gov_contract, bv_contract_addr) = proper_instantiate();
 
@@ -972,7 +1036,7 @@ mod tests {
             assert_eq!(res.proposal_count, Uint64::from(1u32));
         }
 
-        //#[test]
+        #[test]
         fn check_messages() {
             let (mut app, gov_contract, bv_contract_addr) = proper_instantiate();
 

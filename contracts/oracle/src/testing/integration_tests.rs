@@ -7,7 +7,7 @@ mod tests {
     use membrane::types::{AssetInfo, AssetOracleInfo, TWAPPoolInfo};
 
     use cosmwasm_std::{
-        coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
+        coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
     use schemars::JsonSchema;
@@ -123,7 +123,7 @@ mod tests {
     mod oracle {
 
         use super::*;
-        use membrane::oracle::{Config, AssetResponse, PriceResponse};
+        use membrane::oracle::{Config, AssetResponse};
 
         #[test]
         fn add_edit() {
@@ -141,7 +141,6 @@ mod tests {
                         base_asset_denom: String::from("credit_fulldenom"),
                         quote_asset_denom: String::from("axlusdc"),
                     }],
-                    static_price: None,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -159,7 +158,6 @@ mod tests {
                         base_asset_denom: String::from("credit_fulldenom"),
                         quote_asset_denom: String::from("axlusdc"),
                     }],
-                    static_price: None,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -177,7 +175,6 @@ mod tests {
                         base_asset_denom: String::from("credit_fulldenom"),
                         quote_asset_denom: String::from("axlusdc"),
                     }],
-                    static_price: None,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -196,7 +193,6 @@ mod tests {
                         base_asset_denom: String::from("credit_fulldenom"),
                         quote_asset_denom: String::from("uosmo"),
                     }],
-                    static_price: None,
                 }),
                 remove: false,
             };
@@ -229,7 +225,6 @@ mod tests {
                         base_asset_denom: String::from("debit"),
                         quote_asset_denom: String::from("uosmo"),
                     }],
-                    static_price: None,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();

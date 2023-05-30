@@ -594,6 +594,11 @@ mod tests {
                 app.wrap().query_all_balances(USER).unwrap(),
                 vec![coin(201_000, "credit_fulldenom"), coin(99, "error"), coin(94_000, "fee_asset"),  coin(96_000, "mbrn_denom"), coin(2060, "uosmo")]
             );
+            //Assert Governance got the proceeds
+            assert_eq!(
+                app.wrap().query_all_balances("contract0").unwrap(),
+                vec![coin(93940, "uosmo")]
+            );
 
             //Assert Auction is empty
             let err = app

@@ -8,8 +8,8 @@ Auomated mixed-asset debt market protocol powered by smart contracts on [Osmosis
 | Name                                                       | Description                                  |
 | ---------------------------------------------------------- | -------------------------------------------- |
 | [`positions`](contracts/cdp)                               | Credit position manager                      |
-| [`liquidity queue`](contracts/liq_queue)                   | Debt liquidation queue                       |
-| [`stability pool`](contracts/stability_pool)               | Position stability pool                      |
+| [`liquidation queue`](contracts/liq-queue)                   | Debt liquidation queue                       |
+| [`stability pool`](contracts/stability-pool)               | Position stability pool                      |
 | [`debt auction`](contracts/debt_auction)                   | Last-resort MBRN auction for bad debt        |
 | [`oracle`](contracts/oracle)                               | TWAP oracles for approved assets             |
 | [`liquidity check`](contracts/liquidity_check)             | Checks for acceptable AMM liquidity of collateral assets ‎ ‎  ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ |
@@ -31,4 +31,4 @@ Auomated mixed-asset debt market protocol powered by smart contracts on [Osmosis
 
 
 ## Docs
-[Documentation](https://membrane-finance.gitbook.io/product-docs-1/)
+[Documentation](https://membrane-finance.gitbook.io/membrane-docs/)

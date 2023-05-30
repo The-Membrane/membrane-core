@@ -4,6 +4,8 @@ mod tests {
 
     use crate::helpers::MarginContract;
 
+    use apollo_cw_asset::{AssetInfoUnchecked, AssetListUnchecked};
+
     use membrane::margin_proxy::{ExecuteMsg, InstantiateMsg, QueryMsg};
     use membrane::cdp::PositionResponse;
     use membrane::types::{AssetInfo, cAsset, Asset, Basket};
@@ -179,7 +181,12 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Router_MockExecuteMsg {
-        
+        BasketLiquidate {
+            offer_assets: AssetListUnchecked,
+            receive_asset: AssetInfoUnchecked,
+            minimum_receive: Option<Uint128>,
+            to: Option<String>,
+        },
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
@@ -198,11 +205,11 @@ mod tests {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Router_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
-                    Router_MockExecuteMsg::Swap {
+                    Router_MockExecuteMsg::BasketLiquidate {
+                        offer_assets,
+                        receive_asset,
+                        minimum_receive,
                         to,
-                        max_spread,
-                        recipient,
-                        hook_msg
                     } => Ok(Response::default()),
                 }
             },

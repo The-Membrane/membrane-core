@@ -2,8 +2,8 @@ use cosmwasm_std::{CosmosMsg, StdResult, Decimal, to_binary, WasmMsg, coin, StdE
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
 use apollo_cw_asset::AssetInfoUnchecked;
-use cw_dex_router::msg::ExecuteMsg as RouterExecuteMsg;
 
+use crate::apollo_router::ExecuteMsg as RouterExecuteMsg;
 use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool}; 
 use crate::osmosis_proxy::{QueryMsg as OsmoQueryMsg, OwnerResponse};
 use crate::liquidity_check::QueryMsg as LiquidityQueryMsg;

@@ -54,8 +54,8 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
 
-    //Need to send 20 OSMO for CreateDenom Msgs
-    if info.funds[0].amount != Uint128::new(20_000_000) && info.funds[0].denom != String::from("uosmo"){ return Err(ContractError::NeedOsmo {}) }
+    //Need 20 OSMO for CreateDenom Msgs
+    if deps.querier.query_balance(env.clone().contract.address, denom)?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 

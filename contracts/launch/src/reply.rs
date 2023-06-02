@@ -101,7 +101,6 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
                 msg: to_binary(&Oracle_InstantiateMsg {
                     owner: None,
                     positions_contract: None,
-                    pyth_osmosis_address: None,
                     osmosis_proxy_contract: None,
                 })?, 
                 funds: vec![], 

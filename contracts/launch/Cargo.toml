@@ -31,6 +31,7 @@ optimize = """docker run --rm -v "$(pwd)":/code \
 
 [dependencies]
 membrane = { path = "../../packages/membrane" }
+apollo-cw-asset = "0.1.0"
 osmosis-std = { version = "0.15.2" }
 cosmwasm-std = { version = "1.0.0", features = ["stargate"] }
 cosmwasm-schema = "1.0.0"
@@ -41,6 +42,7 @@ schemars = "0.8.8"
 serde = { version = "1.0.137", default-features = false, features = ["derive"] }
 thiserror = { version = "1.0.31" }
 wasm = "0.0.0"
+cw-multi-test = "0.13.4"
 
 [dev-dependencies]
 cw-multi-test = "0.13.4"

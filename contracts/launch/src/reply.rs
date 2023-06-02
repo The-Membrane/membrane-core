@@ -53,7 +53,7 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "contract_address")
+                        .any(|attr| attr.key == "_contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -62,7 +62,7 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
             let contract_address = &instantiate_event
                 .attributes
                 .iter()
-                .find(|attr| attr.key == "contract_address")
+                .find(|attr| attr.key == "_contract_address")
                 .unwrap()
                 .value;
 
@@ -156,7 +156,7 @@ pub fn handle_oracle_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Resp
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "contract_address")
+                        .any(|attr| attr.key == "_contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -165,7 +165,7 @@ pub fn handle_oracle_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Resp
             let contract_address = &instantiate_event
                 .attributes
                 .iter()
-                .find(|attr| attr.key == "contract_address")
+                .find(|attr| attr.key == "_contract_address")
                 .unwrap()
                 .value;
 
@@ -216,7 +216,7 @@ pub fn handle_staking_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "contract_address")
+                        .any(|attr| attr.key == "_contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -225,7 +225,7 @@ pub fn handle_staking_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
             let contract_address = &instantiate_event
                 .attributes
                 .iter()
-                .find(|attr| attr.key == "contract_address")
+                .find(|attr| attr.key == "_contract_address")
                 .unwrap()
                 .value;
 
@@ -271,7 +271,7 @@ pub fn handle_vesting_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "contract_address")
+                        .any(|attr| attr.key == "_contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -280,7 +280,7 @@ pub fn handle_vesting_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
             let contract_address = &instantiate_event
                 .attributes
                 .iter()
-                .find(|attr| attr.key == "contract_address")
+                .find(|attr| attr.key == "_contract_address")
                 .unwrap()
                 .value;
 
@@ -334,7 +334,7 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "contract_address")
+                        .any(|attr| attr.key == "_contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -343,7 +343,7 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
             let contract_address = &instantiate_event
                 .attributes
                 .iter()
-                .find(|attr| attr.key == "contract_address")
+                .find(|attr| attr.key == "_contract_address")
                 .unwrap()
                 .value;
 
@@ -428,7 +428,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "contract_address")
+                        .any(|attr| attr.key == "_contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -437,7 +437,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
             let contract_address = &instantiate_event
                 .attributes
                 .iter()
-                .find(|attr| attr.key == "contract_address")
+                .find(|attr| attr.key == "_contract_address")
                 .unwrap()
                 .value;
 
@@ -607,7 +607,7 @@ pub fn handle_sp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "contract_address")
+                        .any(|attr| attr.key == "_contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -616,7 +616,7 @@ pub fn handle_sp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
             let contract_address = &instantiate_event
                 .attributes
                 .iter()
-                .find(|attr| attr.key == "contract_address")
+                .find(|attr| attr.key == "_contract_address")
                 .unwrap()
                 .value;
 
@@ -665,7 +665,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "contract_address")
+                        .any(|attr| attr.key == "_contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -674,7 +674,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
             let contract_address = &instantiate_event
                 .attributes
                 .iter()
-                .find(|attr| attr.key == "contract_address")
+                .find(|attr| attr.key == "_contract_address")
                 .unwrap()
                 .value;
 
@@ -826,7 +826,7 @@ pub fn handle_lc_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "contract_address")
+                        .any(|attr| attr.key == "_contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -835,7 +835,7 @@ pub fn handle_lc_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
             let contract_address = &instantiate_event
                 .attributes
                 .iter()
-                .find(|attr| attr.key == "contract_address")
+                .find(|attr| attr.key == "_contract_address")
                 .unwrap()
                 .value;
 
@@ -883,7 +883,7 @@ pub fn handle_discount_vault_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdRe
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "contract_address")
+                        .any(|attr| attr.key == "_contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -892,7 +892,7 @@ pub fn handle_discount_vault_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdRe
             let contract_address = &instantiate_event
                 .attributes
                 .iter()
-                .find(|attr| attr.key == "contract_address")
+                .find(|attr| attr.key == "_contract_address")
                 .unwrap()
                 .value;
 
@@ -944,7 +944,7 @@ pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "contract_address")
+                        .any(|attr| attr.key == "_contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -953,7 +953,7 @@ pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
             let contract_address = &instantiate_event
                 .attributes
                 .iter()
-                .find(|attr| attr.key == "contract_address")
+                .find(|attr| attr.key == "_contract_address")
                 .unwrap()
                 .value;
 
@@ -1009,7 +1009,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                 .find(|e| {
                     e.attributes
                         .iter()
-                        .any(|attr| attr.key == "contract_address")
+                        .any(|attr| attr.key == "_contract_address")
                 })
                 .ok_or_else(|| {
                     StdError::generic_err(format!("unable to find instantiate event"))
@@ -1018,7 +1018,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
             let contract_address = &instantiate_event
                 .attributes
                 .iter()
-                .find(|attr| attr.key == "contract_address")
+                .find(|attr| attr.key == "_contract_address")
                 .unwrap()
                 .value;
 

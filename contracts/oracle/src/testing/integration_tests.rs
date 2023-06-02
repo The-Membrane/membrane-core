@@ -196,7 +196,6 @@ mod tests {
             owner: None,
             positions_contract: Some(cdp_contract_addr.to_string()),
             osmosis_proxy_contract: Some(osmosis_proxy_contract_addr.to_string()),
-            pyth_osmosis_address: None,
         };
 
         let oracle_contract_addr = app

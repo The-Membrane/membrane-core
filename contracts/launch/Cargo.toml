@@ -43,6 +43,3 @@ serde = { version = "1.0.137", default-features = false, features = ["derive"] }
 thiserror = { version = "1.0.31" }
 wasm = "0.0.0"
 cw-multi-test = "0.13.4"
-
-[dev-dependencies]
-cw-multi-test = "0.13.4"

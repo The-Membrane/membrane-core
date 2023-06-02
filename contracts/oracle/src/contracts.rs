@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use cosmwasm_std::{
     attr, entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper,
-    Response, StdError, StdResult, Storage, Uint128, Addr, 
+    Response, StdError, StdResult, Storage, Uint128,
 };
 use cw2::set_contract_version;
 
@@ -43,7 +43,7 @@ pub fn instantiate(
             owner: deps.api.addr_validate(&msg.owner.unwrap())?,
             positions_contract: None,
             osmosis_proxy_contract: None,            
-            pyth_osmosis_address: msg.pyth_osmosis_address.map_or(None, |addr| Some(deps.api.addr_validate(&addr).unwrap_or(Addr::unchecked("".to_string())))),
+            pyth_osmosis_address: Some(deps.api.addr_validate(&"osmo13ge29x4e2s63a8ytz2px8gurtyznmue4a69n5275692v3qn3ks8q7cwck7")?),
             osmo_usd_pyth_feed_id: PriceIdentifier::from_hex(OSMO_USD_PRICE_ID).unwrap(),
             pools_for_usd_par_twap: vec![],
         };
@@ -52,14 +52,10 @@ pub fn instantiate(
             owner: info.sender,
             positions_contract: None,
             osmosis_proxy_contract: None,
-            pyth_osmosis_address: msg.pyth_osmosis_address.map_or(None, |addr| Some(deps.api.addr_validate(&addr).unwrap_or(Addr::unchecked("".to_string())))),
+            pyth_osmosis_address: Some(deps.api.addr_validate(&"osmo13ge29x4e2s63a8ytz2px8gurtyznmue4a69n5275692v3qn3ks8q7cwck7")?),
             osmo_usd_pyth_feed_id: PriceIdentifier::from_hex(OSMO_USD_PRICE_ID).unwrap(),
             pools_for_usd_par_twap: vec![],
         };
-    }
-    //Set pyth osmosis address to None if validation fails
-    if config.clone().pyth_osmosis_address.is_some() && config.clone().pyth_osmosis_address.unwrap() == Addr::unchecked("".to_string()) {
-        config.pyth_osmosis_address = None;
     }
 
     // Add optional contracts

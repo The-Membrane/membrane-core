@@ -50,7 +50,7 @@ pub const SECONDS_PER_DAY: u64 = 86_400u64;
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
-    info: MessageInfo,
+    _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
 

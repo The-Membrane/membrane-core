@@ -133,13 +133,14 @@ fn update_config(
     }
     //Ensure desired asset has an oracle price
     if let Some(asset) = update.desired_asset {
-        match deps.querier.query_wasm_smart::<PriceResponse>(
+        let res: StdResult<PriceResponse> = deps.querier.query_wasm_smart(
             config.clone().oracle_contract, 
             &OracleQueryMsg::Price { 
                 asset_info: AssetInfo::NativeToken { denom: asset.clone() }, 
                 twap_timeframe: config.twap_timeframe, 
                 basket_id: None,
-            }){
+            });
+        match res {
                 Ok(_) => {
                     //Set desired asset
                     config.desired_asset = asset;

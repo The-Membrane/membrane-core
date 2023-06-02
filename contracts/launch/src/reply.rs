@@ -789,16 +789,15 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 funds: vec![], 
             });
             msgs.push(msg);            
-                       
+            
             //Instantiate Liquidity Check
             let lc_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
                 admin: Some(addrs.clone().governance.to_string()), 
                 code_id: config.clone().liquidity_check_id, 
                 msg: to_binary(&LCInstantiateMsg {
-                    owner: Some(addrs.clone().governance.to_string()),
-                    positions_contract: addrs.clone().positions.to_string(),
-                    osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),
-                    
+                    osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),   
+                    owner: Some(addrs.clone().governance.to_string()),    
+                    positions_contract: addrs.clone().positions.to_string(),             
                 })?, 
                 funds: vec![], 
                 label: String::from("liquidity_check"), 
@@ -911,8 +910,8 @@ pub fn handle_discount_vault_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdRe
                 code_id: config.clone().system_discounts_id, 
                 msg: to_binary(&SystemDiscountInstantiateMsg {
                     owner: Some(addrs.clone().governance.to_string()),
-                    positions_contract: addrs.clone().positions.to_string(),
                     oracle_contract: addrs.clone().oracle.to_string(),
+                    positions_contract: addrs.clone().positions.to_string(),
                     staking_contract: addrs.clone().staking.to_string(),
                     stability_pool_contract: addrs.clone().stability_pool.to_string(),
                     lockdrop_contract: None,
@@ -971,9 +970,10 @@ pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                 code_id: config.clone().mbrn_auction_id, 
                 msg: to_binary(&DAInstantiateMsg {
                     owner: Some(addrs.clone().governance.to_string()),
-                    positions_contract: addrs.clone().positions.to_string(),
                     oracle_contract: addrs.clone().oracle.to_string(),
                     osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),
+                    positions_contract: addrs.clone().positions.to_string(),
+                    governance_contract: addrs.clone().governance.to_string(),
                     twap_timeframe: 60u64,
                     mbrn_denom: config.clone().mbrn_denom,
                     initial_discount: Decimal::percent(1),

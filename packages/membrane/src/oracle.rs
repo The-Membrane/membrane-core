@@ -13,8 +13,6 @@ pub struct InstantiateMsg {
     pub positions_contract: Option<String>,
     /// Osmosis Proxy contract address
     pub osmosis_proxy_contract: Option<String>,
-    /// Pyth Osmosis address
-    pub pyth_osmosis_address: Option<String>,
 }
 
 #[cw_serde]

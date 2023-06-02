@@ -1,6 +1,6 @@
 use cosmwasm_std::{
     entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, WasmMsg,
-    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, Addr, coin, attr, Storage,
+    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, Addr, coin, attr, Storage, Empty,
 };
 use cw2::set_contract_version;
 
@@ -20,7 +20,7 @@ use osmosis_std::types::osmosis::gamm::v1beta1::PoolAsset;
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, ADDRESSES, LaunchAddrs, CREDIT_POOL_IDS, LOCKDROP, INCENTIVE_RATIOS, CreditPools};
-use crate::reply::{handle_auction_reply, handle_cdp_reply, handle_create_denom_reply, handle_gov_reply, handle_lc_reply, handle_lq_reply, handle_op_reply, handle_oracle_reply, handle_sp_reply, handle_stableswap_reply, handle_staking_reply, handle_vesting_reply};
+use crate::reply::{handle_auction_reply, handle_cdp_reply, handle_create_denom_reply, handle_gov_reply, handle_lc_reply, handle_lq_reply, handle_op_reply, handle_oracle_reply, handle_sp_reply, handle_stableswap_reply, handle_staking_reply, handle_vesting_reply, handle_discount_vault_reply, handle_system_discounts_reply, handle_balancer_reply};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "launch";
@@ -55,7 +55,7 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
 
     //Need 20 OSMO for CreateDenom Msgs
-    if deps.querier.query_balance(env.clone().contract.address, "uosmo")?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
+    // if deps.querier.query_balance(env.clone().contract.address, "uosmo")?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
@@ -104,7 +104,7 @@ pub fn instantiate(
     let msg = CosmosMsg::Wasm(WasmMsg::Instantiate { 
         admin: Some(env.clone().contract.address.to_string()),
         code_id: config.clone().osmosis_proxy_id,
-        msg: to_binary(&{})?,
+        msg: to_binary(&Empty {})?,
         funds: vec![],
         label: String::from("osmosis_proxy") 
     });
@@ -559,6 +559,9 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         DEBT_AUCTION_REPLY_ID => handle_auction_reply(deps, env, msg),
         STABLESWAP_REPLY_ID => handle_stableswap_reply(deps, env, msg),
         CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, env, msg),
+        SYSTEM_DISCOUNTS_REPLY_ID => handle_system_discounts_reply(deps, env, msg),
+        DISCOUNT_VAULT_REPLY_ID => handle_discount_vault_reply(deps, env, msg),
+        BALANCER_POOL_REPLY_ID => handle_balancer_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 }

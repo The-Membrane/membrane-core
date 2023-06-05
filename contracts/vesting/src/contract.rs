@@ -50,7 +50,7 @@ pub fn instantiate(
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
 
-    //Save Recipients w/ the Labs team as the first Recipient
+    //Save Recipients w/ the pre_launch_contributors as the first Recipient
     RECIPIENTS.save(deps.storage, &vec![
         Recipient { 
             recipient: deps.api.addr_validate(&msg.pre_launch_contributors)?, 

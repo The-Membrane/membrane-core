@@ -33,8 +33,8 @@ use osmosis_std::types::osmosis::lockup::QueryCondition;
 
 //Governance constants
 const PROPOSAL_VOTING_PERIOD: u64 = *VOTING_PERIOD_INTERVAL.start();
-const PROPOSAL_EFFECTIVE_DELAY: u64 = 0; //1 day
-const PROPOSAL_EXPIRATION_PERIOD: u64 = 100799; //14 days
+const PROPOSAL_EFFECTIVE_DELAY: u64 = 1; //1 day
+const PROPOSAL_EXPIRATION_PERIOD: u64 = 33600; //14 days
 const PROPOSAL_REQUIRED_STAKE: u128 = *STAKE_INTERVAL.start();
 const PROPOSAL_REQUIRED_QUORUM: &str = "0.33";
 const PROPOSAL_REQUIRED_THRESHOLD: &str = "0.66";
@@ -84,7 +84,7 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
                 })?, 
                 funds: coins(10_000_000, "uosmo"),
             });            
-            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+            let create_denom_submsg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: addrs.clone().osmosis_proxy.to_string(), 
                 msg: to_binary(&OPExecuteMsg::CreateDenom { 
                     subdenom: String::from("mbrn"), 
@@ -92,7 +92,7 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
                 })?, 
                 funds: coins(10_000_000, "uosmo"),
             });
-            sub_msgs.push(SubMsg::reply_on_success(msg, CREATE_DENOM_REPLY_ID));
+            sub_msgs.push(SubMsg::reply_on_success(create_denom_submsg, CREATE_DENOM_REPLY_ID));
 
             //Instantiate Oracle
             let oracle_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
@@ -1335,9 +1335,9 @@ pub fn handle_stableswap_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult
             multi_asset_supply_caps: None,
             base_interest_rate: None,
             credit_asset_twap_price_source: Some(TWAPPoolInfo {
-                pool_id: credit_pools.clone().stableswap,
+                pool_id: credit_pools.clone().osmo,
                 base_asset_denom: config.clone().credit_denom,
-                quote_asset_denom: config.clone().usdc_denom,
+                quote_asset_denom: config.clone().osmo_denom,
             }),
             negative_rates: None,
             cpc_margin_of_error: None,

@@ -1079,7 +1079,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                         is_position_contract: false,
                     }
                     ]), 
-                liquidity_multiplier: Some(Decimal::percent(10_00)), //10x or 10% liquidity to supply ratio
+                liquidity_multiplier: Some(Decimal::percent(5_00)), //5x or 20% liquidity to supply ratio
                 add_owner: Some(true), 
                 debt_auction: Some(addrs.clone().mbrn_auction.to_string()), 
                 positions_contract: Some(addrs.clone().positions.to_string()), 

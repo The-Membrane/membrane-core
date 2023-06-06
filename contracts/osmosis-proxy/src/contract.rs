@@ -556,6 +556,7 @@ fn get_owner_liquidity_multiplier(
                 let asset_price: PriceResponse = querier.query_wasm_smart(oracle_contract.clone(), &OracleQueryMsg::Price { 
                     asset_info: asset.asset_info.clone(),
                     twap_timeframe: twap_timeframe.clone(),
+                    oracle_time_limit: cdp_config.oracle_time_limit,
                     basket_id: None,
                 })?;
 

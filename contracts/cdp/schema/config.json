@@ -5,9 +5,8 @@
   "required": [
     "base_debt_cap_multiplier",
     "collateral_twap_timeframe",
-    "cpc_margin_of_error",
+    "cpc_multiplier",
     "credit_twap_timeframe",
-    "current_basket_id",
     "debt_minimum",
     "liq_fee",
     "oracle_time_limit",
@@ -16,25 +15,35 @@
   ],
   "properties": {
     "base_debt_cap_multiplier": {
-      "$ref": "#/definitions/Uint128"
+      "description": "Debt minimum multiplier for base debt cap. How many users do we want at 0 credit liquidity?",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Uint128"
+        }
+      ]
     },
     "collateral_twap_timeframe": {
+      "description": "Collateral TWAP time frame in minutes",
       "type": "integer",
       "format": "uint64",
       "minimum": 0.0
     },
-    "cpc_margin_of_error": {
-      "$ref": "#/definitions/Decimal"
+    "cpc_multiplier": {
+      "description": "Augment the rate of increase per % difference for the redemption rate",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Decimal"
+        }
+      ]
     },
     "credit_twap_timeframe": {
+      "description": "Credit TWAP time frame in minutes",
       "type": "integer",
       "format": "uint64",
       "minimum": 0.0
     },
-    "current_basket_id": {
-      "$ref": "#/definitions/Uint128"
-    },
     "debt_auction": {
+      "description": "Debt auction contract address",
       "anyOf": [
         {
           "$ref": "#/definitions/Addr"
@@ -45,9 +54,15 @@
       ]
     },
     "debt_minimum": {
-      "$ref": "#/definitions/Uint128"
+      "description": "Debt minimum value per position. This needs to be large enough so that USDC positions are profitable to liquidate.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Uint128"
+        }
+      ]
     },
     "dex_router": {
+      "description": "Apollo DEX router contract address. Note: Will need to change msg types if the router provider changes",
       "anyOf": [
         {
           "$ref": "#/definitions/Addr"
@@ -57,7 +72,8 @@
         }
       ]
     },
-    "interest_revenue_collector": {
+    "discounts_contract": {
+      "description": "System Discounts contract address",
       "anyOf": [
         {
           "$ref": "#/definitions/Addr"
@@ -68,9 +84,15 @@
       ]
     },
     "liq_fee": {
-      "$ref": "#/definitions/Decimal"
+      "description": "Liquidation fee as percent",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Decimal"
+        }
+      ]
     },
     "liquidity_contract": {
+      "description": "Liquidity Check contract address",
       "anyOf": [
         {
           "$ref": "#/definitions/Addr"
@@ -81,6 +103,7 @@
       ]
     },
     "oracle_contract": {
+      "description": "Oracle contract address",
       "anyOf": [
         {
           "$ref": "#/definitions/Addr"
@@ -91,11 +114,13 @@
       ]
     },
     "oracle_time_limit": {
+      "description": "Seconds until oracle failure is accepted. Think of it as how many blocks you allow the oracle to fail for.",
       "type": "integer",
       "format": "uint64",
       "minimum": 0.0
     },
     "osmosis_proxy": {
+      "description": "Osmosis Proxy contract address",
       "anyOf": [
         {
           "$ref": "#/definitions/Addr"
@@ -106,12 +131,23 @@
       ]
     },
     "owner": {
-      "$ref": "#/definitions/Addr"
+      "description": "Contract owner",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Addr"
+        }
+      ]
     },
     "rate_slope_multiplier": {
-      "$ref": "#/definitions/Decimal"
+      "description": "Interest rate 2nd Slope multiplier",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Decimal"
+        }
+      ]
     },
     "stability_pool": {
+      "description": "Stability Pool contract address",
       "anyOf": [
         {
           "$ref": "#/definitions/Addr"
@@ -122,6 +158,7 @@
       ]
     },
     "staking_contract": {
+      "description": "Staking contract address",
       "anyOf": [
         {
           "$ref": "#/definitions/Addr"
@@ -132,6 +169,7 @@
       ]
     }
   },
+  "additionalProperties": false,
   "definitions": {
     "Addr": {
       "description": "A human readable address.\n\nIn Cosmos, this is typically bech32 encoded. But for multi-chain smart contracts no assumptions should be made other than being UTF-8 encoded and of reasonable length.\n\nThis type represents a validated address. It can be created in the following ways 1. Use `Addr::unchecked(input)` 2. Use `let checked: Addr = deps.api.addr_validate(input)?` 3. Use `let checked: Addr = deps.api.addr_humanize(canonical_addr)?` 4. Deserialize from JSON. This must only be done from JSON that was validated before such as a contract's state. `Addr` must not be used in messages sent by the user because this would result in unvalidated instances.\n\nThis type is immutable. If you really need to mutate it (Really? Are you sure?), create a mutable copy using `let mut mutable = Addr::to_string()` and operate on that `String` instance.",

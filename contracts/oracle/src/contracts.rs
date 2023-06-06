@@ -186,7 +186,7 @@ fn edit_asset(
         attrs.push(attr("new_oracle_info", oracle_info.to_string()));
 
         //Test the new price source
-        let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, Some(oracle_info.basket_id))?;
+        let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, 0, Some(oracle_info.basket_id))?;
         attrs.push(attr("price", format!("{:?}", price)));
     }
         
@@ -238,7 +238,7 @@ fn add_asset(
 
             
             //Test the new price source
-            let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, Some(oracle_info.basket_id))?;
+            let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, 0, Some(oracle_info.basket_id))?;
             attrs.push(attr("price", format!("{:?}", price)));
         }
         Ok(oracles) => {
@@ -264,7 +264,7 @@ fn add_asset(
 
                 
                 //Test the new price source
-                let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, Some(oracle_info.basket_id))?;
+                let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, 0, Some(oracle_info.basket_id))?;
                 attrs.push(attr("price", format!("{:?}", price)));
             } else {
                 return Err(ContractError::DuplicateOracle { basket_id: oracle_info.basket_id.to_string()});
@@ -345,6 +345,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Price {
             asset_info,
             twap_timeframe,
+            oracle_time_limit,
             basket_id,
         } => to_binary(&get_asset_price(
             deps.storage,
@@ -352,16 +353,20 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             env,
             asset_info,
             twap_timeframe,
+            oracle_time_limit,
             basket_id,
         )?),
         QueryMsg::Prices {
             asset_infos,
             twap_timeframe,
+            oracle_time_limit,
         } => to_binary(&get_asset_prices(
             deps, 
             env,
             asset_infos,
-            twap_timeframe)?),
+            twap_timeframe,
+            oracle_time_limit
+        )?),
         QueryMsg::Assets { asset_infos } => to_binary(&get_assets(deps, asset_infos)?),
     }
 }
@@ -388,6 +393,7 @@ fn get_asset_price(
     env: Env,
     asset_info: AssetInfo,
     twap_timeframe: u64, //in minutes
+    oracle_time_limit: u64, //in seconds
     basket_id_field: Option<Uint128>,
 ) -> StdResult<PriceResponse> {
     //Load state
@@ -490,36 +496,45 @@ fn get_asset_price(
                     }
                 }
             };
-            
-        if !usd_price_failed {            
-            let price_feed = price_feed_response.price_feed;
-            //Query unscaled price
-            let price = price_feed
-                .get_ema_price_no_older_than(env.block.time.seconds() as i64, twap_timeframe)
-                .ok_or_else(|| StdError::not_found("Current price is not available"))?;
-            //Scale price using given exponent
-            match price.expo > 0 {
-                true => {
-                    quote_price = decimal_multiplication(
-                        Decimal::from_str(&price.price.to_string())?, 
-                        Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(price.expo as u32)?
-                    )?;
-                },
-                //If the exponent is negative we divide, it should be for most if not all
-                false => {
-                    quote_price = decimal_division(
-                        Decimal::from_str(&price.price.to_string())?, 
-                        Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow((price.expo*-1) as u32)?
-                    )?;
-                }
-            };
-            
+        
+        //Query unscaled price
+        let price_feed = price_feed_response.price_feed;
+        let price = price_feed
+            .get_ema_price_no_older_than(env.block.time.seconds() as i64, oracle_time_limit);
 
-            //Push Pyth OSMO USD price
-            oracle_prices.push(PriceInfo {
-                source: String::from("pyth"),
-                price: quote_price,
-            });
+        //If price was queried && within the time limit, scale it & use it
+        //If not, skip to USD-par pricing
+        match price {
+            Some(price) => {
+                if !usd_price_failed {
+                    //Scale price using given exponent
+                    match price.expo > 0 {
+                        true => {
+                            quote_price = decimal_multiplication(
+                                Decimal::from_str(&price.price.to_string())?, 
+                                Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(price.expo as u32)?
+                            )?;
+                        },
+                        //If the exponent is negative we divide, it should be for most if not all
+                        false => {
+                            quote_price = decimal_division(
+                                Decimal::from_str(&price.price.to_string())?, 
+                                Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow((price.expo*-1) as u32)?
+                            )?;
+                        }
+                    };                   
+                    
+
+                    //Push Pyth OSMO USD price
+                    oracle_prices.push(PriceInfo {
+                        source: String::from("pyth"),
+                        price: quote_price,
+                    });
+                }
+            },
+            None => {
+                usd_price_failed = true;
+            }
         }
 
     } else {
@@ -594,7 +609,8 @@ fn get_asset_prices(
     deps: Deps,
     env: Env,
     asset_infos: Vec<AssetInfo>,
-    twap_timeframe: u64,
+    twap_timeframe: u64, //in minutes
+    oracle_time_limit: u64, //in seconds
 ) -> StdResult<Vec<PriceResponse>> {
 
     //Enforce Vec max size
@@ -613,6 +629,7 @@ fn get_asset_prices(
             env.clone(),
             asset,
             twap_timeframe,
+            oracle_time_limit,
             None,
         )?);
     }

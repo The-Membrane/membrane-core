@@ -220,6 +220,7 @@ fn get_user_value_in_network(
         msg: to_binary(&Oracle_QueryMsg::Price {
             asset_info: AssetInfo::NativeToken { denom: config.clone().mbrn_denom },
             twap_timeframe: 60,
+            oracle_time_limit: 600,
             basket_id: None,
         })?,
     }))?
@@ -295,6 +296,7 @@ fn get_staked_MBRN_value(
             msg: to_binary(&Oracle_QueryMsg::Price {
                 asset_info: asset.info,
                 twap_timeframe: 60,
+                oracle_time_limit: 600,
                 basket_id: None,
             })?,
         }))?
@@ -372,6 +374,7 @@ fn get_sp_value(
             msg: to_binary(&Oracle_QueryMsg::Price {
                 asset_info: AssetInfo::NativeToken { denom: asset.denom },
                 twap_timeframe: 60,
+                oracle_time_limit: 600,
                 basket_id: None,
             })?,
         }))?

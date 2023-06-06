@@ -3,160 +3,20 @@
   "title": "ExecuteMsg",
   "oneOf": [
     {
+      "description": "Update the contract config",
       "type": "object",
       "required": [
         "update_config"
       ],
       "properties": {
         "update_config": {
-          "type": "object",
-          "properties": {
-            "base_debt_cap_multiplier": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Uint128"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "collateral_twap_timeframe": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint64",
-              "minimum": 0.0
-            },
-            "cpc_margin_of_error": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Decimal"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "credit_twap_timeframe": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint64",
-              "minimum": 0.0
-            },
-            "debt_auction": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "debt_minimum": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Uint128"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "dex_router": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "interest_revenue_collector": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "liq_fee": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Decimal"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "liquidity_contract": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "oracle_contract": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "oracle_time_limit": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint64",
-              "minimum": 0.0
-            },
-            "osmosis_proxy": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "owner": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "rate_slope_multiplier": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Decimal"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "stability_pool": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "staking_contract": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          }
+          "$ref": "#/definitions/UpdateConfig"
         }
       },
       "additionalProperties": false
     },
     {
-      "type": "object",
-      "required": [
-        "receive"
-      ],
-      "properties": {
-        "receive": {
-          "$ref": "#/definitions/Cw20ReceiveMsg"
-        }
-      },
-      "additionalProperties": false
-    },
-    {
+      "description": "Deposit collateral into a Position",
       "type": "object",
       "required": [
         "deposit"
@@ -164,14 +24,9 @@
       "properties": {
         "deposit": {
           "type": "object",
-          "required": [
-            "basket_id"
-          ],
           "properties": {
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            },
             "position_id": {
+              "description": "Position ID to deposit into. If the user wants to create a new/separate position, no position id is passed.",
               "anyOf": [
                 {
                   "$ref": "#/definitions/Uint128"
@@ -182,17 +37,20 @@
               ]
             },
             "position_owner": {
+              "description": "Position owner. Defaults to the sender.",
               "type": [
                 "string",
                 "null"
               ]
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Increase debt of a Position",
       "type": "object",
       "required": [
         "increase_debt"
@@ -201,26 +59,54 @@
         "increase_debt": {
           "type": "object",
           "required": [
-            "amount",
-            "basket_id",
             "position_id"
           ],
           "properties": {
-            "amount": {
-              "$ref": "#/definitions/Uint128"
+            "LTV": {
+              "description": "LTV to borrow up to",
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Decimal"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
+            "amount": {
+              "description": "Amount of debt to increase",
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Uint128"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "mint_to_addr": {
+              "description": "Mint debt tokens to this address",
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "position_id": {
-              "$ref": "#/definitions/Uint128"
+              "description": "Position ID to increase debt of",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Uint128"
+                }
+              ]
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Withdraw collateral from a Position",
       "type": "object",
       "required": [
         "withdraw"
@@ -230,28 +116,39 @@
           "type": "object",
           "required": [
             "assets",
-            "basket_id",
             "position_id"
           ],
           "properties": {
             "assets": {
+              "description": "Asset to withdraw",
               "type": "array",
               "items": {
                 "$ref": "#/definitions/Asset"
               }
             },
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            },
             "position_id": {
-              "$ref": "#/definitions/Uint128"
+              "description": "Position ID to withdraw from",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Uint128"
+                }
+              ]
+            },
+            "send_to": {
+              "description": "Send withdrawn assets to this address if not the sender",
+              "type": [
+                "string",
+                "null"
+              ]
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Repay debt of a Position",
       "type": "object",
       "required": [
         "repay"
@@ -260,40 +157,53 @@
         "repay": {
           "type": "object",
           "required": [
-            "basket_id",
             "position_id"
           ],
           "properties": {
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            },
             "position_id": {
-              "$ref": "#/definitions/Uint128"
+              "description": "Position ID to repay debt of",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Uint128"
+                }
+              ]
             },
             "position_owner": {
+              "description": "Position owner to repay debt of if not the sender",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "send_excess_to": {
+              "description": "Send excess assets to this address if not the sender",
               "type": [
                 "string",
                 "null"
               ]
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Repay message for the Stability Pool during liquidations",
       "type": "object",
       "required": [
         "liq_repay"
       ],
       "properties": {
         "liq_repay": {
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Liquidate a Position",
       "type": "object",
       "required": [
         "liquidate"
@@ -302,26 +212,194 @@
         "liquidate": {
           "type": "object",
           "required": [
-            "basket_id",
             "position_id",
             "position_owner"
           ],
           "properties": {
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            },
             "position_id": {
-              "$ref": "#/definitions/Uint128"
+              "description": "Position ID to liquidate",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Uint128"
+                }
+              ]
             },
             "position_owner": {
+              "description": "Position owner to liquidate",
               "type": "string"
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Redeem CDT for collateral Redemption limit based on Position owner buy-in",
+      "type": "object",
+      "required": [
+        "redeem_collateral"
+      ],
+      "properties": {
+        "redeem_collateral": {
+          "type": "object",
+          "properties": {
+            "max_collateral_premium": {
+              "description": "Max % premium on the redeemed collateral`",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint128",
+              "minimum": 0.0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Edit Redeemability for owned Positions",
+      "type": "object",
+      "required": [
+        "edit_redeemability"
+      ],
+      "properties": {
+        "edit_redeemability": {
+          "type": "object",
+          "required": [
+            "position_ids"
+          ],
+          "properties": {
+            "max_loan_repayment": {
+              "description": "Edit Max loan repayment %",
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Decimal"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "position_ids": {
+              "description": "Position IDs to edit",
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Uint128"
+              }
+            },
+            "premium": {
+              "description": "Edit premium on the redeemed collateral. Can't set a 100% premium, as that would be a free loan repayment.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint128",
+              "minimum": 0.0
+            },
+            "redeemable": {
+              "description": "Add or remove redeemability",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "restricted_collateral_assets": {
+              "description": "Restricted collateral assets. These are restricted from use in redemptions. Swaps the full list.",
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Close a Position by selling collateral and repaying debt",
+      "type": "object",
+      "required": [
+        "close_position"
+      ],
+      "properties": {
+        "close_position": {
+          "type": "object",
+          "required": [
+            "max_spread",
+            "position_id"
+          ],
+          "properties": {
+            "max_spread": {
+              "description": "Max spread for the sale of collateral",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Decimal"
+                }
+              ]
+            },
+            "position_id": {
+              "description": "Position ID to close",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Uint128"
+                }
+              ]
+            },
+            "send_to": {
+              "description": "Send excess assets to this address if not the Position owner",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Accrue interest for a Position",
+      "type": "object",
+      "required": [
+        "accrue"
+      ],
+      "properties": {
+        "accrue": {
+          "type": "object",
+          "required": [
+            "position_ids"
+          ],
+          "properties": {
+            "position_ids": {
+              "description": "Positon ID to accrue interest for",
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Uint128"
+              }
+            },
+            "position_owner": {
+              "description": "Positon owner to accrue interest for, defaults to sender",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Mint Basket pending revenue",
       "type": "object",
       "required": [
         "mint_revenue"
@@ -329,11 +407,9 @@
       "properties": {
         "mint_revenue": {
           "type": "object",
-          "required": [
-            "basket_id"
-          ],
           "properties": {
             "amount": {
+              "description": "Amount of revenue to mint",
               "anyOf": [
                 {
                   "$ref": "#/definitions/Uint128"
@@ -343,10 +419,8 @@
                 }
               ]
             },
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            },
             "repay_for": {
+              "description": "Repay for a position w/ the revenue",
               "anyOf": [
                 {
                   "$ref": "#/definitions/UserInfo"
@@ -357,17 +431,20 @@
               ]
             },
             "send_to": {
+              "description": "Send minted tokens to this address, defaults to sender",
               "type": [
                 "string",
                 "null"
               ]
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Create the contract's Basket",
       "type": "object",
       "required": [
         "create_basket"
@@ -376,13 +453,15 @@
         "create_basket": {
           "type": "object",
           "required": [
+            "basket_id",
             "collateral_types",
             "credit_asset",
-            "credit_pool_ids",
+            "credit_pool_infos",
             "credit_price"
           ],
           "properties": {
             "base_interest_rate": {
+              "description": "Base collateral interest rate. Used to calculate the interest rate for each collateral type.",
               "anyOf": [
                 {
                   "$ref": "#/definitions/Decimal"
@@ -392,192 +471,72 @@
                 }
               ]
             },
+            "basket_id": {
+              "description": "Basket ID",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Uint128"
+                }
+              ]
+            },
             "collateral_types": {
+              "description": "Collateral asset types. Note: Also used to tally asset amounts for ease of calculation of Basket ratios",
               "type": "array",
               "items": {
                 "$ref": "#/definitions/cAsset"
               }
             },
             "credit_asset": {
-              "$ref": "#/definitions/Asset"
+              "description": "Creates native denom for credit_asset",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Asset"
+                }
+              ]
             },
-            "credit_pool_ids": {
+            "credit_pool_infos": {
+              "description": "To measure liquidity for the credit asset",
               "type": "array",
               "items": {
-                "type": "integer",
-                "format": "uint64",
-                "minimum": 0.0
+                "$ref": "#/definitions/PoolType"
               }
             },
             "credit_price": {
-              "$ref": "#/definitions/Decimal"
-            },
-            "desired_debt_cap_util": {
-              "anyOf": [
+              "description": "Credit redemption price",
+              "allOf": [
                 {
                   "$ref": "#/definitions/Decimal"
-                },
-                {
-                  "type": "null"
                 }
               ]
             },
             "liq_queue": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "liquidity_multiplier_for_debt_caps": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Decimal"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "owner": {
+              "description": "Liquidation queue for collateral assets",
               "type": [
                 "string",
                 "null"
               ]
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     {
+      "description": "Edit the contract's Basket",
       "type": "object",
       "required": [
         "edit_basket"
       ],
       "properties": {
         "edit_basket": {
-          "type": "object",
-          "required": [
-            "basket_id"
-          ],
-          "properties": {
-            "added_cAsset": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/cAsset"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "base_interest_rate": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Decimal"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            },
-            "collateral_supply_caps": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "$ref": "#/definitions/SupplyCap"
-              }
-            },
-            "credit_asset_twap_price_source": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/TWAPPoolInfo"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "credit_pool_ids": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "type": "integer",
-                "format": "uint64",
-                "minimum": 0.0
-              }
-            },
-            "desired_debt_cap_util": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Decimal"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "liq_queue": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "liquidity_multiplier": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Decimal"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "negative_rates": {
-              "type": [
-                "boolean",
-                "null"
-              ]
-            },
-            "owner": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          }
+          "$ref": "#/definitions/EditBasket"
         }
       },
       "additionalProperties": false
     },
     {
-      "type": "object",
-      "required": [
-        "clone_basket"
-      ],
-      "properties": {
-        "clone_basket": {
-          "type": "object",
-          "required": [
-            "basket_id"
-          ],
-          "properties": {
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
-            }
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    {
+      "description": "Edit a cAsset in the contract's Basket",
       "type": "object",
       "required": [
         "editc_asset"
@@ -586,17 +545,19 @@
         "editc_asset": {
           "type": "object",
           "required": [
-            "asset",
-            "basket_id"
+            "asset"
           ],
           "properties": {
             "asset": {
-              "$ref": "#/definitions/AssetInfo"
-            },
-            "basket_id": {
-              "$ref": "#/definitions/Uint128"
+              "description": "cAsset to edit",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/AssetInfo"
+                }
+              ]
             },
             "max_LTV": {
+              "description": "Point of liquidation",
               "anyOf": [
                 {
                   "$ref": "#/definitions/Decimal"
@@ -607,6 +568,7 @@
               ]
             },
             "max_borrow_LTV": {
+              "description": "Max users can borrow up to",
               "anyOf": [
                 {
                   "$ref": "#/definitions/Decimal"
@@ -616,27 +578,8 @@
                 }
               ]
             }
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "required": [
-        "edit_admin"
-      ],
-      "properties": {
-        "edit_admin": {
-          "type": "object",
-          "required": [
-            "owner"
-          ],
-          "properties": {
-            "owner": {
-              "type": "string"
-            }
-          }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -667,16 +610,28 @@
       ],
       "properties": {
         "amount": {
-          "$ref": "#/definitions/Uint128"
+          "description": "Amount",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Uint128"
+            }
+          ]
         },
         "info": {
-          "$ref": "#/definitions/AssetInfo"
+          "description": "Asset info",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AssetInfo"
+            }
+          ]
         }
-      }
+      },
+      "additionalProperties": false
     },
     "AssetInfo": {
       "oneOf": [
         {
+          "description": "Cw20 token",
           "type": "object",
           "required": [
             "token"
@@ -691,12 +646,14 @@
                 "address": {
                   "$ref": "#/definitions/Addr"
                 }
-              }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false
         },
         {
+          "description": "Native token",
           "type": "object",
           "required": [
             "native_token"
@@ -711,20 +668,19 @@
                 "denom": {
                   "type": "string"
                 }
-              }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false
         }
       ]
     },
-    "Binary": {
-      "description": "Binary is a wrapper around Vec<u8> to add base64 de/serialization with serde. It also adds some helper methods to help encode inline.\n\nThis is only needed as serde-json-{core,wasm} has a horrible encoding for Vec<u8>. See also <https://github.com/CosmWasm/cosmwasm/blob/main/docs/MESSAGE_TYPES.md>.",
-      "type": "string"
-    },
     "CallbackMsg": {
+      "description": "Note: Since CallbackMsg are always sent by the contract itself, we assume all types are already validated and don't do additional checks. E.g. user addresses are Addr instead of String",
       "oneOf": [
         {
+          "description": "Bad debt check post liquidation",
           "type": "object",
           "required": [
             "bad_debt_check"
@@ -733,19 +689,25 @@
             "bad_debt_check": {
               "type": "object",
               "required": [
-                "basket_id",
                 "position_id",
                 "position_owner"
               ],
               "properties": {
-                "basket_id": {
-                  "$ref": "#/definitions/Uint128"
-                },
                 "position_id": {
-                  "$ref": "#/definitions/Uint128"
+                  "description": "Position ID to check",
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/Uint128"
+                    }
+                  ]
                 },
                 "position_owner": {
-                  "$ref": "#/definitions/Addr"
+                  "description": "Position owner to check",
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/Addr"
+                    }
+                  ]
                 }
               }
             }
@@ -754,29 +716,117 @@
         }
       ]
     },
-    "Cw20ReceiveMsg": {
-      "description": "Cw20ReceiveMsg should be de/serialized under `Receive()` variant in a ExecuteMsg",
-      "type": "object",
-      "required": [
-        "amount",
-        "msg",
-        "sender"
-      ],
-      "properties": {
-        "amount": {
-          "$ref": "#/definitions/Uint128"
-        },
-        "msg": {
-          "$ref": "#/definitions/Binary"
-        },
-        "sender": {
-          "type": "string"
-        }
-      }
-    },
     "Decimal": {
       "description": "A fixed-point decimal value with 18 fractional digits, i.e. Decimal(1_000_000_000_000_000_000) == 1.0\n\nThe greatest possible value that can be represented is 340282366920938463463.374607431768211455 (which is (2^128 - 1) / 10^18)",
       "type": "string"
+    },
+    "EditBasket": {
+      "type": "object",
+      "properties": {
+        "added_cAsset": {
+          "description": "Add new cAsset",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/cAsset"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "base_interest_rate": {
+          "description": "Base interest rate",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "collateral_supply_caps": {
+          "description": "Supply caps for each collateral",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/SupplyCap"
+          }
+        },
+        "cpc_margin_of_error": {
+          "description": "Margin of error for difference in TWAP price and redemption price",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "credit_asset_twap_price_source": {
+          "description": "Osmosis Pool info for credit->OSMO TWAP price Non-USD denominated baskets don't work due to the debt minimum",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TWAPPoolInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "credit_pool_infos": {
+          "description": "Credit pool info for liquidity measuring",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/PoolType"
+          }
+        },
+        "frozen": {
+          "description": "Toggle basket freezing",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "liq_queue": {
+          "description": "Liquidation Queue",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "multi_asset_supply_caps": {
+          "description": "Supply caps for asset groups",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/MultiAssetSupplyCap"
+          }
+        },
+        "negative_rates": {
+          "description": "Toggle allowance negative redemption rate",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "rev_to_stakers": {
+          "description": "Toggle Basket revenue to stakers",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "LPAssetInfo": {
       "type": "object",
@@ -787,19 +837,57 @@
       ],
       "properties": {
         "decimals": {
+          "description": "Asset decimals",
           "type": "integer",
           "format": "uint64",
           "minimum": 0.0
         },
         "info": {
-          "$ref": "#/definitions/AssetInfo"
+          "description": "Pool asset denom",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AssetInfo"
+            }
+          ]
         },
         "ratio": {
-          "$ref": "#/definitions/Decimal"
+          "description": "Asset ratio in pool",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            }
+          ]
         }
-      }
+      },
+      "additionalProperties": false
+    },
+    "MultiAssetSupplyCap": {
+      "type": "object",
+      "required": [
+        "assets",
+        "supply_cap_ratio"
+      ],
+      "properties": {
+        "assets": {
+          "description": "Asset infos",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AssetInfo"
+          }
+        },
+        "supply_cap_ratio": {
+          "description": "Target supply cap ratio",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "PoolInfo": {
+      "description": "Osmosis PoolInfo",
       "type": "object",
       "required": [
         "asset_infos",
@@ -807,17 +895,72 @@
       ],
       "properties": {
         "asset_infos": {
+          "description": "Asset Infos Includes asset decimals (https://api-osmosis.imperator.co/tokens/v2/all)",
           "type": "array",
           "items": {
             "$ref": "#/definitions/LPAssetInfo"
           }
         },
         "pool_id": {
+          "description": "Pool ID",
           "type": "integer",
           "format": "uint64",
           "minimum": 0.0
         }
-      }
+      },
+      "additionalProperties": false
+    },
+    "PoolType": {
+      "oneOf": [
+        {
+          "description": "Balancer pool",
+          "type": "object",
+          "required": [
+            "balancer"
+          ],
+          "properties": {
+            "balancer": {
+              "type": "object",
+              "required": [
+                "pool_id"
+              ],
+              "properties": {
+                "pool_id": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Stableswap pool",
+          "type": "object",
+          "required": [
+            "stable_swap"
+          ],
+          "properties": {
+            "stable_swap": {
+              "type": "object",
+              "required": [
+                "pool_id"
+              ],
+              "properties": {
+                "pool_id": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "SupplyCap": {
       "type": "object",
@@ -830,21 +973,54 @@
       ],
       "properties": {
         "asset_info": {
-          "$ref": "#/definitions/AssetInfo"
+          "description": "Asset info",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AssetInfo"
+            }
+          ]
         },
         "current_supply": {
-          "$ref": "#/definitions/Uint128"
+          "description": "Current amount of asset in Basket",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Uint128"
+            }
+          ]
         },
         "debt_total": {
-          "$ref": "#/definitions/Uint128"
+          "description": "Total debt collateralized by asset",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Uint128"
+            }
+          ]
         },
         "lp": {
+          "description": "is LP?",
           "type": "boolean"
         },
+        "stability_pool_ratio_for_debt_cap": {
+          "description": "Toggle for a debt cap ratio based on Stability Pool Liquidity. If false, debt cap is based on proportion of TVL.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "supply_cap_ratio": {
-          "$ref": "#/definitions/Decimal"
+          "description": "Total supply cap ratio",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            }
+          ]
         }
-      }
+      },
+      "additionalProperties": false
     },
     "TWAPPoolInfo": {
       "type": "object",
@@ -855,42 +1031,201 @@
       ],
       "properties": {
         "base_asset_denom": {
+          "description": "Base asset denom",
           "type": "string"
         },
         "pool_id": {
+          "description": "Pool ID",
           "type": "integer",
           "format": "uint64",
           "minimum": 0.0
         },
         "quote_asset_denom": {
+          "description": "Quote asset denom",
           "type": "string"
         }
-      }
+      },
+      "additionalProperties": false
     },
     "Uint128": {
       "description": "A thin wrapper around u128 that is using strings for JSON encoding/decoding, such that the full u128 range can be used for clients that convert JSON numbers to floats, like JavaScript and jq.\n\n# Examples\n\nUse `from` to create instances of this and `u128` to get the value out:\n\n``` # use cosmwasm_std::Uint128; let a = Uint128::from(123u128); assert_eq!(a.u128(), 123);\n\nlet b = Uint128::from(42u64); assert_eq!(b.u128(), 42);\n\nlet c = Uint128::from(70u32); assert_eq!(c.u128(), 70); ```",
       "type": "string"
     },
+    "UpdateConfig": {
+      "type": "object",
+      "properties": {
+        "base_debt_cap_multiplier": {
+          "description": "Debt minimum multiplier for base debt cap. How many users do we want at 0 credit liquidity?",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Uint128"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "collateral_twap_timeframe": {
+          "description": "Collateral TWAP time frame in minutes",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "cpc_multiplier": {
+          "description": "Augment the rate of increase per % difference for the redemption rate",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "credit_twap_timeframe": {
+          "description": "Credit TWAP time frame in minutes",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "debt_auction": {
+          "description": "Debt auction contract address",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "debt_minimum": {
+          "description": "Debt minimum value per position.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Uint128"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dex_router": {
+          "description": "Apollo DEX router contract address.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "discounts_contract": {
+          "description": "System Discounts contract address",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "liq_fee": {
+          "description": "Liquidation fee as percent",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "liquidity_contract": {
+          "description": "Liquidity Check contract address",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "oracle_contract": {
+          "description": "Oracle contract address",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "oracle_time_limit": {
+          "description": "Seconds until oracle failure is accepted",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "osmosis_proxy": {
+          "description": "Osmosis Proxy contract address",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner": {
+          "description": "Contract owner",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rate_slope_multiplier": {
+          "description": "Interest rate 2nd Slope multiplier",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stability_pool": {
+          "description": "Stability Pool contract address",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "staking_contract": {
+          "description": "Staking contract address",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "UserInfo": {
       "type": "object",
       "required": [
-        "basket_id",
         "position_id",
         "position_owner"
       ],
       "properties": {
-        "basket_id": {
-          "$ref": "#/definitions/Uint128"
-        },
         "position_id": {
-          "$ref": "#/definitions/Uint128"
+          "description": "Position ID",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Uint128"
+            }
+          ]
         },
         "position_owner": {
+          "description": "Position owner",
           "type": "string"
         }
-      }
+      },
+      "additionalProperties": false
     },
     "cAsset": {
+      "description": "CDP",
       "type": "object",
       "required": [
         "asset",
@@ -900,15 +1235,31 @@
       ],
       "properties": {
         "asset": {
-          "$ref": "#/definitions/Asset"
+          "description": "Asset data NOTE: AssetInfo denom for an Osmo LP is the shares_denom",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Asset"
+            }
+          ]
         },
         "max_LTV": {
-          "$ref": "#/definitions/Decimal"
+          "description": "Liquidation LTV",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            }
+          ]
         },
         "max_borrow_LTV": {
-          "$ref": "#/definitions/Decimal"
+          "description": "Max borrow limit, aka what u can borrow up to",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            }
+          ]
         },
         "pool_info": {
+          "description": "Pool Info for Osmosis LP",
           "anyOf": [
             {
               "$ref": "#/definitions/PoolInfo"
@@ -919,9 +1270,15 @@
           ]
         },
         "rate_index": {
-          "$ref": "#/definitions/Decimal"
+          "description": "Rate index to smooth rate accrual",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            }
+          ]
         }
-      }
+      },
+      "additionalProperties": false
     }
   }
 }

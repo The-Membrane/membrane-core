@@ -384,7 +384,7 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 msg: to_binary(&CDP_InstantiateMsg {
                     owner: None,
                     liq_fee: Decimal::percent(1),
-                    oracle_time_limit: 60u64,
+                    oracle_time_limit: 600u64,
                     debt_minimum: Uint128::new(2000_000_000u128),
                     collateral_twap_timeframe: 60u64,
                     credit_twap_timeframe: 480u64,

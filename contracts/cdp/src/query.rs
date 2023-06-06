@@ -529,6 +529,7 @@ pub fn query_price(
         msg: to_binary(&OracleQueryMsg::Price {
             asset_info,
             twap_timeframe,
+            oracle_time_limit: config.oracle_time_limit,
             basket_id: None,
         })?,
     })) {

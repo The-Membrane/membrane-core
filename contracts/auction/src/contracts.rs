@@ -138,6 +138,7 @@ fn update_config(
             &OracleQueryMsg::Price { 
                 asset_info: AssetInfo::NativeToken { denom: asset.clone() }, 
                 twap_timeframe: config.twap_timeframe, 
+                oracle_time_limit: 600,
                 basket_id: None,
             });
         match res {
@@ -382,6 +383,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
                     denom: config.clone().desired_asset,
                 },
                 twap_timeframe: config.clone().twap_timeframe,
+                oracle_time_limit: 600,
                 basket_id: None,
             })?;
         let desired_asset_price = res.price;
@@ -394,6 +396,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
                         denom: auction.auction_asset.info.to_string(),
                     },
                     twap_timeframe: config.clone().twap_timeframe,
+                    oracle_time_limit: 600,
                     basket_id: None,
                 })?;
         let auction_asset_price = res.price;
@@ -539,6 +542,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                     denom: config.clone().mbrn_denom,
                 },
                 twap_timeframe: config.clone().twap_timeframe,
+                oracle_time_limit: 600,
                 basket_id: None,
             })?;
         let mbrn_price = res.price;

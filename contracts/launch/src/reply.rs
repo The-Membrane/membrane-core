@@ -384,7 +384,7 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 msg: to_binary(&CDP_InstantiateMsg {
                     owner: None,
                     liq_fee: Decimal::percent(1),
-                    oracle_time_limit: 600u64,
+                    oracle_time_limit: 60u64,
                     debt_minimum: Uint128::new(2000_000_000u128),
                     collateral_twap_timeframe: 60u64,
                     credit_twap_timeframe: 480u64,
@@ -973,6 +973,7 @@ pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                     osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),
                     positions_contract: addrs.clone().positions.to_string(),
                     governance_contract: addrs.clone().governance.to_string(),
+                    staking_contract: addrs.clone().staking.to_string(),
                     twap_timeframe: 60u64,
                     mbrn_denom: config.clone().mbrn_denom,
                     initial_discount: Decimal::percent(1),

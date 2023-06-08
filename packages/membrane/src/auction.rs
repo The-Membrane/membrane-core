@@ -15,6 +15,8 @@ pub struct InstantiateMsg {
     pub positions_contract: String,
     /// Address of the governance contract
     pub governance_contract: String,
+    /// Address of the staking contract
+    pub staking_contract: String,
     /// Timeframe for MBRN TWAP in minutes
     pub twap_timeframe: u64,
     /// Native Denom of MBRN
@@ -85,6 +87,8 @@ pub struct Config {
     pub positions_contract: Addr,
     /// Address of the governance contract
     pub governance_contract: Addr,
+    /// Address of the staking contract
+    pub staking_contract: Addr,
     /// Timeframe for MBRN TWAP in minutes
     pub twap_timeframe: u64,
     /// Initial discount for MBRN in auction
@@ -113,6 +117,8 @@ pub struct UpdateConfig {
     pub positions_contract: Option<String>,
     /// Address of the governance contract
     pub governance_contract: Option<String>,
+    /// Address of the staking contract
+    pub staking_contract: Option<String>,
     /// Timeframe for MBRN TWAP in minutes
     pub twap_timeframe: Option<u64>,
     /// Initial discount for MBRN in auction

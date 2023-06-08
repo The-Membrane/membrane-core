@@ -41,6 +41,7 @@ pub fn instantiate(
         desired_asset: String::from("uosmo"),
         positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
         governance_contract: deps.api.addr_validate(&msg.governance_contract)?,
+        staking_contract: deps.api.addr_validate(&msg.staking_contract)?,
         twap_timeframe: msg.twap_timeframe,
         initial_discount: msg.initial_discount,
         discount_increase_timeframe: msg.discount_increase_timeframe,
@@ -125,6 +126,9 @@ fn update_config(
     if let Some(addr) = update.governance_contract {
         config.governance_contract = deps.api.addr_validate(&addr)?;
     }
+    if let Some(addr) = update.staking_contract {
+        config.staking_contract = deps.api.addr_validate(&addr)?;
+    }
     if let Some(mbrn_denom) = update.mbrn_denom {
         config.mbrn_denom = mbrn_denom;
     }
@@ -200,7 +204,7 @@ fn start_auction(
     let config = CONFIG.load(deps.storage)?;
 
     //Only positions contract or owner can start auctions
-    if info.sender != config.owner && info.sender != config.positions_contract {
+    if info.sender != config.owner && info.sender != config.positions_contract && info.sender != config.staking_contract {
         return Err(ContractError::Unauthorized {});
     }
 
@@ -210,8 +214,8 @@ fn start_auction(
         attr("auction_asset", auction_asset.to_string()),
     ];
     
-    //If not CDT, start FeeAuction
-    if auction_asset.info.to_string() != config.cdt_denom {
+    //If not minting CDT, start FeeAuction
+    if info.funds.len() > 0 {
         //Validate auction_asset
         if info.funds.len() == 1 {
             validate_asset(info.funds[0].clone(), auction_asset.info.to_string())?;
@@ -235,7 +239,8 @@ fn start_auction(
                 }
             }
         })?;
-    } else {//If CDT, start DebtAuction
+    } //If CDT, start DebtAuction
+    else if auction_asset.info.to_string() == config.clone().cdt_denom{
 
         //Both can't be Some
         if send_to.is_some() && user_info.is_some(){

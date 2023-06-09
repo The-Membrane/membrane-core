@@ -1,4 +1,4 @@
-use cosmwasm_std::{Deps, StdResult, Uint128, Env};
+use cosmwasm_std::{Deps, StdResult, Uint128, Env, Addr};
 use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, RewardsResponse, StakedResponse};
 use membrane::types::{FeeEvent, StakeDeposit};
 
@@ -20,11 +20,7 @@ pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse>
         })
     }
 
-    let staker_deposits: Vec<StakeDeposit> = STAKED
-        .load(deps.storage)?
-        .into_iter()
-        .filter(|deposit| deposit.staker == valid_addr)
-        .collect::<Vec<StakeDeposit>>();
+    let staker_deposits: Vec<StakeDeposit> = STAKED.load(deps.storage, valid_addr.clone())?;
 
     let deposit_list = staker_deposits
         .clone()
@@ -53,11 +49,7 @@ pub fn query_staker_rewards(deps: Deps, env: Env, staker: String) -> StdResult<R
 
     let valid_addr = deps.api.addr_validate(&staker)?;
 
-    let staker_deposits: Vec<StakeDeposit> = STAKED
-        .load(deps.storage)?
-        .into_iter()
-        .filter(|deposit| deposit.staker == valid_addr)
-        .collect::<Vec<StakeDeposit>>();
+    let staker_deposits: Vec<StakeDeposit> = STAKED.load(deps.storage, valid_addr)?;
 
     let fee_events = FEE_EVENTS.load(deps.storage)?;
 
@@ -88,12 +80,21 @@ pub fn query_staked(
     let start_after = start_after.unwrap_or(0u64);
     let end_before = end_before.unwrap_or_else(|| env.block.time.seconds() + 1u64);
 
-    let mut stakers = STAKED
-        .load(deps.storage)?
-        .into_iter()
-        .filter(|deposit| deposit.stake_time >= start_after && deposit.stake_time < end_before)
-        .take(limit as usize)
-        .collect::<Vec<StakeDeposit>>();
+    let mut stakers: Vec<StakeDeposit> = vec![];
+    
+    STAKED
+        .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+        .map(|item| {
+            let stakers_in_loop = item.unwrap_or_else(|_| (Addr::unchecked("null"), vec![])).1;
+
+            let stakers_in_loop = stakers_in_loop.clone()
+                .into_iter()
+                .filter(|deposit| deposit.stake_time >= start_after && deposit.stake_time < end_before)
+                .take(limit as usize)
+                .collect::<Vec<StakeDeposit>>();
+
+            stakers.extend(stakers_in_loop);
+        });
 
     //Filter out unstakers
     if !unstaking {

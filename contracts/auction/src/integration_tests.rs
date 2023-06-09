@@ -233,7 +233,7 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked(ADMIN),
-                vec![coin(1_000_000, "fee_asset")],
+                vec![coin(1_000_000, "credit_fulldenom"), coin(1_000_000, "fee_asset")],
             )
             .unwrap();
 
@@ -438,12 +438,12 @@ mod tests {
                 send_to: None,
                 auction_asset: Asset {
                     info: AssetInfo::NativeToken {
-                        denom: String::from("fee_asset"),
+                        denom: String::from("credit_fulldenom"),
                     },
                     amount: Uint128::new(100u128),
                 },
             };
-            let cosmos_msg = debt_contract.call(msg, vec![coin(100, "fee_asset")]).unwrap();
+            let cosmos_msg = debt_contract.call(msg, vec![coin(100, "credit_fulldenom")]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Assert FeeAuction Response
@@ -453,7 +453,7 @@ mod tests {
                     debt_contract.addr(),
                     &QueryMsg::OngoingFeeAuctions {
                         auction_asset: Some(AssetInfo::NativeToken {
-                            denom: String::from("fee_asset"),
+                            denom: String::from("credit_fulldenom"),
                         }),
                         limit: None,
                         start_after: None,
@@ -469,12 +469,12 @@ mod tests {
                 send_to: None,
                 auction_asset: Asset {
                     info: AssetInfo::NativeToken {
-                        denom: String::from("fee_asset"),
+                        denom: String::from("credit_fulldenom"),
                     },
                     amount: Uint128::new(100u128),
                 },
             };
-            let cosmos_msg = debt_contract.call(msg, vec![coin(100, "fee_asset")]).unwrap();
+            let cosmos_msg = debt_contract.call(msg, vec![coin(100, "credit_fulldenom")]).unwrap();
             app.set_block(BlockInfo {
                 height: app.block_info().height,
                 time: app.block_info().time.plus_seconds(31536000u64), //Added a year
@@ -489,7 +489,7 @@ mod tests {
                     debt_contract.addr(),
                     &QueryMsg::OngoingFeeAuctions {
                         auction_asset: Some(AssetInfo::NativeToken {
-                            denom: String::from("fee_asset"),
+                            denom: String::from("credit_fulldenom"),
                         }),
                         limit: None,
                         start_after: None,

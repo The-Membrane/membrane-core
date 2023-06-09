@@ -1,5 +1,5 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Uint128, Addr};
+use cosmwasm_std::{Uint128, Addr, Decimal};
 
 use crate::types::{Asset, FeeEvent, StakeDeposit, StakeDistribution};
 
@@ -72,6 +72,31 @@ pub enum ExecuteMsg {
         send_to: Option<String>,
         /// Toggle to restake MBRN rewards
         restake: bool,
+    },
+    /// Delegate MBRN to a Governator
+    UpdateDelegations {
+        /// Governator address
+        governator_addr: String,
+        /// MBRN amount
+        /// If None, act on total delegatible MBRN
+        mbrn_amount: Option<Uint128>,
+        /// Delegate or Undelegate
+        delegate: Option<bool>,
+        /// Set fluidity
+        /// To change fluidity, you must undelegate & redelegate because your delegate may have delegated your MBRN
+        fluid: Option<bool>,
+        /// Update commission rate
+        commission: Option<Decimal>,
+    },
+    /// Delegate delegated MBRN
+    /// i.e. MBRN that is fluid delegated to a governator
+    /// Once delegated, the MBRN can't be undelegated by the governator, only the initial staker
+    DelegateFluidDelegations {
+        /// Governator address
+        governator_addr: String,
+        /// MBRN amount
+        /// If None, act on total delegatible MBRN
+        mbrn_amount: Option<Uint128>,
     },
     /// Position's contract deposits protocol revenue
     DepositFee {},

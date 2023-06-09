@@ -227,6 +227,27 @@ impl fmt::Display for StakeDeposit {
 }
 
 #[cw_serde]
+pub struct Delegation {
+    /// Delegator address
+    pub delegator: Addr,
+    /// Amount of stake
+    pub amount: Uint128,
+    /// Fluidity toggle
+    /// true: delegation can be redelegated by the delegate
+    pub fluidity: bool,
+}
+
+#[cw_serde]
+pub struct DelegationInfo {    
+    /// Delegated stake
+    pub delegated: Vec<Delegation>,
+    /// Stake delagated to staker
+    pub delegated_to: Vec<Delegation>,
+    /// Commission %
+    pub commission: Decimal,
+}
+
+#[cw_serde]
 pub struct FeeEvent {
     /// Time of event in seconds
     pub time_of_event: u64,

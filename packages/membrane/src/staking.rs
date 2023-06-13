@@ -1,7 +1,7 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Uint128, Addr, Decimal};
 
-use crate::types::{Asset, FeeEvent, StakeDeposit, StakeDistribution};
+use crate::types::{Asset, FeeEvent, StakeDeposit, StakeDistribution, DelegationInfo};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -119,7 +119,7 @@ pub enum QueryMsg {
         /// Staker address
         staker: String,
     },
-    /// returns list of StakeDeposits
+    /// Returns list of StakeDeposits
     Staked {
         /// Response limit
         limit: Option<u32>,
@@ -129,6 +129,15 @@ pub enum QueryMsg {
         end_before: Option<u64>,
         /// Include unstakers
         unstaking: bool,
+    },
+    /// Returns list of DelegationInfo
+    Delegations {
+        /// Response limit
+        limit: Option<u32>,
+        /// Start after delegate address
+        start_after: Option<String>,
+        /// Query a specific user
+        user: Option<String>,
     },
     /// Returns list of FeeEvents
     FeeEvents {
@@ -203,4 +212,12 @@ pub struct TotalStakedResponse {
 pub struct FeeEventsResponse {
     /// List of FeeEvents
     pub fee_events: Vec<FeeEvent>,
+}
+
+#[cw_serde]
+pub struct DelegationResponse {
+    /// User
+    pub user: Addr,
+    /// DelegationInfo
+    pub delegation_info: DelegationInfo,
 }

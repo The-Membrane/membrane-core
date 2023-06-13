@@ -1,9 +1,10 @@
 use cosmwasm_std::{Deps, StdResult, Uint128, Env, Addr};
-use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, RewardsResponse, StakedResponse};
+use cw_storage_plus::Bound;
+use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, RewardsResponse, StakedResponse, DelegationResponse};
 use membrane::types::{FeeEvent, StakeDeposit};
 
 use crate::contract::get_deposit_claimables;
-use crate::state::{TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING};
+use crate::state::{TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING, DELEGATIONS};
 
 const DEFAULT_LIMIT: u32 = 32u32;
 
@@ -82,7 +83,7 @@ pub fn query_staked(
 
     let mut stakers: Vec<StakeDeposit> = vec![];
     
-    STAKED
+    let _iter = STAKED
         .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
         .map(|item| {
             let stakers_in_loop = item.unwrap_or_else(|_| (Addr::unchecked("null"), vec![])).1;
@@ -135,4 +136,38 @@ pub fn query_totals(deps: Deps) -> StdResult<TotalStakedResponse> {
         total_not_including_vested: totals.stakers,
         vested_total: totals.vesting_contract,
     })
+}
+
+/// Returns DelegationInfo
+pub fn query_delegations(
+    deps: Deps,
+    limit: Option<u32>,
+    start_after: Option<String>,
+    user: Option<String>,
+) -> StdResult<Vec<DelegationResponse>> {
+    let limit = limit.unwrap_or(DEFAULT_LIMIT);
+    let start = start_after.map(|user| Bound::ExclusiveRaw(user.into_bytes()));
+
+    if let Some(user) = user {
+        let user = deps.api.addr_validate(&user)?;
+        let delegation = DELEGATIONS.load(deps.storage, user.clone())?;
+
+        return Ok(vec![DelegationResponse {
+            user,
+            delegation_info: delegation,
+        }])
+    }
+
+    DELEGATIONS
+        .range(deps.storage, start, None, cosmwasm_std::Order::Ascending)
+        .take(limit as usize)
+        .map(|item| {
+            let (user, delegation) = item?;
+
+            Ok(DelegationResponse {
+                user,
+                delegation_info: delegation,
+            })
+        })
+        .collect()
 }

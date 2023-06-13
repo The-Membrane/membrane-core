@@ -20,7 +20,7 @@ use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit, StakeD
 use membrane::math::decimal_division;
 
 use crate::error::ContractError;
-use crate::query::{query_user_stake, query_staker_rewards, query_staked, query_fee_events, query_totals};
+use crate::query::{query_user_stake, query_staker_rewards, query_staked, query_fee_events, query_totals, query_delegations};
 use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, TOTALS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, DELEGATIONS};
 
 // version info for migration info
@@ -168,6 +168,21 @@ pub fn execute(
         ),
         ExecuteMsg::Stake { user } => stake(deps, env, info, user),
         ExecuteMsg::Unstake { mbrn_amount } => unstake(deps, env, info, mbrn_amount),
+        ExecuteMsg::UpdateDelegations { governator_addr, mbrn_amount, delegate, fluid, commission } => update_delegations(
+            deps,
+            info,
+            governator_addr,
+            mbrn_amount,
+            fluid,
+            delegate,
+            commission,
+        ),
+        ExecuteMsg::DelegateFluidDelegations { governator_addr, mbrn_amount } => delegate_fluid_delegations(
+            deps,
+            info,
+            governator_addr,
+            mbrn_amount,
+        ),
         ExecuteMsg::Restake { mbrn_amount } => restake(deps, env, info, mbrn_amount),
         ExecuteMsg::ClaimRewards {
             send_to,
@@ -403,6 +418,7 @@ pub fn unstake(
         });
     }
 
+
     //info.sender is user
     let (claimables, accrued_interest, withdrawable_amount) = withdraw_from_state(
         deps.storage,
@@ -417,6 +433,7 @@ pub fn unstake(
     let mut msgs = vec![];
 
     //If user can withdraw, accrue their positions and add to native_claims
+    //Also update delegations
     if !withdrawable_amount.is_zero() {
         //Create Position accrual msgs to lock in user discounts before withdrawing
         let accrual_msg = accrue_user_positions(
@@ -433,7 +450,41 @@ pub fn unstake(
                 denom: config.clone().mbrn_denom,
             },
             amount: withdrawable_amount,
-        })?);
+        })?);     
+
+        //Get user's delegation info
+        let mut staker_delegation_info = DELEGATIONS.load(deps.storage, info.sender.clone())?;
+    
+        //Get user's delegated stake
+        let total_delegations: Uint128 = staker_delegation_info.clone()
+            .delegated_to
+            .into_iter()
+            .map(|delegation| delegation.amount)
+            .collect::<Vec<Uint128>>()
+            .into_iter()
+            .sum();
+
+        //If withdrawing more than is not delegated, undelegate the excess
+        if withdrawable_amount > total_stake - total_delegations {
+            let mut undelegate_amount = withdrawable_amount - (total_stake - total_delegations);
+            for (i, delegation) in staker_delegation_info.clone().delegated_to.into_iter().enumerate() {
+                
+                //If undelegate amount is greater than the current delegation, undelegate the whole delegation & update undelegate amount
+                if undelegate_amount > delegation.amount {
+                    undelegate_amount -= delegation.amount;
+                    
+                    staker_delegation_info.delegated_to.remove(i);
+                } else {
+                    //If undelegate amount is less than the current delegation, undelegate the undelegate amount & break
+                    staker_delegation_info.delegated_to[i].amount -= undelegate_amount;
+                    break;
+                }
+            }
+
+            //Save updated delegation info
+            DELEGATIONS.save(deps.storage, info.sender.clone(), &staker_delegation_info)?;
+        }
+        
     }
 
     //Create claimable msgs
@@ -522,11 +573,12 @@ fn update_delegations(
     //Validate MBRN amount
     let mbrn_amount = mbrn_amount.unwrap_or(total_delegatible_amount);
 
-    //Act on Optionals
+    /////Act on Optionals/////
+    //Delegations
     if let Some(delegate) = delegate {
         //If delegating, add to staker's delegated_to & delegates delegated
         if delegate {
-            //Add to delegate's
+            //Load delegate's info
             let mut delegates_delegations = match DELEGATIONS.load(deps.storage, valid_gov_addr.clone()){
                 Ok(delegations) => delegations,
                 Err(_) => DelegationInfo {
@@ -535,7 +587,7 @@ fn update_delegations(
                     commission: commission.unwrap_or(Decimal::zero()),
                 }
             };
-            //Add to existing delegation or add new Delegation object 
+            //Add to existing delegation from the Staker or add new Delegation object 
             match delegates_delegations.delegated.iter().enumerate().find(|(_i, delegation)| delegation.delegator == info.sender.clone()){
                 Some((index, _)) => delegates_delegations.delegated[index].amount += mbrn_amount,
                 None => {
@@ -546,7 +598,7 @@ fn update_delegations(
                     });
                 }
             };
-            
+            //Save delegate's info           
             DELEGATIONS.save(deps.storage, valid_gov_addr.clone(), &delegates_delegations)?;
 
             //Add to staker's delegated_to
@@ -561,22 +613,43 @@ fn update_delegations(
                     });
                 }
             };
+            //Save staker's info
             DELEGATIONS.save(deps.storage, info.sender.clone(), &staker_delegation_info)?;
         } else {
             //If undelegating, remove from staker's delegations & delegates delegations
             //Remove from delegate's
             let mut delegates_delegations = DELEGATIONS.load(deps.storage, valid_gov_addr.clone())?;
-            delegates_delegations.delegated = delegates_delegations.delegated.clone()
-                .into_iter()
-                .filter(|delegation| !(delegation.delegator == info.sender.clone()))
-                .collect::<Vec<Delegation>>();
+            match delegates_delegations.delegated.iter().enumerate().find(|(_i, delegation)| delegation.delegator == info.clone().sender){
+                Some((index, _)) => match delegates_delegations.delegated[index].amount.checked_sub(mbrn_amount){
+                    Ok(new_amount) => delegates_delegations.delegated[index].amount = new_amount,
+                    Err(_) => {
+                        //If more than delegated, remove from delegate's delegated
+                        delegates_delegations.delegated.remove(index);
+                    }
+                },
+                None => {
+                    return Err(ContractError::CustomError {
+                        val: String::from("Delegator not found in delegated's delegated"),
+                    });
+                }
+            };
             DELEGATIONS.save(deps.storage, valid_gov_addr.clone(), &delegates_delegations)?;
 
-            //Remove from staker's delegated_to
-            staker_delegation_info.delegated_to = staker_delegation_info.delegated_to.clone()
-                .into_iter()
-                .filter(|delegation| !(delegation.delegator == valid_gov_addr.clone()))
-                .collect::<Vec<Delegation>>();
+            //Subtract from staker's delegated_to
+            match staker_delegation_info.delegated_to.iter().enumerate().find(|(_i, delegation)| delegation.delegator == valid_gov_addr.clone()){
+                Some((index, _)) => match staker_delegation_info.delegated_to[index].amount.checked_sub(mbrn_amount){
+                    Ok(new_amount) => staker_delegation_info.delegated_to[index].amount = new_amount,
+                    Err(_) => {
+                        //If more than delegated, remove from staker's delegated_to
+                        staker_delegation_info.delegated_to.remove(index);
+                    }
+                },
+                None => {
+                    return Err(ContractError::CustomError {
+                        val: String::from("Delegate not found in staker's delegated_to"),
+                    });
+                }
+            };
             DELEGATIONS.save(deps.storage, info.sender.clone(), &staker_delegation_info)?;
         }
     }
@@ -593,16 +666,141 @@ fn update_delegations(
         return Err(ContractError::DelegationsGreaterThanDelegatible { delegatible: total_delegatible_amount });
     }
 
-    //Edit staker's commission
+    //Edit & save staker's commission
     if let Some(commission) = commission {
         let mut staker_delegation_info = DELEGATIONS.load(deps.storage, info.sender.clone())?;
         staker_delegation_info.commission = commission;
         DELEGATIONS.save(deps.storage, info.sender.clone(), &staker_delegation_info)?;
     }
+
+    //Update fluidity for both staker & delegate info if fluidity is Some
+    if let Some(fluid) = fluid {
+        //Staker's delegations
+        let mut staker_delegation_info = DELEGATIONS.load(deps.storage, info.sender.clone())?;
+        staker_delegation_info.delegated = staker_delegation_info.delegated.clone()
+            .into_iter()
+            .map(|delegation| {
+                if delegation.delegator == valid_gov_addr.clone() {
+                    Delegation {
+                        fluidity: fluid,
+                        ..delegation
+                    }
+                } else {
+                    delegation
+                }
+            })
+            .collect::<Vec<Delegation>>();
+        DELEGATIONS.save(deps.storage, info.sender.clone(), &staker_delegation_info)?;
+
+        //Delegate's delegations
+        let mut delegates_delegations = DELEGATIONS.load(deps.storage, valid_gov_addr.clone())?;
+        delegates_delegations.delegated_to = delegates_delegations.delegated_to.clone()
+            .into_iter()
+            .map(|delegation| {
+                if delegation.delegator == info.sender.clone() {
+                    Delegation {
+                        fluidity: fluid,
+                        ..delegation
+                    }
+                } else {
+                    delegation
+                }
+            })
+            .collect::<Vec<Delegation>>();
+        DELEGATIONS.save(deps.storage, valid_gov_addr.clone(), &delegates_delegations)?;
+    }
     
-    Ok(Response::new())
+    Ok(Response::new().add_attributes(vec![
+        attr("action", "update_delegations"),
+        attr("delegator", info.sender),
+        attr("delegate", valid_gov_addr),
+        attr("amount", mbrn_amount),
+    ]))
 }
 
+/// Delegating Fluid delegatations
+/// Delegates don't need to be stakers
+fn delegate_fluid_delegations(
+    deps: DepsMut,
+    info: MessageInfo,
+    governator_addr: String,
+    mbrn_amount: Option<Uint128>,
+) -> Result<Response, ContractError>{    
+    //Validate Governator, doesn't need to be a staker but can't be the user
+    let valid_gov_addr = deps.api.addr_validate(&governator_addr)?;
+    if valid_gov_addr == info.clone().sender {
+        return Err(ContractError::CustomError {
+            val: String::from("Delegate cannot be the user"),
+        });
+    }
+
+    //Get delegate's delegations, assert they are a delegate
+    let mut delegator_delegation_info = DELEGATIONS.load(deps.storage, info.clone().sender.clone())?;
+
+    //Set total_fluid_delegated
+    let total_fluid_delegated: Uint128 = DELEGATIONS.load(deps.storage, info.sender.clone())?
+        .delegated_to
+        .into_iter()
+        .filter(|delegation| delegation.fluidity)
+        .map(|delegation| delegation.amount)
+        .collect::<Vec<Uint128>>()
+        .into_iter()
+        .sum();
+
+    //Set total_fluid_delegatible_amount
+    let mut total_fluid_delegatible_amount = delegator_delegation_info.delegated
+        .iter()
+        .filter(|delegation| delegation.fluidity)
+        .map(|delegation| delegation.amount)
+        .collect::<Vec<Uint128>>()
+        .into_iter()
+        .sum::<Uint128>();
+    total_fluid_delegatible_amount = total_fluid_delegatible_amount.checked_sub(total_fluid_delegated).unwrap();
+
+    //Validate MBRN amount
+    let mbrn_amount = mbrn_amount.unwrap_or(total_fluid_delegatible_amount);
+    if mbrn_amount > total_fluid_delegatible_amount { 
+        return Err(ContractError::DelegationsGreaterThanDelegatible { delegatible: total_fluid_delegatible_amount });
+    }    
+
+    //Delegate mbrn_amount to governator
+    let mut delegate_delegation_info = DELEGATIONS.load(deps.storage, valid_gov_addr.clone())?;
+    match delegate_delegation_info.delegated.iter().enumerate().find(|(_i, delegation)| delegation.delegator == info.sender.clone()){
+        Some((index, _)) => delegate_delegation_info.delegated[index].amount += mbrn_amount,
+        None => {
+            delegate_delegation_info.delegated.push(Delegation {
+                delegator: info.sender.clone(),
+                amount: mbrn_amount,
+                fluidity: true,
+            });
+        }
+    };
+    //Save delegate's info           
+    DELEGATIONS.save(deps.storage, valid_gov_addr.clone(), &delegate_delegation_info)?;
+
+    //Add to delegator's delegated_to
+    //Add to existing delegation or add new Delegation object 
+    match delegator_delegation_info.delegated_to.iter().enumerate().find(|(_i, delegation)| delegation.delegator == valid_gov_addr.clone()){
+        Some((index, _)) => delegator_delegation_info.delegated_to[index].amount += mbrn_amount,
+        None => {
+            delegator_delegation_info.delegated_to.push(Delegation {
+                delegator: valid_gov_addr.clone(),
+                amount: mbrn_amount,
+                fluidity: true,
+            });
+        }
+    };
+    //Save delegator's info
+    DELEGATIONS.save(deps.storage, info.sender.clone(), &delegator_delegation_info)?;
+   
+
+    Ok(Response::new().add_attributes(vec![
+        attr("action", "delegate_fluid_delegations"),
+        attr("delegator", info.sender),
+        attr("delegate", valid_gov_addr),
+        attr("amount", mbrn_amount),
+    ]))
+}
 
 /// Restake unstaking deposits for a user
 fn restake(
@@ -1328,7 +1526,7 @@ fn trim_fee_events(
     //Initialize earliest deposit
     let mut earliest_deposit = None;
 
-    STAKED
+    let _iter = STAKED
         .range(storage, None, None, cosmwasm_std::Order::Ascending)
         .map(|stakers| {
             let (_, deposits) = stakers.unwrap();
@@ -1344,7 +1542,8 @@ fn trim_fee_events(
             }
 
             earliest_deposit = Some(earliest_deposit_loop);
-        });
+        })
+        .collect::<Vec<()>>();
 
     //Filter for fee events that are after the earliest deposit to trim state
     if let Some(earliest_deposit) = earliest_deposit{
@@ -1433,6 +1632,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             end_before,
             unstaking,
         )?),
+        QueryMsg::Delegations { limit, start_after, user } => {
+            to_binary(&query_delegations(deps, limit, start_after, user)?)
+        }
         QueryMsg::FeeEvents { limit, start_after } => {
             to_binary(&query_fee_events(deps, limit, start_after)?)
         }

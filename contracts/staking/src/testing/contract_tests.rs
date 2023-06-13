@@ -9,7 +9,7 @@ use cosmwasm_std::{
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, 
-    StakedResponse, TotalStakedResponse, StakerResponse,
+    StakedResponse, TotalStakedResponse, StakerResponse, DelegationResponse,
 };
 use membrane::types::{Asset, AssetInfo, StakeDeposit, StakeDistribution};
 
@@ -266,6 +266,58 @@ fn stake() {
             ],
         }
     );
+}
+
+#[test]
+fn delegate() {
+    //Instantiate test
+    let mut deps = mock_dependencies();
+
+    //Instantiate contract
+    let msg = InstantiateMsg {
+        owner: Some("owner0000".to_string()),
+        positions_contract: Some("positions_contract".to_string()),
+        auction_contract: Some("auction_contract".to_string()),
+        vesting_contract: Some("vesting_contract".to_string()),
+        governance_contract: Some("gov_contract".to_string()),
+        osmosis_proxy: Some("osmosis_proxy".to_string()),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
+        fee_wait_period: None,
+        mbrn_denom: String::from("mbrn_denom"),
+        unstaking_period: None,
+    };
+
+    //Instantiating contract
+    let info = mock_info("sender88", &[]);
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Stake MBRN
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("sender88", &[coin(10, "mbrn_denom")]);
+    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Delegate MBRN
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: String::from("governator_addr"), 
+        mbrn_amount: None, 
+        delegate: Some(true), 
+        fluid: None, 
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query and Assert Delegations
+    let res = query(
+        deps.as_ref(),
+        mock_env(),
+        QueryMsg::Delegations {
+            user: Some(String::from("sender88")),
+            limit: None,
+            start_after: None,
+        },
+    ).unwrap();
+    let resp: DelegationResponse = from_binary(&res).unwrap();
 }
 
 #[test]

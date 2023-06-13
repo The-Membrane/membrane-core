@@ -1,4 +1,4 @@
-use cosmwasm_std::{StdError, Uint128};
+use cosmwasm_std::StdError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -26,9 +26,6 @@ pub enum ContractError {
 
     #[error("Invalid function parameters")]
     InvalidParameters {},
-
-    #[error("Attempting to delegate more than delegatible: {delegatible:?}")]
-    DelegationsGreaterThanDelegatible { delegatible: Uint128 },
 
     #[error("Variable overflow due to mismanaged state")]
     MismanagedState {},

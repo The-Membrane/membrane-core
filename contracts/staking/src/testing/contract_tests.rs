@@ -1,3 +1,4 @@
+use crate::ContractError;
 use crate::contract::{execute, instantiate, query};
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
@@ -11,7 +12,7 @@ use membrane::staking::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, 
     StakedResponse, TotalStakedResponse, StakerResponse, DelegationResponse,
 };
-use membrane::types::{Asset, AssetInfo, StakeDeposit, StakeDistribution};
+use membrane::types::{StakeDeposit, StakeDistribution, DelegationInfo, Delegation};
 
 #[test]
 fn update_config(){
@@ -296,10 +297,25 @@ fn delegate() {
     let info = mock_info("sender88", &[coin(10, "mbrn_denom")]);
     let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-    //Delegate MBRN
+    //Delegate MBRN: Error can't delegate to self
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: String::from("sender88"), 
+        mbrn_amount: None, 
+        delegate: Some(true), 
+        fluid: None, 
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Custom Error val: \"Delegate cannot be the user\"".to_string()
+    );   
+
+    //Delegate MBRN: success
     let msg = ExecuteMsg::UpdateDelegations { 
         governator_addr: String::from("governator_addr"), 
-        mbrn_amount: None, 
+        mbrn_amount: Some(Uint128::new(297410897)), //Attempting to delegate more than staked is impossible, defaults to maximum delegatible
         delegate: Some(true), 
         fluid: None, 
         commission: None,
@@ -308,16 +324,127 @@ fn delegate() {
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Query and Assert Delegations
-    let res = query(
-        deps.as_ref(),
-        mock_env(),
+    let res = query(deps.as_ref(), mock_env(),
         QueryMsg::Delegations {
-            user: Some(String::from("sender88")),
+            user: None,
             limit: None,
             start_after: None,
         },
     ).unwrap();
-    let resp: DelegationResponse = from_binary(&res).unwrap();
+    let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
+    assert_eq!(resp.len(), 2);
+    assert_eq!(
+        resp[1].delegation_info,
+        DelegationInfo {
+            delegated: vec![],
+            delegated_to: vec![
+                Delegation {
+                    delegator: Addr::unchecked("governator_addr"),
+                    amount: Uint128::new(10u128),
+                    fluidity: false,
+                }
+            ],
+            commission: Decimal::zero(),
+        }        
+    );
+    assert_eq!(
+        resp[0].delegation_info,
+        DelegationInfo {
+            delegated: vec![
+                Delegation {
+                    delegator: Addr::unchecked("sender88"),
+                    amount: Uint128::new(10u128),
+                    fluidity: false,
+                }
+            ],
+            delegated_to: vec![],
+            commission: Decimal::zero(),
+        }        
+    );
+
+    //Undelegate: Error
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: String::from("non_governator"), 
+        mbrn_amount: Some(Uint128::new(6)), 
+        delegate: Some(false), 
+        fluid: Some(true),
+        commission: Some(Decimal::one()),
+    };
+    let info = mock_info("sender88", &[]);
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+    assert_eq!(err.to_string(), String::from("membrane::types::DelegationInfo not found"));
+
+    //Undelegate partially, change commission & fluidity
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: String::from("governator_addr"), 
+        mbrn_amount: Some(Uint128::new(6)), 
+        delegate: Some(false), 
+        fluid: Some(true),
+        commission: Some(Decimal::one()),
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query and Assert Delegations
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::Delegations {
+            user: None,
+            limit: None,
+            start_after: None,
+        },
+    ).unwrap();
+    let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
+    assert_eq!(resp.len(), 2);
+    assert_eq!(
+        resp[1].delegation_info,
+        DelegationInfo {
+            delegated: vec![],
+            delegated_to: vec![
+                Delegation {
+                    delegator: Addr::unchecked("governator_addr"),
+                    amount: Uint128::new(4u128),
+                    fluidity: true,
+                }
+            ],
+            commission: Decimal::one(),
+        }        
+    );
+    assert_eq!(
+        resp[0].delegation_info,
+        DelegationInfo {
+            delegated: vec![
+                Delegation {
+                    delegator: Addr::unchecked("sender88"),
+                    amount: Uint128::new(4u128),
+                    fluidity: true,
+                }
+            ],
+            delegated_to: vec![],
+            commission: Decimal::zero(),
+        }        
+    );
+
+    //Undelegate fully 
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: String::from("governator_addr"), 
+        mbrn_amount: None, //this will be more than 4 but it should work anyway
+        delegate: Some(false), 
+        fluid: None, 
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query and Assert Delegations are empty
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::Delegations {
+            user: None,
+            limit: None,
+            start_after: None,
+        },
+    ).unwrap();
+    let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
+    assert_eq!(resp, vec![]);
 }
 
 #[test]

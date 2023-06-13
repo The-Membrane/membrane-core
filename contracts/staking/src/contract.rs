@@ -1,3 +1,4 @@
+use std::cmp::min;
 #[cfg(not(feature = "library"))]
 use std::env;
 
@@ -571,20 +572,24 @@ fn update_delegations(
         .sum::<Uint128>();
 
     //Validate MBRN amount
-    let mbrn_amount = mbrn_amount.unwrap_or(total_delegatible_amount);
+    let mut mbrn_amount = mbrn_amount.unwrap_or(total_delegatible_amount);
+    
 
     /////Act on Optionals/////
     //Delegations
     if let Some(delegate) = delegate {
         //If delegating, add to staker's delegated_to & delegates delegated
         if delegate {
+            //Set mbrn_amount to its max delegatible amount
+            mbrn_amount = min(total_delegatible_amount, mbrn_amount);
+
             //Load delegate's info
             let mut delegates_delegations = match DELEGATIONS.load(deps.storage, valid_gov_addr.clone()){
                 Ok(delegations) => delegations,
                 Err(_) => DelegationInfo {
                     delegated: vec![],
                     delegated_to: vec![],
-                    commission: commission.unwrap_or(Decimal::zero()),
+                    commission: Decimal::zero(),
                 }
             };
             //Add to existing delegation from the Staker or add new Delegation object 
@@ -633,7 +638,13 @@ fn update_delegations(
                     });
                 }
             };
-            DELEGATIONS.save(deps.storage, valid_gov_addr.clone(), &delegates_delegations)?;
+
+            //Remove if empty, save otherwise
+            if delegates_delegations.delegated.is_empty() && delegates_delegations.delegated_to.is_empty() {
+                DELEGATIONS.remove(deps.storage, valid_gov_addr.clone());
+            } else {
+                DELEGATIONS.save(deps.storage, valid_gov_addr.clone(), &delegates_delegations)?;
+            }
 
             //Subtract from staker's delegated_to
             match staker_delegation_info.delegated_to.iter().enumerate().find(|(_i, delegation)| delegation.delegator == valid_gov_addr.clone()){
@@ -650,64 +661,62 @@ fn update_delegations(
                     });
                 }
             };
-            DELEGATIONS.save(deps.storage, info.sender.clone(), &staker_delegation_info)?;
+            
+            //Remove if empty, save otherwise
+            if staker_delegation_info.delegated.is_empty() && staker_delegation_info.delegated_to.is_empty() {
+                DELEGATIONS.remove(deps.storage, info.clone().sender);
+            } else {
+                DELEGATIONS.save(deps.storage, info.clone().sender, &staker_delegation_info)?;
+            }
         }
     }
 
-    //Assert total delegations is less than or equal to total delegatible (stake - delegated)
-    let total_delegations: Uint128 = DELEGATIONS.load(deps.storage, info.sender.clone())?
-        .delegated
-        .into_iter()
-        .map(|delegation| delegation.amount)
-        .collect::<Vec<Uint128>>()
-        .into_iter()
-        .sum();
-    if total_delegations > total_delegatible_amount{
-        return Err(ContractError::DelegationsGreaterThanDelegatible { delegatible: total_delegatible_amount });
-    }
-
+    
     //Edit & save staker's commission
     if let Some(commission) = commission {
-        let mut staker_delegation_info = DELEGATIONS.load(deps.storage, info.sender.clone())?;
-        staker_delegation_info.commission = commission;
-        DELEGATIONS.save(deps.storage, info.sender.clone(), &staker_delegation_info)?;
+        if let Ok(mut staker_delegation_info) = DELEGATIONS.load(deps.storage, info.sender.clone()){
+            staker_delegation_info.commission = commission;
+            DELEGATIONS.save(deps.storage, info.sender.clone(), &staker_delegation_info)?;
+        }
     }
 
     //Update fluidity for both staker & delegate info if fluidity is Some
     if let Some(fluid) = fluid {
         //Staker's delegations
-        let mut staker_delegation_info = DELEGATIONS.load(deps.storage, info.sender.clone())?;
-        staker_delegation_info.delegated = staker_delegation_info.delegated.clone()
-            .into_iter()
-            .map(|delegation| {
-                if delegation.delegator == valid_gov_addr.clone() {
-                    Delegation {
-                        fluidity: fluid,
-                        ..delegation
+        if let Ok(mut staker_delegation_info) = DELEGATIONS.load(deps.storage, info.sender.clone()){
+            staker_delegation_info.delegated_to = staker_delegation_info.delegated_to.clone()
+                .into_iter()
+                .map(|delegation| {
+                    if delegation.delegator == valid_gov_addr.clone() {
+                        Delegation {
+                            fluidity: fluid,
+                            ..delegation
+                        }
+                    } else {
+                        delegation
                     }
-                } else {
-                    delegation
-                }
-            })
-            .collect::<Vec<Delegation>>();
-        DELEGATIONS.save(deps.storage, info.sender.clone(), &staker_delegation_info)?;
+                })
+                .collect::<Vec<Delegation>>();
+            DELEGATIONS.save(deps.storage, info.sender.clone(), &staker_delegation_info)?;
+        };
 
         //Delegate's delegations
-        let mut delegates_delegations = DELEGATIONS.load(deps.storage, valid_gov_addr.clone())?;
-        delegates_delegations.delegated_to = delegates_delegations.delegated_to.clone()
-            .into_iter()
-            .map(|delegation| {
-                if delegation.delegator == info.sender.clone() {
-                    Delegation {
-                        fluidity: fluid,
-                        ..delegation
+        if let Ok(mut delegates_delegations) = DELEGATIONS.load(deps.storage, valid_gov_addr.clone()){
+            delegates_delegations.delegated = delegates_delegations.delegated.clone()
+                .into_iter()
+                .map(|delegation| {
+                    if delegation.delegator == info.sender.clone() {
+                        Delegation {
+                            fluidity: fluid,
+                            ..delegation
+                        }
+                    } else {
+                        delegation
                     }
-                } else {
-                    delegation
-                }
-            })
-            .collect::<Vec<Delegation>>();
-        DELEGATIONS.save(deps.storage, valid_gov_addr.clone(), &delegates_delegations)?;
+                })
+                .collect::<Vec<Delegation>>();
+            DELEGATIONS.save(deps.storage, valid_gov_addr.clone(), &delegates_delegations)?;
+        };        
     }
     
     Ok(Response::new().add_attributes(vec![
@@ -758,11 +767,9 @@ fn delegate_fluid_delegations(
     total_fluid_delegatible_amount = total_fluid_delegatible_amount.checked_sub(total_fluid_delegated).unwrap();
 
     //Validate MBRN amount
-    let mbrn_amount = mbrn_amount.unwrap_or(total_fluid_delegatible_amount);
-    if mbrn_amount > total_fluid_delegatible_amount { 
-        return Err(ContractError::DelegationsGreaterThanDelegatible { delegatible: total_fluid_delegatible_amount });
-    }    
-
+    let mut mbrn_amount = mbrn_amount.unwrap_or(total_fluid_delegatible_amount);
+    mbrn_amount = min(mbrn_amount, total_fluid_delegatible_amount);
+ 
     //Delegate mbrn_amount to governator
     let mut delegate_delegation_info = DELEGATIONS.load(deps.storage, valid_gov_addr.clone())?;
     match delegate_delegation_info.delegated.iter().enumerate().find(|(_i, delegation)| delegation.delegator == info.sender.clone()){

@@ -389,7 +389,7 @@ pub fn unstake(
     let fee_events = FEE_EVENTS.load(deps.storage)?;
 
     //Restrict unstaking
-    // can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
+    can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
 
     //Get total Stake
     let total_stake = {
@@ -436,13 +436,13 @@ pub fn unstake(
     //Also update delegations
     if !withdrawable_amount.is_zero() {
         //Create Position accrual msgs to lock in user discounts before withdrawing
-        // let accrual_msg = accrue_user_positions(
-        //     deps.querier, 
-        //     config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-        //     info.sender.clone().to_string(), 
-        //     32,
-        // )?;
-        // msgs.push(accrual_msg);
+        let accrual_msg = accrue_user_positions(
+            deps.querier, 
+            config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+            info.sender.clone().to_string(), 
+            32,
+        )?;
+        msgs.push(accrual_msg);
 
         //Push to native claims list
         native_claims.push(asset_to_coin(Asset {
@@ -592,16 +592,26 @@ fn update_delegations(
         .sum::<Uint128>();
 
     //Validate MBRN amount
-    let mut mbrn_amount = mbrn_amount.unwrap_or(total_delegatible_amount);
-    
+    let mbrn_amount = mbrn_amount.unwrap_or(total_delegatible_amount);
+        
 
     /////Act on Optionals/////
     //Delegations
     if let Some(delegate) = delegate {
         //If delegating, add to staker's delegated_to & delegates delegated
         if delegate {
-            //Set mbrn_amount to its max delegatible amount
-            mbrn_amount = min(total_delegatible_amount, mbrn_amount);
+            //If mbrn_amount is greater than total delegatible amount, return error
+            if mbrn_amount > total_delegatible_amount {
+                return Err(ContractError::CustomError {
+                    val: String::from("MBRN amount exceeds delegatible amount"),
+                });
+            }
+            //If no delegatible amount, return error
+            if total_delegatible_amount.is_zero() {
+                return Err(ContractError::CustomError {
+                    val: String::from("No delegatible amount"),
+                });
+            }
 
             //Load delegate's info
             let mut delegates_delegations = match DELEGATIONS.load(deps.storage, valid_gov_addr.clone()){
@@ -749,6 +759,7 @@ fn update_delegations(
 
 /// Delegating Fluid delegatations
 /// Delegates don't need to be stakers
+/// Delegator loses control over the delegated amount, i.e. the initial staker retains  control over all delegated amounts
 fn delegate_fluid_delegations(
     deps: DepsMut,
     info: MessageInfo,
@@ -766,61 +777,118 @@ fn delegate_fluid_delegations(
     //Get delegate's delegations, assert they are a delegate
     let mut delegator_delegation_info = DELEGATIONS.load(deps.storage, info.clone().sender.clone())?;
 
-    //Set total_fluid_delegated
-    let total_fluid_delegated: Uint128 = DELEGATIONS.load(deps.storage, info.sender.clone())?
-        .delegated_to
+    //Set delegation_info variants
+    let mut fluid_delegations: Vec<Delegation> = delegator_delegation_info.delegated.clone()
         .into_iter()
         .filter(|delegation| delegation.fluidity)
-        .map(|delegation| delegation.amount)
-        .collect::<Vec<Uint128>>()
+        .collect();
+    let non_fluid_delegations: Vec<Delegation> = delegator_delegation_info.delegated.clone()
         .into_iter()
-        .sum();
+        .filter(|delegation| !delegation.fluidity)
+        .collect();
 
     //Set total_fluid_delegatible_amount
-    let mut total_fluid_delegatible_amount = delegator_delegation_info.delegated
+    let total_fluid_delegatible_amount = delegator_delegation_info.delegated
         .iter()
         .filter(|delegation| delegation.fluidity)
         .map(|delegation| delegation.amount)
         .collect::<Vec<Uint128>>()
         .into_iter()
         .sum::<Uint128>();
-    total_fluid_delegatible_amount = total_fluid_delegatible_amount.checked_sub(total_fluid_delegated).unwrap();
-
     //Validate MBRN amount
     let mut mbrn_amount = mbrn_amount.unwrap_or(total_fluid_delegatible_amount);
-    mbrn_amount = min(mbrn_amount, total_fluid_delegatible_amount);
+    
+    if total_fluid_delegatible_amount < mbrn_amount {
+        return Err(ContractError::CustomError {
+            val: String::from("MBRN amount exceeds total fluid delegatible amount"),
+        });
+    }
+    if total_fluid_delegatible_amount.is_zero() {
+        return Err(ContractError::CustomError {
+            val: String::from("No fluid delegations to delegate"),
+        });
+    }
  
-    //Delegate mbrn_amount to governator
-    let mut delegate_delegation_info = DELEGATIONS.load(deps.storage, valid_gov_addr.clone())?;
-    match delegate_delegation_info.delegated.iter().enumerate().find(|(_i, delegation)| delegation.delegator == info.sender.clone()){
-        Some((index, _)) => delegate_delegation_info.delegated[index].amount += mbrn_amount,
-        None => {
-            delegate_delegation_info.delegated.push(Delegation {
-                delegator: info.sender.clone(),
-                amount: mbrn_amount,
-                fluidity: true,
-            });
-        }
-    };
-    //Save delegate's info           
-    DELEGATIONS.save(deps.storage, valid_gov_addr.clone(), &delegate_delegation_info)?;
+    //Parse through delegator's fluid delegations
+    for (i, delegation) in fluid_delegations.clone().into_iter().enumerate() {
+        //If delegation amount is less than mbrn_amount, remove delegation from delegator's delegated
+        let delegation_amount = if delegation.amount <= mbrn_amount {
+            fluid_delegations.remove(i);
+            //Subtract delegation amount from mbrn_amount
+            mbrn_amount -= delegation.amount;
 
-    //Add to delegator's delegated_to
-    //Add to existing delegation or add new Delegation object 
-    match delegator_delegation_info.delegated_to.iter().enumerate().find(|(_i, delegation)| delegation.delegator == valid_gov_addr.clone()){
-        Some((index, _)) => delegator_delegation_info.delegated_to[index].amount += mbrn_amount,
-        None => {
-            delegator_delegation_info.delegated_to.push(Delegation {
-                delegator: valid_gov_addr.clone(),
-                amount: mbrn_amount,
-                fluidity: true,
-            });
-        }
-    };
-    //Save delegator's info
-    DELEGATIONS.save(deps.storage, info.sender.clone(), &delegator_delegation_info)?;
-   
+            delegation.amount
+        } else {
+            //If delegation amount is greater than mbrn_amount, subtract mbrn_amount from delegation amount
+            fluid_delegations[i].amount -= mbrn_amount;
 
+            let delegation_amount = mbrn_amount;
+
+            //Set mbrn_amount to 0
+            mbrn_amount = Uint128::zero();
+
+            delegation_amount
+        };
+
+        //Delegate delegation_amount to governator
+        let mut delegate_delegation_info = match DELEGATIONS.load(deps.storage, valid_gov_addr.clone()){
+            Ok(delegation_info) => delegation_info,
+            Err(_) => DelegationInfo {
+                delegated_to: vec![],
+                delegated: vec![],
+                commission: Decimal::zero(),
+            }
+        };
+        match delegate_delegation_info.delegated.iter().enumerate().find(|(_i, listed_delegation)| listed_delegation.delegator == delegation.delegator.clone()){
+            Some((index, _)) => delegate_delegation_info.delegated[index].amount += delegation_amount,
+            None => {
+                delegate_delegation_info.delegated.push(Delegation {
+                    delegator: delegation.delegator.clone(),
+                    amount: delegation_amount,
+                    fluidity: true,
+                });
+            }
+        };
+        //Save delegate's info           
+        DELEGATIONS.save(deps.storage, valid_gov_addr.clone(), &delegate_delegation_info)?;
+
+        //Add delegation_amount to initial delegator's delegated_to
+        let mut initial_delegator_delegation_info = DELEGATIONS.load(deps.storage, delegation.delegator.clone())?;
+        match initial_delegator_delegation_info.delegated_to.iter().enumerate().find(|(_i, listed_delegation)| listed_delegation.delegator == valid_gov_addr.clone()){
+            Some((index, _)) => initial_delegator_delegation_info.delegated_to[index].amount += delegation_amount,
+            None => {
+                initial_delegator_delegation_info.delegated_to.push(Delegation {
+                    delegator: valid_gov_addr.clone(),
+                    amount: delegation_amount,
+                    fluidity: true,
+                });
+            }
+        };
+        //Subtract delegation_amount from initial delegator's delegated_to from the executing delegator
+        if let Some((index, _)) = initial_delegator_delegation_info.delegated_to.iter().enumerate().find(|(_i, listed_delegation)| listed_delegation.delegator == info.clone().sender){
+            //Subtract delegation_amount
+            initial_delegator_delegation_info.delegated_to[index].amount -= delegation_amount;
+        } else {
+            //This should be unreachable
+            return Err(ContractError::CustomError {
+                val: String::from("Delegator is not a delegate of the initial delegator"),
+            });
+        };
+        //Save initial delegator's info
+        DELEGATIONS.save(deps.storage, delegation.delegator.clone(), &initial_delegator_delegation_info)?;
+
+        //If mbrn_amount is 0, break
+        if mbrn_amount == Uint128::zero() {
+            break;
+        }
+    }
+
+    //Update delegator's delegations
+    fluid_delegations.extend(non_fluid_delegations);
+    delegator_delegation_info.delegated = fluid_delegations;
+    DELEGATIONS.save(deps.storage, info.clone().sender.clone(), &delegator_delegation_info)?;
+
+    
     Ok(Response::new().add_attributes(vec![
         attr("action", "delegate_fluid_delegations"),
         attr("delegator", info.sender),

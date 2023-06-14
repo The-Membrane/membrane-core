@@ -292,9 +292,14 @@ fn delegate() {
     let info = mock_info("sender88", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-    //Stake MBRN
+    //Stake MBRN: sender88
     let msg = ExecuteMsg::Stake { user: None };
     let info = mock_info("sender88", &[coin(10, "mbrn_denom")]);
+    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Stake MBRN: placeholder99
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("placeholder99", &[coin(10, "mbrn_denom")]);
     let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Delegate MBRN: Error can't delegate to self
@@ -362,6 +367,29 @@ fn delegate() {
         }        
     );
 
+    //Delegate MBRN: success from placeholder99
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: String::from("too_many_addr"), 
+        mbrn_amount: None,
+        delegate: Some(true), 
+        fluid: None, 
+        commission: None,
+    };
+    let info = mock_info("placeholder99", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Undelegate: Error
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: String::from("governator_addr"), 
+        mbrn_amount: None,
+        delegate: Some(false), 
+        fluid: Some(true),
+        commission: None,
+    };
+    let info = mock_info("placeholder99", &[]);
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+    assert_eq!(err.to_string(), String::from("Custom Error val: \"Delegator not found in delegated's delegated\""));
+
     //Undelegate: Error
     let msg = ExecuteMsg::UpdateDelegations { 
         governator_addr: String::from("non_governator"), 
@@ -394,9 +422,9 @@ fn delegate() {
         },
     ).unwrap();
     let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
-    assert_eq!(resp.len(), 2);
+    assert_eq!(resp.len(), 4);
     assert_eq!(
-        resp[1].delegation_info,
+        resp[2].delegation_info,
         DelegationInfo {
             delegated: vec![],
             delegated_to: vec![
@@ -435,7 +463,7 @@ fn delegate() {
     let info = mock_info("sender88", &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-    //Query and Assert Delegations are empty
+    //Query and Assert Delegations were deleted from state
     let res = query(deps.as_ref(), mock_env(),
         QueryMsg::Delegations {
             user: None,
@@ -444,7 +472,7 @@ fn delegate() {
         },
     ).unwrap();
     let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
-    assert_eq!(resp, vec![]);
+    assert_eq!(resp.len(), 2); //4 -> 2 
 }
 
 #[test]
@@ -480,6 +508,17 @@ fn unstake() {
             attr("amount", String::from("10000000")),
         ]
     );
+
+    //Delegate MBRN: success
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: String::from("unstaking_barrier"), 
+        mbrn_amount: None,
+        delegate: Some(true), 
+        fluid: None, 
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Successful Stake from vesting contract
     let msg = ExecuteMsg::Stake { user: None };
@@ -655,6 +694,44 @@ fn unstake() {
                 .unwrap()
             }))
         ]
+    );
+
+    //Query and Assert Delegations were deleted from state
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::Delegations {
+            user: None,
+            limit: None,
+            start_after: None,
+        },
+    ).unwrap();
+    let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
+    assert_eq!(
+        resp[0].delegation_info,
+        DelegationInfo {
+            delegated: vec![],
+            delegated_to: vec![
+                Delegation {
+                    delegator: Addr::unchecked("unstaking_barrier"),
+                    amount: Uint128::new(4999999u128),
+                    fluidity: false,
+                }
+            ],
+            commission: Decimal::zero(),
+        }        
+    );
+    assert_eq!(
+        resp[1].delegation_info,
+        DelegationInfo {
+            delegated: vec![
+                Delegation {
+                    delegator: Addr::unchecked("sender88"),
+                    amount: Uint128::new(4999999u128),
+                    fluidity: false,
+                }
+            ],
+            delegated_to: vec![],
+            commission: Decimal::zero(),
+        }        
     );
 
     //Successful Unstake from vesting contract w/ withdrawals after unstaking period

@@ -389,17 +389,16 @@ pub fn unstake(
     let fee_events = FEE_EVENTS.load(deps.storage)?;
 
     //Restrict unstaking
-    can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
+    // can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
 
     //Get total Stake
     let total_stake = {
-        let staker_deposits: Vec<StakeDeposit> = STAKED.load(deps.storage, info.sender.clone())?;
-
-        if staker_deposits == vec![] {
-            return Err(ContractError::CustomError {
+        let staker_deposits: Vec<StakeDeposit> = match STAKED.load(deps.storage, info.sender.clone()){
+            Ok(deposits) => deposits,
+            Err(_) => return Err(ContractError::CustomError {
                 val: String::from("User has no stake"),
-            });
-        }
+            }),
+        };
 
         let total_staker_deposits: Uint128 = staker_deposits
             .into_iter()
@@ -437,13 +436,13 @@ pub fn unstake(
     //Also update delegations
     if !withdrawable_amount.is_zero() {
         //Create Position accrual msgs to lock in user discounts before withdrawing
-        let accrual_msg = accrue_user_positions(
-            deps.querier, 
-            config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-            info.sender.clone().to_string(), 
-            32,
-        )?;
-        msgs.push(accrual_msg);
+        // let accrual_msg = accrue_user_positions(
+        //     deps.querier, 
+        //     config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+        //     info.sender.clone().to_string(), 
+        //     32,
+        // )?;
+        // msgs.push(accrual_msg);
 
         //Push to native claims list
         native_claims.push(asset_to_coin(Asset {
@@ -454,37 +453,58 @@ pub fn unstake(
         })?);     
 
         //Get user's delegation info
-        let mut staker_delegation_info = DELEGATIONS.load(deps.storage, info.sender.clone())?;
-    
-        //Get user's delegated stake
-        let total_delegations: Uint128 = staker_delegation_info.clone()
-            .delegated_to
-            .into_iter()
-            .map(|delegation| delegation.amount)
-            .collect::<Vec<Uint128>>()
-            .into_iter()
-            .sum();
+        if let Ok(mut staker_delegation_info) = DELEGATIONS.load(deps.storage, info.sender.clone()){
+            //Get user's delegated stake
+            let total_delegations: Uint128 = staker_delegation_info.clone()
+                .delegated_to
+                .into_iter()
+                .map(|delegation| delegation.amount)
+                .collect::<Vec<Uint128>>()
+                .into_iter()
+                .sum();
 
-        //If withdrawing more than is not delegated, undelegate the excess
-        if withdrawable_amount > total_stake - total_delegations {
-            let mut undelegate_amount = withdrawable_amount - (total_stake - total_delegations);
-            for (i, delegation) in staker_delegation_info.clone().delegated_to.into_iter().enumerate() {
-                
-                //If undelegate amount is greater than the current delegation, undelegate the whole delegation & update undelegate amount
-                if undelegate_amount > delegation.amount {
-                    undelegate_amount -= delegation.amount;
+            //If withdrawing more than is not delegated, undelegate the excess
+            if withdrawable_amount > total_stake - total_delegations {
+                let mut undelegate_amount = withdrawable_amount - (total_stake - total_delegations);
+                for (i, delegation) in staker_delegation_info.clone().delegated_to.into_iter().enumerate() {
                     
-                    staker_delegation_info.delegated_to.remove(i);
-                } else {
-                    //If undelegate amount is less than the current delegation, undelegate the undelegate amount & break
-                    staker_delegation_info.delegated_to[i].amount -= undelegate_amount;
-                    break;
-                }
-            }
+                    //If undelegate amount is greater than the current delegation, undelegate the whole delegation & update undelegate amount
+                    if undelegate_amount > delegation.amount {
+                        undelegate_amount -= delegation.amount;
+                        
+                        //Remove staker delegation
+                        staker_delegation_info.delegated_to.remove(i);
 
-            //Save updated delegation info
-            DELEGATIONS.save(deps.storage, info.sender.clone(), &staker_delegation_info)?;
-        }
+                        //Remove delegate delegation
+                        let mut delegate_delegation_info = DELEGATIONS.load(deps.storage, delegation.delegator.clone())?;
+                        for (i, delegate_delegation) in delegate_delegation_info.clone().delegated.into_iter().enumerate() {
+                            if delegate_delegation.delegator == info.sender.clone() {
+                                delegate_delegation_info.delegated.remove(i);
+                                break;
+                            }
+                        }
+                        DELEGATIONS.save(deps.storage, delegation.delegator.clone(), &delegate_delegation_info)?;
+                    } else {
+                        //If undelegate amount is less than the current delegation, undelegate the undelegate amount & break
+                        staker_delegation_info.delegated_to[i].amount -= undelegate_amount;
+
+                        //Update delegate delegation
+                        let mut delegate_delegation_info = DELEGATIONS.load(deps.storage, delegation.delegator.clone())?;
+                        for delegate_delegation in delegate_delegation_info.clone().delegated.into_iter() {
+                            if delegate_delegation.delegator == info.sender.clone() {
+                                delegate_delegation_info.delegated[i].amount -= undelegate_amount;
+                                break;
+                            }
+                        }
+                        DELEGATIONS.save(deps.storage, delegation.delegator.clone(), &delegate_delegation_info)?;
+                        break;
+                    }
+                }
+
+                //Save updated delegation info
+                DELEGATIONS.save(deps.storage, info.sender.clone(), &staker_delegation_info)?;
+            }
+        };
         
     }
 

@@ -3,7 +3,7 @@ use cw_storage_plus::Bound;
 use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, RewardsResponse, StakedResponse, DelegationResponse};
 use membrane::types::{FeeEvent, StakeDeposit, DelegationInfo};
 
-use crate::contract::get_deposit_claimables;
+use crate::contract::{get_deposit_claimables, SECONDS_PER_DAY};
 use crate::state::{STAKING_TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING, DELEGATIONS};
 
 const DEFAULT_LIMIT: u32 = 32u32;
@@ -58,7 +58,7 @@ pub fn query_staker_rewards(deps: Deps, env: Env, staker: String) -> StdResult<R
     //Calc total deposits past fee wait period
     let total_rewarding_stake: Uint128 = staker_deposits.clone()
         .into_iter()
-        .filter(|deposit| deposit.stake_time + config.fee_wait_period <= env.block.time.seconds())
+        .filter(|deposit| deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds())
         .map(|deposit| deposit.amount)
         .sum();
 

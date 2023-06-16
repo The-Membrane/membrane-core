@@ -29,7 +29,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 //Constants
 const SECONDS_PER_YEAR: u64 = 31_536_000u64;
-const SECONDS_PER_DAY: u64 = 86_400u64;
+pub const SECONDS_PER_DAY: u64 = 86_400u64;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -928,7 +928,7 @@ fn restake(
     //Calc total deposits past fee wait period
     let total_rewarding_stake: Uint128 = deposits.clone()
         .into_iter()
-        .filter(|deposit| deposit.stake_time + config.fee_wait_period <= env.block.time.seconds())
+        .filter(|deposit| deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds())
         .map(|deposit| deposit.amount)
         .sum();
 
@@ -942,7 +942,7 @@ fn restake(
                     restake_amount = Uint128::zero();
 
                     //Only add claims if the deposit has passed the fee wait period
-                    if deposit.stake_time + config.fee_wait_period <= env.block.time.seconds() {
+                    if deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds() {
                         //Add claimables from this deposit
                         match add_deposit_claimables(
                             deps.storage,
@@ -970,7 +970,7 @@ fn restake(
                     restake_amount -= deposit.amount;
 
                     //Only add claims if the deposit has passed the fee wait period
-                    if deposit.stake_time + config.fee_wait_period <= env.block.time.seconds() {
+                    if deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds() {
                         //Add claimables from this deposit
                         match add_deposit_claimables(
                             deps.storage,
@@ -1198,35 +1198,8 @@ fn deposit_fee(
         STAKING_TOTALS.save(deps.storage, &totals)?;
     }
 
-    //Get total staked that are eligible for this FeeEvent (past wait period)
-    let stake_total_past_wait_period: StdResult<Vec<Uint128>> = STAKED
-        .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
-        .map(|item| {
-            let (_, staked) = item?;
-
-            let staked = staked
-                .into_iter()
-                .filter(|stake| {
-                stake.stake_time + config.clone().fee_wait_period <= env.block.time.seconds()
-            }).collect::<Vec<StakeDeposit>>();
-
-            let total = staked
-                .into_iter()
-                .fold(Uint128::zero(), |acc, stake| acc + stake.amount);
-
-            Ok(total)
-        })
-        .collect::<StdResult<Vec<Uint128>>>();
-    //We can do this the long way because it'll only happen for interest rate revenue since non-CDT assets are sent to auction
-    //A stake minimum will be implemented so that this query doesn't take too long
-
-    //Total
-    let stake_total_past_wait_period = stake_total_past_wait_period?
-        .into_iter()
-        .fold(Uint128::zero(), |acc, stake| acc + stake);
-
     //Set total
-    let mut total: Uint128 = totals.vesting_contract + stake_total_past_wait_period;
+    let mut total: Uint128 = totals.vesting_contract + totals.stakers;
     if total.is_zero() {
         total = Uint128::new(1u128)
     }
@@ -1237,7 +1210,9 @@ fn deposit_fee(
         let amount = Decimal::from_ratio(asset.amount, Uint128::new(1u128));
         
         fee_events.push(FeeEvent {
-            time_of_event: env.block.time.seconds(),
+            //We add the fee wait period so that the Fee distribution amount is correct
+            //since deposits don't become eligible until the wait period is over yet they are added to the total at deposit
+            time_of_event: env.block.time.seconds() + (config.clone().fee_wait_period * SECONDS_PER_DAY),
             fee: LiqAsset {
                 //Amount = Amount per Staked MBRN
                 info: asset.info,
@@ -1420,7 +1395,7 @@ fn withdraw_from_state(
     //Calc total deposits past fee wait period
     let total_rewarding_stake: Uint128 = deposits.clone()
         .into_iter()
-        .filter(|deposit| deposit.stake_time + config.fee_wait_period <= env.block.time.seconds())
+        .filter(|deposit| deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds())
         .map(|deposit| deposit.amount)
         .sum();
 
@@ -1443,7 +1418,7 @@ fn withdraw_from_state(
             if withdrawal_amount != Uint128::zero() && deposit.amount > withdrawal_amount {
                 
                 //Only add claims if the deposit has passed the fee wait period
-                if deposit.stake_time + config.fee_wait_period <= env.block.time.seconds() {
+                if deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds() {
                     //Add claimables from this deposit
                     match add_deposit_claimables(
                         storage,
@@ -1501,7 +1476,7 @@ fn withdraw_from_state(
             } else if withdrawal_amount != Uint128::zero() && deposit.amount <= withdrawal_amount {
 
                 //Only add claims if the deposit has passed the fee wait period
-                if deposit.stake_time + config.fee_wait_period <= env.block.time.seconds() {
+                if deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds() {
                     //Add claimables from this deposit
                     match add_deposit_claimables(
                         storage,
@@ -1668,14 +1643,14 @@ fn get_user_claimables(
     let deposits = deposits
         .into_iter()
         .filter(|deposit| {
-            deposit.stake_time + config.fee_wait_period <= env.block.time.seconds()
+            deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds()
         })
         .collect::<Vec<StakeDeposit>>();
     
     //Calc total deposits past fee wait period
     let total_rewarding_stake: Uint128 = deposits.clone()
         .into_iter()
-        .filter(|deposit| deposit.stake_time + config.fee_wait_period <= env.block.time.seconds())
+        .filter(|deposit| deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds())
         .map(|deposit| deposit.amount)
         .sum();
 

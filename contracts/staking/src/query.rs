@@ -1,10 +1,10 @@
 use cosmwasm_std::{Deps, StdResult, Uint128, Env, Addr};
 use cw_storage_plus::Bound;
 use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, RewardsResponse, StakedResponse, DelegationResponse};
-use membrane::types::{FeeEvent, StakeDeposit};
+use membrane::types::{FeeEvent, StakeDeposit, DelegationInfo};
 
 use crate::contract::get_deposit_claimables;
-use crate::state::{TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING, DELEGATIONS};
+use crate::state::{STAKING_TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING, DELEGATIONS};
 
 const DEFAULT_LIMIT: u32 = 32u32;
 
@@ -16,7 +16,7 @@ pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse>
     if config.vesting_contract.is_some() && valid_addr == config.vesting_contract.unwrap() {
         return Ok(StakerResponse {
             staker: valid_addr.to_string(),
-            total_staked: TOTALS.load(deps.storage)?.vesting_contract,
+            total_staked: STAKING_TOTALS.load(deps.storage)?.vesting_contract,
             deposit_list: vec![],
         })
     }
@@ -45,19 +45,37 @@ pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse>
 
 /// Returns claimable assets for a given staker
 pub fn query_staker_rewards(deps: Deps, env: Env, staker: String) -> StdResult<RewardsResponse> {
+    //Load state
     let config = CONFIG.load(deps.storage)?;
     let incentive_schedule = INCENTIVE_SCHEDULING.load(deps.storage)?;
-
+    //Validate address
     let valid_addr = deps.api.addr_validate(&staker)?;
-
-    let staker_deposits: Vec<StakeDeposit> = STAKED.load(deps.storage, valid_addr)?;
-
+    //Load state
+    let staker_deposits: Vec<StakeDeposit> = STAKED.load(deps.storage, valid_addr.clone())?;
     let fee_events = FEE_EVENTS.load(deps.storage)?;
+    let DelegationInfo { delegated, delegated_to, commission: _ } = DELEGATIONS.load(deps.storage, valid_addr.clone())?;
+
+    //Calc total deposits past fee wait period
+    let total_rewarding_stake: Uint128 = staker_deposits.clone()
+        .into_iter()
+        .filter(|deposit| deposit.stake_time + config.fee_wait_period <= env.block.time.seconds())
+        .map(|deposit| deposit.amount)
+        .sum();
 
     let mut claimables = vec![];
     let mut accrued_interest = Uint128::zero();
     for deposit in staker_deposits {
-        let (claims, incentives) = get_deposit_claimables(config.clone(), incentive_schedule.clone(), env.clone(), fee_events.clone(), deposit)?;
+        let (claims, incentives) = get_deposit_claimables(
+            deps.storage, 
+            config.clone(), 
+            incentive_schedule.clone(), 
+            env.clone(), 
+            fee_events.clone(), 
+            deposit,
+            delegated.clone(),
+            delegated_to.clone(),
+            total_rewarding_stake,
+        )?;
         claimables.extend(claims);
         accrued_interest += incentives;
     }
@@ -130,7 +148,7 @@ pub fn query_fee_events(
 
 /// Return staked tokens totals
 pub fn query_totals(deps: Deps) -> StdResult<TotalStakedResponse> {
-    let totals = TOTALS.load(deps.storage)?;
+    let totals = STAKING_TOTALS.load(deps.storage)?;
 
     Ok(TotalStakedResponse {
         total_not_including_vested: totals.stakers,

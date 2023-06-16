@@ -235,6 +235,8 @@ pub struct Delegation {
     /// Fluidity toggle
     /// true: delegation can be redelegated by the delegate
     pub fluidity: bool,
+    /// Time of delegation in seconds
+    pub time_of_delegation: u64,
 }
 
 #[cw_serde]

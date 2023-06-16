@@ -1,4 +1,4 @@
-use membrane::types::{FeeEvent, StakeDeposit, StakeDistributionLog, DelegationInfo};
+use membrane::types::{FeeEvent, StakeDeposit, StakeDistributionLog, DelegationInfo, Asset};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -14,9 +14,10 @@ pub struct Totals {
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");
-pub const TOTALS: Item<Totals> = Item::new("totals");
-pub const STAKED: Map<Addr, Vec<StakeDeposit>> = Map::new("stake"); //Stack of deposits
-pub const DELEGATIONS: Map<Addr, DelegationInfo> = Map::new("delegations"); //Info for each stakers delegations (sent and received)
+pub const STAKING_TOTALS: Item<Totals> = Item::new("totals"); 
+pub const STAKED: Map<Addr, Vec<StakeDeposit>> = Map::new("stake"); //Stack of staking deposits
+pub const DELEGATIONS: Map<Addr, DelegationInfo> = Map::new("delegations"); //Info for each user's delegations (sent and received)
+pub const DELEGATE_CLAIMS: Map<Addr, Vec<Asset>> = Map::new("delegate_claims"); //Staking rewards that can be claimed by a delegate
 pub const FEE_EVENTS: Item<Vec<FeeEvent>> = Item::new("fee_events"); //<timestamp, asset> //The amount saved is the amount of the asset per MBRN staked
 pub const INCENTIVE_SCHEDULING: Item<StakeDistributionLog> = Item::new("stake_incentives_log"); 
 

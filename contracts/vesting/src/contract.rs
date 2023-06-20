@@ -265,8 +265,8 @@ fn claim_fees_for_contract(
     //Query Rewards
     let res: RewardsResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.staking_contract.to_string(),
-        msg: to_binary(&StakingQueryMsg::StakerRewards {
-            staker: env.contract.address.to_string(),
+        msg: to_binary(&StakingQueryMsg::UserRewards {
+            user: env.contract.address.to_string(),
         })?,
     }))?;
 

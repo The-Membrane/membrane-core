@@ -278,8 +278,8 @@ fn get_staked_MBRN_value(
 
     let rewards = querier.query::<RewardsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().staking_contract.to_string(),
-        msg: to_binary(&Staking_QueryMsg::StakerRewards {
-            staker: user.clone(),
+        msg: to_binary(&Staking_QueryMsg::UserRewards {
+            user: user.clone(),
         })?,
     }))?;
 

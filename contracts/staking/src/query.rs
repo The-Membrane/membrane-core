@@ -1,4 +1,4 @@
-use cosmwasm_std::{Deps, StdResult, Uint128, Env, Addr};
+use cosmwasm_std::{Deps, StdResult, Uint128, Env, Addr, Decimal, StdError};
 use cw_storage_plus::Bound;
 use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, RewardsResponse, StakedResponse, DelegationResponse};
 use membrane::types::{FeeEvent, StakeDeposit, DelegationInfo};
@@ -53,7 +53,14 @@ pub fn query_staker_rewards(deps: Deps, env: Env, staker: String) -> StdResult<R
     //Load state
     let staker_deposits: Vec<StakeDeposit> = STAKED.load(deps.storage, valid_addr.clone())?;
     let fee_events = FEE_EVENTS.load(deps.storage)?;
-    let DelegationInfo { delegated, delegated_to, commission: _ } = DELEGATIONS.load(deps.storage, valid_addr.clone())?;
+    let DelegationInfo { delegated, delegated_to, commission: _ } = match DELEGATIONS.load(deps.storage, valid_addr.clone()){
+        Ok(delegation) => delegation,
+        Err(_) => DelegationInfo {
+            delegated: vec![],
+            delegated_to: vec![],
+            commission: Decimal::zero(),
+        }
+    };
 
     //Calc total deposits past fee wait period
     let total_rewarding_stake: Uint128 = staker_deposits.clone()
@@ -101,11 +108,11 @@ pub fn query_staked(
 
     let mut stakers: Vec<StakeDeposit> = vec![];
     
-    let _iter = STAKED
+    let _iter: Vec<_> = STAKED
         .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
         .map(|item| {
             let stakers_in_loop = item.unwrap_or_else(|_| (Addr::unchecked("null"), vec![])).1;
-
+            
             let stakers_in_loop = stakers_in_loop.clone()
                 .into_iter()
                 .filter(|deposit| deposit.stake_time >= start_after && deposit.stake_time < end_before)
@@ -113,7 +120,7 @@ pub fn query_staked(
                 .collect::<Vec<StakeDeposit>>();
 
             stakers.extend(stakers_in_loop);
-        });
+        }).collect();
 
     //Filter out unstakers
     if !unstaking {
@@ -168,7 +175,10 @@ pub fn query_delegations(
 
     if let Some(user) = user {
         let user = deps.api.addr_validate(&user)?;
-        let delegation = DELEGATIONS.load(deps.storage, user.clone())?;
+        let delegation = match DELEGATIONS.load(deps.storage, user.clone()){
+            Ok(delegation) => delegation,
+            Err(_) => return Err(StdError::GenericErr { msg: "No delegation info found for user".to_string() }),
+        };
 
         return Ok(vec![DelegationResponse {
             user,

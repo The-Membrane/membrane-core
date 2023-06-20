@@ -347,6 +347,7 @@ fn delegate() {
                     delegator: Addr::unchecked("governator_addr"),
                     amount: Uint128::new(10u128),
                     fluidity: false,
+                   time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             commission: Decimal::zero(),
@@ -360,6 +361,7 @@ fn delegate() {
                     delegator: Addr::unchecked("sender88"),
                     amount: Uint128::new(10u128),
                     fluidity: false,
+                   time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             delegated_to: vec![],
@@ -432,6 +434,7 @@ fn delegate() {
                     delegator: Addr::unchecked("governator_addr"),
                     amount: Uint128::new(4u128),
                     fluidity: true,
+                   time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             commission: Decimal::one(),
@@ -445,6 +448,7 @@ fn delegate() {
                     delegator: Addr::unchecked("sender88"),
                     amount: Uint128::new(4u128),
                     fluidity: true,
+                   time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             delegated_to: vec![],
@@ -541,6 +545,7 @@ fn fluid_delegations() {
                     delegator: Addr::unchecked("sender88"),
                     amount: Uint128::new(4u128),
                     fluidity: true,
+                   time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             delegated_to: vec![],
@@ -556,11 +561,13 @@ fn fluid_delegations() {
                     delegator: Addr::unchecked("governator_addr"),
                     amount: Uint128::new(6u128),
                     fluidity: true,
+                   time_of_delegation: mock_env().block.time.seconds(),
                 },
                 Delegation {
                     delegator: Addr::unchecked("governator_too_addr"),
                     amount: Uint128::new(4u128),
                     fluidity: true,
+                   time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             commission: Decimal::zero(),
@@ -574,6 +581,7 @@ fn fluid_delegations() {
                     delegator: Addr::unchecked("sender88"),
                     amount: Uint128::new(6u128),
                     fluidity: true,
+                   time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             delegated_to: vec![],
@@ -610,6 +618,7 @@ fn fluid_delegations() {
                     delegator: Addr::unchecked("sender88"),
                     amount: Uint128::new(4u128),
                     fluidity: true,
+                   time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             delegated_to: vec![],
@@ -625,11 +634,13 @@ fn fluid_delegations() {
                     delegator: Addr::unchecked("governator_addr"),
                     amount: Uint128::new(6u128),
                     fluidity: false,
+                   time_of_delegation: mock_env().block.time.seconds(),
                 },
                 Delegation {
                     delegator: Addr::unchecked("governator_too_addr"),
                     amount: Uint128::new(4u128),
                     fluidity: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             commission: Decimal::zero(),
@@ -643,6 +654,7 @@ fn fluid_delegations() {
                     delegator: Addr::unchecked("sender88"),
                     amount: Uint128::new(6u128),
                     fluidity: false,
+                    time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             delegated_to: vec![],
@@ -922,6 +934,7 @@ fn unstake() {
                     delegator: Addr::unchecked("unstaking_barrier"),
                     amount: Uint128::new(4999999u128),
                     fluidity: false,
+                   time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             commission: Decimal::zero(),
@@ -935,6 +948,7 @@ fn unstake() {
                     delegator: Addr::unchecked("sender88"),
                     amount: Uint128::new(4999999u128),
                     fluidity: false,
+                   time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             delegated_to: vec![],

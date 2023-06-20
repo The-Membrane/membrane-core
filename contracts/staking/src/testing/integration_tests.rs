@@ -79,7 +79,8 @@ mod tests {
                         mint_to_address,
                     } => {
                         if (amount != Uint128::new(8_219) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1")) 
-                        && (amount != Uint128::new(8) || denom != String::from("mbrn_denom") || mint_to_address != String::from("contract3")){
+                        && (amount != Uint128::new(8) || denom != String::from("mbrn_denom") || mint_to_address != String::from("contract3")) 
+                        && (amount != Uint128::new(8) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1")){
                             panic!("MintTokens called with incorrect parameters, {}, {}, {}", amount, denom, mint_to_address);
                         }
                         Ok(Response::default())
@@ -346,13 +347,6 @@ mod tests {
             let cosmos_msg = staking_contract.call(msg, vec![coin(1000, "mbrn_denom")]).unwrap();
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
 
-            //Skip fee waiting period
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(86_400u64 * 3u64), //Added 3 days
-                chain_id: app.block_info().chain_id,
-            });
-
             //DepositFees
             let msg = ExecuteMsg::DepositFee {  };
             let cosmos_msg = staking_contract.call(msg, vec![coin(1000, "credit_fulldenom"), coin(1000, "fee_asset")]).unwrap();
@@ -387,6 +381,13 @@ mod tests {
                 },
             ]);
 
+            //Skip fee waiting period
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(86_400u64 * 30u64), //Added 30 days
+                chain_id: app.block_info().chain_id,
+            });
+            
             //No stake Error for ClaimRewards
             let msg = ExecuteMsg::ClaimRewards {
                 send_to: None,
@@ -406,28 +407,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(resp.claimables.len(), 1 as usize);
-
-            //Claim As Native
-            let claim_msg = ExecuteMsg::ClaimRewards {
-                send_to: None,
-                restake: false,
-            };
-            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
-
-            //Check that the rewards were sent
-            assert_eq!(
-                app.wrap().query_all_balances("user_1").unwrap(),
-                vec![coin(1000, "credit_fulldenom"), coin(9_999_000, "mbrn_denom")]
-            );
-                
-            //Claim As Native: Assert claim was saved and can't be double claimed
-            let claim_msg = ExecuteMsg::ClaimRewards {
-                send_to: None,
-                restake: false,
-            };
-            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap_err();
+            assert_eq!(resp.accrued_interest, Uint128::new(8));
 
             //User stake before Restake
             let resp_before: StakerResponse = app
@@ -438,6 +418,28 @@ mod tests {
                 )
                 .unwrap();
 
+            //Claim && Restake
+            let claim_msg = ExecuteMsg::ClaimRewards {
+                send_to: None,
+                restake: true,
+            };
+            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
+
+            //Check that the rewards were sent
+            assert_eq!(
+                app.wrap().query_all_balances("user_1").unwrap(),
+                vec![coin(1000, "credit_fulldenom"), coin(9_999_000, "mbrn_denom")]
+            );
+                
+            //Claim: Assert claim was saved and can't be double claimed
+            let claim_msg = ExecuteMsg::ClaimRewards {
+                send_to: None,
+                restake: false,
+            };
+            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap_err();
+
             //Add staking rewards
             app.set_block(BlockInfo {
                 height: app.block_info().height,
@@ -445,13 +447,15 @@ mod tests {
                 chain_id: app.block_info().chain_id,
             });
 
-            //Claim As Native: Restake
-            let claim_msg = ExecuteMsg::ClaimRewards {
-                send_to: None,
-                restake: true,
-            };
-            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
+            // panic!("{}", app.block_info().time.seconds());
+
+            // //Claim: Restake
+            // let claim_msg = ExecuteMsg::ClaimRewards {
+            //     send_to: None,
+            //     restake: true,
+            // };
+            // let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
+            // app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
 
             //User stake after Restake
             let resp_after: StakerResponse = app

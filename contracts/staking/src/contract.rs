@@ -953,7 +953,7 @@ fn restake(
     //Calc total deposits past fee wait period
     let total_rewarding_stake: Uint128 = deposits.clone()
         .into_iter()
-        .filter(|deposit| deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) >= env.block.time.seconds())
+        .filter(|deposit| deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds())
         .map(|deposit| deposit.amount)
         .sum();
 
@@ -1423,7 +1423,7 @@ fn withdraw_from_state(
     //Calc total deposits past fee wait period
     let total_rewarding_stake: Uint128 = deposits.clone()
         .into_iter()
-        .filter(|deposit| deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) >= env.block.time.seconds())
+        .filter(|deposit| deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds())
         .map(|deposit| deposit.amount)
         .sum();
 
@@ -2006,7 +2006,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::UserStake { staker } => to_binary(&query_user_stake(deps, staker)?),
-        QueryMsg::StakerRewards { staker } => to_binary(&query_user_rewards(deps, env, staker)?),
+        QueryMsg::UserRewards { user } => to_binary(&query_user_rewards(deps, env, user)?),
         QueryMsg::Staked {
             limit,
             start_after,

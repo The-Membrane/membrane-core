@@ -535,14 +535,14 @@ fn commissions() {
 
     //Query claimables
     let res = query(deps.as_ref(), env.clone(),
-        QueryMsg::StakerRewards { staker: String::from("sender88") },
+        QueryMsg::UserRewards { user: String::from("sender88") },
     ).unwrap();
     let resp: RewardsResponse = from_binary(&res).unwrap();
     assert_eq!(resp.accrued_interest, Uint128::new(7808u128));
 
     //Query claimables
     let res = query(deps.as_ref(), env.clone(),
-        QueryMsg::StakerRewards { staker: String::from("governator_addr") },
+        QueryMsg::UserRewards { user: String::from("governator_addr") },
     ).unwrap();
     let resp: RewardsResponse = from_binary(&res).unwrap();
     assert_eq!(resp.accrued_interest, Uint128::new(410u128));

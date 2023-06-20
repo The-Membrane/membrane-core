@@ -80,7 +80,9 @@ mod tests {
                     } => {
                         if (amount != Uint128::new(8_219) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1")) 
                         && (amount != Uint128::new(8) || denom != String::from("mbrn_denom") || mint_to_address != String::from("contract3")) 
-                        && (amount != Uint128::new(8) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1")){
+                        && (amount != Uint128::new(8) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
+                        && (amount != Uint128::new(7808) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
+                        && (amount != Uint128::new(410) || denom != String::from("mbrn_denom") || mint_to_address != String::from("governator_addr")){
                             panic!("MintTokens called with incorrect parameters, {}, {}, {}", amount, denom, mint_to_address);
                         }
                         Ok(Response::default())
@@ -334,6 +336,131 @@ mod tests {
         use membrane::staking::{TotalStakedResponse, StakerResponse};
         
         #[test]
+        fn commission_claims() {
+            let (mut app, staking_contract, auction_contract) = proper_instantiate();
+
+            //Stake MBRN as user
+            let msg = ExecuteMsg::Stake { user: None };
+            let cosmos_msg = staking_contract.call(msg, vec![coin(1000000, "mbrn_denom")]).unwrap();
+            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
+
+            //Delegate MBRN to governator
+            let msg = ExecuteMsg::UpdateDelegations { 
+                governator_addr: Some(String::from("governator_addr")), 
+                mbrn_amount: Some(Uint128::new(500000)),
+                delegate: Some(true), 
+                fluid: None, 
+                commission: None,
+            };
+            let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
+
+            //Update delegate commission
+            let msg = ExecuteMsg::UpdateDelegations { 
+                governator_addr: None,
+                mbrn_amount: None,
+                delegate: None,
+                fluid: None, 
+                commission: Some(Decimal::percent(10)),
+            };
+            let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("governator_addr"), cosmos_msg).unwrap();
+
+            //DepositFees
+            let msg = ExecuteMsg::DepositFee {  };
+            let cosmos_msg = staking_contract.call(msg, vec![coin(1000, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked("contract1"), cosmos_msg).unwrap();
+
+            //Skip fee waiting period & add staking rewards
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(86_400u64 * 30u64), //Added 30 days
+                chain_id: app.block_info().chain_id,
+            });
+            
+            //Assert User Claims
+            let resp: RewardsResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    staking_contract.addr(),
+                    &QueryMsg::UserRewards {
+                        user: String::from("user_1"),
+                    }
+                )
+                .unwrap();
+            assert_eq!(resp.claimables.len(), 1 as usize);
+            assert_eq!(resp.claimables[0], Asset {
+                amount: Uint128::new(950),
+                info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
+            });
+            assert_eq!(resp.accrued_interest, Uint128::new(7808));
+
+            //Assert Delegate Claims
+            let resp: RewardsResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    staking_contract.addr(),
+                    &QueryMsg::UserRewards {
+                        user: String::from("governator_addr"),
+                    }
+                )
+                .unwrap();
+            assert_eq!(resp.claimables.len(), 1 as usize);
+            assert_eq!(resp.claimables[0], Asset {
+                amount: Uint128::new(50),
+                info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
+            });
+            assert_eq!(resp.accrued_interest, Uint128::new(410));
+            
+            //Claim
+            let claim_msg = ExecuteMsg::ClaimRewards {
+                send_to: None,
+                restake: false,
+            };
+            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
+
+            //Check that the rewards were sent
+            assert_eq!(
+                app.wrap().query_all_balances("user_1").unwrap(),
+                vec![coin(950, "credit_fulldenom"), coin(9_000_000, "mbrn_denom")]
+            );
+
+            //Claim
+            let claim_msg = ExecuteMsg::ClaimRewards {
+                send_to: None,
+                restake: false,
+            };
+            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("governator_addr"), cosmos_msg).unwrap();
+
+            //Check that the rewards were sent
+            assert_eq!(
+                app.wrap().query_all_balances("governator_addr").unwrap(),
+                vec![coin(50, "credit_fulldenom")]
+            );
+
+            ////MBRN amount doesn't change for either bc the Osmosis Proxy sends the mint to the destination itself////
+                
+            //Claim: Assert claim was saved and can't be double claimed
+            let claim_msg = ExecuteMsg::ClaimRewards {
+                send_to: None,
+                restake: false,
+            };
+            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap_err();
+
+            //Claim: Assert claim was saved and can't be double claimed
+            let claim_msg = ExecuteMsg::ClaimRewards {
+                send_to: None,
+                restake: false,
+            };
+            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("governator_addr"), cosmos_msg).unwrap_err();
+           
+        }
+
+        #[test]
         fn deposit_fee_and_claim() {
             let (mut app, staking_contract, auction_contract) = proper_instantiate();
             
@@ -401,8 +528,8 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(
                     staking_contract.addr(),
-                    &QueryMsg::StakerRewards {
-                        staker: String::from("user_1"),
+                    &QueryMsg::UserRewards {
+                        user: String::from("user_1"),
                     }
                 )
                 .unwrap();
@@ -446,16 +573,6 @@ mod tests {
                 time: app.block_info().time.plus_seconds(86_400u64 * 30u64), //Added 30 days
                 chain_id: app.block_info().chain_id,
             });
-
-            // panic!("{}", app.block_info().time.seconds());
-
-            // //Claim: Restake
-            // let claim_msg = ExecuteMsg::ClaimRewards {
-            //     send_to: None,
-            //     restake: true,
-            // };
-            // let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
-            // app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
 
             //User stake after Restake
             let resp_after: StakerResponse = app

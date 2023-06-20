@@ -115,9 +115,9 @@ pub enum QueryMsg {
         staker: String,
     },
     /// Returns fee claimables && # of staking rewards
-    StakerRewards {
-        /// Staker address
-        staker: String,
+    UserRewards {
+        /// User address
+        user: String,
     },
     /// Returns list of StakeDeposits
     Staked {

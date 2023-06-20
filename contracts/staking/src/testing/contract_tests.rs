@@ -10,7 +10,7 @@ use cosmwasm_std::{
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, 
-    StakedResponse, TotalStakedResponse, StakerResponse, DelegationResponse,
+    StakedResponse, TotalStakedResponse, StakerResponse, DelegationResponse, RewardsResponse,
 };
 use membrane::types::{StakeDeposit, StakeDistribution, DelegationInfo, Delegation};
 
@@ -304,7 +304,7 @@ fn delegate() {
 
     //Delegate MBRN: Error can't delegate to self
     let msg = ExecuteMsg::UpdateDelegations { 
-        governator_addr: String::from("sender88"), 
+        governator_addr: Some(String::from("sender88")), 
         mbrn_amount: None, 
         delegate: Some(true), 
         fluid: None, 
@@ -319,7 +319,7 @@ fn delegate() {
 
     //Delegate MBRN: success
     let msg = ExecuteMsg::UpdateDelegations { 
-        governator_addr: String::from("governator_addr"), 
+        governator_addr: Some(String::from("governator_addr")), 
         mbrn_amount: None,
         delegate: Some(true), 
         fluid: None, 
@@ -371,7 +371,7 @@ fn delegate() {
 
     //Delegate MBRN: success from placeholder99
     let msg = ExecuteMsg::UpdateDelegations { 
-        governator_addr: String::from("too_many_addr"), 
+        governator_addr: Some(String::from("too_many_addr")), 
         mbrn_amount: None,
         delegate: Some(true), 
         fluid: None, 
@@ -382,7 +382,7 @@ fn delegate() {
 
     //Undelegate: Error
     let msg = ExecuteMsg::UpdateDelegations { 
-        governator_addr: String::from("governator_addr"), 
+        governator_addr: Some(String::from("governator_addr")), 
         mbrn_amount: None,
         delegate: Some(false), 
         fluid: Some(true),
@@ -394,7 +394,7 @@ fn delegate() {
 
     //Undelegate: Error
     let msg = ExecuteMsg::UpdateDelegations { 
-        governator_addr: String::from("non_governator"), 
+        governator_addr: Some(String::from("non_governator")), 
         mbrn_amount: Some(Uint128::new(6)), 
         delegate: Some(false), 
         fluid: Some(true),
@@ -406,7 +406,7 @@ fn delegate() {
 
     //Undelegate partially, change commission & fluidity
     let msg = ExecuteMsg::UpdateDelegations { 
-        governator_addr: String::from("governator_addr"), 
+        governator_addr: Some(String::from("governator_addr")), 
         mbrn_amount: Some(Uint128::new(6)), 
         delegate: Some(false), 
         fluid: Some(true),
@@ -458,7 +458,7 @@ fn delegate() {
 
     //Undelegate fully 
     let msg = ExecuteMsg::UpdateDelegations { 
-        governator_addr: String::from("governator_addr"), 
+        governator_addr: Some(String::from("governator_addr")), 
         mbrn_amount: None, //this will be more than 4 but it should work anyway
         delegate: Some(false), 
         fluid: None, 
@@ -478,6 +478,77 @@ fn delegate() {
     let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
     assert_eq!(resp.len(), 2); //4 -> 2 
 }
+
+#[test]
+fn commissions() {
+    //Instantiate test
+    let mut deps = mock_dependencies();
+
+    //Instantiate contract
+    let msg = InstantiateMsg {
+        owner: Some("owner0000".to_string()),
+        positions_contract: Some("positions_contract".to_string()),
+        auction_contract: Some("auction_contract".to_string()),
+        vesting_contract: Some("vesting_contract".to_string()),
+        governance_contract: Some("gov_contract".to_string()),
+        osmosis_proxy: Some("osmosis_proxy".to_string()),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
+        fee_wait_period: None,
+        mbrn_denom: String::from("mbrn_denom"),
+        unstaking_period: None,
+    };
+
+    //Instantiating contract
+    let info = mock_info("sender88", &[]);
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Stake MBRN: sender88
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("sender88", &[coin(1000000, "mbrn_denom")]);
+    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Delegate MBRN: success
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("governator_addr")), 
+        mbrn_amount: Some(Uint128::new(500000)),
+        delegate: Some(true), 
+        fluid: None, 
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Delegate sets commission
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: None,
+        mbrn_amount: None,
+        delegate: None,
+        fluid: None, 
+        commission: Some(Decimal::percent(10)),
+    };
+    let info = mock_info("governator_addr", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Skip 30 days
+    let mut env = mock_env();
+    env.block.time = env.block.time.plus_seconds(259200 * 10); //30 days
+
+    //Query claimables
+    let res = query(deps.as_ref(), env.clone(),
+        QueryMsg::StakerRewards { staker: String::from("sender88") },
+    ).unwrap();
+    let resp: RewardsResponse = from_binary(&res).unwrap();
+    assert_eq!(resp.accrued_interest, Uint128::new(7808u128));
+
+    //Query claimables
+    let res = query(deps.as_ref(), env.clone(),
+        QueryMsg::StakerRewards { staker: String::from("governator_addr") },
+    ).unwrap();
+    let resp: RewardsResponse = from_binary(&res).unwrap();
+    assert_eq!(resp.accrued_interest, Uint128::new(410u128));
+
+}
+
 
 
 #[test]
@@ -510,7 +581,7 @@ fn fluid_delegations() {
 
     //Delegate MBRN: success
     let msg = ExecuteMsg::UpdateDelegations { 
-        governator_addr: String::from("governator_addr"), 
+        governator_addr: Some(String::from("governator_addr")), 
         mbrn_amount: None,
         delegate: Some(true), 
         fluid: Some(true), 
@@ -591,7 +662,7 @@ fn fluid_delegations() {
 
     //Remove fluidity from delegations
     let msg = ExecuteMsg::UpdateDelegations { 
-        governator_addr: String::from("governator_addr"), 
+        governator_addr: Some(String::from("governator_addr")), 
         mbrn_amount: None,
         delegate: None,
         fluid: Some(false), 
@@ -664,7 +735,7 @@ fn fluid_delegations() {
 
     //Remove fluidity from delegations
     let msg = ExecuteMsg::UpdateDelegations { 
-        governator_addr: String::from("governator_too_addr"), 
+        governator_addr: Some(String::from("governator_too_addr")), 
         mbrn_amount: None,
         delegate: None,
         fluid: Some(false), 
@@ -685,7 +756,7 @@ fn fluid_delegations() {
 
     //Undelegate MBRN that was fluid delegated: success
     let msg = ExecuteMsg::UpdateDelegations { 
-        governator_addr: String::from("governator_too_addr"), 
+        governator_addr: Some(String::from("governator_too_addr")), 
         mbrn_amount: Some(Uint128::new(4)),
         delegate: Some(false), 
         fluid: None, 
@@ -731,7 +802,7 @@ fn unstake() {
 
     //Delegate MBRN: success
     let msg = ExecuteMsg::UpdateDelegations { 
-        governator_addr: String::from("unstaking_barrier"), 
+        governator_addr: Some(String::from("unstaking_barrier")), 
         mbrn_amount: None,
         delegate: Some(true), 
         fluid: None, 
@@ -916,7 +987,7 @@ fn unstake() {
         ]
     );
 
-    //Query and Assert Delegations were deleted from state
+    //Query and Assert Delegations were updated by the unstake
     let res = query(deps.as_ref(), mock_env(),
         QueryMsg::Delegations {
             user: None,

@@ -76,7 +76,7 @@ pub enum ExecuteMsg {
     /// Delegate MBRN to a Governator
     UpdateDelegations {
         /// Governator address
-        governator_addr: String,
+        governator_addr: Option<String>,
         /// MBRN amount
         /// If None, act on total delegatible MBRN
         mbrn_amount: Option<Uint128>,

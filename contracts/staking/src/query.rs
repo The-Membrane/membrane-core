@@ -1,5 +1,6 @@
 use cosmwasm_std::{Deps, StdResult, Uint128, Env, Addr, Decimal, StdError};
 use cw_storage_plus::Bound;
+use membrane::math::decimal_multiplication;
 use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, RewardsResponse, StakedResponse, DelegationResponse};
 use membrane::types::{FeeEvent, StakeDeposit, DelegationInfo};
 
@@ -43,17 +44,20 @@ pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse>
     })
 }
 
-/// Returns claimable assets for a given staker
-pub fn query_staker_rewards(deps: Deps, env: Env, staker: String) -> StdResult<RewardsResponse> {
+/// Returns claimable assets for a given user
+pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<RewardsResponse> {
     //Load state
     let config = CONFIG.load(deps.storage)?;
     let incentive_schedule = INCENTIVE_SCHEDULING.load(deps.storage)?;
     //Validate address
-    let valid_addr = deps.api.addr_validate(&staker)?;
+    let valid_addr = deps.api.addr_validate(&user)?;
     //Load state
-    let staker_deposits: Vec<StakeDeposit> = STAKED.load(deps.storage, valid_addr.clone())?;
+    let mut user_deposits: Vec<StakeDeposit> = match STAKED.load(deps.storage, valid_addr.clone()){
+        Ok(res) => res,
+        Err(_) => vec![], //Not a staker
+    };
     let fee_events = FEE_EVENTS.load(deps.storage)?;
-    let DelegationInfo { delegated, delegated_to, commission: _ } = match DELEGATIONS.load(deps.storage, valid_addr.clone()){
+    let DelegationInfo { mut delegated, delegated_to, commission } = match DELEGATIONS.load(deps.storage, valid_addr.clone()){
         Ok(delegation) => delegation,
         Err(_) => DelegationInfo {
             delegated: vec![],
@@ -62,8 +66,47 @@ pub fn query_staker_rewards(deps: Deps, env: Env, staker: String) -> StdResult<R
         }
     };
 
+    //If no deposits, check if there are any delegations
+    if user_deposits == vec![] {
+        if delegated == vec![] {
+            return Err(StdError::GenericErr {
+                msg: String::from("User has no stake"),
+            });
+        } else {
+            //Sum the total commission amount (delegated * commission)
+            let total_commission: Uint128 = delegated.clone()
+                .into_iter()
+                .filter(|delegation| delegation.time_of_delegation + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds())
+                .map(|delegation| 
+                    match decimal_multiplication(Decimal::from_ratio(delegation.amount, Uint128::one()), commission){
+                        Ok(res) => res,
+                        Err(_) => Decimal::zero(),
+                    }.to_uint_floor()
+            ).sum();
+            
+            //Find earliest delegation
+            let earliest_delegation = delegated
+                .into_iter()
+                .min_by(|a, b| a.time_of_delegation.cmp(&b.time_of_delegation))
+                .unwrap();
+            
+            //Set delegated to empty so we dont double count
+            delegated = vec![];
+
+            //Add delegation to deposits
+            user_deposits.push(
+                StakeDeposit {
+                    staker: valid_addr.clone(),
+                    amount: total_commission,
+                    stake_time: earliest_delegation.time_of_delegation, //We filtered for valid delegations so no need to wait 
+                    unstake_start_time: None,
+                }
+            );
+        }
+    } 
+
     //Calc total deposits past fee wait period
-    let total_rewarding_stake: Uint128 = staker_deposits.clone()
+    let total_rewarding_stake: Uint128 = user_deposits.clone()
         .into_iter()
         .filter(|deposit| deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds())
         .map(|deposit| deposit.amount)
@@ -71,7 +114,7 @@ pub fn query_staker_rewards(deps: Deps, env: Env, staker: String) -> StdResult<R
 
     let mut claimables = vec![];
     let mut accrued_interest = Uint128::zero();
-    for deposit in staker_deposits {
+    for deposit in user_deposits {
         let (claims, incentives) = get_deposit_claimables(
             deps.storage, 
             config.clone(), 

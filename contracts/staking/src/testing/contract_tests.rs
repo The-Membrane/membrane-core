@@ -38,7 +38,7 @@ fn update_config(){
     
     let msg = ExecuteMsg::UpdateConfig { 
         owner: Some(String::from("new_owner")),
-        unstaking_period: Some(1),  
+        unstaking_period: Some(2),  
         osmosis_proxy: Some(String::from("new_op")), 
         positions_contract: Some(String::from("new_cdp")), 
         auction_contract: Some("new_auction".to_string()),
@@ -71,7 +71,7 @@ fn update_config(){
         config,
         Config {
             owner: Addr::unchecked("sender88"),
-            unstaking_period:1,  
+            unstaking_period: 2,  
             osmosis_proxy: Some( Addr::unchecked("new_op")), 
             positions_contract: Some( Addr::unchecked("new_cdp")), 
             auction_contract: Some(Addr::unchecked("new_auction")),
@@ -94,7 +94,7 @@ fn update_config(){
         mbrn_denom: None,
         vesting_contract: None,
         incentive_schedule: None,
-        fee_wait_period: Some(2),
+        fee_wait_period: Some(0),
     };
 
     execute(
@@ -141,7 +141,7 @@ fn update_config(){
         config,
         Config {
             owner: Addr::unchecked("new_owner"),
-            unstaking_period:1,  
+            unstaking_period: 2,  
             osmosis_proxy: Some( Addr::unchecked("new_op")), 
             positions_contract: Some( Addr::unchecked("new_cdp")), 
             auction_contract: Some(Addr::unchecked("new_auction")),
@@ -149,7 +149,7 @@ fn update_config(){
             mbrn_denom: String::from("new_denom"), 
             vesting_contract: Some( Addr::unchecked("new_bv")),             
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
-            fee_wait_period: 2, 
+            fee_wait_period: 0, 
             
         },
     );

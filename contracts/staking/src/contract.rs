@@ -53,7 +53,7 @@ pub fn instantiate(
                 duration: 240,
             }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
-            unstaking_period: msg.unstaking_period.unwrap_or(3u64),
+            unstaking_period: msg.unstaking_period.unwrap_or(4u64),
             mbrn_denom: msg.mbrn_denom,
         };
     } else {
@@ -69,7 +69,7 @@ pub fn instantiate(
                 duration: 240,
             }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
-            unstaking_period: msg.unstaking_period.unwrap_or(3u64),
+            unstaking_period: msg.unstaking_period.unwrap_or(4u64),
             mbrn_denom: msg.mbrn_denom,
         };
     }
@@ -292,8 +292,16 @@ fn update_config(
         config.governance_contract = Some(deps.api.addr_validate(&governance_contract)?);
     };
     if let Some(osmosis_proxy) = osmosis_proxy {
-            config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
+        config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
     };
+
+    //Assert unstaking period is greater than fee wait period
+    //Otherwise quick deposits (stake and unstake before the wait period is over) will leave excess fees in the contract
+    if config.fee_wait_period >= config.unstaking_period {
+        return Err(ContractError::CustomError {
+            val: "Fee wait period must be less than the unstaking period".to_string(),
+        });
+    }
 
     //Save new Config
     CONFIG.save(deps.storage, &config)?;

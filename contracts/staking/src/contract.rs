@@ -564,6 +564,9 @@ fn update_delegations(
     delegate: Option<bool>,
     commission: Option<Decimal>,
 ) -> Result<Response, ContractError> {
+    //Restrict changes in staking power
+    //can_this_addr_unstake(deps.querier, info.clone().sender, CONFIG.load(deps.storage)?)?;
+
     //If a delegate is simply changing their commission, no need to check for half the logic
     if commission.is_some() && governator_addr.is_none() && mbrn_amount.is_none() && delegate.is_none() && fluid.is_none(){
         //Edit & save user's commission
@@ -572,9 +575,6 @@ fn update_delegations(
             DELEGATIONS.save(deps.storage, info.sender.clone(), &user_delegation_info)?;
         }        
     } else if let Some(governator_addr) = governator_addr {
-
-    
-
         //Validate Governator, doesn't need to be a staker but can't be the user
         let valid_gov_addr = deps.api.addr_validate(&governator_addr)?;
         if valid_gov_addr == info.clone().sender {
@@ -796,7 +796,10 @@ fn delegate_fluid_delegations(
     info: MessageInfo,
     governator_addr: String,
     mbrn_amount: Option<Uint128>,
-) -> Result<Response, ContractError>{    
+) -> Result<Response, ContractError>{
+    //Restrict governance power changes
+    can_this_addr_unstake(deps.querier, info.clone().sender, CONFIG.load(deps.storage)?)?;
+
     //Validate Governator, doesn't need to be a staker but can't be the user
     let valid_gov_addr = deps.api.addr_validate(&governator_addr)?;
     if valid_gov_addr == info.clone().sender {

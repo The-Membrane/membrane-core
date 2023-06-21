@@ -1374,12 +1374,12 @@ pub fn can_this_addr_unstake(
         }
     }
 
-    //Can't unstake if the user has voted for a proposal that has passed but not yet executed    
-    //Get list of proposals that have passed & have executables
+    //Can't unstake if the user has voted for a proposal that is Active has passed but not yet executed
+    //Get list of proposals that have passed & have executables or are active
     for proposal in proposal_list.proposal_list {
-        if proposal.status == ProposalStatus::Passed && proposal.messages.is_some() {
+        if (proposal.status == ProposalStatus::Passed && proposal.messages.is_some()) || proposal.status == ProposalStatus::Active{
             //Get list of voters for this proposal
-            let _voters: Vec<Addr> = querier.query_wasm_smart(
+            let _voters: Vec<Addr> = match querier.query_wasm_smart::<Vec<Addr>>(
                 config.clone().governance_contract.unwrap().to_string(), 
                 &Gov_QueryMsg::ProposalVoters { 
                     proposal_id: proposal.proposal_id.into(), 
@@ -1388,9 +1388,11 @@ pub fn can_this_addr_unstake(
                     limit: None,
                     specific_user: Some(user.to_string())
                 }
-            )?;
-            // if the query doesn't error then the user has voted For this proposal
-            return Err(ContractError::CustomError { val: String::from("Can't unstake if the proposal you helped pass hasn't executed its messages yet") })
+            ){
+                // if the query doesn't error then the user has voted For this proposal
+                Ok(_) => return Err(ContractError::CustomError { val: String::from("Can't unstake if the proposal you helped pass hasn't executed its messages yet") }),
+                Err(_) => vec![]
+            };
         }
     }
 

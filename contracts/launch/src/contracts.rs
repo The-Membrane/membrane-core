@@ -366,7 +366,7 @@ fn claim (
             msg: to_binary(&OPExecuteMsg::MintTokens { 
                 denom: config.clone().mbrn_denom, 
                 amount: amount_to_mint.clone(), 
-                mint_to_address: info.clone().sender.to_string(), 
+                mint_to_address: env.clone().contract.address.to_string(),
             })?, 
             funds: vec![] 
         });
@@ -382,8 +382,7 @@ fn claim (
             .add_messages(vec![mint_msg, stake_msg])
         )
     } else {
-        Ok(Response::new()
-            .add_attributes(attrs))
+        return Err(ContractError::CustomError { val: String::from("No incentives to claim") })
     }
     
 }

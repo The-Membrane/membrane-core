@@ -854,7 +854,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(
                     gov_contract.addr().to_string(),
-                    &QueryMsg::Proposals {
+                    &QueryMsg::ActiveProposals {
                         start: None,
                         limit: None,
                     },
@@ -881,7 +881,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(
                     gov_contract.addr().to_string(),
-                    &QueryMsg::Proposals {
+                    &QueryMsg::ActiveProposals {
                         start: None,
                         limit: None,
                     },
@@ -1144,7 +1144,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(
                     gov_contract.addr().to_string(),
-                    &QueryMsg::Proposals {
+                    &QueryMsg::ActiveProposals {
                         start: None,
                         limit: None,
                     },
@@ -1398,7 +1398,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(
                     gov_contract.addr().to_string(),
-                    &QueryMsg::Proposals {
+                    &QueryMsg::ActiveProposals {
                         start: None,
                         limit: None,
                     },

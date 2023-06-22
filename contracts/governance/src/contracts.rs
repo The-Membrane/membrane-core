@@ -781,7 +781,7 @@ pub fn calc_voting_power(
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::Proposals { start, limit } => to_binary(&query_proposals(deps, start, limit)?),
+        QueryMsg::ActiveProposals { start, limit } => to_binary(&query_proposals(deps, start, limit)?),
         QueryMsg::PendingProposals { start, limit } => to_binary(&query_pending_proposals(deps, start, limit)?),
         QueryMsg::Proposal { proposal_id } => to_binary(&PROPOSALS.load(deps.storage, proposal_id.to_string())?),
         QueryMsg::ProposalVotes { proposal_id } => {

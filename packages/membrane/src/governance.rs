@@ -111,8 +111,8 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     /// Return the contract's configuration
     Config {},
-    /// Return the current list of proposals
-    Proposals {
+    /// Return the current list of active proposals
+    ActiveProposals {
         /// Id from which to start querying
         start: Option<u64>,
         /// The amount of proposals to return

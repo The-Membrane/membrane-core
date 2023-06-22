@@ -564,7 +564,7 @@ fn update_delegations(
     delegate: Option<bool>,
     commission: Option<Decimal>,
 ) -> Result<Response, ContractError> {
-    //Restrict changes in staking power
+    //Restrict governance power changes post-vote & pre-execution
     //can_this_addr_unstake(deps.querier, info.clone().sender, CONFIG.load(deps.storage)?)?;
 
     //If a delegate is simply changing their commission, no need to check for half the logic
@@ -797,7 +797,7 @@ fn delegate_fluid_delegations(
     governator_addr: String,
     mbrn_amount: Option<Uint128>,
 ) -> Result<Response, ContractError>{
-    //Restrict governance power changes
+    //Restrict governance power changes post-vote & pre-execution
     can_this_addr_unstake(deps.querier, info.clone().sender, CONFIG.load(deps.storage)?)?;
 
     //Validate Governator, doesn't need to be a staker but can't be the user
@@ -1368,7 +1368,7 @@ pub fn can_this_addr_unstake(
     //Can't unstake if there is an active proposal by user
     let proposal_list: ProposalListResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart { 
         contract_addr: config.clone().governance_contract.unwrap().to_string(), 
-        msg: to_binary(&Gov_QueryMsg::Proposals { start: None, limit: None })?
+        msg: to_binary(&Gov_QueryMsg::ActiveProposals { start: None, limit: None })?
     }))?;
 
     for proposal in proposal_list.clone().proposal_list {

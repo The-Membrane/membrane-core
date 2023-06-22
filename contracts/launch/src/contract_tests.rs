@@ -317,17 +317,10 @@ fn claim() {
     let info = mock_info("user1", &[]);
     let mut env = mock_env();
     env.block.time = env.block.time.plus_seconds(7 * SECONDS_PER_DAY + 1); // 7 days + 1sec
-    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
     assert_eq!(
-        res.attributes,
-        vec![
-            attr("method", "claim"),
-            attr("minted_incentives", "0"),
-        ]
-    ); 
-    assert_eq!(
-        res.messages,
-        vec![]
+        res.to_string(),
+        "Custom Error val: No incentives to claim".to_string()
     );
     
     //Claim as a non-user: Error
@@ -360,7 +353,7 @@ fn claim() {
                 msg: to_binary(&OsmoExecuteMsg::MintTokens {
                     denom: String::from(""),
                     amount: Uint128::new(3478260869565),
-                    mint_to_address: String::from("user1")
+                    mint_to_address: String::from("cosmos2contract")
                 })
                 .unwrap()
             })),
@@ -417,7 +410,7 @@ fn claim() {
                 msg: to_binary(&OsmoExecuteMsg::MintTokens {
                     denom: String::from(""),
                     amount: Uint128::new(6521739130435), //6_521_739_130_435
-                    mint_to_address: String::from("user1")
+                    mint_to_address: String::from("cosmos2contract")
                 })
                 .unwrap()
             })),
@@ -436,18 +429,10 @@ fn claim() {
     let msg = ExecuteMsg::Claim {  };
     let info = mock_info("user1", &[]);
     env.block.time = env.block.time.plus_seconds(7 * SECONDS_PER_DAY); // 21 days + 1sec past the end of lockdrop
-    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
     assert_eq!(
-        res.attributes,
-        vec![
-            attr("method", "claim"),
-            attr("minted_incentives", "0"),
-        ]
-    );
-    assert_eq!(
-        res.messages,
-        vec![]
-    );
+        res.to_string(),
+        "Custom Error val: No incentives to claim".to_string());
 
     //Query and Assert incentive tracking
     let res = query(deps.as_ref(), mock_env(), QueryMsg::Lockdrop {  }).unwrap();

@@ -228,8 +228,8 @@ impl fmt::Display for StakeDeposit {
 
 #[cw_serde]
 pub struct Delegation {
-    /// Delegator address
-    pub delegator: Addr,
+    /// Delegate address
+    pub delegate: Addr,
     /// Amount of stake
     pub amount: Uint128,
     /// Fluidity toggle

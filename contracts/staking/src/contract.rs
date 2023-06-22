@@ -21,7 +21,7 @@ use membrane::math::{decimal_division, decimal_multiplication};
 
 use crate::error::ContractError;
 use crate::query::{query_user_stake, query_user_rewards, query_staked, query_fee_events, query_totals, query_delegations};
-use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, STAKING_TOTALS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, DELEGATIONS};
+use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, STAKING_TOTALS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, DELEGATIONS, DELEGATE_CLAIMS};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:staking";
@@ -337,43 +337,13 @@ pub fn stake(
     //Set valid address
     let valid_owner_addr = validate_position_owner(deps.api, info.clone(), user)?;
 
-    //Add new deposit to staker's list of StakeDeposits
-    STAKED.update(deps.storage, valid_owner_addr.clone(), |current_deposits| -> StdResult<_> {
-        match current_deposits {
-            Some(mut deposits) => {
-                deposits.push(StakeDeposit {
-                    staker: valid_owner_addr.clone(),
-                    amount: valid_asset.amount,
-                    stake_time: env.block.time.seconds(),
-                    unstake_start_time: None,
-                });
-                Ok(deposits)
-            }
-            None => {
-                let mut deposits = vec![];
-                deposits.push(StakeDeposit {
-                    staker: valid_owner_addr.clone(),
-                    amount: valid_asset.amount,
-                    stake_time: env.block.time.seconds(),
-                    unstake_start_time: None,
-                });
-                Ok(deposits)
-            }
-        }
-    })?;
-
-    //Add to Totals
-    let mut totals = STAKING_TOTALS.load(deps.storage)?;
-    if let Some(vesting_contract) = config.clone().vesting_contract{
-        if info.clone().sender == vesting_contract {
-            totals.vesting_contract += valid_asset.amount;
-        } else {
-            totals.stakers += valid_asset.amount;
-        }
-    } else {
-        totals.stakers += valid_asset.amount;
-    }
-    STAKING_TOTALS.save(deps.storage, &totals)?;    
+    add_staking_deposit(
+        deps.storage, 
+        env,
+        config,
+        valid_owner_addr.clone(),
+        valid_asset.amount
+    )?;
 
     //Response build
     let response = Response::new();
@@ -384,6 +354,55 @@ pub fn stake(
     ];
 
     Ok(response.add_attributes(attrs))
+}
+
+/// Add new staking deposit to user
+fn add_staking_deposit(
+    storage: &mut dyn Storage,
+    env: Env,
+    config: Config,
+    staker: Addr,
+    amount: Uint128,
+) -> StdResult<()>{
+    //Add new deposit to staker's list of StakeDeposits
+    STAKED.update(storage, staker, |current_deposits| -> StdResult<_> {
+        match current_deposits {
+            Some(mut deposits) => {
+                deposits.push(StakeDeposit {
+                    staker,
+                    amount,
+                    stake_time: env.block.time.seconds(),
+                    unstake_start_time: None,
+                });
+                Ok(deposits)
+            }
+            None => {
+                let mut deposits = vec![];
+                deposits.push(StakeDeposit {
+                    staker,
+                    amount,
+                    stake_time: env.block.time.seconds(),
+                    unstake_start_time: None,
+                });
+                Ok(deposits)
+            }
+        }
+    })?;
+
+    //Add to Totals
+    let mut totals = STAKING_TOTALS.load(storage)?;
+    if let Some(vesting_contract) = config.clone().vesting_contract{
+        if staker == vesting_contract {
+            totals.vesting_contract += amount;
+        } else {
+            totals.stakers += amount;
+        }
+    } else {
+        totals.stakers += amount;
+    }
+    STAKING_TOTALS.save(storage, &totals)?;    
+
+    Ok(())
 }
 
 /// First call is an unstake
@@ -519,6 +538,9 @@ pub fn unstake(
 
     //Create claimable msgs
     let claims_msgs = create_rewards_msgs(
+        deps.storage,
+        deps.api,
+        env,
         config.clone(), 
         claimables.clone(), 
         accrued_interest.clone(),
@@ -615,10 +637,25 @@ fn update_delegations(
         //Validate MBRN amount
         let mbrn_amount = mbrn_amount.unwrap_or(total_delegatible_amount);
             
+        let mut claim_msgs: Vec<CosmosMsg> = vec![];
 
         /////Act on Optionals/////
         //Delegations
         if let Some(delegate) = delegate {
+            //Claim user & delegate claims
+            let (claims, interest) = get_user_claimables(deps.storage, env.clone(), info.sender.clone())?;
+            //Create claimable msgs
+            claim_msgs = create_rewards_msgs(
+                deps.storage,
+                deps.api,
+                env.clone(),
+                CONFIG.load(deps.storage)?,
+                claims,
+                interest,
+                info.clone().sender.to_string(),
+                vec![],
+            )?;
+
             //If delegating, add to staker's delegated_to & delegates delegated
             if delegate {
                 //If mbrn_amount is greater than total delegatible amount, return error
@@ -740,7 +777,7 @@ fn update_delegations(
                 user_delegation_info.delegated_to = user_delegation_info.delegated_to.clone()
                     .into_iter()
                     .map(|delegation| {
-                        if delegation.delegator == valid_gov_addr.clone() {
+                        if delegation.delegate == valid_gov_addr.clone() {
                             Delegation {
                                 fluidity: fluid,
                                 ..delegation
@@ -772,7 +809,7 @@ fn update_delegations(
             };        
         }
         
-        return Ok(Response::new().add_attributes(vec![
+        return Ok(Response::new().add_messages(claim_msgs).add_attributes(vec![
             attr("action", "update_delegations"),
             attr("delegator", info.sender),
             attr("delegate", valid_gov_addr),
@@ -810,6 +847,20 @@ fn delegate_fluid_delegations(
 
     //Get delegate's delegations, assert they are a delegate
     let mut delegator_delegation_info = DELEGATIONS.load(deps.storage, info.clone().sender.clone())?;
+
+    //Get claims
+    let (claims, interest) = get_user_claimables(deps.storage, env.clone(), info.sender.clone())?;
+    //Make rewards msg
+    let claims_msgs = create_rewards_msgs(
+        deps.storage, 
+        deps.api,        
+        env.clone(),
+        CONFIG.load(deps.storage)?,
+        claims,
+        interest,
+        info.sender.clone().to_string(),
+        vec![]
+    )?;
 
     //Set delegation_info variants
     let mut fluid_delegations: Vec<Delegation> = delegator_delegation_info.delegated.clone()
@@ -924,8 +975,8 @@ fn delegate_fluid_delegations(
     delegator_delegation_info.delegated = fluid_delegations;
     DELEGATIONS.save(deps.storage, info.clone().sender.clone(), &delegator_delegation_info)?;
 
-    
-    Ok(Response::new().add_attributes(vec![
+
+    Ok(Response::new().add_messages(claims_msgs).add_attributes(vec![
         attr("action", "delegate_fluid_delegations"),
         attr("delegator", info.sender),
         attr("delegate", valid_gov_addr),
@@ -954,8 +1005,6 @@ fn restake(
     };
 
     //Initialize variables
-    let mut claimables: Vec<Asset> = vec![];
-    let mut accrued_interest = Uint128::zero();
     let initial_restake = restake_amount;
     let mut error: Option<StdError> = None;
 
@@ -976,52 +1025,13 @@ fn restake(
                 if deposit.amount >= restake_amount {
                     //Zero restake_amount
                     restake_amount = Uint128::zero();
-
-                    //Add claimables from this deposit
-                    match add_deposit_claimables(
-                        deps.storage,
-                        config.clone(),
-                        incentive_schedule.clone(),
-                        env.clone(),
-                        fee_events.clone(),
-                        deposit.clone(),
-                        delegated_to.clone(),
-                        delegated.clone(),
-                        &mut claimables,
-                        &mut accrued_interest,
-                        total_rewarding_stake,
-                    ) {
-                        Ok(res) => res,
-                        Err(err) => 
-                            error = Some(err)                        
-                    };
                     
                     //Restake
                     deposit.unstake_start_time = None;
                     deposit.stake_time = env.block.time.seconds();
                 } else if deposit.amount < restake_amount {
                     //Sub from restake_amount
-                    restake_amount -= deposit.amount;
-
-                    //Add claimables from this deposit
-                    match add_deposit_claimables(
-                        deps.storage,
-                        config.clone(),
-                        incentive_schedule.clone(),
-                        env.clone(),
-                        fee_events.clone(),
-                        deposit.clone(),
-                        delegated_to.clone(),
-                        delegated.clone(),
-                        &mut claimables,
-                        &mut accrued_interest,
-                        total_rewarding_stake,
-                    ) {
-                        Ok(res) => res,
-                        Err(err) => 
-                            error = Some(err)                        
-                    };
-                    
+                    restake_amount -= deposit.amount;                  
 
                     //Restake
                     deposit.unstake_start_time = None;
@@ -1037,17 +1047,26 @@ fn restake(
         return Err(ContractError::Std(err));
     }
 
+    let (claimables, accrued_interest) = get_user_claimables(
+        deps.storage,
+        env,
+        info.clone().sender,
+    )?;
+
+    //Save new Deposits
+    STAKED.save(deps.storage, info.clone().sender,&restaked_deposits)?;
+
     //Create rewards msgs
     let rewards_msgs = create_rewards_msgs(
+        deps.storage,
+        deps.api,
+        env,
         config.clone(),
         claimables,
         accrued_interest,
         info.clone().sender.to_string(),
         vec![],
     )?;
-
-    //Save new Deposits
-    STAKED.save(deps.storage, info.clone().sender,&restaked_deposits)?;
 
     Ok(Response::new().add_messages(rewards_msgs).add_attributes(vec![
         attr("method", "restake"),
@@ -1263,9 +1282,12 @@ fn deposit_fee(
 
 /// Create rewards msgs from claimables and accrued interest
 fn create_rewards_msgs(
+    storage: &mut dyn Storage,
+    api: &dyn Api,
+    env: Env,
     config: Config,
     claimables: Vec<Asset>,
-    accrued_interest: Uint128,
+    mut accrued_interest: Uint128,
     user: String,
     mut native_claims: Vec<Coin>,
 ) -> StdResult<Vec<CosmosMsg>>{
@@ -1287,26 +1309,28 @@ fn create_rewards_msgs(
         }
     }
 
+    //Validate staker
+    let staker = api.addr_validate(&user.clone())?;
+
+    //Add claims as a delegate to native claims
+    if let Ok((claims, interest)) = DELEGATE_CLAIMS.load(storage, staker.clone()) {
+        //Add interest to stake    
+        accrued_interest += interest;
+
+        if !accrued_interest.is_zero(){
+            add_staking_deposit(storage, env, config, staker, accrued_interest)?;
+        }
+
+        //Add claims 
+        native_claims.extend(claims);        
+    }
+
     if native_claims != vec![] {
         let msg = CosmosMsg::Bank(BankMsg::Send {
             to_address: user.clone(),
             amount: native_claims,
         });
         msgs.push(msg);
-    }
-
-    //Create msg to mint accrued interest
-    if !accrued_interest.is_zero() {
-        let message = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-            msg: to_binary(&OsmoExecuteMsg::MintTokens {
-                denom: config.clone().mbrn_denom,
-                amount: accrued_interest,
-                mint_to_address: user,
-            })?,
-            funds: vec![],
-        });
-        msgs.push(message);
     }
 
     Ok(msgs)
@@ -1414,14 +1438,6 @@ fn withdraw_from_state(
     let config = CONFIG.load(storage)?;
     let incentive_schedule = INCENTIVE_SCHEDULING.load(storage)?;
     let deposits = STAKED.load(storage, staker.clone())?;
-    let DelegationInfo { delegated, delegated_to, commission: _ } = match DELEGATIONS.load(storage, staker.clone()){
-        Ok(delegation_info) => delegation_info,
-        Err(_) => DelegationInfo {
-            delegated: vec![],
-            delegated_to: vec![],
-            commission: Decimal::zero(),
-        }
-    };
 
     let mut new_deposit_total = Uint128::zero();
     let mut accrued_interest = Uint128::zero();
@@ -1457,28 +1473,6 @@ fn withdraw_from_state(
 
             //Subtract from each deposit until there is none left to withdraw
             if withdrawal_amount != Uint128::zero() && deposit.amount > withdrawal_amount {
-                
-                //Only add claims if the deposit has passed the fee wait period
-                if deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds() {
-                    //Add claimables from this deposit
-                    match add_deposit_claimables(
-                        storage,
-                        config.clone(),
-                        incentive_schedule.clone(),
-                        env.clone(),
-                        fee_events.clone(),
-                        deposit.clone(),
-                        delegated_to.clone(),
-                        delegated.clone(),
-                        &mut claimables,
-                        &mut accrued_interest,
-                        total_rewarding_stake,
-                    ) {
-                        Ok(res) => res,
-                        Err(err) => 
-                            error = Some(err)                        
-                    };
-                }
 
                 //If withdrawable...
                 //Set partial deposit total
@@ -1515,28 +1509,6 @@ fn withdraw_from_state(
                 withdrawal_amount = Uint128::zero();
 
             } else if withdrawal_amount != Uint128::zero() && deposit.amount <= withdrawal_amount {
-
-                //Only add claims if the deposit has passed the fee wait period
-                if deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds() {
-                    //Add claimables from this deposit
-                    match add_deposit_claimables(
-                        storage,
-                        config.clone(),
-                        incentive_schedule.clone(),
-                        env.clone(),
-                        fee_events.clone(),
-                        deposit.clone(),
-                        delegated_to.clone(),
-                        delegated.clone(),
-                        &mut claimables,
-                        &mut accrued_interest,
-                        total_rewarding_stake,
-                    ) {
-                        Ok(res) => res,
-                        Err(err) => 
-                            error = Some(err)                        
-                    };
-                }
 
                 //Since it's less than the Deposit amount, substract it from the withdrawal amount
                 withdrawal_amount -= deposit.amount;
@@ -1592,6 +1564,14 @@ fn withdraw_from_state(
             unstake_start_time: None,
         });
     }
+
+    //Before we save, claim rewards for the staker
+    let (claimables, accrued_interest) = get_user_claimables(
+        storage, 
+        env, 
+        staker,
+    )?;
+
     //Save new deposit stack
     STAKED.save(storage, staker.clone(), &new_deposits)?;
 
@@ -1629,6 +1609,9 @@ fn user_claims(
     if send_to.clone().is_none() {                
         //Send to sender
         let rewards_msgs = create_rewards_msgs(
+            storage,
+            api,
+            env,
             config.clone(), 
             user_claimables.clone(), 
             Uint128::zero(), //Dont send interest here
@@ -1643,6 +1626,9 @@ fn user_claims(
 
         //Send to recipient
         let rewards_msgs = create_rewards_msgs(
+            storage,
+            api,
+            env,
             config.clone(), 
             user_claimables.clone(), 
             Uint128::zero(), //Dont send interest here
@@ -1671,7 +1657,7 @@ fn get_user_claimables(
             vec![]
         },
     };
-    let DelegationInfo { mut delegated, delegated_to, commission } = match DELEGATIONS.load(storage, user.clone()){
+    let DelegationInfo { mut delegated, mut delegated_to, commission } = match DELEGATIONS.load(storage, user.clone()){
         Ok(res) => res,
         Err(_) => DelegationInfo {
             delegated: vec![],
@@ -1686,10 +1672,15 @@ fn get_user_claimables(
                 msg: String::from("User has no stake"),
             });
         } else {
+            //Filter out delegations that are not past the wait period
+            delegated = delegated.clone()
+                .into_iter()
+                .filter(|delegation| delegation.time_of_delegation + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds())
+                .collect::<Vec<Delegation>>();
+
             //Sum the total commission amount (delegated * commission)
             let total_commission: Uint128 = delegated.clone()
                 .into_iter()
-                .filter(|delegation| delegation.time_of_delegation + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds())
                 .map(|delegation| 
                     match decimal_multiplication(Decimal::from_ratio(delegation.amount, Uint128::one()), commission){
                         Ok(res) => res,
@@ -1710,67 +1701,143 @@ fn get_user_claimables(
                 StakeDeposit {
                     staker: user.clone(),
                     amount: total_commission,
-                    stake_time: earliest_delegation.time_of_delegation, //We filtered for valid delegations so no need to wait 
+                    stake_time: earliest_delegation.time_of_delegation, //We filtered for delegations past the wait period so no need to wait again
                     unstake_start_time: None,
                 }
             );
         }
-    } 
-
-    //Load Fee events
-    let fee_events = FEE_EVENTS.load(storage)?;
-
-    let mut claimables: Vec<Asset> = vec![];
-    let mut total_deposits = Uint128::zero();
-    let mut accrued_interest = Uint128::zero();
     
-    //Filter for deposits past the fee wait period
-    let deposits = deposits
-        .into_iter()
-        .filter(|deposit| {
-            deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds()
-        })
-        .collect::<Vec<StakeDeposit>>();
-    
-    //Calc total deposits past fee wait period
-    let total_rewarding_stake: Uint128 = deposits.clone()
-        .into_iter()
-        .map(|deposit| deposit.amount)
-        .sum();
 
-    //Get claimables per deposit
-    for deposit in deposits {
-        add_deposit_claimables(
-            storage,
-            config.clone(), 
-            incentive_schedule.clone(), 
-            env.clone(), 
-            fee_events.clone(), 
-            deposit.clone(), 
-            delegated_to.clone(),
-            delegated.clone(),
-            &mut claimables, 
-            &mut accrued_interest,
-            total_rewarding_stake,
-        )?;
+        //Load Fee events
+        let fee_events = FEE_EVENTS.load(storage)?;
 
-        //Total deposits
-        total_deposits += deposit.amount;
+        let mut claimables: Vec<Asset> = vec![];
+        let mut total_deposits = Uint128::zero();
+        let mut accrued_interest = Uint128::zero();
+        
+        //Filter for deposits past the fee wait period
+        let deposits = deposits
+            .into_iter()
+            .filter(|deposit| {
+                deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds()
+            })
+            .collect::<Vec<StakeDeposit>>();
+        
+        //Calc total deposits past fee wait period
+        let total_rewarding_stake: Uint128 = deposits.clone()
+            .into_iter()
+            .map(|deposit| deposit.amount)
+            .sum();
+
+        //Get claimables per deposit
+        for deposit in deposits {
+            add_deposit_claimables(
+                storage,
+                config.clone(), 
+                incentive_schedule.clone(), 
+                env.clone(), 
+                fee_events.clone(), 
+                deposit.clone(), 
+                delegated_to.clone(),
+                delegated.clone(),
+                &mut claimables, 
+                &mut accrued_interest,
+                total_rewarding_stake,
+            )?;
+
+            //Total deposits
+            total_deposits += deposit.amount;
+        }
+
+        if !not_a_staker {
+            //Save new condensed deposit for user
+            STAKED.save(storage, user.clone(), &vec![
+                StakeDeposit {
+                    staker: user,
+                    amount: total_deposits,
+                    //Subtract wait period so this deposit isn't waiting anymore but add 1 to put past its claimed events
+                    stake_time: env.block.time.seconds() - (config.fee_wait_period * SECONDS_PER_DAY) + 1,
+                    unstake_start_time: None,
+            }])?;
+        }
+
+        //Find and save claimables for the user's delegates' commissions
+        if !delegated_to.is_empty(){
+            //Filter out delegations that are not past the wait period
+            delegated_to = delegated_to.clone()
+                .into_iter()
+                .filter(|delegation| delegation.time_of_delegation + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds())
+                .collect::<Vec<Delegation>>();
+
+            for delegate in delegated_to {
+                //Load delegate's commission
+                let commission = DELEGATIONS.load(storage, delegate.delegate.clone())?.commission;
+
+                //Calc the delegate_commission commission amount (delegated * commission)
+                let delegate_commission: Uint128 =
+                    match decimal_multiplication(Decimal::from_ratio(delegate.amount, Uint128::one()), commission){
+                        Ok(res) => res,
+                        Err(_) => Decimal::zero(),
+                    }.to_uint_floor();
+
+                let deposit =
+                    StakeDeposit {
+                        staker: user.clone(),
+                        amount: delegate_commission,
+                        stake_time: delegate.time_of_delegation, //We filtered for delegations past the wait period so no need to wait again
+                        unstake_start_time: None,
+                    };
+
+                //Get claimables 
+                let (delegate_claimables, accrued_interest) = get_deposit_claimables(
+                    storage,
+                    config.clone(), 
+                    incentive_schedule.clone(), 
+                    env.clone(), 
+                    fee_events.clone(), 
+                    deposit.clone(), 
+                    vec![],
+                    vec![],
+                    delegate.amount,
+                )?;
+
+                let mut delegate_claimables = delegate_claimables
+                    .into_iter()
+                    .map(|asset| asset_to_coin(asset))
+                    .filter(|res| res.is_ok())
+                    .map(|res| res.unwrap())
+                    .collect::<Vec<Coin>>();
+
+                //Add MBRN to claimables
+                delegate_claimables.push(coin(accrued_interest.into(), config.clone().mbrn_denom));
+
+                //Update delegate claimables
+                DELEGATE_CLAIMS.update(storage, delegate.delegate.clone(), |claims| -> StdResult<Vec<Coin>>{
+                    match claims {
+                        Some(mut claims) => {
+                            //Combine claimables with similar denoms
+                            for new_claim in delegate_claimables.clone() {
+                                if let Some((i, claim)) = claims.into_iter().enumerate().find(|(index, claim)| claim.denom == new_claim.denom) {
+                                    claims[i].amount += new_claim.amount;
+                                } else {
+                                    claims.push(new_claim);
+                                }
+                            }                            
+
+                            Ok(claims)
+                        },
+                        None => Ok(delegate_claimables)
+                    }
+                })?;
+            }
+                        
+        }
+        
+        return Ok((claimables, accrued_interest))
     }
 
-    if !not_a_staker {
-        //Save new condensed deposit for user
-        STAKED.save(storage, user.clone(), &vec![
-            StakeDeposit {
-                staker: user,
-                amount: total_deposits,
-                //Subtract wait period so this deposit isn't waiting anymore but add 1 to put past its claimed events
-                stake_time: env.block.time.seconds() - (config.fee_wait_period * SECONDS_PER_DAY) + 1,
-                unstake_start_time: None,
-        }])?;
-    }
+    Ok((vec![], Uint128::zero()))
 
-    Ok((claimables, accrued_interest))
 }
 
 /// Trim fee events to only include events after the earliest deposit

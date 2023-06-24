@@ -426,7 +426,18 @@ mod tests {
                 vec![coin(950, "credit_fulldenom"), coin(9_000_000, "mbrn_denom")]
             );
 
-            //Claim for delegate
+            //Undelegate
+            let msg = ExecuteMsg::UpdateDelegations { 
+                governator_addr: Some(String::from("governator_addr")), 
+                mbrn_amount: Some(Uint128::new(500000)),
+                delegate: Some(false), 
+                fluid: None, 
+                commission: None,
+            };
+            let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
+
+            //Claim for delegate even though they are undelegated
             let claim_msg = ExecuteMsg::ClaimRewards {
                 send_to: None,
                 restake: false,
@@ -440,7 +451,7 @@ mod tests {
                 vec![coin(50, "credit_fulldenom")]
             );
 
-            ////MBRN amount doesn't change for either bc the Osmosis Proxy sends the mint to the destination itself////
+            ////MBRN amount doesn't change for either bc they are restaked////
                 
             //Claim: Assert claim was saved and can't be double claimed
             let claim_msg = ExecuteMsg::ClaimRewards {

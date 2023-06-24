@@ -1,4 +1,4 @@
-use membrane::types::{FeeEvent, StakeDeposit, StakeDistributionLog, DelegationInfo, Asset};
+use membrane::types::{FeeEvent, StakeDeposit, StakeDistributionLog, DelegationInfo};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 

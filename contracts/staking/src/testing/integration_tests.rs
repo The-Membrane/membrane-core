@@ -412,7 +412,7 @@ mod tests {
             });
             assert_eq!(resp.accrued_interest, Uint128::new(410));
             
-            //Claim
+            //Claim for user
             let claim_msg = ExecuteMsg::ClaimRewards {
                 send_to: None,
                 restake: false,
@@ -426,7 +426,7 @@ mod tests {
                 vec![coin(950, "credit_fulldenom"), coin(9_000_000, "mbrn_denom")]
             );
 
-            //Claim
+            //Claim for delegate
             let claim_msg = ExecuteMsg::ClaimRewards {
                 send_to: None,
                 restake: false,
@@ -508,7 +508,7 @@ mod tests {
                 },
             ]);
 
-            //Skip fee waiting period
+            //Skip fee waiting period + excess time
             app.set_block(BlockInfo {
                 height: app.block_info().height,
                 time: app.block_info().time.plus_seconds(86_400u64 * 30u64), //Added 30 days
@@ -676,7 +676,7 @@ mod tests {
                     &QueryMsg::TotalStaked {},
                 )
                 .unwrap();
-            assert_eq!(resp.total_not_including_vested, Uint128::new(0));
+            assert_eq!(resp.total_not_including_vested, Uint128::new(8219));//This is from accrual during the unstaking period
             assert_eq!(resp.vested_total, Uint128::new(0));
 
         }

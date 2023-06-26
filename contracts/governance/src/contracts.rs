@@ -793,7 +793,6 @@ pub fn calc_voting_power(
                 .filter(|delegation| delegation.time_of_delegation <= start_time)
                 .map(|dele| dele.amount)
                 .sum();
-
             //Add delegated to user and subtract delegated from user
             total += total_delegated_to_user - total_delegated_from_user;
         };

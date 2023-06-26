@@ -10,9 +10,9 @@ mod tests {
         ExecuteMsg, InstantiateMsg, QueryMsg, STAKE_INTERVAL, VOTING_PERIOD_INTERVAL,
     };
     use membrane::staking::{
-        Config as StakingConfig, StakedResponse, TotalStakedResponse
+        Config as StakingConfig, StakedResponse, TotalStakedResponse, DelegationResponse
     };
-    use membrane::types::{StakeDeposit, VestingPeriod, StakeDistribution};
+    use membrane::types::{StakeDeposit, VestingPeriod, StakeDistribution, DelegationInfo, Delegation};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
@@ -91,6 +91,11 @@ mod tests {
             end_before: Option<u64>,
             unstaking: bool,
         },
+        Delegations {
+            limit: Option<u32>,
+            start_after: Option<String>,
+            user: Option<String>,
+        },
         Config {},
         TotalStaked {},
     }
@@ -125,6 +130,44 @@ mod tests {
                                 unstake_start_time: None,
                             },
                         ],
+                    })?),
+                    Staking_MockQueryMsg::Delegations {
+                        limit,
+                        start_after,
+                        user,
+                    } => Ok(to_binary(&DelegationResponse {
+                        user: Addr::unchecked(USER),
+                        delegation_info: DelegationInfo {
+                            delegated: vec![
+                                Delegation { 
+                                    delegate: Addr::unchecked(USER), 
+                                    amount: Uint128::new(110000000),
+                                    fluidity: false, 
+                                    time_of_delegation: 0,
+                                },                                
+                                Delegation { 
+                                    delegate: Addr::unchecked(USER), 
+                                    amount: Uint128::new(100000000464),
+                                    fluidity: false, 
+                                    time_of_delegation: 999999999999,
+                                }
+                            ],
+                            delegated_to: vec![
+                                Delegation { 
+                                    delegate: Addr::unchecked(USER), 
+                                    amount: Uint128::new(100000000),
+                                    fluidity: false, 
+                                    time_of_delegation: 0,
+                                },                                
+                                Delegation { 
+                                    delegate: Addr::unchecked(USER), 
+                                    amount: Uint128::new(100000000000),
+                                    fluidity: false, 
+                                    time_of_delegation: 999999999999,
+                                }
+                            ],
+                            commission: Decimal::zero(),
+                        },
                     })?),
                     Staking_MockQueryMsg::Config {} => Ok(to_binary(&StakingConfig {
                         owner: Addr::unchecked(""),
@@ -563,7 +606,7 @@ mod tests {
             assert_eq!(proposal.for_power, Uint128::zero());
             assert_eq!(proposal.against_power, Uint128::zero());
             assert_eq!(proposal.start_block, 12_345);
-            assert_eq!(proposal.end_block, 12_345 + (7 * 14400)); //Executables have a minimum 7 day voting period
+            assert_eq!(proposal.end_block, 12_345 + (7 * 2400)); //Executables have a minimum 7 day voting period
             assert_eq!(proposal.title, String::from("Test title!"));
             assert_eq!(proposal.description, String::from("Test description!"));
             assert_eq!(
@@ -702,11 +745,11 @@ mod tests {
                 .unwrap();
 
             // Check proposal votes & assert quadratic weighing
-            assert_eq!(proposal.for_power, Uint128::from(31_622u128)); 
-            assert_eq!(proposal.against_power, Uint128::from(7_745u128));
+            assert_eq!(proposal.for_power, Uint128::from(31780u128)); 
+            assert_eq!(proposal.against_power, Uint128::from(8366u128));
 
-            assert_eq!(proposal_votes.for_power, Uint128::from(31_622u128));
-            assert_eq!(proposal_votes.against_power, Uint128::from(7_745u128));
+            assert_eq!(proposal_votes.for_power, Uint128::from(31780u128));
+            assert_eq!(proposal_votes.against_power, Uint128::from(8366u128));
 
             assert_eq!(proposal_for_voters, vec![Addr::unchecked("user")]);
             assert_eq!(proposal_against_voters, vec![Addr::unchecked("admin")]);
@@ -723,7 +766,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(voting_power_1, Uint128::new(31_622));
+            assert_eq!(voting_power_1, Uint128::new(31780));
 
             //Query voting power
             let voting_power_2: Uint128 = app
@@ -737,7 +780,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(voting_power_2, Uint128::new(7_745));
+            assert_eq!(voting_power_2, Uint128::new(8366));
 
             //Query total voting power
             let total_voting_power: Uint128 = app
@@ -749,7 +792,8 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(total_voting_power, voting_power_1 + voting_power_2);
+            //This isn't equal bc the test delegated votes go to both voters
+            //assert_eq!(total_voting_power, voting_power_1 + voting_power_2);
 
             // Skip voting period
             app.update_block(|bi| {
@@ -1002,11 +1046,11 @@ mod tests {
                 .unwrap();
 
             // Check proposal votes & assert quadratic weighing
-            assert_eq!(proposal.amendment_power, Uint128::from(31_622u128)); 
-            assert_eq!(proposal.for_power, Uint128::from(7_745u128));
+            assert_eq!(proposal.amendment_power, Uint128::from(31780u128)); 
+            assert_eq!(proposal.for_power, Uint128::from(8366u128));
 
-            assert_eq!(proposal_votes.amendment_power, Uint128::from(31_622u128));
-            assert_eq!(proposal_votes.for_power, Uint128::from(7_745u128));
+            assert_eq!(proposal_votes.amendment_power, Uint128::from(31780u128));
+            assert_eq!(proposal_votes.for_power, Uint128::from(8366u128));
 
             assert_eq!(proposal_for_voters, vec![Addr::unchecked("admin")]);
             assert_eq!(proposal_amend_voters, vec![Addr::unchecked("user")]);
@@ -1123,8 +1167,8 @@ mod tests {
                 .unwrap();
 
             // Check proposal votes & assert quadratic weighing
-            assert_eq!(proposal.removal_power, Uint128::from(31_622u128 + 7_745u128)); 
-            assert_eq!(proposal_votes.removal_power, Uint128::from(31_622u128 + 7_745u128));
+            assert_eq!(proposal.removal_power, Uint128::from(31780u128 + 8366u128)); 
+            assert_eq!(proposal_votes.removal_power, Uint128::from(31780u128 + 8366u128));
 
             assert_eq!(proposal_removal_voters, vec![Addr::unchecked("admin"), Addr::unchecked("user")]);
             

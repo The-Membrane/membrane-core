@@ -15,7 +15,7 @@ use membrane::governance::{
     UpdateConfig, BLOCKS_PER_DAY
 };
 use membrane::staking::{
-    Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse,
+    Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse, DelegationResponse,
 };
 
 use std::str::FromStr;
@@ -755,7 +755,7 @@ pub fn calc_voting_power(
         total = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
     } else if vesting {
         //If vesting but recipient isn't passed, use the sender
-        let recipient = sender;
+        let recipient = sender.clone();
 
         let allocation = deps
             .querier
@@ -768,6 +768,36 @@ pub fn calc_voting_power(
     } else {
         total = Uint128::zero();
     }
+
+    // Query delegations
+    if let Ok(delegation_info) = deps
+        .querier
+        .query::<DelegationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.staking_contract_addr.to_string(),
+            msg: to_binary(&StakingQueryMsg::Delegations {
+                limit: None,
+                start_after: None,
+                user: Some(sender.clone()),
+            })?,
+        })){
+            //Get total delegated to user from proposal start time
+            let total_delegated_to_user: Uint128 = delegation_info.delegation_info.clone().delegated
+                .into_iter()
+                .filter(|delegation| delegation.time_of_delegation <= start_time)
+                .map(|dele| dele.amount)
+                .sum();
+
+            //Get total delegated away from user from proposal start time
+            let total_delegated_from_user: Uint128 = delegation_info.delegation_info.clone().delegated_to
+                .into_iter()
+                .filter(|delegation| delegation.time_of_delegation <= start_time)
+                .map(|dele| dele.amount)
+                .sum();
+
+            //Add delegated to user and subtract delegated from user
+            total += total_delegated_to_user - total_delegated_from_user;
+        };
+    
     
     // Take square root of total stake if quadratic voting is enabled
     if quadratic_voting {

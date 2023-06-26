@@ -52,7 +52,8 @@ pub fn query_position(
         deps.querier,
         config.clone(),
         position.clone().collateral_assets,
-        false
+        false,
+        false,
     )?;
 
     accrue(
@@ -110,6 +111,7 @@ pub fn query_user_positions(
             deps.querier,
             config.clone(),
             position.clone().collateral_assets,
+            false,
             false
         ) {
             Ok((borrow, max, value, prices)) => (borrow, max, value, prices),
@@ -785,26 +787,49 @@ pub fn get_avg_LTV(
     config: Config,
     collateral_assets: Vec<cAsset>,
     is_deposit_function: bool,
+    is_liquidation_funciton: bool, //Skip softened borrow LTV
 ) -> StdResult<(Decimal, Decimal, Decimal, Vec<Decimal>)> {
     //Calc total value of collateral
     let (cAsset_values, cAsset_prices) = get_asset_values(
         storage,
-        env,
+        env.clone(),
         querier,
         collateral_assets.clone(),
-        config,
+        config.clone(),
         is_deposit_function,
+    )?;
+
+    //Load basket
+    let basket = BASKET.load(storage)?;
+
+    //Get basket cAsset ratios
+    let (basket_cAsset_ratios, _) = get_cAsset_ratios(
+        storage, 
+        env, 
+        querier, 
+        basket.clone().collateral_types, 
+        config
     )?;
     
     //Calculate avg LTV & return values
-    calculate_avg_LTV(cAsset_values, cAsset_prices, collateral_assets)
+    calculate_avg_LTV(
+        cAsset_values, 
+        cAsset_prices, 
+        collateral_assets, 
+        basket.clone().collateral_types, 
+        basket_cAsset_ratios,
+        is_liquidation_funciton,
+    )
 }
 
 /// Calculations for avg_borrow_LTV, avg_max_LTV, total_value and cAsset_prices
 pub fn calculate_avg_LTV(
     cAsset_values: Vec<Decimal>,
     cAsset_prices: Vec<Decimal>,    
-    collateral_assets: Vec<cAsset>,
+    mut collateral_assets: Vec<cAsset>,
+    basket_collateral_assets: Vec<cAsset>,
+    basket_cAsset_ratios: Vec<Decimal>,
+    is_liquidation_funciton: bool,
 ) -> StdResult<(Decimal, Decimal, Decimal, Vec<Decimal>)> {
     let total_value: Decimal = cAsset_values.iter().sum();
 
@@ -841,6 +866,24 @@ pub fn calculate_avg_LTV(
         ));
     }
 
+    //Don't soften avg_borrow_LTV if we are liquidating, to keep liquidation price flat
+    if !is_liquidation_funciton {
+        //Alter borrow_LTV based on Basket supply ratio
+        for (i, cAsset) in collateral_assets.clone().into_iter().enumerate() {
+            //Find cAsset_ratio in basket
+            if let Some((basket_index, _)) = basket_collateral_assets.iter().enumerate().find(|(_, x)| x.asset == cAsset.asset) {
+                //Get the difference between max & borrow LTV
+                let LTV_difference = cAsset.max_LTV - cAsset.max_borrow_LTV;
+
+                //Multiply difference by basket ratio
+                let added_LTV_difference = decimal_multiplication(LTV_difference, 
+                    decimal_subtraction(Decimal::one(), basket_cAsset_ratios[basket_index])?
+                )?;
+                collateral_assets[i].max_borrow_LTV = cAsset.max_borrow_LTV + added_LTV_difference;
+            }
+        }
+    }
+
     for (i, _cAsset) in collateral_assets.iter().enumerate() {
         avg_borrow_LTV +=
             decimal_multiplication(cAsset_ratios[i], collateral_assets[i].max_borrow_LTV)?;
@@ -869,7 +912,7 @@ pub fn insolvency_check(
 
     //Get avg LTVs
     let avg_LTVs: (Decimal, Decimal, Decimal, Vec<Decimal>) =
-        get_avg_LTV(storage, env, querier, config, collateral_assets.clone(), false)?;
+        get_avg_LTV(storage, env, querier, config, collateral_assets.clone(), false, true)?;
 
     //Insolvency check
     insolvency_check_calc(avg_LTVs, collateral_assets, credit_amount, credit_price, max_borrow)

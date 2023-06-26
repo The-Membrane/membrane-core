@@ -759,21 +759,12 @@ pub fn liq_repay(
     let collateral_assets = target_position.collateral_assets;
 
     //Get position's cAsset ratios
-    let (cAsset_ratios, _) = get_cAsset_ratios(
+    let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(
         deps.storage,
         env.clone(),
         deps.querier,
         collateral_assets.clone(),
         config.clone(),
-    )?;
-    //Get cAsset prices
-    let (_avg_borrow_LTV, _avg_max_LTV, _total_value, cAsset_prices) = get_avg_LTV(
-        deps.storage,
-        env.clone(),
-        deps.querier,
-        config.clone(),
-        collateral_assets.clone(),
-        false
     )?;
 
     let repay_value = decimal_multiplication(
@@ -2188,7 +2179,8 @@ fn get_amount_from_LTV(
         querier, 
         config, 
         position.clone().collateral_assets,
-        false
+        false,
+        false,
     )?;
 
     //Target LTV can't be greater than possible borrowable LTV for the Position

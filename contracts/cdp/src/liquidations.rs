@@ -89,7 +89,8 @@ pub fn liquidate(
         querier,
         config.clone(),
         target_position.clone().collateral_assets,
-        false
+        false,
+        true,
     )?;
 
     //Get repay value and repay_amount

@@ -134,7 +134,7 @@ pub enum QueryMsg {
     Delegations {
         /// Response limit
         limit: Option<u32>,
-        /// Start after delegate address
+        /// Start after governator address
         start_after: Option<String>,
         /// Query a specific user
         user: Option<String>,

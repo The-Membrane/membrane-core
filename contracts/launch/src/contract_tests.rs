@@ -341,7 +341,7 @@ fn claim() {
         res.attributes,
         vec![
             attr("method", "claim"),
-            attr("minted_incentives", "3478260869565"), //3_478_260_869_565
+            attr("staked_ownership", "3478260869565"), //3_478_260_869_565
         ]
     );
     assert_eq!(
@@ -398,7 +398,7 @@ fn claim() {
         res.attributes,
         vec![
             attr("method", "claim"),
-            attr("minted_incentives", "6521739130435"),
+            attr("staked_ownership", "6521739130435"),
         ]
     );
     assert_eq!(

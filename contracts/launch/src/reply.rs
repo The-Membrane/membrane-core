@@ -22,12 +22,11 @@ use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg
 use membrane::margin_proxy::InstantiateMsg as ProxyInstantiateMsg;
 use membrane::system_discounts::InstantiateMsg as SystemDiscountInstantiateMsg;
 use membrane::discount_vault::{InstantiateMsg as DiscountVaultInstantiateMsg, ExecuteMsg as DiscountVaultExecuteMsg};
-use membrane::types::{AssetInfo, Basket, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, AssetOracleInfo, PoolStateResponse, PoolType, Owner};
+use membrane::types::{AssetInfo, Basket, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, AssetOracleInfo, PoolStateResponse, Owner};
 
 use osmosis_std::shim::Duration;
 use osmosis_std::types::cosmos::base::v1beta1::Coin;
 use osmosis_std::types::osmosis::gamm::poolmodels::balancer::v1beta1::MsgCreateBalancerPoolResponse;
-use osmosis_std::types::osmosis::gamm::poolmodels::stableswap::v1beta1::MsgCreateStableswapPoolResponse;
 use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
 use osmosis_std::types::osmosis::lockup::QueryCondition;
 
@@ -79,7 +78,7 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
             let create_denom_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: addrs.clone().osmosis_proxy.to_string(), 
                 msg: to_binary(&OPExecuteMsg::CreateDenom { 
-                    subdenom: String::from("cdt"), 
+                    subdenom: String::from("ucdt"), 
                     max_supply: None,
                 })?, 
                 funds: coins(10_000_000, "uosmo"),
@@ -87,7 +86,7 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
             let create_denom_submsg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: addrs.clone().osmosis_proxy.to_string(), 
                 msg: to_binary(&OPExecuteMsg::CreateDenom { 
-                    subdenom: String::from("mbrn"), 
+                    subdenom: String::from("umbrn"), 
                     max_supply: None,
                 })?, 
                 funds: coins(10_000_000, "uosmo"),

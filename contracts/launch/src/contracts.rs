@@ -13,7 +13,6 @@ use membrane::types::{AssetInfo, Asset, UserRatio, Lockdrop, LockedUser, Lock};
 
 use osmosis_std::types::cosmos::base::v1beta1::Coin;
 use osmosis_std::types::osmosis::gamm::poolmodels::balancer::v1beta1::MsgCreateBalancerPool;
-use osmosis_std::types::osmosis::gamm::poolmodels::stableswap::v1beta1::{MsgCreateStableswapPool, PoolParams as SSPoolParams};
 use osmosis_std::types::osmosis::gamm::v1beta1::PoolParams;
 use osmosis_std::types::osmosis::gamm::v1beta1::PoolAsset;
 
@@ -54,7 +53,7 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
 
     //Need 20 OSMO for CreateDenom Msgs
-    // if deps.querier.query_balance(env.clone().contract.address, "uosmo")?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
+    if deps.querier.query_balance(env.clone().contract.address, "uosmo")?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
@@ -348,7 +347,7 @@ fn claim (
 
     let attrs = vec![
         attr("method", "claim"),
-        attr("minted_incentives", amount_to_mint),
+        attr("staked_ownership", amount_to_mint),
     ];
 
     //Create mint & stake msgs if there are incentives to withdraw

@@ -6659,7 +6659,7 @@ mod tests {
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             //Assert LTVs
-            assert_eq!(res.avg_borrow_LTV.to_string(), String::from("0.45"));
+            assert_eq!(res.avg_borrow_LTV.to_string(), String::from("0.55"));//increased LTV due to supply ratio
             assert_eq!(res.avg_max_LTV.to_string(), String::from("0.65"));
         }
 
@@ -6769,7 +6769,7 @@ mod tests {
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             //Assert LTVs
-            assert_eq!(res.avg_borrow_LTV.to_string(), String::from("0.45"));
+            assert_eq!(res.avg_borrow_LTV.to_string(), String::from("0.55")); //increased LTV due to supply ratio
             assert_eq!(res.avg_max_LTV.to_string(), String::from("0.65"));
         }
 

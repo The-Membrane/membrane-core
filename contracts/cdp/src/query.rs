@@ -251,6 +251,7 @@ pub fn query_bad_debt(deps: Deps) -> StdResult<BadDebtResponse> {
 }
 
 /// Returns Position's insolvency status
+/// The idea is that the response can be handled by acting on the fee. So if the fee is 0, then the position is solvent or doesn't exist.
 pub fn query_position_insolvency(
     deps: Deps,
     env: Env,
@@ -263,10 +264,23 @@ pub fn query_position_insolvency(
 
     let (_i, mut target_position) = match get_target_position(deps.storage, valid_owner_addr, position_id){
         Ok(position) => position,
-        Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+        //If position doesn't exist, return solvent response
+        Err(_) => return Ok(InsolvencyResponse {
+            insolvent_positions: vec![
+                InsolventPosition {
+                    insolvent: false,
+                    position_info: UserInfo {
+                        position_id,
+                        position_owner,
+                    },
+                    current_LTV: Decimal::zero(),
+                    available_fee: Uint128::zero(),
+                }
+            ],
+        })
     };
 
-    accrue(
+    match accrue(
         deps.storage,
         deps.querier,
         env.clone(),
@@ -274,14 +288,26 @@ pub fn query_position_insolvency(
         &mut basket,
         position_owner.clone(),
         false
-    )?;
-
-    ///
-    let mut res = InsolvencyResponse {
-        insolvent_positions: vec![],
+    ){
+        Ok(()) => {}
+        Err(_) => return Ok(InsolvencyResponse {
+            insolvent_positions: vec![
+                InsolventPosition {
+                    insolvent: false,
+                    position_info: UserInfo {
+                        position_id,
+                        position_owner,
+                    },
+                    current_LTV: Decimal::zero(),
+                    available_fee: Uint128::zero(),
+                }
+            ],
+        })
+    
     };
 
-    let (insolvent, current_LTV, available_fee) = insolvency_check(
+    //Query insolvency
+    let (insolvent, current_LTV, available_fee) = match insolvency_check(
         deps.storage,
         env,
         deps.querier,
@@ -290,20 +316,38 @@ pub fn query_position_insolvency(
         basket.credit_price,
         false,
         config,
-    )?;
+    ){
+        Ok((insolvent, current_LTV, available_fee)) => (insolvent, current_LTV, available_fee),
+        Err(_) => {
+            return Ok(InsolvencyResponse {
+                insolvent_positions: vec![
+                    InsolventPosition {
+                        insolvent: false,
+                        position_info: UserInfo {
+                            position_id,
+                            position_owner,
+                        },
+                        current_LTV: Decimal::zero(),
+                        available_fee: Uint128::zero(),
+                    }
+                ],
+            })
+        }
+    };
 
-    //Since its a Singular position we'll output whether insolvent or not
-    res.insolvent_positions.push(InsolventPosition {
-        insolvent,
-        position_info: UserInfo {
-            position_id: target_position.position_id,
-            position_owner,
-        },
-        current_LTV,
-        available_fee,
-    });
-
-    Ok(res)
+    Ok(InsolvencyResponse {
+        insolvent_positions: vec![
+            InsolventPosition {
+                insolvent,
+                position_info: UserInfo {
+                    position_id,
+                    position_owner,
+                },
+                current_LTV,
+                available_fee,
+            }
+        ],
+    })
 }
 
 /// Returns cAsset interest rates for the Basket

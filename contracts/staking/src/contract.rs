@@ -597,9 +597,6 @@ fn update_delegations(
     //Load config
     let config = CONFIG.load(deps.storage)?;
 
-    //Restrict governance power changes post-vote & pre-execution
-    //can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
-
     //Enforce max commission
     if let Some(new_commission) = commission {
         commission = Some(min(new_commission, config.max_commission_rate))
@@ -850,9 +847,6 @@ fn delegate_fluid_delegations(
     governator_addr: String,
     mbrn_amount: Option<Uint128>,
 ) -> Result<Response, ContractError>{
-    //Restrict governance power changes post-vote & pre-execution
-    // can_this_addr_unstake(deps.querier, info.clone().sender, CONFIG.load(deps.storage)?)?;
-
     //Validate Governator, doesn't need to be a staker but can't be the user
     let valid_gov_addr = deps.api.addr_validate(&governator_addr)?;
     if valid_gov_addr == info.clone().sender {

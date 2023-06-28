@@ -1,3 +1,4 @@
+use std::cmp::min;
 #[cfg(not(feature = "library"))]
 use std::env;
 
@@ -54,6 +55,7 @@ pub fn instantiate(
             }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
             unstaking_period: msg.unstaking_period.unwrap_or(4u64),
+            max_commission_rate: Decimal::percent(10),
             mbrn_denom: msg.mbrn_denom,
         };
     } else {
@@ -70,6 +72,7 @@ pub fn instantiate(
             }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
             unstaking_period: msg.unstaking_period.unwrap_or(4u64),
+            max_commission_rate: Decimal::percent(10),
             mbrn_denom: msg.mbrn_denom,
         };
     }
@@ -151,6 +154,7 @@ pub fn execute(
             incentive_schedule,
             fee_wait_period,
             unstaking_period,
+            max_commission_rate,
         } => update_config(
             deps,
             info,
@@ -165,6 +169,7 @@ pub fn execute(
             incentive_schedule,
             fee_wait_period,
             unstaking_period,
+            max_commission_rate,
         ),
         ExecuteMsg::Stake { user } => stake(deps, env, info, user),
         ExecuteMsg::Unstake { mbrn_amount } => unstake(deps, env, info, mbrn_amount),
@@ -236,6 +241,7 @@ fn update_config(
     incentive_schedule: Option<StakeDistribution>,
     fee_wait_period: Option<u64>,
     unstaking_period: Option<u64>,
+    max_commission_rate: Option<Decimal>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -275,6 +281,9 @@ fn update_config(
     };
     if let Some(fee_wait_period) = fee_wait_period {
         config.fee_wait_period = fee_wait_period;
+    };
+    if let Some(max_commission_rate) = max_commission_rate {
+        config.max_commission_rate = max_commission_rate;
     };
     if let Some(mbrn_denom) = mbrn_denom {
         config.mbrn_denom = mbrn_denom.clone();
@@ -583,10 +592,18 @@ fn update_delegations(
     mbrn_amount: Option<Uint128>,
     fluid: Option<bool>,
     delegate: Option<bool>,
-    commission: Option<Decimal>,
+    mut commission: Option<Decimal>,
 ) -> Result<Response, ContractError> {
+    //Load config
+    let config = CONFIG.load(deps.storage)?;
+
     //Restrict governance power changes post-vote & pre-execution
-    //can_this_addr_unstake(deps.querier, info.clone().sender, CONFIG.load(deps.storage)?)?;
+    //can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
+
+    //Enforce max commission
+    if let Some(new_commission) = commission {
+        commission = Some(min(new_commission, config.max_commission_rate))
+    }
 
     //If a delegate is simply changing their commission, no need to check for half the logic
     if commission.is_some() && governator_addr.is_none() && mbrn_amount.is_none() && delegate.is_none() && fluid.is_none(){
@@ -641,8 +658,6 @@ fn update_delegations(
         /////Act on Optionals/////
         //Delegations
         if let Some(delegate) = delegate {
-            //Load config
-            let config = CONFIG.load(deps.storage)?;
             //Claim user & delegate claims
             let (claims, interest) = get_user_claimables(deps.storage, env.clone(), info.sender.clone())?;
             //Create claimable msgs

@@ -50,6 +50,8 @@ pub enum ExecuteMsg {
         unstaking_period: Option<u64>,
         /// Fee wait period in days
         fee_wait_period: Option<u64>,
+        /// Max commission rate
+        max_commission_rate: Option<Decimal>,
     },
     /// Stake MBRN tokens
     Stake {
@@ -164,6 +166,8 @@ pub struct Config {
     pub fee_wait_period: u64,
     /// Unstaking period, in days
     pub unstaking_period: u64,
+    /// Max commission rate
+    pub max_commission_rate: Decimal,
     /// Positions contract address
     pub positions_contract: Option<Addr>,
     /// Auction contract address

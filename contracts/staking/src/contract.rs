@@ -50,7 +50,7 @@ pub fn instantiate(
             governance_contract: None,
             osmosis_proxy: None,
             incentive_schedule: msg.incentive_schedule.unwrap_or_else(|| StakeDistribution {
-                rate: Decimal::percent(123),
+                rate: Decimal::percent(33),
                 duration: 240,
             }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
@@ -67,7 +67,7 @@ pub fn instantiate(
             governance_contract: None,
             osmosis_proxy: None,
             incentive_schedule: msg.incentive_schedule.unwrap_or_else(|| StakeDistribution {
-                rate: Decimal::percent(123),
+                rate: Decimal::percent(33),
                 duration: 240,
             }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
@@ -173,7 +173,7 @@ pub fn execute(
         ),
         ExecuteMsg::Stake { user } => stake(deps, env, info, user),
         ExecuteMsg::Unstake { mbrn_amount } => unstake(deps, env, info, mbrn_amount),
-        ExecuteMsg::UpdateDelegations { governator_addr, mbrn_amount, delegate, fluid, commission } => update_delegations(
+        ExecuteMsg::UpdateDelegations { governator_addr, mbrn_amount, delegate, fluid, voting_power_delegation, commission } => update_delegations(
             deps,
             env,
             info,
@@ -182,6 +182,7 @@ pub fn execute(
             fluid,
             delegate,
             commission,
+            voting_power_delegation,
         ),
         ExecuteMsg::DelegateFluidDelegations { governator_addr, mbrn_amount } => delegate_fluid_delegations(
             deps,
@@ -593,6 +594,7 @@ fn update_delegations(
     fluid: Option<bool>,
     delegate: Option<bool>,
     mut commission: Option<Decimal>,
+    voting_power_delegation: Option<bool>,
 ) -> Result<Response, ContractError> {
     //Load config
     let config = CONFIG.load(deps.storage)?;
@@ -701,6 +703,7 @@ fn update_delegations(
                             delegate: info.sender.clone(),
                             amount: mbrn_amount,
                             fluidity: fluid.unwrap_or(false),
+                            voting_power_delegation: voting_power_delegation.unwrap_or(true),
                             time_of_delegation: env.block.time.seconds(),
                         });
                     }
@@ -717,6 +720,7 @@ fn update_delegations(
                             delegate: valid_gov_addr.clone(),
                             amount: mbrn_amount,
                             fluidity: fluid.unwrap_or(false),
+                            voting_power_delegation: voting_power_delegation.unwrap_or(true),
                             time_of_delegation: env.block.time.seconds(),
                         });
                     }
@@ -783,18 +787,22 @@ fn update_delegations(
             }
         }
 
-        //Update fluidity for both staker & delegate info if fluidity is Some
-        if let Some(fluid) = fluid {
+        //Update fluidity for both staker & delegate info if fluidity or vp delegation is Some
+        if fluid.is_some() || voting_power_delegation.is_some(){
             //Staker's delegations
             if let Ok(mut user_delegation_info) = DELEGATIONS.load(deps.storage, info.sender.clone()){
                 user_delegation_info.delegated_to = user_delegation_info.delegated_to.clone()
                     .into_iter()
-                    .map(|delegation| {
+                    .map(|mut delegation| {
                         if delegation.delegate == valid_gov_addr.clone() {
-                            Delegation {
-                                fluidity: fluid,
-                                ..delegation
+                            if let Some(fluid) = fluid {
+                                delegation.fluidity = fluid;
                             }
+                            if let Some(vp_delegation) = voting_power_delegation {
+                                delegation.voting_power_delegation = vp_delegation;
+                            }                            
+
+                            delegation
                         } else {
                             delegation
                         }
@@ -807,12 +815,16 @@ fn update_delegations(
             if let Ok(mut delegates_delegations) = DELEGATIONS.load(deps.storage, valid_gov_addr.clone()){
                 delegates_delegations.delegated = delegates_delegations.delegated.clone()
                     .into_iter()
-                    .map(|delegation| {
-                        if delegation.delegate == info.sender.clone() {
-                            Delegation {
-                                fluidity: fluid,
-                                ..delegation
+                    .map(|mut delegation| {
+                        if delegation.delegate == info.clone().sender {
+                            if let Some(fluid) = fluid {
+                                delegation.fluidity = fluid;
                             }
+                            if let Some(vp_delegation) = voting_power_delegation {
+                                delegation.voting_power_delegation = vp_delegation;
+                            }
+
+                            delegation
                         } else {
                             delegation
                         }
@@ -943,6 +955,7 @@ fn delegate_fluid_delegations(
                     delegate: delegation.delegate.clone(),
                     amount: delegation_amount,
                     fluidity: true,
+                    voting_power_delegation: delegation.voting_power_delegation,
                     time_of_delegation: env.block.time.seconds(),
                 });
             }
@@ -959,6 +972,7 @@ fn delegate_fluid_delegations(
                     delegate: valid_gov_addr.clone(),
                     amount: delegation_amount,
                     fluidity: true,
+                    voting_power_delegation: delegation.voting_power_delegation,
                     time_of_delegation: env.block.time.seconds(),
                 });
             }

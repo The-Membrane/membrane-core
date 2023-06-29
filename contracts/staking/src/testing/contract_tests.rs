@@ -49,6 +49,7 @@ fn update_config(){
         vesting_contract: Some(String::from("new_bv")), 
         incentive_schedule: Some(StakeDistribution { rate: Decimal::one(), duration: 0 }),
         fee_wait_period: Some(1),  
+        max_commission_rate: Some(Decimal::percent(11)),
     };
 
     execute(
@@ -81,7 +82,8 @@ fn update_config(){
             mbrn_denom: String::from("new_denom"), 
             vesting_contract: Some( Addr::unchecked("new_bv")),             
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
-            fee_wait_period: 1, 
+            fee_wait_period: 1,
+            max_commission_rate: Decimal::percent(11),
             
         },
     );
@@ -97,6 +99,7 @@ fn update_config(){
         vesting_contract: None,
         incentive_schedule: None,
         fee_wait_period: Some(0),
+        max_commission_rate: None,
     };
 
     execute(
@@ -119,6 +122,7 @@ fn update_config(){
         vesting_contract: None,
         incentive_schedule: None,
         fee_wait_period: None,
+        max_commission_rate: None,
     };
 
     execute(
@@ -152,7 +156,7 @@ fn update_config(){
             vesting_contract: Some( Addr::unchecked("new_bv")),             
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
             fee_wait_period: 0, 
-            
+            max_commission_rate: Decimal::percent(11),  
         },
     );
 }
@@ -310,6 +314,7 @@ fn delegate() {
         mbrn_amount: None, 
         delegate: Some(true), 
         fluid: None, 
+        voting_power_delegation: None,
         commission: None,
     };
     let info = mock_info("sender88", &[]);
@@ -325,6 +330,7 @@ fn delegate() {
         mbrn_amount: None,
         delegate: Some(true), 
         fluid: None, 
+        voting_power_delegation: None,
         commission: None,
     };
     let info = mock_info("sender88", &[]);
@@ -349,7 +355,8 @@ fn delegate() {
                     delegate: Addr::unchecked("governator_addr"),
                     amount: Uint128::new(10u128),
                     fluidity: false,
-                   time_of_delegation: mock_env().block.time.seconds(),
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             commission: Decimal::zero(),
@@ -363,7 +370,8 @@ fn delegate() {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(10u128),
                     fluidity: false,
-                   time_of_delegation: mock_env().block.time.seconds(),
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             delegated_to: vec![],
@@ -377,6 +385,7 @@ fn delegate() {
         mbrn_amount: None,
         delegate: Some(true), 
         fluid: None, 
+        voting_power_delegation: None,
         commission: None,
     };
     let info = mock_info("placeholder99", &[]);
@@ -388,6 +397,7 @@ fn delegate() {
         mbrn_amount: None,
         delegate: Some(false), 
         fluid: Some(true),
+        voting_power_delegation: None,
         commission: None,
     };
     let info = mock_info("placeholder99", &[]);
@@ -400,18 +410,20 @@ fn delegate() {
         mbrn_amount: Some(Uint128::new(6)), 
         delegate: Some(false), 
         fluid: Some(true),
+        voting_power_delegation: None,
         commission: Some(Decimal::one()),
     };
     let info = mock_info("sender88", &[]);
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(err.to_string(), String::from("membrane::types::DelegationInfo not found"));
 
-    //Undelegate partially, change commission & fluidity
+    //Undelegate partially, change commission, vp delegations & fluidity
     let msg = ExecuteMsg::UpdateDelegations { 
         governator_addr: Some(String::from("governator_addr")), 
         mbrn_amount: Some(Uint128::new(6)), 
         delegate: Some(false), 
         fluid: Some(true),
+        voting_power_delegation: Some(false),
         commission: Some(Decimal::one()),
     };
     let info = mock_info("sender88", &[]);
@@ -436,10 +448,11 @@ fn delegate() {
                     delegate: Addr::unchecked("governator_addr"),
                     amount: Uint128::new(4u128),
                     fluidity: true,
-                   time_of_delegation: mock_env().block.time.seconds(),
+                    voting_power_delegation: false,
+                    time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
-            commission: Decimal::one(),
+            commission: Decimal::percent(10),
         }        
     );
     assert_eq!(
@@ -450,7 +463,8 @@ fn delegate() {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(4u128),
                     fluidity: true,
-                   time_of_delegation: mock_env().block.time.seconds(),
+                    voting_power_delegation: false,
+                    time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             delegated_to: vec![],
@@ -464,6 +478,7 @@ fn delegate() {
         mbrn_amount: None, //this will be more than 4 but it should work anyway
         delegate: Some(false), 
         fluid: None, 
+        voting_power_delegation: None,
         commission: None,
     };
     let info = mock_info("sender88", &[]);
@@ -515,6 +530,7 @@ fn commissions() {
         mbrn_amount: Some(Uint128::new(500000)),
         delegate: Some(true), 
         fluid: None, 
+        voting_power_delegation: None,
         commission: None,
     };
     let info = mock_info("sender88", &[]);
@@ -526,6 +542,7 @@ fn commissions() {
         mbrn_amount: None,
         delegate: None,
         fluid: None, 
+        voting_power_delegation: None, 
         commission: Some(Decimal::percent(10)),
     };
     let info = mock_info("governator_addr", &[]);
@@ -586,7 +603,8 @@ fn fluid_delegations() {
         governator_addr: Some(String::from("governator_addr")), 
         mbrn_amount: None,
         delegate: Some(true), 
-        fluid: Some(true), 
+        fluid: Some(true),
+        voting_power_delegation: None,
         commission: None,
     };
     let info = mock_info("sender88", &[]);
@@ -618,7 +636,8 @@ fn fluid_delegations() {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(4u128),
                     fluidity: true,
-                   time_of_delegation: mock_env().block.time.seconds(),
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             delegated_to: vec![],
@@ -634,13 +653,15 @@ fn fluid_delegations() {
                     delegate: Addr::unchecked("governator_addr"),
                     amount: Uint128::new(6u128),
                     fluidity: true,
-                   time_of_delegation: mock_env().block.time.seconds(),
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
                 },
                 Delegation {
                     delegate: Addr::unchecked("governator_too_addr"),
                     amount: Uint128::new(4u128),
                     fluidity: true,
-                   time_of_delegation: mock_env().block.time.seconds(),
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             commission: Decimal::zero(),
@@ -654,7 +675,8 @@ fn fluid_delegations() {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(6u128),
                     fluidity: true,
-                   time_of_delegation: mock_env().block.time.seconds(),
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             delegated_to: vec![],
@@ -668,6 +690,7 @@ fn fluid_delegations() {
         mbrn_amount: None,
         delegate: None,
         fluid: Some(false), 
+        voting_power_delegation: None,
         commission: None,
     };
     let info = mock_info("sender88", &[]);
@@ -691,7 +714,8 @@ fn fluid_delegations() {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(4u128),
                     fluidity: true,
-                   time_of_delegation: mock_env().block.time.seconds(),
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             delegated_to: vec![],
@@ -707,12 +731,14 @@ fn fluid_delegations() {
                     delegate: Addr::unchecked("governator_addr"),
                     amount: Uint128::new(6u128),
                     fluidity: false,
-                   time_of_delegation: mock_env().block.time.seconds(),
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
                 },
                 Delegation {
                     delegate: Addr::unchecked("governator_too_addr"),
                     amount: Uint128::new(4u128),
                     fluidity: true,
+                    voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
@@ -727,6 +753,7 @@ fn fluid_delegations() {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(6u128),
                     fluidity: false,
+                    voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
@@ -741,6 +768,7 @@ fn fluid_delegations() {
         mbrn_amount: None,
         delegate: None,
         fluid: Some(false), 
+        voting_power_delegation: None,
         commission: None,
     };
     let info = mock_info("sender88", &[]);
@@ -762,6 +790,7 @@ fn fluid_delegations() {
         mbrn_amount: Some(Uint128::new(4)),
         delegate: Some(false), 
         fluid: None, 
+        voting_power_delegation: None, 
         commission: None,
     };
     let info = mock_info("sender88", &[]);
@@ -808,6 +837,7 @@ fn unstake() {
         mbrn_amount: None,
         delegate: Some(true), 
         fluid: None, 
+        voting_power_delegation: None, 
         commission: None,
     };
     let info = mock_info("sender88", &[]);
@@ -987,7 +1017,8 @@ fn unstake() {
                     delegate: Addr::unchecked("unstaking_barrier"),
                     amount: Uint128::new(5024669u128),
                     fluidity: false,
-                   time_of_delegation: mock_env().block.time.seconds(),
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
                 }
             ],
             commission: Decimal::zero(),
@@ -1001,7 +1032,8 @@ fn unstake() {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(5024669u128),
                     fluidity: false,
-                   time_of_delegation: 1572575020,
+                    voting_power_delegation: true,
+                    time_of_delegation: 1572575020,
                 }
             ],
             delegated_to: vec![],

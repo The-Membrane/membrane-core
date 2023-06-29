@@ -350,6 +350,7 @@ mod tests {
                 mbrn_amount: Some(Uint128::new(500000)),
                 delegate: Some(true), 
                 fluid: None, 
+                voting_power_delegation: None,
                 commission: None,
             };
             let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
@@ -361,6 +362,7 @@ mod tests {
                 mbrn_amount: None,
                 delegate: None,
                 fluid: None, 
+                voting_power_delegation: None,
                 commission: Some(Decimal::percent(10)),
             };
             let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
@@ -432,6 +434,7 @@ mod tests {
                 mbrn_amount: Some(Uint128::new(500000)),
                 delegate: Some(false), 
                 fluid: None, 
+                voting_power_delegation: None,
                 commission: None,
             };
             let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();

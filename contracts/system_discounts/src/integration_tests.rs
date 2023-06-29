@@ -180,6 +180,7 @@ mod tests {
                             mbrn_denom: String::from("mbrn_denom"),
                             incentive_schedule: StakeDistribution { rate: Decimal::zero(), duration: 0 },
                             fee_wait_period: 0,
+                            max_commission_rate: Decimal::zero(),
                             unstaking_period: 0,
                             positions_contract: None,
                             auction_contract: None,

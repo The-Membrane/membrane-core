@@ -235,6 +235,8 @@ pub struct Delegation {
     /// Fluidity toggle
     /// true: delegation can be redelegated by the delegate
     pub fluidity: bool,
+    /// Delegate voting power as well as commission
+    pub voting_power_delegation: bool,
     /// Time of delegation in seconds
     pub time_of_delegation: u64,
 }

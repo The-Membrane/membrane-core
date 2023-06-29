@@ -142,13 +142,22 @@ mod tests {
                                 Delegation { 
                                     delegate: Addr::unchecked(USER), 
                                     amount: Uint128::new(110000000),
-                                    fluidity: false, 
+                                    fluidity: false,
+                                    voting_power_delegation: true,
                                     time_of_delegation: 0,
-                                },                                
+                                },
+                                Delegation { 
+                                    delegate: Addr::unchecked(USER), 
+                                    amount: Uint128::new(110000000),
+                                    fluidity: false,
+                                    voting_power_delegation: false,
+                                    time_of_delegation: 0,
+                                },                          
                                 Delegation { 
                                     delegate: Addr::unchecked(USER), 
                                     amount: Uint128::new(100000000464),
                                     fluidity: false, 
+                                    voting_power_delegation: true,
                                     time_of_delegation: 999999999999,
                                 }
                             ],
@@ -157,12 +166,14 @@ mod tests {
                                     delegate: Addr::unchecked(USER), 
                                     amount: Uint128::new(100000000),
                                     fluidity: false, 
+                                    voting_power_delegation: true,
                                     time_of_delegation: 0,
                                 },                                
                                 Delegation { 
                                     delegate: Addr::unchecked(USER), 
                                     amount: Uint128::new(100000000000),
                                     fluidity: false, 
+                                    voting_power_delegation: true,
                                     time_of_delegation: 999999999999,
                                 }
                             ],
@@ -183,6 +194,7 @@ mod tests {
                         unstaking_period: 0,
                         fee_wait_period: 0,
                         mbrn_denom: String::from("mbrn_denom"),
+                        max_commission_rate: Decimal::zero(),
                     })?),
                     Staking_MockQueryMsg::TotalStaked {  } => Ok(to_binary(&TotalStakedResponse {
                         total_not_including_vested: Uint128::new(5_000_000_000_001u128),

@@ -89,6 +89,8 @@ pub enum ExecuteMsg {
         fluid: Option<bool>,
         /// Update commission rate
         commission: Option<Decimal>,
+        /// Toggle voting power delegation
+        voting_power_delegation: Option<bool>,
     },
     /// Delegate delegated MBRN
     /// i.e. MBRN that is fluid delegated to a governator

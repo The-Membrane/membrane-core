@@ -45,7 +45,7 @@ pub fn instantiate(
             positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
             osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             accepted_LPs: vec![],
-            deposits_enabled: false,
+            deposits_enabled: true,
         };
     } else {
         config = Config {
@@ -53,7 +53,7 @@ pub fn instantiate(
             positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
             osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
             accepted_LPs: vec![],
-            deposits_enabled: false,
+            deposits_enabled: true,
         };
     }
     let mut err: Option<StdError> = None;

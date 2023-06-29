@@ -783,14 +783,14 @@ pub fn calc_voting_power(
             //Get total delegated to user from proposal start time
             let total_delegated_to_user: Uint128 = delegation_info.delegation_info.clone().delegated
                 .into_iter()
-                .filter(|delegation| delegation.time_of_delegation <= start_time)
+                .filter(|delegation| delegation.time_of_delegation <= start_time && delegation.voting_power_delegation)
                 .map(|dele| dele.amount)
                 .sum();
 
             //Get total delegated away from user from proposal start time
             let total_delegated_from_user: Uint128 = delegation_info.delegation_info.clone().delegated_to
                 .into_iter()
-                .filter(|delegation| delegation.time_of_delegation <= start_time)
+                .filter(|delegation| delegation.time_of_delegation <= start_time && delegation.voting_power_delegation)
                 .map(|dele| dele.amount)
                 .sum();
             //Add delegated to user and subtract delegated from user

@@ -18,7 +18,7 @@ use osmosis_std::types::osmosis::gamm::v1beta1::PoolAsset;
 
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, ADDRESSES, LaunchAddrs, OSMO_POOL_ID, LOCKDROP, INCENTIVE_RATIOS};
+use crate::state::{CONFIG, ADDRESSES, LaunchAddrs, OSMO_POOL_ID, LOCKDROP, INCENTIVE_RATIOS, LOCKED_USERS};
 use crate::reply::{handle_auction_reply, handle_cdp_reply, handle_create_denom_reply, handle_gov_reply, handle_lc_reply, handle_lq_reply, handle_op_reply, handle_oracle_reply, handle_sp_reply, handle_staking_reply, handle_vesting_reply, handle_discount_vault_reply, handle_system_discounts_reply, handle_balancer_reply};
 
 // Contract name and version used for migration.
@@ -53,7 +53,7 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
 
     //Need 20 OSMO for CreateDenom Msgs
-    if deps.querier.query_balance(env.clone().contract.address, "uosmo")?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
+    // if deps.querier.query_balance(env.clone().contract.address, "uosmo")?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
@@ -110,7 +110,6 @@ pub fn instantiate(
 
     //Instantiate Lockdrop 
     let lockdrop = Lockdrop {
-        locked_users: vec![],
         num_of_incentives: Uint128::new(10_000_000_000_000),
         locked_asset: AssetInfo::NativeToken { denom: String::from("uosmo") },
         lock_up_ceiling: 90,
@@ -156,7 +155,7 @@ fn lock(
     info: MessageInfo,
     lock_up_duration: u64,
 ) -> Result<Response, ContractError>{
-    let mut lockdrop = LOCKDROP.load(deps.storage)?;
+    let lockdrop = LOCKDROP.load(deps.storage)?;
 
     //Assert Lockdrop is in deposit period
     if env.block.time.seconds() > lockdrop.deposit_end { return Err(ContractError::DepositsOver {  }) }
@@ -166,22 +165,28 @@ fn lock(
     let valid_asset = validate_lockdrop_asset(info.clone(), lockdrop.clone().locked_asset)?;
 
     //Find & add to User
-    if let Some((i, _lock_slot)) = lockdrop.clone().locked_users
-        .into_iter()
-        .enumerate()
-        .find(|(_i, user)| user.user == info.clone().sender.to_string()){
-        
-        lockdrop.locked_users[i].deposits.push(
-            Lock { 
-                deposit: valid_asset.amount, 
-                lock_up_duration: lock_up_duration.clone(),
-            }
-        );
+    if let Ok(mut locked_user) = LOCKED_USERS.load(deps.storage, info.clone().sender){
+
+        //Check if user has already locked up for this duration && if so, add to it
+        if let Some((i, _)) = locked_user.deposits.clone().into_iter().enumerate().find(|(_, lock)| lock.lock_up_duration == lock_up_duration) {
+            //Add to existing
+            locked_user.deposits[i].deposit += valid_asset.amount;
+            
+        } else {
+            //Add a new lock
+            locked_user.deposits.push(
+                Lock { 
+                    deposit: valid_asset.amount, 
+                    lock_up_duration: lock_up_duration.clone(),
+                }
+            );
+        } 
+        LOCKED_USERS.save(deps.storage, info.clone().sender, &locked_user)?; 
 
     } else {
         //Add a User
         let user = LockedUser { 
-            user: info.clone().sender.to_string(), 
+            user: info.clone().sender, 
             deposits: vec![Lock { 
                 deposit: valid_asset.amount, 
                 lock_up_duration: lock_up_duration.clone(),
@@ -190,12 +195,9 @@ fn lock(
             incentives_withdrawn: Uint128::zero(),
         };
             
-        lockdrop.locked_users.push(user);
+        LOCKED_USERS.save(deps.storage, info.clone().sender, &user)?;
 
     } 
-
-    //Save Lockdrop
-    LOCKDROP.save(deps.storage, &lockdrop)?;
 
     Ok(Response::new()
         .add_attributes(vec![
@@ -214,7 +216,7 @@ fn withdraw(
     mut withdrawal_amount: Uint128,
     lock_up_duration: u64,
 ) -> Result<Response, ContractError>{
-    let mut lockdrop = LOCKDROP.load(deps.storage)?;
+    let lockdrop = LOCKDROP.load(deps.storage)?;
 
     //Assert Lockdrop is in withdraw period
     if env.block.time.seconds() < lockdrop.deposit_end || env.block.time.seconds() > lockdrop.withdrawal_end { return Err(ContractError::WithdrawalsOver {  }) }
@@ -222,47 +224,44 @@ fn withdraw(
     let initial_withdraw_amount = withdrawal_amount;
 
     //Find & remove from LockedUser
-    if let Some((i, _lock_slot)) = lockdrop.clone().locked_users
-        .into_iter()
-        .enumerate()
-        .find(|(_i, user)| user.user == info.clone().sender.to_string()){
+    if let Ok(mut locked_user) = LOCKED_USERS.load(deps.storage, info.clone().sender){
+
+        locked_user.deposits = locked_user.clone().deposits
+            .into_iter()
+            .map(|mut deposit| {
+                if deposit.lock_up_duration == lock_up_duration {
+
+                    if deposit.deposit >= withdrawal_amount {
+                        deposit.deposit -= withdrawal_amount;
+                        withdrawal_amount = Uint128::zero();
+
+                        deposit
+                    } else {
+                        withdrawal_amount -= deposit.deposit;
+                        deposit.deposit = Uint128::zero();
+
+                        deposit
+                    }
+
+                } else { deposit }                 
+                
+                
+            })
+            .collect::<Vec<Lock>>()
+            .into_iter()
+            .filter(|deposit| deposit.deposit != Uint128::zero())
+            .collect::<Vec<Lock>>();
+
+        if !withdrawal_amount.is_zero() {
+            return Err(ContractError::CustomError { val: format!("This user only owns {} of the locked asset in this lockup duration: {}, retry withdrawal at or below that amount", initial_withdraw_amount - withdrawal_amount, lock_up_duration) })
+        }
         
-            lockdrop.locked_users[i].deposits = lockdrop.clone().locked_users[i].clone().deposits
-                .into_iter()
-                .map(|mut deposit| {
-                    if deposit.lock_up_duration == lock_up_duration {
-
-                        if deposit.deposit >= withdrawal_amount {
-                            deposit.deposit -= withdrawal_amount;
-                            withdrawal_amount = Uint128::zero();
-    
-                            deposit
-                        } else {
-                            withdrawal_amount -= deposit.deposit;
-                            deposit.deposit = Uint128::zero();
-    
-                            deposit
-                        }
-
-                    } else { deposit }                 
-                    
-                    
-                })
-                .collect::<Vec<Lock>>()
-                .into_iter()
-                .filter(|deposit| deposit.deposit != Uint128::zero())
-                .collect::<Vec<Lock>>();
-
-            if !withdrawal_amount.is_zero() {
-                return Err(ContractError::CustomError { val: format!("This user only owns {} of the locked asset in this lockup duration: {}, retry withdrawal at or below that amount", initial_withdraw_amount - withdrawal_amount, lock_up_duration) })
-            }
+        //Save LockedUser
+        LOCKED_USERS.save(deps.storage, info.clone().sender, &locked_user)?;
 
     } else {
         return Err(ContractError::NotAUser {})
     }
-
-    //Save Lockdrop
-    LOCKDROP.save(deps.storage, &lockdrop)?;
 
     //Create Withdraw Msg
     let msg = withdrawal_msg(
@@ -287,7 +286,7 @@ fn claim (
     env: Env,
     info: MessageInfo,
 ) -> Result<Response, ContractError>{
-    let mut lockdrop = LOCKDROP.load(deps.storage)?;
+    let lockdrop = LOCKDROP.load(deps.storage)?;
 
     //Assert lockdrop has ended
     if env.block.time.seconds() <= lockdrop.withdrawal_end {
@@ -301,7 +300,7 @@ fn claim (
     let mut user_ratios = INCENTIVE_RATIOS.load(deps.storage)?;
     
     if user_ratios.is_empty(){
-        user_ratios = calc_ticket_distribution(&mut lockdrop)?;
+        user_ratios = calc_ticket_distribution(deps.storage)?;
         
         //Save user incentive ratios
         INCENTIVE_RATIOS.save(deps.storage, &user_ratios)?;
@@ -317,10 +316,10 @@ fn claim (
     let mut withdrawable_tickets = Uint128::zero();
     let amount_to_mint: Uint128;
     //Find withdrawable tickets
-    if let Some((i, user)) = lockdrop.clone().locked_users.into_iter().enumerate().find(|(_i, user)| user.user == info.clone().sender){
+    if let Ok(mut locked_user) = LOCKED_USERS.load(deps.storage, info.clone().sender){
         let time_since_lockdrop_end = env.block.time.seconds() - lockdrop.withdrawal_end;       
 
-        for (_i, deposit) in user.clone().deposits.into_iter().enumerate() {
+        for (_i, deposit) in locked_user.clone().deposits.into_iter().enumerate() {
             //Unlock deposit rewards that have passed their lock duration
             if time_since_lockdrop_end > deposit.lock_up_duration * SECONDS_PER_DAY {
                 withdrawable_tickets += deposit.deposit * Uint128::from((deposit.lock_up_duration + 1) as u128);
@@ -330,20 +329,21 @@ fn claim (
         //Calc ratio of incentives to unlock
         let ratio_of_unlock = decimal_division(
             Decimal::from_ratio(withdrawable_tickets, Uint128::one()), 
-            Decimal::from_ratio(user.total_tickets, Uint128::one()))?;
+            Decimal::from_ratio(locked_user.total_tickets, Uint128::one()))?;
 
         let unlocked_incentives = ratio_of_unlock * incentives;
 
         //Calc amount available to mint
-        amount_to_mint = unlocked_incentives - user.incentives_withdrawn;
+        amount_to_mint = unlocked_incentives - locked_user.incentives_withdrawn;
         //Update incentives withdraw
-        lockdrop.locked_users[i].incentives_withdrawn += amount_to_mint;
+        locked_user.incentives_withdrawn += amount_to_mint;
+        
+        //Save updated incentive tally
+        LOCKED_USERS.save(deps.storage, info.clone().sender, &locked_user)?;
 
     } else {
         return Err(ContractError::NotAUser {})
     }    
-    //Save updated incentive tally
-    LOCKDROP.save(deps.storage, &lockdrop)?;
 
     let attrs = vec![
         attr("method", "claim"),
@@ -404,27 +404,42 @@ fn get_user_incentives(
 
 /// Calculate the ratio of incentives each user is entitled to
 fn calc_ticket_distribution(
-    lockdrop: &mut Lockdrop,
+    storage: &mut dyn Storage,
 ) -> StdResult<Vec<UserRatio>>{
     let mut error: Option<StdError> = None;
 
-    let user_totals = lockdrop.clone().locked_users
+    let user_totals = LOCKED_USERS
+        .range(storage, None, None, cosmwasm_std::Order::Ascending)
         .into_iter()
-        .map(|user| {
-            let total_tickets: Uint128 = user.deposits
+        .map(|item| {
+            let (_, locked_user) = match item {
+                Ok(locked_user) => locked_user,
+                Err(err) => {
+                    error = Some(err);
+                    return (Addr::unchecked(""), Uint128::zero());
+                }
+            };
+
+            let total_tickets: Uint128 = locked_user.deposits
                 .into_iter()
                 .map(|deposit| deposit.deposit * Uint128::from(deposit.lock_up_duration + 1) )
                 .collect::<Vec<Uint128>>()
                 .into_iter()
                 .sum();
 
-            (user.user, total_tickets)
+            (locked_user.user, total_tickets)
         })
-        .collect::<Vec<(String, Uint128)>>();
+        .collect::<Vec<(Addr, Uint128)>>();
 
     //Set each user's total_tickets
-    for (i, total) in user_totals.clone().into_iter().enumerate(){
-        lockdrop.locked_users[i].total_tickets = total.1;
+    for (addr, total) in user_totals.clone().into_iter(){
+        LOCKED_USERS.update(storage, addr, |locked_user| -> StdResult<LockedUser>{
+            let mut new_locked_user: LockedUser = locked_user.unwrap();
+            
+            new_locked_user.total_tickets = total;
+            
+            Ok(new_locked_user)
+        })?;
     }
 
     let total_tickets: Uint128 = user_totals.clone()
@@ -445,9 +460,13 @@ fn calc_ticket_distribution(
                 Decimal::zero()
             });
 
-            UserRatio { user: Addr::unchecked(user.0), ratio }
+            UserRatio { user: user.0, ratio }
         })
         .collect::<Vec<UserRatio>>();
+
+    if let Some(e) = error {
+        return Err(e)
+    }
 
     Ok(user_ratios)
 }
@@ -461,6 +480,11 @@ fn validate_lockdrop_asset(info: MessageInfo, lockdrop_asset: AssetInfo) -> StdR
     if let Some(lockdrop_asset) = info.clone().funds
         .into_iter()
         .find(|coin| coin.denom == lockdrop_asset.to_string()){
+
+            // Assert Minimum OSMO amount: 1 OSMO
+            if lockdrop_asset.amount < Uint128::from(1_000_000u128) {
+                return Err(StdError::GenericErr { msg: format!("Minimum deposit is 1_000_000 uosmo") })
+            }
 
         Ok(Asset { 
             info: AssetInfo::NativeToken { denom: lockdrop_asset.denom }, 
@@ -510,6 +534,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::ContractAddresses {} => to_binary(&ADDRESSES.load(deps.storage)?),
         QueryMsg::IncentiveDistribution {} => to_binary(&INCENTIVE_RATIOS.load(deps.storage)?),
         QueryMsg::UserIncentives { user } => to_binary(&calc_user_incentives(deps.storage, user)?),
+        QueryMsg::UserInfo { user } => to_binary(&LOCKED_USERS.load(deps.storage, deps.api.addr_validate(&user)?)?),
     }
 }
 
@@ -519,10 +544,10 @@ fn calc_user_incentives(
     user: String,
 ) -> StdResult<Uint128>{
     let mut user_ratios = INCENTIVE_RATIOS.load(storage)?;
-    let mut lockdrop = LOCKDROP.load(storage)?;
+    let lockdrop = LOCKDROP.load(storage)?;
 
     if user_ratios.is_empty(){
-        user_ratios = calc_ticket_distribution(&mut lockdrop)?;
+        user_ratios = calc_ticket_distribution_imut(storage)?;
     }
     
     //Calc any unlocked incentives
@@ -533,6 +558,65 @@ fn calc_user_incentives(
     )?;
 
     Ok(incentives)
+}
+
+
+/// Calculate the ratio of incentives each user is entitled to
+fn calc_ticket_distribution_imut(
+    storage: &dyn Storage,
+) -> StdResult<Vec<UserRatio>>{
+    let mut error: Option<StdError> = None;
+
+    let user_totals = LOCKED_USERS
+        .range(storage, None, None, cosmwasm_std::Order::Ascending)
+        .into_iter()
+        .map(|item| {
+            let (_, locked_user) = match item {
+                Ok(locked_user) => locked_user,
+                Err(err) => {
+                    error = Some(err);
+                    return (Addr::unchecked(""), Uint128::zero());
+                }
+            };
+
+            let total_tickets: Uint128 = locked_user.deposits
+                .into_iter()
+                .map(|deposit| deposit.deposit * Uint128::from(deposit.lock_up_duration + 1) )
+                .collect::<Vec<Uint128>>()
+                .into_iter()
+                .sum();
+
+            (locked_user.user, total_tickets)
+        })
+        .collect::<Vec<(Addr, Uint128)>>();
+
+    let total_tickets: Uint128 = user_totals.clone()
+        .into_iter()
+        .map(|user| user.1)
+        .collect::<Vec<Uint128>>()
+        .into_iter()
+        .sum();
+
+    let user_ratios: Vec<UserRatio> = user_totals.clone()
+        .into_iter()
+        .map(|user| {
+            let ratio = decimal_division(
+                Decimal::from_ratio(user.1, Uint128::one()),
+                Decimal::from_ratio(total_tickets, Uint128::one()),
+            ).unwrap_or_else(|e| {
+                error = Some(e);
+                Decimal::zero()
+            });
+
+            UserRatio { user: user.0, ratio }
+        })
+        .collect::<Vec<UserRatio>>();
+
+    if let Some(e) = error {
+        return Err(e)
+    }
+
+    Ok(user_ratios)
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

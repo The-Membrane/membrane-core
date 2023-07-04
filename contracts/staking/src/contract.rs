@@ -1415,7 +1415,7 @@ pub fn can_this_addr_unstake(
         }
     }
 
-    //Can't unstake if the user has voted for a proposal that is Active has passed but not yet executed
+    //Can't unstake if the user has voted for a proposal that is Active or has passed but not yet executed
     //Get list of proposals that have passed & have executables or are active
     for proposal in proposal_list.proposal_list {
         if (proposal.status == ProposalStatus::Passed && proposal.messages.is_some()) || proposal.status == ProposalStatus::Active{

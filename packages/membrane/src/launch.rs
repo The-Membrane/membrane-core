@@ -43,6 +43,13 @@ pub enum ExecuteMsg {
         /// Lock duration of MBRN rewards, in days
         lock_up_duration: u64, 
     },
+    /// Change lockup duration of a locked deposit
+    // ChangeLockDuration {
+    //     /// Index of Deposit in User's info
+    //     deposit_index: u64,
+    //     /// Lock duration of MBRN rewards, in days
+    //     lock_up_duration: u64,
+    // },
     /// Withdraw OSMO from a specified lockup duration
     Withdraw {
         /// OSMO amount to withdraw
@@ -73,6 +80,8 @@ pub enum QueryMsg {
     IncentiveDistribution {},
     /// Returns User incentive distribution
     UserIncentives { user: String },
+    /// Returns locked User info
+    UserInfo { user: String },
 }
 
 #[cw_serde]

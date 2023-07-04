@@ -646,8 +646,6 @@ pub struct Owner {
 #[cw_serde]
 #[serde(rename_all = "snake_case")]
 pub struct Lockdrop {
-    /// List of users who have signaled to lock their MBRN rewards
-    pub locked_users: Vec<LockedUser>,
     /// Total number of incentives to distribute
     pub num_of_incentives: Uint128,
     /// Asset needed to lock
@@ -666,7 +664,7 @@ pub struct Lockdrop {
 #[serde(rename_all = "snake_case")]
 pub struct LockedUser {
     /// User address
-    pub user: String,
+    pub user: Addr,
     /// List of deposits
     pub deposits: Vec<Lock>,
     /// Total number of tickets, i.e. share of incentives distributed

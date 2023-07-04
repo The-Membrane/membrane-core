@@ -169,7 +169,7 @@ pub fn submit_proposal(
         vesting,
         recipient.clone(),
         false, //No quadratic for proposal submissions
-    )?; 
+    )?;
     
     // Update the proposal count
     let count = PROPOSAL_COUNT.update(deps.storage, |c| -> StdResult<_> {

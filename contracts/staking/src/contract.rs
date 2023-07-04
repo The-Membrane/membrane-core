@@ -424,7 +424,6 @@ pub fn unstake(
     mbrn_withdraw_amount: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let fee_events = FEE_EVENTS.load(deps.storage)?;
 
     //Restrict unstaking
     // can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
@@ -462,7 +461,6 @@ pub fn unstake(
         env.clone(),
         info.clone().sender,
         withdraw_amount,
-        fee_events,
     )?;
 
     //Initialize variables
@@ -473,13 +471,13 @@ pub fn unstake(
     //Also update delegations
     if !withdrawable_amount.is_zero() {
         //Create Position accrual msgs to lock in user discounts before withdrawing
-        // let accrual_msg = accrue_user_positions(
-        //     deps.querier, 
-        //     config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-        //     info.sender.clone().to_string(), 
-        //     32,
-        // )?;
-        // msgs.push(accrual_msg);
+        let accrual_msg = accrue_user_positions(
+            deps.querier, 
+            config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+            info.sender.clone().to_string(), 
+            32,
+        )?;
+        msgs.push(accrual_msg);
 
         //Push to native claims list
         native_claims.push(asset_to_coin(Asset {
@@ -1447,28 +1445,17 @@ fn withdraw_from_state(
     env: Env,
     staker: Addr,
     mut withdrawal_amount: Uint128,
-    fee_events: Vec<FeeEvent>,
 ) -> StdResult<(Vec<Asset>, Uint128, Uint128)> {
     let config = CONFIG.load(storage)?;
-    let incentive_schedule = INCENTIVE_SCHEDULING.load(storage)?;
     let deposits = STAKED.load(storage, staker.clone())?;
 
     let mut new_deposit_total = Uint128::zero();
-    let mut accrued_interest = Uint128::zero();
     let mut withdrawable_amount = Uint128::zero();
-    
-    let mut claimables: Vec<Asset> = vec![];
-    let mut error: Option<StdError> = None;
-    let mut this_deposit_is_withdrawable = false;
 
+    let error: Option<StdError> = None;
+    let mut this_deposit_is_withdrawable = false;
     let mut returning_deposit: Option<StakeDeposit> = None;
 
-    //Calc total deposits past fee wait period
-    let total_rewarding_stake: Uint128 = deposits.clone()
-        .into_iter()
-        .filter(|deposit| deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds())
-        .map(|deposit| deposit.amount)
-        .sum();
 
     //Iterate through deposits
     let mut new_deposits: Vec<StakeDeposit> = deposits

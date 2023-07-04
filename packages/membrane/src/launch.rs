@@ -43,13 +43,15 @@ pub enum ExecuteMsg {
         /// Lock duration of MBRN rewards, in days
         lock_up_duration: u64, 
     },
-    /// Change lockup duration of a locked deposit
-    // ChangeLockDuration {
-    //     /// Index of Deposit in User's info
-    //     deposit_index: u64,
-    //     /// Lock duration of MBRN rewards, in days
-    //     lock_up_duration: u64,
-    // },
+    /// Change lockup duration of a subset of locked deposits.
+    ChangeLockDuration {
+        /// Amount of uosmo to change lock duration of
+        uosmo_amount: Option<Uint128>,
+        /// Lock duration of MBRN rewards, in days
+        old_lock_up_duration: u64,
+        /// Lock duration of MBRN rewards, in days
+        new_lock_up_duration: u64,
+    },
     /// Withdraw OSMO from a specified lockup duration
     Withdraw {
         /// OSMO amount to withdraw

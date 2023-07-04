@@ -190,6 +190,126 @@ fn lock() {
 }
 
 #[test]
+fn edit_lockup_duration() {
+    let mut deps = mock_dependencies();
+
+    let msg = InstantiateMsg {
+        pre_launch_contributors: String::from("labs"),
+        apollo_router: String::from("router"),
+        //Contract IDs
+        osmosis_proxy_id: 0,
+        oracle_id: 0,
+        staking_id: 0,
+        vesting_id: 0,
+        governance_id: 0,
+        positions_id: 0,
+        stability_pool_id: 0,
+        liq_queue_id: 0,
+        liquidity_check_id: 0,
+        mbrn_auction_id: 0,    
+        margin_proxy_id: 0,
+        system_discounts_id: 0,
+        discount_vault_id: 0,
+    };
+
+    //Instantiating contract
+    let info = mock_info("sender88", &[coin(20_000_000, "uosmo")]);
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+    
+    //Lock uosmo for 7 days
+    let msg = ExecuteMsg::Lock { lock_up_duration: 7u64 };
+    let info = mock_info("user1", &[coin(10_000_000, "uosmo")]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    assert_eq!(
+        res.attributes,
+        vec![
+            attr("method", "deposit"),
+            attr("user", "user1"),
+            attr("lock_up_duration", "7"),
+            attr("deposit", "10000000 uosmo"),
+        ]
+    ); 
+
+    //Split lock up duration to a 14 day
+    let msg = ExecuteMsg::ChangeLockDuration {
+        uosmo_amount: Some(Uint128::new(5_000_000)),
+        old_lock_up_duration: 7u64,
+        new_lock_up_duration: 14u64, 
+        };    
+    let info = mock_info("user1", &[]);
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query and Assert lock
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::UserInfo { user: String::from("user1") }).unwrap();
+    let resp: LockedUser = from_binary(&res).unwrap();
+
+    assert_eq!(resp, 
+        LockedUser { 
+            user: Addr::unchecked("user1"), 
+            deposits: vec![
+                Lock { 
+                    deposit: Uint128::new(5_000_000), 
+                    lock_up_duration: 7u64, 
+                },
+                Lock { 
+                    deposit: Uint128::new(5_000_000), 
+                    lock_up_duration: 14u64, 
+                }],
+            total_tickets: Uint128::zero(),
+            incentives_withdrawn: Uint128::zero(),
+        }
+    );
+
+    //Change lock up duration to a 30 day
+    let msg = ExecuteMsg::ChangeLockDuration {
+        uosmo_amount: Some(Uint128::new(5_000_001)), //over allo is set to the minimum
+        old_lock_up_duration: 7u64,
+        new_lock_up_duration: 30u64, 
+        };    
+    let info = mock_info("user1", &[]);
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query and Assert lock
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::UserInfo { user: String::from("user1") }).unwrap();
+    let resp: LockedUser = from_binary(&res).unwrap();
+
+    assert_eq!(resp, 
+        LockedUser { 
+            user: Addr::unchecked("user1"), 
+            deposits: vec![
+                Lock { 
+                    deposit: Uint128::new(5_000_000), 
+                    lock_up_duration: 14u64, 
+                },
+                Lock { 
+                    deposit: Uint128::new(5_000_000), 
+                    lock_up_duration: 30u64, 
+                }],
+            total_tickets: Uint128::zero(),
+            incentives_withdrawn: Uint128::zero(),
+        }
+    );
+    
+    //Change attempt after deposit period
+    let msg = ExecuteMsg::ChangeLockDuration {
+        uosmo_amount: Some(Uint128::new(5_000_000)),
+        old_lock_up_duration: 7u64,
+        new_lock_up_duration: 14u64, 
+        };    
+    let info = mock_info("user1", &[coin(10_000_000, "uosmo")]);
+    
+    let mut env = mock_env();
+    env.block.time = env.block.time.plus_seconds(5 * SECONDS_PER_DAY + 1); // 5 days + 1
+    let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Deposit period over".to_string()
+    ); 
+
+}
+
+
+#[test]
 fn withdraw() {
     let mut deps = mock_dependencies();
 

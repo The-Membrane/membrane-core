@@ -1,3 +1,5 @@
+use std::cmp::min;
+
 use cosmwasm_std::{
     entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, WasmMsg,
     Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, Addr, coin, attr, Storage, Empty,
@@ -141,6 +143,7 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::Lock { lock_up_duration } => lock(deps, env, info, lock_up_duration),
+        ExecuteMsg::ChangeLockDuration { uosmo_amount, old_lock_up_duration, new_lock_up_duration } => change_lockup_duration(deps, env, info, uosmo_amount, old_lock_up_duration, new_lock_up_duration),
         ExecuteMsg::Withdraw { withdrawal_amount, lock_up_duration } => withdraw(deps, env, info, withdrawal_amount, lock_up_duration),
         ExecuteMsg::Claim { } => claim(deps, env, info),
         ExecuteMsg::Launch{ } => end_of_launch(deps, env),
@@ -206,6 +209,82 @@ fn lock(
             attr("lock_up_duration", lock_up_duration.to_string()),
             attr("deposit", valid_asset.to_string()),
         ]))
+}
+
+/// Edit lockup duration of a locked deposit
+fn change_lockup_duration(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    uosmo_amount: Option<Uint128>,
+    old_lock_up_duration: u64,
+    new_lock_up_duration: u64,
+) -> Result<Response, ContractError>{    
+    let lockdrop = LOCKDROP.load(deps.storage)?;
+    let attributes;
+
+    //Assert Lockdrop is in deposit period
+    if env.block.time.seconds() > lockdrop.deposit_end { return Err(ContractError::DepositsOver {  }) }
+    //Validate lockup duration
+    if new_lock_up_duration > lockdrop.lock_up_ceiling {  return Err(ContractError::CustomError { val: String::from("Can't lock that long")}) }
+    
+    //Find lockup duration in user's deposits
+    if let Ok(mut locked_user) = LOCKED_USERS.load(deps.storage, info.clone().sender){
+
+        //Check if user has already locked up for this duration && if so, add to it
+        if let Some((i, _)) = locked_user.deposits.clone().into_iter().enumerate().find(|(_, lock)| lock.lock_up_duration == old_lock_up_duration) {
+            //Validate uosmo amount
+            let change_amount = if let Some(amount) = uosmo_amount {
+                //Take minimum of amount or deposit
+                min(amount, locked_user.deposits[i].deposit)
+            } else {
+                locked_user.deposits[i].deposit
+            };
+
+            //Set attributes
+            attributes = vec![
+                attr("method", "edit_lockup_duration"),
+                attr("user", info.clone().sender),
+                attr("old_lock_up_duration", old_lock_up_duration.to_string()),
+                attr("new_lock_up_duration", new_lock_up_duration.to_string()),
+                attr("amount_edited", change_amount.to_string()),
+            ];
+
+            //Subtract from existing
+            locked_user.deposits[i].deposit -= change_amount;
+            //if deposit is now zero, remove it
+            if locked_user.deposits[i].deposit == Uint128::zero() {
+                locked_user.deposits.remove(i);
+            }
+
+            //Check if user has already locked up for the new duration && if so, add to it
+            if let Some((i, _)) = locked_user.deposits.clone().into_iter().enumerate().find(|(_, lock)| lock.lock_up_duration == new_lock_up_duration) {
+                //Add to existing
+                locked_user.deposits[i].deposit += change_amount;
+                
+            } else {
+                //Add a new lock
+                locked_user.deposits.push(
+                    Lock { 
+                        deposit: change_amount, 
+                        lock_up_duration: new_lock_up_duration.clone(),
+                    }
+                );
+            }
+            
+        } else {
+            return Err(ContractError::CustomError { val: String::from("User has no deposit with that lockup duration")})
+        }
+        //Save user info
+        LOCKED_USERS.save(deps.storage, info.clone().sender, &locked_user)?; 
+
+    } else {
+        return Err(ContractError::NotAUser {  })
+
+    } 
+
+    Ok(Response::new()
+        .add_attributes(attributes))
 }
 
 /// Withdraw OSMO from the lockdrop during the withdrawal period

@@ -56,6 +56,7 @@ pub fn instantiate(
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
             unstaking_period: msg.unstaking_period.unwrap_or(4u64),
             max_commission_rate: Decimal::percent(10),
+            keep_raw_cdt: true,
             mbrn_denom: msg.mbrn_denom,
         };
     } else {
@@ -73,6 +74,7 @@ pub fn instantiate(
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
             unstaking_period: msg.unstaking_period.unwrap_or(4u64),
             max_commission_rate: Decimal::percent(10),
+            keep_raw_cdt: true,
             mbrn_denom: msg.mbrn_denom,
         };
     }
@@ -155,6 +157,7 @@ pub fn execute(
             fee_wait_period,
             unstaking_period,
             max_commission_rate,
+            keep_raw_cdt,
         } => update_config(
             deps,
             info,
@@ -170,6 +173,7 @@ pub fn execute(
             fee_wait_period,
             unstaking_period,
             max_commission_rate,
+            keep_raw_cdt,
         ),
         ExecuteMsg::Stake { user } => stake(deps, env, info, user),
         ExecuteMsg::Unstake { mbrn_amount } => unstake(deps, env, info, mbrn_amount),
@@ -243,6 +247,7 @@ fn update_config(
     fee_wait_period: Option<u64>,
     unstaking_period: Option<u64>,
     max_commission_rate: Option<Decimal>,
+    keep_raw_cdt: Option<bool>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -285,6 +290,9 @@ fn update_config(
     };
     if let Some(max_commission_rate) = max_commission_rate {
         config.max_commission_rate = max_commission_rate;
+    };
+    if let Some(keep_raw_cdt) = keep_raw_cdt {
+        config.keep_raw_cdt = keep_raw_cdt;
     };
     if let Some(mbrn_denom) = mbrn_denom {
         config.mbrn_denom = mbrn_denom.clone();
@@ -1211,11 +1219,17 @@ fn deposit_fee(
         &CDP_QueryMsg::GetBasket{ })?;
     let cdt_denom = basket.credit_asset.info;
 
-    //If fee asset isn't CDT, send to Fee Auction if the contract is set
-    let non_CDT_assets = fee_assets.clone()
-        .into_iter()
-        .filter(|fee_asset| fee_asset.info != cdt_denom)
-        .collect::<Vec<Asset>>();
+    //Filter assets if stakers are keeping raw CDT
+    let non_CDT_assets = if config.keep_raw_cdt {
+        //Filter
+        fee_assets.clone()
+            .into_iter()
+            .filter(|fee_asset| fee_asset.info != cdt_denom)
+            .collect::<Vec<Asset>>()
+    } else {
+        //Don't filter
+        fee_assets.clone()
+    };    
     
     //Act if there are non-CDT assets
     if non_CDT_assets.len() != 0 {
@@ -1237,50 +1251,53 @@ fn deposit_fee(
         }
     }
 
-    //Remove non-CDT assets from fee assets
-    let CDT_assets = fee_assets.clone()
-        .into_iter()
-        .filter(|fee_asset| fee_asset.info == cdt_denom)
-        .collect::<Vec<Asset>>();
-
-    //Load Fee Events
-    let mut fee_events = FEE_EVENTS.load(deps.storage)?;
-
-    //Load Total staked
-    let mut totals = STAKING_TOTALS.load(deps.storage)?;
-
-    //Update vesting total
-    if let Some(vesting_contract) = config.clone().vesting_contract {        
-        let vesting_total = get_total_vesting(deps.querier, vesting_contract.to_string())?;
-
-        totals.vesting_contract = vesting_total;
-        STAKING_TOTALS.save(deps.storage, &totals)?;
-    }
-
-    //Set total
-    let mut total: Uint128 = totals.vesting_contract + totals.stakers;
-    if total.is_zero() {
-        total = Uint128::new(1u128)
-    }
-    let decimal_total = Decimal::from_ratio(total, Uint128::new(1u128));
     
-    //Add new Fee Event
-    for asset in CDT_assets.clone() {        
-        let amount = Decimal::from_ratio(asset.amount, Uint128::new(1u128));
-        
-        fee_events.push(FeeEvent {
-            //We add the fee wait period so that the Fee distribution amount is correct
-            //since deposits don't become eligible until the wait period is over yet they are added to the deposit_total at deposit
-            time_of_event: env.block.time.seconds() + (config.clone().fee_wait_period * SECONDS_PER_DAY),
-            fee: LiqAsset {
-                //Amount = Amount per Staked MBRN
-                info: asset.info,
-                amount: decimal_division(amount, decimal_total)?,
-            },
-        });
-    }
+    if config.keep_raw_cdt{
+        //Remove non-CDT assets from fee assets
+        let CDT_assets = fee_assets.clone()
+            .into_iter()
+            .filter(|fee_asset| fee_asset.info == cdt_denom)
+            .collect::<Vec<Asset>>();
 
-    FEE_EVENTS.save(deps.storage, &fee_events)?;
+        //Load Fee Events
+        let mut fee_events = FEE_EVENTS.load(deps.storage)?;
+
+        //Load Total staked
+        let mut totals = STAKING_TOTALS.load(deps.storage)?;
+
+        //Update vesting total
+        if let Some(vesting_contract) = config.clone().vesting_contract {        
+            let vesting_total = get_total_vesting(deps.querier, vesting_contract.to_string())?;
+
+            totals.vesting_contract = vesting_total;
+            STAKING_TOTALS.save(deps.storage, &totals)?;
+        }
+
+        //Set total
+        let mut total: Uint128 = totals.vesting_contract + totals.stakers;
+        if total.is_zero() {
+            total = Uint128::new(1u128)
+        }
+        let decimal_total = Decimal::from_ratio(total, Uint128::new(1u128));
+        
+        //Add new Fee Event
+        for asset in CDT_assets.clone() {        
+            let amount = Decimal::from_ratio(asset.amount, Uint128::new(1u128));
+            
+            fee_events.push(FeeEvent {
+                //We add the fee wait period so that the Fee distribution amount is correct
+                //since deposits don't become eligible until the wait period is over yet they are added to the deposit_total at deposit
+                time_of_event: env.block.time.seconds() + (config.clone().fee_wait_period * SECONDS_PER_DAY),
+                fee: LiqAsset {
+                    //Amount = Amount per Staked MBRN
+                    info: asset.info,
+                    amount: decimal_division(amount, decimal_total)?,
+                },
+            });
+        }
+
+        FEE_EVENTS.save(deps.storage, &fee_events)?;
+    }
     
     Ok(Response::new().add_messages(messages).add_attributes(vec![
         attr("method", "deposit_fee"),

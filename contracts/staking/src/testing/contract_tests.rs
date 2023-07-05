@@ -50,6 +50,7 @@ fn update_config(){
         incentive_schedule: Some(StakeDistribution { rate: Decimal::one(), duration: 0 }),
         fee_wait_period: Some(1),  
         max_commission_rate: Some(Decimal::percent(11)),
+        keep_raw_cdt: Some(false),
     };
 
     execute(
@@ -69,7 +70,7 @@ fn update_config(){
     .unwrap();
     let config: Config = from_binary(&res).unwrap();
     
-    //No change yet
+    //No owner change yet
     assert_eq!(
         config,
         Config {
@@ -84,7 +85,7 @@ fn update_config(){
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
             fee_wait_period: 1,
             max_commission_rate: Decimal::percent(11),
-            
+            keep_raw_cdt: false,            
         },
     );
     //Previous owner can still update bc the ownership hasn't transferred yet
@@ -100,6 +101,7 @@ fn update_config(){
         incentive_schedule: None,
         fee_wait_period: Some(0),
         max_commission_rate: None,
+        keep_raw_cdt: None,
     };
 
     execute(
@@ -123,6 +125,7 @@ fn update_config(){
         incentive_schedule: None,
         fee_wait_period: None,
         max_commission_rate: None,
+        keep_raw_cdt: None,
     };
 
     execute(
@@ -157,6 +160,7 @@ fn update_config(){
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
             fee_wait_period: 0, 
             max_commission_rate: Decimal::percent(11),  
+            keep_raw_cdt: false,
         },
     );
 }

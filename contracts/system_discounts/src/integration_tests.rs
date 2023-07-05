@@ -182,6 +182,7 @@ mod tests {
                             fee_wait_period: 0,
                             max_commission_rate: Decimal::zero(),
                             unstaking_period: 0,
+                            keep_raw_cdt: false,
                             positions_contract: None,
                             auction_contract: None,
                             vesting_contract: None,

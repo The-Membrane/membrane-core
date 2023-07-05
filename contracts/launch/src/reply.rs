@@ -17,7 +17,7 @@ use membrane::cdp::{InstantiateMsg as CDP_InstantiateMsg, EditBasket, ExecuteMsg
 use membrane::oracle::{InstantiateMsg as Oracle_InstantiateMsg, ExecuteMsg as OracleExecuteMsg};
 use membrane::liq_queue::InstantiateMsg as LQInstantiateMsg;
 use membrane::liquidity_check::InstantiateMsg as LCInstantiateMsg;
-use membrane::auction::InstantiateMsg as DAInstantiateMsg;
+use membrane::auction::{InstantiateMsg as DAInstantiateMsg, ExecuteMsg as DAExecuteMsg, UpdateConfig as AuctionUpdateConfig};
 use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg};
 use membrane::margin_proxy::InstantiateMsg as ProxyInstantiateMsg;
 use membrane::system_discounts::InstantiateMsg as SystemDiscountInstantiateMsg;
@@ -1110,6 +1110,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                         unstaking_period: None,
                         fee_wait_period: None,
                         max_commission_rate: None,
+                        keep_raw_cdt: Some(false),
                     })?, 
                     funds: vec![],
                 }));
@@ -1216,7 +1217,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
     }    
 }
 
-/// Save Balancer Pool IDs
+/// Save Balancer Pool ID
 pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{
     match msg.clone().result.into_result() {
         Ok(result) => {
@@ -1268,7 +1269,29 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                         id: res.pool_id,
                     })?,
                 }))?.shares.denom;
-                
+
+                //Set Auction's desired asset to the CDT/OSMO LP denom
+                msgs.push(
+                    CosmosMsg::Wasm(WasmMsg::Execute { 
+                        contract_addr: addrs.clone().mbrn_auction.to_string(), 
+                        msg: to_binary(&DAExecuteMsg::UpdateConfig(AuctionUpdateConfig {
+                            owner: None,
+                            oracle_contract: None,
+                            osmosis_proxy: None,
+                            mbrn_denom: None,
+                            cdt_denom: None,
+                            desired_asset: Some(pool_denom.clone()),
+                            positions_contract: None,
+                            governance_contract: None,
+                            staking_contract: None,
+                            twap_timeframe: None,
+                            initial_discount: None,
+                            discount_increase_timeframe: None,
+                            discount_increase: None,
+                        }))?, 
+                        funds: vec![],
+                    })
+                );                
 
                 //Incentivize the OSMO/CDT pool
                 //14 day guage
@@ -1371,7 +1394,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                         ])
                     })?, 
                     funds: vec![],
-                }));
+                }));                
 
             //Query contract balance of any GAMM shares 
             //but we only care about MBRN-OSMO LP

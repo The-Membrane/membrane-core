@@ -52,6 +52,9 @@ pub enum ExecuteMsg {
         fee_wait_period: Option<u64>,
         /// Max commission rate
         max_commission_rate: Option<Decimal>,
+        /// Toggle to keep raw CDT revenue
+        /// If false, CDT revenue is converted in the FeeAuction
+        keep_raw_cdt: Option<bool>,
     },
     /// Stake MBRN tokens
     Stake {
@@ -170,6 +173,9 @@ pub struct Config {
     pub unstaking_period: u64,
     /// Max commission rate
     pub max_commission_rate: Decimal,
+    /// Toggle to keep raw CDT revenue
+    /// If false, CDT revenue is converted in the FeeAuction
+    pub keep_raw_cdt: bool,
     /// Positions contract address
     pub positions_contract: Option<Addr>,
     /// Auction contract address

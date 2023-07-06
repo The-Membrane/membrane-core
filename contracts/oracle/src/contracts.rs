@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use cosmwasm_std::{
     attr, entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper,
-    Response, StdError, StdResult, Storage, Uint128,
+    Response, StdError, StdResult, Storage, Uint128, QueryRequest, WasmQuery,
 };
 use cw2::set_contract_version;
 
@@ -14,7 +14,7 @@ use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::osmosis_proxy::{QueryMsg as OP_QueryMsg, Config as OP_Config};
 use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg};
-use membrane::types::{AssetInfo, AssetOracleInfo, PriceInfo, Basket, TWAPPoolInfo, Owner};
+use membrane::types::{AssetInfo, AssetOracleInfo, PriceInfo, Basket, TWAPPoolInfo, PoolInfo, Owner, PoolStateResponse};
 
 use crate::error::ContractError;
 use crate::state::{ASSETS, CONFIG, OWNERSHIP_TRANSFER};
@@ -347,28 +347,155 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             twap_timeframe,
             oracle_time_limit,
             basket_id,
-        } => to_binary(&get_asset_price(
-            deps.storage,
-            deps.querier,
-            env,
-            asset_info,
-            twap_timeframe,
-            oracle_time_limit,
-            basket_id,
-        )?),
+        } => {
+            //Get asset price
+            //Switch if an LP or not
+            match ASSETS.load(deps.storage, asset_info.to_string())?[0].clone().lp_pool_info {
+                //If asset is LP token, get LP price
+                Some(pool_info) => to_binary(&get_lp_price(
+                    deps.storage,
+                    deps.querier,
+                    env,
+                    CONFIG.load(deps.storage)?,
+                    pool_info,
+                    twap_timeframe,
+                    oracle_time_limit,
+                    basket_id,
+                )?),
+                None => to_binary(&get_asset_price(
+                    deps.storage,
+                    deps.querier,
+                    env,
+                    asset_info,
+                    twap_timeframe,
+                    oracle_time_limit,
+                    basket_id,
+                    )?)
+            }
+        },
         QueryMsg::Prices {
             asset_infos,
             twap_timeframe,
             oracle_time_limit,
         } => to_binary(&get_asset_prices(
-            deps, 
+            deps.storage, 
+            deps.querier,
             env,
             asset_infos,
             twap_timeframe,
-            oracle_time_limit
+            oracle_time_limit,
+            None,
         )?),
         QueryMsg::Assets { asset_infos } => to_binary(&get_assets(deps, asset_infos)?),
     }
+}
+
+/// Calculate LP share token value.
+/// Calculate LP price.
+pub fn get_lp_price(
+    storage: &dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    config: Config,
+    pool_info: PoolInfo,    
+    twap_timeframe: u64, //in minutes
+    oracle_time_limit: u64, //in seconds
+    basket_id_field: Option<Uint128>,
+) -> StdResult<PriceResponse>{
+    //Turn pool info into asset info
+    let asset_infos: Vec<AssetInfo> = pool_info.clone().asset_infos
+        .into_iter()
+        .map(|asset| asset.info)
+        .collect::<Vec<AssetInfo>>();
+
+    //Get asset prices
+    let (asset_prices, oracle_sources) = {
+        let res = get_asset_prices(
+            storage,
+            querier.clone(),
+            env,
+            asset_infos,
+            twap_timeframe,
+            oracle_time_limit,
+            basket_id_field,
+        )?;
+
+        let mut price_infos = vec![];
+
+        //Convert res into a list of prices & save price infos
+        let prices = res
+            .into_iter() 
+            .map(|price| 
+                {
+                    price_infos.extend(price.clone().prices);
+                    price.price
+                })
+            .collect::<Vec<Decimal>>();
+        
+        (prices, price_infos)
+    };
+
+    //Calculate share value
+    let LP_value = {
+        //Query share asset amount
+        let share_asset_amounts = querier
+            .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: config.osmosis_proxy_contract.unwrap().to_string(),
+                msg: to_binary(&OP_QueryMsg::PoolState {
+                    id: pool_info.pool_id,
+                })?,
+            }))?
+            .shares_value(1_000_000u128); //1_000_000 = 1 native token
+
+        //Calculate value of cAsset
+        let mut value = Decimal::zero();
+        for (i, price) in asset_prices.into_iter().enumerate() {
+            //Assert we are pulling asset amount from the correct asset
+            let asset_share =
+                match share_asset_amounts.clone().into_iter().find(|coin| {
+                    AssetInfo::NativeToken {
+                        denom: coin.denom.clone(),
+                    } == pool_info.clone().asset_infos[i].info
+                }) {
+                    Some(coin) => coin,
+                    None => {
+                        return Err(StdError::GenericErr {
+                            msg: format!(
+                                "Invalid asset denom: {}",
+                                pool_info.clone().asset_infos[i].info
+                            ),
+                        })
+                    }
+                };
+            //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
+            let exponent_difference = pool_info.clone().asset_infos[i]
+                .decimals
+                .checked_sub(6u64)
+                .unwrap();
+            let asset_amount = Uint128::from_str(&asset_share.amount).map_err(|_| StdError::GenericErr { msg: String::from("Error parsing String into Uint128") })?
+                / Uint128::new(10u64.pow(exponent_difference as u32) as u128);
+            let decimal_asset_amount =
+                Decimal::from_ratio(asset_amount, Uint128::new(1u128));
+
+            //Price * # of assets in LP shares
+            value += decimal_multiplication(price, decimal_asset_amount)?;
+        }
+
+        value
+    };
+
+    //Calculate LP price
+    let LP_price = {
+        let share_amount =
+            Decimal::from_ratio(Uint128::new(1_000_000u128), Uint128::new(1u128));
+        
+        decimal_division(LP_value, share_amount)?
+    };
+
+    Ok(PriceResponse { 
+        prices: oracle_sources,
+        price: LP_price,
+    })
 }
 
 /// Return list of queryable assets
@@ -606,11 +733,13 @@ fn get_asset_price(
 
 /// Return list of asset price info as list of PriceResponse
 fn get_asset_prices(
-    deps: Deps,
+    storage: &dyn Storage,
+    querier: QuerierWrapper,
     env: Env,
     asset_infos: Vec<AssetInfo>,
     twap_timeframe: u64, //in minutes
     oracle_time_limit: u64, //in seconds
+    basket_id_field: Option<Uint128>,
 ) -> StdResult<Vec<PriceResponse>> {
 
     //Enforce Vec max size
@@ -623,15 +752,34 @@ fn get_asset_prices(
     let mut price_responses = vec![];
 
     for asset in asset_infos {
-        price_responses.push(get_asset_price(
-            deps.storage,
-            deps.querier,
-            env.clone(),
-            asset,
-            twap_timeframe,
-            oracle_time_limit,
-            None,
-        )?);
+        //Switch based on if asset is an LP 
+        match ASSETS.load(storage, asset.to_string())?[0].clone().lp_pool_info {
+            Some(pool_info) => {
+                //If asset is an LP, get the LP price
+                price_responses.push(get_lp_price(
+                    storage,
+                    querier.clone(),
+                    env.clone(),
+                    CONFIG.load(storage)?,
+                    pool_info,
+                    twap_timeframe,
+                    oracle_time_limit,
+                    basket_id_field,
+                )?);
+            },
+            None => {
+                //If asset is not an LP, get the asset price
+                price_responses.push(get_asset_price(
+                    storage,
+                    querier.clone(),
+                    env.clone(),
+                    asset,
+                    twap_timeframe,
+                    oracle_time_limit,
+                    basket_id_field,
+                )?);
+            }
+        }
     }
 
     Ok(price_responses)

@@ -1133,6 +1133,11 @@ mod tests {
                                     prices: vec![],
                                     price: Decimal::percent(98),
                                 })?)
+                            } else if asset_info.to_string() == String::from("lp_denom") {
+                                Ok(to_binary(&PriceResponse {
+                                    prices: vec![],
+                                    price: Decimal::percent(200),
+                                })?)
                             } else {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
@@ -1143,6 +1148,11 @@ mod tests {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::percent(98),
+                            })?)
+                        } else if asset_info.to_string() == String::from("lp_denom") {
+                            Ok(to_binary(&PriceResponse {
+                                prices: vec![],
+                                price: Decimal::percent(200),
                             })?)
                         } else {
                             Ok(to_binary(&PriceResponse {
@@ -1163,7 +1173,8 @@ mod tests {
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
                                 }],
-                                is_usd_par: false
+                                is_usd_par: false,
+                                lp_pool_info: None,
                             }],
                         },
                         AssetResponse {
@@ -1177,7 +1188,8 @@ mod tests {
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
                                 }],
-                                is_usd_par: false
+                                is_usd_par: false,
+                                lp_pool_info: None,
                             }],
                         }
                     ])?),
@@ -1225,6 +1237,11 @@ mod tests {
                                     prices: vec![],
                                     price: Decimal::percent(102),
                                 })?)
+                            } else if asset_info.to_string() == String::from("lp_denom") {
+                                Ok(to_binary(&PriceResponse {
+                                    prices: vec![],
+                                    price: Decimal::percent(200),
+                                })?)
                             } else {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
@@ -1235,6 +1252,11 @@ mod tests {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::percent(102),
+                            })?)
+                        } else if asset_info.to_string() == String::from("lp_denom") {
+                            Ok(to_binary(&PriceResponse {
+                                prices: vec![],
+                                price: Decimal::percent(200),
                             })?)
                         } else {
                             Ok(to_binary(&PriceResponse {
@@ -1255,7 +1277,8 @@ mod tests {
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
                                 }],
-                                is_usd_par: false
+                                is_usd_par: false,
+                                lp_pool_info: None,
                             }],
                         },
                         AssetResponse {
@@ -1269,7 +1292,8 @@ mod tests {
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
                                 }],
-                                is_usd_par: false
+                                is_usd_par: false,
+                                lp_pool_info: None,
                             }],
                         }
                     ])?),

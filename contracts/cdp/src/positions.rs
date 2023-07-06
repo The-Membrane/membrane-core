@@ -2025,6 +2025,7 @@ pub fn edit_basket(
                         basket_id: basket.clone().basket_id,
                         pools_for_osmo_twap: vec![credit_twap],
                         is_usd_par: false,
+                        lp_pool_info: None,
                     }),
                     remove: false,
                 })?,

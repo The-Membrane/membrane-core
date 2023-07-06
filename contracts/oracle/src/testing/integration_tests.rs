@@ -234,6 +234,7 @@ mod tests {
                         quote_asset_denom: String::from("uosmo"),
                     }],
                     is_usd_par: false,
+                    lp_pool_info: None,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -252,6 +253,7 @@ mod tests {
                         quote_asset_denom: String::from("uosmo"),
                     }],
                     is_usd_par: false,
+                    lp_pool_info: None,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -270,6 +272,7 @@ mod tests {
                         quote_asset_denom: String::from("uosmo"),
                     }],
                     is_usd_par: false,
+                    lp_pool_info: None,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -289,6 +292,7 @@ mod tests {
                         quote_asset_denom: String::from("uosmo"),
                     }],
                     is_usd_par: false,
+                    lp_pool_info: None,
                 }),
                 remove: false,
             };
@@ -322,6 +326,7 @@ mod tests {
                         quote_asset_denom: String::from("uosmo"),
                     }],
                     is_usd_par: false,
+                    lp_pool_info: None,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();

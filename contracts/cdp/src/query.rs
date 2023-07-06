@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::str::FromStr;
 
 use cosmwasm_std::{
     to_binary, Addr, Decimal, Deps, Env, Order, QuerierWrapper, QueryRequest, StdError, StdResult,
@@ -9,7 +8,6 @@ use cosmwasm_std::{
 use cw_storage_plus::Bound;
 
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
-use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::cdp::{
     Config, BadDebtResponse, CollateralInterestResponse,
     InsolvencyResponse, InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse,
@@ -17,7 +15,7 @@ use membrane::cdp::{
 
 use membrane::types::{
     cAsset, AssetInfo, Basket, InsolventPosition, Position, PositionUserInfo,
-    UserInfo, DebtCap, PoolInfo, PoolStateResponse, RedemptionInfo, PremiumInfo
+    UserInfo, DebtCap, RedemptionInfo, PremiumInfo
 };
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
@@ -519,7 +517,7 @@ pub fn get_cAsset_ratios(
         config,
         false
     )?;
-
+    
     let total_value: Decimal = cAsset_values.iter().sum();
 
     //getting each cAsset's % of total value
@@ -691,135 +689,28 @@ pub fn get_asset_values(
 
     if config.oracle_contract.is_some() {
         for (_i, cAsset) in assets.iter().enumerate() {
-            //If an Osmosis LP
-            if cAsset.pool_info.is_some() {
-                let pool_info = cAsset.clone().pool_info.unwrap();
-                let mut asset_prices = vec![];
+            //Query prices
+            //The oracle handles LP pricing
+            let price = query_price(
+                storage,
+                querier,
+                env.clone(),
+                config.clone(),
+                cAsset.clone().asset.info,
+                is_deposit_function,
+            )?;
 
-                for (pool_asset) in pool_info.clone().asset_infos {
-                    let price = query_price(
-                        storage,
-                        querier,
-                        env.clone(),
-                        config.clone(),
-                        pool_asset.info,
-                        is_deposit_function,
-                    )?;
-                    //Append price
-                    asset_prices.push(price);
-                }
-
-                //Calculate & append LP price & value
-                append_lp_price(
-                    querier,
-                    config.clone(),
-                    cAsset.clone(),
-                    asset_prices,
-                    &mut cAsset_values,
-                    &mut cAsset_prices,
-                    pool_info.clone(),
-                )?;
-            } else {
-                let price = query_price(
-                    storage,
-                    querier,
-                    env.clone(),
-                    config.clone(),
-                    cAsset.clone().asset.info,
-                    is_deposit_function,
-                )?;
-
-                cAsset_prices.push(price);
-                let collateral_value = decimal_multiplication(
-                    Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128)),
-                    price,
-                )?;
-                cAsset_values.push(collateral_value);
-            }
+            cAsset_prices.push(price);
+            let collateral_value = decimal_multiplication(
+                Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128)),
+                price,
+            )?;
+            cAsset_values.push(collateral_value);
+        
         }
     }
 
     Ok((cAsset_values, cAsset_prices))
-}
-
-
-/// Calculate LP share token value.
-/// Calculate LP price.
-/// Append price and value to lists.
-pub fn append_lp_price(
-    querier: QuerierWrapper,
-    config: Config,
-    cAsset: cAsset,
-    asset_prices: Vec<Decimal>,
-    cAsset_values: &mut Vec<Decimal>,
-    cAsset_prices: &mut Vec<Decimal>,
-    pool_info: PoolInfo,
-) -> StdResult<()>{
-    //Calculate share value
-    let cAsset_value = {
-        //Query share asset amount
-        let share_asset_amounts = querier
-            .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.osmosis_proxy.unwrap().to_string(),
-                msg: to_binary(&OsmoQueryMsg::PoolState {
-                    id: pool_info.pool_id,
-                })?,
-            }))?
-            .shares_value(cAsset.asset.amount);
-
-        //Calculate value of cAsset
-        let mut value = Decimal::zero();
-        for (i, price) in asset_prices.into_iter().enumerate() {
-            //Assert we are pulling asset amount from the correct asset
-            let asset_share =
-                match share_asset_amounts.clone().into_iter().find(|coin| {
-                    AssetInfo::NativeToken {
-                        denom: coin.denom.clone(),
-                    } == pool_info.clone().asset_infos[i].info
-                }) {
-                    Some(coin) => coin,
-                    None => {
-                        return Err(StdError::GenericErr {
-                            msg: format!(
-                                "Invalid asset denom: {}",
-                                pool_info.clone().asset_infos[i].info
-                            ),
-                        })
-                    }
-                };
-            //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
-            let exponent_difference = pool_info.clone().asset_infos[i]
-                .decimals
-                .checked_sub(6u64)
-                .unwrap();
-            let asset_amount = Uint128::from_str(&asset_share.amount).map_err(|_| StdError::GenericErr { msg: String::from("Error parsing String into Uint128") })?
-                / Uint128::new(10u64.pow(exponent_difference as u32) as u128);
-            let decimal_asset_amount =
-                Decimal::from_ratio(asset_amount, Uint128::new(1u128));
-
-            //Price * # of assets in LP shares
-            value += decimal_multiplication(price, decimal_asset_amount)?;
-        }
-
-        value
-    };
-
-    //Calculate LP price
-    let cAsset_price = {
-        let share_amount =
-            Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128));
-        if !share_amount.is_zero() {
-            decimal_division(cAsset_value, share_amount)?
-        } else {
-            Decimal::zero()
-        }
-    };
-
-    //Push to price and value list
-    cAsset_prices.push(cAsset_price);
-    cAsset_values.push(cAsset_value);
-
-    Ok(())
 }
 
 /// Calculates the average LTV of a position.

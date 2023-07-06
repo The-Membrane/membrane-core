@@ -466,7 +466,8 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                                     quote_asset_denom: config.clone().osmo_denom.to_string(),  
                                 }
                             ],
-                            is_usd_par: false
+                            is_usd_par: false,
+                            lp_pool_info: None,
                         },
                     })?, 
                     funds: vec![],
@@ -480,7 +481,8 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                         oracle_info: AssetOracleInfo { 
                             basket_id: Uint128::one(), 
                             pools_for_osmo_twap: vec![],
-                            is_usd_par: false
+                            is_usd_par: false,
+                            lp_pool_info: None,
                         },
                     })?, 
                     funds: vec![],
@@ -500,7 +502,8 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                                     base_asset_denom: config.clone().osmo_denom.to_string(),  
                                 }
                             ],
-                            is_usd_par: true
+                            is_usd_par: true,
+                            lp_pool_info: None,
                             
                         },
                     })?, 
@@ -1291,7 +1294,38 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                         }))?, 
                         funds: vec![],
                     })
-                );                
+                );
+                //Set the CDT/OSMO LP denom oracle
+                msgs.push(
+                    CosmosMsg::Wasm(WasmMsg::Execute { 
+                        contract_addr: addrs.clone().oracle.to_string(), 
+                        msg: to_binary(&OracleExecuteMsg::AddAsset { 
+                            asset_info: AssetInfo::NativeToken { denom: pool_denom.clone() }, 
+                            oracle_info: AssetOracleInfo { 
+                                basket_id: Uint128::one(), 
+                                pools_for_osmo_twap: vec![],
+                                is_usd_par: false,
+                                lp_pool_info: Some(
+                                    PoolInfo { 
+                                        pool_id: osmo_pool_id,
+                                        asset_infos: vec![
+                                            LPAssetInfo { 
+                                                info: AssetInfo::NativeToken { denom: config.clone().osmo_denom }, 
+                                                decimals: 6, 
+                                                ratio: Decimal::percent(50),
+                                            },
+                                            LPAssetInfo { 
+                                                info: AssetInfo::NativeToken { denom: config.clone().credit_denom }, 
+                                                decimals: 6, 
+                                                ratio: Decimal::percent(50),
+                                            },
+                                        ],
+                                    }
+                                ),                                
+                            },
+                        })?, 
+                        funds: vec![],
+                    }));
 
                 //Incentivize the OSMO/CDT pool
                 //14 day guage
@@ -1369,7 +1403,8 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                                     base_asset_denom: config.clone().osmo_denom.to_string(),  
                                 }
                             ],
-                            is_usd_par: false
+                            is_usd_par: false,
+                            lp_pool_info: None,
                             
                         },
                     })?, 

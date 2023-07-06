@@ -284,6 +284,8 @@ pub struct AssetOracleInfo {
     pub pools_for_osmo_twap: Vec<TWAPPoolInfo>,
     /// Bool to provide $1 static_price if the asset is USD-par
     pub is_usd_par: bool,
+    /// LP pool info
+    pub lp_pool_info: Option<PoolInfo>,
 }
 
 impl fmt::Display for AssetOracleInfo {

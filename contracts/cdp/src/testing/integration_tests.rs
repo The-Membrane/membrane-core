@@ -1008,6 +1008,8 @@ mod tests {
                             owner: Addr::unchecked(""),
                             mbrn_denom: String::from("mbrn_denom"),
                             incentive_schedule: StakeDistribution { rate: Decimal::zero(), duration: 0 },
+                            keep_raw_cdt: false,
+                            max_commission_rate: Decimal::zero(),
                             fee_wait_period: 0,
                             unstaking_period: 0,
                             positions_contract: None,

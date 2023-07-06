@@ -195,6 +195,7 @@ mod tests {
                         fee_wait_period: 0,
                         mbrn_denom: String::from("mbrn_denom"),
                         max_commission_rate: Decimal::zero(),
+                        keep_raw_cdt: false,
                     })?),
                     Staking_MockQueryMsg::TotalStaked {  } => Ok(to_binary(&TotalStakedResponse {
                         total_not_including_vested: Uint128::new(5_000_000_000_001u128),

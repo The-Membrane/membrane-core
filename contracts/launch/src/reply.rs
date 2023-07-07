@@ -1113,7 +1113,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                         unstaking_period: None,
                         fee_wait_period: None,
                         max_commission_rate: None,
-                        keep_raw_cdt: Some(false),
+                        keep_raw_cdt: None,
                     })?, 
                     funds: vec![],
                 }));

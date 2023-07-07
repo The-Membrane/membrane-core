@@ -188,7 +188,7 @@ fn stake() {
 
     //Stake non-MBRN asset
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("sender88", &[coin(10, "not-mbrn")]);
+    let info = mock_info("sender88", &[coin(10_000_000, "not-mbrn")]);
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(
         err.to_string(),
@@ -197,27 +197,27 @@ fn stake() {
 
     //Successful Stake
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("sender88", &[coin(10, "mbrn_denom")]);
+    let info = mock_info("sender88", &[coin(10_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "stake"),
             attr("staker", String::from("sender88")),
-            attr("amount", String::from("10")),
+            attr("amount", String::from("10000000")),
         ]
     );
 
     //Successful Stake from vesting contract
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("vesting_contract", &[coin(11, "mbrn_denom")]);
+    let info = mock_info("vesting_contract", &[coin(11_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "stake"),
             attr("staker", String::from("vesting_contract")),
-            attr("amount", String::from("11")),
+            attr("amount", String::from("11000000")),
         ]
     );
 
@@ -239,13 +239,13 @@ fn stake() {
         vec![
             StakeDeposit {
                 staker: Addr::unchecked("sender88"),
-                amount: Uint128::new(10u128),
+                amount: Uint128::new(10_000_000u128),
                 stake_time: mock_env().block.time.seconds(),
                 unstake_start_time: None,
             },
             StakeDeposit {
                 staker: Addr::unchecked("vesting_contract"),
-                amount: Uint128::new(11u128),
+                amount: Uint128::new(11000000u128),
                 stake_time: mock_env().block.time.seconds(),
                 unstake_start_time: None,
             },
@@ -257,8 +257,8 @@ fn stake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_vested, Uint128::new(10));
-    assert_eq!(resp.vested_total,  Uint128::new(11));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(10_000_000));
+    assert_eq!(resp.vested_total,  Uint128::new(11000000));
 
     //Query and Assert User stake
     let res = query(
@@ -271,9 +271,9 @@ fn stake() {
     assert_eq!(resp, 
         StakerResponse { 
             staker: String::from("sender88"),
-            total_staked: Uint128::new(10),
+            total_staked: Uint128::new(10_000_000),
             deposit_list: vec![
-                ( Uint128::new(10), mock_env().block.time.seconds() )
+                ( Uint128::new(10_000_000), mock_env().block.time.seconds() )
             ],
         }
     );
@@ -304,12 +304,12 @@ fn delegate() {
 
     //Stake MBRN: sender88
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("sender88", &[coin(10, "mbrn_denom")]);
+    let info = mock_info("sender88", &[coin(10_000_000, "mbrn_denom")]);
     let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Stake MBRN: placeholder99
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("placeholder99", &[coin(10, "mbrn_denom")]);
+    let info = mock_info("placeholder99", &[coin(10_000_000, "mbrn_denom")]);
     let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Delegate MBRN: Error can't delegate to self
@@ -357,7 +357,7 @@ fn delegate() {
             delegated_to: vec![
                 Delegation {
                     delegate: Addr::unchecked("governator_addr"),
-                    amount: Uint128::new(10u128),
+                    amount: Uint128::new(10_000_000u128),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
@@ -372,7 +372,7 @@ fn delegate() {
             delegated: vec![
                 Delegation {
                     delegate: Addr::unchecked("sender88"),
-                    amount: Uint128::new(10u128),
+                    amount: Uint128::new(10_000_000u128),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
@@ -411,7 +411,7 @@ fn delegate() {
     //Undelegate: Error
     let msg = ExecuteMsg::UpdateDelegations { 
         governator_addr: Some(String::from("non_governator")), 
-        mbrn_amount: Some(Uint128::new(6)), 
+        mbrn_amount: Some(Uint128::new(6_000_000)), 
         delegate: Some(false), 
         fluid: Some(true),
         voting_power_delegation: None,
@@ -424,7 +424,7 @@ fn delegate() {
     //Undelegate partially, change commission, vp delegations & fluidity
     let msg = ExecuteMsg::UpdateDelegations { 
         governator_addr: Some(String::from("governator_addr")), 
-        mbrn_amount: Some(Uint128::new(6)), 
+        mbrn_amount: Some(Uint128::new(6_000_000)), 
         delegate: Some(false), 
         fluid: Some(true),
         voting_power_delegation: Some(false),
@@ -450,7 +450,7 @@ fn delegate() {
             delegated_to: vec![
                 Delegation {
                     delegate: Addr::unchecked("governator_addr"),
-                    amount: Uint128::new(4u128),
+                    amount: Uint128::new(4_000_000u128),
                     fluidity: true,
                     voting_power_delegation: false,
                     time_of_delegation: mock_env().block.time.seconds(),
@@ -465,7 +465,7 @@ fn delegate() {
             delegated: vec![
                 Delegation {
                     delegate: Addr::unchecked("sender88"),
-                    amount: Uint128::new(4u128),
+                    amount: Uint128::new(4_000_000u128),
                     fluidity: true,
                     voting_power_delegation: false,
                     time_of_delegation: mock_env().block.time.seconds(),
@@ -525,13 +525,13 @@ fn commissions() {
 
     //Stake MBRN: sender88
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("sender88", &[coin(1000000, "mbrn_denom")]);
+    let info = mock_info("sender88", &[coin(10_000000, "mbrn_denom")]);
     let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Delegate MBRN: success
     let msg = ExecuteMsg::UpdateDelegations { 
         governator_addr: Some(String::from("governator_addr")), 
-        mbrn_amount: Some(Uint128::new(500000)),
+        mbrn_amount: Some(Uint128::new(5_000000)),
         delegate: Some(true), 
         fluid: None, 
         voting_power_delegation: None,
@@ -561,17 +561,16 @@ fn commissions() {
         QueryMsg::UserRewards { user: String::from("sender88") },
     ).unwrap();
     let resp: RewardsResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.accrued_interest, Uint128::new(7808u128));
+    assert_eq!(resp.accrued_interest, Uint128::new(78082u128));
 
     //Query claimables
     let res = query(deps.as_ref(), env.clone(),
         QueryMsg::UserRewards { user: String::from("governator_addr") },
     ).unwrap();
     let resp: RewardsResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.accrued_interest, Uint128::new(410u128));
+    assert_eq!(resp.accrued_interest, Uint128::new(4109u128));
 
 }
-
 
 
 #[test]
@@ -599,7 +598,7 @@ fn fluid_delegations() {
 
     //Stake MBRN: sender88
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("sender88", &[coin(10, "mbrn_denom")]);
+    let info = mock_info("sender88", &[coin(10_000_000, "mbrn_denom")]);
     let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Delegate MBRN: success
@@ -617,7 +616,7 @@ fn fluid_delegations() {
     //Delegate fluid MBRN: success
     let msg = ExecuteMsg::DelegateFluidDelegations { 
         governator_addr: String::from("governator_too_addr"), 
-        mbrn_amount: Some(Uint128::new(4)),
+        mbrn_amount: Some(Uint128::new(4_000_000)),
     };
     let info = mock_info("governator_addr", &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -638,7 +637,7 @@ fn fluid_delegations() {
             delegated: vec![
                 Delegation {
                     delegate: Addr::unchecked("sender88"),
-                    amount: Uint128::new(4u128),
+                    amount: Uint128::new(4_000_000u128),
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
@@ -655,14 +654,14 @@ fn fluid_delegations() {
             delegated_to: vec![
                 Delegation {
                     delegate: Addr::unchecked("governator_addr"),
-                    amount: Uint128::new(6u128),
+                    amount: Uint128::new(6_000_000u128),
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
                 },
                 Delegation {
                     delegate: Addr::unchecked("governator_too_addr"),
-                    amount: Uint128::new(4u128),
+                    amount: Uint128::new(4_000_000u128),
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
@@ -677,7 +676,7 @@ fn fluid_delegations() {
             delegated: vec![
                 Delegation {
                     delegate: Addr::unchecked("sender88"),
-                    amount: Uint128::new(6u128),
+                    amount: Uint128::new(6_000_000u128),
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
@@ -716,7 +715,7 @@ fn fluid_delegations() {
             delegated: vec![
                 Delegation {
                     delegate: Addr::unchecked("sender88"),
-                    amount: Uint128::new(4u128),
+                    amount: Uint128::new(4_000_000u128),
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
@@ -733,14 +732,14 @@ fn fluid_delegations() {
             delegated_to: vec![
                 Delegation {
                     delegate: Addr::unchecked("governator_addr"),
-                    amount: Uint128::new(6u128),
+                    amount: Uint128::new(6_000_000u128),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
                 },
                 Delegation {
                     delegate: Addr::unchecked("governator_too_addr"),
-                    amount: Uint128::new(4u128),
+                    amount: Uint128::new(4_000_000u128),
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
@@ -755,7 +754,7 @@ fn fluid_delegations() {
             delegated: vec![
                 Delegation {
                     delegate: Addr::unchecked("sender88"),
-                    amount: Uint128::new(6u128),
+                    amount: Uint128::new(6_000_000u128),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
@@ -779,10 +778,9 @@ fn fluid_delegations() {
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Attempt to delegate solid delegations: failure
-    //Delegate fluid MBRN: success
     let msg = ExecuteMsg::DelegateFluidDelegations { 
         governator_addr: String::from("governator_too_addr"), 
-        mbrn_amount: Some(Uint128::new(4)),
+        mbrn_amount: Some(Uint128::new(4_000_000)),
     };
     let info = mock_info("governator_addr", &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
@@ -791,7 +789,7 @@ fn fluid_delegations() {
     //Undelegate MBRN that was fluid delegated: success
     let msg = ExecuteMsg::UpdateDelegations { 
         governator_addr: Some(String::from("governator_too_addr")), 
-        mbrn_amount: Some(Uint128::new(4)),
+        mbrn_amount: Some(Uint128::new(4_000_000)),
         delegate: Some(false), 
         fluid: None, 
         voting_power_delegation: None, 
@@ -849,14 +847,14 @@ fn unstake() {
 
     //Successful Stake from vesting contract
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("vesting_contract", &[coin(11, "mbrn_denom")]);
+    let info = mock_info("vesting_contract", &[coin(11_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "stake"),
             attr("staker", String::from("vesting_contract")),
-            attr("amount", String::from("11")),
+            attr("amount", String::from("11000000")),
         ]
     );
 
@@ -865,7 +863,7 @@ fn unstake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
     assert_eq!(resp.total_not_including_vested, Uint128::new(10000000));
-    assert_eq!(resp.vested_total, Uint128::new(11));
+    assert_eq!(resp.vested_total, Uint128::new(11000000));
 
     //Unstake more than Staked Error
     let msg = ExecuteMsg::Unstake {
@@ -960,7 +958,7 @@ fn unstake() {
 
     //Successful Unstake from vesting contract w/o withdrawals
     let msg = ExecuteMsg::Unstake {
-        mbrn_amount: Some(Uint128::new(5u128)),
+        mbrn_amount: Some(Uint128::new(5_000_000u128)),
     };
     let info = mock_info("vesting_contract", &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -1047,7 +1045,7 @@ fn unstake() {
 
     //Successful Unstake from vesting contract w/ withdrawals after unstaking period
     let msg = ExecuteMsg::Unstake {
-        mbrn_amount: Some(Uint128::new(5u128)),
+        mbrn_amount: Some(Uint128::new(5_000_000u128)),
     };
     let info = mock_info("vesting_contract", &[]);
     let res = execute(deps.as_mut(), env, info, msg).unwrap();
@@ -1056,7 +1054,7 @@ fn unstake() {
         vec![
             attr("method", "unstake"),
             attr("staker", String::from("vesting_contract")),
-            attr("unstake_amount", String::from("5")),
+            attr("unstake_amount", String::from("5000000")),
         ]
     );
     //Only msg is stake withdrawal
@@ -1065,7 +1063,7 @@ fn unstake() {
         vec![
             SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
                 to_address: String::from("vesting_contract"),
-                amount: coins(5, "mbrn_denom"),
+                amount: coins(5000000, "mbrn_denom"),
             })),
         ]
     );
@@ -1076,7 +1074,7 @@ fn unstake() {
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
     assert_eq!(resp.total_not_including_vested, Uint128::new(5_032_920));
-    assert_eq!(resp.vested_total, Uint128::new(6));
+    assert_eq!(resp.vested_total, Uint128::new(6_036_164));
 }
 
 

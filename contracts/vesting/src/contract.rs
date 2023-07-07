@@ -359,7 +359,7 @@ fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, reci
         //Ratio of base Recipient's allocation.amount to total_staked
         allocation_ratios.push(decimal_division(
             Decimal::from_ratio(
-                allocation.amount,
+                allocation.amount - allocation.amount_withdrawn,
                 Uint128::new(1u128),
             ),
             Decimal::from_ratio(staked_mbrn, Uint128::new(1u128)),

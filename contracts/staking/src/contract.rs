@@ -124,7 +124,7 @@ pub fn instantiate(
 }
 
 /// Return total MBRN vesting
-fn get_total_vesting(
+pub fn get_total_vesting(
     querier: QuerierWrapper,    
     vesting_contract: String,
 ) -> StdResult<Uint128>{
@@ -479,13 +479,13 @@ pub fn unstake(
     //Also update delegations
     if !withdrawable_amount.is_zero() {
         //Create Position accrual msgs to lock in user discounts before withdrawing
-        let accrual_msg = accrue_user_positions(
-            deps.querier, 
-            config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-            info.sender.clone().to_string(), 
-            32,
-        )?;
-        msgs.push(accrual_msg);
+        // let accrual_msg = accrue_user_positions(
+        //     deps.querier, 
+        //     config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+        //     info.sender.clone().to_string(), 
+        //     32,
+        // )?;
+        // msgs.push(accrual_msg);
 
         //Push to native claims list
         native_claims.push(asset_to_coin(Asset {

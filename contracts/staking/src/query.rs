@@ -4,7 +4,7 @@ use membrane::math::decimal_multiplication;
 use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, RewardsResponse, StakedResponse, DelegationResponse};
 use membrane::types::{FeeEvent, StakeDeposit, DelegationInfo, Delegation};
 
-use crate::contract::{get_deposit_claimables, SECONDS_PER_DAY};
+use crate::contract::{get_deposit_claimables, SECONDS_PER_DAY, get_total_vesting};
 use crate::state::{STAKING_TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING, DELEGATIONS};
 
 const DEFAULT_LIMIT: u32 = 32u32;
@@ -14,10 +14,12 @@ pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse>
     let config = CONFIG.load(deps.storage)?;    
     let valid_addr = deps.api.addr_validate(&staker)?;
 
-    if config.vesting_contract.is_some() && valid_addr == config.vesting_contract.unwrap() {
+    if config.vesting_contract.is_some() && valid_addr == config.clone().vesting_contract.unwrap() {
+        let total = get_total_vesting(deps.querier, config.vesting_contract.unwrap().to_string())?;
+
         return Ok(StakerResponse {
             staker: valid_addr.to_string(),
-            total_staked: STAKING_TOTALS.load(deps.storage)?.vesting_contract,
+            total_staked: total,
             deposit_list: vec![],
         })
     }

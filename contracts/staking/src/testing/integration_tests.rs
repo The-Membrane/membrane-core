@@ -42,7 +42,7 @@ mod tests {
             crate::contract::execute,
             crate::contract::instantiate,
             crate::contract::query,
-        );
+        ).with_reply(crate::contract::reply);
         Box::new(contract)
     }
 
@@ -257,6 +257,12 @@ mod tests {
                 storage,
                 &Addr::unchecked("contract1"), //positions contract
                 vec![coin(1000, "credit_fulldenom"), coin(1000, "fee_asset")],
+            )
+            .unwrap();
+            bank.init_balance(
+                storage,
+                &Addr::unchecked("contract3"), //positions contract
+                vec![coin(8219, "mbrn_denom")],
             )
             .unwrap();
 

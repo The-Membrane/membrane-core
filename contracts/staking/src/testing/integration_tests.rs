@@ -79,10 +79,10 @@ mod tests {
                         mint_to_address,
                     } => {
                         if (amount != Uint128::new(8_219) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1")) 
-                        && (amount != Uint128::new(8) || denom != String::from("mbrn_denom") || mint_to_address != String::from("contract3")) 
+                        && (amount != Uint128::new(8219) || denom != String::from("mbrn_denom") || mint_to_address != String::from("contract3")) 
                         && (amount != Uint128::new(8) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
-                        && (amount != Uint128::new(7808) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
-                        && (amount != Uint128::new(410) || denom != String::from("mbrn_denom") || mint_to_address != String::from("governator_addr")){
+                        && (amount != Uint128::new(78082) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
+                        && (amount != Uint128::new(4109) || denom != String::from("mbrn_denom") || mint_to_address != String::from("governator_addr")){
                             panic!("MintTokens called with incorrect parameters, {}, {}, {}", amount, denom, mint_to_address);
                         }
                         Ok(Response::default())
@@ -332,6 +332,8 @@ mod tests {
 
     #[cfg(test)]
     mod staking {
+        use std::str::FromStr;
+
         use super::*;
         use membrane::staking::{TotalStakedResponse, StakerResponse};
         
@@ -341,13 +343,13 @@ mod tests {
 
             //Stake MBRN as user
             let msg = ExecuteMsg::Stake { user: None };
-            let cosmos_msg = staking_contract.call(msg, vec![coin(1000000, "mbrn_denom")]).unwrap();
+            let cosmos_msg = staking_contract.call(msg, vec![coin(10_000000, "mbrn_denom")]).unwrap();
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
 
             //Delegate MBRN to governator
             let msg = ExecuteMsg::UpdateDelegations { 
                 governator_addr: Some(String::from("governator_addr")), 
-                mbrn_amount: Some(Uint128::new(500000)),
+                mbrn_amount: Some(Uint128::new(5_000000)),
                 delegate: Some(true), 
                 fluid: None, 
                 voting_power_delegation: None,
@@ -395,7 +397,7 @@ mod tests {
                 amount: Uint128::new(950),
                 info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
             });
-            assert_eq!(resp.accrued_interest, Uint128::new(7808));
+            assert_eq!(resp.accrued_interest, Uint128::new(78082));
 
             //Assert Delegate Claims
             let resp: RewardsResponse = app
@@ -412,7 +414,7 @@ mod tests {
                 amount: Uint128::new(50),
                 info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
             });
-            assert_eq!(resp.accrued_interest, Uint128::new(410));
+            assert_eq!(resp.accrued_interest, Uint128::new(4109));
             
             //Claim for user
             let claim_msg = ExecuteMsg::ClaimRewards {
@@ -425,13 +427,13 @@ mod tests {
             //Check that the rewards were sent
             assert_eq!(
                 app.wrap().query_all_balances("user_1").unwrap(),
-                vec![coin(950, "credit_fulldenom"), coin(9_000_000, "mbrn_denom")]
+                vec![coin(950, "credit_fulldenom")]
             );
 
             //Undelegate
             let msg = ExecuteMsg::UpdateDelegations { 
                 governator_addr: Some(String::from("governator_addr")), 
-                mbrn_amount: Some(Uint128::new(500000)),
+                mbrn_amount: Some(Uint128::new(5_000000)),
                 delegate: Some(false), 
                 fluid: None, 
                 voting_power_delegation: None,
@@ -485,7 +487,7 @@ mod tests {
 
             //Stake MBRN as user
             let msg = ExecuteMsg::Stake { user: None };
-            let cosmos_msg = staking_contract.call(msg, vec![coin(1000, "mbrn_denom")]).unwrap();
+            let cosmos_msg = staking_contract.call(msg, vec![coin(1_000_000, "mbrn_denom")]).unwrap();
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
 
             //DepositFees
@@ -517,7 +519,7 @@ mod tests {
                         info: AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom")
                         },
-                        amount: Decimal::percent(1_00), //Its 1 bc there is 1000 stake total
+                        amount: Decimal::from_str("0.001").unwrap(), //Its .001 bc there is 1000000 stake total
                     },
                 },
             ]);
@@ -548,7 +550,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(resp.claimables.len(), 1 as usize);
-            assert_eq!(resp.accrued_interest, Uint128::new(8));
+            assert_eq!(resp.accrued_interest, Uint128::new(8_219));
 
             //User stake before Restake
             let resp_before: StakerResponse = app
@@ -570,7 +572,7 @@ mod tests {
             //Check that the rewards were sent
             assert_eq!(
                 app.wrap().query_all_balances("user_1").unwrap(),
-                vec![coin(1000, "credit_fulldenom"), coin(9_999_000, "mbrn_denom")]
+                vec![coin(1000, "credit_fulldenom"), coin(9_000_000, "mbrn_denom")]
             );
                 
             //Claim: Assert claim was saved and can't be double claimed
@@ -598,7 +600,7 @@ mod tests {
                 .unwrap();
 
             //Assert that the stake was restaked
-            assert_eq!(resp_before.total_staked + Uint128::new(8), resp_after.total_staked);
+            assert_eq!(resp_before.total_staked + Uint128::new(8_219), resp_after.total_staked);
         }
 
         #[test]

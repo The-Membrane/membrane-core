@@ -506,7 +506,7 @@ pub fn unstake(
                 .into_iter()
                 .sum();
 
-            //If withdrawing more than is not delegated, undelegate the excess
+            //If withdrawing more than is undelegated, undelegate the excess
             if withdrawable_amount > total_stake - total_delegations {
                 let mut undelegate_amount = withdrawable_amount - (total_stake - total_delegations);
                 for (i, delegation) in staker_delegation_info.clone().delegated_to.into_iter().enumerate() {
@@ -684,6 +684,10 @@ fn update_delegations(
                     return Err(ContractError::CustomError {
                         val: String::from("MBRN amount exceeds delegatible amount"),
                     });
+                } else if mbrn_amount < 1_000_000u128.into(){
+                    return Err(ContractError::CustomError {
+                        val: String::from("MBRN amount must be greater than 1"),
+                    });
                 }
                 //If no delegatible amount, return error
                 if total_delegatible_amount.is_zero() {
@@ -739,7 +743,16 @@ fn update_delegations(
                 let mut delegates_delegations = DELEGATIONS.load(deps.storage, valid_gov_addr.clone())?;
                 match delegates_delegations.delegated.iter().enumerate().find(|(_i, delegation)| delegation.delegate == info.clone().sender){
                     Some((index, _)) => match delegates_delegations.delegated[index].amount.checked_sub(mbrn_amount){
-                        Ok(new_amount) => delegates_delegations.delegated[index].amount = new_amount,
+                        Ok(new_amount) => {
+                            //Can't leave less than 1 MBRN in delegation
+                            if new_amount < 1_000_000u128.into(){
+                                //Remove
+                                delegates_delegations.delegated.remove(index);
+                            } else {
+                                //Update
+                                delegates_delegations.delegated[index].amount = new_amount
+                            }                            
+                        },
                         Err(_) => {
                             //If more than delegated, remove from delegate's delegated
                             delegates_delegations.delegated.remove(index);
@@ -762,7 +775,15 @@ fn update_delegations(
                 //Subtract from staker's delegated_to
                 match user_delegation_info.delegated_to.iter().enumerate().find(|(_i, delegation)| delegation.delegate == valid_gov_addr.clone()){
                     Some((index, _)) => match user_delegation_info.delegated_to[index].amount.checked_sub(mbrn_amount){
-                        Ok(new_amount) => user_delegation_info.delegated_to[index].amount = new_amount,
+                        Ok(new_amount) => 
+                            //Can't leave less than 1 MBRN in delegation
+                            if new_amount < 1_000_000u128.into(){
+                                //Remove
+                                user_delegation_info.delegated_to.remove(index);
+                            } else {
+                                //Update
+                                user_delegation_info.delegated_to[index].amount = new_amount;
+                            }
                         Err(_) => {
                             //If more than delegated, remove from staker's delegated_to
                             user_delegation_info.delegated_to.remove(index);
@@ -917,6 +938,10 @@ fn delegate_fluid_delegations(
         return Err(ContractError::CustomError {
             val: String::from("MBRN amount exceeds total fluid delegatible amount"),
         });
+    } else if mbrn_amount < 1_000_000u128.into(){
+        return Err(ContractError::CustomError {
+            val: String::from("MBRN amount must be greater than 1"),
+        });
     }
     if total_fluid_delegatible_amount.is_zero() {
         return Err(ContractError::CustomError {
@@ -937,8 +962,14 @@ fn delegate_fluid_delegations(
             //If delegation amount is greater than mbrn_amount, subtract mbrn_amount from delegation amount
             fluid_delegations[i].amount -= mbrn_amount;
 
-            let delegation_amount = mbrn_amount;
+            //Assert remaining delegation amount is greater than 1
+            if fluid_delegations[i].amount < 1_000_000u128.into(){
+                mbrn_amount += fluid_delegations[i].amount;
+                fluid_delegations.remove(i);
+            }
 
+            let delegation_amount = mbrn_amount;         
+            
             //Set mbrn_amount to 0
             mbrn_amount = Uint128::zero();
 

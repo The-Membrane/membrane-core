@@ -338,8 +338,8 @@ pub fn stake(
     let config = CONFIG.load(deps.storage)?;
 
     let valid_asset: Asset;
-    //Assert only MBRN was sent
-    if info.funds.len() == 1 && info.funds[0].denom == config.mbrn_denom {
+    //Assert only MBRN was sent && its at least 1 MBRN
+    if info.funds.len() == 1 && info.funds[0].denom == config.mbrn_denom && info.funds[0].amount >= 1_000_000u128.into() {
         valid_asset = assert_sent_native_token_balance(
             AssetInfo::NativeToken {
                 denom: config.clone().mbrn_denom,

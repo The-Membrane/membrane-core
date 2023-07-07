@@ -356,7 +356,7 @@ fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, reci
         //Initialize allocation 
         let allocation = recipient.clone().allocation.unwrap();
         
-        //Ratio of base Recipient's allocation.amount to total_staked
+        //Ratio of base Recipient's remaining allocation amount to total_staked
         allocation_ratios.push(decimal_division(
             Decimal::from_ratio(
                 allocation.amount - allocation.amount_withdrawn,

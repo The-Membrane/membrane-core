@@ -42,7 +42,7 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     let mut config = Config {
         owner: info.sender,
-        incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(10)),
+        incentive_rate: msg.incentive_rate.unwrap_or_else(|| Decimal::percent(9)),
         max_incentives: msg
             .max_incentives
             .unwrap_or_else(|| Uint128::new(10_000_000_000_000)),

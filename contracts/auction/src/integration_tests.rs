@@ -134,7 +134,7 @@ mod tests {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::one(),
-                                is_lp: false,
+                                decimals: 6,
                             })?)
                         }
                     }

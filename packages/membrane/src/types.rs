@@ -286,6 +286,8 @@ pub struct AssetOracleInfo {
     pub is_usd_par: bool,
     /// LP pool info
     pub lp_pool_info: Option<PoolInfo>,
+    /// Asset decimals
+    pub decimals: u64,
 }
 
 impl fmt::Display for AssetOracleInfo {

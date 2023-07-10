@@ -3,7 +3,7 @@ use cosmwasm_std::{Decimal, Uint128, Addr, StdResult};
 
 use pyth_sdk_cw::PriceIdentifier;
 
-use crate::{types::{AssetInfo, AssetOracleInfo, PriceInfo, TWAPPoolInfo}, math::{decimal_multiplication, decimal_division}};
+use crate::{types::{AssetInfo, AssetOracleInfo, PriceInfo, TWAPPoolInfo}, math::{decimal_multiplication}};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -109,24 +109,24 @@ pub struct PriceResponse {
     pub prices: Vec<PriceInfo>,
     /// Median price
     pub price: Decimal,
-    /// is LP?
-    pub is_lp: bool,
+    /// Asset decimals
+    pub decimals: u64,
 }
 
 impl PriceResponse {
     pub fn get_value(self, amount: Uint128) -> StdResult<Decimal> {
-        //If LP share token, divide amount to normalize decimals (from 18 to 6)
-        let amount: Decimal = if self.is_lp {
-            decimal_division(
-                Decimal::from_ratio(amount, Uint128::new(1u128)),
-                Decimal::from_ratio(Uint128::new(1_000_000_000_000u128), Uint128::new(1u128)),
-            )?
-        } else {
-            Decimal::from_ratio(amount, Uint128::new(1u128))
-        };
+        //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
+        let exponent_difference = self
+            .decimals
+            .checked_sub(6u64)
+            .unwrap();
+        let asset_amount = amount
+            / Uint128::new(10u64.pow(exponent_difference as u32) as u128);
+        let decimal_asset_amount =
+            Decimal::from_ratio(asset_amount, Uint128::new(1u128));
 
-        decimal_multiplication(self.price, amount)
-    }
+        decimal_multiplication(self.price, decimal_asset_amount)
+        }
 }
 
 #[cw_serde]

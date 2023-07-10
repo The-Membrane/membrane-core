@@ -235,6 +235,7 @@ mod tests {
                     }],
                     is_usd_par: false,
                     lp_pool_info: None,
+                    decimals: 6,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -254,6 +255,7 @@ mod tests {
                     }],
                     is_usd_par: false,
                     lp_pool_info: None,
+                    decimals: 6,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -273,6 +275,7 @@ mod tests {
                     }],
                     is_usd_par: false,
                     lp_pool_info: None,
+                    decimals: 6,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
@@ -293,6 +296,7 @@ mod tests {
                     }],
                     is_usd_par: false,
                     lp_pool_info: None,
+                    decimals: 6,
                 }),
                 remove: false,
             };
@@ -327,6 +331,7 @@ mod tests {
                     }],
                     is_usd_par: false,
                     lp_pool_info: None,
+                    decimals: 6,
                 },
             };
             let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();

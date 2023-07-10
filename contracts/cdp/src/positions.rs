@@ -2026,6 +2026,7 @@ pub fn edit_basket(
                         pools_for_osmo_twap: vec![credit_twap],
                         is_usd_par: false,
                         lp_pool_info: None,
+                        decimals: 6,
                     }),
                     remove: false,
                 })?,

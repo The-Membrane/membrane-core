@@ -495,7 +495,7 @@ pub fn get_lp_price(
     Ok(PriceResponse { 
         prices: oracle_sources,
         price: LP_price,
-        is_lp: true,
+        decimals: 18u64,
     })
 }
 
@@ -729,7 +729,7 @@ fn get_asset_price(
     Ok(PriceResponse {
         prices: oracle_prices,
         price: asset_price,
-        is_lp: false,
+        decimals: oracle_info.decimals,
     })
 }
 

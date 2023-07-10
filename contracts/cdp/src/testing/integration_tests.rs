@@ -1127,44 +1127,44 @@ mod tests {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(500),
-                                    is_lp: false,
+                                    decimals: 6,
                                 })?)
                             } else if asset_info.to_string() == String::from("credit_fulldenom") {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(98),
-                                    is_lp: false,
+                                    decimals: 6,
                                 })?)
                             } else if asset_info.to_string() == String::from("lp_denom") {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(200),
-                                    is_lp: false,
+                                    decimals: 6,
                                 })?)
                             } else {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::one(),
-                                    is_lp: false,
+                                    decimals: 6,
                                 })?)
                             }
                         } else if asset_info.to_string() == String::from("credit_fulldenom") { 
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::percent(98),
-                                is_lp: false,
+                                decimals: 6,
                             })?)
                         } else if asset_info.to_string() == String::from("lp_denom") {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::percent(200),
-                                is_lp: false,
+                                decimals: 6,
                             })?)
                         } else {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::one(),
-                                is_lp: false,
+                                decimals: 6,
                             })?)
                         }
                     }
@@ -1182,6 +1182,7 @@ mod tests {
                                 }],
                                 is_usd_par: false,
                                 lp_pool_info: None,
+                                decimals: 6,
                             }],
                         },
                         AssetResponse {
@@ -1197,6 +1198,7 @@ mod tests {
                                 }],
                                 is_usd_par: false,
                                 lp_pool_info: None,
+                                decimals: 6,
                             }],
                         }
                     ])?),
@@ -1238,44 +1240,44 @@ mod tests {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(500),
-                                    is_lp: false,
+                                    decimals: 6,
                                 })?)
                             } else if asset_info.to_string() == String::from("credit_fulldenom") {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(102),
-                                    is_lp: false,
+                                    decimals: 6,
                                 })?)
                             } else if asset_info.to_string() == String::from("lp_denom") {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(200),
-                                    is_lp: false,
+                                    decimals: 6,
                                 })?)
                             } else {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::one(),
-                                    is_lp: false,
+                                    decimals: 6,
                                 })?)
                             }
                         } else if asset_info.to_string() == String::from("credit_fulldenom") {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::percent(102),
-                                is_lp: false,
+                                decimals: 6,
                             })?)
                         } else if asset_info.to_string() == String::from("lp_denom") {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::percent(200),
-                                is_lp: false,
+                                decimals: 6,
                             })?)
                         } else {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::one(),
-                                is_lp: false,
+                                decimals: 6,
                             })?)
                         }
                     }
@@ -1293,6 +1295,7 @@ mod tests {
                                 }],
                                 is_usd_par: false,
                                 lp_pool_info: None,
+                                decimals: 6,
                             }],
                         },
                         AssetResponse {
@@ -1308,6 +1311,7 @@ mod tests {
                                 }],
                                 is_usd_par: false,
                                 lp_pool_info: None,
+                                decimals: 6,
                             }],
                         }
                     ])?),

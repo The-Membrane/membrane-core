@@ -468,6 +468,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                             ],
                             is_usd_par: false,
                             lp_pool_info: None,
+                            decimals: 6,
                         },
                     })?, 
                     funds: vec![],
@@ -483,6 +484,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                             pools_for_osmo_twap: vec![],
                             is_usd_par: false,
                             lp_pool_info: None,
+                            decimals: 6,
                         },
                     })?, 
                     funds: vec![],
@@ -504,6 +506,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                             ],
                             is_usd_par: true,
                             lp_pool_info: None,
+                            decimals: 6,
                             
                         },
                     })?, 
@@ -1321,7 +1324,8 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                                             },
                                         ],
                                     }
-                                ),                                
+                                ),                       
+                                decimals: 18,         
                             },
                         })?, 
                         funds: vec![],
@@ -1405,7 +1409,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                             ],
                             is_usd_par: false,
                             lp_pool_info: None,
-                            
+                            decimals: 6,                            
                         },
                     })?, 
                     funds: vec![],

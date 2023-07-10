@@ -1127,37 +1127,44 @@ mod tests {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(500),
+                                    is_lp: false,
                                 })?)
                             } else if asset_info.to_string() == String::from("credit_fulldenom") {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(98),
+                                    is_lp: false,
                                 })?)
                             } else if asset_info.to_string() == String::from("lp_denom") {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(200),
+                                    is_lp: false,
                                 })?)
                             } else {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::one(),
+                                    is_lp: false,
                                 })?)
                             }
                         } else if asset_info.to_string() == String::from("credit_fulldenom") { 
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::percent(98),
+                                is_lp: false,
                             })?)
                         } else if asset_info.to_string() == String::from("lp_denom") {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::percent(200),
+                                is_lp: false,
                             })?)
                         } else {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::one(),
+                                is_lp: false,
                             })?)
                         }
                     }
@@ -1231,37 +1238,44 @@ mod tests {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(500),
+                                    is_lp: false,
                                 })?)
                             } else if asset_info.to_string() == String::from("credit_fulldenom") {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(102),
+                                    is_lp: false,
                                 })?)
                             } else if asset_info.to_string() == String::from("lp_denom") {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(200),
+                                    is_lp: false,
                                 })?)
                             } else {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::one(),
+                                    is_lp: false,
                                 })?)
                             }
                         } else if asset_info.to_string() == String::from("credit_fulldenom") {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::percent(102),
+                                is_lp: false,
                             })?)
                         } else if asset_info.to_string() == String::from("lp_denom") {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::percent(200),
+                                is_lp: false,
                             })?)
                         } else {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::one(),
+                                is_lp: false,
                             })?)
                         }
                     }

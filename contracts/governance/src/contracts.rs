@@ -18,6 +18,7 @@ use membrane::staking::{
     Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse, DelegationResponse,
 };
 
+use std::cmp::min;
 use std::str::FromStr;
 
 use crate::error::ContractError;
@@ -707,6 +708,13 @@ pub fn calc_voting_power(
     quadratic_voting: bool,
 ) -> StdResult<Uint128> {
     let config = CONFIG.load(deps.storage)?;
+    let non_vested_total: Uint128 = deps
+        .querier
+        .query::<TotalStakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.staking_contract_addr.to_string(),
+            msg: to_binary(&StakingQueryMsg::TotalStaked {  })?,
+        }))?
+        .total_not_including_vested;
 
     //Pulls stake from before Proposal's start_time
     let staked_mbrn = deps
@@ -753,6 +761,8 @@ pub fn calc_voting_power(
             }))?;
             
         total = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
+        // Vested voting power can't be more than 19% of total voting power pre-quadratic 
+        total = min(total, non_vested_total * Decimal::percent(19));
     } else if vesting {
         //If vesting but recipient isn't passed, use the sender
         let recipient = sender.clone();
@@ -765,6 +775,9 @@ pub fn calc_voting_power(
             }))?;
 
         total = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
+        // Vested voting power can't be more than 19% of total voting power pre-quadratic 
+        total = min(total, non_vested_total * Decimal::percent(19));        
+        
     } else {
         total = Uint128::zero();
     }

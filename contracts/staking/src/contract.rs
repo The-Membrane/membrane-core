@@ -465,13 +465,8 @@ pub fn unstake(
         total_staker_deposits
     };
 
-    //Assert valid stake
-    let withdraw_amount = mbrn_withdraw_amount.unwrap_or(total_stake);
-    if withdraw_amount > total_stake {
-        return Err(ContractError::CustomError {
-            val: String::from("Invalid withdrawal amount"),
-        });
-    }
+    //Enforce valid withdraw amount
+    let withdraw_amount = mbrn_withdraw_amount.unwrap_or(total_stake).min(total_stake);
 
     //info.sender is user
     let (claimables, accrued_interest, withdrawable_amount) = withdraw_from_state(

@@ -542,7 +542,7 @@ pub fn query_price(
     config: Config,
     asset_info: AssetInfo,
     is_deposit_function: bool,
-) -> StdResult<Decimal> {
+) -> StdResult<PriceResponse> {
     //Set timeframe
     let mut twap_timeframe: u64 = config.collateral_twap_timeframe;
 
@@ -562,13 +562,13 @@ pub fn query_price(
             let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
 
             if time_elapsed <= config.oracle_time_limit {
-                return Ok(stored_price.price)
+                return Ok(stored_price.clone().price)
             }
         }
     }
     
     //Query Price
-    let price = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    let res = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.oracle_contract.unwrap().to_string(),
         msg: to_binary(&OracleQueryMsg::Price {
             asset_info,
@@ -578,7 +578,7 @@ pub fn query_price(
         })?,
     })) {
         Ok(res) => {
-            res.price
+            res
         }
         Err(err) => {
             //if the oracle is down, error
@@ -586,7 +586,7 @@ pub fn query_price(
         }
     };
 
-    Ok(price)
+    Ok(res)
 }
 
 /// Get Basket Redeemability
@@ -691,7 +691,7 @@ pub fn get_asset_values(
         for (_i, cAsset) in assets.iter().enumerate() {
             //Query prices
             //The oracle handles LP pricing
-            let price = query_price(
+            let price_res = query_price(
                 storage,
                 querier,
                 env.clone(),
@@ -699,13 +699,10 @@ pub fn get_asset_values(
                 cAsset.clone().asset.info,
                 is_deposit_function,
             )?;
+            let cAsset_value = price_res.clone().get_value(cAsset.asset.amount)?;
 
-            cAsset_prices.push(price);
-            let collateral_value = decimal_multiplication(
-                Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128)),
-                price,
-            )?;
-            cAsset_values.push(collateral_value);
+            cAsset_prices.push(price_res.price);
+            cAsset_values.push(cAsset_value);
         
         }
     }

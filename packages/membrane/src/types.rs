@@ -2,7 +2,7 @@ use prost::Message;
 use core::fmt;
 use std::{str::FromStr, convert::TryFrom};
 
-use crate::{math::{Decimal256, Uint256}, liq_queue::QueueResponse};
+use crate::{math::{Decimal256, Uint256}, liq_queue::QueueResponse, oracle::PriceResponse};
 
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Decimal, Uint128, StdError};
@@ -317,7 +317,7 @@ impl fmt::Display for TWAPPoolInfo {
 #[cw_serde]
 pub struct StoredPrice {
     /// Price
-    pub price: Decimal,
+    pub price: PriceResponse,
     /// Time of price in seconds
     pub last_time_updated: u64,
     /// Previous price to measure volatility

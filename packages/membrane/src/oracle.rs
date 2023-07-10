@@ -1,9 +1,9 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Decimal, Uint128, Addr};
+use cosmwasm_std::{Decimal, Uint128, Addr, StdResult};
 
 use pyth_sdk_cw::PriceIdentifier;
 
-use crate::types::{AssetInfo, AssetOracleInfo, PriceInfo, TWAPPoolInfo};
+use crate::{types::{AssetInfo, AssetOracleInfo, PriceInfo, TWAPPoolInfo}, math::{decimal_multiplication, decimal_division}};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -109,6 +109,24 @@ pub struct PriceResponse {
     pub prices: Vec<PriceInfo>,
     /// Median price
     pub price: Decimal,
+    /// is LP?
+    pub is_lp: bool,
+}
+
+impl PriceResponse {
+    pub fn get_value(self, amount: Uint128) -> StdResult<Decimal> {
+        //If LP share token, divide amount to normalize decimals (from 18 to 6)
+        let amount: Decimal = if self.is_lp {
+            decimal_division(
+                Decimal::from_ratio(amount, Uint128::new(1u128)),
+                Decimal::from_ratio(Uint128::new(1_000_000_000_000u128), Uint128::new(1u128)),
+            )?
+        } else {
+            Decimal::from_ratio(amount, Uint128::new(1u128))
+        };
+
+        decimal_multiplication(self.price, amount)
+    }
 }
 
 #[cw_serde]

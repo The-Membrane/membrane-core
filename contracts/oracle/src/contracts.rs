@@ -422,7 +422,7 @@ pub fn get_lp_price(
 
         let mut price_infos = vec![];
 
-        //Convert res into a list of prices & save price infos
+        //Convert res into a list of prices & store price infos
         let prices = res
             .into_iter() 
             .map(|price| 
@@ -487,7 +487,7 @@ pub fn get_lp_price(
     //Calculate LP price
     let LP_price = {
         let share_amount =
-            Decimal::from_ratio(Uint128::new(1_000_000u128), Uint128::new(1u128));
+            Decimal::from_ratio(Uint128::new(1_000_000_000_000_000_000u128), Uint128::new(1u128));//18 decimals for 1
         
         decimal_division(LP_value, share_amount)?
     };
@@ -495,6 +495,7 @@ pub fn get_lp_price(
     Ok(PriceResponse { 
         prices: oracle_sources,
         price: LP_price,
+        is_lp: true,
     })
 }
 
@@ -728,6 +729,7 @@ fn get_asset_price(
     Ok(PriceResponse {
         prices: oracle_prices,
         price: asset_price,
+        is_lp: false,
     })
 }
 

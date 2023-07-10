@@ -2414,7 +2414,7 @@ pub fn store_price(
 
         price.price_vol_limiter = 
         PriceVolLimiter {
-                price: price.clone().price,
+                price: price.clone().price.price,
                 last_time_updated: env.block.time.seconds(),                  
         };
     }

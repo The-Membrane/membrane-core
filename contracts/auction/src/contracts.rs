@@ -392,6 +392,8 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
                 basket_id: None,
             })?;
         let desired_asset_price = res.price;
+        //Get value of sent desired asset
+        let desired_asset_value = res.get_value(coin.amount)?;
                 
         //Get auction asset price
         let res: PriceResponse = deps.querier.query_wasm_smart(
@@ -404,13 +406,10 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
                     oracle_time_limit: 600,
                     basket_id: None,
                 })?;
-        let auction_asset_price = res.price;
 
-        //Get value of sent desired asset
-        let desired_asset_value = decimal_multiplication(desired_asset_price, Decimal::from_ratio(coin.amount, Uint128::one()))?;
-
-        //Get value of auction asset - discount
-        let mut auction_asset_value = decimal_multiplication(auction_asset_price, Decimal::from_ratio(auction.auction_asset.amount, Uint128::one()))?;
+        let auction_asset_price = res.price;        
+        //Get value of auction asset
+        let mut auction_asset_value = res.get_value(auction.auction_asset.amount)?;
         
         //Get discount
         let discount_ratio = get_discount_ratio(env.clone(), auction.clone().auction_start_time, config.clone())?;

@@ -21,7 +21,7 @@ use membrane::stability_pool::ExecuteMsg as SP_ExecuteMsg;
 use membrane::math::{decimal_division, decimal_multiplication, Uint256, decimal_subtraction};
 use membrane::types::{
     cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, LiquidityInfo, Position,
-    StoredPrice, SupplyCap, UserInfo, PriceVolLimiter, PoolType, RedemptionInfo, PositionRedemption
+    StoredPrice, SupplyCap, UserInfo, PriceVolLimiter, PoolType, RedemptionInfo, PositionRedemption, PoolInfo, LPAssetInfo
 };
 
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
@@ -1933,7 +1933,39 @@ pub fn edit_basket(
             }
 
             //Update pool_info
-            new_cAsset.pool_info = Some(pool_info);
+            new_cAsset.pool_info = Some(pool_info.clone());
+
+            //Add share_token to the oracle
+            msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.clone().oracle_contract.unwrap().to_string(),
+                msg: to_binary(&OracleExecuteMsg::AddAsset { 
+                    asset_info: new_cAsset.clone().asset.info,
+                    oracle_info: AssetOracleInfo { 
+                        basket_id: Uint128::one(), 
+                        pools_for_osmo_twap: vec![],
+                        is_usd_par: false,
+                        lp_pool_info: Some(
+                            PoolInfo { 
+                                pool_id: pool_info.pool_id,
+                                asset_infos: vec![
+                                    LPAssetInfo { 
+                                        info: AssetInfo::NativeToken { denom: pool_assets[0].clone().denom  }, 
+                                        decimals: 6, 
+                                        ratio: Decimal::percent(50),
+                                    },
+                                    LPAssetInfo { 
+                                        info: AssetInfo::NativeToken { denom: pool_assets[1].clone().denom  }, 
+                                        decimals: 6, 
+                                        ratio: Decimal::percent(50),
+                                    },
+                                ],
+                            }
+                        ),                       
+                        decimals: 18,         
+                    },
+                })?,
+                funds: vec![],
+            }));
 
         } else {
             //Asserting the Collateral Asset has an oracle
@@ -2061,7 +2093,7 @@ pub fn edit_basket(
     };
     let mut attrs = vec![attr("method", "edit_basket")];
 
-    //Create EditAssetMsg for Liquidity contract
+    //Add pool_infos to the Liquidity contract
     if let Some(pool_infos) = editable_parameters.clone().credit_pool_infos {
         attrs.push(attr("new_pool_infos", format!("{:?}", pool_infos)));
 

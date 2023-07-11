@@ -5,6 +5,7 @@ use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Resp
 use membrane::helpers::{router_native_to_native, pool_query_and_exit, query_stability_pool_fee, asset_to_coin, validate_position_owner};
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction, Uint256};
 use membrane::cdp::{Config, ExecuteMsg, CallbackMsg};
+use membrane::oracle::PriceResponse;
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::stability_pool::{LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
@@ -83,7 +84,7 @@ pub fn liquidate(
 
     //Send liquidation amounts and info to the modules
     //Calculate how much needs to be liquidated (down to max_borrow_LTV):
-    let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices) = get_avg_LTV(
+    let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices_res) = get_avg_LTV(
         storage,
         env.clone(),
         querier,
@@ -92,6 +93,8 @@ pub fn liquidate(
         false,
         true,
     )?;
+    //Convert from Response to price (Decimal)
+    let cAsset_prices = cAsset_prices_res.clone().into_iter().map(|price| price.price).collect::<Vec<Decimal>>();
 
     //Get repay value and repay_amount
     let (repay_value, mut credit_repay_amount) = get_repay_quantities(config.clone(), basket.clone(), target_position.clone(), current_LTV, avg_borrow_LTV)?;
@@ -148,7 +151,7 @@ pub fn liquidate(
         &mut leftover_repayment, 
         repay_value, 
         cAsset_ratios, 
-        cAsset_prices, 
+        cAsset_prices_res, 
         &mut submessages, 
         &mut caller_fee_messages, 
         &mut per_asset_repayment
@@ -403,7 +406,7 @@ fn per_asset_fulfillments(
     leftover_repayment: &mut Decimal,
     repay_value: Decimal,
     cAsset_ratios: Vec<Decimal>,
-    cAsset_prices: Vec<Decimal>,
+    cAsset_prices: Vec<PriceResponse>,
     submessages: &mut Vec<SubMsg>,
     caller_fee_messages: &mut Vec<CosmosMsg>,
     per_asset_repayment: &mut Vec<Decimal>,
@@ -418,9 +421,21 @@ fn per_asset_fulfillments(
             decimal_multiplication(credit_repay_amount, cAsset_ratios[num])?;
 
 
-        let collateral_price = cAsset_prices[num];
+        let collateral_price = cAsset_prices[num].price;
         let collateral_repay_value_for_fees = decimal_multiplication(repay_value, cAsset_ratios[num])?;
-        let collateral_repay_amount_for_fees = decimal_division(collateral_repay_value_for_fees, collateral_price)?;
+        let mut collateral_repay_amount_for_fees = decimal_division(collateral_repay_value_for_fees, collateral_price)?;
+        //ReAdd decimals to collateral_repay_amount if it was removed in valuation to normalize to 6 decimals
+        match cAsset_prices[num].decimals.checked_sub(6u64) {
+            Some(decimals) => {
+                collateral_repay_amount_for_fees = decimal_multiplication(
+                    collateral_repay_amount_for_fees,
+                    Decimal::from_ratio(Uint128::from(10u128.pow(decimals as u32)), Uint128::one())
+                )?;
+            },
+            None => {
+                return Err(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") });
+            }
+        }
 
         //Subtract Caller fee from Position's claims
         let caller_fee_in_collateral_amount =
@@ -458,7 +473,19 @@ fn per_asset_fulfillments(
         //Has to be after or user_repayment would disincentivize liquidations which would force a non-trivial debt minimum
         let collateral_repay_value =
             decimal_multiplication(repay_amount_per_asset, basket.clone().credit_price)?;
-        let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?;
+        let mut collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?;
+        //ReAdd decimals to collateral_repay_amount if it was removed in valuation to normalize to 6 decimals
+        match cAsset_prices[num].decimals.checked_sub(6u64) {
+            Some(decimals) => {
+                collateral_repay_amount = decimal_multiplication(
+                    collateral_repay_amount,
+                    Decimal::from_ratio(Uint128::from(10u128.pow(decimals as u32)), Uint128::one())
+                )?;
+            },
+            None => {
+                return Err(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") });
+            }
+        }
 
         //Subtract fees from leftover_position value
         //fee_value = total_fee_collateral_amount * collateral_price
@@ -511,8 +538,28 @@ fn per_asset_fulfillments(
 
             //Calculate how much collateral we are sending to the liq_queue to liquidate
             let leftover: Uint128 = Uint128::from_str(&res.leftover_collateral)?;
-            let queue_asset_amount_paid: Uint128 =
+            let mut queue_asset_amount_paid: Uint128 =
                 (collateral_repay_amount * Uint128::new(1u128)) - leftover;
+
+            //Call Liq Queue::Liquidate for the asset
+            let liq_msg = LQ_ExecuteMsg::Liquidate {
+                credit_price: basket.credit_price,
+                collateral_price,
+                collateral_amount: Uint256::from(queue_asset_amount_paid.u128()),
+                bid_for: cAsset.clone().asset.info,
+                position_id,
+                position_owner: valid_position_owner.clone().to_string(),
+            };
+
+            //Renormalize decimals before we use the amount to compare valuations
+            match cAsset_prices[num].decimals.checked_sub(6u64) {
+                Some(decimals) => {
+                    queue_asset_amount_paid = queue_asset_amount_paid / Uint128::from(10u128.pow(decimals as u32));
+                },
+                None => {
+                    return Err(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") });
+                }
+            }
 
             //Keep track of remaining position value
             //value_paid_to_queue = queue_asset_amount_paid * collateral_price
@@ -532,16 +579,7 @@ fn per_asset_fulfillments(
                 Decimal::from_ratio(queue_credit_repaid, Uint128::new(1u128)),
             )?;
 
-            //Call Liq Queue::Liquidate for the asset
-            let liq_msg = LQ_ExecuteMsg::Liquidate {
-                credit_price: basket.credit_price,
-                collateral_price,
-                collateral_amount: Uint256::from(queue_asset_amount_paid.u128()),
-                bid_for: cAsset.clone().asset.info,
-                position_id,
-                position_owner: valid_position_owner.clone().to_string(),
-            };
-
+            //Create CosmosMsg
             let msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: basket.clone().liq_queue.unwrap().to_string(),
                 msg: to_binary(&liq_msg)?,
@@ -756,7 +794,7 @@ fn get_lp_liq_withdraw_msg(
     position_id: Uint128,
     position_owner: Addr,
     cAsset_ratios: Vec<Decimal>,
-    cAsset_prices: Vec<Decimal>,
+    cAsset_prices: Vec<PriceResponse>,
     repay_value: Decimal,
     cAsset: cAsset,
     i: usize,
@@ -765,12 +803,24 @@ fn get_lp_liq_withdraw_msg(
 
     ////Calculate amount of asset to liquidate
     // Amount to liquidate = cAsset_ratio * % of position insolvent * cAsset amount
-    let lp_liquidate_amount = decimal_division( 
+    let mut lp_liquidate_amount = decimal_division( 
         decimal_multiplication(
             cAsset_ratios[i],
             repay_value)?, 
-            cAsset_prices[i])?
-    * Uint128::new(1u128);
+            cAsset_prices[i].price)?;
+    
+    //ReAdd decimals if it was removed in valuation when normalizing to 6 decimals
+    match cAsset_prices[i].decimals.checked_sub(6u64) {
+        Some(decimals) => {
+            lp_liquidate_amount = decimal_multiplication(
+                lp_liquidate_amount,
+                Decimal::from_ratio(Uint128::from(10u128.pow(decimals as u32)), Uint128::one())
+            )?;
+        },
+        None => {
+            return Err(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") });
+        }
+    }
 
     //Remove asset from Position claims
     update_position_claims(
@@ -780,7 +830,7 @@ fn get_lp_liq_withdraw_msg(
         position_id,
         position_owner,
         cAsset.asset.info,
-        lp_liquidate_amount,
+        lp_liquidate_amount.to_uint_floor(),
     )?;   
 
     Ok( pool_query_and_exit(
@@ -788,7 +838,7 @@ fn get_lp_liq_withdraw_msg(
         env, 
         config.osmosis_proxy.unwrap().to_string(), 
         pool_info.pool_id, 
-        lp_liquidate_amount
+        lp_liquidate_amount.to_uint_floor()
     )?.0 )
 }
 
@@ -882,10 +932,22 @@ pub fn sell_wall(
         } else {
 
             //Calc collateral_repay_amount        
-            let collateral_price = cAsset_prices[i];
+            let collateral_price = cAsset_prices[i].price;
             let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[i])?;
-            let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?;  
-            //The repay_amount after the split may be greater so the amount used to update claims isn't necessary the same amount that'll get sold
+            let mut collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?;  
+            //The repay_amount per asset may be greater after LP splits so the amount used to update claims isn't necessary the same amount that'll get sold
+            //ReAdd decimals to collateral_repay_amount if it was removed in valuation to normalize to 6 decimals
+            match cAsset_prices[i].decimals.checked_sub(6u64) {
+                Some(decimals) => {
+                    collateral_repay_amount = decimal_multiplication(
+                        collateral_repay_amount,
+                        Decimal::from_ratio(Uint128::from(10u128.pow(decimals as u32)), Uint128::one())
+                    )?;
+                },
+                None => {
+                    return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") }));
+                }
+            }
 
             //Remove assets from Position claims before spliting the LP cAsset to ensure excess claims aren't removed
             //Avoid a situation where the user's LP token claims are reduced && it's pool asset claims are reduced, doubling the "loss" of funds due to state mismanagement
@@ -923,9 +985,21 @@ pub fn sell_wall(
     for (index, ratio) in cAsset_ratios.into_iter().enumerate() {
 
         //Calc collateral_repay_amount        
-        let collateral_price = cAsset_prices[index];
+        let collateral_price = cAsset_prices[index].price;
         let collateral_repay_value = decimal_multiplication(repay_value, ratio)?;
-        let collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?;                
+        let mut collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?; 
+        //ReAdd decimals to collateral_repay_amount if it was removed in valuation to normalize to 6 decimals
+        match cAsset_prices[index].decimals.checked_sub(6u64) {
+            Some(decimals) => {
+                collateral_repay_amount = decimal_multiplication(
+                    collateral_repay_amount,
+                    Decimal::from_ratio(Uint128::from(10u128.pow(decimals as u32)), Uint128::one())
+                )?;
+            },
+            None => {
+                return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") }));
+            }
+        }              
 
         let hook_msg = to_binary(&ExecuteMsg::Repay {
             position_id,

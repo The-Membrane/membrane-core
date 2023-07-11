@@ -385,7 +385,7 @@ pub fn query_collateral_rates(
             config,
             false
         )?
-        .1[0];
+        .1[0].price;
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
             //Compare market price & redemption price
@@ -464,7 +464,7 @@ pub fn query_basket_credit_interest(
             config,
             false
         )?
-        .1[0];
+        .1[0].price;
 
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
@@ -508,7 +508,7 @@ pub fn get_cAsset_ratios(
     querier: QuerierWrapper,
     collateral_assets: Vec<cAsset>,
     config: Config,
-) -> StdResult<(Vec<Decimal>, Vec<Decimal>)> {
+) -> StdResult<(Vec<Decimal>, Vec<PriceResponse>)> {
     let (cAsset_values, cAsset_prices) = get_asset_values(
         storage,
         env,
@@ -673,7 +673,7 @@ pub fn get_asset_values(
     assets: Vec<cAsset>,
     config: Config,
     is_deposit_function: bool,
-) -> StdResult<(Vec<Decimal>, Vec<Decimal>)> {
+) -> StdResult<(Vec<Decimal>, Vec<PriceResponse>)> {
     //Enforce Vec max size
     if assets.len() > 50 {
         return Err(StdError::GenericErr {
@@ -685,7 +685,7 @@ pub fn get_asset_values(
     //Using the index in the for loop to parse through the assets Vec and collateral_assets Vec
     //, as they are now aligned due to the collateral check w/ the Config's data
     let mut cAsset_values: Vec<Decimal> = vec![];
-    let mut cAsset_prices: Vec<Decimal> = vec![];
+    let mut cAsset_prices: Vec<PriceResponse> = vec![];
 
     if config.oracle_contract.is_some() {
         for (_i, cAsset) in assets.iter().enumerate() {
@@ -699,9 +699,9 @@ pub fn get_asset_values(
                 cAsset.clone().asset.info,
                 is_deposit_function,
             )?;
-            let cAsset_value = price_res.clone().get_value(cAsset.asset.amount)?;
+            let cAsset_value = price_res.get_value(cAsset.asset.amount)?;
 
-            cAsset_prices.push(price_res.price);
+            cAsset_prices.push(price_res);
             cAsset_values.push(cAsset_value);
         
         }
@@ -720,9 +720,9 @@ pub fn get_avg_LTV(
     collateral_assets: Vec<cAsset>,
     is_deposit_function: bool,
     is_liquidation_funciton: bool, //Skip softened borrow LTV
-) -> StdResult<(Decimal, Decimal, Decimal, Vec<Decimal>)> {
+) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>)> {
     //Calc total value of collateral
-    let (cAsset_values, cAsset_prices) = get_asset_values(
+    let (cAsset_values, cAsset_price_res) = get_asset_values(
         storage,
         env.clone(),
         querier,
@@ -746,7 +746,7 @@ pub fn get_avg_LTV(
     //Calculate avg LTV & return values
     calculate_avg_LTV(
         cAsset_values, 
-        cAsset_prices, 
+        cAsset_price_res, 
         collateral_assets, 
         basket.clone().collateral_types, 
         basket_cAsset_ratios,
@@ -757,12 +757,12 @@ pub fn get_avg_LTV(
 /// Calculations for avg_borrow_LTV, avg_max_LTV, total_value and cAsset_prices
 pub fn calculate_avg_LTV(
     cAsset_values: Vec<Decimal>,
-    cAsset_prices: Vec<Decimal>,    
+    cAsset_prices: Vec<PriceResponse>,    
     mut collateral_assets: Vec<cAsset>,
     basket_collateral_assets: Vec<cAsset>,
     basket_cAsset_ratios: Vec<Decimal>,
     is_liquidation_funciton: bool,
-) -> StdResult<(Decimal, Decimal, Decimal, Vec<Decimal>)> {
+) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>)> {
     let total_value: Decimal = cAsset_values.iter().sum();
 
     //getting each cAsset's % of total value
@@ -843,7 +843,7 @@ pub fn insolvency_check(
 ) -> StdResult<(bool, Decimal, Uint128)> { //insolvent, current_LTV, available_fee
 
     //Get avg LTVs
-    let avg_LTVs: (Decimal, Decimal, Decimal, Vec<Decimal>) =
+    let avg_LTVs: (Decimal, Decimal, Decimal, Vec<PriceResponse>) =
         get_avg_LTV(storage, env, querier, config, collateral_assets.clone(), false, true)?;
 
     //Insolvency check
@@ -853,7 +853,7 @@ pub fn insolvency_check(
 /// Function handles calculations for the insolvency check
 pub fn insolvency_check_calc(
     //BorrowLTV, MaxLTV, TotalAssetValue, cAssetPrices
-    avg_LTVs: (Decimal, Decimal, Decimal, Vec<Decimal>),    
+    avg_LTVs: (Decimal, Decimal, Decimal, Vec<PriceResponse>),    
     collateral_assets: Vec<cAsset>, 
     credit_amount: Decimal,
     credit_price: Decimal,

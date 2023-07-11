@@ -428,7 +428,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
                     overpay = overpay * Uint128::from(10u128.pow(overpay_decimals as u32));
                 },
                 None => {
-                    return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Overpay decimals cannot be less than 0") }));
+                    return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") }));
                 }
             }
 
@@ -448,7 +448,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
                     successful_swap_amount = successful_swap_amount * Uint128::from(10u128.pow(swap_amount_decimals as u32));
                 },
                 None => {
-                    return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Overpay decimals cannot be less than 0") }));
+                    return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") }));
                 }
             }
             auction.auction_asset.amount = decimal_division((auction_asset_value - desired_asset_value), auction_asset_price)? * Uint128::one();

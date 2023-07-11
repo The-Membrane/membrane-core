@@ -413,7 +413,7 @@ pub fn accrue(
             config.clone(),
             is_deposit_function,
         )?
-        .1[0];
+        .1[0].price;
 
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {

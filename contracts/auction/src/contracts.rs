@@ -362,7 +362,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
     let config = CONFIG.load(deps.storage)?;
 
     let mut overpay = Uint128::zero();
-    let successful_swap_amount;
+    let mut successful_swap_amount;
 
     let mut msgs: Vec<CosmosMsg> = vec![];
     let mut attrs = vec![attr("method", "swap_with_contract_desired_asset")];
@@ -381,7 +381,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
     if !auction.auction_asset.amount.is_zero() && auction.auction_start_time <= env.block.time.seconds() {
 
         //Get desired_asset price
-        let res: PriceResponse = deps.querier.query_wasm_smart(
+        let desired_res: PriceResponse = deps.querier.query_wasm_smart(
             config.clone().oracle_contract.to_string(), 
         &OracleQueryMsg::Price {
                 asset_info: AssetInfo::NativeToken {
@@ -391,12 +391,12 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
                 oracle_time_limit: 600,
                 basket_id: None,
             })?;
-        let desired_asset_price = res.price;
+        let desired_asset_price = desired_res.price;
         //Get value of sent desired asset
-        let desired_asset_value = res.get_value(coin.amount)?;
+        let desired_asset_value = desired_res.get_value(coin.amount)?;
                 
         //Get auction asset price
-        let res: PriceResponse = deps.querier.query_wasm_smart(
+        let auction_res: PriceResponse = deps.querier.query_wasm_smart(
             config.clone().oracle_contract.to_string(), 
             &OracleQueryMsg::Price {
                     asset_info: AssetInfo::NativeToken {
@@ -407,9 +407,9 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
                     basket_id: None,
                 })?;
 
-        let auction_asset_price = res.price;        
+        let auction_asset_price = auction_res.price;        
         //Get value of auction asset
-        let mut auction_asset_value = res.get_value(auction.auction_asset.amount)?;
+        let mut auction_asset_value = auction_res.get_value(auction.auction_asset.amount)?;
         
         //Get discount
         let discount_ratio = get_discount_ratio(env.clone(), auction.clone().auction_start_time, config.clone())?;
@@ -417,11 +417,21 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
         auction_asset_value = decimal_multiplication(auction_asset_value, discount_ratio)?.floor();
 
         //Get successful_swap_amount
-        //If the value of the sent MBRN is greater than the value of the auction asset, set overpay amount
+        //If the value of the sent desired_Asset is greater than the value of the auction asset, set overpay amount
         //Zero auction asset amount
         if desired_asset_value > auction_asset_value {
 
-            overpay = decimal_division((desired_asset_value - auction_asset_value), desired_asset_price)? * Uint128::one();
+            //Calc overpay amount & reAdd it's decimal places if more than 6
+            overpay = decimal_division((desired_asset_value - auction_asset_value), desired_asset_price)?.to_uint_floor();
+            match desired_res.decimals.checked_sub(6u64) {
+                Some(overpay_decimals) => {
+                    overpay = overpay * Uint128::from(10u128.pow(overpay_decimals as u32));
+                },
+                None => {
+                    return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Overpay decimals cannot be less than 0") }));
+                }
+            }
+
             successful_swap_amount = auction.auction_asset.amount;
             auction.auction_asset.amount = Uint128::zero();
 
@@ -429,9 +439,18 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
             FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
 
         } else if desired_asset_value < auction_asset_value {
-            //If the value of the sent MBRN is less than the value of the auction asset, set successful_swap_amount
+            //If the value of the sent desired_Asset is less than the value of the auction asset, set successful_swap_amount
             //Update auction asset amount
-            successful_swap_amount = decimal_division(desired_asset_value, auction_asset_price)? * Uint128::one();
+            successful_swap_amount = decimal_division(desired_asset_value, auction_asset_price)?.to_uint_floor();
+            //Readd decimal places for the auction_asset amount if more than 6 
+            match auction_res.decimals.checked_sub(6u64) {
+                Some(swap_amount_decimals) => {
+                    successful_swap_amount = successful_swap_amount * Uint128::from(10u128.pow(swap_amount_decimals as u32));
+                },
+                None => {
+                    return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Overpay decimals cannot be less than 0") }));
+                }
+            }
             auction.auction_asset.amount = decimal_division((auction_asset_value - desired_asset_value), auction_asset_price)? * Uint128::one();
             
             //Update Auction

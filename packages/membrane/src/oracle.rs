@@ -114,7 +114,7 @@ pub struct PriceResponse {
 }
 
 impl PriceResponse {
-    pub fn get_value(self, amount: Uint128) -> StdResult<Decimal> {
+    pub fn get_value(&self, amount: Uint128) -> StdResult<Decimal> {
         //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
         let exponent_difference = self
             .decimals

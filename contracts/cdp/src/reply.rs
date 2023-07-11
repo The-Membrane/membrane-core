@@ -26,9 +26,9 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
             )?[0];
 
             //Skip if balance is 0
-            if credit_asset_balance.is_zero() {
-                return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
-            }
+            // if credit_asset_balance.is_zero() {
+            //     return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
+            // }
 
             //Load repay msg binary from storage
             let hook_msg: Binary = ROUTER_REPAY_MSG.load(deps.storage)?;
@@ -192,7 +192,7 @@ pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
                     deps.querier, 
                     &mut prop, 
                     repay_amount)?;
-                messages.extend(lp_withdraw_msgs);
+                // messages.extend(lp_withdraw_msgs);
                 submessages.extend(sell_wall_msgs);
 
             } else {                    
@@ -358,7 +358,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     deps.querier, 
                     &mut liquidation_propagation, 
                     repay_amount)?;
-                messages.extend(lp_withdraw_msgs);
+                // messages.extend(lp_withdraw_msgs);
                 submessages.extend(sell_wall_msgs);
 
                 //Save to propagate
@@ -391,12 +391,12 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                         deps.querier, 
                         &mut liquidation_propagation, 
                         leftover_repayment)?;
-                    messages.extend(lp_withdraw_msgs);
+                    // messages.extend(lp_withdraw_msgs);
                     submessages.extend(sell_wall_msgs);
 
                     LIQUIDATION.save(deps.storage, &liquidation_propagation)?;                   
                 }
-
+               
                 //Send whatever is able to the Stability Pool
                 let sp_repay_amount = decimal_subtraction(
                     liquidation_propagation.clone().liq_queue_leftovers,
@@ -469,7 +469,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             LIQUIDATION.save(deps.storage, &liquidation_propagation)?;
 
             Ok(Response::new()
-                .add_messages(lp_withdraw_msgs)
+                // .add_messages(lp_withdraw_msgs)
                 .add_submessages(sell_wall_msgs)
                 .add_attributes(attrs))
         }
@@ -548,6 +548,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             //Subtract repaid amount from LQs repay responsibility. If it hits 0 then there were no LQ or User SP fund errors.
             if repay_amount != Uint128::zero() {
                 if !prop.liq_queue_leftovers.is_zero() {
+                    
                     prop.liq_queue_leftovers = decimal_subtraction(
                         prop.liq_queue_leftovers,
                         Decimal::from_ratio(repay_amount, Uint128::new(1u128)),
@@ -603,7 +604,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 )?;
                 
                 return Ok(Response::new()
-                    .add_messages(lp_withdraw_msgs)
+                    // .add_messages(lp_withdraw_msgs)
                     .add_submessages(sell_wall_msgs)
                     .add_attribute("error", string)
                     .add_attribute("sent_to_sell_wall", repay_amount.to_string()))

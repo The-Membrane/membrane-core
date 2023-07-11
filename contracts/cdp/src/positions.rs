@@ -4,7 +4,7 @@ use std::vec;
 use cosmwasm_std::{
     attr, coin, to_binary, Addr, Api, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo,
     QuerierWrapper, QueryRequest, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg,
-    WasmQuery,
+    WasmQuery, Decimal256,
 };
 
 use cw_storage_plus::Item;
@@ -787,21 +787,20 @@ pub fn liq_repay(
     for (num, cAsset) in collateral_assets.into_iter().enumerate() {
 
         let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num])?;
-        let mut collateral_repay_amount = decimal_division(collateral_repay_value, cAsset_prices[num].price)?;
+        let mut collateral_repay_amount: Uint128 = decimal_division(collateral_repay_value, cAsset_prices[num].price)?.to_uint_floor();
         //ReAdd decimals to collateral_repay_amount if it was removed in valuation to normalize to 6 decimals
         match cAsset_prices[num].decimals.checked_sub(6u64) {
             Some(decimals) => {
-                collateral_repay_amount = decimal_multiplication(
-                    collateral_repay_amount,
-                    Decimal::from_ratio(Uint128::from(10u128.pow(decimals as u32)), Uint128::one())
-                )?;
+                collateral_repay_amount = 
+                    collateral_repay_amount *
+                    Uint128::from(10u128.pow(decimals as u32));
             },
             None => {
                 return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") }));
             }
         }
         //Add fee %
-        let collateral_w_fee = decimal_multiplication(collateral_repay_amount, sp_liq_fee+Decimal::one())?.to_uint_floor();
+        let collateral_w_fee = collateral_repay_amount * (sp_liq_fee+Decimal::one());
 
         let repay_amount_per_asset = credit_asset.amount * cAsset_ratios[num];
 
@@ -1500,6 +1499,7 @@ pub fn close_position(
             decimal_multiplication(basket.credit_price, (max_spread + Decimal::one()))?
         )?
     };
+    
     //Max_spread is added to the collateral amount to ensure enough credit is purchased
     //Excess debt token gets sent back to the position_owner during repayment
 
@@ -1518,22 +1518,19 @@ pub fn close_position(
         
             let collateral_value_to_sell = decimal_multiplication(total_collateral_value_to_sell, cAsset_ratios[i])?;
             
-            let mut post_normalized_amount = decimal_division(collateral_value_to_sell, cAsset_prices[i].price)?;
+            let mut post_normalized_amount: Uint128 = decimal_division(collateral_value_to_sell, cAsset_prices[i].price)?.to_uint_floor();
             //ReAdd decimals if it was removed in valuation when normalizing to 6 decimals
             match cAsset_prices[i].decimals.checked_sub(6u64) {
                 Some(decimals) => {
-                    post_normalized_amount = decimal_multiplication(
-                        post_normalized_amount,
-                        Decimal::from_ratio(Uint128::from(10u128.pow(decimals as u32)), Uint128::one())
-                    )?;
+                    post_normalized_amount = post_normalized_amount * Uint128::from(10u128.pow(decimals as u32));
                 },
                 None => {
                     return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") }));
                 }
             }
-            post_normalized_amount.to_uint_floor()
+            post_normalized_amount
         };
-
+        
         //Collateral to sell can't be more than the position owns
         if collateral_amount_to_sell > target_position.collateral_assets.clone()[i].asset.amount {
             collateral_amount_to_sell = target_position.collateral_assets.clone()[i].asset.amount;
@@ -1608,7 +1605,7 @@ pub fn close_position(
     let sub_msg = SubMsg::reply_on_success(router_messages.pop().unwrap(), CLOSE_POSITION_REPLY_ID);
     
     Ok(Response::new()
-        .add_messages(lp_withdraw_messages)
+        // .add_messages(lp_withdraw_messages)
         .add_messages(router_messages)
         .add_submessage(sub_msg)
         .add_attributes(vec![

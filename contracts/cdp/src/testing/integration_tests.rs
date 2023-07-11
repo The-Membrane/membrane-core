@@ -97,13 +97,39 @@ mod tests {
                         bid_for,
                         position_id: _,
                         position_owner: _,
-                    } => return Ok(Response::new().add_attributes(vec![
-                        attr("action", "execute_bid"),
-                        attr("repay_amount", collateral_amount.to_string()),
-                        attr("collateral_token", bid_for.to_string()),
-                        attr("collateral_info", "native_token"),
-                        attr("collateral_amount", collateral_amount),
-                    ])),
+                    } => if collateral_amount.to_string() == String::from("1165777777777778") {
+                        Ok(Response::new().add_attributes(vec![
+                            attr("action", "execute_bid"),
+                            attr("repay_amount", "1158".to_string()),
+                            attr("collateral_token", bid_for.to_string()),
+                            attr("collateral_info", "native_token"),
+                            attr("collateral_amount", collateral_amount),
+                        ]))
+                    } else if collateral_amount.to_string() == String::from("1054777777777778") {
+                        Ok(Response::new().add_attributes(vec![
+                            attr("action", "execute_bid"),
+                            attr("repay_amount", 1054.to_string()),
+                            attr("collateral_token", bid_for.to_string()),
+                            attr("collateral_info", "native_token"),
+                            attr("collateral_amount", collateral_amount),
+                        ]))
+                    } else if collateral_amount.to_string() == String::from("839777777777778") {
+                        Ok(Response::new().add_attributes(vec![
+                            attr("action", "execute_bid"),
+                            attr("repay_amount", 839.to_string()),
+                            attr("collateral_token", bid_for.to_string()),
+                            attr("collateral_info", "native_token"),
+                            attr("collateral_amount", collateral_amount),
+                        ]))
+                    } else {
+                       Ok(Response::new().add_attributes(vec![
+                            attr("action", "execute_bid"),
+                            attr("repay_amount", collateral_amount.to_string()),
+                            attr("collateral_token", bid_for.to_string()),
+                            attr("collateral_info", "native_token"),
+                            attr("collateral_amount", collateral_amount),
+                        ]))
+                    },
                     LQ_MockExecuteMsg::AddQueue {
                         bid_for: _,
                         max_premium: _,
@@ -136,11 +162,38 @@ mod tests {
                         collateral_amount,
                         credit_info: _,
                         credit_price: _,
-                    } => Ok(to_binary(&LQ_LiquidatibleResponse {
-                        leftover_collateral: "222".to_string(),
-                        total_debt_repaid: (collateral_amount - Uint256::from(222u128))
-                            .to_string(),
-                    })?),
+                    } => 
+                    if collateral_amount.to_string() == String::from("1387999999999778") {
+                        Ok(to_binary(&LQ_LiquidatibleResponse {
+                            leftover_collateral: "222222222222222".to_string(),
+                            total_debt_repaid: (Uint256::from(1387u128) - Uint256::from(222u128))
+                                .to_string(),
+                        })?)
+                    } else if collateral_amount.to_string() == String::from("1388000000000000"){
+                        Ok(to_binary(&LQ_LiquidatibleResponse {
+                            leftover_collateral: "222222222222222".to_string(),
+                            total_debt_repaid: (Uint256::from(1380u128) - Uint256::from(222u128))
+                                .to_string(),
+                        })?)
+                    } else if collateral_amount.to_string() == String::from("1277000000000000"){
+                        Ok(to_binary(&LQ_LiquidatibleResponse {
+                            leftover_collateral: "222222222222222".to_string(),
+                            total_debt_repaid: (Uint256::from(1277u128) - Uint256::from(222u128))
+                                .to_string(),
+                        })?)
+                    } else if collateral_amount.to_string() == String::from("1062000000000000"){
+                        Ok(to_binary(&LQ_LiquidatibleResponse {
+                            leftover_collateral: "222222222222222".to_string(),
+                            total_debt_repaid: (Uint256::from(1062u128) - Uint256::from(222u128))
+                                .to_string(),
+                        })?)
+                    } else {
+                        Ok(to_binary(&LQ_LiquidatibleResponse {
+                            leftover_collateral: "222".to_string(),
+                            total_debt_repaid: (collateral_amount - Uint256::from(222u128))
+                                .to_string(),
+                        })?)
+                    }
                 }
             },
         );
@@ -259,11 +312,26 @@ mod tests {
                         collateral_amount,
                         credit_info: _,
                         credit_price: _,
-                    } => Ok(to_binary(&LQ_LiquidatibleResponse {
-                        leftover_collateral: "222".to_string(),
-                        total_debt_repaid: (collateral_amount - Uint256::from(222u128))
-                            .to_string(),
-                    })?),
+                    } => 
+                    if collateral_amount.to_string() == String::from("1388000000000000") {
+                        Ok(to_binary(&LQ_LiquidatibleResponse {
+                            leftover_collateral: "222222222222222".to_string(),
+                            total_debt_repaid: (Uint256::from(1388u128) - Uint256::from(222u128))
+                                .to_string(),
+                        })?)
+                    } else if collateral_amount.to_string() == String::from("1277000000000000"){
+                        Ok(to_binary(&LQ_LiquidatibleResponse {
+                            leftover_collateral: "222222222222222".to_string(),
+                            total_debt_repaid: (Uint256::from(1277u128) - Uint256::from(222u128))
+                                .to_string(),
+                        })?)
+                    } else {
+                        Ok(to_binary(&LQ_LiquidatibleResponse {
+                            leftover_collateral: "222".to_string(),
+                            total_debt_repaid: (collateral_amount - Uint256::from(222u128))
+                                .to_string(),
+                        })?)
+                    }
                 }
             },
         );
@@ -755,7 +823,7 @@ mod tests {
                         if id == 99u64 {
                             Ok(to_binary(&PoolStateResponse {
                                 assets: vec![coin(100_000_000, "base"), coin(100_000_000, "quote")],
-                                shares: coin(100_000_000, "lp_denom"),
+                                shares: coin(100_000_000_000_000_000_000, "lp_denom"),
                             })?)
                         } else {
                             Ok(to_binary(&PoolStateResponse {
@@ -844,7 +912,7 @@ mod tests {
                         if id == 99u64 {
                             Ok(to_binary(&PoolStateResponse {
                                 assets: vec![coin(100_000_000, "base"), coin(100_000_000, "quote")],
-                                shares: coin(100_000_000, "lp_denom"),
+                                shares: coin(100_000_000_000_000_000_000, "lp_denom"),
                             })?)
                         } else {
                             Ok(to_binary(&PoolStateResponse {
@@ -1139,7 +1207,7 @@ mod tests {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(200),
-                                    decimals: 6,
+                                    decimals: 18,
                                 })?)
                             } else {
                                 Ok(to_binary(&PriceResponse {
@@ -1158,7 +1226,7 @@ mod tests {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::percent(200),
-                                decimals: 6,
+                                decimals: 18,
                             })?)
                         } else {
                             Ok(to_binary(&PriceResponse {
@@ -1252,7 +1320,7 @@ mod tests {
                                 Ok(to_binary(&PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(200),
-                                    decimals: 6,
+                                    decimals: 18,
                                 })?)
                             } else {
                                 Ok(to_binary(&PriceResponse {
@@ -1271,7 +1339,7 @@ mod tests {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::percent(200),
-                                decimals: 6,
+                                decimals: 18,
                             })?)
                         } else {
                             Ok(to_binary(&PriceResponse {
@@ -1425,7 +1493,7 @@ mod tests {
                     coin(100_000_000_000_000, "quote"),
                     coin(100_000_000_000_000, "base"),
                     coin(100_000_000_000_000, "double_debit"),
-                    coin(100_000_000_000_000, "lp_denom"),
+                    coin(200_000_000_000_000_000_000, "lp_denom"),
                     coin(100_000_000_000_000, "credit_fulldenom"),
                 ],
             )
@@ -1457,7 +1525,7 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked("lp_tester"),
-                vec![coin(100_000_000, "lp_denom")],
+                vec![coin(100_000_000_000_000_000_000, "lp_denom")],
             )
             .unwrap();
             bank.init_balance(
@@ -2560,7 +2628,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit
-            //Current Position: 100_000 lp_denom
+            //Current Position: 100_000_000_000_000_000 lp_denom
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
@@ -2570,7 +2638,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -2578,7 +2646,7 @@ mod tests {
                 .unwrap();
 
             //Successful Increase
-            //Current Position: 100_000 lp_denom -> 99_999 credit_fulldenom
+            //Current Position: 100_000_000_000_000_000 lp_denom -> 99_999 credit_fulldenom
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
                 amount: Some(Uint128::from(99_999u128)),
@@ -2618,7 +2686,7 @@ mod tests {
                 .unwrap_err();
 
             //Successful repayment that will leave the accrued interest left
-            //Current Position: 100_000 lp_denom -> 4761 credit_fulldenom
+            //Current Position: 100_000_000_000_000_000 lp_denom -> 4761 credit_fulldenom
             let msg = ExecuteMsg::Repay {
                 position_id: Uint128::from(1u128),
                 position_owner: Some(String::from("bigger_bank")),
@@ -2660,7 +2728,7 @@ mod tests {
                     info: AssetInfo::NativeToken {
                         denom: "lp_denom".to_string(),
                     },
-                    amount: Uint128::from(95_239u128),
+                    amount: Uint128::from(95_239_000_000_000_000u128),
                 }],
                 send_to: None,
             };
@@ -2761,7 +2829,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res[0].collateral_assets[0].asset.amount,
-                Uint128::new(98816)
+                Uint128::new(98815102222222222)
             );
             assert_eq!(
                 res[0].credit_amount,
@@ -2791,22 +2859,22 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(10, "lp_denom")]
+                vec![coin(10_620000000000, "lp_denom")]
             );
             //The fee is 212 lp_denom
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(100_000, "debit"), coin(212, "lp_denom")]
+                vec![coin(100000, "2nddebit"), coin(100_000, "debit"), coin(212_400000000000, "lp_denom")]
             );
             //SP is sent 122 lp_denom
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![ coin(2003, "credit_fulldenom"), coin(122, "lp_denom")]
+                vec![ coin(2003, "credit_fulldenom"), coin(122_100_000_000_000, "lp_denom")]
             );
-            //LQ is sent 840 lp_denom
+            //LQ is sent 839 lp_denom
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(840, "lp_denom")]
+                vec![coin(839_777777777778, "lp_denom")]
             );
             
         }
@@ -2970,7 +3038,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit for Position 1
-            //Current Position: 50_000 lp_denom
+            //Current Position: 50_000_000_000_000_000 lp_denom
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
@@ -2980,7 +3048,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(50_000u128),
+                        amount: Uint128::from(50_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -2988,7 +3056,7 @@ mod tests {
                 .unwrap();
 
             //Initial Deposit for Position 2
-            //Current Position: 50_000 lp_denom
+            //Current Position: 100_000_000_000_000_000 lp_denom
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
@@ -2998,7 +3066,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -3006,7 +3074,7 @@ mod tests {
                 .unwrap();
 
             //Successful Increase for Position 1
-            //Current Position: 50_000 lp_denom -> 40_000 credit_fulldenom
+            //Current Position: 50_000_000_000_000_000 lp_denom -> 40_000 credit_fulldenom
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
                 amount: Some(Uint128::from(40_000u128)),
@@ -3039,7 +3107,7 @@ mod tests {
 
           
             //Successful Increase for Position 2
-            //Current Position: 100_000 lp_denom -> 100_000 credit_fulldenom
+            //Current Position: 100_000_000_000_000_000 lp_denom -> 100_000 credit_fulldenom
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(2u128),
                 amount: Some(Uint128::from(100_000u128)),
@@ -3284,7 +3352,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit
-            //Current Position: 100_000 lp_denom
+            //Current Position: 100_000_000_000_000_000 lp_denom
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("discounty".to_string()),
                 position_id: None,
@@ -3294,7 +3362,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -3302,7 +3370,7 @@ mod tests {
                 .unwrap();
 
             //Successful Increase
-            //Current Position: 100_000 lp_denom -> 99_999 credit_fulldenom
+            //Current Position: 100_000_000_000_000_000 lp_denom -> 99_999 credit_fulldenom
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
                 amount: Some(Uint128::from(99_999u128)),
@@ -3904,7 +3972,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit for Position 1
-            //Current Position: 1_000_000 lp_denom
+            //Current Position: 1_000_000_000_000_000_000 lp_denom
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
@@ -3914,7 +3982,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(1_000_000u128),
+                        amount: Uint128::from(1_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -3923,7 +3991,7 @@ mod tests {
 
            
             //Successful Increase for Position 1
-            //Current Position: 1_000_000 lp_denom -> 2_000 credit_fulldenom
+            //Current Position: 1_000_000_000_000_000_000 lp_denom -> 2_000 credit_fulldenom
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
                 amount: Some(Uint128::from(2_000u128)),
@@ -3958,7 +4026,7 @@ mod tests {
             );
 
             //Successful Increase for Position 1
-            //Current Position: 1_000_000 lp_denom -> 199_996 credit_fulldenom
+            //Current Position: 1_000_000_000_000_000_000 lp_denom -> 199_996 credit_fulldenom
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
                 amount: Some(Uint128::from(197_996u128)),
@@ -3992,7 +4060,7 @@ mod tests {
             );
 
             //Successful Increase for Position 1
-            //Current Position: 1_000_000 lp_denom -> 249_995 credit_fulldenom
+            //Current Position: 1_000_000_000_000_000_000 lp_denom -> 249_995 credit_fulldenom
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
                 amount: Some(Uint128::from(49_999u128)),
@@ -5001,7 +5069,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -5042,7 +5110,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97519));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97518442222222222));
             //2777 credit liquidated at $1
             //lp_denom is worth $2
             //Assert sell wall wasn't sent assets
@@ -5056,21 +5124,21 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(13, "lp_denom")]
+                vec![coin(13880000000000, "lp_denom")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416, "lp_denom")]
+                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416400000000000, "lp_denom")]
             );
 
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(614, "credit_fulldenom"), coin(886, "lp_denom")]
+                vec![coin(614, "credit_fulldenom"), coin(885500000000000, "lp_denom")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(1166, "lp_denom")]
+                vec![coin(1165777777777778, "lp_denom")]
             );
             
             /////////SP Errors////
@@ -5234,7 +5302,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -5273,7 +5341,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97655));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97653942222222222));
 
             //Assert sell wall was sent assets
             assert_eq!(
@@ -5287,19 +5355,19 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(13, "lp_denom")]
+                vec![coin(13_880000000000, "lp_denom")]
             );
             //Assert 30% fee
             //Same here, 416 instead of 833 if it were valued at a $1.
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416, "lp_denom")]
+                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416_400000000000, "lp_denom")]
             );
 
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(1055, "lp_denom")]
+                vec![coin(1054_777777777778, "lp_denom")]
             );            
             //Assert SP wasn't sent any due to the Error
             assert_eq!(
@@ -5468,7 +5536,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -5509,7 +5577,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98348));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98346520000000000));
 
             //Assert sell wall wasn't sent assets
             assert_eq!(
@@ -5522,18 +5590,18 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(13, "lp_denom")]
+                vec![coin(13_880000000000, "lp_denom")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416, "lp_denom")]
+                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416_400000000000, "lp_denom")]
             );
 
             //Assert collateral to be liquidated was sent
             //$2447 worth
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(1223, "lp_denom")]
+                vec![coin(1223_200000000000, "lp_denom")]
             );
             //Assert LQ wasn't sent any due to the Error
             assert_eq!(
@@ -5702,7 +5770,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -5741,7 +5809,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98183));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98181720000000000));
 
             //Assert sell wall was sent assets all Assets
             //For $2777 worth of liquidations
@@ -5755,11 +5823,11 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(13, "lp_denom")]
+                vec![coin(13_880000000000, "lp_denom")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416, "lp_denom")]
+                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416_400000000000, "lp_denom")]
             );
 
             //Assert neither module was sent any due to the Error
@@ -6249,7 +6317,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(10_000_000u128),
+                        amount: Uint128::from(10_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -7451,14 +7519,14 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
             app.execute(Addr::unchecked("lp_tester"), cosmos_msg)
                 .unwrap();
 
-            //The value of the position should be 200_000
+            //The value of the position should be 200_000_000_000_000_000
             //So at 40% borrow LTV I should be able to borrow 80_000
             //We'll error at the edge first to confirm
             let msg = ExecuteMsg::IncreaseDebt {
@@ -8385,7 +8453,7 @@ mod tests {
             let sp_addr = res.stability_pool.unwrap();
             let router_addr = res.dex_router.unwrap();
             let staking_contract = res.staking_contract.unwrap();
-
+            
             //Add LP pool assets first: Base
             let msg = ExecuteMsg::EditBasket(EditBasket {
                 added_cAsset: Some(cAsset {
@@ -8532,7 +8600,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit
-            //Current Position: 100_000 lp_denom
+            //Current Position: 100_000_000_000_000_000 lp_denom
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
@@ -8542,7 +8610,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -8550,7 +8618,7 @@ mod tests {
                 .unwrap();
 
             //Successful Increase
-            //Current Position: 100_000 lp_denom -> 100_000 credit_fulldenom: 50% LTV
+            //Current Position: 100_000_000_000_000_000 lp_denom -> 100_000 credit_fulldenom: 50% LTV
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
                 amount: Some(Uint128::from(100_000u128)),
@@ -8598,7 +8666,7 @@ mod tests {
                 .unwrap_err();
 
             //Initial Deposit
-            //Current Position: 100_000 lp_denom
+            //Current Position: 100_000_000_000_000_000 lp_denom
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
@@ -8608,7 +8676,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -8616,7 +8684,7 @@ mod tests {
                 .unwrap();
 
             //Successful Increase
-            //Current Position: 100_000 lp_denom -> 100_000 credit_fulldenom: 50% LTV
+            //Current Position: 100_000_000_000_000_000 lp_denom -> 100_000 credit_fulldenom: 50% LTV
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(2u128),
                 amount: Some(Uint128::from(100_000u128)),

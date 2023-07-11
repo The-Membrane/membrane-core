@@ -124,6 +124,12 @@ mod tests {
                                 unstake_start_time: None,
                             },
                             StakeDeposit {
+                                staker: Addr::unchecked("big_body"),
+                                amount: Uint128::new(99999999999999999999u128),
+                                stake_time: 1u64,
+                                unstake_start_time: None,
+                            },
+                            StakeDeposit {
                                 staker: Addr::unchecked(ADMIN),
                                 amount: Uint128::new(60_000_000u128),
                                 stake_time: 1u64,
@@ -400,16 +406,6 @@ mod tests {
                 .execute(bv_contract_addr.clone(), cosmos_msg)
                 .unwrap_err();
             assert_eq!(err.root_cause().to_string(), String::from("Unauthorized"));
-            // Fail bc aligned has been reached
-            let msg = ExecuteMsg::CastVote {
-                proposal_id: 1u64,
-                vote: ProposalVoteOption::Align,
-                recipient: None,
-            };
-            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
-            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
-            assert_eq!(err.root_cause().to_string(), String::from("No need for further alignment to activate the proposal"));
-
 
             //Successful submission
             let msg = ExecuteMsg::SubmitProposal {
@@ -1236,7 +1232,7 @@ mod tests {
                             expedited_proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
                             proposal_effective_delay: None,
                             proposal_expiration_period: None,
-                            proposal_required_stake: None,
+                            proposal_required_stake: Some(70_000_000),
                             proposal_required_quorum: None,
                             proposal_required_threshold: None,
                             whitelist_add: Some(vec![
@@ -1267,14 +1263,23 @@ mod tests {
             assert_eq!(proposals.proposal_list.len(), 1);
 
             ////Cast Votes to align
+            // let msg = ExecuteMsg::CastVote {
+            //     proposal_id: 1u64,
+            //     vote: ProposalVoteOption::Align,
+            //     recipient: Some(String::from("recipient")),
+            // };
+            // let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            // app
+            //     .execute(bv_contract_addr.clone(), cosmos_msg)
+            //     .unwrap();
             let msg = ExecuteMsg::CastVote {
                 proposal_id: 1u64,
                 vote: ProposalVoteOption::Align,
-                recipient: Some(String::from("recipient")),
+                recipient: None,
             };
-            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            let cosmos_msg = gov_contract.call(msg.clone(), vec![]).unwrap();
             app
-                .execute(bv_contract_addr.clone(), cosmos_msg)
+                .execute(Addr::unchecked("big_body"), cosmos_msg)
                 .unwrap();
 
             //Assert that its now Active

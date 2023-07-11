@@ -282,6 +282,8 @@ pub struct UpdateConfig {
 /// This structure stores data for a proposal.
 #[cw_serde]
 pub struct Proposal {
+    /// Voting power per user for this proposal
+    pub voting_power: Vec<(Addr, Uint128)>,
     /// Unique proposal ID
     pub proposal_id: Uint64,
     /// The address of the proposal submitter
@@ -331,6 +333,8 @@ pub struct Proposal {
 /// This structure describes a proposal response.
 #[cw_serde]
 pub struct ProposalResponse {
+    /// Voting power per user for this proposal
+    pub voting_power: Vec<(Addr, Uint128)>,
     /// Unique proposal ID
     pub proposal_id: Uint64,
     /// The address of the proposal submitter

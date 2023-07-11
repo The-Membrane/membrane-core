@@ -1762,6 +1762,7 @@ fn get_user_claimables(
                 .unwrap();
 
             //Set delegated to empty so we dont double count
+            //This isn't saved
             delegated = vec![];
             
             deposits.push(

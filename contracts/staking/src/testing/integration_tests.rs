@@ -1,12 +1,13 @@
 #[cfg(test)]
 mod tests {
     use membrane::staking::{ExecuteMsg, InstantiateMsg, QueryMsg, FeeEventsResponse, RewardsResponse};
-    use membrane::types::{AssetInfo, StakeDistribution, Asset, UserInfo, Basket, FeeEvent, LiqAsset};
+    use membrane::types::{AssetInfo, StakeDistribution, Asset, UserInfo, Basket, FeeEvent, LiqAsset, Allocation, VestingPeriod};
 
     use cosmwasm_std::{
         coin, to_binary, BlockInfo, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128, CosmosMsg, Coin, WasmMsg,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
+    use membrane::vesting::{RecipientsResponse, RecipientResponse};
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 
@@ -79,7 +80,7 @@ mod tests {
                         mint_to_address,
                     } => {
                         if (amount != Uint128::new(8_219) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1")) 
-                        && (amount != Uint128::new(8219) || denom != String::from("mbrn_denom") || mint_to_address != String::from("contract3")) 
+                        && (amount != Uint128::new(8219) || denom != String::from("mbrn_denom") || mint_to_address != String::from("contract4")) 
                         && (amount != Uint128::new(8) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
                         && (amount != Uint128::new(78082) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
                         && (amount != Uint128::new(4109) || denom != String::from("mbrn_denom") || mint_to_address != String::from("governator_addr")){
@@ -100,47 +101,47 @@ mod tests {
     }
 
     //Mock Vesting Contract
-    // #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
-    // #[serde(rename_all = "snake_case")]
-    // pub enum Vesting_MockExecuteMsg {}
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Vesting_MockExecuteMsg {}
 
-    // #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
-    // #[serde(rename_all = "snake_case")]
-    // pub struct Vesting_MockInstantiateMsg {}
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub struct Vesting_MockInstantiateMsg {}
 
-    // #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
-    // #[serde(rename_all = "snake_case")]
-    // pub enum Vesting_MockQueryMsg {
-    //     Recipients {},
-    // }
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Vesting_MockQueryMsg {
+        Recipients {},
+    }
 
-    // pub fn vesting_contract() -> Box<dyn Contract<Empty>> {
-    //     let contract = ContractWrapper::new(
-    //         |deps, _, info, msg: Vesting_MockExecuteMsg| -> StdResult<Response> {
-    //             Ok(Response::default())
-    //         },
-    //         |_, _, _, _: Vesting_MockInstantiateMsg| -> StdResult<Response> {
-    //             Ok(Response::default())
-    //         },
-    //         |_, _, msg: Vesting_MockQueryMsg| -> StdResult<Binary> {
-    //             match msg {
-    //                 Vesting_MockQueryMsg::Recipients { } => Ok(to_binary(&RecipientsResponse {
-    //                     recipients: vec![RecipientResponse {
-    //                         recipient: String::from("recipient"),
-    //                         allocation: Some(Allocation {
-    //                             amount: Uint128::one(),
-    //                             amount_withdrawn: Uint128::one(),
-    //                             start_time_of_allocation: 0,
-    //                             vesting_period: VestingPeriod { cliff: 0, linear: 0 },
-    //                         }),
-    //                         claimables: vec![],
-    //                     }],
-    //                 })?),
-    //             }
-    //         },
-    //     );
-    //     Box::new(contract)
-    // }
+    pub fn vesting_contract() -> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: Vesting_MockExecuteMsg| -> StdResult<Response> {
+                Ok(Response::default())
+            },
+            |_, _, _, _: Vesting_MockInstantiateMsg| -> StdResult<Response> {
+                Ok(Response::default())
+            },
+            |_, _, msg: Vesting_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    Vesting_MockQueryMsg::Recipients { } => Ok(to_binary(&RecipientsResponse {
+                        recipients: vec![RecipientResponse {
+                            recipient: String::from("recipient"),
+                            allocation: Some(Allocation {
+                                amount: Uint128::new(1_000_000),
+                                amount_withdrawn: Uint128::zero(),
+                                start_time_of_allocation: 0,
+                                vesting_period: VestingPeriod { cliff: 0, linear: 0 },
+                            }),
+                            claimables: vec![],
+                        }],
+                    })?),
+                }
+            },
+        );
+        Box::new(contract)
+    }
 
     //Mock CDP Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
@@ -259,12 +260,6 @@ mod tests {
                 vec![coin(1000, "credit_fulldenom"), coin(1000, "fee_asset")],
             )
             .unwrap();
-            bank.init_balance(
-                storage,
-                &Addr::unchecked("contract3"), //positions contract
-                vec![coin(8219, "mbrn_denom")],
-            )
-            .unwrap();
 
             router.bank = bank;
         })
@@ -311,6 +306,18 @@ mod tests {
             )
             .unwrap();
 
+        let vesting_id = app.store_code(vesting_contract());
+        let vesting_contract_addr = app
+            .instantiate_contract(
+                vesting_id,
+                Addr::unchecked(ADMIN),
+                &CDP_MockInstantiateMsg {},
+                &[],
+                "test",
+                None,
+            )
+            .unwrap();
+
         //Instantiate Staking contract
         let staking_id = app.store_code(staking_contract());
 
@@ -318,7 +325,7 @@ mod tests {
             owner: Some("owner0000".to_string()),
             positions_contract: Some(cdp_contract_addr.to_string()),
             auction_contract: Some(auction_contract_addr.to_string()),
-            vesting_contract: None,
+            vesting_contract: Some(vesting_contract_addr.to_string()),
             governance_contract: Some("gov_contract".to_string()),
             osmosis_proxy: Some(osmosis_proxy_contract_addr.to_string()),
             incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
@@ -525,7 +532,7 @@ mod tests {
                         info: AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom")
                         },
-                        amount: Decimal::from_str("0.001").unwrap(), //Its .001 bc there is 1000000 stake total
+                        amount: Decimal::from_str("0.0005").unwrap(), //bc there is 1_000_000 stake total
                     },
                 },
             ]);
@@ -578,9 +585,36 @@ mod tests {
             //Check that the rewards were sent
             assert_eq!(
                 app.wrap().query_all_balances("user_1").unwrap(),
-                vec![coin(1000, "credit_fulldenom"), coin(9_000_000, "mbrn_denom")]
+                vec![coin(500, "credit_fulldenom"), coin(9_000_000, "mbrn_denom")]
             );
                 
+            //Assert Vesting Claims
+            let resp: RewardsResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    staking_contract.addr(),
+                    &QueryMsg::UserRewards {
+                        user: String::from("contract3"),
+                    }
+                )
+                .unwrap();
+            assert_eq!(resp.claimables.len(), 1 as usize);
+            assert_eq!(resp.accrued_interest, Uint128::new(0));
+
+            //Claim
+            let claim_msg = ExecuteMsg::ClaimRewards {
+                send_to: None,
+                restake: false,
+            };
+            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("contract3"), cosmos_msg).unwrap();
+
+            //Check that the rewards were sent
+            assert_eq!(
+                app.wrap().query_all_balances("contract3").unwrap(),
+                vec![coin(500, "credit_fulldenom")]
+            );
+
             //Claim: Assert claim was saved and can't be double claimed
             let claim_msg = ExecuteMsg::ClaimRewards {
                 send_to: None,
@@ -588,6 +622,13 @@ mod tests {
             };
             let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap_err();
+            //Claim: Assert claim was saved and can't be double claimed
+            let claim_msg = ExecuteMsg::ClaimRewards {
+                send_to: None,
+                restake: false,
+            };
+            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("contract3"), cosmos_msg).unwrap_err();
 
             //Add staking rewards
             app.set_block(BlockInfo {

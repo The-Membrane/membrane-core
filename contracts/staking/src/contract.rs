@@ -22,7 +22,7 @@ use membrane::math::{decimal_division, decimal_multiplication};
 
 use crate::error::ContractError;
 use crate::query::{query_user_stake, query_user_rewards, query_staked, query_fee_events, query_totals, query_delegations};
-use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, STAKING_TOTALS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, DELEGATIONS, DELEGATE_CLAIMS};
+use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, STAKING_TOTALS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, DELEGATIONS, DELEGATE_CLAIMS, VESTING_STAKE_TIME};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:staking";
@@ -112,6 +112,9 @@ pub fn instantiate(
     )?;
     //Initialize fee events
     FEE_EVENTS.save(deps.storage, &vec![])?;
+
+    //Initialize Vesting stake time
+    VESTING_STAKE_TIME.save(deps.storage, &env.block.time.seconds())?;
 
     //Initialize INCENTIVE_SCHEDULING
     INCENTIVE_SCHEDULING.save(deps.storage, &StakeDistributionLog {
@@ -1938,7 +1941,40 @@ fn get_user_claimables(
             }    
         }   return Ok((claimables, accrued_interest))
 
+    } else if config.vesting_contract.is_some() && user == config.clone().vesting_contract.unwrap().to_string() {
+        //Load Fee events
+        let fee_events = FEE_EVENTS.load(storage)?;
+        //Load total vesting
+        let total = STAKING_TOTALS.load(storage)?.vesting_contract;
+
+        let mut claimables = vec![];
+
+        let deposit = StakeDeposit {
+            staker: Addr::unchecked(config.clone().vesting_contract.unwrap().to_string()),
+            amount: total,
+            stake_time: VESTING_STAKE_TIME.load(storage)?,
+            unstake_start_time: None,
+        };
+
+        //Set new vesting stake time to move up claims while skipping wait period +1 to put it past claimed events
+        VESTING_STAKE_TIME.save(storage, &(env.block.time.seconds() - (config.clone().fee_wait_period * SECONDS_PER_DAY) + 1 ))?;
+
+        let (claims, _) = get_deposit_claimables(
+            storage, 
+            config.clone(), 
+            incentive_schedule.clone(), 
+            env.clone(), 
+            fee_events.clone(), 
+            deposit,
+            delegated.clone(),
+            delegated_to.clone(),
+            total,
+        )?;
+        claimables.extend(claims);
+
+        return Ok((claimables, Uint128::zero()))
     }
+
     Ok((vec![], Uint128::zero()))
 }
 

@@ -5,7 +5,7 @@ use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, 
 use membrane::types::{FeeEvent, StakeDeposit, DelegationInfo, Delegation};
 
 use crate::contract::{get_deposit_claimables, SECONDS_PER_DAY, get_total_vesting};
-use crate::state::{STAKING_TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING, DELEGATIONS};
+use crate::state::{STAKING_TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING, DELEGATIONS, VESTING_STAKE_TIME};
 
 const DEFAULT_LIMIT: u32 = 32u32;
 
@@ -113,8 +113,7 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
     }
 
     //If no deposits, check if there are any delegations
-    if user_deposits != vec![] {
-    
+    if user_deposits != vec![] {    
         //Calc total deposits past fee wait period
         let total_rewarding_stake: Uint128 = user_deposits.clone()
             .into_iter()
@@ -142,6 +141,38 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
         Ok(RewardsResponse {
             claimables,
             accrued_interest,
+        })
+    } else if config.vesting_contract.is_some() && user == config.clone().vesting_contract.unwrap().to_string() {
+        //Load total vesting
+        let total = STAKING_TOTALS.load(deps.storage)?.vesting_contract;
+
+        let mut claimables = vec![];
+
+        //Create deposit
+        let deposit = StakeDeposit {
+            staker: Addr::unchecked(config.clone().vesting_contract.unwrap().to_string()),
+            amount: total,
+            stake_time: VESTING_STAKE_TIME.load(deps.storage)?,
+            unstake_start_time: None,
+        };
+
+        let (claims, _) = get_deposit_claimables(
+            deps.storage, 
+            config.clone(), 
+            incentive_schedule.clone(), 
+            env.clone(), 
+            fee_events.clone(), 
+            deposit,
+            delegated.clone(),
+            delegated_to.clone(),
+            total,
+        )?;
+        claimables.extend(claims);
+        
+
+        Ok(RewardsResponse {
+            claimables,
+            accrued_interest: Uint128::zero(),
         })
     } else {
         Ok(RewardsResponse {

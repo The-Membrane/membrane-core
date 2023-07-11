@@ -445,7 +445,7 @@ pub fn get_lp_price(
                     id: pool_info.pool_id,
                 })?,
             }))?
-            .shares_value(1_000_000u128); //1_000_000 = 1 native token
+            .shares_value(1_000_000_000_000_000_000u128); //1_000_000_000_000_000_000 = 1 pool share token
 
         //Calculate value of cAsset
         let mut value = Decimal::zero();

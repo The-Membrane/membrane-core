@@ -4795,7 +4795,7 @@ mod tests {
             );
 
             //////LQ Errors///
-            /// and SP doesn't run due to premium
+            /// and SP skips due to high premium
             let (mut app, cdp_contract, lq_contract) =
                 proper_instantiate(false, true, true, false);
 
@@ -4850,7 +4850,7 @@ mod tests {
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
-
+            
             //Call liquidate on CDP contract
             let msg = ExecuteMsg::Liquidate {
                 position_id: Uint128::new(1u128),

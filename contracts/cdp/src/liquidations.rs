@@ -145,7 +145,7 @@ pub fn liquidate(
 
     //Calculate caller & protocol fees 
     //and amount to send to the Liquidation Queue.
-    let (protocol_fee_msg, mut leftover_repayment) = per_asset_fulfillments(
+    let (protocol_fee_msg, leftover_repayment) = per_asset_fulfillments(
         storage, 
         querier, 
         env.clone(), 
@@ -179,9 +179,9 @@ pub fn liquidate(
         position_id, 
         valid_position_owner.clone(), 
         collateral_assets.clone(), 
-        &mut leftover_repayment, 
+        leftover_repayment, 
         credit_repay_amount, 
-        &mut leftover_position_value, 
+        leftover_position_value, 
         &mut submessages, 
         per_asset_repayment, 
         user_repay_amount,
@@ -268,13 +268,13 @@ fn get_repay_quantities(
         //Repay amount has to be above 0, or there is nothing to liquidate and there was a mistake prior
         x if x <= Decimal::new(Uint128::zero()) => return Err(ContractError::PositionSolvent {}),
         //No need to repay more than the debt
-        // x if x > Decimal::from_ratio(
-        //     target_position.credit_amount,
-        //     Uint128::new(1u128),
-        // ) =>
-        // {
-        //     return Err(ContractError::FaultyCalc { msg: "Repay amount is greater than total debt".to_string() })
-        // }
+        x if x > Decimal::from_ratio(
+            target_position.credit_amount,
+            Uint128::new(1u128),
+        ) =>
+        {
+            return Err(ContractError::FaultyCalc { msg: "Repay amount is greater than total debt".to_string() })
+        }
         x => x,
     };
 
@@ -591,9 +591,9 @@ fn build_sp_sw_submsgs(
     position_id: Uint128,
     valid_position_owner: Addr,
     collateral_assets: Vec<cAsset>,
-    leftover_repayment: &mut Decimal,
+    mut leftover_repayment: Decimal,
     credit_repay_amount: Decimal,
-    leftover_position_value: &mut Decimal,
+    mut leftover_position_value: Decimal,
     submessages: &mut Vec<SubMsg>,
     per_asset_repayment: Vec<Decimal>,
     user_repay_amount: Decimal,
@@ -602,6 +602,7 @@ fn build_sp_sw_submsgs(
     let sell_wall_repayment_amount: Decimal;
     let mut lp_withdraw_messages = vec![];
     let mut sell_wall_messages = vec![];
+    let mut skip_sp = false;
     
     if config.stability_pool.is_some() && !leftover_repayment.is_zero() {
         let sp_liq_fee = query_stability_pool_fee(querier, config.clone().stability_pool.unwrap().to_string())?;
@@ -612,57 +613,37 @@ fn build_sp_sw_submsgs(
 
         //Working on the LQ's leftovers
         let leftover_repayment_value = decimal_multiplication(
-            *leftover_repayment,
+            leftover_repayment,
             basket.credit_price,
         )?;
 
         //SP liq_fee Guarantee check
-        if *leftover_position_value < decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee))?
-        {
-            sell_wall_repayment_amount = *leftover_repayment;
-
-            //Go straight to sell wall
-            let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall(
-                storage,
-                querier,
-                api,
-                env.clone(),
-                collateral_assets,
-                sell_wall_repayment_amount,
-                basket,
-                position_id,
-                valid_position_owner.to_string(),
-            )?;
-            lp_withdraw_messages = lp_withdraw_msgs;
-            sell_wall_messages = sell_wall_msgs;
-
-            //Leftover's starts as the total LQ is supposed to pay,
-            //and is subtracted by every successful LQ reply
-            let liq_queue_leftovers = decimal_subtraction(credit_repay_amount, *leftover_repayment)?;
-
-            // Set repay values for reply msg
-            let liquidation_propagation = LiquidationPropagation {
-                per_asset_repayment,
-                liq_queue_leftovers,
-                stability_pool: Decimal::zero(),
-                user_repay_amount,
-                position_info: UserInfo {
-                    position_id,
-                    position_owner: valid_position_owner.to_string()
-                },
-                positions_contract: env.contract.address,
-            };
-
-            LIQUIDATION.save(storage, &liquidation_propagation)?;
-        } else {
+        //if leftover_position_value is less than leftover_repay value + the SP fee, we liquidate what we can and send the rest to the sell wall
+        if leftover_position_value < decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee))?{
+            //if liq_Fee is 100%+, skip fee discount and just use Sell Wall
+            if sp_liq_fee >= Decimal::one() {
+                skip_sp = true;
+                if leftover_position_value < leftover_repayment_value {
+                    //Set leftover_repayment to the amount of credit the Position value can pay
+                    leftover_repayment = decimal_division(leftover_position_value, basket.credit_price)?;
+                }
+            } else {
+                //Set Position value to the discounted value the SP will be distributed
+                leftover_position_value = decimal_multiplication(leftover_position_value, (Decimal::one() - sp_liq_fee))?;
+                //Set leftover_repayment to the amount of credit the Position value can pay
+                leftover_repayment = decimal_division(leftover_position_value, basket.credit_price)?;       
+            }     
+        }
+        
+        if !skip_sp {
             //Check for stability pool funds before any liquidation attempts
             //If no funds, go directly to the sell wall
             let sp_leftover_repayment = query_stability_pool_liquidatible(
                 querier,
                 config.clone(),
-                *leftover_repayment,
+                leftover_repayment,
             )?;
-
+            
             if sp_leftover_repayment > Decimal::zero() {
                 sell_wall_repayment_amount = sp_leftover_repayment;
 
@@ -684,11 +665,11 @@ fn build_sp_sw_submsgs(
             }
 
             //Set Stability Pool repay_amount
-            let sp_repay_amount = decimal_subtraction(*leftover_repayment, sp_leftover_repayment)?;
+            let sp_repay_amount = decimal_subtraction(leftover_repayment, sp_leftover_repayment)?;
 
             //Leftover's starts as the total LQ is supposed to pay, and is subtracted by every successful LQ reply
             let liq_queue_leftovers =
-                decimal_subtraction(credit_repay_amount, *leftover_repayment)?;
+                decimal_subtraction(credit_repay_amount, leftover_repayment)?;
             
             // Set repay values for reply msg
             let liquidation_propagation = LiquidationPropagation {
@@ -719,21 +700,52 @@ fn build_sp_sw_submsgs(
             let sub_msg: SubMsg = SubMsg::reply_always(msg, STABILITY_POOL_REPLY_ID);
 
             submessages.push(sub_msg);
+        } else {
+            if leftover_repayment > Decimal::zero() {
+                sell_wall_repayment_amount = leftover_repayment;
 
-            //Because these are reply always, we can NOT make state changes that we wouldn't allow no matter the tx result, as our altereed state will NOT revert.
-            //Errors also won't revert the whole transaction
-            //( https://github.com/CosmWasm/cosmwasm/blob/main/SEMANTICS.md#submessages )
+                //Sell wall remaining
+                let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall(
+                    storage,
+                    querier,
+                    api,
+                    env.clone(),
+                    collateral_assets,
+                    sell_wall_repayment_amount,
+                    basket.clone(),
+                    position_id,
+                    valid_position_owner.to_string(),
+                )?;
+                lp_withdraw_messages = lp_withdraw_msgs;
+                sell_wall_messages = sell_wall_msgs;
+                
+            }
 
-            //Collateral distributions get handled in the reply
+            //Leftover's starts as the total LQ is supposed to pay, and is subtracted by every successful LQ reply
+            let liq_queue_leftovers =
+                decimal_subtraction(credit_repay_amount, leftover_repayment)?;
 
-            //Set and subtract the value of what was paid to the Stability Pool
-            //(sp_repay_amount * credit_price) * (1+sp_liq_fee)
-            let paid_to_sp = decimal_multiplication(
-                decimal_multiplication(sp_repay_amount, basket.credit_price)?,
-                (Decimal::one() + sp_liq_fee),
-            )?;
-            *leftover_position_value = decimal_subtraction(*leftover_position_value, paid_to_sp)?;
+            // Set repay values for reply msg
+            let liquidation_propagation = LiquidationPropagation {
+                per_asset_repayment,
+                liq_queue_leftovers,
+                stability_pool: Decimal::zero(),
+                user_repay_amount,
+                position_info: UserInfo {
+                    position_id,
+                    position_owner: valid_position_owner.to_string()
+                },
+                positions_contract: env.contract.address,
+            };
+
+            LIQUIDATION.save(storage, &liquidation_propagation)?;
         }
+
+        //Because these are reply always, we can NOT make state changes that we wouldn't allow no matter the tx result, as our altereed state will NOT revert.
+        //Errors also won't revert the whole transaction
+        //( https://github.com/CosmWasm/cosmwasm/blob/main/SEMANTICS.md#submessages )
+
+        //Collateral distributions get handled in the reply        
     } else {
         //In case SP isn't used, we need to set LiquidationPropagation
         // Set repay values for reply msg
@@ -752,7 +764,7 @@ fn build_sp_sw_submsgs(
         LIQUIDATION.save(storage, &liquidation_propagation)?;
     }
 
-    Ok((*leftover_repayment, lp_withdraw_messages, sell_wall_messages))
+    Ok((leftover_repayment, lp_withdraw_messages, sell_wall_messages))
 }
 
 /// Returns LP withdrawal message use in liquidations

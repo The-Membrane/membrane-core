@@ -467,7 +467,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             liquidation_propagation.stability_pool = Decimal::zero();
             
             LIQUIDATION.save(deps.storage, &liquidation_propagation)?;
-
+            
             Ok(Response::new()
                 // .add_messages(lp_withdraw_msgs)
                 .add_submessages(sell_wall_msgs)

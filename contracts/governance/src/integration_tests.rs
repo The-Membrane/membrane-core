@@ -791,6 +791,20 @@ mod tests {
                 .unwrap();
             assert_eq!(voting_power_2, Uint128::new(8366));
 
+            //Query voting power
+            let voting_power_2: Uint128 = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::UserVotingPower { 
+                        user: String::from("contract2"), 
+                        proposal_id: 1, 
+                        vesting: false, 
+                    },
+                )
+                .unwrap();
+            assert_eq!(voting_power_2, Uint128::new(3162));
+
             //Query total voting power
             let total_voting_power: Uint128 = app
                 .wrap()

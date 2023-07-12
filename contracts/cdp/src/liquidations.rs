@@ -15,15 +15,10 @@ use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, Pool
 
 use crate::error::ContractError; 
 use crate::rates::accrue;
-use crate::positions::{BAD_DEBT_REPLY_ID, ROUTER_REPLY_ID};
+use crate::positions::{BAD_DEBT_REPLY_ID, ROUTER_REPLY_ID, STABILITY_POOL_REPLY_ID, USER_SP_REPAY_REPLY_ID, LIQ_QUEUE_REPLY_ID};
 use crate::query::{insolvency_check, get_avg_LTV, get_cAsset_ratios};
 use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation, get_target_position, update_position, update_position_claims, ROUTER_REPAY_MSG};
 
-
-//Liquidation reply ids
-pub const LIQ_QUEUE_REPLY_ID: u64 = 1u64;
-pub const STABILITY_POOL_REPLY_ID: u64 = 2u64;
-pub const USER_SP_REPAY_REPLY_ID: u64 = 6u64;
 
 /// Confirms insolvency and calculates repayment amount,
 /// then sends liquidation messages to the modules if they have funds.
@@ -660,7 +655,7 @@ fn build_sp_sw_submsgs(
                     valid_position_owner.to_string(),
                 )?;
                 lp_withdraw_messages = lp_withdraw_msgs;
-                sell_wall_messages = sell_wall_msgs;
+                sell_wall_messages = sell_wall_msgs;panic!("{:?}", sell_wall_messages);
                 
             }
 

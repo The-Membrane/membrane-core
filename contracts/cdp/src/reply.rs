@@ -1,3 +1,4 @@
+use core::panic;
 use std::str::FromStr;
 
 use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, Api, CosmosMsg, Storage, QuerierWrapper, Binary};
@@ -8,8 +9,9 @@ use membrane::cdp::{Config, ExecuteMsg};
 use membrane::math::decimal_subtraction;
 use membrane::helpers::{withdrawal_msg, get_contract_balances, asset_to_coin};
 
+use crate::positions::STABILITY_POOL_REPLY_ID;
 use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, CONFIG, BASKET, CLOSE_POSITION, ClosePositionPropagation, get_target_position, update_position_claims, ROUTER_REPAY_MSG};
-use crate::liquidations::{query_stability_pool_liquidatible, STABILITY_POOL_REPLY_ID, sell_wall_using_ids};
+use crate::liquidations::{query_stability_pool_liquidatible, sell_wall_using_ids};
 
 /// Only necessary after the last of successful router swaps, uses the returned asset to repay the position's debt
 pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
@@ -26,9 +28,10 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
             )?[0];
 
             //Skip if balance is 0
-            // if credit_asset_balance.is_zero() {
-            //     return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
-            // }
+            panic!("{}", credit_asset_balance);
+            if credit_asset_balance.is_zero() {
+                return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
+            }
 
             //Load repay msg binary from storage
             let hook_msg: Binary = ROUTER_REPAY_MSG.load(deps.storage)?;

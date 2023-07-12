@@ -4,7 +4,7 @@ use std::vec;
 use cosmwasm_std::{
     attr, coin, to_binary, Addr, Api, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo,
     QuerierWrapper, QueryRequest, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg,
-    WasmQuery, Decimal256,
+    WasmQuery,
 };
 
 use cw_storage_plus::Item;
@@ -39,6 +39,11 @@ pub const WITHDRAW_REPLY_ID: u64 = 4u64;
 pub const CLOSE_POSITION_REPLY_ID: u64 = 5u64;
 pub const ROUTER_REPLY_ID: u64 = 6u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
+
+//Liquidation reply ids
+pub const LIQ_QUEUE_REPLY_ID: u64 = 1u64;
+pub const STABILITY_POOL_REPLY_ID: u64 = 2u64;
+pub const USER_SP_REPAY_REPLY_ID: u64 = 3u64;
 
 //Constants
 const MAX_POSITIONS_AMOUNT: u32 = 10;

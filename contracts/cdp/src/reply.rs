@@ -28,7 +28,6 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
             )?[0];
 
             //Skip if balance is 0
-            panic!("{}", credit_asset_balance);
             if credit_asset_balance.is_zero() {
                 return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
             }

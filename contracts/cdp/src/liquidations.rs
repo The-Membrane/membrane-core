@@ -1,7 +1,7 @@
 use core::panic;
 use std::str::FromStr;
 
-use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Response, Decimal, CosmosMsg, attr, SubMsg, Addr, StdResult, StdError, to_binary, WasmMsg, QueryRequest, WasmQuery, BankMsg, Coin};
+use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Response, Decimal, CosmosMsg, attr, SubMsg, Addr, StdResult, StdError, to_binary, WasmMsg, QueryRequest, WasmQuery, BankMsg, Coin, ReplyOn};
 
 use membrane::helpers::{router_native_to_native, pool_query_and_exit, query_stability_pool_fee, asset_to_coin, validate_position_owner};
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction, Uint256};
@@ -655,7 +655,7 @@ fn build_sp_sw_submsgs(
                     valid_position_owner.to_string(),
                 )?;
                 lp_withdraw_messages = lp_withdraw_msgs;
-                sell_wall_messages = sell_wall_msgs;panic!("{:?}", sell_wall_messages);
+                sell_wall_messages = sell_wall_msgs;
                 
             }
 
@@ -994,6 +994,7 @@ pub fn sell_wall(
     //The last router message is updated to a ROUTER_REPLY_ID to repay the position after all sales are done.
     let index = router_messages.clone().len()-1;
     router_messages[index].id = ROUTER_REPLY_ID;
+    router_messages[index].reply_on = ReplyOn::Success;
     
     Ok((router_messages, lp_withdraw_messages))
 }

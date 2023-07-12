@@ -423,10 +423,10 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
 
                     //Have to reload due to prior saves
                     let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;
-
+                    
                     //Remove repayment from leftovers
                     liquidation_propagation.liq_queue_leftovers -= sp_repay_amount;
-
+                    
                     //If the first stability pool message succeed and needs to call a 2nd here,
                     //We set the stability_pool amount in the propogation to the 2nd amount so that...
                     //..if the 2nd errors, then it'll sell wall the correct amount
@@ -556,7 +556,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
 
                     //SP reply handles LQ_leftovers
                 }
-
+                
                 update_position_claims(
                     deps.storage,
                     deps.querier,

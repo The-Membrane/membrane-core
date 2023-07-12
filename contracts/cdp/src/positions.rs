@@ -803,7 +803,7 @@ pub fn liq_repay(
         let collateral_w_fee = collateral_repay_amount * (sp_liq_fee+Decimal::one());
 
         let repay_amount_per_asset = credit_asset.amount * cAsset_ratios[num];
-
+        
         //Remove collateral from user's position claims
         update_position_claims(
             deps.storage,

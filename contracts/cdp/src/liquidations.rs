@@ -100,7 +100,14 @@ pub fn liquidate(
     let cAsset_prices = cAsset_prices_res.clone().into_iter().map(|price| price.price).collect::<Vec<Decimal>>();
 
     //Get repay value and repay_amount
-    let (repay_value, mut credit_repay_amount) = get_repay_quantities(config.clone(), basket.clone(), target_position.clone(), current_LTV, avg_borrow_LTV)?;
+    let (repay_value, mut credit_repay_amount) = get_repay_quantities(
+        config.clone(),
+        basket.clone(),
+        target_position.clone(),
+        current_LTV,
+        avg_borrow_LTV,
+        total_value,
+    )?;
 
     // Don't send any funds here, only send UserInfo and repayment amounts.
     // We want to act on the reply status but since SubMsg state won't revert if we catch the error,
@@ -197,73 +204,25 @@ pub fn liquidate(
     //Replying on Error is just so an Auction error doesn't cancel transaction
     //Don't care about the success case so didnt reply_always
     let call_back = SubMsg::reply_on_error(msg, BAD_DEBT_REPLY_ID);
+    
+    let mut liquidation_propagation: Option<String> = None;
+    if let Ok(repay) = LIQUIDATION.load(storage) { liquidation_propagation = Some(format!("{:?}", repay)) }
 
-    //If the SP hasn't repaid everything the liq_queue hasn't AND the value of the position is <= the value that was leftover to be repaid...
-    //..sell wall everything from the start, don't go through either module.
-    //If we don't we are guaranteeing increased bad debt by selling collateral for a discount.
-    if !(leftover_repayment).is_zero()
-        && leftover_position_value
-            <= (leftover_repayment * basket.clone().credit_price)
-    {
-        //Sell wall credit_repay_amount
-        //The other submessages were for the LQ and SP so we reassign the submessage variable
-        let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall(
-            storage,
-            querier,
-            api,
-            env.clone(),
-            collateral_assets,
-            credit_repay_amount,
-            basket.clone(),
-            position_id,
-            position_owner,
-        )?;
-
-        // Set repay values for reply msg
-        let liquidation_propagation = LiquidationPropagation {
-            per_asset_repayment: vec![],
-            liq_queue_leftovers: Decimal::zero(),
-            stability_pool: Decimal::zero(),
-            user_repay_amount,
-            position_info: UserInfo {
-                position_id,
-                position_owner: valid_position_owner.to_string()
-            },
-            positions_contract: env.contract.address,
-        };
-
-        LIQUIDATION.save(storage, &liquidation_propagation)?;
-
-        Ok(res
-            // .add_messages(lp_withdraw_msgs)
-            .add_submessages(sell_wall_msgs)
-            .add_messages(caller_fee_messages)
-            .add_message(protocol_fee_msg)
-            .add_submessages(submessages)
-            .add_submessage(call_back)
-            .add_attributes(vec![
-                attr("method", "liquidate"),
-                attr("propagation_info", format!("{:?}", liquidation_propagation)),
-            ]))
-    } else {
-        let mut liquidation_propagation: Option<String> = None;
-        if let Ok(repay) = LIQUIDATION.load(storage) { liquidation_propagation = Some(format!("{:?}", repay)) }
-
-        Ok(res
-            // .add_messages(lp_withdraw_messages)
-            .add_submessages(sell_wall_messages)
-            .add_messages(caller_fee_messages)
-            .add_message(protocol_fee_msg)
-            .add_submessages(submessages)
-            .add_submessage(call_back)
-            .add_attributes(vec![
-                attr("method", "liquidate"),
-                attr(
-                    "propagation_info",
-                    format!("{:?}", liquidation_propagation.unwrap_or_else(|| String::from("None"))),
-                ),
-            ]))
-    }
+    Ok(res
+        // .add_messages(lp_withdraw_messages)
+        .add_submessages(sell_wall_messages)
+        .add_messages(caller_fee_messages)
+        .add_message(protocol_fee_msg)
+        .add_submessages(submessages)
+        .add_submessage(call_back)
+        .add_attributes(vec![
+            attr("method", "liquidate"),
+            attr(
+                "propagation_info",
+                format!("{:?}", liquidation_propagation.unwrap_or_else(|| String::from("None"))),
+            ),
+        ]))
+    
 }
 
 /// Calculate the amount & value of debt to repay 
@@ -273,6 +232,7 @@ fn get_repay_quantities(
     target_position: Position,
     current_LTV: Decimal,
     borrow_LTV: Decimal,
+    total_value: Decimal,
 ) -> Result<(Decimal, Decimal), ContractError>{
     
     // max_borrow_LTV/ current_LTV, * current_loan_value, current_loan_value - __ = value of loan amount
@@ -283,7 +243,12 @@ fn get_repay_quantities(
 
     //repay value = the % of the loan insolvent. Insolvent is anything between current and max borrow LTV.
     //IE, repay what to get the position down to borrow LTV
-    let mut repay_value = decimal_multiplication( decimal_division( decimal_subtraction(current_LTV, borrow_LTV)?, current_LTV)?, loan_value)?;
+    //If the position LTV is above 100%, repay using all the collateral 
+    let mut repay_value = if current_LTV >= Decimal::one() {
+        total_value
+    } else {
+        decimal_multiplication( decimal_division( decimal_subtraction(current_LTV, borrow_LTV)?, current_LTV)?, loan_value)?
+    };
 
     //Assert repay_value is above the minimum, if not repay at least the minimum
     //Repay the full loan if the resulting leftover credit amount is less than the minimum.
@@ -303,13 +268,13 @@ fn get_repay_quantities(
         //Repay amount has to be above 0, or there is nothing to liquidate and there was a mistake prior
         x if x <= Decimal::new(Uint128::zero()) => return Err(ContractError::PositionSolvent {}),
         //No need to repay more than the debt
-        x if x > Decimal::from_ratio(
-            target_position.credit_amount,
-            Uint128::new(1u128),
-        ) =>
-        {
-            return Err(ContractError::FaultyCalc { msg: "Repay amount is greater than total debt".to_string() })
-        }
+        // x if x > Decimal::from_ratio(
+        //     target_position.credit_amount,
+        //     Uint128::new(1u128),
+        // ) =>
+        // {
+        //     return Err(ContractError::FaultyCalc { msg: "Repay amount is greater than total debt".to_string() })
+        // }
         x => x,
     };
 
@@ -523,6 +488,12 @@ fn per_asset_fulfillments(
 
         /////////////LiqQueue calls//////
         if basket.clone().liq_queue.is_some() {
+            //if collateral repay amount is more than the Position has in assets, 
+            //Set collateral_repay_amount to the amount the Position has in assets
+            if collateral_repay_amount > collateral_assets[num].asset.amount {
+                collateral_repay_amount = collateral_assets[num].asset.amount;
+            }
+
             //Store repay amount
             per_asset_repayment.push(Decimal::from_ratio(repay_amount_per_asset, Uint128::one()));
 
@@ -544,7 +515,6 @@ fn per_asset_fulfillments(
             let leftover: Uint128 = Uint128::from_str(&res.leftover_collateral)?;
             let mut queue_asset_amount_paid: Uint128 =
                 collateral_repay_amount  - leftover;
-                // panic!("{}, {}", collateral_repay_amount, queue_asset_amount_paid);
                 
             //Call Liq Queue::Liquidate for the asset
             let liq_msg = LQ_ExecuteMsg::Liquidate {
@@ -899,7 +869,7 @@ pub fn sell_wall(
     let position_owner_addr = api.addr_validate(&position_owner)?;
 
     let repay_value = decimal_multiplication(repay_amount, basket.credit_price)?;
-
+    
     //Get Pre-Split cAsset_ratios & prices
     let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(storage, env.clone(), querier, collateral_assets.clone(), config.clone())?;   
 
@@ -928,12 +898,12 @@ pub fn sell_wall(
 
             lp_withdraw_messages.push(msg);            
         } else {
-
+            
             //Calc collateral_repay_amount        
             let collateral_price = cAsset_prices[i].price;
             let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[i])?;
             let mut collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?.to_uint_floor();
-            //The repay_amount per asset may be greater after LP splits so the amount used to update claims isn't necessary the same amount that'll get sold
+            //The repay_amount per asset may be greater after LP splits so the amount used to update claims isn't necessary the total amount that'll get sold
             //ReAdd decimals to collateral_repay_amount if it was removed in valuation to normalize to 6 decimals
             match cAsset_prices[i].decimals.checked_sub(6u64) {
                 Some(decimals) => {
@@ -943,7 +913,7 @@ pub fn sell_wall(
                     return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") }));
                 }
             }
-
+            
             //Remove assets from Position claims before spliting the LP cAsset to ensure excess claims aren't removed
             //Avoid a situation where the user's LP token claims are reduced && it's pool asset claims are reduced, doubling the "loss" of funds due to state mismanagement
             update_position_claims(

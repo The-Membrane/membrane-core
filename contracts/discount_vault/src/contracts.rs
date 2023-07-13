@@ -350,6 +350,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 /// Return UserResponse for a given user. 
 /// Return the LP value so that the System Discounts contract can calculate the discount.
+/// LPs are assumed 50:50
 fn get_user_response(
     deps: Deps, 
     env: Env, 

@@ -229,6 +229,8 @@ mod tests {
 
     mod vault {
 
+        use std::vec;
+
         use membrane::{discount_vault::Config, types::VaultedLP};
 
         use crate::contracts::SECONDS_PER_DAY;
@@ -330,8 +332,16 @@ mod tests {
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
+            //Remove accept_lps
+            let msg = ExecuteMsg::EditAcceptedLPs { 
+                pool_ids: vec![1],
+                remove: true
+            };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
             //Withdraw: Success
-            //Invalid asset has no effect on outcome
+            //Invalid asset nor Removed LPs have an effect on outcome
             let msg = ExecuteMsg::Withdraw { 
                 withdrawal_assets: vec![
                     Asset {
@@ -356,7 +366,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 user.discount_value,        
-                Uint128::new(2),
+                Uint128::new(0),
             );
             assert_eq!(
                 user.deposits,        

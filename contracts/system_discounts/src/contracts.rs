@@ -215,7 +215,7 @@ fn get_user_value_in_network(
     }))?;
     let credit_price = basket.clone().credit_price;
 
-    let mbrn_price = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    let mbrn_price_res = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().oracle_contract.to_string(),
         msg: to_binary(&Oracle_QueryMsg::Price {
             asset_info: AssetInfo::NativeToken { denom: config.clone().mbrn_denom },
@@ -223,14 +223,13 @@ fn get_user_value_in_network(
             oracle_time_limit: 600,
             basket_id: None,
         })?,
-    }))?
-    .price;
+    }))?;
 
     //Initialize total_value
     let mut total_value = Decimal::zero();
 
-    total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone(), mbrn_price)?;
-    total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price.clone(), credit_price.clone())?;
+    total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone(), mbrn_price_res.price)?;
+    total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price_res.clone(), credit_price.clone())?;
 
     if config.discount_vault_contract.is_some(){
         total_value += get_discounts_vault_value(querier, config.clone(), user.clone())?;
@@ -264,7 +263,7 @@ fn get_staked_MBRN_value(
     querier: QuerierWrapper,
     config: Config,
     user: String,
-    mbrn_price: Decimal,
+    mbrn_price_res: PriceResponse,
     credit_price: Decimal,
 ) -> StdResult<Decimal>{
 
@@ -291,7 +290,7 @@ fn get_staked_MBRN_value(
     
     for asset in rewards.claimables {
 
-        let mut price = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        let mut price_res = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.clone().oracle_contract.to_string(),
             msg: to_binary(&Oracle_QueryMsg::Price {
                 asset_info: asset.info,
@@ -299,18 +298,17 @@ fn get_staked_MBRN_value(
                 oracle_time_limit: 600,
                 basket_id: None,
             })?,
-        }))?
-        .price;
+        }))?;
 
-        if price < credit_price { price = credit_price }
+        if price_res.price < credit_price { price_res.price = credit_price }
 
-        let value = decimal_multiplication(price, Decimal::from_ratio(asset.amount, Uint128::one()))?;
+        let value = price_res.get_value(asset.amount)?;
 
         staked_value += value;
     }
 
     //Add MBRN value to staked_value
-    let value = decimal_multiplication(mbrn_price, Decimal::from_ratio(user_stake, Uint128::one()))?;
+    let value = mbrn_price_res.get_value(user_stake)?;
 
     staked_value += value;
     
@@ -369,7 +367,7 @@ fn get_sp_value(
     
     for asset in res.claims {
 
-        let price = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        let price_res = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.clone().oracle_contract.to_string(),
             msg: to_binary(&Oracle_QueryMsg::Price {
                 asset_info: AssetInfo::NativeToken { denom: asset.denom },
@@ -377,10 +375,9 @@ fn get_sp_value(
                 oracle_time_limit: 600,
                 basket_id: None,
             })?,
-        }))?
-        .price;
+        }))?;
 
-        let value = decimal_multiplication(price, Decimal::from_ratio(asset.amount, Uint128::one()))?;
+        let value = price_res.get_value(asset.amount)?;
 
         claims_value += value;
     }

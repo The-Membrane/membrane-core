@@ -561,7 +561,7 @@ fn get_owner_liquidity_multiplier(
                 })?;
 
                 //Get Value
-                let asset_value = decimal_multiplication(asset_price.price, Decimal::from_ratio(asset.current_supply, Uint128::one()))?;
+                let asset_value = asset_price.get_value(asset.current_supply)?;
 
                 //Add to total
                 total += asset_value;

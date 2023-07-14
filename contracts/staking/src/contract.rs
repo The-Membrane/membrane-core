@@ -1468,7 +1468,7 @@ pub fn can_this_addr_unstake(
     //Can't unstake if there is an active proposal by user
     let proposal_list: ProposalListResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart { 
         contract_addr: config.clone().governance_contract.unwrap().to_string(), 
-        msg: to_binary(&Gov_QueryMsg::ActiveProposals { start: None, limit: None })?
+        msg: to_binary(&Gov_QueryMsg::ActiveProposals { start: None, limit: Some(100) })?
     }))?;
 
     for proposal in proposal_list.clone().proposal_list {

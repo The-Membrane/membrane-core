@@ -9,13 +9,13 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
+use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg};
 use membrane::stability_pool::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig,
 };
 use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::types::{
-    Asset, AssetInfo, AssetPool, Deposit, User, UserInfo, UserRatio,
+    Asset, AssetInfo, AssetPool, Deposit, User, UserInfo, UserRatio, Basket,
 };
 use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest, accrue_user_positions, query_asset_price};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
@@ -259,8 +259,17 @@ fn accrue_incentives(
         None,
     )?;
 
+    //Get CDT Price
+    let basket = querier.query_wasm_smart::<Basket>(
+        config.clone().positions_contract,
+        &CDP_QueryMsg::GetBasket {}
+    )?;
+    let cdt_price = basket.credit_price;
+
     //Transmute CDT amount to MBRN incentive amount
-    incentives = decimal_division(Decimal::from_ratio(incentives, Uint128::one()), mbrn_price)? * Uint128::one();
+    incentives = decimal_division(
+        decimal_multiplication(Decimal::from_ratio(incentives, Uint128::one()), cdt_price)?
+        , mbrn_price)? * Uint128::one();
 
     let mut total_incentives = INCENTIVES.load(storage)?;
 

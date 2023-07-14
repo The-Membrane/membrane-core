@@ -15,6 +15,7 @@ use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::stability_pool::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig,
 };
+use membrane::osmosis_proxy::ExecuteMsg as OsmosisProxy_ExecuteMsg;
 use membrane::types::{
     Asset, AssetInfo, AssetPool, Deposit, User, UserInfo, UserRatio,
 };
@@ -1048,10 +1049,32 @@ fn user_claims_msgs(
     info: MessageInfo,
 ) -> Result<(Vec<CosmosMsg>, Vec<Coin>), ContractError> {
     let user = USERS.load(storage, info.clone().sender)?;
+    let config = CONFIG.load(storage)?;
     let mut messages: Vec<CosmosMsg> = vec![];
+    let mut native_claims: Vec<Coin> = vec![];
 
     //Aggregate native token sends
-    let native_claims = user.clone().claimable_assets.to_vec();
+    for asset in user.clone().claimable_assets.to_vec() {
+        //if asset is MBRN, add a MBRN mint message
+        if asset.denom == config.clone().mbrn_denom {
+            let mint_msg = OsmosisProxy_ExecuteMsg::MintTokens {
+                denom: config.clone().mbrn_denom,
+                mint_to_address: info.sender.to_string(),
+                amount: asset.amount,
+            };
+            let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.osmosis_proxy.to_string(),
+                msg: to_binary(&mint_msg)?,
+                funds: vec![],
+            });
+            messages.push(msg);
+        } else {
+            //Add to native list
+            native_claims.push(asset.clone());  
+        }
+        
+        
+    }    
 
     if native_claims != vec![] {
         let msg = CosmosMsg::Bank(BankMsg::Send {

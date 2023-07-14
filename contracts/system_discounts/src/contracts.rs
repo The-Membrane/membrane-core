@@ -245,8 +245,8 @@ fn get_discounts_vault_value(
     user: String,
 ) -> StdResult<Decimal>{
 
-     //Get user info from the Gauge Vault
-     let user = querier.query::<Discount_UserResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    //Get user capital from the Gauge Vault
+    let user = querier.query::<Discount_UserResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().discount_vault_contract.unwrap().to_string(),
         msg: to_binary(&Discount_QueryMsg::User {
             user,

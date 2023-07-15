@@ -26,6 +26,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 //  Static prices
 const STATIC_USD_PRICE: Decimal = Decimal::one();
 // Mainnet Pyth Price ID
+// https://pyth.network/developers/price-feed-ids#cosmwasm-stable
 const OSMO_USD_PRICE_ID: &str = "5867f5683c757393a0670ef0f701490950fe93fdb006d181c8265a831ac0c5c6";
 
 #[cfg_attr(not(feature = "library"), entry_point)]

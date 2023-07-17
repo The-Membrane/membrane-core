@@ -1,4 +1,3 @@
-use core::panic;
 use std::str::FromStr;
 
 use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Response, Decimal, CosmosMsg, attr, SubMsg, Addr, StdResult, StdError, to_binary, WasmMsg, QueryRequest, WasmQuery, BankMsg, Coin, ReplyOn};
@@ -328,7 +327,7 @@ fn get_user_repay_amount(
                     position_owner,
                 },
                 repayment: Asset {
-                    amount: user_repay_amount * Uint128::new(1u128),
+                    amount: user_repay_amount.to_uint_floor(),
                     info: basket.credit_asset.info,
                 },
             };

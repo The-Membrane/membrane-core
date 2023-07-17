@@ -9,4 +9,5 @@ pub mod reply;
 pub mod state;
 #[cfg(test)]
 pub mod contract_tests;
+pub mod osmosis_test_tube;
 //pub mod integration_tests;

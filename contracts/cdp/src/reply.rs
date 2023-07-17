@@ -1,4 +1,3 @@
-use core::panic;
 use std::str::FromStr;
 
 use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, Api, CosmosMsg, Storage, QuerierWrapper, Binary};

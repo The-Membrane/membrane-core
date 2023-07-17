@@ -489,13 +489,8 @@ pub fn mint_tokens(
             denom: denom.clone(),
             amount: amount.to_string(),
         }), 
-    }.into();    
-
-    //Send minted assets to mint_to_address
-    let send_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send { 
-        to_address: mint_to_address.clone(),
-        amount: coins(amount.u128(), denom.clone()),
-    });
+        mint_to_address: mint_to_address.clone(),
+    }.into(); 
 
     let mut res = Response::new()
         .add_attribute("method", "mint_tokens")
@@ -511,7 +506,7 @@ pub fn mint_tokens(
             .add_attribute("denom", denom)
             .add_attribute("amount", amount)
             .add_attribute("mint_to_address", mint_to_address)
-            .add_messages(vec![mint_tokens_msg, send_msg]);
+            .add_messages(vec![mint_tokens_msg]);
     }
 
     Ok(res)
@@ -648,6 +643,7 @@ pub fn burn_tokens(
             denom,
             amount: amount.to_string(),
         }),
+        burn_from_address: burn_from_address.clone(),
     }.into();
 
     let res = Response::new()

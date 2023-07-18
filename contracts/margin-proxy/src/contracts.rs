@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use cosmwasm_std::{
     attr, entry_point, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, 
-    Response, StdResult, Uint128, WasmQuery, SubMsg, Storage, Addr, CosmosMsg, WasmMsg, Reply, StdError, QueryRequest, Decimal, QuerierWrapper, Attribute, Order, Coin,
+    Response, StdResult, Uint128, WasmQuery, SubMsg, Storage, Addr, CosmosMsg, WasmMsg, Reply, StdError, QueryRequest, Decimal, QuerierWrapper, Attribute, Order, Coin, ReplyOn,
 };
 use cw2::set_contract_version;
 
@@ -413,6 +413,7 @@ fn handle_loop_reply(
             //Update the last router_msg to be a ROUTER_REPLY
             let msg_index = messages.clone().len()-1;
             messages[msg_index].id = ROUTER_REPLY_ID;
+            messages[msg_index].reply_on = ReplyOn::Success;
             
             //Load parameters from last loop
             let loop_parameters = LOOP_PARAMETERS.load(deps.storage)?;

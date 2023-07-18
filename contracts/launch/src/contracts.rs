@@ -78,11 +78,11 @@ pub fn instantiate(
         margin_proxy_id: msg.margin_proxy_id,
         system_discounts_id: msg.system_discounts_id,
         discount_vault_id: msg.discount_vault_id,
-        atom_denom: String::from("uatom"), //ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2
+        atom_denom: String::from("ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2"), 
         osmo_denom: String::from("uosmo"),
-        usdc_denom: String::from("uusdc"),  //axl wrapped usdc //ibc/D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858
+        usdc_denom: String::from("ibc/D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858"),  //axl wrapped usdc
         atomosmo_pool_id: 1,
-        osmousdc_pool_id: 2, //axl wrapped usdc //678
+        osmousdc_pool_id: 678, //axl wrapped usdc
     };
     CONFIG.save(deps.storage, &config)?;
 

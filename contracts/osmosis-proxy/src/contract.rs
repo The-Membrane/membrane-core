@@ -7,7 +7,7 @@ use std::convert::TryInto;
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Addr,
-    Reply, Response, StdError, StdResult, Uint128, SubMsg, CosmosMsg, BankMsg, coins, Decimal, Order, QuerierWrapper,
+    Reply, Response, StdError, StdResult, Uint128, SubMsg, CosmosMsg, Decimal, Order, QuerierWrapper,
 };
 use cw2::set_contract_version;
 use membrane::helpers::get_asset_liquidity;
@@ -22,7 +22,7 @@ use membrane::osmosis_proxy::{
 };
 use membrane::cdp::{QueryMsg as CDPQueryMsg, Config as CDPConfig};
 use membrane::oracle::{QueryMsg as OracleQueryMsg, PriceResponse};
-use membrane::types::{Pool, PoolStateResponse, Basket, Owner};
+use membrane::types::{PoolStateResponse, Basket, Owner};
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, QueryDenomsFromCreatorResponse, MsgCreateDenomResponse};
 
 // version info for migration info
@@ -735,16 +735,13 @@ fn get_pool_state(
     deps: Deps,
     pool_id: u64,
 ) -> StdResult<PoolStateResponse> {
-    let res = GammQuerier::new(&deps.querier).pool(pool_id)?;
-    
-    let pool: Pool = res.pool
-        .ok_or_else(|| StdError::NotFound {
-            kind: "pool".to_string(),
-        })?
-        // convert `Any` to `Pool`
-        .try_into()?;
-
-    Ok(pool.into_pool_state_response())
+    let liquidity_res: osmosis_std::types::osmosis::gamm::v1beta1::QueryTotalPoolLiquidityResponse = GammQuerier::new(&deps.querier).total_pool_liquidity(pool_id)?;
+    let shares_res: osmosis_std::types::osmosis::gamm::v1beta1::QueryTotalSharesResponse = GammQuerier::new(&deps.querier).total_shares(pool_id)?;
+        
+    Ok(PoolStateResponse { 
+        assets: liquidity_res.liquidity, 
+        shares: shares_res.total_shares.unwrap_or_default(),
+    })
     
 }
 

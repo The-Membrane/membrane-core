@@ -1269,7 +1269,7 @@ fn create_redemption_info(
 }
 
 /// Redeem the debt token for collateral for Positions that have opted in 
-/// The premium is set by the Position owner, ex: 1% premium = buying CDT at 99% of the peg price
+/// The premium is set by the Position owner, ex: 1% premium = vault is buying CDT at 99% of the peg price
 pub fn redeem_for_collateral(    
     deps: DepsMut, 
     env: Env,
@@ -1439,13 +1439,13 @@ pub fn redeem_for_collateral(
         coins.push(asset_to_coin(asset)?)
     }
 
-    //Send collateral to user
+    //Send collateral to sender
     let collateral_msg = BankMsg::Send {
         to_address: info.clone().sender.to_string(),
         amount: coins.clone(),
     };
 
-    //If there is excess credit, send it back to user
+    //If there is excess credit, send it back to sender
     if !credit_amount.is_zero() {
         let credit_msg = BankMsg::Send {
             to_address: info.clone().sender.to_string(),

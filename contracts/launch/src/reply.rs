@@ -19,7 +19,6 @@ use membrane::liq_queue::InstantiateMsg as LQInstantiateMsg;
 use membrane::liquidity_check::InstantiateMsg as LCInstantiateMsg;
 use membrane::auction::{InstantiateMsg as DAInstantiateMsg, ExecuteMsg as DAExecuteMsg, UpdateConfig as AuctionUpdateConfig};
 use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg};
-use membrane::margin_proxy::InstantiateMsg as ProxyInstantiateMsg;
 use membrane::system_discounts::InstantiateMsg as SystemDiscountInstantiateMsg;
 use membrane::discount_vault::{InstantiateMsg as DiscountVaultInstantiateMsg, ExecuteMsg as DiscountVaultExecuteMsg};
 use membrane::types::{AssetInfo, Basket, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, AssetOracleInfo, PoolStateResponse, Owner};
@@ -1200,19 +1199,20 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
             msgs.push(msg);
 
             //Create Margin Proxy InstantiationMsg
-            let msg = CosmosMsg::Wasm(WasmMsg::Instantiate {                 
-                admin: Some(addrs.clone().governance.to_string()), 
-                code_id: config.clone().margin_proxy_id, 
-                msg: to_binary(&ProxyInstantiateMsg {
-                    owner: Some(addrs.clone().governance.to_string()),
-                    positions_contract: addrs.clone().positions.to_string(),
-                    apollo_router_contract: config.clone().apollo_router.to_string(),
-                    max_slippage: Decimal::percent(1),
-                })?, 
-                funds: vec![], 
-                label: String::from("margin_proxy"),
-            });
-            msgs.push(msg);
+            //Proxy positions don't scale so it'd have to be a contract per user
+            // let msg = CosmosMsg::Wasm(WasmMsg::Instantiate {                 
+            //     admin: Some(addrs.clone().governance.to_string()), 
+            //     code_id: config.clone().margin_proxy_id, 
+            //     msg: to_binary(&ProxyInstantiateMsg {
+            //         owner: Some(addrs.clone().governance.to_string()),
+            //         positions_contract: addrs.clone().positions.to_string(),
+            //         apollo_router_contract: config.clone().apollo_router.to_string(),
+            //         max_slippage: Decimal::percent(1),
+            //     })?, 
+            //     funds: vec![], 
+            //     label: String::from("margin_proxy"),
+            // });
+            // msgs.push(msg);
 
 
             Ok(Response::new()

@@ -380,9 +380,6 @@ pub fn cast_vote(
             proposal.removal_voters.push(info.sender.clone());
         }
         ProposalVoteOption::Align => {
-            if proposal.aligned_power >= config.proposal_required_stake {
-                return Err(ContractError::AlignmentReached {});
-            }
             proposal.aligned_power = proposal.aligned_power.checked_add(voting_power)?;
             proposal.aligned_voters.push(info.sender.clone());
 

@@ -133,7 +133,6 @@ pub fn execute(
                 deps.querier,
                 env.clone(),
                 valid_assets,
-                true,
             )?;
 
             deposit(deps, env, info, position_owner, position_id, cAssets )
@@ -149,7 +148,6 @@ pub fn execute(
                 deps.querier,
                 env.clone(),
                 assets,
-                false,
             )?;
             //If there is nothing being withdrawn, error
             if cAssets == vec![] { return Err(ContractError::CustomError { val: String::from("No withdrawal assets passed") }) }

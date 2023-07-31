@@ -155,6 +155,17 @@ pub fn deposit(
                 POSITIONS.save(deps.storage, valid_owner_addr, &positions)?;
 
                 if !position.credit_amount.is_zero() {
+                    //Update Supply caps
+                    update_basket_tally(
+                        deps.storage, 
+                        deps.querier, 
+                        env.clone(), 
+                        &mut basket, 
+                        cAssets.clone(),
+                        true
+                    )?;
+                    
+                    //Update debt per asset
                     update_debt_per_asset_in_position(
                         deps.storage,
                         env,
@@ -447,21 +458,23 @@ pub fn withdraw(
         msgs.push(SubMsg::reply_on_success(message, WITHDRAW_REPLY_ID));
     }
 
-    //Update basket supply cap tallies after all withdrawals to improve UX by smoothing debt_cap restrictions
-    update_basket_tally(
-        deps.storage,
-        deps.querier,
-        env.clone(),
-        &mut basket,
-        tally_update_list,
-        false,
-    )?;
-
     //Save updated repayment price and asset tallies
     BASKET.save(deps.storage, &basket)?;
 
-    //Update debt distribution for position assets
+    //Update debt cap distribution & supply cap tallies
     if !target_position.clone().credit_amount.is_zero() {
+        
+        //Update basket supply cap tallies after the full withdrawal to improve UX by smoothing debt_cap restrictions
+        update_basket_tally(
+            deps.storage,
+            deps.querier,
+            env.clone(),
+            &mut basket,
+            tally_update_list,
+            false,
+        )?;
+
+        //Update debt distribution for position assets
         //Make sure lists are equal and add blank assets if not
         if old_assets.len() != new_assets.len() {
             for i in 0..old_assets.len() {
@@ -595,6 +608,18 @@ pub fn repay(
             Uint128::zero()
         },
     };
+
+    //Update Supply caps if this clears all debt
+    if target_position.credit_amount.is_zero(){
+        update_basket_tally(
+            storage, 
+            querier, 
+            env.clone(), 
+            &mut basket, 
+            target_position.collateral_assets.clone(),
+            false
+        )?;
+    }
 
     //Position's resulting debt can't be below minimum without being fully repaid
     if target_position.credit_amount * basket.clone().credit_price < config.debt_minimum
@@ -895,6 +920,18 @@ pub fn increase_debt(
 
     //Set prev_credit_amount
     let prev_credit_amount = target_position.credit_amount;
+
+    //Update Supply caps if this is the first debt taken out
+    if prev_credit_amount.is_zero() {
+        update_basket_tally(
+            deps.storage, 
+            deps.querier, 
+            env.clone(), 
+            &mut basket, 
+            target_position.collateral_assets.clone(),
+            true
+        )?;
+    }
 
     //Set amount
     let amount = match amount {

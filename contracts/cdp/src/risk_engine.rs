@@ -17,7 +17,6 @@ pub fn assert_basket_assets(
     querier: QuerierWrapper,
     env: Env,
     assets: Vec<Asset>,
-    add_to_cAsset: bool,
 ) -> Result<Vec<cAsset>, ContractError> {
     let mut basket: Basket = BASKET.load(storage)?;
 
@@ -35,23 +34,7 @@ pub fn assert_basket_assets(
                 ..cAsset.clone()
             })
         })
-        .collect::<Result<Vec<cAsset>, ContractError>>()?;
-
-    //Add valid asset amounts to running basket total
-    //This is done before deposit() so if that errors this will revert as well
-    //////We don't want this to trigger for withdrawals bc debt needs to accrue on the previous basket state
-    //////For deposit's its fine bc it'll error when invalid and doesn't accrue debt
-    if add_to_cAsset {
-        update_basket_tally(
-            storage,
-            querier,
-            env,
-            &mut basket,
-            collateral_assets.clone(),
-            add_to_cAsset,
-        )?;
-        BASKET.save(storage, &basket)?;
-    }
+        .collect::<Result<Vec<cAsset>, ContractError>>()?;   
 
     Ok(collateral_assets)
 }
@@ -67,7 +50,6 @@ pub fn update_basket_tally(
 ) -> Result<(), ContractError> {
     let config = CONFIG.load(storage)?;
     
-    // if !basket.collateral_supply_caps[3].current_supply.is_zero() {panic!("Basket: {:?}, {:?}", basket.collateral_supply_caps, collateral_assets)}
     //Update SupplyCap objects 
     for cAsset in collateral_assets.clone() {
         if let Some((index, mut cap)) = basket.clone().collateral_supply_caps

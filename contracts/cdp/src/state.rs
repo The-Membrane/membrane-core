@@ -66,6 +66,8 @@ pub fn update_position_claims(
     liquidated_asset: AssetInfo,
     liquidated_amount: Uint128,
 ) -> StdResult<()> {
+    let mut credit_amount: Uint128 = Uint128::zero();
+
     POSITIONS.update(
         storage,
         position_owner,
@@ -76,6 +78,9 @@ pub fn update_position_claims(
                     .map(|mut position| {
                         //Find position
                         if position.position_id == position_id {
+                            //Set credit_amount
+                            credit_amount = position.credit_amount;
+
                             //Find asset in position
                             position.collateral_assets = position
                                 .collateral_assets
@@ -115,7 +120,12 @@ pub fn update_position_claims(
         rate_index: Decimal::one(),
     }];
 
-    let mut basket = BASKET.load(storage)?;    
+    //If there is no credit, basket tallies were updated in the repay function
+    if credit_amount.is_zero() {
+        return Ok(());
+    }
+
+    let mut basket = BASKET.load(storage)?;
     match update_basket_tally(storage, querier, env, &mut basket, collateral_assets, false) {
         Ok(_res) => {
             BASKET.save(storage, &basket)?;

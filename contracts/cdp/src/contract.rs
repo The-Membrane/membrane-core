@@ -167,6 +167,7 @@ pub fn execute(
         } => {
             let basket: Basket = BASKET.load(deps.storage)?;                        
             let credit_asset = assert_sent_native_token_balance(basket.credit_asset.info, &info)?;
+
             repay(
                 deps.storage,
                 deps.querier,

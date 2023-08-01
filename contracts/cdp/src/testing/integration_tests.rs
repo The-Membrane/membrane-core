@@ -2172,6 +2172,16 @@ mod tests {
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
+            //Successful debt increase to initiate caps
+            let msg = ExecuteMsg::IncreaseDebt {
+                position_id: Uint128::from(1u128),
+                amount: Some(Uint128::from(2000u128)),
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
             //Assert asset tally is working
             let query_msg = QueryMsg::GetBasket { };
             let res: Basket = app
@@ -3696,7 +3706,7 @@ mod tests {
                 .unwrap_err();
             assert_eq!(
                 err.root_cause().to_string(),
-                String::from("Position's debt is below minimum")
+                String::from("Position's debt is below minimum: 2000")
             );
 
             //Assert Increased credit price is saved correctly

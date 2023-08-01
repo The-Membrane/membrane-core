@@ -1493,7 +1493,7 @@ mod tests {
                     coin(100_000_000_000_000, "quote"),
                     coin(100_000_000_000_000, "base"),
                     coin(100_000_000_000_000, "double_debit"),
-                    coin(200_000_000_000_000_000_000, "lp_denom"),
+                    coin(200_000_000_000_000_000_000_000_000_000_000, "lp_denom"),
                     coin(100_000_000_000_000, "credit_fulldenom"),
                 ],
             )
@@ -6447,6 +6447,16 @@ mod tests {
                 .unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
+
+            //Successful debt increase to update basket tally
+            let msg = ExecuteMsg::IncreaseDebt {
+                position_id: Uint128::from(1u128),
+                amount: Some(Uint128::from(2000u128)),
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
             
             //Query Basket Debt Caps
             //Debit is based on SP liquidity
@@ -6458,7 +6468,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(16500) }, DebtCap { collateral: NativeToken { denom: \"double_debit\" }, debt_total: Uint128(0), cap: Uint128(141747) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(1000), cap: Uint128(16500) }, DebtCap { collateral: NativeToken { denom: \"double_debit\" }, debt_total: Uint128(1000), cap: Uint128(141747) }]")
             );
 
         }
@@ -7041,7 +7051,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Errored Deposit, over supply cap
+            //Successful Deposit, even tho over supply cap bc there is no debt so it doesnt count to the cap
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
@@ -7051,35 +7061,53 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "debit".to_string(),
-                        amount: Uint128::from(10_000_000_000_000u128),
+                        amount: Uint128::from(10_000_000_000u128),
                     }],
                 )
                 .unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap_err();
+                .unwrap();
+
+            //Errored once debt is taken
+            let msg = ExecuteMsg::IncreaseDebt {
+                position_id: Uint128::from(1u128),
+                amount: Some(Uint128::from(100u128)),
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            let err = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"Supply cap ratio for debit is over the limit (1 > 0.99)\""));
+
             
             //Successful Deposit, user must deposit both to escape caps
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
-                position_id: None,
+                position_id: Some(Uint128::from(1u128)),
             };
             let cosmos_msg = cdp_contract
                 .call(
                     msg,
                     vec![
                         Coin {
-                            denom: "debit".to_string(),
-                            amount: Uint128::from(10_000_000_000_000u128),
-                        },
-                        Coin {
                             denom: "lp_denom".to_string(),
-                            amount: Uint128::from(10_000_000_000_000u128),
+                            amount: Uint128::from(10_000_000_000_000_000_000_000u128),
                         },
                     ],
                 )
                 .unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
+
+            //Success even once debt is taken
+            let msg = ExecuteMsg::IncreaseDebt {
+                position_id: Uint128::from(1u128),
+                amount: Some(Uint128::from(2000u128)),
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
 
             //Query Basket Debt Caps
             let query_msg = QueryMsg::GetBasketDebtCaps { };
@@ -7089,7 +7117,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(99998) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(0), cap: Uint128(199996) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(666), cap: Uint128(99998) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(1333), cap: Uint128(199996) }]")
             );
 
             //Successful Withdraw uneffected by caps
@@ -7282,17 +7310,17 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "debit".to_string(),
-                        amount: Uint128::from(100u128),
+                        amount: Uint128::from(10_000u128),
                     }],
                 )
                 .unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
             
-            //Errored Deposit, over multi-asset scap
+            //Successful Deposit, but will error after since over multi-asset cap
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
-                position_id: None,
+                position_id: Some(Uint128::new(1)),
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -7300,17 +7328,50 @@ mod tests {
                     vec![
                         Coin {
                             denom: "base".to_string(),
-                            amount: Uint128::from(60u128),
+                            amount: Uint128::from(6_000u128),
                         },
                         Coin {
                             denom: "quote".to_string(),
-                            amount: Uint128::from(60u128),
+                            amount: Uint128::from(6_000u128),
                         },
                     ],
                 )
                 .unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap_err();
+                .unwrap();
+            
+            //Errored once debt is taken
+            let msg = ExecuteMsg::IncreaseDebt {
+                position_id: Uint128::from(1u128),
+                amount: Some(Uint128::from(2000u128)),
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            let err = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"Multi-Asset supply cap ratio for [NativeToken { denom: \\\"base\\\" }, NativeToken { denom: \\\"quote\\\" }] is over the limit (0.545454545454545454 > 0.5)\""));
+
+            //Withdraw quote
+            let msg = ExecuteMsg::Withdraw { 
+                position_id: Uint128::new(1),
+                assets: vec![
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "quote".to_string(),
+                        },
+                        amount: Uint128::from(6_000u128),
+                    }
+                ],
+                send_to: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg,
+                    vec![],
+                )
+                .unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
 
             //Successful Deposit to 50% cap
             let msg = ExecuteMsg::Deposit {
@@ -7323,7 +7384,7 @@ mod tests {
                     vec![
                         Coin {
                             denom: "base".to_string(),
-                            amount: Uint128::from(100u128),
+                            amount: Uint128::from(4_000u128),
                         },
                     ],
                 )
@@ -7331,24 +7392,16 @@ mod tests {
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
 
-            //Error: Any deposit of either quote or base is over the multi-asset cap
-            let msg = ExecuteMsg::Deposit {
-                position_owner: Some("bigger_bank".to_string()),
-                position_id: None,
+            //Successful debt increase at cap
+            let msg = ExecuteMsg::IncreaseDebt {
+                position_id: Uint128::from(1u128),
+                amount: Some(Uint128::from(2000u128)),
+                LTV: None,
+                mint_to_addr: None,
             };
-            let cosmos_msg = cdp_contract
-                .call(
-                    msg,
-                    vec![
-                        Coin {
-                            denom: "quote".to_string(),
-                            amount: Uint128::new(1),
-                        },
-                    ],
-                )
-                .unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap_err();
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
+            
             
         }
 

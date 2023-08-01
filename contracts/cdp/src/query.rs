@@ -700,7 +700,7 @@ pub fn get_asset_values(
                 is_deposit_function,
             )?;
             let cAsset_value = price_res.get_value(cAsset.asset.amount)?;
-
+            
             cAsset_prices.push(price_res);
             cAsset_values.push(cAsset_value);
         

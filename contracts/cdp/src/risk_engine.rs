@@ -1,4 +1,6 @@
 
+use core::panic;
+
 use cosmwasm_std::{Decimal, Uint128, Env, QuerierWrapper, Storage, to_binary, QueryRequest, WasmQuery, StdResult, StdError, Addr};
 
 use membrane::cdp::Config;
@@ -83,10 +85,9 @@ pub fn update_basket_tally(
 
  
     //Assert new ratios aren't above Collateral Supply Caps. If so, error.
-    //Only for deposits
     for (i, ratio) in new_basket_ratios.clone().into_iter().enumerate() {
         if basket.collateral_supply_caps != vec![] && ratio > basket.collateral_supply_caps[i].supply_cap_ratio && add_to_cAsset{
-
+            
             return Err(ContractError::CustomError {
                 val: format!(
                     "Supply cap ratio for {} is over the limit ({} > {})",
@@ -137,12 +138,11 @@ pub fn update_debt_per_asset_in_position(
     env: Env,
     querier: QuerierWrapper,
     config: Config,
+    mut basket: Basket,
     old_assets: Vec<cAsset>,
     new_assets: Vec<cAsset>,
     credit_amount: Decimal,
 ) -> Result<(), ContractError> {
-    let mut basket: Basket = BASKET.load(storage)?;
-
     //Note: Vec lengths need to match, enforced in withdraw()
     let (old_ratios, _) = get_cAsset_ratios(
         storage,
@@ -341,7 +341,7 @@ pub fn get_basket_debt_caps(
         basket.clone().collateral_types,
         config.clone(),
     )?;
-
+    
     //Get owner liquidity parameters from Osmosis Proxy
     let owner_params = get_owner_liquidity_multiplier(
         querier, 
@@ -398,7 +398,7 @@ pub fn get_basket_debt_caps(
     let mut per_asset_debt_caps = vec![];
 
     //Calc per asset debt caps
-    for (i, cAsset_ratio) in cAsset_ratios.into_iter().enumerate() {
+    for (i, cAsset_ratio) in cAsset_ratios.clone().into_iter().enumerate() {
                 
         if basket.clone().collateral_supply_caps != vec![] {
             // If supply cap is 0, then debt cap is 0

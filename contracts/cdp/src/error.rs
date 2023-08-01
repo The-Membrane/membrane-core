@@ -45,8 +45,8 @@ pub enum ContractError {
     #[error("Repayment exceeds outstanding credit")]
     ExcessRepayment {},
 
-    #[error("Position's debt is below minimum")]
-    BelowMinimumDebt {},
+    #[error("Position's debt is below minimum: {minimum}")]
+    BelowMinimumDebt { minimum: Uint128 },
 
     #[error("Cw20Msg Error")]
     Cw20MsgError {},

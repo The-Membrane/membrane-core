@@ -171,6 +171,7 @@ pub fn deposit(
                         env,
                         deps.querier,
                         config,
+                        basket,
                         old_assets,
                         new_assets,
                         Decimal::from_ratio(position.credit_amount, Uint128::new(1u128)),
@@ -521,6 +522,7 @@ pub fn withdraw(
             env.clone(),
             deps.querier,
             config,
+            basket,
             old_assets,
             new_assets,
             Decimal::from_ratio(target_position.credit_amount, Uint128::new(1u128)),
@@ -628,7 +630,7 @@ pub fn repay(
         //We rather $1 of bad debt than $2000 and bad debt comes from swap slippage
         if let Some(router) = config.clone().dex_router {
             if info.sender != router {
-                return Err(ContractError::BelowMinimumDebt {});
+                return Err(ContractError::BelowMinimumDebt { minimum: config.debt_minimum });
             }
         }
         //This would also pass for ClosePosition, but since spread is added to collateral amount this should never happen
@@ -954,7 +956,7 @@ pub fn increase_debt(
         basket.credit_price,
     )? < Decimal::from_ratio(config.debt_minimum, Uint128::new(1u128))
     {
-        return Err(ContractError::BelowMinimumDebt {});
+        return Err(ContractError::BelowMinimumDebt { minimum: config.debt_minimum });
     }
 
     let message: CosmosMsg;

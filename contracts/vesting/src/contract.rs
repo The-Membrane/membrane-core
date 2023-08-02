@@ -315,29 +315,29 @@ fn claim_fees_for_contract(
             .collect::<Vec<Recipient>>();
         new_recipients.extend(allocated_recipients);
         RECIPIENTS.save(storage, &new_recipients)?;
+       
+
+        //Construct ClaimRewards Msg to Staking Contract
+        let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.staking_contract.to_string(),
+            msg: to_binary(&StakingExecuteMsg::ClaimRewards {
+                restake: false,
+                send_to: None,
+            })?,
+            funds: vec![],
+        });
+    
+        return Ok(Response::new().add_message(msg).add_attributes(vec![
+            attr("method", "claim_fees_for_contract"),
+            attr("claimables", format!("{:?}", res.claimables)),
+        ]))
     }
 
-    //Construct ClaimRewards Msg to Staking Contract
-    let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.staking_contract.to_string(),
-        msg: to_binary(&StakingExecuteMsg::ClaimRewards {
-            restake: false,
-            send_to: None,
-        })?,
-        funds: vec![],
-    });
-
-    //Claimables into String List
-    let claimables_string: Vec<String> = res
-        .claimables
-        .into_iter()
-        .map(|claim| claim.to_string())
-        .collect::<Vec<String>>();
-
-    Ok(Response::new().add_message(msg).add_attributes(vec![
+    Ok(Response::new().add_attributes(vec![
         attr("method", "claim_fees_for_contract"),
-        attr("claimables", format!("{:?}", claimables_string)),
+        attr("claimables", format!("{:?}", res.claimables)),
     ]))
+
 }
 
 /// Get allocation ratios for list of recipients

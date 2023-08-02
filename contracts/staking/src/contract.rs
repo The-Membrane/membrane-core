@@ -22,7 +22,7 @@ use membrane::math::{decimal_division, decimal_multiplication};
 
 use crate::error::ContractError;
 use crate::query::{query_user_stake, query_user_rewards, query_staked, query_fee_events, query_totals, query_delegations};
-use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, STAKING_TOTALS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, DELEGATIONS, DELEGATE_CLAIMS, VESTING_STAKE_TIME};
+use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, STAKING_TOTALS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, DELEGATIONS, DELEGATE_CLAIMS, VESTING_STAKE_TIME, VESTING_REV_MULTIPLIER};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:staking";
@@ -60,6 +60,7 @@ pub fn instantiate(
             unstaking_period: msg.unstaking_period.unwrap_or(4u64),
             max_commission_rate: Decimal::percent(10),
             keep_raw_cdt: true,
+            vesting_rev_multiplier: Decimal::one(),
             mbrn_denom: msg.mbrn_denom,
         };
     } else {
@@ -78,6 +79,7 @@ pub fn instantiate(
             unstaking_period: msg.unstaking_period.unwrap_or(4u64),
             max_commission_rate: Decimal::percent(10),
             keep_raw_cdt: true,
+            vesting_rev_multiplier: Decimal::one(),
             mbrn_denom: msg.mbrn_denom,
         };
     }
@@ -164,6 +166,7 @@ pub fn execute(
             unstaking_period,
             max_commission_rate,
             keep_raw_cdt,
+            vesting_rev_multiplier,
         } => update_config(
             deps,
             info,
@@ -179,7 +182,8 @@ pub fn execute(
             fee_wait_period,
             unstaking_period,
             max_commission_rate,
-            keep_raw_cdt,
+            keep_raw_cdt,            
+            vesting_rev_multiplier,
         ),
         ExecuteMsg::Stake { user } => stake(deps, env, info, user),
         ExecuteMsg::Unstake { mbrn_amount } => unstake(deps, env, info, mbrn_amount),
@@ -254,6 +258,7 @@ fn update_config(
     unstaking_period: Option<u64>,
     max_commission_rate: Option<Decimal>,
     keep_raw_cdt: Option<bool>,
+    vesting_rev_multiplier: Option<Decimal>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -299,6 +304,11 @@ fn update_config(
     };
     if let Some(keep_raw_cdt) = keep_raw_cdt {
         config.keep_raw_cdt = keep_raw_cdt;
+    };
+    if let Some(vesting_rev_multiplier) = vesting_rev_multiplier {
+        //Set vesting_rev_multiplier's state object
+        //Config is only updated once vesting contract has claimed rewards
+        VESTING_REV_MULTIPLIER.save(deps.storage, &vesting_rev_multiplier)?;
     };
     if let Some(mbrn_denom) = mbrn_denom {
         config.mbrn_denom = mbrn_denom.clone();
@@ -1318,6 +1328,12 @@ fn deposit_fee(
 
             totals.vesting_contract = vesting_total;
             STAKING_TOTALS.save(deps.storage, &totals)?;
+            
+            //Transform total with vesting rev multiplier
+            totals.vesting_contract = decimal_multiplication(
+                Decimal::from_ratio(vesting_total, Uint128::one()),
+                config.vesting_rev_multiplier)?
+            .to_uint_floor();
         }
 
         //Set total
@@ -1713,7 +1729,7 @@ fn get_user_claimables(
 ) -> StdResult<(Vec<Asset>, Uint128)> {
     let mut not_a_staker: bool = false;
     //Load state
-    let config = CONFIG.load(storage)?;
+    let mut config = CONFIG.load(storage)?;
     let incentive_schedule = INCENTIVE_SCHEDULING.load(storage)?;
     let mut deposits: Vec<StakeDeposit> = match STAKED.load(storage, user.clone()){
         Ok(deposits) => {
@@ -1938,15 +1954,23 @@ fn get_user_claimables(
                     }
                 })?;
                                         
-            }    
+            }
+
+            //Filter out empty claimables
+            claimables = claimables
+                .into_iter()
+                .filter(|claimable| claimable.amount != Uint128::zero())
+                .collect::<Vec<Asset>>();
+
         }   return Ok((claimables, accrued_interest))
 
     } else if config.vesting_contract.is_some() && user == config.clone().vesting_contract.unwrap().to_string() {
         //Load Fee events
         let fee_events = FEE_EVENTS.load(storage)?;
-        //Load total vesting
-        let total = STAKING_TOTALS.load(storage)?.vesting_contract;
-
+        //Load total vesting, altered by the vesting rev multiplier
+        let total = STAKING_TOTALS.load(storage)?
+            .vesting_contract * config.vesting_rev_multiplier;
+                
         let mut claimables = vec![];
 
         let deposit = StakeDeposit {
@@ -1954,6 +1978,12 @@ fn get_user_claimables(
             amount: total,
             stake_time: VESTING_STAKE_TIME.load(storage)?,
             unstake_start_time: None,
+        };
+
+        //Save new vesting multiplier to config if necessary
+        if let Ok(multiplier) = VESTING_REV_MULTIPLIER.load(storage){
+            config.vesting_rev_multiplier = multiplier;
+            CONFIG.save(storage, &config)?;
         };
 
         //Set new vesting stake time to move up claims while skipping wait period +1 to put it past claimed events
@@ -1971,6 +2001,12 @@ fn get_user_claimables(
             total,
         )?;
         claimables.extend(claims);
+
+        //Filter out empty claimables
+        claimables = claimables
+            .into_iter()
+            .filter(|claimable| claimable.amount != Uint128::zero())
+            .collect::<Vec<Asset>>();
 
         return Ok((claimables, Uint128::zero()))
     }

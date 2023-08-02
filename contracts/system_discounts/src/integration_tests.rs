@@ -184,6 +184,7 @@ mod tests {
                             max_commission_rate: Decimal::zero(),
                             unstaking_period: 0,
                             keep_raw_cdt: false,
+                            vesting_rev_multiplier: Decimal::one(),
                             positions_contract: None,
                             auction_contract: None,
                             vesting_contract: None,

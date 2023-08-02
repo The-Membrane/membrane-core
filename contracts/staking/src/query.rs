@@ -2,7 +2,7 @@ use cosmwasm_std::{Deps, StdResult, Uint128, Env, Addr, Decimal, StdError};
 use cw_storage_plus::Bound;
 use membrane::math::decimal_multiplication;
 use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, RewardsResponse, StakedResponse, DelegationResponse};
-use membrane::types::{FeeEvent, StakeDeposit, DelegationInfo, Delegation};
+use membrane::types::{FeeEvent, StakeDeposit, DelegationInfo, Delegation, Asset};
 
 use crate::contract::{get_deposit_claimables, SECONDS_PER_DAY, get_total_vesting};
 use crate::state::{STAKING_TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING, DELEGATIONS, VESTING_STAKE_TIME};
@@ -138,13 +138,25 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
             accrued_interest += incentives;
         }
 
+        //Filter out empty claimables
+        claimables = claimables
+            .into_iter()
+            .filter(|claimable| claimable.amount != Uint128::zero())
+            .collect::<Vec<Asset>>();
+
         Ok(RewardsResponse {
             claimables,
             accrued_interest,
         })
     } else if config.vesting_contract.is_some() && user == config.clone().vesting_contract.unwrap().to_string() {
         //Load total vesting
-        let total = STAKING_TOTALS.load(deps.storage)?.vesting_contract;
+        let total = STAKING_TOTALS.load(deps.storage)?
+            .vesting_contract;
+        //Transform total with vesting rev multiplier
+        let total = decimal_multiplication(
+            Decimal::from_ratio(total, Uint128::one()),
+            config.vesting_rev_multiplier)?
+        .to_uint_floor();
 
         let mut claimables = vec![];
 
@@ -169,6 +181,11 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
         )?;
         claimables.extend(claims);
         
+        //Filter out empty claimables
+        claimables = claimables
+            .into_iter()
+            .filter(|claimable| claimable.amount != Uint128::zero())
+            .collect::<Vec<Asset>>();
 
         Ok(RewardsResponse {
             claimables,

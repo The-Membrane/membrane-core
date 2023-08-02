@@ -55,6 +55,8 @@ pub enum ExecuteMsg {
         /// Toggle to keep raw CDT revenue
         /// If false, CDT revenue is converted in the FeeAuction
         keep_raw_cdt: Option<bool>,
+        /// Vesting contract revenue multiplier
+        vesting_rev_multiplier: Option<Decimal>,
     },
     /// Stake MBRN tokens
     Stake {
@@ -176,6 +178,8 @@ pub struct Config {
     /// Toggle to keep raw CDT revenue
     /// If false, CDT revenue is converted in the FeeAuction
     pub keep_raw_cdt: bool,
+    /// Vesting contract revenue multiplier
+    pub vesting_rev_multiplier: Decimal,
     /// Positions contract address
     pub positions_contract: Option<Addr>,
     /// Auction contract address

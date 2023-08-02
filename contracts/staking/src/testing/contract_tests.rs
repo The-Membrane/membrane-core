@@ -51,6 +51,7 @@ fn update_config(){
         fee_wait_period: Some(1),  
         max_commission_rate: Some(Decimal::percent(11)),
         keep_raw_cdt: Some(false),
+        vesting_rev_multiplier: None,
     };
 
     execute(
@@ -85,7 +86,8 @@ fn update_config(){
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
             fee_wait_period: 1,
             max_commission_rate: Decimal::percent(11),
-            keep_raw_cdt: false,            
+            keep_raw_cdt: false,
+            vesting_rev_multiplier: Decimal::percent(100),      
         },
     );
     //Previous owner can still update bc the ownership hasn't transferred yet
@@ -102,6 +104,7 @@ fn update_config(){
         fee_wait_period: Some(0),
         max_commission_rate: None,
         keep_raw_cdt: None,
+        vesting_rev_multiplier: None,
     };
 
     execute(
@@ -126,6 +129,7 @@ fn update_config(){
         fee_wait_period: None,
         max_commission_rate: None,
         keep_raw_cdt: None,
+        vesting_rev_multiplier: None,
     };
 
     execute(
@@ -161,6 +165,7 @@ fn update_config(){
             fee_wait_period: 0, 
             max_commission_rate: Decimal::percent(11),  
             keep_raw_cdt: false,
+            vesting_rev_multiplier: Decimal::percent(100),
         },
     );
 }

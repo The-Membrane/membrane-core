@@ -1346,7 +1346,7 @@ fn deposit_fee(
         //Add new Fee Event
         for asset in CDT_assets.clone() {        
             let amount = Decimal::from_ratio(asset.amount, Uint128::new(1u128));
-            
+
             fee_events.push(FeeEvent {
                 //We add the fee wait period so that the Fee distribution amount is correct
                 //since deposits don't become eligible until the wait period is over yet they are added to the deposit_total at deposit
@@ -1969,8 +1969,13 @@ fn get_user_claimables(
         let fee_events = FEE_EVENTS.load(storage)?;
         //Load total vesting, altered by the vesting rev multiplier
         let total = STAKING_TOTALS.load(storage)?
-            .vesting_contract * config.vesting_rev_multiplier;
-                
+            .vesting_contract;
+        //Transform total with vesting rev multiplier
+        let total = decimal_multiplication(
+            Decimal::from_ratio(total, Uint128::one()),
+            config.vesting_rev_multiplier)?
+        .to_uint_floor();
+                    
         let mut claimables = vec![];
 
         let deposit = StakeDeposit {

@@ -56,6 +56,8 @@ pub enum ExecuteMsg {
         /// If false, CDT revenue is converted in the FeeAuction
         keep_raw_cdt: Option<bool>,
         /// Vesting contract revenue multiplier
+        /// Transforms the total stake in the revenue calculations, not the revenue directly
+        /// WARNING: SETTING TO 0 IS PERMANENT
         vesting_rev_multiplier: Option<Decimal>,
     },
     /// Stake MBRN tokens
@@ -179,6 +181,8 @@ pub struct Config {
     /// If false, CDT revenue is converted in the FeeAuction
     pub keep_raw_cdt: bool,
     /// Vesting contract revenue multiplier
+    /// Transforms the total stake in the revenue calculations, not the revenue directly
+    /// WARNING: SETTING TO 0 IS PERMANENT
     pub vesting_rev_multiplier: Decimal,
     /// Positions contract address
     pub positions_contract: Option<Addr>,

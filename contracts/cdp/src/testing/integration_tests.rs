@@ -1077,6 +1077,7 @@ mod tests {
                             mbrn_denom: String::from("mbrn_denom"),
                             incentive_schedule: StakeDistribution { rate: Decimal::zero(), duration: 0 },
                             keep_raw_cdt: false,
+                            vesting_rev_multiplier: Decimal::zero(),
                             max_commission_rate: Decimal::zero(),
                             fee_wait_period: 0,
                             unstaking_period: 0,

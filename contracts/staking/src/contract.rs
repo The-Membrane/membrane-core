@@ -60,7 +60,7 @@ pub fn instantiate(
             unstaking_period: msg.unstaking_period.unwrap_or(4u64),
             max_commission_rate: Decimal::percent(10),
             keep_raw_cdt: true,
-            vesting_rev_multiplier: Decimal::one(),
+            vesting_rev_multiplier: Decimal::percent(20),
             mbrn_denom: msg.mbrn_denom,
         };
     } else {
@@ -79,7 +79,7 @@ pub fn instantiate(
             unstaking_period: msg.unstaking_period.unwrap_or(4u64),
             max_commission_rate: Decimal::percent(10),
             keep_raw_cdt: true,
-            vesting_rev_multiplier: Decimal::one(),
+            vesting_rev_multiplier: Decimal::percent(20),
             mbrn_denom: msg.mbrn_denom,
         };
     }

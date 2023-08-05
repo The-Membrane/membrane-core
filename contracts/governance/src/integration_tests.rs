@@ -202,6 +202,7 @@ mod tests {
                         mbrn_denom: String::from("mbrn_denom"),
                         max_commission_rate: Decimal::zero(),
                         keep_raw_cdt: false,
+                        vesting_rev_multiplier: Decimal::zero(),
                     })?),
                     Staking_MockQueryMsg::TotalStaked {  } => Ok(to_binary(&TotalStakedResponse {
                         total_not_including_vested: Uint128::new(5_000_000_000_001u128),

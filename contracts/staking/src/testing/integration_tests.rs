@@ -407,7 +407,7 @@ mod tests {
                 .unwrap();
             assert_eq!(resp.claimables.len(), 1 as usize);
             assert_eq!(resp.claimables[0], Asset {
-                amount: Uint128::new(950),
+                amount: Uint128::new(931),
                 info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
             });
             assert_eq!(resp.accrued_interest, Uint128::new(78082));
@@ -424,7 +424,7 @@ mod tests {
                 .unwrap();
             assert_eq!(resp.claimables.len(), 1 as usize);
             assert_eq!(resp.claimables[0], Asset {
-                amount: Uint128::new(50),
+                amount: Uint128::new(49),
                 info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
             });
             assert_eq!(resp.accrued_interest, Uint128::new(4109));
@@ -440,7 +440,7 @@ mod tests {
             //Check that the rewards were sent
             assert_eq!(
                 app.wrap().query_all_balances("user_1").unwrap(),
-                vec![coin(950, "credit_fulldenom")]
+                vec![coin(931, "credit_fulldenom")]
             );
 
             //Undelegate
@@ -466,7 +466,7 @@ mod tests {
             //Check that the rewards were sent
             assert_eq!(
                 app.wrap().query_all_balances("governator_addr").unwrap(),
-                vec![coin(50, "credit_fulldenom")]
+                vec![coin(49, "credit_fulldenom")]
             );
 
             ////MBRN amount doesn't change for either bc they are restaked////
@@ -532,7 +532,7 @@ mod tests {
                         info: AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom")
                         },
-                        amount: Decimal::from_str("0.0005").unwrap(), //bc there is 1_000_000 stake total
+                        amount: Decimal::from_str("0.000833333333333333").unwrap(), 
                     },
                 },
             ]);
@@ -585,7 +585,7 @@ mod tests {
             //Check that the rewards were sent
             assert_eq!(
                 app.wrap().query_all_balances("user_1").unwrap(),
-                vec![coin(500, "credit_fulldenom"), coin(9_000_000, "mbrn_denom")]
+                vec![coin(833, "credit_fulldenom"), coin(9_000_000, "mbrn_denom")]
             );
                 
             //Assert Vesting Claims
@@ -612,7 +612,7 @@ mod tests {
             //Check that the rewards were sent
             assert_eq!(
                 app.wrap().query_all_balances("contract3").unwrap(),
-                vec![coin(500, "credit_fulldenom")]
+                vec![coin(166, "credit_fulldenom")]
             );
 
             //Claim: Assert claim was saved and can't be double claimed
@@ -701,7 +701,7 @@ mod tests {
             //Check that the rewards were sent
             assert_eq!(
                 app.wrap().query_all_balances("user_1").unwrap(),
-                vec![coin(500, "credit_fulldenom"), coin(9_000_000, "mbrn_denom")]
+                vec![coin(833, "credit_fulldenom"), coin(9_000_000, "mbrn_denom")]
             );
                 
             //Assert Vesting Claims
@@ -728,7 +728,7 @@ mod tests {
             //Check that the rewards were sent
             assert_eq!(
                 app.wrap().query_all_balances("contract3").unwrap(),
-                vec![coin(500, "credit_fulldenom")]
+                vec![coin(166, "credit_fulldenom")]
             );
 
             //NOW THAT VESTING HAS CLAIMED, THE MULTIPLIER IS UPDATED
@@ -888,13 +888,6 @@ mod tests {
             assert_eq!(resp.total_not_including_vested, Uint128::new(10_000_000));
             assert_eq!(resp.vested_total, Uint128::new(0));
 
-            //Unstake more than Staked Error
-            let msg = ExecuteMsg::Unstake {
-                mbrn_amount: Some(Uint128::new(10_000_001u128)),
-            };
-            let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap_err();
-
             //Not a staker Error
             let msg = ExecuteMsg::Unstake {
                 mbrn_amount: Some(Uint128::new(1u128)),
@@ -935,6 +928,10 @@ mod tests {
                 time: app.block_info().time.plus_seconds(86_400u64 * 3u64), //Added 3 days
                 chain_id: app.block_info().chain_id,
             });
+
+            //Send the contract 8219 MBRN to get past the claim reply check
+            app.send_tokens(Addr::unchecked("coin_God"), staking_contract.addr(), &[coin(8219, "mbrn_denom")]).unwrap();
+
 
             //Successful Unstake all w/ withdrawal
             let msg = ExecuteMsg::Unstake {

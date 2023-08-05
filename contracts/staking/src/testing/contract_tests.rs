@@ -87,7 +87,7 @@ fn update_config(){
             fee_wait_period: 1,
             max_commission_rate: Decimal::percent(11),
             keep_raw_cdt: false,
-            vesting_rev_multiplier: Decimal::percent(100),      
+            vesting_rev_multiplier: Decimal::percent(20),      
         },
     );
     //Previous owner can still update bc the ownership hasn't transferred yet
@@ -165,7 +165,7 @@ fn update_config(){
             fee_wait_period: 0, 
             max_commission_rate: Decimal::percent(11),  
             keep_raw_cdt: false,
-            vesting_rev_multiplier: Decimal::percent(100),
+            vesting_rev_multiplier: Decimal::percent(20),
         },
     );
 }
@@ -870,17 +870,6 @@ fn unstake() {
     assert_eq!(resp.total_not_including_vested, Uint128::new(10000000));
     assert_eq!(resp.vested_total, Uint128::new(11000000));
 
-    //Unstake more than Staked Error
-    let msg = ExecuteMsg::Unstake {
-        mbrn_amount: Some(Uint128::new(11_000_000u128)),
-    };
-    let info = mock_info("sender88", &[]);
-    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "Custom Error val: \"Invalid withdrawal amount\"".to_string()
-    );
-
     //Not a staker Error
     let msg = ExecuteMsg::Unstake { mbrn_amount: None };
     let info = mock_info("not_a_user", &[]);
@@ -891,7 +880,10 @@ fn unstake() {
     );
 
     //Successful Unstake w/o withdrawals
-    let msg = ExecuteMsg::Unstake { mbrn_amount: None };
+    //Unstake more than Staked doesn't Error but doesn't overstkae
+    let msg = ExecuteMsg::Unstake {
+        mbrn_amount: Some(Uint128::new(11_000_000u128)),
+    };
     let info = mock_info("sender88", &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
@@ -928,17 +920,6 @@ fn unstake() {
     let resp: StakerResponse = from_binary(&res).unwrap();
     assert_eq!(resp.total_staked, Uint128::new(10008219));
     assert_eq!(resp.deposit_list[1], (Uint128::new(8219), 1572056619));
-
-    //Unstake more than Staked Error
-    let msg = ExecuteMsg::Unstake {
-        mbrn_amount: Some(Uint128::new(11_000_000u128)),
-    };
-    let info = mock_info("sender88", &[]);
-    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "Custom Error val: \"Invalid withdrawal amount\"".to_string()
-    );
         
     env.block.time = env.block.time.plus_seconds(259200 *2); //6 days
 

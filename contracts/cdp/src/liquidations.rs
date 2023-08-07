@@ -1,6 +1,8 @@
 use std::str::FromStr;
 
 use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Response, Decimal, CosmosMsg, attr, SubMsg, Addr, StdResult, StdError, to_binary, WasmMsg, QueryRequest, WasmQuery, BankMsg, Coin, ReplyOn};
+use osmosis_std::shim::Duration;
+use osmosis_std::types::osmosis::downtimedetector::v1beta1::{DowntimedetectorQuerier, RecoveredSinceDowntimeOfLengthResponse};
 
 use membrane::helpers::{router_native_to_native, pool_query_and_exit, query_stability_pool_fee, asset_to_coin, validate_position_owner};
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction, Uint256};
@@ -32,6 +34,24 @@ pub fn liquidate(
     position_id: Uint128,
     position_owner: String,
 ) -> Result<Response, ContractError> {
+    //Check for Osmosis downtime 
+    match DowntimedetectorQuerier::new(&querier)
+        .recovered_since_downtime_of_length(
+            10 * 60 * 8, //8 hours from 6 second blocks
+            Some(Duration {
+                seconds: 60 * 60, //1 hour
+                nanos: 0,
+            })
+    ){
+        Ok(resp) => {            
+            if !resp.succesfully_recovered {
+                return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
+            }
+        },
+        Err(_) => (),
+    };
+
+    //Load state
     let config: Config = CONFIG.load(storage)?;
 
     let mut basket: Basket = BASKET.load(storage)?;

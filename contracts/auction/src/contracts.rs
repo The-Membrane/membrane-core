@@ -9,6 +9,7 @@ use membrane::auction::{ExecuteMsg, InstantiateMsg, QueryMsg, Config, UpdateConf
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
+use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
 use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient, Basket, DebtAuction, FeeAuction};
 use membrane::helpers::withdrawal_msg;
@@ -46,6 +47,7 @@ pub fn instantiate(
         initial_discount: msg.initial_discount,
         discount_increase_timeframe: msg.discount_increase_timeframe,
         discount_increase: msg.discount_increase,
+        send_to_stakers: false,
     };
 
     if let Some(owner) = msg.owner {
@@ -180,6 +182,9 @@ fn update_config(
             return Err(ContractError::CustomError { val: String::from("Invalid discount increase") });
         }
         config.discount_increase = discount_increase;
+    }
+    if let Some(send_to_stakers) = update.send_to_stakers {
+        config.send_to_stakers = send_to_stakers;
     }
 
     //Save Config
@@ -356,8 +361,8 @@ fn validate_asset(
     Ok(coin)
 }
 
-/// Swap desired asset for non-CDT asset at a discount
-/// Send desired asset to governance and send non-CDT asset to the sender.
+/// Swap desired asset for Some(fee_asset) at a discount
+/// Send desired asset to governance or stakers and send Some(fee_asset) to the sender.
 fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: AssetInfo) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -463,14 +468,28 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
             FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
         }
 
-        //Send desired asset to governance
-        msgs.push(CosmosMsg::Bank(BankMsg::Send {
-            to_address: config.clone().governance_contract.to_string(),
-            amount: vec![Coin {
-                denom: config.clone().desired_asset,
-                amount: coin.amount - overpay,
-            }],
-        }));
+        //Send desired asset to Governance or deposit to Stakers
+        if config.send_to_stakers {
+            //Staking DepositFee
+            msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.clone().staking_contract.to_string(),
+                msg: to_binary(&StakingExecuteMsg::DepositFee { })?,
+                funds: vec![Coin {
+                    denom: config.clone().desired_asset,
+                    amount: coin.amount - overpay,
+                }],
+            }));
+
+        } else {
+            //Governance
+            msgs.push(CosmosMsg::Bank(BankMsg::Send {
+                to_address: config.clone().governance_contract.to_string(),
+                amount: vec![Coin {
+                    denom: config.clone().desired_asset,
+                    amount: coin.amount - overpay,
+                }],
+            }));
+        }
 
         //Send fee asset to the sender
         msgs.push(CosmosMsg::Bank(BankMsg::Send {

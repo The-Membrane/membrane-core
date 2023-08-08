@@ -1295,6 +1295,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                             initial_discount: None,
                             discount_increase_timeframe: None,
                             discount_increase: None,
+                            send_to_stakers: None,
                         }))?, 
                         funds: vec![],
                     })

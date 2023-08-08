@@ -97,6 +97,9 @@ pub struct Config {
     pub discount_increase_timeframe: u64, 
     /// Increase in discount per unit of timeframe
     pub discount_increase: Decimal,
+    /// Toggle sending FeeAuction assets to stakers instead of governance
+    pub send_to_stakers: bool,
+    
 }
 
 #[cw_serde]
@@ -127,4 +130,6 @@ pub struct UpdateConfig {
     pub discount_increase_timeframe: Option<u64>, 
     /// Increase in discount per unit of timeframe
     pub discount_increase: Option<Decimal>,
+    /// Toggle sending FeeAuction assets to stakers instead of governance
+    pub send_to_stakers: Option<bool>,
 }

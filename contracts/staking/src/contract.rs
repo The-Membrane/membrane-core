@@ -219,7 +219,7 @@ pub fn execute(
         ExecuteMsg::DepositFee {} => {
             let config = CONFIG.load(deps.storage)?;
 
-            if info.sender != config.positions_contract.unwrap() {
+            if info.sender != config.positions_contract.unwrap() && info.sender != config.auction_contract.unwrap(){
                 return Err(ContractError::Unauthorized {});
             }
 

@@ -831,6 +831,7 @@ mod tests {
                 initial_discount: None,
                 discount_increase_timeframe: None,
                 discount_increase: None,
+                send_to_stakers: None,
             });
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             let err = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap_err();
@@ -851,6 +852,7 @@ mod tests {
                 initial_discount: Some(Decimal::percent(2)), 
                 discount_increase_timeframe: Some(61u64), 
                 discount_increase: Some(Decimal::percent(4)), 
+                send_to_stakers: Some(true),
             });
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -870,6 +872,7 @@ mod tests {
                 initial_discount: None,
                 discount_increase_timeframe: None,
                 discount_increase: Some(Decimal::percent(5)),
+                send_to_stakers: None,
             });
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
@@ -898,6 +901,7 @@ mod tests {
                     initial_discount: Decimal::percent(2), 
                     discount_increase_timeframe: 61u64, 
                     discount_increase: Decimal::percent(5), 
+                    send_to_stakers: true,
                 },
             );
         }

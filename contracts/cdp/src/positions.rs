@@ -1367,9 +1367,12 @@ pub fn redeem_for_collateral(
                             .filter(|asset| asset.asset.info.to_string() != restricted_asset)
                             .collect::<Vec<cAsset>>();
                     }
+                    if target_position.collateral_assets.is_empty() {
+                        continue;
+                    }
 
                     //Get cAsset ratios
-                    let (cAsset_ratios, _) = get_cAsset_ratios(
+                    let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(
                         deps.storage,
                         env.clone(),
                         deps.querier,
@@ -1420,18 +1423,19 @@ pub fn redeem_for_collateral(
                     //Calc collateral to send for each cAsset
                     for (i, cAsset) in target_position.collateral_assets.iter().enumerate() {
                         //Calc collateral to send
-                        let collateral_to_send = decimal_multiplication(
+                        let value_to_send = decimal_multiplication(
                             redeemable_value, 
                             cAsset_ratios[i]
                         )?;
+                        let collateral_to_send = cAsset_prices[i].get_amount(value_to_send)?;
 
                         //Add to send list
                         if let Some(asset) = collateral_sends.iter_mut().find(|a| a.info == cAsset.asset.info) {
-                            asset.amount += collateral_to_send.clone().to_uint_floor();
+                            asset.amount += collateral_to_send.clone();
                         } else {
                             collateral_sends.push(Asset {
                                 info: cAsset.asset.info.clone(),
-                                amount: collateral_to_send.clone().to_uint_floor(),
+                                amount: collateral_to_send.clone(),
                             });
                         }
                         
@@ -1443,7 +1447,7 @@ pub fn redeem_for_collateral(
                             position_redemption_info.position_id, 
                             user.clone().position_owner, 
                             cAsset.asset.info.clone(), 
-                            collateral_to_send.to_uint_floor()
+                            collateral_to_send
                         )?;
                     }
 

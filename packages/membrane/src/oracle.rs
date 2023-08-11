@@ -3,7 +3,7 @@ use cosmwasm_std::{Decimal, Uint128, Addr, StdResult};
 
 use pyth_sdk_cw::PriceIdentifier;
 
-use crate::{types::{AssetInfo, AssetOracleInfo, PriceInfo, TWAPPoolInfo}, math::{decimal_multiplication}};
+use crate::{types::{AssetInfo, AssetOracleInfo, PriceInfo, TWAPPoolInfo}, math::{decimal_multiplication, decimal_division}};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -126,7 +126,24 @@ impl PriceResponse {
             Decimal::from_ratio(asset_amount, Uint128::new(1u128));
 
         decimal_multiplication(self.price, decimal_asset_amount)
-        }
+    }
+
+    pub fn get_amount(&self, value: Decimal) -> StdResult<Uint128> {
+        //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
+        let exponent_difference = self
+            .decimals
+            .checked_sub(6u64)
+            .unwrap();
+
+        //This gives us the amount if the asset had 6 decimals
+        let pre_scaled_amount = decimal_division(value, self.price)?;
+
+        let asset_amount = pre_scaled_amount
+            * Uint128::new(10u64.pow(exponent_difference as u32) as u128);
+
+        Ok(asset_amount)
+
+    }
 }
 
 #[cw_serde]

@@ -27,26 +27,28 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
             )?[0];
 
             //Skip if balance is 0
-            if credit_asset_balance.is_zero() {
-                return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
-            }
+            // if credit_asset_balance.is_zero() {
+            //     return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
+            // }
 
-            //Load repay msg binary from storage
-            let hook_msg: Binary = ROUTER_REPAY_MSG.load(deps.storage)?;
+            // //Load repay msg binary from storage
+            // let hook_msg: Binary = ROUTER_REPAY_MSG.load(deps.storage)?;
 
-            //Create repay_msg with queried funds
-            //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted
-            let repay_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-                contract_addr: env.contract.address.to_string(), 
-                msg: hook_msg, 
-                funds: vec![asset_to_coin(
-                    Asset { 
-                        info: basket.credit_asset.info.clone(),
-                        amount: credit_asset_balance.clone(),
-                    })?]
-            });
+            // //Create repay_msg with queried funds
+            // //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted
+            // let repay_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+            //     contract_addr: env.contract.address.to_string(), 
+            //     msg: hook_msg, 
+            //     funds: vec![asset_to_coin(
+            //         Asset { 
+            //             info: basket.credit_asset.info.clone(),
+            //             amount: credit_asset_balance.clone(),
+            //         })?]
+            // });
 
-            Ok(Response::new().add_message(repay_msg).add_attribute("amount_repaid", credit_asset_balance))
+            Ok(Response::new()
+            //.add_message(repay_msg)
+            .add_attribute("amount_repaid", credit_asset_balance))
         },
         
         Err(err) => {
@@ -181,8 +183,7 @@ pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
             let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
 
             //If SP wasn't called, meaning User's SP funds can't be handled there, sell wall the leftovers
-            if prop.stability_pool == Decimal::zero() {
-                
+            if prop.stability_pool == Decimal::zero() {                
                 repay_amount = prop.clone().user_repay_amount;
 
                 //Sell wall asset's repayment amount
@@ -614,7 +615,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
 
             prop.per_asset_repayment.remove(0);
             LIQUIDATION.save(deps.storage, &prop)?;
-
+            
             Ok(Response::new()
                 .add_attribute("error", string)
                 .add_attribute("sent_to_sell_wall", repay_amount.to_string()))

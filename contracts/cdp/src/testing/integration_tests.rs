@@ -105,6 +105,14 @@ mod tests {
                             attr("collateral_info", "native_token"),
                             attr("collateral_amount", collateral_amount),
                         ]))
+                    } else if collateral_amount.to_string() == String::from("1166666666666666") {
+                        Ok(Response::new().add_attributes(vec![
+                            attr("action", "execute_bid"),
+                            attr("repay_amount", 1166.to_string()),
+                            attr("collateral_token", bid_for.to_string()),
+                            attr("collateral_info", "native_token"),
+                            attr("collateral_amount", collateral_amount),
+                        ]))
                     } else if collateral_amount.to_string() == String::from("1054777777777778") {
                         Ok(Response::new().add_attributes(vec![
                             attr("action", "execute_bid"),
@@ -185,6 +193,12 @@ mod tests {
                         Ok(to_binary(&LQ_LiquidatibleResponse {
                             leftover_collateral: "222222222222222".to_string(),
                             total_debt_repaid: (Uint256::from(1062u128) - Uint256::from(222u128))
+                                .to_string(),
+                        })?)
+                    } else if collateral_amount.to_string() == String::from("1388888888888888"){
+                        Ok(to_binary(&LQ_LiquidatibleResponse {
+                            leftover_collateral: "222222222222222".to_string(),
+                            total_debt_repaid: (Uint256::from(1388u128) - Uint256::from(222u128))
                                 .to_string(),
                         })?)
                     } else {
@@ -323,6 +337,12 @@ mod tests {
                         Ok(to_binary(&LQ_LiquidatibleResponse {
                             leftover_collateral: "222222222222222".to_string(),
                             total_debt_repaid: (Uint256::from(1277u128) - Uint256::from(222u128))
+                                .to_string(),
+                        })?)
+                    } else if collateral_amount.to_string() == String::from("1388888888888888"){
+                        Ok(to_binary(&LQ_LiquidatibleResponse {
+                            leftover_collateral: "222222222222222".to_string(),
+                            total_debt_repaid: (Uint256::from(1388u128) - Uint256::from(222u128))
                                 .to_string(),
                         })?)
                     } else {
@@ -4553,10 +4573,10 @@ mod tests {
             assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97312));
 
             //Assert sell wall was sent assets
-            //SW increases from 222 to 444 bc the user's SP repayment failed as well
+            //The user's SP repayment failed (222 out of 2222)
             assert_eq!(
                 app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-                vec![coin(444, "debit")]
+                vec![coin(222, "debit")]
             );
 
             //Assert fees were sent.
@@ -4574,7 +4594,7 @@ mod tests {
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(1778, "debit")]
+                vec![coin(2000, "debit")]
             );
             //Assert SP wasn't sent any due to the Error
             assert_eq!(
@@ -5121,7 +5141,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97518442222222222));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97517_277_777_777_780));
             //2777 credit liquidated at $1
             //lp_denom is worth $2
             //Assert sell wall wasn't sent assets
@@ -5135,21 +5155,21 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(13880000000000, "lp_denom")]
+                vec![coin(13_888_888_888_888, "lp_denom")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416400000000000, "lp_denom")]
+                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416_666_666_666_666, "lp_denom")]
             );
 
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(614, "credit_fulldenom"), coin(885500000000000, "lp_denom")]
+                vec![coin(614, "credit_fulldenom"), coin(885_500_000_000_000, "lp_denom")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(1165777777777778, "lp_denom")]
+                vec![coin(1166_666_666_666_666, "lp_denom")]
             );
             
             /////////SP Errors////
@@ -5352,12 +5372,12 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97653942222222222));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97597777777777780));
 
             //Assert sell wall was sent assets
             assert_eq!(
                 app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-                vec![coin(861, "base"), coin(861, "quote")]
+                vec![coin(805, "base"), coin(805, "quote")]
             );
 
             //Assert 1% fee was sent.
@@ -5366,19 +5386,19 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(13_880000000000, "lp_denom")]
+                vec![coin(13_888_888_888_888, "lp_denom")]
             );
             //Assert 30% fee
             //Same here, 416 instead of 833 if it were valued at a $1.
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416_400000000000, "lp_denom")]
+                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416_666666666666, "lp_denom")]
             );
 
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(1054_777777777778, "lp_denom")]
+                vec![coin(1166_666666666666, "lp_denom")]
             );            
             //Assert SP wasn't sent any due to the Error
             assert_eq!(
@@ -5588,7 +5608,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98346520000000000));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98346244444444446));
 
             //Assert sell wall wasn't sent assets
             assert_eq!(
@@ -5601,11 +5621,11 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(13_880000000000, "lp_denom")]
+                vec![coin(13_888888888888, "lp_denom")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416_400000000000, "lp_denom")]
+                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416_666666666666, "lp_denom")]
             );
 
             //Assert collateral to be liquidated was sent
@@ -5820,7 +5840,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98181720000000000));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98181444444444446));
 
             //Assert sell wall was sent assets all Assets
             //For $2777 worth of liquidations
@@ -5834,11 +5854,11 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(13_880000000000, "lp_denom")]
+                vec![coin(13_888888888888, "lp_denom")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416_400000000000, "lp_denom")]
+                vec![coin(100000, "2nddebit"), coin(100000, "debit"), coin(416_666666666666, "lp_denom")]
             );
 
             //Assert neither module was sent any due to the Error
@@ -9565,7 +9585,7 @@ mod tests {
                 app.wrap().query_all_balances(Addr::unchecked("redeemer")).unwrap(),
                 vec![
                     coin(91000, "credit_fulldenom"),  
-                    coin(5099, "debit"), //5850 - 2250 = 3600 new debit redeemed
+                    coin(5099, "debit"), //5099 - 1499 = 3600 new debit redeemed
                     coin(1499_999_999_999_999, "lp_denom"), 
                     coin(1, "not_redeemable")]
             );

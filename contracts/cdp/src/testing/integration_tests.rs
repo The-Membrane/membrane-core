@@ -9239,9 +9239,9 @@ mod tests {
                 position_id: None,
             };
             let cosmos_msg = cdp_contract
-                .call(exec_msg.clone(), vec![coin(100_000, "2nddebit")])
+                .call(exec_msg.clone(), vec![coin(100_000, "debit")])
                 .unwrap();
-            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            let res = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
 
             //Successful IncreaseDebt: #2
             let msg = ExecuteMsg::IncreaseDebt {
@@ -9251,7 +9251,7 @@ mod tests {
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
 
             //Set #1 to 10% premium
             let redemption_msg = ExecuteMsg::EditRedeemability { 
@@ -9273,7 +9273,7 @@ mod tests {
                 restricted_collateral_assets: None,
             };
             let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![]).unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
 
             ////Redeem///// (15k max currently)
             //Error: Wrong asset
@@ -9290,9 +9290,8 @@ mod tests {
             assert_eq!(
                 app.wrap().query_all_balances(Addr::unchecked("redeemer")).unwrap(),
                 vec![
-                    coin(8000, "2nddebit"),
                     coin(85000, "credit_fulldenom"),  
-                    coin(4500, "debit"), 
+                    coin(12500, "debit"), 
                     coin(1, "not_redeemable")]
             );
 
@@ -9311,7 +9310,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetPosition { 
                     position_id: Uint128::new(2), 
-                    position_owner: String::from(USER)
+                    position_owner: String::from("bigger_bank")
                 })
                 .unwrap();
             assert_eq!(position_2.collateral_assets[0].asset.amount, Uint128::new(92_000));
@@ -9324,6 +9323,34 @@ mod tests {
         fn redemption_w_multiple_collateral(){
             let (mut app, cdp_contract, lq_contract) =
                 proper_instantiate(false, false, false, false);
+
+            //Add 2nddebit as collateral
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                added_cAsset: Some(cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "2nddebit".to_string(),
+                        },
+                        amount: Uint128::zero(),
+                    },
+                    max_borrow_LTV: Decimal::percent(50),
+                    max_LTV: Decimal::percent(60),
+                    pool_info: None,
+                    rate_index: Decimal::one(),
+                }),
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Add LP pool assets first: Base
             let msg = ExecuteMsg::EditBasket(EditBasket {
@@ -9456,6 +9483,16 @@ mod tests {
                         lp: true,
                         stability_pool_ratio_for_debt_cap: None,
                     },
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "2nddebit".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
                 ]),
                 base_interest_rate: None,
                 credit_asset_twap_price_source: None,
@@ -9482,7 +9519,7 @@ mod tests {
                 position_id: None,
             };
             let cosmos_msg = cdp_contract
-                .call(exec_msg.clone(), vec![coin(100_000, "debit"), coin(100_000_000_000_000_000, "lp_denom")])
+            .call(exec_msg.clone(), vec![coin(100_000, "debit"), coin(100_000_000_000_000_000, "lp_denom")])
                 .unwrap();
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
@@ -9503,6 +9540,40 @@ mod tests {
                 premium: Some(10),
                 max_loan_repayment: Some(Decimal::percent(10)),
                 restricted_collateral_assets: None,
+            };
+            let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+
+            ////DEPOSIT A 2ND POSITION THAT HAS FULLY RESTRICTED ASSETS, SHOULDNT CHANGE THE OUTCOMES
+            /// 
+            //Successful deposit
+            let exec_msg = ExecuteMsg::Deposit {
+                position_owner: None,
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(exec_msg.clone(), vec![coin(100_000, "2nddebit")])
+                .unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Successful IncreaseDebt
+            let msg = ExecuteMsg::IncreaseDebt {
+                position_id: Uint128::from(2u128),
+                amount: Some(Uint128::from(50_000u128)),
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Set same rdeemability + restrict all collateral assets
+            let redemption_msg = ExecuteMsg::EditRedeemability { 
+                position_ids: vec![Uint128::new(2)], 
+                redeemable: Some(true), 
+                premium: Some(10),
+                max_loan_repayment: Some(Decimal::percent(10)),
+                restricted_collateral_assets: Some(vec![String::from("2nddebit")]),
             };
             let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
@@ -9551,7 +9622,8 @@ mod tests {
                 .query_wasm_smart::<RedeemabilityResponse>(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             //Bc the remaining loan repayment is 0'd, the position is not redeemable
-            assert_eq!(res.premium_infos, vec![]);
+            //Length is only the 2nd position
+            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos.len(), 1 as usize);
 
             //Reset #1's loan repayment cap but restrict the collateral to only debit
             let redemption_msg = ExecuteMsg::EditRedeemability { 
@@ -9574,7 +9646,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart::<RedeemabilityResponse>(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[0].remaining_loan_repayment, Uint128::new(4500));
+            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[1].remaining_loan_repayment, Uint128::new(4500));
 
             //Successful restricted redemption
             let redemption_msg = ExecuteMsg::RedeemCollateral { max_collateral_premium: None };          
@@ -9602,7 +9674,8 @@ mod tests {
             assert_eq!(position.collateral_assets[1].asset.amount, Uint128::new(98_500_000_000_000_001));
             assert_eq!(position.credit_amount, Uint128::new(41000));  
 
-            //Assert remaining loan repayment is updated from a partial full
+            //Assert Pos #1 remaining loan repayment is updated from a partial full
+            //while Pos #2 is still 5k bc all assets were restricted
             let query_msg = QueryMsg::GetBasketRedeemability { 
                 position_owner: None,
                 start_after: None, 
@@ -9611,8 +9684,9 @@ mod tests {
             let res = app
                 .wrap()
                 .query_wasm_smart::<RedeemabilityResponse>(cdp_contract.addr(), &query_msg.clone())
-                .unwrap();
-            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[0].remaining_loan_repayment, Uint128::new(500));
+                .unwrap();            
+            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[0].remaining_loan_repayment, Uint128::new(5000));
+            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[1].remaining_loan_repayment, Uint128::new(500));
         }
     }
 }

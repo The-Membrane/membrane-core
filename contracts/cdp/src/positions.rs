@@ -1104,7 +1104,7 @@ pub fn edit_redemption_info(
 
     //////Additions//////
     //Add PositionRedemption objects under the user in the desired premium while skipping duplicates, if redeemable is true or None
-    if !(redeemable.is_some() && !redeemable.unwrap()){
+    if redeemable.unwrap(){
         if let Some(updated_premium) = updated_premium {                
             //Load premium we are adding to 
             match REDEMPTION_OPT_IN.load(deps.storage, updated_premium){
@@ -1401,10 +1401,12 @@ pub fn redeem_for_collateral(
                         if user.position_infos.is_empty() {
                             users_of_premium.remove(user_index);
                         }
-                    } else {
-                        //Update user
+                    }
+                    //Update user
+                    if !users_of_premium.is_empty() {
                         users_of_premium[user_index] = user.clone();
                     }
+                    
                     REDEMPTION_OPT_IN.save(deps.storage, premium, &users_of_premium)?;
 
                     // Calc credit_value

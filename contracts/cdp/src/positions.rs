@@ -759,7 +759,7 @@ pub fn liq_repay(
 
     //Can only be called by the SP contract
     if config.stability_pool.is_none() || info.sender != config.clone().stability_pool.unwrap(){
-        return Err(ContractError::Unauthorized {});
+        return Err(ContractError::Unauthorized { owner: config.owner.to_string() });
     }
 
     //These 3 checks shouldn't error we are pulling the ids from state.
@@ -1860,7 +1860,7 @@ pub fn edit_basket(
     let config = CONFIG.load(deps.storage)?;
 
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        return Err(ContractError::Unauthorized { owner: config.owner.to_string() });
     }
 
     let mut new_queue: Option<Addr> = None;
@@ -2201,7 +2201,7 @@ pub fn mint_revenue(
     let config = CONFIG.load(deps.storage)?;
     let mut basket = BASKET.load(deps.storage)?;
 
-    if info.sender != config.owner { return Err(ContractError::Unauthorized {}) }
+    if info.sender != config.owner { return Err(ContractError::Unauthorized { owner: config.owner.to_string() }) }
 
     if basket.pending_revenue.is_zero() {
         return Err(ContractError::CustomError {

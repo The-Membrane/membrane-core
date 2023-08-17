@@ -274,7 +274,7 @@ pub fn execute(
             if info.sender == env.contract.address {
                 callback_handler(deps, env, msg)
             } else {
-                Err(ContractError::Unauthorized {})
+                Err(ContractError::Unauthorized { owner: env.contract.address.to_string() })
             }
         }
     }
@@ -292,7 +292,7 @@ fn edit_cAsset(
 
     //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        return Err(ContractError::Unauthorized { owner: config.owner.to_string() });
     }
 
     let mut basket: Basket = BASKET.load(deps.storage)?;
@@ -392,10 +392,11 @@ fn update_config(
     //Assert Authority
     if info.sender != config.owner {
         //Check if ownership transfer is in progress & transfer if so
-        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+        let new_owner = OWNERSHIP_TRANSFER.load(deps.storage)?;
+        if info.sender == new_owner {
             config.owner = info.sender;
         } else {
-            return Err(ContractError::Unauthorized {});
+            return Err(ContractError::Unauthorized { owner: new_owner.to_string() });
         }
     }
     

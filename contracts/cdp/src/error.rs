@@ -6,8 +6,8 @@ pub enum ContractError {
     #[error("{0}")]
     Std(#[from] StdError),
 
-    #[error("Unauthorized")]
-    Unauthorized {},
+    #[error("Unauthorized, owner is {owner}")]
+    Unauthorized { owner: String},
 
     #[error("Invalid Collateral")]
     InvalidCollateral {},

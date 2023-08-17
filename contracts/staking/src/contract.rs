@@ -53,7 +53,7 @@ pub fn instantiate(
             governance_contract: None,
             osmosis_proxy: None,
             incentive_schedule: msg.incentive_schedule.unwrap_or_else(|| StakeDistribution {
-                rate: Decimal::percent(33),
+                rate: Decimal::percent(9),
                 duration: 240,
             }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),
@@ -72,7 +72,7 @@ pub fn instantiate(
             governance_contract: None,
             osmosis_proxy: None,
             incentive_schedule: msg.incentive_schedule.unwrap_or_else(|| StakeDistribution {
-                rate: Decimal::percent(33),
+                rate: Decimal::percent(9),
                 duration: 240,
             }),
             fee_wait_period: msg.fee_wait_period.unwrap_or(3u64),

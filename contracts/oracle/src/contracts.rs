@@ -27,7 +27,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const STATIC_USD_PRICE: Decimal = Decimal::one();
 // Mainnet Pyth Price ID
 // https://pyth.network/developers/price-feed-ids#cosmwasm-stable
-const OSMO_USD_PRICE_ID: &str = "5867f5683c757393a0670ef0f701490950fe93fdb006d181c8265a831ac0c5c6";
+const OSMO_USD_PRICE_ID: &str = "5867f5683c757393a0670ef0f701490950fe93fdb006d181c8265a831ac0c5c6"; 
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -44,7 +44,7 @@ pub fn instantiate(
             owner: deps.api.addr_validate(&msg.owner.unwrap())?,
             positions_contract: None,
             osmosis_proxy_contract: None,            
-            pyth_osmosis_address: Some(deps.api.addr_validate(&"osmo13ge29x4e2s63a8ytz2px8gurtyznmue4a69n5275692v3qn3ks8q7cwck7")?),
+            pyth_osmosis_address: Some(deps.api.addr_validate(&"osmo1hpdzqku55lmfmptpyj6wdlugqs5etr6teqf7r4yqjjrxjznjhtuqqu5kdh")?), //mainnet: osmo13ge29x4e2s63a8ytz2px8gurtyznmue4a69n5275692v3qn3ks8q7cwck7
             osmo_usd_pyth_feed_id: PriceIdentifier::from_hex(OSMO_USD_PRICE_ID).unwrap(),
             pools_for_usd_par_twap: vec![],
         };
@@ -53,7 +53,7 @@ pub fn instantiate(
             owner: info.sender,
             positions_contract: None,
             osmosis_proxy_contract: None,
-            pyth_osmosis_address: Some(deps.api.addr_validate(&"osmo13ge29x4e2s63a8ytz2px8gurtyznmue4a69n5275692v3qn3ks8q7cwck7")?),
+            pyth_osmosis_address: Some(deps.api.addr_validate(&"osmo1hpdzqku55lmfmptpyj6wdlugqs5etr6teqf7r4yqjjrxjznjhtuqqu5kdh")?), //mainnet: osmo13ge29x4e2s63a8ytz2px8gurtyznmue4a69n5275692v3qn3ks8q7cwck7
             osmo_usd_pyth_feed_id: PriceIdentifier::from_hex(OSMO_USD_PRICE_ID).unwrap(),
             pools_for_usd_par_twap: vec![],
         };
@@ -187,7 +187,7 @@ fn edit_asset(
         attrs.push(attr("new_oracle_info", oracle_info.to_string()));
 
         //Test the new price source
-        let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, 0, Some(oracle_info.basket_id))?;
+        let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, 0, Some(oracle_info.basket_id));
         attrs.push(attr("price", format!("{:?}", price)));
     }
         
@@ -239,7 +239,7 @@ fn add_asset(
 
             
             //Test the new price source
-            let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, 0, Some(oracle_info.basket_id))?;
+            let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, 0, Some(oracle_info.basket_id));
             attrs.push(attr("price", format!("{:?}", price)));
         }
         Ok(oracles) => {
@@ -265,7 +265,7 @@ fn add_asset(
 
                 
                 //Test the new price source
-                let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, 0, Some(oracle_info.basket_id))?;
+                let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, 0, Some(oracle_info.basket_id));
                 attrs.push(attr("price", format!("{:?}", price)));
             } else {
                 return Err(ContractError::DuplicateOracle { basket_id: oracle_info.basket_id.to_string()});

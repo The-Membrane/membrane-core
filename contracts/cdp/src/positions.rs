@@ -1883,7 +1883,8 @@ pub fn edit_basket(
         rate_index: Decimal::one(),
     };
 
-    let mut msgs: Vec<CosmosMsg> = vec![];
+    let mut msgs: Vec<CosmosMsg> = vec![];    
+    let mut attrs = vec![attr("method", "edit_basket")];
 
     let mut basket = BASKET.load(deps.storage)?;
     //cAsset check
@@ -2142,7 +2143,6 @@ pub fn edit_basket(
             oracle_set = true;
         }
     };
-    let mut attrs = vec![attr("method", "edit_basket")];
 
     //Add pool_infos to the Liquidity contract
     if let Some(pool_infos) = editable_parameters.clone().credit_pool_infos {

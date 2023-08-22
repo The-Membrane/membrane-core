@@ -656,9 +656,11 @@ pub struct Lockdrop {
     pub locked_asset: AssetInfo,    
     /// Lock up ceiling, in days
     pub lock_up_ceiling: u64,
-    /// Deposit period window, in days
+    /// Start time, for queries
+    pub start_time: u64,
+    /// End of the Deposit period window, in seconds
     pub deposit_end: u64,
-    /// Withdrawal period window, in days
+    /// End of the Withdrawal period window, in seconds
     pub withdrawal_end: u64,
     /// Has the protocol launched?
     pub launched: bool,

@@ -690,6 +690,21 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
             ADDRESSES.save(deps.storage, &addrs)?;
 
             let mut msgs = vec![];
+            //Add positions contract to oracle contract to use EditBasket
+            msgs.push(
+                CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: addrs.clone().oracle.to_string(), 
+                    msg: to_binary(&OracleExecuteMsg::UpdateConfig { 
+                        owner: None, 
+                        positions_contract: Some(addrs.clone().positions.to_string()),
+                        osmosis_proxy_contract: None, 
+                        pyth_osmosis_address: None,
+                        osmo_usd_pyth_feed_id: None,
+                        pools_for_usd_par_twap: None,
+                    })?, 
+                    funds: vec![],
+                }));
+            
             //Add LQ to Basket alongside 1/2 LPs & 3/5 SupplyCaps
             let msg = CDPExecuteMsg::EditBasket(EditBasket {
                 added_cAsset: Some(cAsset {
@@ -1133,31 +1148,6 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                     })?, 
                     funds: vec![],
                 }));
-            //Positions
-            msgs.push(
-                CosmosMsg::Wasm(WasmMsg::Execute { 
-                    contract_addr: addrs.clone().positions.to_string(), 
-                    msg: to_binary(&CDPExecuteMsg::UpdateConfig(CDPUpdateConfig {
-                        owner: Some(addrs.clone().governance.to_string()), 
-                        stability_pool: Some(addrs.clone().stability_pool.to_string()), 
-                        dex_router: None,
-                        osmosis_proxy: None,
-                        debt_auction: Some(addrs.clone().mbrn_auction.to_string()), 
-                        staking_contract: None,
-                        oracle_contract: None,
-                        liquidity_contract: Some(addrs.clone().liquidity_check.to_string()), 
-                        discounts_contract: Some(addrs.clone().system_discounts.to_string()), 
-                        liq_fee: None,
-                        debt_minimum: None,
-                        base_debt_cap_multiplier: None,
-                        oracle_time_limit: None,
-                        credit_twap_timeframe: None,
-                        collateral_twap_timeframe: None,
-                        cpc_multiplier: None,
-                        rate_slope_multiplier: None,
-                    }))?, 
-                    funds: vec![],
-                }));
             
             /////Query saved share tokens in Position's contract & add Supply Caps for them
             let basket: Basket = deps.querier.query_wasm_smart(
@@ -1416,13 +1406,13 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                     })?, 
                     funds: vec![],
                 }));
-            //Set oracle to governance & add USD Par TWAP pool
+            //Set oracle ownership to governance & add USD Par TWAP pool
             msgs.push(
                 CosmosMsg::Wasm(WasmMsg::Execute { 
                     contract_addr: addrs.clone().oracle.to_string(), 
                     msg: to_binary(&OracleExecuteMsg::UpdateConfig { 
                         owner: Some(addrs.clone().governance.to_string()), 
-                        positions_contract: Some(addrs.clone().positions.to_string()),
+                        positions_contract: None,
                         osmosis_proxy_contract: Some(addrs.clone().osmosis_proxy.to_string()),
                         pyth_osmosis_address: None,
                         osmo_usd_pyth_feed_id: None,
@@ -1435,7 +1425,34 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                         ])
                     })?, 
                     funds: vec![],
-                }));                
+                }));
+
+            
+            //Change Positions contract ownership to governance & add misc. contracts
+            msgs.push(
+                CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: addrs.clone().positions.to_string(), 
+                    msg: to_binary(&CDPExecuteMsg::UpdateConfig(CDPUpdateConfig {
+                        owner: Some(addrs.clone().governance.to_string()), 
+                        stability_pool: Some(addrs.clone().stability_pool.to_string()), 
+                        dex_router: None,
+                        osmosis_proxy: None,
+                        debt_auction: Some(addrs.clone().mbrn_auction.to_string()), 
+                        staking_contract: None,
+                        oracle_contract: None,
+                        liquidity_contract: Some(addrs.clone().liquidity_check.to_string()), 
+                        discounts_contract: Some(addrs.clone().system_discounts.to_string()), 
+                        liq_fee: None,
+                        debt_minimum: None,
+                        base_debt_cap_multiplier: None,
+                        oracle_time_limit: None,
+                        credit_twap_timeframe: None,
+                        collateral_twap_timeframe: None,
+                        cpc_multiplier: None,
+                        rate_slope_multiplier: None,
+                    }))?, 
+                    funds: vec![],
+                }));
 
             //Query contract balance of any GAMM shares 
             //but we only care about MBRN-OSMO LP

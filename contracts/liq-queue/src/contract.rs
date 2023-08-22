@@ -285,7 +285,7 @@ fn add_queue(
 
     let bid_asset = config.clone().bid_asset;
 
-    if info.sender != config.owner {
+    if info.sender != config.owner && info.sender != config.positions_contract{
         return Err(ContractError::Unauthorized {});
     }
 

@@ -214,7 +214,7 @@ fn add_asset(
     //Owner or Positions contract can Add_assets
     if info.sender != config.owner {
         if config.positions_contract.is_some() {
-            if info.sender != config.positions_contract.unwrap() {
+            if info.sender != config.clone().positions_contract.unwrap() {        
                 return Err(ContractError::Unauthorized {});
             }
         } else {

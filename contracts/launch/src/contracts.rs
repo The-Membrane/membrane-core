@@ -115,6 +115,7 @@ pub fn instantiate(
         num_of_incentives: Uint128::new(10_000_000_000_000),
         locked_asset: AssetInfo::NativeToken { denom: String::from("uosmo") },
         lock_up_ceiling: 90,
+        start_time: env.block.time.seconds(),
         deposit_end: env.block.time.seconds() + (5 * SECONDS_PER_DAY),
         withdrawal_end: env.block.time.seconds() + (7 * SECONDS_PER_DAY),
         launched: false,

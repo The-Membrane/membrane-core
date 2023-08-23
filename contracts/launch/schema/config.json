@@ -1,0 +1,177 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Config",
+  "type": "object",
+  "required": [
+    "apollo_router",
+    "atom_denom",
+    "atomosmo_pool_id",
+    "credit_denom",
+    "discount_vault_id",
+    "governance_id",
+    "liq_queue_id",
+    "liquidity_check_id",
+    "margin_proxy_id",
+    "mbrn_auction_id",
+    "mbrn_denom",
+    "mbrn_launch_amount",
+    "oracle_id",
+    "osmo_denom",
+    "osmosis_proxy_id",
+    "osmousdc_pool_id",
+    "positions_id",
+    "pre_launch_contributors",
+    "stability_pool_id",
+    "staking_id",
+    "system_discounts_id",
+    "usdc_denom",
+    "vesting_id"
+  ],
+  "properties": {
+    "apollo_router": {
+      "description": "Apollo router address",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Addr"
+        }
+      ]
+    },
+    "atom_denom": {
+      "description": "Osmosis ATOM denom",
+      "type": "string"
+    },
+    "atomosmo_pool_id": {
+      "description": "ATOM/OSMO pool id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "credit_denom": {
+      "description": "Basket credit asset denom",
+      "type": "string"
+    },
+    "discount_vault_id": {
+      "description": "Discount Vault contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "governance_id": {
+      "description": "Governance contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "liq_queue_id": {
+      "description": "Liquidity Queue contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "liquidity_check_id": {
+      "description": "Liquidity Check contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "margin_proxy_id": {
+      "description": "Margin Proxy contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "mbrn_auction_id": {
+      "description": "MBRN Auction contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "mbrn_denom": {
+      "description": "MBRN token denom",
+      "type": "string"
+    },
+    "mbrn_launch_amount": {
+      "description": "Amount of MBRN for launch incentives & LPs",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Uint128"
+        }
+      ]
+    },
+    "oracle_id": {
+      "description": "Oracle contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "osmo_denom": {
+      "description": "OSMO denom",
+      "type": "string"
+    },
+    "osmosis_proxy_id": {
+      "description": "Osmosis Proxy contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "osmousdc_pool_id": {
+      "description": "USDC/OSMO pool id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "positions_id": {
+      "description": "Positions contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "pre_launch_contributors": {
+      "description": "Pre launch contributors address",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Addr"
+        }
+      ]
+    },
+    "stability_pool_id": {
+      "description": "Stability Pool contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "staking_id": {
+      "description": "Staking contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "system_discounts_id": {
+      "description": "System Discounts contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "usdc_denom": {
+      "description": "Axelar USDC denom",
+      "type": "string"
+    },
+    "vesting_id": {
+      "description": "Vesting contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Addr": {
+      "description": "A human readable address.\n\nIn Cosmos, this is typically bech32 encoded. But for multi-chain smart contracts no assumptions should be made other than being UTF-8 encoded and of reasonable length.\n\nThis type represents a validated address. It can be created in the following ways 1. Use `Addr::unchecked(input)` 2. Use `let checked: Addr = deps.api.addr_validate(input)?` 3. Use `let checked: Addr = deps.api.addr_humanize(canonical_addr)?` 4. Deserialize from JSON. This must only be done from JSON that was validated before such as a contract's state. `Addr` must not be used in messages sent by the user because this would result in unvalidated instances.\n\nThis type is immutable. If you really need to mutate it (Really? Are you sure?), create a mutable copy using `let mut mutable = Addr::to_string()` and operate on that `String` instance.",
+      "type": "string"
+    },
+    "Uint128": {
+      "description": "A thin wrapper around u128 that is using strings for JSON encoding/decoding, such that the full u128 range can be used for clients that convert JSON numbers to floats, like JavaScript and jq.\n\n# Examples\n\nUse `from` to create instances of this and `u128` to get the value out:\n\n``` # use cosmwasm_std::Uint128; let a = Uint128::from(123u128); assert_eq!(a.u128(), 123);\n\nlet b = Uint128::from(42u64); assert_eq!(b.u128(), 42);\n\nlet c = Uint128::from(70u32); assert_eq!(c.u128(), 70); ```",
+      "type": "string"
+    }
+  }
+}

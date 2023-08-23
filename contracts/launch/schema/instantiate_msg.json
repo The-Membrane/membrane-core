@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InstantiateMsg",
+  "type": "object",
+  "required": [
+    "apollo_router",
+    "discount_vault_id",
+    "governance_id",
+    "liq_queue_id",
+    "liquidity_check_id",
+    "margin_proxy_id",
+    "mbrn_auction_id",
+    "oracle_id",
+    "osmosis_proxy_id",
+    "positions_id",
+    "pre_launch_contributors",
+    "stability_pool_id",
+    "staking_id",
+    "system_discounts_id",
+    "vesting_id"
+  ],
+  "properties": {
+    "apollo_router": {
+      "description": "Apollo router address",
+      "type": "string"
+    },
+    "discount_vault_id": {
+      "description": "Discount Vault contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "governance_id": {
+      "description": "Governance contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "liq_queue_id": {
+      "description": "Liquidity Queue contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "liquidity_check_id": {
+      "description": "Liquidity Check contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "margin_proxy_id": {
+      "description": "Margin Proxy contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "mbrn_auction_id": {
+      "description": "MBRN Auction contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "oracle_id": {
+      "description": "Oracle contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "osmosis_proxy_id": {
+      "description": "Osmosis Proxy contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "positions_id": {
+      "description": "Positions contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "pre_launch_contributors": {
+      "description": "Pre launch contributors address",
+      "type": "string"
+    },
+    "stability_pool_id": {
+      "description": "Stability Pool contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "staking_id": {
+      "description": "Staking contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "system_discounts_id": {
+      "description": "System Discounts contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "vesting_id": {
+      "description": "Vesting contract id",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    }
+  },
+  "additionalProperties": false
+}

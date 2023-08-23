@@ -1,4 +1,5 @@
 //Fork of: https://github.com/astroport-fi/astroport-governance/tree/main/contracts/assembly
+//Proposal Msg tutorial: https://blog.astroport.fi/post/tutorial-structuring-executable-messages-for-assembly-proposals-part-2-adding-proxy-contracts
 
 use cosmwasm_std::{
     attr, entry_point, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,

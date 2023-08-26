@@ -521,7 +521,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Errored Swap, invalid asset
-            let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
+            let msg = ExecuteMsg::SwapForFee { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
             let cosmos_msg = debt_contract.call(msg, vec![coin(99, "error")]).unwrap();
             let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
             assert_eq!(
@@ -529,7 +529,7 @@ mod tests {
                 String::from("Generic error: Invalid asset (error) sent to fulfill auction. Must be uosmo")
             );
             //Errored Swap, multiple assets sent
-            let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
+            let msg = ExecuteMsg::SwapForFee { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
             let cosmos_msg = debt_contract.call(msg, vec![coin(93_000, "uosmo"), coin(99, "error")]).unwrap();
             let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
             assert_eq!(
@@ -538,7 +538,7 @@ mod tests {
             );
 
             //Successful Partial Fill
-            let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
+            let msg = ExecuteMsg::SwapForFee { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
             let cosmos_msg = debt_contract
                 .call(msg, vec![coin(93_000, "uosmo")])
                 .unwrap();
@@ -572,7 +572,7 @@ mod tests {
             );
 
             //Successful Overpay Swap
-            let msg = ExecuteMsg::SwapWithMBRN { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
+            let msg = ExecuteMsg::SwapForFee { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
             let cosmos_msg = debt_contract
                 .call(msg, vec![coin(3_000, "uosmo")])
                 .unwrap();
@@ -605,7 +605,7 @@ mod tests {
             assert_eq!(err.to_string(), String::from("Generic error: Querier contract error: Generic error: Auction asset: fee_asset, doesn't have an ongoing auction"));
 
             //Invalid Swap on 0'd Auction
-            let msg = ExecuteMsg::SwapWithMBRN {
+            let msg = ExecuteMsg::SwapForFee {
                 auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }
             };
             let cosmos_msg = debt_contract

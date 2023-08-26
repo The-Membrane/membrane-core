@@ -42,10 +42,10 @@ pub enum ExecuteMsg {
         /// If not, use auction to sell fees for a desired asset
         auction_asset: Asset,
     },
-    /// Swap for MBRN in any open CDT auction
+    /// Swap for  discounted MBRN in any open CDT debt auction
     SwapForMBRN {},
-    /// Swap for discounted non-CDT fees with MBRN
-    SwapWithMBRN { auction_asset: AssetInfo },
+    /// Swap for discounted fees with the configuration's desired asset
+    SwapForFee { auction_asset: AssetInfo },
     /// Remove ongoing CDT auction, primarily for mistakes
     RemoveAuction {},
     /// Update config

@@ -164,7 +164,7 @@ fn lock(
     //Assert Lockdrop is in deposit period
     if env.block.time.seconds() > lockdrop.deposit_end { return Err(ContractError::DepositsOver {  }) }
     //Validate lockup duration
-    if lock_up_duration > lockdrop.lock_up_ceiling {  return Err(ContractError::CustomError { val: String::from("Can't lock that long")}) }
+    if lock_up_duration > lockdrop.lock_up_ceiling { return Err(ContractError::CustomError { val: String::from("Can't lock that long")}) }
 
     let valid_asset = validate_lockdrop_asset(info.clone(), lockdrop.clone().locked_asset)?;
 

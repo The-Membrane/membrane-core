@@ -47,7 +47,7 @@ pub fn instantiate(
         initial_discount: msg.initial_discount,
         discount_increase_timeframe: msg.discount_increase_timeframe,
         discount_increase: msg.discount_increase,
-        send_to_stakers: false,
+        send_to_stakers: true,
     };
 
     if let Some(owner) = msg.owner {
@@ -83,7 +83,7 @@ pub fn execute(
             auction_asset,
         } => start_auction(deps, env, info, repayment_position_info, send_to, auction_asset),
         ExecuteMsg::SwapForMBRN { } => swap_for_mbrn(deps, info, env),
-        ExecuteMsg::SwapWithMBRN { auction_asset } => swap_with_the_contracts_desired_asset(deps, info, env, auction_asset),
+        ExecuteMsg::SwapForFee { auction_asset } => swap_with_the_contracts_desired_asset(deps, info, env, auction_asset),
         ExecuteMsg::RemoveAuction { } => remove_auction(deps, info),
         ExecuteMsg::UpdateConfig ( update)  => update_config( deps, info, update),
     }
@@ -426,16 +426,8 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
         //Zero auction asset amount
         if desired_asset_value > auction_asset_value {
 
-            //Calc overpay amount & reAdd it's decimal places if more than 6
-            overpay = decimal_division((desired_asset_value - auction_asset_value), desired_asset_price)?.to_uint_floor();
-            match desired_res.decimals.checked_sub(6u64) {
-                Some(overpay_decimals) => {
-                    overpay = overpay * Uint128::from(10u128.pow(overpay_decimals as u32));
-                },
-                None => {
-                    return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") }));
-                }
-            }
+            //Calc overpay amount in desired_asset
+            overpay = desired_res.get_amount((desired_asset_value - auction_asset_value))?;
 
             successful_swap_amount = auction.auction_asset.amount;
             auction.auction_asset.amount = Uint128::zero();
@@ -446,17 +438,8 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
         } else if desired_asset_value < auction_asset_value {
             //If the value of the sent desired_Asset is less than the value of the auction asset, set successful_swap_amount
             //Update auction asset amount
-            successful_swap_amount = decimal_division(desired_asset_value, auction_asset_price)?.to_uint_floor();
-            //Readd decimal places for the auction_asset amount if more than 6 
-            match auction_res.decimals.checked_sub(6u64) {
-                Some(swap_amount_decimals) => {
-                    successful_swap_amount = successful_swap_amount * Uint128::from(10u128.pow(swap_amount_decimals as u32));
-                },
-                None => {
-                    return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") }));
-                }
-            }
-            auction.auction_asset.amount = decimal_division((auction_asset_value - desired_asset_value), auction_asset_price)? * Uint128::one();
+            successful_swap_amount = auction_res.get_amount(desired_asset_value)?;
+            auction.auction_asset.amount = auction_res.get_amount(auction_asset_value - desired_asset_value)?;
             
             //Update Auction
             FEE_AUCTIONS.save(deps.storage, auction_asset.clone().to_string(), &auction)?;

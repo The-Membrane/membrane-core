@@ -47,7 +47,7 @@ pub fn instantiate(
         initial_discount: msg.initial_discount,
         discount_increase_timeframe: msg.discount_increase_timeframe,
         discount_increase: msg.discount_increase,
-        send_to_stakers: true,
+        send_to_stakers: false,
     };
 
     if let Some(owner) = msg.owner {

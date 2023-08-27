@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LiquidatibleResponse",
+  "type": "object",
+  "required": [
+    "leftover_collateral",
+    "total_debt_repaid"
+  ],
+  "properties": {
+    "leftover_collateral": {
+      "description": "Non-liquidatible collateral",
+      "type": "string"
+    },
+    "total_debt_repaid": {
+      "description": "Total debt repaid",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

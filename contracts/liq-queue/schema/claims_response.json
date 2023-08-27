@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ClaimsResponse",
+  "type": "object",
+  "required": [
+    "bid_for",
+    "pending_liquidated_collateral"
+  ],
+  "properties": {
+    "bid_for": {
+      "description": "Bid for asset",
+      "type": "string"
+    },
+    "pending_liquidated_collateral": {
+      "description": "Claimable collateral",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Uint256"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Uint256": {
+      "type": "string"
+    }
+  }
+}

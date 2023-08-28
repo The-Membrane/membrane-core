@@ -114,7 +114,7 @@ pub fn instantiate(
     let lockdrop = Lockdrop {
         num_of_incentives: Uint128::new(10_000_000_000_000),
         locked_asset: AssetInfo::NativeToken { denom: String::from("uosmo") },
-        lock_up_ceiling: 90,
+        lock_up_ceiling: 365,
         start_time: env.block.time.seconds(),
         deposit_end: env.block.time.seconds() + (5 * SECONDS_PER_DAY),
         withdrawal_end: env.block.time.seconds() + (7 * SECONDS_PER_DAY),
@@ -386,7 +386,8 @@ fn claim (
         INCENTIVE_RATIOS.save(deps.storage, &user_ratios)?;
     }
     
-    //Claim any unlocked incentives
+    //////Claim any unlocked incentives/////
+    //Get total incentives the user is entitled to
     let incentives = get_user_incentives(
         user_ratios,
         info.sender.to_string(),
@@ -403,6 +404,15 @@ fn claim (
             //Unlock deposit rewards that have passed their lock duration
             if time_since_lockdrop_end > deposit.lock_up_duration * SECONDS_PER_DAY {
                 withdrawable_tickets += deposit.deposit * Uint128::from((deposit.lock_up_duration + 1) as u128);
+            } else {
+                //Unlock deposit rewards that have passed their lock duration LINEARLY
+                let ratio_of_time_passed = decimal_division(
+                    Decimal::from_ratio(time_since_lockdrop_end, Uint128::one()), 
+                    Decimal::from_ratio(deposit.lock_up_duration * SECONDS_PER_DAY, Uint128::one()))?;
+                    
+                let total_tickets_for_deposit = deposit.deposit * Uint128::from((deposit.lock_up_duration + 1) as u128);
+
+                withdrawable_tickets += total_tickets_for_deposit * ratio_of_time_passed;
             }
         }
 

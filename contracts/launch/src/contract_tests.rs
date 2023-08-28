@@ -454,16 +454,9 @@ fn claim() {
         "Custom Error val: Lockdrop hasn't ended yet".to_string()
     );
 
-    //Claim before lock time ends: No mints
-    let msg = ExecuteMsg::Claim {  };
-    let info = mock_info("user1", &[]);
+    
     let mut env = mock_env();
-    env.block.time = env.block.time.plus_seconds(7 * SECONDS_PER_DAY + 1); // 7 days + 1sec
-    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
-    assert_eq!(
-        res.to_string(),
-        "Custom Error val: No incentives to claim".to_string()
-    );
+    env.block.time = env.block.time.plus_seconds(7 * SECONDS_PER_DAY + 1); // 7 days + 1sec to end of lockdrop
     
     //Claim as a non-user: Error
     let msg = ExecuteMsg::Claim {  };
@@ -474,16 +467,15 @@ fn claim() {
         String::from("Generic error: User didn't participate in the lockdrop"),
     );
 
-    //Claim after lock time of first deposit: Partial Mint
+    //Claim before lock time ends: Partial linear mints
     let msg = ExecuteMsg::Claim {  };
     let info = mock_info("user1", &[]);
-    env.block.time = env.block.time.plus_seconds(7 * SECONDS_PER_DAY); // 7 days + 1sec past the end of lockdrop
     let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "claim"),
-            attr("staked_ownership", "1110756285"), //1_110_756_285
+            attr("staked_ownership", "3554"),
         ]
     );
     assert_eq!(
@@ -494,14 +486,51 @@ fn claim() {
                 funds: vec![],
                 msg: to_binary(&OsmoExecuteMsg::MintTokens {
                     denom: String::from(""),
-                    amount: Uint128::new(1110756285),
+                    amount: Uint128::new(3554),
                     mint_to_address: String::from("cosmos2contract")
                 })
                 .unwrap()
             })),
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from(""),
-                funds: vec![coin(1110756285, "")],
+                funds: vec![coin(3554, "")],
+                msg: to_binary(&StakingExecuteMsg::Stake {
+                    user: Some(String::from("user1"))
+                })
+                .unwrap()
+            }))
+        ]
+    );
+
+
+    //Claim after lock time of first deposit: Partial Mint
+    let msg = ExecuteMsg::Claim {  };
+    let info = mock_info("user1", &[]);
+    env.block.time = env.block.time.plus_seconds(7 * SECONDS_PER_DAY); // 7 days + 1sec past the end of lockdrop
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+    assert_eq!(
+        res.attributes,
+        vec![
+            attr("method", "claim"),
+            attr("staked_ownership", "2152088471"), //2_152_088_471
+        ]
+    );
+    assert_eq!(
+        res.messages,
+        vec![
+            SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: String::from(""),
+                funds: vec![],
+                msg: to_binary(&OsmoExecuteMsg::MintTokens {
+                    denom: String::from(""),
+                    amount: Uint128::new(2152088471),
+                    mint_to_address: String::from("cosmos2contract")
+                })
+                .unwrap()
+            })),
+            SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: String::from(""),
+                funds: vec![coin(2152088471, "")],
                 msg: to_binary(&StakingExecuteMsg::Stake {
                     user: Some(String::from("user1"))
                 })
@@ -527,7 +556,7 @@ fn claim() {
                     lock_up_duration: 14u64, 
                 }],
             total_tickets: Uint128::new(230000000),
-            incentives_withdrawn: Uint128::new(1110756285),
+            incentives_withdrawn: Uint128::new(2152088471+3554),
         }
     );
 
@@ -540,7 +569,7 @@ fn claim() {
         res.attributes,
         vec![
             attr("method", "claim"),
-            attr("staked_ownership", "2082668037"),
+            attr("staked_ownership", "1041332297"),
         ]
     );
     assert_eq!(
@@ -551,14 +580,14 @@ fn claim() {
                 funds: vec![],
                 msg: to_binary(&OsmoExecuteMsg::MintTokens {
                     denom: String::from(""),
-                    amount: Uint128::new(2082668037), //2_082_668_037
+                    amount: Uint128::new(1041332297), //1_041_332_297
                     mint_to_address: String::from("cosmos2contract")
                 })
                 .unwrap()
             })),
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from(""),
-                funds: vec![coin(2082668037, "")],
+                funds: vec![coin(1041332297, "")],
                 msg: to_binary(&StakingExecuteMsg::Stake {
                     user: Some(String::from("user1"))
                 })

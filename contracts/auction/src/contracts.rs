@@ -367,7 +367,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
     let config = CONFIG.load(deps.storage)?;
 
     let mut overpay = Uint128::zero();
-    let mut successful_swap_amount;
+    let successful_swap_amount;
 
     let mut msgs: Vec<CosmosMsg> = vec![];
     let mut attrs = vec![attr("method", "swap_with_contract_desired_asset")];
@@ -396,7 +396,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
                 oracle_time_limit: 600,
                 basket_id: None,
             })?;
-        let desired_asset_price = desired_res.price;
+            
         //Get value of sent desired asset
         let desired_asset_value = desired_res.get_value(coin.amount)?;
                 
@@ -410,9 +410,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
                     twap_timeframe: config.clone().twap_timeframe,
                     oracle_time_limit: 600,
                     basket_id: None,
-                })?;
-
-        let auction_asset_price = auction_res.price;        
+                })?;      
         //Get value of auction asset
         let mut auction_asset_value = auction_res.get_value(auction.auction_asset.amount)?;
         

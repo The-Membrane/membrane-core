@@ -1,0 +1,264 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QueryMsg",
+  "description": "Thie enum describes all the queries available in the contract.",
+  "oneOf": [
+    {
+      "description": "Return the contract's configuration",
+      "type": "object",
+      "required": [
+        "config"
+      ],
+      "properties": {
+        "config": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Return the current list of active proposals",
+      "type": "object",
+      "required": [
+        "active_proposals"
+      ],
+      "properties": {
+        "active_proposals": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "description": "The amount of proposals to return",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "start": {
+              "description": "Id from which to start querying",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "pending_proposals"
+      ],
+      "properties": {
+        "pending_proposals": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "description": "The amount of proposals to return",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "start": {
+              "description": "Id from which to start querying",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Return proposal voters of specified proposal",
+      "type": "object",
+      "required": [
+        "proposal_voters"
+      ],
+      "properties": {
+        "proposal_voters": {
+          "type": "object",
+          "required": [
+            "proposal_id",
+            "vote_option"
+          ],
+          "properties": {
+            "limit": {
+              "description": "The amount of voters to return",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "proposal_id": {
+              "description": "Proposal unique id",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "specific_user": {
+              "description": "Specific user to query for",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "start": {
+              "description": "Index from which to start querying",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "vote_option": {
+              "description": "Proposal vote option",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ProposalVoteOption"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Return information about a specific proposal",
+      "type": "object",
+      "required": [
+        "proposal"
+      ],
+      "properties": {
+        "proposal": {
+          "type": "object",
+          "required": [
+            "proposal_id"
+          ],
+          "properties": {
+            "proposal_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Return information about the votes cast on a specific proposal",
+      "type": "object",
+      "required": [
+        "proposal_votes"
+      ],
+      "properties": {
+        "proposal_votes": {
+          "type": "object",
+          "required": [
+            "proposal_id"
+          ],
+          "properties": {
+            "proposal_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Return user voting power for a specific proposal",
+      "type": "object",
+      "required": [
+        "user_voting_power"
+      ],
+      "properties": {
+        "user_voting_power": {
+          "type": "object",
+          "required": [
+            "proposal_id",
+            "user",
+            "vesting"
+          ],
+          "properties": {
+            "proposal_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "user": {
+              "type": "string"
+            },
+            "vesting": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Return total voting power for a specific proposal",
+      "type": "object",
+      "required": [
+        "total_voting_power"
+      ],
+      "properties": {
+        "total_voting_power": {
+          "type": "object",
+          "required": [
+            "proposal_id"
+          ],
+          "properties": {
+            "proposal_id": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  ],
+  "definitions": {
+    "ProposalVoteOption": {
+      "description": "This enum describes available options for voting on a proposal.",
+      "type": "string",
+      "enum": [
+        "for",
+        "against",
+        "amend",
+        "remove",
+        "align"
+      ]
+    }
+  }
+}

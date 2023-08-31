@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InstantiateMsg",
+  "type": "object",
+  "required": [
+    "mbrn_denom"
+  ],
+  "properties": {
+    "auction_contract": {
+      "description": "Auction contract address",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "fee_wait_period": {
+      "description": "Fee wait period in days",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "governance_contract": {
+      "description": "Governance contract address",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "incentive_schedule": {
+      "description": "Incentive scheduling",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/StakeDistribution"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "mbrn_denom": {
+      "description": "MBRN denom",
+      "type": "string"
+    },
+    "osmosis_proxy": {
+      "description": "Osmosis Proxy contract address",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "owner": {
+      "description": "Contract owner, defaults to info.sender",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "positions_contract": {
+      "description": "Positions contract address",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "unstaking_period": {
+      "description": "Unstaking period in days",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "vesting_contract": {
+      "description": "Vesting contract address",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Decimal": {
+      "description": "A fixed-point decimal value with 18 fractional digits, i.e. Decimal(1_000_000_000_000_000_000) == 1.0\n\nThe greatest possible value that can be represented is 340282366920938463463.374607431768211455 (which is (2^128 - 1) / 10^18)",
+      "type": "string"
+    },
+    "StakeDistribution": {
+      "type": "object",
+      "required": [
+        "duration",
+        "rate"
+      ],
+      "properties": {
+        "duration": {
+          "description": "Duration of distribution in days",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "rate": {
+          "description": "Distribution rate",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

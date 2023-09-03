@@ -58,7 +58,7 @@ pub fn instantiate(
 
     let config = Config {
         mbrn_denom,
-        minimum_total_stake: Uint128::new(5_000_000_000_000),  //5M MBRN
+        minimum_total_stake: Uint128::new(1_000_000_000_000),  //1M MBRN
         staking_contract_addr: deps.api.addr_validate(&msg.mbrn_staking_contract_addr)?,
         vesting_contract_addr: deps.api.addr_validate(&msg.vesting_contract_addr)?,
         vesting_voting_power_multiplier: msg.vesting_voting_power_multiplier,

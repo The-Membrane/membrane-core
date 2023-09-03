@@ -278,7 +278,12 @@ fn stake() {
             staker: String::from("sender88"),
             total_staked: Uint128::new(10_000_000),
             deposit_list: vec![
-                ( Uint128::new(10_000_000), mock_env().block.time.seconds() )
+                StakeDeposit {
+                    amount: Uint128::new(10_000_000),
+                    stake_time: mock_env().block.time.seconds(),
+                    unstake_start_time: None,
+                    staker: Addr::unchecked("sender88")        
+                }
             ],
         }
     );
@@ -919,7 +924,13 @@ fn unstake() {
 
     let resp: StakerResponse = from_binary(&res).unwrap();
     assert_eq!(resp.total_staked, Uint128::new(10008219));
-    assert_eq!(resp.deposit_list[1], (Uint128::new(8219), 1572056619));
+    assert_eq!(resp.deposit_list[1], 
+        StakeDeposit {
+            amount: Uint128::new(8219),
+            stake_time: 1572056619,
+            unstake_start_time: None,
+            staker: Addr::unchecked("sender88")        
+        });
         
     env.block.time = env.block.time.plus_seconds(259200 *2); //6 days
 
@@ -940,7 +951,13 @@ fn unstake() {
 
     let resp: StakerResponse = from_binary(&res).unwrap();
     assert_eq!(resp.total_staked, Uint128::new(10024670));
-    assert_eq!(resp.deposit_list[3], (Uint128::new(16451), 1572575019));
+    assert_eq!(resp.deposit_list[3], 
+        StakeDeposit {
+            amount: Uint128::new(16451),
+            stake_time: 1572575019,
+            unstake_start_time: None,
+            staker: Addr::unchecked("sender88")        
+        });
 
     //Successful Unstake from vesting contract w/o withdrawals
     let msg = ExecuteMsg::Unstake {
@@ -985,7 +1002,13 @@ fn unstake() {
 
     let resp: StakerResponse = from_binary(&res).unwrap();
     assert_eq!(resp.total_staked, Uint128::new(5032920));
-    assert_eq!(resp.deposit_list[3], (Uint128::new(8251), 1572834219));
+    assert_eq!(resp.deposit_list[3], 
+        StakeDeposit {
+            amount: Uint128::new(8251),
+            stake_time: 1572834219,
+            unstake_start_time: None,
+            staker: Addr::unchecked("sender88")        
+        });
 
     //Query and Assert Delegations were updated by the unstake
     let res = query(deps.as_ref(), mock_env(),

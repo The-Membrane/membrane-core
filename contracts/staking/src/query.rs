@@ -26,13 +26,7 @@ pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse>
 
     let staker_deposits: Vec<StakeDeposit> = STAKED.load(deps.storage, valid_addr.clone())?;
 
-    let deposit_list = staker_deposits
-        .clone()
-        .into_iter()
-        .map(|deposit| (deposit.amount, deposit.stake_time))
-        .collect::<Vec<(Uint128, u64)>>();
-
-    let total_staker_deposits: Uint128 = staker_deposits
+    let total_staker_deposits: Uint128 = staker_deposits.clone()
         .into_iter()
         .map(|deposit| deposit.amount)
         .collect::<Vec<Uint128>>()
@@ -42,7 +36,7 @@ pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse>
     Ok(StakerResponse {
         staker: valid_addr.to_string(),
         total_staked: total_staker_deposits,
-        deposit_list,
+        deposit_list: staker_deposits,
     })
 }
 

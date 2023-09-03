@@ -202,8 +202,8 @@ pub struct StakerResponse {
     pub staker: String,
     /// Total MBRN staked
     pub total_staked: Uint128,
-    /// Deposit list (amount, timestamp)
-    pub deposit_list: Vec<(Uint128, u64)>,
+    /// Deposit list 
+    pub deposit_list: Vec<StakeDeposit>,
 }
 
 #[cw_serde]

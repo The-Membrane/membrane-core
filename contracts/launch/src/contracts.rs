@@ -55,7 +55,7 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
 
     //Need 20 OSMO for CreateDenom Msgs
-    // if deps.querier.query_balance(env.clone().contract.address, "uosmo")?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
+    if deps.querier.query_balance(env.clone().contract.address, "uosmo")?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
@@ -116,8 +116,8 @@ pub fn instantiate(
         locked_asset: AssetInfo::NativeToken { denom: String::from("uosmo") },
         lock_up_ceiling: 365,
         start_time: env.block.time.seconds(),
-        deposit_end: env.block.time.seconds() + (5 * SECONDS_PER_DAY),
-        withdrawal_end: env.block.time.seconds() + (7 * SECONDS_PER_DAY),
+        deposit_end: env.block.time.seconds() + (2 * SECONDS_PER_DAY),
+        withdrawal_end: env.block.time.seconds() + (1 * SECONDS_PER_DAY),
         launched: false,
     };
     LOCKDROP.save(deps.storage, &lockdrop)?;
@@ -622,10 +622,23 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::Lockdrop {} => to_binary(&LOCKDROP.load(deps.storage)?),
         QueryMsg::ContractAddresses {} => to_binary(&ADDRESSES.load(deps.storage)?),
-        QueryMsg::IncentiveDistribution {} => to_binary(&INCENTIVE_RATIOS.load(deps.storage)?),
+        QueryMsg::IncentiveDistribution {} => to_binary(&get_incentive_ratios(deps.storage)?),
         QueryMsg::UserIncentives { user } => to_binary(&calc_user_incentives(deps.storage, user)?),
         QueryMsg::UserInfo { user } => to_binary(&LOCKED_USERS.load(deps.storage, deps.api.addr_validate(&user)?)?),
     }
+}
+
+///Get incentive ratios
+fn get_incentive_ratios(
+    storage: &dyn Storage,
+) -> StdResult<Vec<UserRatio>>{
+    let mut user_ratios = INCENTIVE_RATIOS.load(storage)?;
+
+    if user_ratios.is_empty(){
+        user_ratios = calc_ticket_distribution_imut(storage)?;
+    }
+
+    Ok(user_ratios)
 }
 
 /// Calculate and return user incentives

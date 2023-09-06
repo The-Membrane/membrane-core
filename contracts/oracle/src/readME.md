@@ -22,4 +22,4 @@ The Oracle contract is used to fetch asset prices for the system
 - Find the median of price sources (currently only one price source)
 
 To pass tests...
-Comment lines 346-357 in contract.rs for TWAP
+Comment lines 562-570 in contract.rs for Geo TWAP Query

@@ -1020,7 +1020,7 @@ pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
 pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => { 
-            let config = CONFIG.load(deps.storage)?;            
+            // let config = CONFIG.load(deps.storage)?;            
             
             //Get contract address
             let instantiate_event = result

@@ -143,7 +143,7 @@ pub enum QueryMsg {
     },
     /// Returns list of DelegationInfo
     Delegations {
-        /// Response limit
+        /// User limit
         limit: Option<u32>,
         /// Start after governator address
         start_after: Option<String>,

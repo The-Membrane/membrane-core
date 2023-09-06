@@ -2508,7 +2508,7 @@ pub fn store_price(
     storage: &mut dyn Storage,
     env: Env, 
     asset_token: &AssetInfo,
-    mut price: &mut StoredPrice,
+    price: &mut StoredPrice,
 ) -> StdResult<()> {
     let key = asset_token.to_string();
     let price_bucket: Item<StoredPrice> = Item::new(&key);   

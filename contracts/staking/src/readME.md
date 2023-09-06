@@ -1,5 +1,5 @@
 To Pass Tests...
 
 In contract.rs:
-- Comment line 437 for unstake checks
-- Comment lines 440-446 for accrual msgs
+- Comment line 460 for unstake checks
+- Comment lines 500-506 for accrual msgs

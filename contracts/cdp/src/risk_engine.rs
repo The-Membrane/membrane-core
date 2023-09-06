@@ -1,6 +1,3 @@
-
-use core::panic;
-
 use cosmwasm_std::{Decimal, Uint128, Env, QuerierWrapper, Storage, to_binary, QueryRequest, WasmQuery, StdResult, StdError, Addr};
 
 use membrane::cdp::Config;
@@ -16,11 +13,11 @@ use crate::error::ContractError;
 /// Asserts that the assets provided are valid collateral assets in the basket
 pub fn assert_basket_assets(
     storage: &mut dyn Storage,
-    querier: QuerierWrapper,
-    env: Env,
+    _querier: QuerierWrapper,
+    _env: Env,
     assets: Vec<Asset>,
 ) -> Result<Vec<cAsset>, ContractError> {
-    let mut basket: Basket = BASKET.load(storage)?;
+    let basket: Basket = BASKET.load(storage)?;
 
     //Checking if Assets for the position are available collateral assets in the basket
     let collateral_assets = assets

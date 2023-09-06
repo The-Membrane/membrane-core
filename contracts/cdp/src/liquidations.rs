@@ -35,21 +35,21 @@ pub fn liquidate(
     position_owner: String,
 ) -> Result<Response, ContractError> {
     //Check for Osmosis downtime 
-    // match DowntimedetectorQuerier::new(&querier)
-    //     .recovered_since_downtime_of_length(
-    //         10 * 60 * 8, //8 hours from 6 second blocks
-    //         Some(Duration {
-    //             seconds: 60 * 60, //1 hour
-    //             nanos: 0,
-    //         })
-    // ){
-    //     Ok(resp) => {            
-    //         if !resp.succesfully_recovered {
-    //             return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
-    //         }
-    //     },
-    //     Err(_) => (),
-    // };
+    match DowntimedetectorQuerier::new(&querier)
+        .recovered_since_downtime_of_length(
+            10 * 60 * 8, //8 hours from 6 second blocks
+            Some(Duration {
+                seconds: 60 * 60, //1 hour
+                nanos: 0,
+            })
+    ){
+        Ok(resp) => {            
+            if !resp.succesfully_recovered {
+                return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
+            }
+        },
+        Err(_) => (),
+    };
 
     //Load state
     let config: Config = CONFIG.load(storage)?;
@@ -92,8 +92,6 @@ pub fn liquidate(
         false,
         config.clone(),
     )?;
-    let insolvent = true;
-    let current_LTV = Decimal::percent(90);
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -223,7 +221,7 @@ pub fn liquidate(
     if let Ok(repay) = LIQUIDATION.load(storage) { liquidation_propagation = Some(format!("{:?}", repay)) }
 
     Ok(res
-        // .add_messages(lp_withdraw_messages)
+        .add_messages(lp_withdraw_messages)
         .add_submessages(sell_wall_messages)
         .add_messages(caller_fee_messages)
         .add_message(protocol_fee_msg)

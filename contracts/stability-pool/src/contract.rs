@@ -248,16 +248,7 @@ fn accrue_incentives(
     deposit.last_accrued = env.block.time.seconds();
 
     //This calcs the amount of CDT to incentivize so the rate is acting as if MBRN = CDT (1:1) 
-    let mut incentives = accumulate_interest(stake, rate, time_elapsed)?;
-
-    //Get MBRN price
-    let mbrn_price: Decimal = query_asset_price(
-        querier, 
-        config.clone().oracle_contract.into(), 
-        AssetInfo::NativeToken { denom: config.clone().mbrn_denom },
-        60,
-        None,
-    )?;
+    let mut incentives = accumulate_interest(stake, rate, time_elapsed)?;   
 
     //Get CDT Price
     let basket = querier.query_wasm_smart::<Basket>(
@@ -265,6 +256,18 @@ fn accrue_incentives(
         &CDP_QueryMsg::GetBasket {}
     )?;
     let cdt_price = basket.credit_price;
+
+    //Get MBRN price
+    let mbrn_price: Decimal = match query_asset_price(
+        querier, 
+        config.clone().oracle_contract.into(), 
+        AssetInfo::NativeToken { denom: config.clone().mbrn_denom },
+        60,
+        None,
+    ){
+        Ok(price) => price,
+        Err(_) => cdt_price, //We default to CDT repayment price in the first hour of incentives
+    };
 
     //Transmute CDT amount to MBRN incentive amount
     incentives = decimal_division(

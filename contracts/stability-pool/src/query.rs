@@ -1,6 +1,6 @@
 use cosmwasm_std::{Deps, Env, StdResult, Uint128, Decimal, StdError};
 use membrane::types::{AssetPool, Deposit};
-use membrane::stability_pool::{LiquidatibleResponse, ClaimsResponse, DepositPositionResponse};
+use membrane::stability_pool::{LiquidatibleResponse, ClaimsResponse, DepositPositionResponse, UserIncentivesResponse};
 use membrane::helpers::accumulate_interest;
 
 use crate::state::{CONFIG, ASSET, USERS};
@@ -79,7 +79,7 @@ pub fn query_user_incentives(
     deps: Deps, 
     env: Env,
     user: String,
-) -> StdResult<Uint128>{
+) -> StdResult<UserIncentivesResponse>{
     let resp: Vec<Deposit> = query_deposits(deps, user)?;
     let rate = CONFIG.load(deps.storage)?.incentive_rate;
 
@@ -101,7 +101,11 @@ pub fn query_user_incentives(
         }        
     }
 
-    Ok(total_incentives)
+    Ok(
+        UserIncentivesResponse {
+            incentives: total_incentives,
+        }
+    )
 }
 
 /// Return leftover amount from a hypothetical liquidation amount

@@ -156,3 +156,9 @@ pub struct TokenInfoResponse {
     /// Burned supply
     pub burned_supply: Uint128,
 }
+
+#[cw_serde]
+pub struct ContractDenomsResponse {
+    /// List of denoms owned by the contract
+    pub denoms: Vec<String>,
+}

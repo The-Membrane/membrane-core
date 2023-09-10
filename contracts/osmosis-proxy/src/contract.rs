@@ -18,7 +18,7 @@ use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
 use crate::error::TokenFactoryError;
 use crate::state::{TokenInfo, CONFIG, TOKENS, PENDING, PendingTokenInfo};
 use membrane::osmosis_proxy::{
-    Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse, OwnerResponse,
+    Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse, OwnerResponse, ContractDenomsResponse,
 };
 use membrane::cdp::{QueryMsg as CDPQueryMsg, Config as CDPConfig};
 use membrane::oracle::{QueryMsg as OracleQueryMsg, PriceResponse};
@@ -714,10 +714,10 @@ fn get_token_info(deps: Deps, denom: String) -> StdResult<TokenInfoResponse> {
 }
 
 /// Returns a list of all denoms created by this contract
-fn get_contract_denoms(deps: Deps, limit: Option<u32>) -> StdResult<Vec<String>> {
+fn get_contract_denoms(deps: Deps, limit: Option<u32>) -> StdResult<ContractDenomsResponse> {
     let limit = limit.unwrap_or_else(|| MAX_LIMIT);
 
-    Ok(
+    let denoms = 
         TOKENS
             .range(deps.storage, None, None, Order::Ascending)
             .take(limit as usize)
@@ -726,7 +726,12 @@ fn get_contract_denoms(deps: Deps, limit: Option<u32>) -> StdResult<Vec<String>>
                     info.0
                 } else { String::from("error") }
             })
-            .collect::<Vec<String>>()
+            .collect::<Vec<String>>();
+
+    Ok(
+        ContractDenomsResponse {
+            denoms,
+        }
     )
 }
 

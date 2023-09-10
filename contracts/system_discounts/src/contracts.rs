@@ -5,7 +5,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 
 use membrane::math::{decimal_multiplication, decimal_division};
-use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
+use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, UserDiscountResponse};
 use membrane::stability_pool::{QueryMsg as SP_QueryMsg, ClaimsResponse};
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
 use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse};
@@ -164,7 +164,7 @@ fn get_discount(
     deps: Deps,
     env: Env,
     user: String, 
-)-> StdResult<Decimal>{
+)-> StdResult<UserDiscountResponse>{
     //Load Config
     let config = CONFIG.load(deps.storage)?;
 
@@ -197,7 +197,10 @@ fn get_discount(
         }
     };
 
-    Ok(percent_discount)
+    Ok(UserDiscountResponse {
+        user,
+        discount: percent_discount,
+    })
 }
 
 /// Get the value of the user's capital in
@@ -215,7 +218,7 @@ fn get_user_value_in_network(
     }))?;
     let credit_price = basket.clone().credit_price;
 
-    let mbrn_price_res = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    let mbrn_price_res = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().oracle_contract.to_string(),
         msg: to_binary(&Oracle_QueryMsg::Price {
             asset_info: AssetInfo::NativeToken { denom: config.clone().mbrn_denom },
@@ -223,7 +226,15 @@ fn get_user_value_in_network(
             oracle_time_limit: 600,
             basket_id: None,
         })?,
-    }))?;
+    })){
+        Ok(price_res) => price_res,
+        //Default to CDT price
+        Err(_) => PriceResponse { 
+            price: credit_price,
+            prices: vec![],
+            decimals: 6,
+        }
+    };
 
     //Initialize total_value
     let mut total_value = Decimal::zero();

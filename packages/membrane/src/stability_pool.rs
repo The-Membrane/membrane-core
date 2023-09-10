@@ -162,3 +162,9 @@ pub struct DepositPositionResponse {
     /// Capital ahead of deposit
     pub capital_ahead: Decimal,
 }
+
+#[cw_serde] 
+pub struct UserIncentivesResponse {
+    /// User's unclaimed incentives
+    pub incentives: Uint128,
+}

@@ -409,8 +409,8 @@ pub fn mint_tokens(
         let basket: Basket = deps.querier.query_wasm_smart(positions_contract.clone(), &CDPQueryMsg::GetBasket {  })?;
 
         //If minting the CDP asset
-        if denom == basket.clone().credit_asset.info.to_string() {            
-            //If there is a mint limit on the owner
+        if denom == basket.clone().credit_asset.info.to_string() {   
+            //If there is a mint limit
             if let Some(_liquidity_multiplier) = config.liquidity_multiplier {
 
                 //Get Owner's liquidity multipler

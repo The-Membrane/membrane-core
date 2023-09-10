@@ -187,7 +187,7 @@ fn edit_asset(
         attrs.push(attr("new_oracle_info", oracle_info.to_string()));
 
         //Test the new price source
-        let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, 0, Some(oracle_info.basket_id));
+        let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id));
         attrs.push(attr("price", format!("{:?}", price)));
     }
         
@@ -239,7 +239,7 @@ fn add_asset(
 
             
             //Test the new price source
-            let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, 0, Some(oracle_info.basket_id));
+            let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id));
             attrs.push(attr("price", format!("{:?}", price)));
         }
         Ok(oracles) => {
@@ -265,7 +265,7 @@ fn add_asset(
 
                 
                 //Test the new price source
-                let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 60, 0, Some(oracle_info.basket_id));
+                let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id));
                 attrs.push(attr("price", format!("{:?}", price)));
             } else {
                 return Err(ContractError::DuplicateOracle { basket_id: oracle_info.basket_id.to_string()});
@@ -423,17 +423,15 @@ pub fn get_lp_price(
 
         let mut price_infos = vec![];
 
-        //Convert res into a list of prices & store price infos
-        let prices = res
+        //Store price infos
+        res.clone()
             .into_iter() 
-            .map(|price| 
+            .for_each(|price| 
                 {
                     price_infos.extend(price.clone().prices);
-                    price.price
-                })
-            .collect::<Vec<Decimal>>();
+                });
         
-        (prices, price_infos)
+        (res, price_infos)
     };
 
     //Calculate share value
@@ -468,18 +466,9 @@ pub fn get_lp_price(
                         })
                     }
                 };
-            //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
-            let exponent_difference = pool_info.clone().asset_infos[i]
-                .decimals
-                .checked_sub(6u64)
-                .unwrap();
-            let asset_amount = Uint128::from_str(&asset_share.amount).map_err(|_| StdError::GenericErr { msg: String::from("Error parsing String into Uint128") })?
-                / Uint128::new(10u64.pow(exponent_difference as u32) as u128);
-            let decimal_asset_amount =
-                Decimal::from_ratio(asset_amount, Uint128::new(1u128));
 
             //Price * # of assets in LP shares
-            value += decimal_multiplication(price, decimal_asset_amount)?;
+            value += price.get_value(Uint128::from_str(&asset_share.amount)?)?;
         }
 
         value

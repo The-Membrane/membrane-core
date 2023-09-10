@@ -116,8 +116,8 @@ pub fn instantiate(
         locked_asset: AssetInfo::NativeToken { denom: String::from("uosmo") },
         lock_up_ceiling: 365,
         start_time: env.block.time.seconds(),
-        deposit_end: env.block.time.seconds() + (2 * SECONDS_PER_DAY),
-        withdrawal_end: env.block.time.seconds() + (1 * SECONDS_PER_DAY),
+        deposit_end: env.block.time.seconds() + 0,//(5 * SECONDS_PER_DAY), //5 days 
+        withdrawal_end: env.block.time.seconds() + 0,//(7 * SECONDS_PER_DAY), //2 day after the deposit
         launched: false,
     };
     LOCKDROP.save(deps.storage, &lockdrop)?;
@@ -763,14 +763,13 @@ pub fn end_of_launch(
 
     let config = CONFIG.load(deps.storage)?;
     let addrs = ADDRESSES.load(deps.storage)?;
-    let mut msgs: Vec<CosmosMsg> = vec![];
     let mut sub_msgs: Vec<SubMsg> = vec![];
 
     //Get uosmo contract balance
     let uosmo_balance = get_contract_balances(deps.querier, env.clone(), vec![AssetInfo::NativeToken { denom: String::from("uosmo") }])?[0];
     //Make sure to deduct the amount of OSMO used to create Pools. Contract balance - 100uosmo * 2 pools - 1 OSMO to init LP
-    let uosmo_pool_delegation_amount = (uosmo_balance - Uint128::new(201_000_000)).to_string();
-
+    let uosmo_pool_delegation_amount = (uosmo_balance - Uint128::new(2001_000_000)).to_string(); //this needs to be 2001 instead of 201 for testnet to work
+    
     //Mint MBRN for LP
     let msg = OPExecuteMsg::MintTokens { 
         denom: config.clone().mbrn_denom, 
@@ -780,15 +779,15 @@ pub fn end_of_launch(
     let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
         contract_addr: addrs.clone().osmosis_proxy.to_string(), 
         msg: to_binary(&msg)?, 
-        funds: vec![], 
+        funds: vec![],
     });
-    msgs.push(msg);
+    sub_msgs.push(SubMsg::new(msg));
     
     //Create & deposit into MBRN-OSMO LP 
     let msg = MsgCreateBalancerPool {
         sender: env.contract.address.to_string(),
         pool_params: Some(PoolParams {
-            swap_fee: String::from("0.2"),
+            swap_fee: String::from("200000000000000000"), //0.2 in sdk.Dec 18 places
             exit_fee: String::from("0"),
             smooth_weight_change_params: None,
         }),
@@ -805,6 +804,7 @@ pub fn end_of_launch(
         future_pool_governor: addrs.clone().osmosis_proxy.to_string(),
     };
     let sub_msg = SubMsg::reply_on_success(msg, BALANCER_POOL_REPLY_ID);
+    // let sub_msg = SubMsg::new(msg);
     sub_msgs.push(sub_msg);
 
     //Mint 1 CDT for LP
@@ -818,13 +818,13 @@ pub fn end_of_launch(
         msg: to_binary(&msg)?, 
         funds: vec![], 
     });
-    msgs.push(msg);
+    sub_msgs.push(SubMsg::new(msg));
 
     //Create OSMO CDT pool
     let msg: CosmosMsg = MsgCreateBalancerPool {
         sender: env.contract.address.to_string(),
         pool_params: Some(PoolParams {
-            swap_fee: String::from("0.2"),
+            swap_fee: String::from("200000000000000000"), //0.2 in sdk.Dec 18 places
             exit_fee: String::from("0"),
             smooth_weight_change_params: None,
         }),
@@ -841,6 +841,7 @@ pub fn end_of_launch(
         future_pool_governor: addrs.clone().osmosis_proxy.to_string(),
     }.into();
     let sub_msg = SubMsg::reply_on_success(msg, BALANCER_POOL_REPLY_ID);
+    // let sub_msg = SubMsg::new(msg);
     sub_msgs.push(sub_msg);
 
 
@@ -854,16 +855,15 @@ pub fn end_of_launch(
         liquidity_contract: None,
         oracle_contract: None,
     };
-    let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+    let config_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
         contract_addr: addrs.clone().osmosis_proxy.to_string(), 
         msg: to_binary(&msg)?, 
         funds: vec![], 
     });
-    msgs.push(msg);
 
     Ok(Response::new()
-        .add_messages(msgs)
         .add_submessages(sub_msgs)
+        .add_message(config_msg)
     )
 }
 

@@ -99,7 +99,7 @@ fn create_and_validate_LP_object(
     let debt_token = basket_res.credit_asset.info;
 
     if let false = res.clone().assets.into_iter().any(|deposit| deposit.denom == debt_token.to_string()){
-        return Err(StdError::GenericErr { msg: format!("LP dosn't contain the debt token: {}", debt_token) })
+        return Err(StdError::GenericErr { msg: format!("LP doesn't contain the debt token: {}", debt_token) })
     }
 
     Ok(LPPoolInfo { share_token, pool_id })

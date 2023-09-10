@@ -30,6 +30,9 @@ pub fn query_asset_pool(
     
     //Optional deposits limit
     if let Some(limit) = deposit_limit {
+        if start_after + limit > asset_pool.deposits.len() as u32 {
+            return Err(StdError::GenericErr { msg: format!("Invalid limit, deposit length: {}", asset_pool.deposits.len()) });
+        }
         asset_pool.deposits = asset_pool.deposits[start_after as usize..(start_after+limit) as usize].to_vec();
     } else {
         asset_pool.deposits = asset_pool.deposits[start_after as usize..].to_vec();

@@ -6,7 +6,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::liquidity_check::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
+use membrane::liquidity_check::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, LiquidityResponse};
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::types::{AssetInfo, LiquidityInfo, PoolStateResponse, PoolType};
 
@@ -269,17 +269,17 @@ fn get_assets(
 
 /// Returns # of tokens in the list of pools for an asset.
 /// This only works for native tokens on Osmosis, which is fine for now.
-fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<Uint128> {
+fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<LiquidityResponse> {
     
     let config = CONFIG.load(deps.storage)?;
 
     let denom = asset.to_string();
 
-    let asset = ASSETS.load(deps.storage, denom.clone())?;
+    let liq_info = ASSETS.load(deps.storage, denom.clone())?;
 
     let mut total_pooled = Uint128::zero();
 
-    for info in asset.pool_infos {
+    for info in liq_info.pool_infos {
         //Set ID and liquidity multiplier
         let (id, multiplier) = { 
             if let PoolType::Balancer { pool_id } = info {
@@ -321,5 +321,5 @@ fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<Uint128> {
         total_pooled += pooled_amount * multiplier;
     }
 
-    Ok(total_pooled)
+    Ok(LiquidityResponse { asset, liquidity: total_pooled })
 }

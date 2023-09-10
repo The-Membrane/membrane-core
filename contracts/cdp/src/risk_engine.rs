@@ -310,7 +310,7 @@ pub fn get_stability_pool_liquidity(
                 msg: to_binary(&SP_QueryMsg::AssetPool { 
                     user: None,
                     start_after: None,
-                    deposit_limit: 1.into(),
+                    deposit_limit: 0.into(),
                 })?,
             }))?
             .credit_asset
@@ -340,11 +340,16 @@ pub fn get_basket_debt_caps(
     )?;
     
     //Get owner liquidity parameters from Osmosis Proxy
-    let owner_params = get_owner_liquidity_multiplier(
+    let owner_params = match get_owner_liquidity_multiplier(
         querier, 
         env.contract.address.to_string(),
         config.clone().osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string()
-    )?;
+    ){
+        Ok(params) => params,
+        Err(err) => return Err(StdError::GenericErr { msg: format!( 
+            "Error getting owner liquidity parameters, line 350: {}", err
+         )})
+    };
     
     let liquidity = get_asset_liquidity(
         querier, 
@@ -357,7 +362,13 @@ pub fn get_basket_debt_caps(
 
 
     //Get SP cap space the contract is allowed to use
-    let sp_liquidity = Decimal::from_ratio(get_stability_pool_liquidity(querier, config.clone())?, Uint128::new(1));
+    let sp_liquidity = match get_stability_pool_liquidity(querier, config.clone()){
+        Ok(liquidity) => liquidity,
+        Err(err) => return Err(StdError::GenericErr { msg: format!( 
+            "Error getting stability pool liquidity, line 368: {}", err
+         )})
+    };
+    let sp_liquidity = Decimal::from_ratio(sp_liquidity, Uint128::new(1));
     let sp_cap_space = decimal_multiplication(sp_liquidity, owner_params.1)?;
 
     //Add SP cap space to the cap

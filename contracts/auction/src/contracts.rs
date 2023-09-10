@@ -101,8 +101,12 @@ fn update_config(
     //Assert Authority
     if info.sender != config.owner {
         //Check if ownership transfer is in progress & transfer if so
-        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
-            config.owner = info.sender;
+        if let Ok(new_owner) = OWNERSHIP_TRANSFER.load(deps.storage) {
+            if info.sender == new_owner {
+                config.owner = info.sender;
+            } else {
+                return Err(ContractError::Unauthorized {});
+            }
         } else {
             return Err(ContractError::Unauthorized {});
         }
@@ -139,21 +143,8 @@ fn update_config(
     }
     //Ensure desired asset has an oracle price
     if let Some(asset) = update.desired_asset {
-        let res: StdResult<PriceResponse> = deps.querier.query_wasm_smart(
-            config.clone().oracle_contract, 
-            &OracleQueryMsg::Price { 
-                asset_info: AssetInfo::NativeToken { denom: asset.clone() }, 
-                twap_timeframe: config.twap_timeframe, 
-                oracle_time_limit: 600,
-                basket_id: None,
-            });
-        match res {
-                Ok(_) => {
-                    //Set desired asset
-                    config.desired_asset = asset;
-                },
-                Err(err) => return Err(ContractError::CustomError { val: err.to_string() }),
-            }
+        //Set desired asset
+        config.desired_asset = asset;
     }
     if let Some(twap_timeframe) = update.twap_timeframe {
         //Enforce 1 hr - 8 hr timeframe

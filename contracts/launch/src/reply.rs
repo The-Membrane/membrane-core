@@ -16,14 +16,14 @@ use membrane::vesting::{InstantiateMsg as Vesting_InstantiateMsg, ExecuteMsg as 
 use membrane::cdp::{InstantiateMsg as CDP_InstantiateMsg, EditBasket, ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, UpdateConfig as CDPUpdateConfig};
 use membrane::oracle::{InstantiateMsg as Oracle_InstantiateMsg, ExecuteMsg as OracleExecuteMsg};
 use membrane::liq_queue::InstantiateMsg as LQInstantiateMsg;
-use membrane::liquidity_check::InstantiateMsg as LCInstantiateMsg;
+use membrane::liquidity_check::{InstantiateMsg as LCInstantiateMsg, ExecuteMsg as LCExecuteMsg};
 use membrane::auction::{InstantiateMsg as DAInstantiateMsg, ExecuteMsg as DAExecuteMsg, UpdateConfig as AuctionUpdateConfig};
 use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg};
 use membrane::system_discounts::InstantiateMsg as SystemDiscountInstantiateMsg;
-use membrane::discount_vault::{InstantiateMsg as DiscountVaultInstantiateMsg, ExecuteMsg as DiscountVaultExecuteMsg};
-use membrane::types::{AssetInfo, Basket, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, AssetOracleInfo, PoolStateResponse, Owner};
+use membrane::discount_vault::InstantiateMsg as DiscountVaultInstantiateMsg;
+use membrane::types::{AssetInfo, Basket, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, AssetOracleInfo, PoolStateResponse, Owner, LiquidityInfo, PoolType};
 
-use osmosis_std::shim::Duration;
+use osmosis_std::shim::{Duration, Timestamp};
 use osmosis_std::types::cosmos::base::v1beta1::Coin;
 use osmosis_std::types::osmosis::gamm::poolmodels::balancer::v1beta1::MsgCreateBalancerPoolResponse;
 use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
@@ -814,7 +814,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 code_id: config.clone().liquidity_check_id, 
                 msg: to_binary(&LCInstantiateMsg {
                     osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),   
-                    owner: Some(addrs.clone().governance.to_string()),    
+                    owner: None,    
                     positions_contract: addrs.clone().positions.to_string(),             
                 })?, 
                 funds: vec![], 
@@ -987,7 +987,7 @@ pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                 admin: Some(addrs.clone().governance.to_string()), 
                 code_id: config.clone().mbrn_auction_id, 
                 msg: to_binary(&DAInstantiateMsg {
-                    owner: Some(addrs.clone().governance.to_string()),
+                    owner: None,
                     oracle_contract: addrs.clone().oracle.to_string(),
                     osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),
                     positions_contract: addrs.clone().positions.to_string(),
@@ -1242,7 +1242,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
             }
             
             //Save Pool ID
-            //OSMO pool replies first
+            //OSMO pool replies 2nd
             if osmo_pool_id == 0 {
                 osmo_pool_id = res.pool_id;
 
@@ -1266,30 +1266,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                         id: res.pool_id,
                     })?,
                 }))?.shares.denom;
-
-                //Set Auction's desired asset to the CDT/OSMO LP denom
-                msgs.push(
-                    CosmosMsg::Wasm(WasmMsg::Execute { 
-                        contract_addr: addrs.clone().mbrn_auction.to_string(), 
-                        msg: to_binary(&DAExecuteMsg::UpdateConfig(AuctionUpdateConfig {
-                            owner: None,
-                            oracle_contract: None,
-                            osmosis_proxy: None,
-                            mbrn_denom: None,
-                            cdt_denom: None,
-                            desired_asset: Some(pool_denom.clone()),
-                            positions_contract: None,
-                            governance_contract: None,
-                            staking_contract: None,
-                            twap_timeframe: None,
-                            initial_discount: None,
-                            discount_increase_timeframe: None,
-                            discount_increase: None,
-                            send_to_stakers: None,
-                        }))?, 
-                        funds: vec![],
-                    })
-                );
+                
                 //Set the CDT/OSMO LP denom oracle
                 msgs.push(
                     CosmosMsg::Wasm(WasmMsg::Execute { 
@@ -1322,31 +1299,83 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                         })?, 
                         funds: vec![],
                     }));
+                //Set CDT oracle
+                msgs.push(
+                    CosmosMsg::Wasm(WasmMsg::Execute { 
+                        contract_addr: addrs.clone().oracle.to_string(), 
+                        msg: to_binary(&OracleExecuteMsg::AddAsset { 
+                            asset_info: AssetInfo::NativeToken { denom: config.clone().credit_denom }, 
+                            oracle_info: AssetOracleInfo { 
+                                basket_id: Uint128::one(), 
+                                pools_for_osmo_twap: vec![
+                                    TWAPPoolInfo { 
+                                        pool_id: osmo_pool_id,
+                                        quote_asset_denom: config.clone().credit_denom.to_string(), 
+                                        base_asset_denom: config.clone().osmo_denom.to_string(),  
+                                    }
+                                ],
+                                is_usd_par: false,
+                                lp_pool_info: None,                       
+                                decimals: 6,         
+                            },
+                        })?, 
+                        funds: vec![],
+                    }));
+                //Set Auction's desired asset to the CDT/OSMO LP denom
+                //and switch owner to governance
+                msgs.push(
+                    CosmosMsg::Wasm(WasmMsg::Execute { 
+                        contract_addr: addrs.clone().mbrn_auction.to_string(), 
+                        msg: to_binary(&DAExecuteMsg::UpdateConfig(AuctionUpdateConfig {
+                            owner: Some(addrs.clone().governance.to_string()),
+                            oracle_contract: None,
+                            osmosis_proxy: None,
+                            mbrn_denom: None,
+                            cdt_denom: None,
+                            desired_asset: Some(pool_denom.clone()),
+                            positions_contract: None,
+                            governance_contract: None,
+                            staking_contract: None,
+                            twap_timeframe: None,
+                            initial_discount: None,
+                            discount_increase_timeframe: None,
+                            discount_increase: None,
+                            send_to_stakers: None,
+                        }))?, 
+                        funds: vec![],
+                    })
+                );
 
                 //Incentivize the OSMO/CDT pool
                 //14 day guage
-                let msg = MsgCreateGauge { 
-                    is_perpetual: false, 
-                    owner: env.clone().contract.address.to_string(),
-                    distribute_to: Some(QueryCondition { 
-                        lock_query_type: 0, //ByDuration
-                        denom: pool_denom,
-                        duration: Some(Duration { seconds: 13 * SECONDS_PER_DAY as i64, nanos: 0 }), 
-                        timestamp: None,
-                    }), 
-                    coins: vec![Coin {
-                        denom: config.clone().mbrn_denom, 
-                        amount: String::from("2_000_000_000_000"),
-                    }], 
-                    start_time: None, 
-                    num_epochs_paid_over: 365, //days, 1 year
-                }.into();
-                msgs.push(msg);
+                // let msg = MsgCreateGauge { 
+                //     pool_id: None,
+                //     is_perpetual: false, 
+                //     owner: env.clone().contract.address.to_string(),
+                //     distribute_to: Some(QueryCondition { 
+                //         lock_query_type: 0, //ByDuration
+                //         denom: pool_denom,
+                //         duration: Some(Duration { seconds: 13 * SECONDS_PER_DAY as i64, nanos: 0 }), 
+                //         timestamp: None,
+                //     }), 
+                //     coins: vec![Coin {
+                //         denom: config.clone().mbrn_denom, 
+                //         amount: String::from("2_000_000_000_000"),
+                //     }], 
+                //     start_time: Some(
+                //         Timestamp { 
+                //             seconds: env.clone().block.time.seconds()as i64,
+                //             nanos: 0 
+                //         }
+                //     ), 
+                //     num_epochs_paid_over: 365, //days, 1 year
+                // }.into();
+                // msgs.push(msg);
             } 
             OSMO_POOL_ID.save(deps.storage, &osmo_pool_id)?;
 
             //Set credit_pool_infos
-            //Add Credit LPs to Basket & Discount Vault
+            //Add Credit LPs to Basket
             let msg = CDPExecuteMsg::EditBasket(EditBasket {
                 added_cAsset: None,
                 liq_queue: None,
@@ -1372,19 +1401,27 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                 funds: vec![], 
             });
             msgs.push(msg);
-            //Add OSMO Pool as accepted LP for the Discount Vault
-            let msg = DiscountVaultExecuteMsg::EditAcceptedLPs { 
-                pool_ids: vec![osmo_pool_id], 
-                remove: false 
-            };
-            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-                contract_addr: addrs.clone().discount_vault.to_string(), 
-                msg: to_binary(&msg)?, 
-                funds: vec![], 
-            });
-            msgs.push(msg);       
+            // Add OSMO Pool as accepted LP for the Discount Vault
+            // let msg = DiscountVaultExecuteMsg::EditAcceptedLPs { 
+            //     pool_ids: vec![osmo_pool_id], 
+            //     remove: false 
+            // };
+            // let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+            //     contract_addr: addrs.clone().discount_vault.to_string(), 
+            //     msg: to_binary(&msg)?, 
+            //     funds: vec![], 
+            // });
+            // msgs.push(msg);
+            // Set DV Owner to governance
+            // let msg = DiscountVaultExecuteMsg::ChangeOwner { owner: addrs.clone().governance.to_string() };
+            // let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+            //     contract_addr: addrs.clone().discount_vault.to_string(), 
+            //     msg: to_binary(&msg)?, 
+            //     funds: vec![], 
+            // });
+            // msgs.push(msg);
 
-            //Add MBRN-OSMO LP to oracle for MBRN pricing
+            // Add MBRN-OSMO LP to oracle for MBRN pricing
             msgs.push(
                 CosmosMsg::Wasm(WasmMsg::Execute { 
                     contract_addr: addrs.clone().oracle.to_string(), 
@@ -1406,7 +1443,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                     })?, 
                     funds: vec![],
                 }));
-            //Set oracle ownership to governance & add USD Par TWAP pool
+            // Set oracle ownership to governance & add USD Par TWAP pool
             msgs.push(
                 CosmosMsg::Wasm(WasmMsg::Execute { 
                     contract_addr: addrs.clone().oracle.to_string(), 
@@ -1427,8 +1464,31 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                     funds: vec![],
                 }));
 
-            
-            //Change Positions contract ownership to governance & add misc. contracts
+            //Add CDT/OSMO LP to Liquidity Check
+            msgs.push(
+                CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: addrs.clone().liquidity_check.to_string(), 
+                    msg: to_binary(&LCExecuteMsg::AddAsset { asset: LiquidityInfo {
+                        asset: AssetInfo::NativeToken {
+                            denom: config.clone().credit_denom,
+                        },
+                        pool_infos: vec![PoolType::Balancer { pool_id: osmo_pool_id }]
+                    } })?, 
+                    funds: vec![],
+                }));
+            //Change LC ownership to governance 
+            msgs.push(
+                CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: addrs.clone().liquidity_check.to_string(), 
+                    msg: to_binary(&LCExecuteMsg::UpdateConfig { 
+                        owner: Some(addrs.clone().governance.to_string()),
+                        osmosis_proxy: None, 
+                        positions_contract: None, 
+                        stableswap_multiplier: None
+                    })?, 
+                    funds: vec![],
+                }));
+            // Change Positions contract ownership to governance & add misc. contracts
             msgs.push(
                 CosmosMsg::Wasm(WasmMsg::Execute { 
                     contract_addr: addrs.clone().positions.to_string(), 
@@ -1456,7 +1516,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
 
             //Query contract balance of any GAMM shares 
             //but we only care about MBRN-OSMO LP
-            let coins: Vec<cosmwasm_std::Coin> = deps.querier.query_all_balances(env.contract.address)?;
+            let coins: Vec<cosmwasm_std::Coin> = deps.querier.query_all_balances(env.contract.address.to_string())?;
             let gamm_coins = coins
                 .into_iter()
                 .filter( |coin| coin.denom.contains("gamm"))
@@ -1474,6 +1534,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
         Ok(Response::new()
             .add_messages(msgs)
             .add_attribute("pool_saved", format!("{:?}", osmo_pool_id))
+            .add_attribute("mbrn_pool_saved", format!("{:?}", MBRN_POOL.load(deps.storage).unwrap_or(0)))
         )
     },
         Err(err) => return Err(StdError::GenericErr { msg: err }),

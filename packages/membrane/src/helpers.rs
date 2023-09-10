@@ -6,7 +6,7 @@ use apollo_cw_asset::AssetInfoUnchecked;
 use crate::apollo_router::ExecuteMsg as RouterExecuteMsg;
 use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool}; 
 use crate::osmosis_proxy::{QueryMsg as OsmoQueryMsg, OwnerResponse};
-use crate::liquidity_check::QueryMsg as LiquidityQueryMsg;
+use crate::liquidity_check::{QueryMsg as LiquidityQueryMsg, LiquidityResponse};
 use crate::stability_pool::QueryMsg as SP_QueryMsg;
 use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, PositionResponse};
 
@@ -19,12 +19,12 @@ pub fn get_asset_liquidity(
     liquidity_contract: String,
     asset_info: AssetInfo,
 ) -> StdResult<Uint128> {
-    let total_pooled: Uint128 = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+    let res: LiquidityResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: liquidity_contract,
         msg: to_binary(&LiquidityQueryMsg::Liquidity { asset: asset_info })?,
     }))?;
 
-    Ok(total_pooled)   
+    Ok(res.liquidity)   
 }
 
 /// Query Osmosis proxy for pool state then create & return LP withdraw msg

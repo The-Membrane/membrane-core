@@ -1,4 +1,4 @@
-use cosmwasm_std::{Addr, Decimal};
+use cosmwasm_std::{Addr, Decimal, Uint128};
 use cosmwasm_schema::cw_serde;
 
 use crate::types::{AssetInfo, LiquidityInfo};
@@ -73,4 +73,12 @@ pub struct Config {
     pub positions_contract: Addr,
     /// Stableswap liquidity multiplier
     pub stableswap_multiplier: Decimal,
+}
+
+#[cw_serde]
+pub struct LiquidityResponse {
+    /// Asset info
+    pub asset: AssetInfo,
+    /// Asset liquidity
+    pub liquidity: Uint128,
 }

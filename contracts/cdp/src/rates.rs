@@ -91,7 +91,14 @@ pub fn update_rate_indices(
     credit_price_rate: Decimal,
 ) -> StdResult<()>{
     //Get basket rates
-    let mut interest_rates = get_interest_rates(storage, querier, env.clone(), basket)?;
+    let mut interest_rates = match get_interest_rates(storage, querier, env.clone(), basket){
+        Ok(rates) => rates,
+        Err(err) => {
+            return Err(StdError::GenericErr {
+                msg: format!("Error at line 98, error: {:?}", err)
+            })
+        }
+    };
     
     let mut error: Option<StdError> = None;
 
@@ -180,8 +187,8 @@ pub fn get_interest_rates(
         Ok(caps) => caps,
         Err(err) => {
             return Err(StdError::GenericErr {
-                msg: err.to_string(),
-            })
+                msg: format!("Error at line 190, error: {:?}", err)
+            })            
         }
     };
    
@@ -325,9 +332,23 @@ fn get_credit_rate_of_change(
     credit_price_rate: Decimal,
 ) -> StdResult<Decimal> {
     let config = CONFIG.load(storage)?;
-    let (ratios, _) = get_cAsset_ratios(storage, env.clone(), querier, position.clone().collateral_assets, config)?;
+    let (ratios, _) = match get_cAsset_ratios(storage, env.clone(), querier, position.clone().collateral_assets, config){
+        Ok(ratios) => ratios,
+        Err(err) => {
+            return Err(StdError::GenericErr {
+                msg: format!("Error at line 332, error: {:?}", err)
+            })
+        }
+    };
 
-    update_rate_indices(storage, querier, env, basket, negative_rate, credit_price_rate)?;
+    match update_rate_indices(storage, querier, env, basket, negative_rate, credit_price_rate){
+        Ok(_ok) => {},
+        Err(err) => {
+            return Err(StdError::GenericErr {
+                msg: format!("Error at line 341, error: {:?}", err)
+            })
+        }
+    };
 
     let mut avg_change_in_index = Decimal::zero();
     //Calc average change in index btwn position & basket 
@@ -373,7 +394,11 @@ pub fn accrue(
     ////Credit Price Controller barriers to reduce risk of manipulation
     //Liquidity above 2M
     //At least 3% of total supply as liquidity
-    let liquidity = get_asset_liquidity(querier, config.clone().liquidity_contract.unwrap().to_string(), basket.clone().credit_asset.info)?;
+    let liquidity: Uint128 = get_asset_liquidity(
+        querier,
+        config.clone().liquidity_contract.unwrap().to_string(),
+        basket.clone().credit_asset.info
+    )?;
     
     //Now get % of supply
     let current_supply = basket.credit_asset.amount;
@@ -387,33 +412,42 @@ pub fn accrue(
             Decimal::one()        
         }
     };
-    //If liquidity is low, skip accrual
-    if liquidity_ratio < Decimal::percent(3) || liquidity < MINIMUM_LIQUIDITY{
-        //Set time_elapsed to 0 to skip repayment accrual
-        time_elapsed = 0u64;
+    //If liquidity is low or basket oracle is not set, skip accrual
+    let mut skip_accrual: bool = false;
+    if liquidity_ratio < Decimal::percent(3) || liquidity < MINIMUM_LIQUIDITY || !basket.oracle_set{
+        //Skip repayment accrual
+        skip_accrual = true;
     }
+    
+    ////If the credit oracle errors we only skip the repayment price accrual and not error the whole function
+    //Calculate new interest rate
+    let credit_asset = cAsset {
+        asset: basket.clone().credit_asset,
+        max_borrow_LTV: Decimal::zero(),
+        max_LTV: Decimal::zero(),
+        pool_info: None,
+        rate_index: Decimal::one(),
+    };
 
-    if time_elapsed != 0u64 && basket.oracle_set {
+    let credit_TWAP_price = match get_asset_values(
+        storage,
+        env.clone(),
+        querier,
+        vec![credit_asset],
+        config.clone(),
+        is_deposit_function,
+    ){
+        Ok(assets) => assets.1[0].price,
+        Err(_) => {
+            //Skip repayment accrual
+            skip_accrual = true;
+            
+            Decimal::zero()
+        }
+    };
+
+    if !skip_accrual {
         basket.credit_last_accrued = env.block.time.seconds();
-
-        //Calculate new interest rate
-        let credit_asset = cAsset {
-            asset: basket.clone().credit_asset,
-            max_borrow_LTV: Decimal::zero(),
-            max_LTV: Decimal::zero(),
-            pool_info: None,
-            rate_index: Decimal::one(),
-        };
-
-        let credit_TWAP_price = get_asset_values(
-            storage,
-            env.clone(),
-            querier,
-            vec![credit_asset],
-            config.clone(),
-            is_deposit_function,
-        )?
-        .1[0].price;
 
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
@@ -476,7 +510,7 @@ pub fn accrue(
 
     /////Accrue interest to the debt/////      
     //Calc rate_of_change for the position's credit amount
-    let rate_of_change = get_credit_rate_of_change(
+    let rate_of_change = match get_credit_rate_of_change(
         storage,
         querier,
         env.clone(),
@@ -484,7 +518,14 @@ pub fn accrue(
         position,
         negative_rate,
         credit_price_rate,
-    )?;
+    ){
+        Ok(rate) => rate,
+        Err(err) => {
+            return Err(StdError::GenericErr {
+                msg: format!("Error at line 498, liquidity: {}, error: {:?}", liquidity, err)
+            })
+        }
+    };
     
     //Calc new_credit_amount
     let new_credit_amount = decimal_multiplication(
@@ -493,12 +534,18 @@ pub fn accrue(
     )? * Uint128::new(1u128);
         
     if new_credit_amount > position.credit_amount {
+        // return Err(StdError::GenericErr {
+        //     msg: format!("Error at line 511, liquidity: {}, new_Credit: {}, pos_credit: {}, bool: {}", liquidity, new_credit_amount, position.credit_amount, new_credit_amount > position.credit_amount)
+        // });
         //Calc accrued interest
         let mut accrued_interest = new_credit_amount - position.credit_amount;
 
         if let Some(contract) = config.clone().discounts_contract {
             //Get User's discounted interest
-            accrued_interest = get_discounted_interest(querier, contract.to_string(), user, accrued_interest)?;
+            accrued_interest = match get_discounted_interest(querier, contract.to_string(), user, accrued_interest){
+                Ok(discounted_interest) => discounted_interest,
+                Err(_) => accrued_interest,
+            };
         }
 
         //Add accrued interest to the basket's pending revenue
@@ -521,7 +568,7 @@ pub fn accrue(
             Ok(_ok) => {}
             Err(err) => {
                 return Err(StdError::GenericErr {
-                    msg: err.to_string(),
+                    msg: format!("Error at line 540, liquidity: {}, error: {:?}", liquidity, err),
                 })
             }
         };

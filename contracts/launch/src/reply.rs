@@ -1020,7 +1020,7 @@ pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
 pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => { 
-            // let config = CONFIG.load(deps.storage)?;            
+            let config = CONFIG.load(deps.storage)?;            
             
             //Get contract address
             let instantiate_event = result
@@ -1188,6 +1188,28 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                 funds: vec![], 
             });
             msgs.push(msg);
+
+            
+            // Add USD Par TWAP pool to oracle
+            msgs.push(
+                CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: addrs.clone().oracle.to_string(), 
+                    msg: to_binary(&OracleExecuteMsg::UpdateConfig { 
+                        owner: None, 
+                        positions_contract: None,
+                        osmosis_proxy_contract: Some(addrs.clone().osmosis_proxy.to_string()),
+                        pyth_osmosis_address: None,
+                        osmo_usd_pyth_feed_id: None,
+                        pools_for_usd_par_twap: Some(vec![
+                            TWAPPoolInfo { 
+                                pool_id: config.clone().osmousdc_pool_id, 
+                                base_asset_denom: config.clone().osmo_denom.to_string(), 
+                                quote_asset_denom: config.clone().usdc_denom.to_string(),  
+                            }
+                        ])
+                    })?, 
+                    funds: vec![],
+                }));
 
             //Create Margin Proxy InstantiationMsg
             //Proxy positions don't scale so it'd have to be a contract per user

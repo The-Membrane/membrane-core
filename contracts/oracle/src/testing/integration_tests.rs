@@ -117,6 +117,7 @@ mod tests {
                                 stability_pool_ratio_for_debt_cap: None,
                             },
                         ],
+                        lastest_collateral_rates: vec![],
                         credit_asset: Asset { info: AssetInfo::NativeToken { denom: String::from("factory/cdt/#1") }, amount: Uint128::zero() },
                         credit_price: Decimal::zero(),
                         liq_queue: None,

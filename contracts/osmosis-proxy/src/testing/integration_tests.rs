@@ -169,6 +169,7 @@ mod tests {
                                 supply_cap_ratio: Decimal::zero(),
                                 lp: false
                             } ],
+                            lastest_collateral_rates: vec![],
                             credit_asset: Asset { info: AssetInfo::NativeToken { denom: String::from("factory/cdt/#1") }, amount: Uint128::zero() },
                             credit_price: Decimal::zero(),
                             liq_queue: None,

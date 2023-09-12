@@ -407,7 +407,7 @@ pub fn accrue(
 
     /////Accrue Interest to the Repayment Price///
     //Calc Time-elapsed and update last_Accrued
-    let mut time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
+    let time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
 
     let mut negative_rate: bool = false;
     let price_difference: Decimal;

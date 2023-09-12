@@ -68,6 +68,7 @@ mod tests {
                             current_position_id: Uint128::zero(),
                             collateral_types: vec![],
                             collateral_supply_caps: vec![],
+                            lastest_collateral_rates: vec![],
                             credit_asset: Asset { info: AssetInfo::NativeToken { denom: String::from("cdt") }, amount: Uint128::zero() },
                             credit_price: Decimal::one(),
                             liq_queue: None,

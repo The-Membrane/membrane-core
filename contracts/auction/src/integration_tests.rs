@@ -184,6 +184,7 @@ mod tests {
                         current_position_id: Uint128::one(),
                         collateral_types: vec![],
                         collateral_supply_caps: vec![],
+                        lastest_collateral_rates: vec![],
                         credit_asset: Asset {
                             info: AssetInfo::NativeToken {
                                 denom: String::from("credit_fulldenom"),

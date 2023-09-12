@@ -54,15 +54,15 @@ pub fn query_position(
         false,
     )?;
 
-    accrue(
-        deps.storage,
-        deps.querier,
-        env.clone(),
-        &mut position,
-        &mut basket,
-        user.to_string(),
-        false
-    )?;
+    // accrue(
+    //     deps.storage,
+    //     deps.querier,
+    //     env.clone(),
+    //     &mut position,
+    //     &mut basket,
+    //     user.to_string(),
+    //     false
+    // )?;
     
     Ok(PositionResponse {
         position_id: position.position_id,
@@ -119,18 +119,18 @@ pub fn query_user_positions(
             }
         };
 
-        match accrue(
-            deps.storage,
-            deps.querier,
-            env.clone(),
-            &mut position,
-            &mut basket,
-            user.to_string(),
-            false
-        ) {
-            Ok(()) => {}
-            Err(err) => error = Some(err),
-        };
+        // match accrue(
+        //     deps.storage,
+        //     deps.querier,
+        //     env.clone(),
+        //     &mut position,
+        //     &mut basket,
+        //     user.to_string(),
+        //     false
+        // ) {
+        //     Ok(()) => {}
+        //     Err(err) => error = Some(err),
+        // };
 
         let (cAsset_ratios, _) = match get_cAsset_ratios(
             deps.storage,
@@ -377,15 +377,18 @@ pub fn query_collateral_rates(
             pool_info: None,
             rate_index: Decimal::one(),
         };
-        let credit_TWAP_price = get_asset_values(
+        let credit_TWAP_price = match get_asset_values(
             deps.storage,
             env,
             deps.querier,
             vec![credit_asset],
             config,
             false
-        )?
-        .1[0].price;
+        ){
+            Ok((_, prices)) => prices[0].price,
+            //It'll error if the twap is longer than the pool lifespan
+            Err(_) => return Ok(CollateralInterestResponse { rates }),
+        };
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
             //Compare market price & redemption price
@@ -456,15 +459,21 @@ pub fn query_basket_credit_interest(
             rate_index: Decimal::one(),
         };
 
-        let credit_TWAP_price = get_asset_values(
+        let credit_TWAP_price = match  get_asset_values(
             deps.storage,
             env,
             deps.querier,
             vec![credit_asset],
             config,
             false
-        )?
-        .1[0].price;
+        ){
+            Ok((_, prices)) => prices[0].price,
+            //It'll error if the twap is longer than the pool lifespan
+            Err(_) => return Ok(InterestResponse {
+                credit_interest: Decimal::zero(),
+                negative_rate: false,
+            })
+        };
 
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {

@@ -18,7 +18,7 @@ use membrane::oracle::{InstantiateMsg as Oracle_InstantiateMsg, ExecuteMsg as Or
 use membrane::liq_queue::InstantiateMsg as LQInstantiateMsg;
 use membrane::liquidity_check::{InstantiateMsg as LCInstantiateMsg, ExecuteMsg as LCExecuteMsg};
 use membrane::auction::{InstantiateMsg as DAInstantiateMsg, ExecuteMsg as DAExecuteMsg, UpdateConfig as AuctionUpdateConfig};
-use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg};
+use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg, ContractDenomsResponse};
 use membrane::system_discounts::InstantiateMsg as SystemDiscountInstantiateMsg;
 use membrane::discount_vault::InstantiateMsg as DiscountVaultInstantiateMsg;
 use membrane::types::{AssetInfo, Basket, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, AssetOracleInfo, PoolStateResponse, Owner, LiquidityInfo, PoolType};
@@ -124,16 +124,16 @@ pub fn handle_create_denom_reply(deps: DepsMut, _env: Env, msg: Reply) -> StdRes
         let addrs = ADDRESSES.load(deps.storage)?;
         
         //Get denoms
-        let denoms: Vec<String> = deps.querier.query_wasm_smart(addrs.osmosis_proxy, &OPQueryMsg::GetContractDenoms { limit: None })?;
+        let res: ContractDenomsResponse = deps.querier.query_wasm_smart(addrs.osmosis_proxy, &OPQueryMsg::GetContractDenoms { limit: None })?;
         //We know CDT is first
-        config.credit_denom = denoms[0].clone();
-        config.mbrn_denom = denoms[1].clone();
+        config.credit_denom = res.denoms[0].clone();
+        config.mbrn_denom = res.denoms[1].clone();
 
         //Save config
         CONFIG.save(deps.storage, &config)?;
 
         Ok(Response::new()
-            .add_attribute("saved_denoms", format!("{:?}", denoms))
+            .add_attribute("saved_denoms", format!("{:?}", res.denoms))
         )
     },
         Err(err) => return Err(StdError::GenericErr { msg: err }),
@@ -1537,7 +1537,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                 }));
 
             //Query contract balance of any GAMM shares 
-            //but we only care about MBRN-OSMO LP
+            //but we only care about MBRN/CDT-OSMO LP
             let coins: Vec<cosmwasm_std::Coin> = deps.querier.query_all_balances(env.contract.address.to_string())?;
             let gamm_coins = coins
                 .into_iter()

@@ -492,6 +492,7 @@ pub fn unstake(
     //Initialize variables
     let mut native_claims = vec![];
     let mut msgs: Vec<CosmosMsg> = vec![];
+    let mut sub_msgs: Vec<SubMsg> = vec![];
 
     //If user can withdraw, accrue their positions and add to native_claims
     //Also update delegations
@@ -582,14 +583,9 @@ pub fn unstake(
     )?;
     //Remove last claim msg
     let last_claim_msg = claims_msgs.pop();
-    //Add claim msgs to msgs
-    msgs.extend(claims_msgs);
-    //Init Response
-    let mut response = Response::new();
-
-    if let Some(msg) = last_claim_msg{
-        response = response.add_submessage(SubMsg::reply_on_success(msg, CLAIM_REPLY_ID));
-    }
+    //Transform claim msgs to submsgs and add to submsg list
+    let claims_as_submsgs = claims_msgs.clone().into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
+    sub_msgs.extend(claims_as_submsgs);
 
     //Update Totals
     let mut totals = STAKING_TOTALS.load(deps.storage)?;
@@ -610,8 +606,16 @@ pub fn unstake(
         attr("staker", info.sender.to_string()),
         attr("unstake_amount", withdrawable_amount.to_string()),
     ];
+    
+    //Init Response
+    let mut response = Response::new().add_attributes(attrs).add_messages(msgs).add_submessages(sub_msgs);
 
-    Ok(response.add_attributes(attrs).add_messages(msgs))
+    //For the reply logic to actually be checking correct data, it must come after the other claim/withdrawal messages
+    if let Some(msg) = last_claim_msg {
+        response = response.add_submessage(SubMsg::reply_on_success(msg, CLAIM_REPLY_ID));
+    }
+
+    Ok(response)
 }
 
 /// (Un)Delegate MBRN to a Governator

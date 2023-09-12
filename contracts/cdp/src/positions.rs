@@ -147,7 +147,8 @@ pub fn deposit(
                     &mut position.clone(),
                     &mut basket,
                     valid_owner_addr.to_string(),
-                    true
+                    true,
+                    false,
                 )?;
                 //Save Basket
                 BASKET.save(deps.storage, &basket)?;
@@ -264,7 +265,8 @@ fn create_position_in_deposit(
         &mut new_position,
         basket,
         valid_owner_addr.to_string(),
-        true
+        true,
+        false,
     )?;
     //Save Basket. This only doesn't overwrite the save in update_debt_per_asset_in_position() bc they are certain to never happen at the same time
     BASKET.save(storage, basket)?;
@@ -352,7 +354,8 @@ pub fn withdraw(
         &mut target_position,
         &mut basket,
         valid_position_owner.to_string(),
-        false
+        false,
+        false,
     )?;
 
     //For debt cap updates
@@ -591,7 +594,8 @@ pub fn repay(
         &mut target_position,
         &mut basket,
         valid_owner_addr.to_string(),
-        false
+        false,
+        false,
     )?;
     
     //Set prev_credit_amount
@@ -917,7 +921,8 @@ pub fn increase_debt(
         &mut target_position,
         &mut basket,
         info.sender.to_string(),
-        false
+        false,
+        false,
     )?;
 
     //Set prev_credit_amount
@@ -1790,6 +1795,7 @@ pub fn create_basket(
         current_position_id: Uint128::from(1u128),
         collateral_types: new_assets,
         collateral_supply_caps,
+        lastest_collateral_rates: vec![], //This will be set in the accrue function
         multi_asset_supply_caps: vec![],
         credit_asset: credit_asset.clone(),
         credit_price,

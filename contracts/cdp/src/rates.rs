@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use cosmwasm_std::{Uint128, Decimal, Storage, QuerierWrapper, Env, StdResult, StdError, DepsMut, MessageInfo, Response, attr, Addr};
 
 use membrane::system_discounts::QueryMsg as DiscountQueryMsg;
-use membrane::types::{Basket, cAsset, Position};
+use membrane::types::{Basket, cAsset, Position, Rate};
 use membrane::helpers::get_asset_liquidity;
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 
@@ -56,7 +56,8 @@ pub fn external_accrue_call(
             &mut position,
             &mut basket, 
             info.sender.to_string(),
-            false
+            false,
+            false,
         )?;
 
         accrued_interest += position.clone().credit_amount - prev_loan;
@@ -89,9 +90,10 @@ pub fn update_rate_indices(
     basket: &mut Basket,
     negative_rate: bool,
     credit_price_rate: Decimal,
+    for_query: bool,
 ) -> StdResult<()>{
     //Get basket rates
-    let mut interest_rates = match get_interest_rates(storage, querier, env.clone(), basket){
+    let mut interest_rates = match get_interest_rates(storage, querier, env.clone(), basket, for_query){
         Ok(rates) => rates,
         Err(err) => {
             return Err(StdError::GenericErr {
@@ -162,7 +164,16 @@ pub fn get_interest_rates(
     querier: QuerierWrapper,
     env: Env,
     basket: &mut Basket,
+    for_query: bool,
 ) -> StdResult<Vec<Decimal>> {
+    //If for a query, take Basket saved latest rates
+    if for_query {
+        let rates = basket.clone().lastest_collateral_rates
+            .into_iter().map(|rate| rate.rate)
+            .collect::<Vec<Decimal>>();
+        return Ok(rates);
+    }
+
     let config = CONFIG.load(storage)?;
 
     let mut rates = vec![];
@@ -194,7 +205,7 @@ pub fn get_interest_rates(
    
     //Get basket cAsset ratios
     let (basket_ratios, _) =
-        get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config.clone())?;
+        get_cAsset_ratios(storage, env.clone(), querier, basket.clone().collateral_types, config.clone())?;
     
 
     for (i, cap) in basket.clone().collateral_supply_caps.iter().enumerate() {
@@ -317,6 +328,15 @@ pub fn get_interest_rates(
             }
         }
     }
+    //Update latest rates in the Basket
+    let latest_rates = two_slope_pro_rata_rates.clone()
+        .into_iter()
+        .map(|rate| Rate {
+            rate,
+            last_time_updated: env.clone().block.time.seconds(),
+        }).collect::<Vec<Rate>>();
+    basket.lastest_collateral_rates = latest_rates;
+
         
     Ok(two_slope_pro_rata_rates)
 }
@@ -330,6 +350,7 @@ fn get_credit_rate_of_change(
     position: &mut Position,
     negative_rate: bool,
     credit_price_rate: Decimal,
+    for_query: bool,
 ) -> StdResult<Decimal> {
     let config = CONFIG.load(storage)?;
     let (ratios, _) = match get_cAsset_ratios(storage, env.clone(), querier, position.clone().collateral_assets, config){
@@ -341,7 +362,7 @@ fn get_credit_rate_of_change(
         }
     };
 
-    match update_rate_indices(storage, querier, env, basket, negative_rate, credit_price_rate){
+    match update_rate_indices(storage, querier, env, basket, negative_rate, credit_price_rate, for_query){
         Ok(_ok) => {},
         Err(err) => {
             return Err(StdError::GenericErr {
@@ -380,6 +401,7 @@ pub fn accrue(
     basket: &mut Basket,
     user: String,
     is_deposit_function: bool,
+    for_query: bool, //necessary to reduce gas costs
 ) -> StdResult<()> {
     let config = CONFIG.load(storage)?;
 
@@ -518,6 +540,7 @@ pub fn accrue(
         position,
         negative_rate,
         credit_price_rate,
+        for_query,
     ){
         Ok(rate) => rate,
         Err(err) => {

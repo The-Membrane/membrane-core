@@ -54,15 +54,16 @@ pub fn query_position(
         false,
     )?;
 
-    // accrue(
-    //     deps.storage,
-    //     deps.querier,
-    //     env.clone(),
-    //     &mut position,
-    //     &mut basket,
-    //     user.to_string(),
-    //     false
-    // )?;
+    accrue(
+        deps.storage,
+        deps.querier,
+        env.clone(),
+        &mut position,
+        &mut basket,
+        user.to_string(),
+        false,
+        true,
+    )?;
     
     Ok(PositionResponse {
         position_id: position.position_id,
@@ -119,18 +120,19 @@ pub fn query_user_positions(
             }
         };
 
-        // match accrue(
-        //     deps.storage,
-        //     deps.querier,
-        //     env.clone(),
-        //     &mut position,
-        //     &mut basket,
-        //     user.to_string(),
-        //     false
-        // ) {
-        //     Ok(()) => {}
-        //     Err(err) => error = Some(err),
-        // };
+        match accrue(
+            deps.storage,
+            deps.querier,
+            env.clone(),
+            &mut position,
+            &mut basket,
+            user.to_string(),
+            false,
+            true,
+        ) {
+            Ok(()) => {}
+            Err(err) => error = Some(err),
+        };
 
         let (cAsset_ratios, _) = match get_cAsset_ratios(
             deps.storage,
@@ -285,7 +287,8 @@ pub fn query_position_insolvency(
         &mut target_position,
         &mut basket,
         position_owner.clone(),
-        false
+        false,
+        true,
     ){
         Ok(()) => {}
         Err(_) => return Ok(InsolvencyResponse {
@@ -355,7 +358,7 @@ pub fn query_collateral_rates(
 ) -> StdResult<CollateralInterestResponse> {
     let mut basket = BASKET.load(deps.storage)?;
 
-    let rates = get_interest_rates(deps.storage, deps.querier, env.clone(), &mut basket)?;
+    let rates = get_interest_rates(deps.storage, deps.querier, env.clone(), &mut basket, true)?;
 
     let config = CONFIG.load(deps.storage)?;
 

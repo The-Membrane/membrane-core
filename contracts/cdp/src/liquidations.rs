@@ -72,7 +72,8 @@ pub fn liquidate(
         &mut target_position,
         &mut basket,
         position_owner.clone(),
-        false
+        false,
+        false,
     )?;
     
     //Save updated repayment price and basket debt

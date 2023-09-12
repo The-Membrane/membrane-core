@@ -417,6 +417,14 @@ pub struct PremiumInfo {
 }
 
 #[cw_serde]
+pub struct Rate {
+    /// Rate
+    pub rate: Decimal,
+    /// Time of rate in seconds
+    pub last_time_updated: u64,
+}
+
+#[cw_serde]
 pub struct Basket {
     /// Basket ID
     pub basket_id: Uint128,
@@ -426,6 +434,8 @@ pub struct Basket {
     pub collateral_types: Vec<cAsset>,
     /// Collateral supply caps
     pub collateral_supply_caps: Vec<SupplyCap>, 
+    /// Lastest Collateral Rates
+    pub lastest_collateral_rates: Vec<Rate>,
     /// Multi collateral supply caps
     pub multi_asset_supply_caps: Vec<MultiAssetSupplyCap>,
     /// Credit asset object

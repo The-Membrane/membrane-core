@@ -1658,11 +1658,15 @@ pub fn close_position(
     })?;
 
     //The last router message is updated to a CLOSE_POSITION_REPLY to close the position after all sales and repayments are done.
-    let sub_msg = SubMsg::reply_on_success(router_messages.pop().unwrap(), CLOSE_POSITION_REPLY_ID);
-    
+    let sub_msg = SubMsg::reply_on_success(router_messages.pop().unwrap(), CLOSE_POSITION_REPLY_ID);    
+    //Transform LP Withdraw Msgs into SubMsgs so they run first
+    let lp_withdraw_messages = lp_withdraw_messages.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
+    //Transform Router Msgs into SubMsgs so they run after LP Withdrawals
+    let router_messages = router_messages.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
+
     Ok(Response::new()
-        // .add_messages(lp_withdraw_messages)
-        .add_messages(router_messages)
+        .add_submessages(lp_withdraw_messages)
+        .add_submessages(router_messages)
         .add_submessage(sub_msg)
         .add_attributes(vec![
         attr("position_id", position_id),

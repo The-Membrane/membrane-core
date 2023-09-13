@@ -230,7 +230,7 @@ pub fn liquidate(
     Ok(res
         .add_submessages(lp_withdraw_submsgs)
         .add_submessages(sell_wall_messages)
-        .add_submessages(submessages)
+        .add_submessages(submessages) //LQ & SP msgs
         .add_submessage(call_back)
         .add_messages(caller_fee_messages)
         .add_message(protocol_fee_msg)

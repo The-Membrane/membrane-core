@@ -787,7 +787,7 @@ pub fn end_of_launch(
     let msg = MsgCreateBalancerPool {
         sender: env.contract.address.to_string(),
         pool_params: Some(PoolParams {
-            swap_fee: String::from("200000000000000000"), //0.2 in sdk.Dec 18 places
+            swap_fee: String::from("002000000000000000"), //0.2% in sdk.Dec 18 places
             exit_fee: String::from("0"),
             smooth_weight_change_params: None,
         }),
@@ -824,7 +824,7 @@ pub fn end_of_launch(
     let msg: CosmosMsg = MsgCreateBalancerPool {
         sender: env.contract.address.to_string(),
         pool_params: Some(PoolParams {
-            swap_fee: String::from("200000000000000000"), //0.2 in sdk.Dec 18 places
+            swap_fee: String::from("002000000000000000"), //0.2% in sdk.Dec 18 places
             exit_fee: String::from("0"),
             smooth_weight_change_params: None,
         }),

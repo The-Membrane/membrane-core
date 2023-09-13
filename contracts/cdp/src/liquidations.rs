@@ -221,13 +221,19 @@ pub fn liquidate(
     let mut liquidation_propagation: Option<String> = None;
     if let Ok(repay) = LIQUIDATION.load(storage) { liquidation_propagation = Some(format!("{:?}", repay)) }
 
+    //Transform LP withdraw msgs into submsgs or else they'll run after the sales
+    let lp_withdraw_submsgs = lp_withdraw_messages
+        .into_iter()
+        .map(|msg| SubMsg::new(msg))
+        .collect::<Vec<SubMsg>>();
+
     Ok(res
-        .add_messages(lp_withdraw_messages)
+        .add_submessages(lp_withdraw_submsgs)
         .add_submessages(sell_wall_messages)
-        .add_messages(caller_fee_messages)
-        .add_message(protocol_fee_msg)
         .add_submessages(submessages)
         .add_submessage(call_back)
+        .add_messages(caller_fee_messages)
+        .add_message(protocol_fee_msg)
         .add_attributes(vec![
             attr("method", "liquidate"),
             attr(

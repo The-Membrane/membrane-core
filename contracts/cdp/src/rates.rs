@@ -64,6 +64,8 @@ pub fn external_accrue_call(
 
         update_position(deps.storage, valid_position_owner.clone(), position)?;
     }
+    //Save updated Basket
+    BASKET.save(deps.storage, &basket)?;
 
     Ok(Response::new()
         .add_attributes(vec![

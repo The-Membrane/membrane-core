@@ -459,7 +459,16 @@ pub fn accrue(
         config.clone(),
         is_deposit_function,
     ){
-        Ok(assets) => assets.1[0].price,
+        Ok(assets) => {
+            if assets.1[0].price.is_zero() {
+                //Skip repayment accrual
+                skip_accrual = true;
+                
+                Decimal::zero()
+            } else {
+                assets.1[0].price
+            }
+        }
         Err(_) => {
             //Skip repayment accrual
             skip_accrual = true;

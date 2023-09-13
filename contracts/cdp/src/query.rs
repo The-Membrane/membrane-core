@@ -388,7 +388,12 @@ pub fn query_collateral_rates(
             config,
             false
         ){
-            Ok((_, prices)) => prices[0].price,
+            Ok((_, prices)) => {
+                if prices[0].price.is_zero() {
+                    return Ok(CollateralInterestResponse { rates });
+                }
+                prices[0].price
+            },
             //It'll error if the twap is longer than the pool lifespan
             Err(_) => return Ok(CollateralInterestResponse { rates }),
         };
@@ -470,7 +475,15 @@ pub fn query_basket_credit_interest(
             config,
             false
         ){
-            Ok((_, prices)) => prices[0].price,
+            Ok((_, prices)) => {
+                if prices[0].price.is_zero() {
+                    return Ok(InterestResponse {
+                        credit_interest: Decimal::zero(),
+                        negative_rate: false,
+                    })
+                }
+                prices[0].price
+            },
             //It'll error if the twap is longer than the pool lifespan
             Err(_) => return Ok(InterestResponse {
                 credit_interest: Decimal::zero(),

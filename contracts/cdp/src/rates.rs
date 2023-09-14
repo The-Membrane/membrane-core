@@ -485,18 +485,18 @@ pub fn accrue(
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
             //If market price > than repayment price
-            match credit_TWAP_price.cmp(&basket.clone().credit_price){
+            match credit_TWAP_price.cmp(&basket.clone().credit_price.price){
                 Ordering::Greater => {
                     negative_rate = true;
                     decimal_subtraction(
-                        decimal_division(credit_TWAP_price, basket.clone().credit_price)?,
+                        decimal_division(credit_TWAP_price, basket.clone().credit_price.price)?,
                         Decimal::one(),
                     )?
                 },
                 Ordering::Less => {
                     negative_rate = false;
                     decimal_subtraction(
-                        decimal_division(basket.clone().credit_price, credit_TWAP_price)?,
+                        decimal_division(basket.clone().credit_price.price, credit_TWAP_price)?,
                         Decimal::one(),
                     )?
                 },
@@ -529,13 +529,13 @@ pub fn accrue(
                 applied_rate += Decimal::one();
             }
 
-            let mut new_price = basket.credit_price;
+            let mut new_price = basket.credit_price.price;
             //Negative repayment interest needs to be enabled by the basket
             if !negative_rate || basket.negative_rates {
-                new_price = decimal_multiplication(basket.credit_price, applied_rate)?;
+                new_price = decimal_multiplication(basket.credit_price.price, applied_rate)?;
             } 
 
-            basket.credit_price = new_price;
+            basket.credit_price.price = new_price;
         } else {
             credit_price_rate = Decimal::zero();
         }

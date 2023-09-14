@@ -313,7 +313,7 @@ pub fn query_position_insolvency(
         env,
         deps.querier,
         target_position.collateral_assets,
-        Decimal::from_ratio(target_position.credit_amount, Uint128::new(1u128)),
+        target_position.credit_amount,
         basket.credit_price,
         false,
         config,
@@ -400,17 +400,17 @@ pub fn query_collateral_rates(
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
             //Compare market price & redemption price
-            match credit_TWAP_price.cmp(&basket.credit_price) {
+            match credit_TWAP_price.cmp(&basket.credit_price.price) {
                 Ordering::Greater => {
                     negative_rate = true;
                     decimal_subtraction(
-                        decimal_division(credit_TWAP_price, basket.credit_price)?,
+                        decimal_division(credit_TWAP_price, basket.credit_price.price)?,
                         Decimal::one(),
                     )?
                 }
                 Ordering::Less => {
                     decimal_subtraction(
-                        decimal_division(basket.credit_price, credit_TWAP_price)?,
+                        decimal_division(basket.credit_price.price, credit_TWAP_price)?,
                         Decimal::one(),
                     )?
                 }
@@ -494,18 +494,18 @@ pub fn query_basket_credit_interest(
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
             //Compare market price & redemption price
-            match credit_TWAP_price.cmp(&basket.credit_price) {
+            match credit_TWAP_price.cmp(&basket.credit_price.price) {
                 Ordering::Greater => {
                     negative_rate = true;
                     decimal_subtraction(
-                        decimal_division(credit_TWAP_price, basket.credit_price)?,
+                        decimal_division(credit_TWAP_price, basket.credit_price.price)?,
                         Decimal::one(),
                     )?
                 }
                 Ordering::Less => {
                     negative_rate = false;
                     decimal_subtraction(
-                        decimal_division(basket.credit_price, credit_TWAP_price)?,
+                        decimal_division(basket.credit_price.price, credit_TWAP_price)?,
                         Decimal::one(),
                     )?
                 }
@@ -861,8 +861,8 @@ pub fn insolvency_check(
     env: Env,
     querier: QuerierWrapper,
     collateral_assets: Vec<cAsset>,
-    credit_amount: Decimal,
-    credit_price: Decimal,
+    credit_amount: Uint128,
+    credit_price: PriceResponse,
     max_borrow: bool, //Toggle for either over max_borrow or over max_LTV (liquidatable)
     config: Config,
 ) -> StdResult<(bool, Decimal, Uint128)> { //insolvent, current_LTV, available_fee
@@ -880,8 +880,8 @@ pub fn insolvency_check_calc(
     //BorrowLTV, MaxLTV, TotalAssetValue, cAssetPrices
     avg_LTVs: (Decimal, Decimal, Decimal, Vec<PriceResponse>),    
     collateral_assets: Vec<cAsset>, 
-    credit_amount: Decimal,
-    credit_price: Decimal,
+    credit_amount: Uint128,
+    credit_price: PriceResponse,
     max_borrow: bool, //Toggle for either over max_borrow or over max_LTV (liquidatable), ie taking the minimum collateral ratio into account.
 ) -> StdResult<(bool, Decimal, Uint128)>{ 
     //No assets but still has debt, return insolvent and skip other checks
@@ -901,10 +901,10 @@ pub fn insolvency_check_calc(
     }
     
     let total_asset_value: Decimal = avg_LTVs.2; //pulls total_asset_value
-    //current_LTV = credit_amount * credit_price / total_asset_value);
+    let debt_value = credit_price.get_value(credit_amount)?;
+    //current_LTV = debt_value / total_asset_value);
     let current_LTV = 
-        credit_amount.checked_mul(credit_price)?
-        .checked_div(total_asset_value).map_err(|_| StdError::generic_err("Division by zero in insolvency_check_calc"))?; 
+        debt_value.checked_div(total_asset_value).map_err(|_| StdError::generic_err("Division by zero in insolvency_check_calc"))?; 
 
     let check: bool = match max_borrow {
         true => {
@@ -923,9 +923,8 @@ pub fn insolvency_check_calc(
         //current_LTV - borrow_LTV
         let liq_range = current_LTV.checked_sub(avg_LTVs.0)?;
         //Fee value = repay_amount * fee
-        liq_range.checked_div(current_LTV).map_err(|_| StdError::generic_err("Division by zeroin insolvency_check_calc"))?
-                .checked_mul(
-        credit_amount.checked_mul(credit_price)?)?
+        liq_range.checked_div(current_LTV).map_err(|_| StdError::generic_err("Division by zero in insolvency_check_calc"))?
+                .checked_mul(debt_value)?
                 .checked_mul(fee)?
         * Uint128::new(1)        
     } else {

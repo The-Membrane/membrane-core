@@ -3557,7 +3557,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_price.to_string(), String::from("1.040816326530612244"));
+            assert_eq!(res.credit_price.price.to_string(), String::from("1.040816326530612244"));
 
             let query_msg = QueryMsg::GetPosition {
                 position_id: Uint128::new(1u128),
@@ -3737,7 +3737,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_price.to_string(), String::from("0.94"));
+            assert_eq!(res.credit_price.price.to_string(), String::from("0.94"));
 
             let query_msg = QueryMsg::GetPosition {
                 position_id: Uint128::new(1u128),

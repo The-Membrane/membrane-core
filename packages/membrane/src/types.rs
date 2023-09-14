@@ -441,7 +441,7 @@ pub struct Basket {
     /// Credit asset object
     pub credit_asset: Asset, 
     /// Credit redemption price, not market price
-    pub credit_price: Decimal,
+    pub credit_price: PriceResponse,
     /// Base collateral interest rate.
     /// Enter as percent, 0.02 = 2%.
     pub base_interest_rate: Decimal,

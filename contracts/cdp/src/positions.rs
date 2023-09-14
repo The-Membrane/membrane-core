@@ -10,7 +10,7 @@ use cosmwasm_std::{
 use cw_storage_plus::Item;
 use membrane::helpers::{router_native_to_native, pool_query_and_exit, query_stability_pool_fee, validate_position_owner, asset_to_coin, withdrawal_msg, get_contract_balances};
 use membrane::cdp::{Config, ExecuteMsg, EditBasket};
-use membrane::oracle::AssetResponse;
+use membrane::oracle::{AssetResponse, PriceResponse};
 use osmo_bindings::PoolStateResponse;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::liquidity_check::ExecuteMsg as LiquidityExecuteMsg;
@@ -414,8 +414,8 @@ pub fn withdraw(
                     env.clone(),
                     deps.querier,
                     target_position.clone().collateral_assets,
-                    Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)),
-                    basket.credit_price,
+                    target_position.clone().credit_amount,
+                    basket.clone().credit_price,
                     true,
                     config.clone(),
                 )?.0 {
@@ -628,7 +628,7 @@ pub fn repay(
     }
 
     //Position's resulting debt can't be below minimum without being fully repaid
-    if target_position.credit_amount * basket.clone().credit_price < config.debt_minimum
+    if basket.clone().credit_price.get_value(target_position.credit_amount)? < Decimal::from_ratio(config.debt_minimum, Uint128::one())
         && !target_position.credit_amount.is_zero(){
         //Router contract is allowed to.
         //We rather $1 of bad debt than $2000 and bad debt comes from swap slippage
@@ -804,10 +804,7 @@ pub fn liq_repay(
         config.clone(),
     )?;
 
-    let repay_value = decimal_multiplication(
-        Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128)),
-        basket.credit_price,
-    )?;
+    let repay_value = basket.clone().credit_price.get_value(credit_asset.amount)?;
 
     let mut messages = vec![];
     let mut coins: Vec<Coin> = vec![];
@@ -956,10 +953,7 @@ pub fn increase_debt(
     target_position.credit_amount += amount;
 
     //Test for minimum debt requirements
-    if decimal_multiplication(
-        Decimal::from_ratio(target_position.credit_amount, Uint128::new(1u128)),
-        basket.credit_price,
-    )? < Decimal::from_ratio(config.debt_minimum, Uint128::new(1u128))
+    if  basket.clone().credit_price.get_value(target_position.credit_amount)? < Decimal::from_ratio(config.debt_minimum, Uint128::new(1u128))
     {
         return Err(ContractError::BelowMinimumDebt { minimum: config.debt_minimum });
     }
@@ -974,8 +968,8 @@ pub fn increase_debt(
             env.clone(),
             deps.querier,
             target_position.clone().collateral_assets,
-            Decimal::from_ratio(target_position.credit_amount, Uint128::new(1u128)),
-            basket.credit_price,
+            target_position.credit_amount,
+            basket.clone().credit_price,
             true,
             config.clone(),
         )? .0 {
@@ -1416,10 +1410,7 @@ pub fn redeem_for_collateral(
 
                     // Calc credit_value
                     //redeemable_credit * credit_price
-                    let credit_value = decimal_multiplication(
-                        Decimal::from_ratio(redeemable_credit.to_uint_floor(), Uint128::one()),
-                        basket.credit_price
-                    )?;
+                    let credit_value =  basket.clone().credit_price.get_value(redeemable_credit.to_uint_floor())?;
                     // Calc redeemable value
                     //credit_value * discount_ratio 
                     let redeemable_value = decimal_multiplication(
@@ -1550,10 +1541,10 @@ pub fn close_position(
     //Calc collateral to sell
     //credit_amount * credit_price * (1 + max_spread)
     let total_collateral_value_to_sell = {
-        decimal_multiplication(
-            Decimal::from_ratio(target_position.credit_amount, Uint128::new(1)), 
-            decimal_multiplication(basket.credit_price, (max_spread + Decimal::one()))?
-        )?
+            decimal_multiplication(
+                basket.clone().credit_price.get_value(target_position.credit_amount)?, 
+                (max_spread + Decimal::one())
+            )?
     };
     
     //Max_spread is added to the collateral amount to ensure enough credit is purchased
@@ -1802,7 +1793,11 @@ pub fn create_basket(
         lastest_collateral_rates: vec![], //This will be set in the accrue function
         multi_asset_supply_caps: vec![],
         credit_asset: credit_asset.clone(),
-        credit_price,
+        credit_price: PriceResponse {
+            price: credit_price,
+            prices: vec![],
+            decimals: 6,
+        },
         base_interest_rate,
         pending_revenue: Uint128::zero(),
         credit_last_accrued: env.block.time.seconds(),
@@ -2308,7 +2303,7 @@ fn get_amount_from_LTV(
 
     //Calc current LTV
     let current_LTV = {
-        let credit_value = decimal_multiplication(Decimal::from_ratio(position.credit_amount, Uint128::new(1)), basket.credit_price)?;
+        let credit_value = basket.clone().credit_price.get_value(position.credit_amount)?;
 
         decimal_division(credit_value, total_value)?
     };
@@ -2326,7 +2321,8 @@ fn get_amount_from_LTV(
         //Calc the value LTV_spread represents
         let increased_credit_value = decimal_multiplication(total_value, LTV_spread)?;
         
-        decimal_division(increased_credit_value, basket.credit_price)? * Uint128::new(1)
+        //Calc the amount of credit needed to reach the increased_credit_value
+        basket.credit_price.get_amount(increased_credit_value)?
     };
 
     Ok( credit_amount )

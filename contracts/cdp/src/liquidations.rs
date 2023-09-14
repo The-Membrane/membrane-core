@@ -88,8 +88,8 @@ pub fn liquidate(
         env.clone(),
         querier,
         target_position.clone().collateral_assets,
-        Decimal::from_ratio(target_position.clone().credit_amount, Uint128::new(1u128)),
-        basket.credit_price,
+        target_position.clone().credit_amount,
+        basket.clone().credit_price,
         false,
         config.clone(),
     )?;
@@ -255,10 +255,7 @@ fn get_repay_quantities(
 ) -> Result<(Decimal, Decimal), ContractError>{
     
     // max_borrow_LTV/ current_LTV, * current_loan_value, current_loan_value - __ = value of loan amount
-    let loan_value = decimal_multiplication(
-        basket.credit_price,
-        Decimal::from_ratio(target_position.credit_amount, Uint128::new(1u128)),
-    )?;
+    let loan_value = basket.credit_price.get_value(target_position.credit_amount)?;
 
     //repay value = the % of the loan insolvent. Insolvent is anything between current and max borrow LTV.
     //IE, repay what to get the position down to borrow LTV
@@ -283,21 +280,18 @@ fn get_repay_quantities(
         }
     }
 
-    let credit_repay_amount = match decimal_division(repay_value, basket.credit_price)?{
+    let credit_repay_amount = match basket.credit_price.get_amount(repay_value)?{
         //Repay amount has to be above 0, or there is nothing to liquidate and there was a mistake prior
-        x if x <= Decimal::new(Uint128::zero()) => return Err(ContractError::PositionSolvent {}),
+        x if x <= Uint128::zero() => return Err(ContractError::PositionSolvent {}),
         //No need to repay more than the debt
-        x if x > Decimal::from_ratio(
-            target_position.credit_amount,
-            Uint128::new(1u128),
-        ) =>
+        x if x > target_position.credit_amount =>
         {
             return Err(ContractError::FaultyCalc { msg: "Repay amount is greater than total debt".to_string() })
         }
         x => x,
     };
 
-    Ok((repay_value, credit_repay_amount))
+    Ok((repay_value, Decimal::from_ratio(credit_repay_amount, Uint128::one())))
 }
 
 /// Calculate amount of debt the User can repay from the Stability Pool
@@ -507,7 +501,7 @@ fn per_asset_fulfillments(
                             (collateral_repay_amount).u128(),
                         ),
                         credit_info: basket.clone().credit_asset.info,
-                        credit_price: basket.clone().credit_price,
+                        credit_price: basket.clone().credit_price.price,
                     })?,
                 }))?;
 
@@ -518,7 +512,7 @@ fn per_asset_fulfillments(
                 
             //Call Liq Queue::Liquidate for the asset
             let liq_msg = LQ_ExecuteMsg::Liquidate {
-                credit_price: basket.credit_price,
+                credit_price: basket.credit_price.price,
                 collateral_price: collateral_price.price,
                 collateral_amount: Uint256::from(queue_asset_amount_paid.u128()),
                 bid_for: cAsset.clone().asset.info,
@@ -600,10 +594,7 @@ fn build_sp_sw_submsgs(
         // !( leftover_position_value >= leftover_repay_value * sp_fee)
 
         //Working on the LQ's leftovers
-        let leftover_repayment_value = decimal_multiplication(
-            leftover_repayment,
-            basket.credit_price,
-        )?;
+        let leftover_repayment_value = basket.credit_price.get_value(leftover_repayment.to_uint_floor())?;
 
         //SP liq_fee Guarantee check
         //if leftover_position_value is less than leftover_repay value + the SP fee, we liquidate what we can and send the rest to the sell wall
@@ -613,13 +604,13 @@ fn build_sp_sw_submsgs(
                 skip_sp = true;
                 if leftover_position_value < leftover_repayment_value {
                     //Set leftover_repayment to the amount of credit the Position value can pay
-                    leftover_repayment = decimal_division(leftover_position_value, basket.credit_price)?;
+                    leftover_repayment = Decimal::from_ratio(basket.credit_price.get_amount(leftover_position_value)?, Uint128::one());  
                 }
             } else {
                 //Set Position value to the discounted value the SP will be distributed
                 leftover_position_value = decimal_multiplication(leftover_position_value, (Decimal::one() - sp_liq_fee))?;
                 //Set leftover_repayment to the amount of credit the Position value can pay
-                leftover_repayment = decimal_division(leftover_position_value, basket.credit_price)?;       
+                leftover_repayment = Decimal::from_ratio(basket.credit_price.get_amount(leftover_position_value)?, Uint128::one());  
             }     
         }
         
@@ -868,7 +859,7 @@ pub fn sell_wall(
     let mut lp_withdraw_messages = vec![];
     let position_owner_addr = api.addr_validate(&position_owner)?;
 
-    let repay_value = decimal_multiplication(repay_amount, basket.credit_price)?;
+    let repay_value = basket.credit_price.get_value(repay_amount.to_uint_floor())?;
     
     //Get Pre-Split cAsset_ratios & prices
     let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(storage, env.clone(), querier, collateral_assets.clone(), config.clone())?;   

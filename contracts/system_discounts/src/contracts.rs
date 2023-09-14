@@ -229,18 +229,14 @@ fn get_user_value_in_network(
     })){
         Ok(price_res) => price_res,
         //Default to CDT price
-        Err(_) => PriceResponse { 
-            price: credit_price,
-            prices: vec![],
-            decimals: 6,
-        }
+        Err(_) => credit_price.clone()
     };
 
     //Initialize total_value
     let mut total_value = Decimal::zero();
 
     total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone(), mbrn_price_res.price)?;
-    total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price_res.clone(), credit_price.clone())?;
+    total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price_res.clone(), credit_price.clone().price)?;
 
     if config.discount_vault_contract.is_some(){
         total_value += get_discounts_vault_value(querier, config.clone(), user.clone())?;

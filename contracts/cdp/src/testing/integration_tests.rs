@@ -17,6 +17,7 @@ mod tests {
         cAsset, Asset, AssetInfo, AssetOracleInfo, Deposit, LiquidityInfo, TWAPPoolInfo,
         UserInfo, MultiAssetSupplyCap, AssetPool, StakeDistribution, PoolType, DebtCap, Owner
     };
+    use membrane::liquidity_check::LiquidityResponse;
 
     use cosmwasm_std::{
         attr, coin, to_binary, Addr, Binary, Coin, Decimal, Empty, Response, StdError, StdResult,
@@ -1442,7 +1443,12 @@ mod tests {
             |_, _, msg: Liquidity_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     Liquidity_MockQueryMsg::Liquidity { asset } => {
-                        Ok(to_binary(&Uint128::new(49999u128))?)
+                        Ok(to_binary(&LiquidityResponse { 
+                            asset: AssetInfo::NativeToken {
+                                denom: String::from("credit_fulldenom"),
+                            },
+                            liquidity: Uint128::new(49999u128)
+                        })?)
                     }
                 }
             },
@@ -1464,7 +1470,12 @@ mod tests {
             |_, _, msg: Liquidity_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     Liquidity_MockQueryMsg::Liquidity { asset } => {
-                        Ok(to_binary(&Uint128::new(5_000_000_000_000u128))?)
+                        Ok(to_binary(&LiquidityResponse { 
+                            asset: AssetInfo::NativeToken {
+                                denom: String::from("credit_fulldenom"),
+                            },
+                            liquidity: Uint128::new(5_000_000_000_000u128)
+                        })?)
                     }
                 }
             },
@@ -8182,9 +8193,9 @@ mod tests {
                 position_id: None,
             };
             let cosmos_msg = cdp_contract
-                .call(exec_msg, vec![coin(11_000, "debit")])
+                .call(exec_msg, vec![coin(11_000_000_000_000, "debit")])
                 .unwrap();
-            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            let res = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
 
             //NonExistentPosition Error
             let increase_debt_msg = ExecuteMsg::IncreaseDebt {
@@ -8194,7 +8205,7 @@ mod tests {
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(increase_debt_msg, vec![]).unwrap();
-            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            let res = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap_err();
 
             //Increase_debt by LTV: Insolvent Error
             let increase_debt_msg = ExecuteMsg::IncreaseDebt {
@@ -8204,7 +8215,7 @@ mod tests {
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(increase_debt_msg, vec![]).unwrap();
-            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            let res = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap_err();
 
             //Increase_debt by LTV: No amount inputs
             let increase_debt_msg = ExecuteMsg::IncreaseDebt {
@@ -8214,7 +8225,7 @@ mod tests {
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(increase_debt_msg, vec![]).unwrap();
-            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            let res = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap_err();
 
             //Increase_debt by LTV: Success
             let increase_debt_msg = ExecuteMsg::IncreaseDebt {
@@ -8224,12 +8235,12 @@ mod tests {
                 mint_to_addr: None,
             };
             let cosmos_msg = cdp_contract.call(increase_debt_msg, vec![]).unwrap();
-            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            let res = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
 
            //Query indebted position
            let query_msg = QueryMsg::GetPositionInsolvency {
             position_id: Uint128::new(1),
-            position_owner: String::from(USER),
+            position_owner: String::from("bigger_bank"),
             };
             let res: InsolvencyResponse = app
                 .wrap()
@@ -8242,7 +8253,7 @@ mod tests {
                     insolvent: false,
                     position_info: UserInfo {
                         position_id: Uint128::new(1),
-                        position_owner: String::from(USER),
+                        position_owner: String::from("bigger_bank"),
                     },
                     current_LTV: Decimal::percent(40),
                     available_fee: Uint128::zero(),

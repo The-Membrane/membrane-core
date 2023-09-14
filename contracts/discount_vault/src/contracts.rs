@@ -382,7 +382,7 @@ fn get_user_response(
             get_pool_state_response(deps.querier,  config.clone().osmosis_proxy.into(), pool_info.pool_id)?.shares_value(lp.amount);
             //Add the share asset that is the debt token
             if let Some(coin) = share_asset_amounts.into_iter().find(|coin| coin.denom == basket.clone().credit_asset.info.to_string()){
-                LP_value += Uint128::from_str(&coin.amount).unwrap() * basket.clone().credit_price;
+                LP_value += basket.clone().credit_price.get_value(Uint128::from_str(&coin.amount).unwrap())?.to_uint_floor();
             }
         }
     }

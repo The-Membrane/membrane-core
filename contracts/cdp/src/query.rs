@@ -904,7 +904,7 @@ pub fn insolvency_check_calc(
     let debt_value = credit_price.get_value(credit_amount)?;
     //current_LTV = debt_value / total_asset_value);
     let current_LTV = 
-        debt_value.checked_div(total_asset_value).map_err(|_| StdError::generic_err("Division by zero in insolvency_check_calc"))?; 
+        debt_value.checked_div(total_asset_value).map_err(|_| StdError::generic_err("Division by zero in insolvency_check_calc, line 907"))?; 
 
     let check: bool = match max_borrow {
         true => {
@@ -923,7 +923,7 @@ pub fn insolvency_check_calc(
         //current_LTV - borrow_LTV
         let liq_range = current_LTV.checked_sub(avg_LTVs.0)?;
         //Fee value = repay_amount * fee
-        liq_range.checked_div(current_LTV).map_err(|_| StdError::generic_err("Division by zero in insolvency_check_calc"))?
+        liq_range.checked_div(current_LTV).map_err(|_| StdError::generic_err("Division by zero in insolvency_check_calc, line 926"))?
                 .checked_mul(debt_value)?
                 .checked_mul(fee)?
         * Uint128::new(1)        

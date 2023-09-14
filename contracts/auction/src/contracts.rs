@@ -575,7 +575,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
 
         //Mint MBRN for user
         let discounted_mbrn_price = decimal_multiplication(mbrn_price, discount_ratio)?;
-        let credit_value = decimal_multiplication(swap_amount, basket_credit_price)?;
+        let credit_value = basket_credit_price.get_value(swap_amount.to_uint_floor())?;
         let mbrn_mint_amount =
             decimal_division(credit_value, discounted_mbrn_price)? * Uint128::new(1u128);
 

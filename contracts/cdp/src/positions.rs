@@ -634,7 +634,7 @@ pub fn repay(
         //We rather $1 of bad debt than $2000 and bad debt comes from swap slippage
         if let Some(router) = config.clone().dex_router {
             if info.sender != router {
-                return Err(ContractError::BelowMinimumDebt { minimum: config.debt_minimum });
+                return Err(ContractError::BelowMinimumDebt { minimum: config.debt_minimum, debt: basket.clone().credit_price.get_value(target_position.credit_amount)?.to_uint_floor() });
             }
         }
         //This would also pass for ClosePosition, but since spread is added to collateral amount this should never happen
@@ -954,8 +954,8 @@ pub fn increase_debt(
 
     //Test for minimum debt requirements
     if  basket.clone().credit_price.get_value(target_position.credit_amount)? < Decimal::from_ratio(config.debt_minimum, Uint128::new(1u128))
-    {
-        return Err(ContractError::BelowMinimumDebt { minimum: config.debt_minimum });
+    {        
+        return Err(ContractError::BelowMinimumDebt { minimum: config.debt_minimum, debt: basket.clone().credit_price.get_value(target_position.credit_amount)?.to_uint_floor() });
     }
 
     let message: CosmosMsg;
@@ -972,7 +972,7 @@ pub fn increase_debt(
             basket.clone().credit_price,
             true,
             config.clone(),
-        )? .0 {
+        )?.0 {
             return Err(ContractError::PositionInsolvent {});
         } else {
             //Set recipient

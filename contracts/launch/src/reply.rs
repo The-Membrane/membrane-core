@@ -387,7 +387,7 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     collateral_twap_timeframe: 60u64,
                     credit_twap_timeframe: 480u64,
                     rate_slope_multiplier: Decimal::from_str("0.618").unwrap(),
-                    base_debt_cap_multiplier: Uint128::new(21u128),
+                    base_debt_cap_multiplier: Uint128::new(1000_000_000u128), //1000 positions of the debt minimum + 6 decimal points
                     stability_pool: None,
                     dex_router: Some(config.clone().apollo_router.to_string()),
                     staking_contract: Some(addrs.clone().staking.to_string()),

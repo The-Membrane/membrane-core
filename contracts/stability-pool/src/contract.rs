@@ -255,7 +255,7 @@ fn accrue_incentives(
         config.clone().positions_contract,
         &CDP_QueryMsg::GetBasket {}
     )?;
-    let cdt_price = basket.credit_price;
+    let cdt_price: PriceResponse = basket.credit_price;
 
     //Get MBRN price
     let mbrn_price: Decimal = match query_asset_price(
@@ -266,12 +266,12 @@ fn accrue_incentives(
         None,
     ){
         Ok(price) => price,
-        Err(_) => cdt_price, //We default to CDT repayment price in the first hour of incentives
+        Err(_) => cdt_price.price, //We default to CDT repayment price in the first hour of incentives
     };
 
     //Transmute CDT amount to MBRN incentive amount
     incentives = decimal_division(
-        decimal_multiplication(Decimal::from_ratio(incentives, Uint128::one()), cdt_price)?
+        cdt_price.get_value(incentives)?
         , mbrn_price)? * Uint128::one();
 
     let mut total_incentives = INCENTIVES.load(storage)?;

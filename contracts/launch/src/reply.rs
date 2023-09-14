@@ -383,7 +383,7 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     owner: None,
                     liq_fee: Decimal::percent(1),
                     oracle_time_limit: 60u64,
-                    debt_minimum: Uint128::new(100_000_000u128),
+                    debt_minimum: Uint128::new(100u128),
                     collateral_twap_timeframe: 60u64,
                     credit_twap_timeframe: 480u64,
                     rate_slope_multiplier: Decimal::from_str("0.618").unwrap(),

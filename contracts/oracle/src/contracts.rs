@@ -444,9 +444,9 @@ pub fn get_lp_price(
                     id: pool_info.pool_id,
                 })?,
             }))?
-            .shares_value(1_000_000_000_000_000_000u128); //1_000_000_000_000_000_000 = 1 pool share token = Total TVL
+            .shares_value(1_000_000_000_000_000_000u128); //1_000_000_000_000_000_000 = 1 pool share token
 
-        //Calculate value of Assets in the LP
+        //Calculate value of Assets in 1 share token
         let mut value = Decimal::zero();
         for (i, price) in asset_prices.into_iter().enumerate() {
             //Assert we are pulling asset amount from the correct asset
@@ -467,7 +467,7 @@ pub fn get_lp_price(
                     }
                 };
 
-            //Price * # of assets in LP shares
+            //Price * # of assets in 1 LP share token
             value += price.get_value(Uint128::from_str(&asset_share.amount)?)?;
         }
 
@@ -477,7 +477,7 @@ pub fn get_lp_price(
     //Calculate LP price
     let LP_price = {
         let share_amount =
-            Decimal::from_ratio(Uint128::new(1_000_000_000_000_000u128), Uint128::new(1u128));//18 decimals for LP share tokens
+            Decimal::from_ratio(Uint128::new(1_000_000_000_000_000_000u128), Uint128::new(1u128));//18 decimals for LP share tokens
         
         decimal_division(LP_value, share_amount)?
     };

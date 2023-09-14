@@ -115,34 +115,27 @@ pub struct PriceResponse {
 
 impl PriceResponse {
     pub fn get_value(&self, amount: Uint128) -> StdResult<Decimal> {
-        //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
-        let exponent_difference = self
-            .decimals
-            .checked_sub(6u64)
-            .unwrap();
-        let asset_amount = amount
-            / Uint128::new(10u64.pow(exponent_difference as u32) as u128);
+        //Normalize Asset amounts to fiat decimal amounts (1_000_000 = 1)
+        let exponent_difference = self.decimals;
+
         let decimal_asset_amount =
-            Decimal::from_ratio(asset_amount, Uint128::new(1u128));
+            Decimal::from_ratio(amount, Uint128::new(10u64.pow(exponent_difference as u32) as u128));
 
         decimal_multiplication(self.price, decimal_asset_amount)
     }
 
     pub fn get_amount(&self, value: Decimal) -> StdResult<Uint128> {
-        //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
-        let exponent_difference = self
-            .decimals
-            .checked_sub(6u64)
-            .unwrap();
+        //Normalize Asset amounts to fiat decimal amounts (1_000_000 = 1)
+        let exponent_difference = self.decimals;
 
-        //This gives us the amount if the asset had 6 decimals
+        //This gives us the amount if the asset had 0 extra decimals (1 = 1)
         let pre_scaled_amount = decimal_division(value, self.price)?;
 
+        //Post scaled amount where we add the asset's decimals (1 = 1_000_000 or 1 = 1_000_000_000_000_000_000)
         let asset_amount = pre_scaled_amount
             * Uint128::new(10u64.pow(exponent_difference as u32) as u128);
 
         Ok(asset_amount)
-
     }
 }
 

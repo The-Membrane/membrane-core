@@ -498,9 +498,9 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                             basket_id: Uint128::one(), 
                             pools_for_osmo_twap: vec![
                                 TWAPPoolInfo { 
-                                    pool_id: config.clone().osmousdc_pool_id, 
-                                    quote_asset_denom: config.clone().usdc_denom.to_string(), 
-                                    base_asset_denom: config.clone().osmo_denom.to_string(),  
+                                    pool_id: config.clone().osmousdc_pool_id,
+                                    base_asset_denom: config.clone().usdc_denom.to_string(), 
+                                    quote_asset_denom: config.clone().osmo_denom.to_string(),  
                                 }
                             ],
                             is_usd_par: true,
@@ -1332,8 +1332,8 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                                 pools_for_osmo_twap: vec![
                                     TWAPPoolInfo { 
                                         pool_id: osmo_pool_id,
-                                        quote_asset_denom: config.clone().credit_denom.to_string(), 
-                                        base_asset_denom: config.clone().osmo_denom.to_string(),  
+                                        base_asset_denom: config.clone().credit_denom.to_string(),  
+                                        quote_asset_denom: config.clone().osmo_denom.to_string(), 
                                     }
                                 ],
                                 is_usd_par: false,
@@ -1454,8 +1454,8 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                             pools_for_osmo_twap: vec![
                                 TWAPPoolInfo { 
                                     pool_id: MBRN_POOL.load(deps.storage)?,
-                                    quote_asset_denom: config.clone().mbrn_denom.to_string(), 
-                                    base_asset_denom: config.clone().osmo_denom.to_string(),  
+                                    base_asset_denom: config.clone().mbrn_denom.to_string(),  
+                                    quote_asset_denom: config.clone().osmo_denom.to_string(), 
                                 }
                             ],
                             is_usd_par: false,

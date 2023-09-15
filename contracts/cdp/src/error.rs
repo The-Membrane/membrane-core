@@ -21,8 +21,8 @@ pub enum ContractError {
     #[error("Position is solvent and shouldn't be liquidated")]
     PositionSolvent {},
 
-    #[error("Makes position insolvent")]
-    PositionInsolvent {},
+    #[error("Makes position insolvent: {insolvency_res:?}")]
+    PositionInsolvent { insolvency_res: (bool, Decimal, Uint128)},
 
     #[error("User has no positions in this basket")]
     NoUserPositions {},

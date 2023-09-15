@@ -899,12 +899,16 @@ pub fn insolvency_check_calc(
     else if credit_amount.is_zero() {
         return Ok((false, Decimal::percent(0), Uint128::zero()));
     }
+
     
     let total_asset_value: Decimal = avg_LTVs.2; //pulls total_asset_value
     let debt_value = credit_price.get_value(credit_amount)?;
     //current_LTV = debt_value / total_asset_value);
     let current_LTV = 
         debt_value.checked_div(total_asset_value).map_err(|_| StdError::GenericErr{msg: format!("Division by zero in insolvency_check_calc, line 907. debt_value: {}, total_asset_value: {}", debt_value, total_asset_value)})?; 
+    
+    //Return for testing
+    // return Err(StdError::GenericErr{msg: format!("debt_value: {}, total_asset_value: {}, current_LTV: {}, max_borrow: {}", debt_value, total_asset_value, current_LTV, avg_LTVs.0)});
 
     let check: bool = match max_borrow {
         true => {

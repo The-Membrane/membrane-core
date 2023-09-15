@@ -468,6 +468,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                             is_usd_par: false,
                             lp_pool_info: None,
                             decimals: 6,
+                            pyth_price_feed_id: Some(String::from("b00b60f88b03a6a625a8d1c048c3f66653edf217439983d037e7222c4e612819")),
                         },
                     })?, 
                     funds: vec![],
@@ -484,11 +485,12 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                             is_usd_par: false,
                             lp_pool_info: None,
                             decimals: 6,
+                            pyth_price_feed_id: Some(String::from("5867f5683c757393a0670ef0f701490950fe93fdb006d181c8265a831ac0c5c6")),
                         },
                     })?, 
                     funds: vec![],
                 }));
-            /// USDC
+            /// axlUSDC
             msgs.push(
                 CosmosMsg::Wasm(WasmMsg::Execute { 
                     contract_addr: addrs.clone().oracle.to_string(), 
@@ -506,7 +508,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                             is_usd_par: true,
                             lp_pool_info: None,
                             decimals: 6,
-                            
+                            pyth_price_feed_id: None, //We don't set a pyth price feed for axlUSDC bc its a non-IBC bridged asset
                         },
                     })?, 
                     funds: vec![],
@@ -1315,8 +1317,9 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                                             },
                                         ],
                                     }
-                                ),                       
-                                decimals: 18,         
+                                ),
+                                decimals: 18,
+                                pyth_price_feed_id: None,
                             },
                         })?, 
                         funds: vec![],
@@ -1337,8 +1340,9 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                                     }
                                 ],
                                 is_usd_par: false,
-                                lp_pool_info: None,                       
-                                decimals: 6,         
+                                lp_pool_info: None,
+                                decimals: 6,
+                                pyth_price_feed_id: None,
                             },
                         })?, 
                         funds: vec![],
@@ -1460,7 +1464,8 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                             ],
                             is_usd_par: false,
                             lp_pool_info: None,
-                            decimals: 6,                            
+                            decimals: 6,       
+                            pyth_price_feed_id: None,                     
                         },
                     })?, 
                     funds: vec![],

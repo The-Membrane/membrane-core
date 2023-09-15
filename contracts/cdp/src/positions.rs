@@ -409,7 +409,7 @@ pub fn withdraw(
 
                 //If resulting LTV makes the position insolvent, error. If not construct withdrawal_msg
                 //This is taking max_borrow_LTV so users can't max borrow and then withdraw to get a higher initial LTV
-                if insolvency_check(
+                let insolvency_res = insolvency_check(
                     deps.storage,
                     env.clone(),
                     deps.querier,
@@ -418,8 +418,9 @@ pub fn withdraw(
                     basket.clone().credit_price,
                     true,
                     config.clone(),
-                )?.0 {
-                    return Err(ContractError::PositionInsolvent {});
+                )?;
+                if insolvency_res.0 {
+                    return Err(ContractError::PositionInsolvent { insolvency_res });
                 } else {
                     //Update Position list
                     POSITIONS.update(deps.storage, valid_position_owner.clone(), |positions: Option<Vec<Position>>| -> Result<Vec<Position>, ContractError>{
@@ -963,7 +964,7 @@ pub fn increase_debt(
     //Can't take credit before an oracle is set
     if basket.oracle_set {
         //If resulting LTV makes the position insolvent, error. If not construct mint msg
-        if insolvency_check(
+        let insolvency_res = insolvency_check(
             deps.storage,
             env.clone(),
             deps.querier,
@@ -972,8 +973,10 @@ pub fn increase_debt(
             basket.clone().credit_price,
             true,
             config.clone(),
-        )?.0 {
-            return Err(ContractError::PositionInsolvent {});
+        )?;
+
+        if insolvency_res.0 {
+            return Err(ContractError::PositionInsolvent { insolvency_res });
         } else {
             //Set recipient
             let recipient = {
@@ -1967,7 +1970,7 @@ pub fn edit_basket(
                 denom: pool_state.shares.denom,
             };
 
-            //Assert Asset order of pool_assets in PoolInfo object
+            //Set pool_assets in PoolInfo object
             //Assert pool_assets are already in the basket, which confirms an oracle and adequate parameters for them
             for (i, asset) in pool_assets.iter().enumerate() {
 
@@ -2018,7 +2021,8 @@ pub fn edit_basket(
                                 ],
                             }
                         ),                       
-                        decimals: 18,         
+                        decimals: 18,
+                        pyth_price_feed_id: None,
                     },
                 })?,
                 funds: vec![],
@@ -2139,6 +2143,7 @@ pub fn edit_basket(
                         is_usd_par: false,
                         lp_pool_info: None,
                         decimals: 6,
+                        pyth_price_feed_id: None,
                     }),
                     remove: false,
                 })?,

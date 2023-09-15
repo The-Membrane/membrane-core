@@ -280,6 +280,8 @@ pub struct StakeDistributionLog {
 pub struct AssetOracleInfo {
     /// Basket ID
     pub basket_id: Uint128,
+    /// Pyth price feed ID
+    pub pyth_price_feed_id: Option<String>,
     /// Osmosis pools for OSMO TWAP
     pub pools_for_osmo_twap: Vec<TWAPPoolInfo>,
     /// Bool to provide $1 static_price if the asset is USD-par

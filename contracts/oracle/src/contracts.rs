@@ -544,6 +544,78 @@ fn get_asset_price(
     let mut usd_par_prices = vec![];
     let mut quote_price = Decimal::zero();
 
+    let mut pyth_feed_errored = false;
+
+    //Use Pyth USD-quoted price feeds first if available
+    if let Some(pyth_osmosis_address) = config.clone().pyth_osmosis_address {
+        if let Some(feed_id) = oracle_info.pyth_price_feed_id {
+            //Query USD price from Pyth
+            let price_feed_response: PriceFeedResponse = match query_price_feed(
+                &querier, 
+                pyth_osmosis_address,
+                PriceIdentifier::from_hex(&feed_id).map_err(|err| StdError::GenericErr { msg: err.to_string() })?,
+            ){
+                    Ok(res) => res,
+                    Err(_) => {
+                        pyth_feed_errored = true;
+                        //If Pyth fails, skip to USD-par pricing
+                        PriceFeedResponse {
+                            price_feed: PriceFeed::default(),
+                        }
+                    }
+                };
+            
+            //Query unscaled price
+            let price_feed = price_feed_response.price_feed;
+            let price = price_feed
+                .get_ema_price_no_older_than(env.block.time.seconds() as i64, oracle_time_limit);
+
+            //If price was queried && within the time limit, scale it & use it
+            //If not, skip to Osmosis TWAP pricing
+            let mut pyth_price: Decimal = Decimal::zero();
+            match price {
+                Some(price) => {
+                    //Scale price using given exponent
+                    match price.expo > 0 {
+                        true => {
+                            pyth_price = decimal_multiplication(
+                                Decimal::from_str(&price.price.to_string())?, 
+                                Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(price.expo as u32)?
+                            )?;
+                        },
+                        //If the exponent is negative we divide, it should be for most if not all
+                        false => {
+                            pyth_price = decimal_division(
+                                Decimal::from_str(&price.price.to_string())?, 
+                                Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow((price.expo*-1) as u32)?
+                            )?;
+                        }
+                    };                   
+                    
+
+                    //Push Pyth USD price
+                    oracle_prices.push(PriceInfo {
+                        source: String::from("pyth"),
+                        price: pyth_price,
+                    });
+                },
+                None => {
+                    pyth_feed_errored = true;
+                }
+            }
+
+            //Return Pyth only price if it was queried successfully
+            if !pyth_feed_errored {
+                return Ok(PriceResponse {
+                    prices: oracle_prices,
+                    price: pyth_price,
+                    decimals: oracle_info.decimals,
+                });
+            }
+        }
+    }
+    /// If there is no return above, query starting from Osmosis TWAPs
+
     //Query OSMO price from the TWAP sources
     //This can use multiple pools to calculate our price
     for pool in oracle_info.pools_for_osmo_twap {

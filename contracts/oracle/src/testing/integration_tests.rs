@@ -3,7 +3,7 @@ mod tests {
 
     use crate::helpers::OracleContract;
 
-    use membrane::oracle::{ExecuteMsg, InstantiateMsg, QueryMsg};
+    use membrane::oracle::{ExecuteMsg, InstantiateMsg, QueryMsg, PriceResponse};
     use membrane::osmosis_proxy::Config as OP_Config;
     use membrane::types::{AssetInfo, AssetOracleInfo, TWAPPoolInfo, PriceInfo, Asset, Basket, SupplyCap, Owner};
 
@@ -119,7 +119,11 @@ mod tests {
                         ],
                         lastest_collateral_rates: vec![],
                         credit_asset: Asset { info: AssetInfo::NativeToken { denom: String::from("factory/cdt/#1") }, amount: Uint128::zero() },
-                        credit_price: Decimal::zero(),
+                        credit_price: PriceResponse {
+                            prices: vec![],
+                            price: Decimal::zero(),
+                            decimals: 6,
+                        },
                         liq_queue: None,
                         base_interest_rate: Decimal::zero(),
                         pending_revenue: Uint128::zero(),
@@ -211,6 +215,7 @@ mod tests {
     #[cfg(test)]
     mod oracle {
 
+        use core::panic;
         use std::str::FromStr;
 
         use super::*;
@@ -517,6 +522,9 @@ mod tests {
 
         #[test]
         fn scaling_test() {
+            let amount = Decimal::from_ratio(Uint128::new(187931653491861157), Uint128::new(1));
+            let price = decimal_multiplication(Decimal::from_str("0.000000000000001954").unwrap(), amount).unwrap();
+            panic!("{}", price);
             let quote_price;
             let price = 78574968;
             let expo: i32 = -6;

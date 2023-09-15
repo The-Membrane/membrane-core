@@ -118,8 +118,14 @@ impl PriceResponse {
         //Normalize Asset amounts to fiat decimal amounts (1_000_000 = 1)
         let exponent_difference = self.decimals;
 
-        let decimal_asset_amount =
-            Decimal::from_ratio(amount, Uint128::new(10u64.pow(exponent_difference as u32) as u128));
+        let decimal_asset_amount = {
+            if exponent_difference == 18 {
+                //Price takes into account the asset's decimals if its an LP
+                Decimal::from_ratio(amount, Uint128::new(1))
+            } else {                
+                Decimal::from_ratio(amount, Uint128::new(10u64.pow(exponent_difference as u32) as u128))
+            }
+        };
 
         decimal_multiplication(self.price, decimal_asset_amount)
     }
@@ -128,10 +134,13 @@ impl PriceResponse {
         //Normalize Asset amounts to fiat decimal amounts (1_000_000 = 1)
         let exponent_difference = self.decimals;
 
-        //This gives us the amount if the asset had 0 extra decimals (1 = 1)
+        //This is "scaled" if its an LP share token due to how price is calculated
+        if exponent_difference == 18 {            
+            return Ok(decimal_division(value, self.price)?.to_uint_floor())
+        }
         let pre_scaled_amount = decimal_division(value, self.price)?;
 
-        //Post scaled amount where we add the asset's decimals (1 = 1_000_000 or 1 = 1_000_000_000_000_000_000)
+        //Post scaled amount where we add the asset's decimals (1 = 1_000_000)
         let asset_amount = pre_scaled_amount
             * Uint128::new(10u64.pow(exponent_difference as u32) as u128);
 

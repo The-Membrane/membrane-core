@@ -1322,6 +1322,7 @@ pub fn redeem_for_collateral(
     let basket: Basket = BASKET.load(deps.storage)?;
 
     let mut credit_amount;
+    let mut redeemable_credit = Decimal::zero();
     let mut collateral_sends: Vec<Asset> = vec![];
     
     //Validate asset 
@@ -1383,7 +1384,7 @@ pub fn redeem_for_collateral(
                     )?;
 
                     //Calc amount of credit that can be redeemed
-                    let redeemable_credit = Decimal::min(
+                    redeemable_credit = Decimal::min(
                         Decimal::from_ratio(position_redemption_info.remaining_loan_repayment, Uint128::one()),
                         credit_amount
                     );
@@ -1483,11 +1484,30 @@ pub fn redeem_for_collateral(
         coins.push(asset_to_coin(asset)?)
     }
 
+    let mut messages: Vec<CosmosMsg> = vec![];
     //Send collateral to sender
     let collateral_msg = BankMsg::Send {
         to_address: info.clone().sender.to_string(),
         amount: coins.clone(),
     };
+    messages.push(collateral_msg.into());
+
+    //Burn redeemed credit
+    if let Some(addr) = config.osmosis_proxy {
+        if !redeemable_credit.to_uint_floor().is_zero() {    
+            //Create burn msg
+            let burn_message = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: addr.to_string(),
+                msg: to_binary(&OsmoExecuteMsg::BurnTokens {
+                    denom: basket.credit_asset.info.to_string(),
+                    amount: redeemable_credit.to_uint_floor(),
+                    burn_from_address: env.contract.address.to_string(),
+                })?,
+                funds: vec![],
+            });
+            messages.push(burn_message);
+        }
+    }
 
     //If there is excess credit, send it back to sender
     if !credit_amount.is_zero() {
@@ -1498,22 +1518,23 @@ pub fn redeem_for_collateral(
                 amount: credit_amount.to_uint_floor(),
             }],
         };
+        messages.push(credit_msg.into());
+
         return Ok(Response::new()
-            .add_message(collateral_msg)
-            .add_message(credit_msg)
+            .add_messages(messages)
             .add_attributes(vec![
                 attr("action", "redeem_for_collateral"),
                 attr("sender", info.clone().sender),
                 attr("redeemed_collateral", format!("{:?}", coins)),
-                attr("redeemed_credit", format!("{:?}", credit_amount)),
+                attr("excess_credit", format!("{:?}", credit_amount)),
             ])
         )
     }
 
     //Response
     Ok(Response::new()
-    .add_message(collateral_msg)
-    .add_attributes(vec![
+        .add_messages(messages)
+        .add_attributes(vec![
         attr("action", "redeem_for_collateral"),
         attr("sender", info.clone().sender),
         attr("redeemed_collateral", format!("{:?}", coins)),

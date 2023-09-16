@@ -438,24 +438,7 @@ fn per_asset_fulfillments(
         //Update collateral_assets to reflect the fee
         collateral_assets[num].asset.amount -= protocol_fee_in_collateral_amount;
         ///These updates are necessary bc the fees are always taken out so if the liquidation is SW only, it'll try to sell more than the position owns.
-
-        // //After fees are calculated, set collateral_repay_amount to the amount minus anything the user paid from the SP
-        // //Has to be after or user_repayment would disincentivize liquidations which would force a non-trivial debt minimum
-        // let collateral_repay_value = repay_amount_per_asset * basket.clone().credit_price;
-        // let mut collateral_repay_amount: Uint128 = decimal_division(
-        //     Decimal::from_ratio(collateral_repay_value,Uint128::one()),
-        //     collateral_price
-        // )?.to_uint_floor();
-        // //ReAdd decimals to collateral_repay_amount if it was removed in valuation to normalize to 6 decimals
-        // match cAsset_prices[num].decimals.checked_sub(6u64) {
-        //     Some(decimals) => {
-        //         collateral_repay_amount = collateral_repay_amount * Uint128::from(10u128.pow(decimals as u32));
-        //     },
-        //     None => {
-        //         return Err(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") });
-        //     }
-        // }
-
+        
         //Subtract fees from leftover_position value
         //fee_value = total_fee_collateral_amount * collateral_price
         let fee_value = collateral_price.get_value((caller_fee_in_collateral_amount + protocol_fee_in_collateral_amount))?;
@@ -893,9 +876,9 @@ pub fn sell_wall(
         } else {
             
             //Calc collateral_repay_amount        
-            let collateral_price = cAsset_prices[i].price;
+            let collateral_price = cAsset_prices[i].clone();
             let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[i])?;
-            let mut collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?.to_uint_floor();
+            let mut collateral_repay_amount = collateral_price.get_amount(collateral_repay_value)?;
             //The repay_amount per asset may be greater after LP splits so the amount used to update claims isn't necessary the total amount that'll get sold
             //ReAdd decimals to collateral_repay_amount if it was removed in valuation to normalize to 6 decimals
             match cAsset_prices[i].decimals.checked_sub(6u64) {
@@ -943,9 +926,9 @@ pub fn sell_wall(
     for (index, ratio) in cAsset_ratios.into_iter().enumerate() {
 
         //Calc collateral_repay_amount        
-        let collateral_price = cAsset_prices[index].price;
-        let collateral_repay_value = decimal_multiplication(repay_value, ratio)?;
-        let mut collateral_repay_amount = decimal_division(collateral_repay_value, collateral_price)?.to_uint_floor(); 
+        let collateral_price = cAsset_prices[index].clone();
+        let collateral_repay_value = decimal_multiplication(repay_value, ratio)?;        
+        let mut collateral_repay_amount = collateral_price.get_amount(collateral_repay_value)?;
         //ReAdd decimals to collateral_repay_amount if it was removed in valuation to normalize to 6 decimals
         match cAsset_prices[index].decimals.checked_sub(6u64) {
             Some(decimals) => {

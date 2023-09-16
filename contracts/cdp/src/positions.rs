@@ -598,7 +598,7 @@ pub fn repay(
         false,
         false,
     )?;
-    
+
     //Set prev_credit_amount
     let prev_credit_amount = target_position.credit_amount;
     
@@ -821,8 +821,8 @@ pub fn liq_repay(
     //Calculate distribution of assets to send from the repaid position
     for (num, cAsset) in collateral_assets.into_iter().enumerate() {
 
-        let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num])?;
-        let mut collateral_repay_amount: Uint128 = decimal_division(collateral_repay_value, cAsset_prices[num].price)?.to_uint_floor();
+        let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num])?;        
+        let mut collateral_repay_amount = cAsset_prices[num].get_amount(collateral_repay_value)?;
         //ReAdd decimals to collateral_repay_amount if it was removed in valuation to normalize to 6 decimals
         match cAsset_prices[num].decimals.checked_sub(6u64) {
             Some(decimals) => {
@@ -1007,13 +1007,25 @@ pub fn increase_debt(
             //Add new debt to debt-per-asset tallies
             update_basket_debt(
                 deps.storage,
-                env,
+                env.clone(),
                 deps.querier,
                 config,
                 &mut basket,
-                target_position.collateral_assets,
+                target_position.clone().collateral_assets,
                 amount,
                 true,
+            )?;
+
+            //Accrue to save new rates
+            accrue(
+                deps.storage,
+                deps.querier,
+                env.clone(),
+                &mut target_position,
+                &mut basket,
+                info.sender.to_string(),
+                false,
+                false,
             )?;
             
             //Save updated repayment price and debts

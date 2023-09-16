@@ -921,7 +921,7 @@ pub fn insolvency_check_calc(
         }
     };
 
-    let available_fee = if check {    
+    let available_fee = if check && current_LTV > avg_LTVs.1{    
         //current_LTV - max_LTV
         let fee = current_LTV.checked_sub(avg_LTVs.1)?;
         //current_LTV - borrow_LTV

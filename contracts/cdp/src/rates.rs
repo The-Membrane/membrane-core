@@ -76,6 +76,7 @@ pub fn external_accrue_call(
 }
 
 pub fn accumulate_interest_dec(decimal: Decimal, rate: Decimal, time_elapsed: u64) -> StdResult<Decimal> {
+
     let applied_rate = rate.checked_mul(Decimal::from_ratio(
         Uint128::from(time_elapsed),
         Uint128::from(SECONDS_PER_YEAR),
@@ -383,7 +384,7 @@ fn get_credit_rate_of_change(
             .into_iter()
             .find(|basket_asset| basket_asset.asset.info.equal(&cAsset.asset.info)){
             ////Add proportionally the change in index
-            // cAsset_ratio * change in index          
+            // cAsset_ratio * change in index     
             avg_change_in_index += decimal_multiplication(ratios[i], decimal_division(basket_asset.rate_index, cAsset.rate_index)?)?;
             
             /////Update cAsset rate_index
@@ -568,9 +569,6 @@ pub fn accrue(
     )? * Uint128::new(1u128);
         
     if new_credit_amount > position.credit_amount {
-        // return Err(StdError::GenericErr {
-        //     msg: format!("Error at line 511, liquidity: {}, new_Credit: {}, pos_credit: {}, bool: {}", liquidity, new_credit_amount, position.credit_amount, new_credit_amount > position.credit_amount)
-        // });
         //Calc accrued interest
         let mut accrued_interest = new_credit_amount - position.credit_amount;
 
@@ -620,7 +618,7 @@ fn get_discounted_interest(
 ) -> StdResult<Uint128>{
     //Get discount
     let discount: Decimal = querier.query_wasm_smart(discounts_contract, &DiscountQueryMsg::UserDiscount { user })?;
-
+    
     let discounted_interest = {
         let percent_of_interest = decimal_subtraction(Decimal::one(), discount)?;
         decimal_multiplication(Decimal::from_ratio(undiscounted_interest, Uint128::one()), percent_of_interest)?

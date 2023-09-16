@@ -583,7 +583,7 @@ fn build_sp_sw_submsgs(
 
         //SP liq_fee Guarantee check
         //if leftover_position_value is less than leftover_repay value + the SP fee, we liquidate what we can and send the rest to the sell wall
-        if leftover_position_value < decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee))?{
+        if leftover_position_value < decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee))? || sp_liq_fee >= Decimal::one(){
             //if liq_Fee is 100%+, skip fee discount and just use Sell Wall
             if sp_liq_fee >= Decimal::one() {
                 skip_sp = true;

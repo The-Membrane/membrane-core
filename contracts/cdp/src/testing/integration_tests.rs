@@ -4567,13 +4567,13 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97312));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97311_111112));
 
             //Assert sell wall was sent assets
             //The user's SP repayment failed (222 out of 2222)
             assert_eq!(
                 app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-                vec![coin(222, "debit")]
+                vec![coin(222_222222, "debit")]
             );
 
             //Assert fees were sent.
@@ -4581,22 +4581,22 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(22, "debit")]
+                vec![coin(22_222222, "debit")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(444, "debit")]
+                vec![coin(100000_000000, "2nddebit"), coin(444_444444, "debit")]
             );
 
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(2000, "debit")]
+                vec![coin(2000_000000, "debit")]
             );
             //Assert SP wasn't sent any due to the Error
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(2225, "credit_fulldenom")]
+                vec![coin(2225_000000, "credit_fulldenom")]
             );
 
             //////LQ Errors///
@@ -4640,7 +4640,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "debit".to_string(),
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000000u128),
                     }],
                 )
                 .unwrap();
@@ -4649,7 +4649,7 @@ mod tests {
             //Increase Debt
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(5_000u128)),
+                amount: Some(Uint128::from(5_000_000000u128)),
                 LTV: None,
                 mint_to_addr: None,
             };
@@ -4668,7 +4668,7 @@ mod tests {
             let msg = ExecuteMsg::LiqRepay {};
 
             let cosmos_msg = cdp_contract
-                .call(msg, vec![coin(2225, "credit_fulldenom")])
+                .call(msg, vec![coin(2225_000000, "credit_fulldenom")])
                 .unwrap();
             app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
                 .unwrap();
@@ -4677,7 +4677,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97087));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97085_833334));
 
             //Assert sell wall wasn't sent assets
             assert_eq!(
@@ -4690,17 +4690,17 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(22, "debit")]
+                vec![coin(22_222222, "debit")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(444, "debit")]
+                vec![coin(100000_000000, "2nddebit"), coin(444_444444, "debit")]
             );
 
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(2447, "debit")]
+                vec![coin(2447_500000, "debit")]
             );
             //Assert LQ wasn't sent any due to the Error
             assert_eq!(
@@ -4749,7 +4749,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "debit".to_string(),
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000000u128),
                     }],
                 )
                 .unwrap();
@@ -4758,7 +4758,7 @@ mod tests {
             //Increase Debt
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(5_000u128)),
+                amount: Some(Uint128::from(5_000_000000u128)),
                 LTV: None,
                 mint_to_addr: None,
             };
@@ -4781,12 +4781,12 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97312));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97311_111112));
 
-            //Assert sell wall was sent assets all Assets
+            //Assert sell wall was sent all Assets
             assert_eq!(
                 app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-                vec![coin(2222, "debit")]
+                vec![coin(2222_222222, "debit")]
             );
 
             //Assert fees were sent.
@@ -4794,17 +4794,17 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(22, "debit")]
+                vec![coin(22_222222, "debit")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(444, "debit")]
+                vec![coin(100000_000000, "2nddebit"), coin(444_444444, "debit")]
             );
 
             //Assert neither module was sent any due to the Error
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(2225, "credit_fulldenom")]
+                vec![coin(2225_000000, "credit_fulldenom")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
@@ -4819,7 +4819,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.collateral_supply_caps[0].current_supply,
-                Uint128::new(97312)
+                Uint128::new(97311_111112)
             );
 
             //////LQ Errors///
@@ -4863,7 +4863,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "debit".to_string(),
-                        amount: Uint128::from(10_000u128),
+                        amount: Uint128::from(10_000_000000u128),
                     }],
                 )
                 .unwrap();
@@ -4872,7 +4872,7 @@ mod tests {
             //Increase Debt
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(5_000u128)),
+                amount: Some(Uint128::from(5_000_000000u128)),
                 LTV: None,
                 mint_to_addr: None,
             };
@@ -4895,12 +4895,12 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(7090));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(7311_110890));
 
             //Assert sell wall was sent all assets. Initial allocation + LQ_errors
             assert_eq!(
                 app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-                vec![coin(2444, "debit")]
+                vec![coin(2444_, "debit")]
             );
 
             //Assert fees were sent.
@@ -4908,18 +4908,18 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(22, "debit")]
+                vec![coin(22_222222, "debit")]
             );
             //444 debit was the fee
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(90444, "debit")]
+                vec![coin(100000_000000, "2nddebit"), coin(90444, "debit")]
             );
 
             //Assert SP wasn't sent any due to a high premium
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(2225, "credit_fulldenom")]
+                vec![coin(2225_000000, "credit_fulldenom")]
             );
             //Assert LQ wasn't sent any due to the Error
             assert_eq!(

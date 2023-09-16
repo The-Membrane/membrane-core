@@ -4535,7 +4535,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "debit".to_string(),
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000000u128),
                     }],
                 )
                 .unwrap();
@@ -4544,7 +4544,7 @@ mod tests {
             //Increase Debt
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(5_000u128)),
+                amount: Some(Uint128::from(5_000_000000u128)),
                 LTV: None,
                 mint_to_addr: None,
             };

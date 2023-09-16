@@ -103,10 +103,10 @@ The default fee is the Stability Pool's liquidation fee since if the LQ doesn't 
 In liquidations.rs for sell wall usage & liquidation LTV
 - line 38-52, downtime detector
 - Create a Static LTV of 90 & insolvent variable after line 94
-- Comment 224 for lp_withdraw_messages
+- Comment 233 for lp_withdraw_messages
 
 In positions.rs for close_position
-- Comment 1617 & 1664 lp withdrawl msgs
+- Comment 1683 lp withdrawl msgs
 
 In reply.rs for sell wall usage & Router Errors
 - Comment 197, 363, 396, 474, 609

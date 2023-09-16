@@ -1273,6 +1273,7 @@ mod tests {
                                 is_usd_par: false,
                                 lp_pool_info: None,
                                 decimals: 6,
+                                pyth_price_feed_id: None,
                             }],
                         },
                         AssetResponse {
@@ -1289,6 +1290,7 @@ mod tests {
                                 is_usd_par: false,
                                 lp_pool_info: None,
                                 decimals: 6,
+                                pyth_price_feed_id: None,
                             }],
                         }
                     ])?),
@@ -1386,6 +1388,7 @@ mod tests {
                                 is_usd_par: false,
                                 lp_pool_info: None,
                                 decimals: 6,
+                                pyth_price_feed_id: None,
                             }],
                         },
                         AssetResponse {
@@ -1402,6 +1405,7 @@ mod tests {
                                 is_usd_par: false,
                                 lp_pool_info: None,
                                 decimals: 6,
+                                pyth_price_feed_id: None,
                             }],
                         }
                     ])?),
@@ -1490,7 +1494,7 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked(USER),
-                vec![coin(100_000, "debit"), coin(100_000, "2nddebit")],
+                vec![coin(100_000_000_000, "debit"), coin(100_000_000_000, "2nddebit")],
             )
             .unwrap();
             bank.init_balance(
@@ -1502,13 +1506,13 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked("test"),
-                vec![coin(50_000, "credit_fulldenom"), coin(100_000, "debit")],
+                vec![coin(50_000_000_000, "credit_fulldenom"), coin(100_000_000_000, "debit")],
             )
             .unwrap();
             bank.init_balance(
                 storage,
                 &Addr::unchecked("sender"),
-                vec![coin(50_000_001, "credit_fulldenom")],
+                vec![coin(50_000_001_000_000, "credit_fulldenom")],
             )
             .unwrap();
             bank.init_balance(
@@ -1882,7 +1886,7 @@ mod tests {
                     vec![
                         Coin {
                             denom: "debit".to_string(),
-                            amount: Uint128::from(50_000u128),
+                            amount: Uint128::from(50_000_000_000u128),
                         },
                     ],
                 )
@@ -1901,7 +1905,7 @@ mod tests {
                     vec![
                         Coin {
                             denom: "debit".to_string(),
-                            amount: Uint128::from(50_000u128),
+                            amount: Uint128::from(50_000_000_000u128),
                         },
                     ],
                 )
@@ -1928,7 +1932,7 @@ mod tests {
                             info: AssetInfo::NativeToken {
                                 denom: "debit".to_string(),
                             },
-                            amount: Uint128::from(50_000u128),
+                            amount: Uint128::from(50_000_000_000u128),
                         },
                         max_borrow_LTV: Decimal::percent(50),
                         max_LTV: Decimal::percent(70),
@@ -1945,7 +1949,7 @@ mod tests {
                             info: AssetInfo::NativeToken {
                                 denom: "debit".to_string(),
                             },
-                            amount: Uint128::from(50_000u128),
+                            amount: Uint128::from(50_000_000_000u128),
                         },
                         max_borrow_LTV: Decimal::percent(50),
                         max_LTV: Decimal::percent(70),
@@ -1968,7 +1972,7 @@ mod tests {
                         info: AssetInfo::NativeToken {
                             denom: "debit".to_string(),
                         },
-                        amount: Uint128::from(10_000u128),
+                        amount: Uint128::from(10_000_000_000u128),
                     }
                 ],
                 send_to: None,
@@ -1984,7 +1988,7 @@ mod tests {
                         info: AssetInfo::NativeToken {
                             denom: "debit".to_string(),
                         },
-                        amount: Uint128::from(10_000u128),
+                        amount: Uint128::from(10_000_000_000u128),
                     },
                 ],
                 send_to: None,
@@ -2009,7 +2013,7 @@ mod tests {
                         info: AssetInfo::NativeToken {
                             denom: "debit".to_string(),
                         },
-                        amount: Uint128::from(40_000u128),
+                        amount: Uint128::from(40_000_000_000u128),
                         }
             );
             assert_eq!(
@@ -2018,14 +2022,14 @@ mod tests {
                         info: AssetInfo::NativeToken {
                             denom: "debit".to_string(),
                         },
-                        amount: Uint128::from(40_000u128),
+                        amount: Uint128::from(40_000_000_000u128),
                         }
             );
 
             //Increase Debt for Position #1
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(10_000u128)),
+                amount: Some(Uint128::from(10_000_000_000u128)),
                 LTV: None,
                 mint_to_addr: None,
             };
@@ -2036,14 +2040,14 @@ mod tests {
             app.send_tokens(
                 Addr::unchecked("sender"),
                 Addr::unchecked(USER),
-                &[coin(10_000, "credit_fulldenom")],
+                &[coin(10_000_000_000, "credit_fulldenom")],
             )
             .unwrap();
 
             //Successful Increase
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(2u128),
-                amount: Some(Uint128::from(20_000u128)),
+                amount: Some(Uint128::from(20_000_000_000u128)),
                 LTV: None,
                 mint_to_addr: None,
             };
@@ -2054,7 +2058,7 @@ mod tests {
             app.send_tokens(
                 Addr::unchecked("sender"),
                 Addr::unchecked(USER),
-                &[coin(20_000, "credit_fulldenom")],
+                &[coin(20_000_000_000, "credit_fulldenom")],
             )
             .unwrap();
 
@@ -2071,11 +2075,11 @@ mod tests {
             ////Assert credit_amount
             assert_eq!(
                 res[0].credit_amount,
-                Uint128::from(10_000u128)
+                Uint128::from(10_000_000_000u128)
             );
             assert_eq!(
                 res[1].credit_amount,
-                Uint128::from(20_000u128)
+                Uint128::from(20_000_000_000u128)
             );
 
             //Repayment for Position #1
@@ -2085,7 +2089,7 @@ mod tests {
                 send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
-                .call(repay_msg, vec![coin(10_000, "credit_fulldenom")])
+                .call(repay_msg, vec![coin(10_000_000_000, "credit_fulldenom")])
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
@@ -2115,7 +2119,7 @@ mod tests {
             );
             assert_eq!(
                 res[1].credit_amount,
-                Uint128::from(20_000u128)
+                Uint128::from(20_000_000_000u128)
             );
             assert_eq!(
                 res[0].position_id,
@@ -2193,11 +2197,11 @@ mod tests {
                     vec![
                         Coin {
                             denom: "debit".to_string(),
-                            amount: Uint128::from(100_000u128),
+                            amount: Uint128::from(100_000_000_000u128),
                         },
                         Coin {
                             denom: "2nddebit".to_string(),
-                            amount: Uint128::from(100_000u128),
+                            amount: Uint128::from(100_000_000_000u128),
                         },
                     ],
                 )
@@ -2207,7 +2211,7 @@ mod tests {
             //Successful debt increase to initiate caps
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(2000u128)),
+                amount: Some(Uint128::from(2000_000_000u128)),
                 LTV: None,
                 mint_to_addr: None,
             };
@@ -2222,11 +2226,11 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.collateral_supply_caps[0].current_supply,
-                Uint128::new(100000)
+                Uint128::new(100000_000_000)
             );
             assert_eq!(
                 res.collateral_supply_caps[1].current_supply,
-                Uint128::new(100000)
+                Uint128::new(100000_000_000)
             );
 
             //Query BasketPositions
@@ -2244,21 +2248,21 @@ mod tests {
                     .asset
                     .amount
                     .to_string(),
-                String::from("100000")
+                String::from("100000000000")
             );
             assert_eq!(
                 resp[0].positions[0].collateral_assets[1]
                     .asset
                     .amount
                     .to_string(),
-                String::from("100000")
+                String::from("100000000000")
             );
             assert_eq!(resp.len().to_string(), String::from("1"));
 
             //Increase Debt
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(5_000u128)),
+                amount: Some(Uint128::from(5_000_000_000u128)),
                 LTV: None,
                 mint_to_addr: None,
             };
@@ -2273,13 +2277,13 @@ mod tests {
                         info: AssetInfo::NativeToken {
                             denom: "debit".to_string(),
                         },
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000_000u128),
                     },
                     Asset {
                         info: AssetInfo::NativeToken {
                             denom: "2nddebit".to_string(),
                         },
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000_000u128),
                     },
                 ],
                 send_to: None,
@@ -2295,13 +2299,13 @@ mod tests {
                         info: AssetInfo::NativeToken {
                             denom: "debit".to_string(),
                         },
-                        amount: Uint128::from(90_000u128),
+                        amount: Uint128::from(90_000_000_000u128),
                     },
                     Asset {
                         info: AssetInfo::NativeToken {
                             denom: "2nddebit".to_string(),
                         },
-                        amount: Uint128::from(90_000u128),
+                        amount: Uint128::from(90_000_000_000u128),
                     },
                 ],
                 send_to: Some(String::from("very_trusted_contract")),
@@ -2319,13 +2323,13 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(10000));
-            assert_eq!(res.collateral_assets[1].asset.amount, Uint128::new(10000));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(10000_000_000));
+            assert_eq!(res.collateral_assets[1].asset.amount, Uint128::new(10000_000_000));
 
             //Assert withdrawal was sent to sent_to.
             assert_eq!(
                 app.wrap().query_all_balances("very_trusted_contract").unwrap(),
-                vec![coin(90000, "2nddebit"), coin(90000, "debit")]
+                vec![coin(90000_000_000, "2nddebit"), coin(90000_000_000, "debit")]
             );
 
             //Assert asset tally is working
@@ -2336,11 +2340,11 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.collateral_supply_caps[0].current_supply,
-                Uint128::new(10000)
+                Uint128::new(10000_000_000)
             );
             assert_eq!(
                 res.collateral_supply_caps[1].current_supply,
-                Uint128::new(10000)
+                Uint128::new(10000_000_000)
             );
             //Assert Denom change
             assert_eq!(
@@ -2398,7 +2402,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "debit".to_string(),
-                        amount: Uint128::from(100_000u128),
+                        amount: Uint128::from(100_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -2407,7 +2411,7 @@ mod tests {
             //Insolvent position error
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(50_001u128)),
+                amount: Some(Uint128::from(50_001_000_000u128)),
                 LTV: None,
                 mint_to_addr: None,
             };
@@ -2418,7 +2422,7 @@ mod tests {
             //Minimum Debt Error
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(1u128)),
+                amount: Some(Uint128::from(1_000_000u128)),
                 LTV: None,
                 mint_to_addr: None,
             };
@@ -2429,7 +2433,7 @@ mod tests {
             //Successful Increase
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(50_000u128)),
+                amount: Some(Uint128::from(50_000_000_000u128)),
                 LTV: None,
                 mint_to_addr: None,
             };
@@ -2440,7 +2444,7 @@ mod tests {
             app.send_tokens(
                 Addr::unchecked("sender"),
                 Addr::unchecked("test"),
-                &[coin(50_001, "credit_fulldenom")],
+                &[coin(50_001_000_000, "credit_fulldenom")],
             )
             .unwrap();
 
@@ -2451,7 +2455,7 @@ mod tests {
                 send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
-                .call(msg, vec![coin(49_901, "credit_fulldenom")])
+                .call(msg, vec![coin(49_901_000_000, "credit_fulldenom")])
                 .unwrap();
             app.execute(Addr::unchecked("test"), cosmos_msg)
                 .unwrap_err();
@@ -2464,7 +2468,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new(50000));
+            assert_eq!(res.credit_amount, Uint128::new(50000_000_000));
 
             //Query Basket Debt Caps
             let query_msg = QueryMsg::GetBasketDebtCaps { };
@@ -2474,7 +2478,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(50000), cap: Uint128(299995) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(50000000000), cap: Uint128(299995) }]")
             );
 
             //Excess Repayment
@@ -2484,12 +2488,12 @@ mod tests {
                 send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
-                .call(msg, vec![coin(50_001, "credit_fulldenom")])
+                .call(msg, vec![coin(50_001_000_000, "credit_fulldenom")])
                 .unwrap();
             //Balance before
             assert_eq!(
                 app.wrap().query_all_balances(Addr::unchecked("test")).unwrap(),
-                vec![coin(100_001, "credit_fulldenom")]
+                vec![coin(100_001_000_000, "credit_fulldenom")]
             );
             //Repayment
             app.execute(Addr::unchecked("test"), cosmos_msg)
@@ -2497,7 +2501,7 @@ mod tests {
             //Balance after excess was sent back
             assert_eq!(
                 app.wrap().query_all_balances(Addr::unchecked("test")).unwrap(),
-                vec![coin(50_001, "credit_fulldenom")]
+                vec![coin(50_001_000_000, "credit_fulldenom")]
             );
 
             let query_msg = QueryMsg::GetPosition {
@@ -2680,7 +2684,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000_000_000_000_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -2691,7 +2695,7 @@ mod tests {
             //Current Position: 100_000_000_000_000_000 lp_denom -> 99_999 credit_fulldenom
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(99_999u128)),
+                amount: Some(Uint128::from(99_999_000_000u128)),
                 LTV: None,
                 mint_to_addr: None,
             };
@@ -2714,7 +2718,7 @@ mod tests {
             ///Expected to Error due to accrued interest
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(1u128)),
+                amount: Some(Uint128::from(1_000_000u128)),
                 LTV: None,
                 mint_to_addr: None,
             };
@@ -2735,7 +2739,7 @@ mod tests {
                 send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
-                .call(msg, vec![coin(99_999, "credit_fulldenom")])
+                .call(msg, vec![coin(99_999_000_000, "credit_fulldenom")])
                 .unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
@@ -2748,7 +2752,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(4761), cap: Uint128(299995) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(4761000000), cap: Uint128(299995) }]")
             );
 
             let query_msg = QueryMsg::GetPosition {
@@ -2760,7 +2764,7 @@ mod tests {
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             ///4761 interest
-            assert_eq!(res.credit_amount, Uint128::new(4761));
+            assert_eq!(res.credit_amount, Uint128::new(4761_000_000));
 
             //Insolvent withdrawal error
             ////This should be solvent if there wasn't accrued interest
@@ -2770,7 +2774,7 @@ mod tests {
                     info: AssetInfo::NativeToken {
                         denom: "lp_denom".to_string(),
                     },
-                    amount: Uint128::from(95_239_000_000_000_000u128),
+                    amount: Uint128::from(95_239_000_000_000_000_000_000u128),
                 }],
                 send_to: None,
             };
@@ -2792,7 +2796,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new(4771));
+            assert_eq!(res.credit_amount, Uint128::new(4771_000_000));
 
             //Query Rates
             let query_msg = QueryMsg::GetCollateralInterest { };
@@ -2824,7 +2828,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(4782), cap: Uint128(299995) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(4782000000), cap: Uint128(299995) }]")
             );
 
             //Repay to mimic liquidation repayment - LiqRepay
@@ -2834,7 +2838,7 @@ mod tests {
                 send_excess_to: None,
             };
             let cosmos_msg = cdp_contract
-                .call(msg, vec![coin(1_741, "credit_fulldenom")])
+                .call(msg, vec![coin(1_741_000_000, "credit_fulldenom")])
                 .unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
@@ -2847,13 +2851,13 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(3041), cap: Uint128(299995) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(3041000000), cap: Uint128(299995) }]")
             );
 
             //Successful LiqRepay
             let msg = ExecuteMsg::LiqRepay {};
             let cosmos_msg = cdp_contract
-                .call(msg, vec![coin(222, "credit_fulldenom")])
+                .call(msg, vec![coin(222_000_000, "credit_fulldenom")])
                 .unwrap();
             app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
                 .unwrap();
@@ -2871,11 +2875,11 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res[0].collateral_assets[0].asset.amount,
-                Uint128::new(98815102222222222)
+                Uint128::new(98815102222222222_000_000)
             );
             assert_eq!(
                 res[0].credit_amount,
-                Uint128::new(2819)
+                Uint128::new(2819_000_000)
             );
                 
             //Query Basket Debt Caps
@@ -2886,7 +2890,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(2819), cap: Uint128(299995) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(2819000000), cap: Uint128(299995) }]")
             );
 
             //Assert sell wall wasn't sent Assets
@@ -2901,22 +2905,22 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(10_620000000000, "lp_denom")]
+                vec![coin(10_620000000000_000_000, "lp_denom")]
             );
             //The fee is 212 lp_denom
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000, "2nddebit"), coin(100_000, "debit"), coin(212_400000000000, "lp_denom")]
+                vec![coin(100000_000_000, "2nddebit"), coin(100_000_000_000, "debit"), coin(212_400000000000_000_000, "lp_denom")]
             );
             //SP is sent 122 lp_denom
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![ coin(2003, "credit_fulldenom"), coin(122_100_000_000_000, "lp_denom")]
+                vec![ coin(2003_000_000, "credit_fulldenom"), coin(122_100_000_000_000_000_000, "lp_denom")]
             );
             //LQ is sent 839 lp_denom
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(839_777777777778, "lp_denom")]
+                vec![coin(839_777777777778_000_000, "lp_denom")]
             );
             
         }

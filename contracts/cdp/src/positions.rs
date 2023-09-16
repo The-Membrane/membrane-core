@@ -1680,7 +1680,7 @@ pub fn close_position(
     let router_messages = router_messages.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
 
     Ok(Response::new()
-        .add_submessages(lp_withdraw_messages)
+        // .add_submessages(lp_withdraw_messages)
         .add_submessages(router_messages)
         .add_submessage(sub_msg)
         .add_attributes(vec![
@@ -2480,10 +2480,17 @@ pub fn credit_burn_rev_msg(
 
             //if pending rev is != 0
         } else if !basket.pending_revenue.is_zero() {
-            //If pending_revenue is >= credit_asset.amount && more than 50 CDT, send all to stakers
+            //If pending_revenue && repay amount are more than 50 CDT, send all to stakers
             //Limits Repay gas costs for smaller users & frequent management costs for larger
-            if basket.pending_revenue >= credit_asset.amount && credit_asset.amount > Uint128::new(50_000_000){
-                (Uint128::zero(), credit_asset.amount)
+            if basket.pending_revenue >= Uint128::new(50_000_000) && credit_asset.amount >= Uint128::new(50_000_000){
+                if basket.pending_revenue >= credit_asset.amount {
+                    //if pending rev is greater send the full repayment
+                    (Uint128::zero(), credit_asset.amount)
+                } else {
+                    //if pending rev is less send the full pending rev
+                    //Burn the remainder
+                    (credit_asset.amount - basket.pending_revenue, basket.pending_revenue)
+                }
             } else {
                 (credit_asset.amount, Uint128::zero())
             }

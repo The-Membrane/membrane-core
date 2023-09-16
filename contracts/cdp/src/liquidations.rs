@@ -35,21 +35,21 @@ pub fn liquidate(
     position_owner: String,
 ) -> Result<Response, ContractError> {
     //Check for Osmosis downtime 
-    match DowntimedetectorQuerier::new(&querier)
-        .recovered_since_downtime_of_length(
-            10 * 60 * 8, //8 hours from 6 second blocks
-            Some(Duration {
-                seconds: 60 * 60, //1 hour
-                nanos: 0,
-            })
-    ){
-        Ok(resp) => {            
-            if !resp.succesfully_recovered {
-                return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
-            }
-        },
-        Err(_) => (),
-    };
+    // match DowntimedetectorQuerier::new(&querier)
+    //     .recovered_since_downtime_of_length(
+    //         10 * 60 * 8, //8 hours from 6 second blocks
+    //         Some(Duration {
+    //             seconds: 60 * 60, //1 hour
+    //             nanos: 0,
+    //         })
+    // ){
+    //     Ok(resp) => {            
+    //         if !resp.succesfully_recovered {
+    //             return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
+    //         }
+    //     },
+    //     Err(_) => (),
+    // };
 
     //Load state
     let config: Config = CONFIG.load(storage)?;
@@ -93,6 +93,8 @@ pub fn liquidate(
         false,
         config.clone(),
     )?;
+    let insolvent = true;
+    let current_LTV = Decimal::percent(90);
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -228,7 +230,7 @@ pub fn liquidate(
         .collect::<Vec<SubMsg>>();
 
     Ok(res
-        .add_submessages(lp_withdraw_submsgs)
+        // .add_submessages(lp_withdraw_submsgs)
         .add_submessages(sell_wall_messages)
         .add_submessages(submessages) //LQ & SP msgs
         .add_submessage(call_back)

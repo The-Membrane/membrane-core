@@ -191,7 +191,11 @@ mod tests {
                             },
                             amount: Uint128::zero(),
                         },
-                        credit_price: Decimal::one(),
+                        credit_price: PriceResponse { 
+                            prices: vec![], 
+                            price: Decimal::one(), 
+                            decimals: 6
+                        },
                         liq_queue: None,
                         base_interest_rate: Decimal::zero(),
                         pending_revenue: Uint128::zero(),

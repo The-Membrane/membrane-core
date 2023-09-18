@@ -171,7 +171,11 @@ mod tests {
                             } ],
                             lastest_collateral_rates: vec![],
                             credit_asset: Asset { info: AssetInfo::NativeToken { denom: String::from("factory/cdt/#1") }, amount: Uint128::zero() },
-                            credit_price: Decimal::zero(),
+                            credit_price: PriceResponse { 
+                                prices: vec![], 
+                                price: Decimal::one(), 
+                                decimals: 6
+                            },
                             liq_queue: None,
                             base_interest_rate: Decimal::zero(),
                             pending_revenue: Uint128::zero(),

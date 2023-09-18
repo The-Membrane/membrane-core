@@ -6,6 +6,7 @@ mod tests {
 
     use membrane::cdp::PositionResponse;
     use membrane::discount_vault::{ExecuteMsg, InstantiateMsg, QueryMsg, UserResponse};
+    use membrane::oracle::PriceResponse;
     use membrane::types::{AssetInfo, Asset, Basket, PoolStateResponse, LPPoolInfo};
 
     use cosmwasm_std::{
@@ -70,7 +71,11 @@ mod tests {
                             collateral_supply_caps: vec![],
                             lastest_collateral_rates: vec![],
                             credit_asset: Asset { info: AssetInfo::NativeToken { denom: String::from("cdt") }, amount: Uint128::zero() },
-                            credit_price: Decimal::one(),
+                            credit_price: PriceResponse { 
+                                prices: vec![], 
+                                price: Decimal::one(), 
+                                decimals: 6
+                            },
                             liq_queue: None,
                             base_interest_rate: Decimal::zero(),
                             pending_revenue: Uint128::zero(),

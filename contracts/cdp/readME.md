@@ -106,10 +106,10 @@ In liquidations.rs for sell wall usage & liquidation LTV
 - Comment 233 for lp_withdraw_messages
 
 In positions.rs for close_position
-- Comment 1683 lp withdrawl msgs
+- Comment 1681 lp withdrawl msgs
 
 In reply.rs for sell wall usage & Router Errors
-- Comment 197, 363, 396, 474, 609
+- Comment 197, 364, 399, 478, 614
 - Comment 29-47 & 50 for Router successful sale asset calc & repay msg send
 
 

@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use membrane::oracle::PriceResponse;
     use membrane::staking::{ExecuteMsg, InstantiateMsg, QueryMsg, FeeEventsResponse, RewardsResponse};
     use membrane::types::{AssetInfo, StakeDistribution, Asset, UserInfo, Basket, FeeEvent, LiqAsset, Allocation, VestingPeriod};
 
@@ -178,7 +179,11 @@ mod tests {
                             },
                             amount: Uint128::zero(),
                         },
-                        credit_price: Decimal::one(),
+                        credit_price: PriceResponse { 
+                            prices: vec![], 
+                            price: Decimal::one(), 
+                            decimals: 6
+                        },
                         liq_queue: None,
                         base_interest_rate: Decimal::zero(),
                         pending_revenue: Uint128::zero(),

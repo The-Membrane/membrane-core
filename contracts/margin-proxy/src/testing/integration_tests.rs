@@ -8,6 +8,7 @@ mod tests {
 
     use membrane::margin_proxy::{ExecuteMsg, InstantiateMsg, QueryMsg};
     use membrane::cdp::PositionResponse;
+    use membrane::oracle::PriceResponse;
     use membrane::types::{AssetInfo, cAsset, Asset, Basket};
 
     use cosmwasm_std::{
@@ -158,7 +159,11 @@ mod tests {
                             collateral_supply_caps: vec![],
                             lastest_collateral_rates: vec![],
                             credit_asset: Asset { info: AssetInfo::NativeToken { denom: String::from("credit") }, amount: Uint128::zero() },
-                            credit_price: Decimal::zero(),
+                            credit_price: PriceResponse { 
+                                prices: vec![], 
+                                price: Decimal::zero(), 
+                                decimals: 6
+                            },
                             liq_queue: None,
                             base_interest_rate: Decimal::zero(),
                             pending_revenue: Uint128::zero(),

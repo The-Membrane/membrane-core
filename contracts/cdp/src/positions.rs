@@ -631,10 +631,11 @@ pub fn repay(
     //Position's resulting debt can't be below minimum without being fully repaid
     if basket.clone().credit_price.get_value(target_position.credit_amount)? < Decimal::from_ratio(config.debt_minimum, Uint128::one())
         && !target_position.credit_amount.is_zero(){
-        //Router contract is allowed to.
-        //We rather $1 of bad debt than $2000 and bad debt comes from swap slippage
+        //Router contract, Stability Pool & Liquidation Queue are allowed to.
+        //Router: We rather $1 of bad debt than $2000 and bad debt comes from swap slippage
+        //SP & LQ: If the resulting debt is below the minimum, the whole loan is liquidated so it won't be under the minimum by the end of the liquidation process
         if let Some(router) = config.clone().dex_router {
-            if info.sender != router {
+            if info.sender != router && info.sender != config.clone().stability_pool.unwrap() && info.sender != basket.clone().liq_queue.unwrap(){
                 return Err(ContractError::BelowMinimumDebt { minimum: config.debt_minimum, debt: basket.clone().credit_price.get_value(target_position.credit_amount)?.to_uint_floor() });
             }
         }
@@ -821,19 +822,9 @@ pub fn liq_repay(
     //Calculate distribution of assets to send from the repaid position
     for (num, cAsset) in collateral_assets.into_iter().enumerate() {
 
-        let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num])?;        
+        let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num])?;
         let mut collateral_repay_amount = cAsset_prices[num].get_amount(collateral_repay_value)?;
-        //ReAdd decimals to collateral_repay_amount if it was removed in valuation to normalize to 6 decimals
-        match cAsset_prices[num].decimals.checked_sub(6u64) {
-            Some(decimals) => {
-                collateral_repay_amount = 
-                    collateral_repay_amount *
-                    Uint128::from(10u128.pow(decimals as u32));
-            },
-            None => {
-                return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") }));
-            }
-        }
+
         //Add fee %
         let collateral_w_fee = collateral_repay_amount * (sp_liq_fee+Decimal::one());
 
@@ -1118,7 +1109,7 @@ pub fn edit_redemption_info(
 
     //////Additions//////
     //Add PositionRedemption objects under the user in the desired premium while skipping duplicates, if redeemable is true or None
-    if redeemable.unwrap(){
+    if (redeemable.is_some() && redeemable.unwrap()) || redeemable.is_none(){
         if let Some(updated_premium) = updated_premium {                
             //Load premium we are adding to 
             match REDEMPTION_OPT_IN.load(deps.storage, updated_premium){
@@ -1601,16 +1592,11 @@ pub fn close_position(
         
             let collateral_value_to_sell = decimal_multiplication(total_collateral_value_to_sell, cAsset_ratios[i])?;
             
-            let mut post_normalized_amount: Uint128 = decimal_division(collateral_value_to_sell, cAsset_prices[i].price)?.to_uint_floor();
-            //ReAdd decimals if it was removed in valuation when normalizing to 6 decimals
-            match cAsset_prices[i].decimals.checked_sub(6u64) {
-                Some(decimals) => {
-                    post_normalized_amount = post_normalized_amount * Uint128::from(10u128.pow(decimals as u32));
-                },
-                None => {
-                    return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") }));
-                }
-            }
+            let post_normalized_amount: Uint128 = match cAsset_prices[i].get_amount(collateral_value_to_sell){
+                Ok(amount) => amount,
+                Err(_e) => return Err(ContractError::CustomError { val: format!("Collateral value to sell is too high ({}) to calculate an amount for due to an out of bounds max spread: {}", collateral_value_to_sell, max_spread) })
+            };
+
             post_normalized_amount
         };
         

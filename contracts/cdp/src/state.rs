@@ -87,7 +87,7 @@ pub fn update_position_claims(
                                 .into_iter()
                                 .map(|mut c_asset| {
                                     //Subtract amount liquidated from claims
-                                    if c_asset.asset.info.equal(&liquidated_asset) {                                        
+                                    if c_asset.asset.info.equal(&liquidated_asset) {                                    
                                         c_asset.asset.amount -= liquidated_amount;
                                     }
 

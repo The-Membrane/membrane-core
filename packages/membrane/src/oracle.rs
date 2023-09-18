@@ -135,7 +135,7 @@ impl PriceResponse {
         let exponent_difference = self.decimals;
 
         //This is "scaled" if its an LP share token due to how price is calculated
-        if exponent_difference == 18 {            
+        if exponent_difference == 18 {         
             return Ok(decimal_division(value, self.price)?.to_uint_floor())
         }
         let pre_scaled_amount = decimal_division(value, self.price)?;

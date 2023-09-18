@@ -559,7 +559,6 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                         prop.liq_queue_leftovers,
                         Decimal::from_ratio(repay_amount, Uint128::new(1u128)),
                     )?;
-
                     //SP reply handles LQ_leftovers
                 }
                 

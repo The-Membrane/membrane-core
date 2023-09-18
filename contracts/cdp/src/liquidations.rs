@@ -515,7 +515,7 @@ fn per_asset_fulfillments(
             let queue_credit_repaid = Uint128::from_str(&res.total_debt_repaid)?;
             //Subtract that from the running total for potential leftovers
             //i.e. after this function is over, this value will be the amount of credit that was not repaid
-            leftover_repayment = leftover_repayment - queue_credit_repaid;
+            leftover_repayment = leftover_repayment.checked_sub(queue_credit_repaid)?;
             
             //Create CosmosMsg
             let msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -749,22 +749,8 @@ fn get_lp_liq_withdraw_msg(
 
     ////Calculate amount of asset to liquidate
     // Amount to liquidate = cAsset_ratio * % of position insolvent * cAsset amount
-    let mut lp_liquidate_amount = decimal_division( 
-        decimal_multiplication(
-            cAsset_ratios[i],
-            repay_value)?, 
-            cAsset_prices[i].price
-        )?.to_uint_floor();
-    
-    //ReAdd decimals if it was removed in valuation when normalizing to 6 decimals
-    match cAsset_prices[i].decimals.checked_sub(6u64) {
-        Some(decimals) => {
-            lp_liquidate_amount = lp_liquidate_amount * Uint128::from(10u128.pow(decimals as u32));
-        },
-        None => {
-            return Err(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") });
-        }
-    }
+    let lp_liq_value = decimal_multiplication(cAsset_ratios[i],repay_value)?;
+    let lp_liquidate_amount = cAsset_prices[i].get_amount(lp_liq_value)?;
 
     //Remove asset from Position claims
     update_position_claims(
@@ -878,17 +864,8 @@ pub fn sell_wall(
             //Calc collateral_repay_amount        
             let collateral_price = cAsset_prices[i].clone();
             let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[i])?;
-            let mut collateral_repay_amount = collateral_price.get_amount(collateral_repay_value)?;
+            let collateral_repay_amount = collateral_price.get_amount(collateral_repay_value)?;
             //The repay_amount per asset may be greater after LP splits so the amount used to update claims isn't necessary the total amount that'll get sold
-            //ReAdd decimals to collateral_repay_amount if it was removed in valuation to normalize to 6 decimals
-            match cAsset_prices[i].decimals.checked_sub(6u64) {
-                Some(decimals) => {
-                    collateral_repay_amount = collateral_repay_amount * Uint128::from(10u128.pow(decimals as u32));
-                },
-                None => {
-                    return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") }));
-                }
-            }
             
             //Remove assets from Position claims before spliting the LP cAsset to ensure excess claims aren't removed
             //Avoid a situation where the user's LP token claims are reduced && it's pool asset claims are reduced, doubling the "loss" of funds due to state mismanagement
@@ -928,17 +905,8 @@ pub fn sell_wall(
         //Calc collateral_repay_amount        
         let collateral_price = cAsset_prices[index].clone();
         let collateral_repay_value = decimal_multiplication(repay_value, ratio)?;        
-        let mut collateral_repay_amount = collateral_price.get_amount(collateral_repay_value)?;
-        //ReAdd decimals to collateral_repay_amount if it was removed in valuation to normalize to 6 decimals
-        match cAsset_prices[index].decimals.checked_sub(6u64) {
-            Some(decimals) => {
-                collateral_repay_amount = collateral_repay_amount * Uint128::from(10u128.pow(decimals as u32));
-            },
-            None => {
-                return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Decimals cannot be less than 6") }));
-            }
-        }              
-
+        let collateral_repay_amount = collateral_price.get_amount(collateral_repay_value)?;
+        
         let hook_msg = to_binary(&ExecuteMsg::Repay {
             position_id,
             position_owner: Some(position_owner.clone()),

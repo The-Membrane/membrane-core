@@ -767,8 +767,8 @@ pub fn end_of_launch(
 
     //Get uosmo contract balance
     let uosmo_balance = get_contract_balances(deps.querier, env.clone(), vec![AssetInfo::NativeToken { denom: String::from("uosmo") }])?[0];
-    //Make sure to deduct the amount of OSMO used to create Pools. Contract balance - 100uosmo * 2 pools - 10 OSMO to init LP
-    let uosmo_pool_delegation_amount = (uosmo_balance - Uint128::new(2010_000_000)).to_string(); //this needs to be 2010 instead of 201 for testnet to work
+    //Make sure to deduct the amount of OSMO used to create Pools. Contract balance - 100uosmo * 2 pools - 1 OSMO to init CDT LP
+    let uosmo_pool_delegation_amount = (uosmo_balance - Uint128::new(2001_000_000)).to_string(); 
     
     //Mint MBRN for LP
     let msg = OPExecuteMsg::MintTokens { 
@@ -804,7 +804,6 @@ pub fn end_of_launch(
         future_pool_governor: addrs.clone().osmosis_proxy.to_string(),
     };
     let sub_msg = SubMsg::reply_on_success(msg, BALANCER_POOL_REPLY_ID);
-    // let sub_msg = SubMsg::new(msg);
     sub_msgs.push(sub_msg);
 
     //Mint 1 CDT for LP
@@ -834,14 +833,13 @@ pub fn end_of_launch(
                 weight: String::from("50") 
             },
             PoolAsset { 
-                token: Some(Coin { denom: config.clone().osmo_denom, amount: "10_000_000".to_string() }), 
+                token: Some(Coin { denom: config.clone().osmo_denom, amount: "1_000_000".to_string() }), 
                 weight: String::from("50") 
             }
         ],
         future_pool_governor: addrs.clone().osmosis_proxy.to_string(),
     }.into();
     let sub_msg = SubMsg::reply_on_success(msg, BALANCER_POOL_REPLY_ID);
-    // let sub_msg = SubMsg::new(msg);
     sub_msgs.push(sub_msg);
 
 

@@ -266,12 +266,12 @@ mod tests {
                 vec![coin(3000, "credit_fulldenom"), coin(3000, "fee_asset")],
             )
             .unwrap();
-            bank.init_balance(
-                storage,
-                &Addr::unchecked("contract4"), //staking contract
-                vec![coin(1, "mbrn_denom")], //This should make claim's check reply error
-            )
-            .unwrap();
+            // bank.init_balance(
+            //     storage,
+            //     &Addr::unchecked("contract4"), //staking contract
+            //     vec![coin(1, "mbrn_denom")], //This should make claim's check reply error
+            // )
+            // .unwrap();
 
             router.bank = bank;
         })

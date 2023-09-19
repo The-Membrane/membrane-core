@@ -1841,7 +1841,6 @@ pub fn create_basket(
 
     //Add asset to liquidity check contract
     //Liquidity AddAsset Msg
-    let mut msgs = vec![];
     if let Some(liquidity_contract) = config.liquidity_contract {
         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: liquidity_contract.to_string(),

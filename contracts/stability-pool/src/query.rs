@@ -100,7 +100,7 @@ pub fn query_user_incentives(
             },
         }        
     }
-
+    
     Ok(
         UserIncentivesResponse {
             incentives: total_incentives,

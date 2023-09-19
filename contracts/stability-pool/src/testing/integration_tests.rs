@@ -31,7 +31,13 @@ mod tests {
     //Mock Osmo Proxy Contract
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
-    pub enum Osmo_MockExecuteMsg { }
+    pub enum Osmo_MockExecuteMsg {
+        MintTokens {
+            denom: String,
+            amount: Uint128,
+            mint_to_address: Option<String>,
+        }
+    }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
@@ -298,7 +304,7 @@ mod tests {
 
         use super::*;
         use cosmwasm_std::{BlockInfo, Coin};
-        use membrane::stability_pool::Config;
+        use membrane::stability_pool::{Config, UserIncentivesResponse};
 
         #[test]
         fn cdp_repay() {
@@ -582,11 +588,11 @@ mod tests {
 
             //Query Incentives
             let query_msg = QueryMsg::UnclaimedIncentives { user: String::from(USER) };
-            let total_incentives: Uint128 = app
+            let total_incentives: UserIncentivesResponse = app
                 .wrap()
                 .query_wasm_smart(sp_contract.addr(), &query_msg)
                 .unwrap();
-            assert_eq!(total_incentives, Uint128::new(10000));
+            assert_eq!(total_incentives.incentives, Uint128::new(10000));
 
             //Initial withdrawal to start unstaking
             let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::from(100_000u128) };
@@ -628,11 +634,11 @@ mod tests {
 
             //Query Incentives and assert that there are none after being added to claimables & no retroactive rewards from a malfunctioning restake
             let query_msg = QueryMsg::UnclaimedIncentives { user: String::from(USER) };
-            let total_incentives: Uint128 = app
+            let total_incentives: UserIncentivesResponse = app
                 .wrap()
                 .query_wasm_smart(sp_contract.addr(), &query_msg)
                 .unwrap();
-            assert_eq!(total_incentives, Uint128::new(0));
+            assert_eq!(total_incentives.incentives, Uint128::new(0));
 
             //Successful Withdraw
             let cosmos_msg = sp_contract.call(withdraw_msg, vec![]).unwrap();

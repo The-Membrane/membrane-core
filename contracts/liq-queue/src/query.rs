@@ -244,7 +244,7 @@ pub fn query_bid(deps: Deps, bid_for: AssetInfo, bid_id: Uint128) -> StdResult<B
         // calculate remaining bid amount
         let (remaining_bid, _) = calculate_remaining_bid(&bid, &slot)?;
 
-        let bid_for = deps.api.addr_validate(&bid_for.to_string())?;
+        let bid_for = bid_for.to_string();
 
         // calculate liquidated collateral
         let (liquidated_collateral, _) =

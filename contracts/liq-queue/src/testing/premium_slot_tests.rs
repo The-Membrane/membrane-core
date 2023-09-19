@@ -777,7 +777,7 @@ fn product_truncated_to_zero() {
 
     let msg = ExecuteMsg::AddQueue {
         bid_for: AssetInfo::NativeToken {
-            denom: "osmo".to_string(),
+            denom: "gamm/pool/5".to_string(),
         },
         max_premium: Uint128::new(30u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(10_000_000_000u128),
@@ -789,7 +789,7 @@ fn product_truncated_to_zero() {
         let msg = ExecuteMsg::SubmitBid {
             bid_input: BidInput {
                 bid_for: AssetInfo::NativeToken {
-                    denom: "osmo".to_string(),
+                    denom: "gamm/pool/5".to_string(),
                 },
                 liq_premium: 0u8,
             },
@@ -811,7 +811,7 @@ fn product_truncated_to_zero() {
             collateral_price: Decimal::one(),
             collateral_amount: Uint256::from(999_999_995u128), //5 uusd residue //999_999_999
             bid_for: AssetInfo::NativeToken {
-                denom: "osmo".to_string(),
+                denom: "gamm/pool/5".to_string(),
             },
             position_id: Uint128::new(1u128),
             position_owner: "owner01".to_string(),
@@ -822,7 +822,7 @@ fn product_truncated_to_zero() {
 
     let msg = ExecuteMsg::ClaimLiquidations {
         bid_for: AssetInfo::NativeToken {
-            denom: "osmo".to_string(),
+            denom: "gamm/pool/5".to_string(),
         },
         bid_ids: None,
     };
@@ -832,7 +832,7 @@ fn product_truncated_to_zero() {
         res.attributes,
         vec![
             attr("action", "claim_liquidations"),
-            attr("collateral_token", "osmo"),
+            attr("collateral_token", "gamm/pool/5"),
             attr("collateral_amount", "7999999959"), // 999999995 * 8 = 7,999,999,960 missing 1ucol due to rounding and product resolution
         ]
     );
@@ -843,7 +843,7 @@ fn product_truncated_to_zero() {
             mock_env(),
             QueryMsg::PremiumSlot {
                 bid_for: AssetInfo::NativeToken {
-                    denom: "osmo".to_string(),
+                    denom: "gamm/pool/5".to_string(),
                 },
                 premium: 0u64,
             },
@@ -857,7 +857,7 @@ fn product_truncated_to_zero() {
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(8u128),
         bid_for: AssetInfo::NativeToken {
-            denom: "osmo".to_string(),
+            denom: "gamm/pool/5".to_string(),
         },
         amount: None,
     };
@@ -866,7 +866,7 @@ fn product_truncated_to_zero() {
         res.attributes,
         vec![
             attr("method", "retract_bid"),
-            attr("bid_for", "osmo"),
+            attr("bid_for", "gamm/pool/5"),
             attr("bid_id", "8"),
             attr("amount", "39"), // 5 * 8 = 40 missing 1ucol due to rounding
         ]

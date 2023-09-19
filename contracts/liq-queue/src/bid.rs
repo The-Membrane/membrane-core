@@ -263,7 +263,7 @@ pub fn retract_bid(
         let (liquidated_collateral, residue_collateral) = calculate_liquidated_collateral(
             deps.storage,
             &bid,
-            deps.api.addr_validate(&bid_for.to_string())?,
+            bid_for.to_string(),
         )?;
 
         // accumulate pending reward to be claimed later
@@ -534,7 +534,7 @@ pub fn claim_liquidations(
         let (liquidated_collateral, residue_collateral) = calculate_liquidated_collateral(
             deps.storage,
             &bid,
-            deps.api.addr_validate(&bid_for.to_string())?,
+            bid_for.to_string(),
         )?;
 
         // keep residues
@@ -778,7 +778,7 @@ fn claim_col_residue(slot: &mut PremiumSlot) -> Uint256 {
 pub fn calculate_liquidated_collateral(
     deps: &dyn Storage,
     bid: &Bid,
-    bid_for: Addr,
+    bid_for: String,
 ) -> StdResult<(Uint256, Decimal256)> {
 
     let reference_sum_snapshot = read_epoch_scale_sum(
@@ -842,7 +842,7 @@ pub fn store_epoch_scale_sum(
 /// Read epoch scale sum
 pub fn read_epoch_scale_sum(
     deps: &dyn Storage,
-    bid_for: &Addr,
+    bid_for: &String,
     premium: u8,
     epoch: Uint128,
     scale: Uint128,

@@ -5,6 +5,7 @@ use cosmwasm_std::{
     to_binary, Decimal, DepsMut, Env, WasmMsg, WasmQuery,
     Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, coins, QueryRequest, BankMsg,
 };
+use membrane::math::Uint256;
 use crate::error::ContractError;
 use crate::contracts::{SECONDS_PER_DAY, POSITIONS_REPLY_ID, DEBT_AUCTION_REPLY_ID, SYSTEM_DISCOUNTS_REPLY_ID, DISCOUNT_VAULT_REPLY_ID, CREATE_DENOM_REPLY_ID, ORACLE_REPLY_ID, STAKING_REPLY_ID, VESTING_REPLY_ID, LIQ_QUEUE_REPLY_ID, GOVERNANCE_REPLY_ID, STABILITY_POOL_REPLY_ID ,LIQUIDITY_CHECK_REPLY_ID};
 use crate::state::{ADDRESSES, CONFIG, MBRN_POOL, OSMO_POOL_ID};
@@ -15,7 +16,7 @@ use membrane::staking::{InstantiateMsg as Staking_InstantiateMsg, ExecuteMsg as 
 use membrane::vesting::{InstantiateMsg as Vesting_InstantiateMsg, ExecuteMsg as VestingExecuteMsg};
 use membrane::cdp::{InstantiateMsg as CDP_InstantiateMsg, EditBasket, ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, UpdateConfig as CDPUpdateConfig};
 use membrane::oracle::{InstantiateMsg as Oracle_InstantiateMsg, ExecuteMsg as OracleExecuteMsg};
-use membrane::liq_queue::InstantiateMsg as LQInstantiateMsg;
+use membrane::liq_queue::{InstantiateMsg as LQInstantiateMsg, ExecuteMsg as LQExecuteMsg};
 use membrane::liquidity_check::{InstantiateMsg as LCInstantiateMsg, ExecuteMsg as LCExecuteMsg};
 use membrane::auction::{InstantiateMsg as DAInstantiateMsg, ExecuteMsg as DAExecuteMsg, UpdateConfig as AuctionUpdateConfig};
 use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg, ContractDenomsResponse};
@@ -638,7 +639,7 @@ pub fn handle_sp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 admin: Some(addrs.clone().governance.to_string()), 
                 code_id: config.clone().liq_queue_id, 
                 msg: to_binary(&LQInstantiateMsg {
-                    owner: Some(addrs.clone().governance.to_string()),
+                    owner: None,
                     positions_contract: addrs.clone().positions.to_string(),
                     waiting_period: 60u64,
                     minimum_bid: Uint128::new(5_000_000), //5
@@ -808,7 +809,59 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 msg: to_binary(&msg)?, 
                 funds: vec![], 
             });
+            msgs.push(msg);
+
+            //AddQueues for 3 initial collateral types
+            //OSMO
+            let msg = LQExecuteMsg::AddQueue { 
+                bid_for: AssetInfo::NativeToken { denom: config.clone().osmo_denom }, 
+                max_premium: Uint128::new(35), 
+                bid_threshold: Uint256::from(1_000_000_000_000u128), 
+            };
+            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: addrs.clone().liq_queue.to_string(), 
+                msg: to_binary(&msg)?, 
+                funds: vec![], 
+            });
             msgs.push(msg);            
+            //ATOM
+            let msg = LQExecuteMsg::AddQueue { 
+                bid_for: AssetInfo::NativeToken { denom: config.clone().atom_denom }, 
+                max_premium: Uint128::new(35), 
+                bid_threshold: Uint256::from(1_000_000_000_000u128), 
+            };
+            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: addrs.clone().liq_queue.to_string(), 
+                msg: to_binary(&msg)?, 
+                funds: vec![], 
+            });
+            msgs.push(msg);
+            //axlUSDC
+            let msg = LQExecuteMsg::AddQueue { 
+                bid_for: AssetInfo::NativeToken { denom: config.clone().usdc_denom }, 
+                max_premium: Uint128::new(10), 
+                bid_threshold: Uint256::from(1_000_000_000_000u128), 
+            };
+            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: addrs.clone().liq_queue.to_string(), 
+                msg: to_binary(&msg)?, 
+                funds: vec![], 
+            });
+            msgs.push(msg);
+
+            //Update LQ owner to governance
+            let msg = LQExecuteMsg::UpdateConfig { 
+                owner: Some(addrs.clone().governance.to_string()), 
+                waiting_period: None, 
+                minimum_bid: None, 
+                maximum_waiting_bids: None 
+            };
+            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: addrs.clone().liq_queue.to_string(), 
+                msg: to_binary(&msg)?, 
+                funds: vec![], 
+            });
+            msgs.push(msg);
             
             //Instantiate Liquidity Check
             let lc_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 

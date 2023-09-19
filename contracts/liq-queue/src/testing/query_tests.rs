@@ -6,6 +6,7 @@ use membrane::liq_queue::{
 };
 use membrane::math::{Decimal256, Uint256};
 use membrane::types::{AssetInfo, Bid, BidInput, Asset};
+use membrane::oracle::PriceResponse;
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
 use cosmwasm_std::{from_binary, Addr, Coin, Decimal, Uint128};
@@ -59,12 +60,20 @@ fn query_liquidatible() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        collateral_price: Decimal::percent(100),
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(10_000u128),
         credit_info: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        credit_price: Decimal::percent(100),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();

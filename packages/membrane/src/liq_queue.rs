@@ -1,9 +1,10 @@
 use cosmwasm_schema::cw_serde;
 
-use cosmwasm_std::{Decimal, Addr, Uint128};
+use cosmwasm_std::{Addr, Uint128};
 
 use crate::math::{Decimal256, Uint256};
 use crate::types::{AssetInfo, Bid, BidInput, Asset};
+use crate::oracle::PriceResponse;
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -40,9 +41,9 @@ pub enum ExecuteMsg {
     /// Use bids to fulfll liquidation of Position Contract basket. Called by Positions
     Liquidate {
         /// Basket credit price, sent from Position's contract
-        credit_price: Decimal,
+        credit_price: PriceResponse,
         /// Collateral price, sent from Position's contract
-        collateral_price: Decimal,
+        collateral_price: PriceResponse,
         /// Collateral amount
         collateral_amount: Uint256,
         /// Collateral asset info to bid_for
@@ -131,13 +132,13 @@ pub enum QueryMsg {
         /// Bid for asset
         bid_for: AssetInfo,
         /// Collateral price
-        collateral_price: Decimal,
+        collateral_price: PriceResponse,
         /// Collateral amount
         collateral_amount: Uint256,
         /// Credit asset info
         credit_info: AssetInfo,
         /// Credit price
-        credit_price: Decimal,
+        credit_price: PriceResponse,
     },
     /// Returns User's claimable assetss
     UserClaims {

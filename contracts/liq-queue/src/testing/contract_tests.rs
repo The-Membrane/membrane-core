@@ -7,6 +7,7 @@ use membrane::liq_queue::{
 use membrane::math::{Decimal256, Uint256};
 use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::types::{AssetInfo, BidInput};
+use membrane::oracle::PriceResponse;
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
 use cosmwasm_std::{
@@ -669,8 +670,16 @@ fn execute_bid() {
 
     // required_stable 495,000
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(500_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -719,8 +728,16 @@ fn execute_bid() {
     assert_eq!(err, ContractError::InsufficientBids {});
 
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(500_000_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -779,8 +796,16 @@ fn claim_liquidations() {
     execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(5000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),

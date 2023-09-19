@@ -1,9 +1,11 @@
+use std::str::FromStr;
+
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Decimal, Uint128, Addr, StdResult};
 
 use pyth_sdk_cw::PriceIdentifier;
 
-use crate::{types::{AssetInfo, AssetOracleInfo, PriceInfo, TWAPPoolInfo}, math::{decimal_multiplication, decimal_division}};
+use crate::{types::{AssetInfo, AssetOracleInfo, PriceInfo, TWAPPoolInfo}, math::{decimal_multiplication, decimal_division, Decimal256, Uint256}};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -145,6 +147,57 @@ impl PriceResponse {
             * Uint128::new(10u64.pow(exponent_difference as u32) as u128);
 
         Ok(asset_amount)
+    }
+
+    pub fn to_decimal256(&self) -> StdResult<PriceResponse256>{
+        let price = Decimal256::from_str(&self.price.to_string())?;
+        Ok(PriceResponse256 {
+            price,
+            decimals: self.decimals,
+        })
+    }
+}
+
+#[cw_serde]
+pub struct PriceResponse256 {
+    /// Median price
+    pub price: Decimal256,
+    /// Asset decimals
+    pub decimals: u64,
+}
+
+impl PriceResponse256 {
+    pub fn get_value(&self, amount: Uint256) -> Decimal256 {
+        //Normalize Asset amounts to fiat decimal amounts (1_000_000 = 1)
+        let exponent_difference = self.decimals;
+
+        let decimal_asset_amount = {
+            if exponent_difference == 18 {
+                //Price takes into account the asset's decimals if its an LP
+                Decimal256::from_ratio(amount, Uint256::one())
+            } else {                
+                Decimal256::from_ratio(amount, Uint256::from(10u64.pow(exponent_difference as u32) as u128))
+            }
+        };
+
+        self.price * decimal_asset_amount
+    }
+
+    pub fn get_amount(&self, value: Decimal256) -> Uint256 {
+        //Normalize Asset amounts to fiat decimal amounts (1_000_000 = 1)
+        let exponent_difference = self.decimals;
+
+        //This is "scaled" if its an LP share token due to how price is calculated
+        if exponent_difference == 18 {         
+            return (value / self.price ) * Uint256::one()
+        }
+        let pre_scaled_amount = value / self.price;
+
+        //Post scaled amount where we add the asset's decimals (1 = 1_000_000)
+        let asset_amount = pre_scaled_amount
+            * Uint256::from(10u64.pow(exponent_difference as u32) as u128);
+
+        asset_amount
     }
 }
 

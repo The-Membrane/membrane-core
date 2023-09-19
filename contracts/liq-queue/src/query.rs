@@ -6,6 +6,7 @@ use membrane::liq_queue::{
     Config, BidResponse, ClaimsResponse, LiquidatibleResponse, SlotResponse, QueueResponse,
 };
 use membrane::math::{Decimal256, Uint256};
+use membrane::oracle::{PriceResponse256, PriceResponse};
 use membrane::types::{AssetInfo, Bid, PremiumSlot, Queue};
 
 use crate::state::{CONFIG, QUEUES};
@@ -54,10 +55,10 @@ pub fn query_queues(
 pub fn query_liquidatible(
     deps: Deps,
     bid_for: AssetInfo,
-    collateral_price: Decimal,
+    collateral_price: PriceResponse,
     collateral_amount: Uint256,
     credit_info: AssetInfo,
-    credit_price: Decimal,
+    credit_price: PriceResponse,
 ) -> StdResult<LiquidatibleResponse> {
     let queue: Queue = match QUEUES.load(deps.storage, bid_for.to_string()) {
         Err(_) => {
@@ -86,37 +87,31 @@ pub fn query_liquidatible(
 
         let slot_total = slot.total_bid_amount;
 
-        let collateral_price: Decimal256 = match Decimal256::from_str(&collateral_price.to_string())
-        {
-            Ok(price) => price,
-            Err(err) => {
-                return Err(StdError::GenericErr {
-                    msg: err.to_string(),
-                })
-            }
-        };
+        let mut collateral_price: PriceResponse256 = collateral_price.to_decimal256()?;
 
-        let credit_price: Decimal256 = match Decimal256::from_str(&credit_price.to_string()) {
-            Ok(price) => price,
-            Err(err) => {
-                return Err(StdError::GenericErr {
-                    msg: err.to_string(),
-                })
-            }
-        };
+        let credit_price: PriceResponse256 = credit_price.to_decimal256()?;
 
         //price * (1- premium)
         let premium_price: Decimal256 =
-            collateral_price * (Decimal256::one() - slot.clone().liq_premium);
+            collateral_price.price * (Decimal256::one() - slot.clone().liq_premium);
+        //Update
+        collateral_price.price = premium_price;
 
         //Amount = c_amount * (collateral price in stables)
-        let mut slot_required_stable: Uint256 =
-            (remaining_collateral_to_liquidate) * (premium_price / credit_price);
+        let mut slot_required_stable: Uint256 = {
+            let remaining_collateral_value_to_liquidate = collateral_price.get_value(remaining_collateral_to_liquidate);
+
+            credit_price.get_amount(remaining_collateral_value_to_liquidate)
+        };
 
         if slot_required_stable > slot_total {
             slot_required_stable = slot_total;
-            //slot_required_stable / premium_price
-            let slot_collateral_to_liquidate: Uint256 = slot_required_stable / premium_price;
+            //Transform required stable to amount of collateral it can liquidate
+            let slot_collateral_to_liquidate: Uint256 = {
+                let slot_required_stable_value = credit_price.get_value(slot_required_stable);
+
+                collateral_price.get_amount(slot_required_stable_value)
+            };
 
             remaining_collateral_to_liquidate =
                 remaining_collateral_to_liquidate - slot_collateral_to_liquidate;

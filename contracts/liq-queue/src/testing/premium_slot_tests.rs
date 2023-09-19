@@ -4,6 +4,7 @@ use crate::ContractError;
 use membrane::liq_queue::{BidResponse, ExecuteMsg, InstantiateMsg, QueryMsg, SlotResponse};
 use membrane::math::{Decimal256, Uint256};
 use membrane::types::{AssetInfo, BidInput};
+use membrane::oracle::PriceResponse;
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
 use cosmwasm_std::{attr, from_binary, Coin, Decimal, StdError, Uint128};
@@ -53,8 +54,16 @@ fn one_bidder_distribution() {
     execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(5000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -148,8 +157,16 @@ fn two_bidder_distribution() {
 
     ///Liquidate 4 at $10
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(10u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(10u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(4u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -181,8 +198,16 @@ fn two_bidder_distribution() {
 
     //Liquidate 6 at $20
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(20u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(20u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(6u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -310,8 +335,16 @@ fn two_bidder_distribution_big_number() {
 
     ///Liquidate 400 at $10
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(10u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(10u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(400_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -343,8 +376,16 @@ fn two_bidder_distribution_big_number() {
 
     //Liquidate 600 at $20
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(20u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(20u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(600_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -484,8 +525,16 @@ fn one_user_two_slots() {
 
     //Liquidate 5 at $10
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(10u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(10u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(5_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -518,8 +567,16 @@ fn one_user_two_slots() {
 
     //Liquidate 10 at $10
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(10u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(10u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(10_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -632,8 +689,16 @@ fn completely_empty_pool() {
 
     ///Liquidate 20 at $50
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(50u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price:  Decimal::from_ratio(50u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(20_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -694,8 +759,16 @@ fn completely_empty_pool() {
 
     //Liquidate 20 at $50
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(50u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price:  Decimal::from_ratio(50u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(20_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -807,8 +880,16 @@ fn product_truncated_to_zero() {
         execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
 
         let liq_msg = ExecuteMsg::Liquidate {
-            credit_price: Decimal::one(),
-            collateral_price: Decimal::one(),
+            credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+            collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
             collateral_amount: Uint256::from(999_999_995u128), //5 uusd residue //999_999_999
             bid_for: AssetInfo::NativeToken {
                 denom: "gamm/pool/5".to_string(),
@@ -980,8 +1061,16 @@ fn two_bidder_distribution_multiple_common_slots() {
 
     //Liquidate 32 at $10
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(10u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(10u128, 1u128),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(32_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -1157,8 +1246,16 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
 
     ///Liquidate 100 at $1
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(1u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(100u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -1214,8 +1311,16 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
 
     //Liquidate 50 at $1
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(1u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(50u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
@@ -1335,8 +1440,16 @@ fn not_enough_bid_for_collateral() {
     // TOTAL COLLATERAL VALUE: 300 UST
     // TOTAL BID POOL AMOUNT: 200 UST
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(3u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(3u128, 1u128),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(100u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),

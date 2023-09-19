@@ -9,6 +9,7 @@ use cosmwasm_storage::{Bucket, ReadonlyBucket};
 use membrane::math::{Decimal256, Uint256, U256};
 use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::liq_queue::Config;
+use membrane::oracle::{PriceResponse256, PriceResponse};
 use membrane::types::{Asset, AssetInfo, Bid, BidInput, PremiumSlot, Queue};
 use membrane::helpers::{validate_position_owner, withdrawal_msg, asset_to_coin};
 
@@ -352,8 +353,8 @@ pub fn execute_liquidation(
     //All from Positions Contract
     collateral_amount: Uint256,
     bid_for: AssetInfo, //aka collateral_info
-    collateral_price: Decimal,
-    credit_price: Decimal,
+    collateral_price: PriceResponse,
+    credit_price: PriceResponse,
     //For Repayment
     position_id: Uint128,
     position_owner: String,
@@ -374,14 +375,7 @@ pub fn execute_liquidation(
         return Err(ContractError::Unauthorized {});
     }
 
-    let price: Decimal256 = match Decimal256::from_str(&collateral_price.to_string()) {
-        Ok(price) => price,
-        Err(err) => {
-            return Err(ContractError::CustomError {
-                val: err.to_string(),
-            })
-        }
-    };
+    let mut price: PriceResponse256 = collateral_price.to_decimal256()?;
 
     let mut remaining_collateral_to_liquidate = collateral_amount;
     let mut repay_amount = Uint256::zero();
@@ -408,8 +402,8 @@ pub fn execute_liquidation(
             premium as u8,
             &deps.api.addr_validate(&bid_for.clone().to_string())?, 
             remaining_collateral_to_liquidate,
-            price,
-            credit_price,
+            price.clone(),
+            credit_price.to_decimal256()?,
             &mut filled,
         )?;
 
@@ -598,31 +592,33 @@ fn execute_pool_liquidation(
     premium: u8,
     bid_for: &Addr,
     collateral_to_liquidate: Uint256,
-    price: Decimal256,
-    credit_price: Decimal,
+    mut price: PriceResponse256,
+    credit_price: PriceResponse256,
     filled: &mut bool,
 ) -> Result<(Uint256, Uint256), ContractError> {
 
     //price * (1- premium)
-    let premium_price: Decimal256 = price * (Decimal256::one() - slot.liq_premium);
+    let premium_price: Decimal256 = price.price * (Decimal256::one() - slot.liq_premium);
+    //Update price 
+    price.price = premium_price;
+    
     let mut pool_collateral_to_liquidate: Uint256 = collateral_to_liquidate;
+    
+    let mut pool_required_stable: Uint256 = {
+        let pool_collateral_value_to_liquidate = price.get_value(pool_collateral_to_liquidate);
 
-    let credit_price: Decimal256 = match Decimal256::from_str(&credit_price.to_string()) {
-        Ok(price) => price,
-        Err(err) => {
-            return Err(ContractError::CustomError {
-                val: err.to_string(),
-            })
-        }
+        credit_price.get_amount(pool_collateral_value_to_liquidate)
     };
-    let mut pool_required_stable: Uint256 =
-        (pool_collateral_to_liquidate) * (premium_price / credit_price);
 
     
     if pool_required_stable > slot.total_bid_amount {
         pool_required_stable = slot.total_bid_amount;
-        //pool_required_stable / premium_price
-        pool_collateral_to_liquidate = pool_required_stable / premium_price;
+        //Transform required stable to amount of collateral it can liquidate
+        pool_collateral_to_liquidate = {
+            let pool_required_stable_value = credit_price.get_value(pool_required_stable);
+
+            price.get_amount(pool_required_stable_value)
+        };
     } else {
         *filled = true;
     }

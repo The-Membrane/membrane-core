@@ -763,7 +763,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 negative_rates: Some(false),
                 cpc_margin_of_error: Some(Decimal::percent(1)),
                 frozen: None,
-                rev_to_stakers: Some(false), //Change to false
+                rev_to_stakers: None,
                 multi_asset_supply_caps: None,
                 credit_pool_infos: None,
             });

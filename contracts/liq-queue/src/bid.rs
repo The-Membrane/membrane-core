@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::{
-    attr, to_binary, Addr, CanonicalAddr, Coin, CosmosMsg, Decimal, DepsMut, Env,
+    attr, to_binary, Addr, Coin, CosmosMsg, Decimal, DepsMut, Env,
     MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg,
 };
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
@@ -263,7 +263,7 @@ pub fn retract_bid(
         let (liquidated_collateral, residue_collateral) = calculate_liquidated_collateral(
             deps.storage,
             &bid,
-            deps.api.addr_canonicalize(&bid_for.to_string())?,
+            deps.api.addr_validate(&bid_for.to_string())?,
         )?;
 
         // accumulate pending reward to be claimed later
@@ -406,7 +406,7 @@ pub fn execute_liquidation(
             deps.storage,
             &mut slot,
             premium as u8,
-            &deps.api.addr_canonicalize(&bid_for.clone().to_string())?, 
+            &deps.api.addr_validate(&bid_for.clone().to_string())?, 
             remaining_collateral_to_liquidate,
             price,
             credit_price,
@@ -534,7 +534,7 @@ pub fn claim_liquidations(
         let (liquidated_collateral, residue_collateral) = calculate_liquidated_collateral(
             deps.storage,
             &bid,
-            deps.api.addr_canonicalize(&bid_for.to_string())?,
+            deps.api.addr_validate(&bid_for.to_string())?,
         )?;
 
         // keep residues
@@ -596,7 +596,7 @@ fn execute_pool_liquidation(
     deps: &mut dyn Storage,
     slot: &mut PremiumSlot,
     premium: u8,
-    bid_for: &CanonicalAddr,
+    bid_for: &Addr,
     collateral_to_liquidate: Uint256,
     price: Decimal256,
     credit_price: Decimal,
@@ -778,7 +778,7 @@ fn claim_col_residue(slot: &mut PremiumSlot) -> Uint256 {
 pub fn calculate_liquidated_collateral(
     deps: &dyn Storage,
     bid: &Bid,
-    bid_for: CanonicalAddr,
+    bid_for: Addr,
 ) -> StdResult<(Uint256, Decimal256)> {
 
     let reference_sum_snapshot = read_epoch_scale_sum(
@@ -821,7 +821,7 @@ pub fn calculate_liquidated_collateral(
 /// Store epoch scale sum
 pub fn store_epoch_scale_sum(
     deps: &mut dyn Storage,
-    bid_for: &CanonicalAddr,
+    bid_for: &Addr,
     premium_slot: u8,
     epoch: Uint128,
     scale: Uint128,
@@ -831,7 +831,7 @@ pub fn store_epoch_scale_sum(
         deps,
         &[
             PREFIX_EPOCH_SCALE_SUM,
-            bid_for.as_slice(),
+            bid_for.as_bytes(),
             &premium_slot.to_be_bytes(),
             &epoch.u128().to_be_bytes(),
         ],
@@ -842,7 +842,7 @@ pub fn store_epoch_scale_sum(
 /// Read epoch scale sum
 pub fn read_epoch_scale_sum(
     deps: &dyn Storage,
-    bid_for: &CanonicalAddr,
+    bid_for: &Addr,
     premium: u8,
     epoch: Uint128,
     scale: Uint128,
@@ -851,7 +851,7 @@ pub fn read_epoch_scale_sum(
         deps,
         &[
             PREFIX_EPOCH_SCALE_SUM,
-            bid_for.as_slice(),
+            bid_for.as_bytes(),
             &premium.to_be_bytes(),
             &epoch.u128().to_be_bytes(),
         ],
@@ -893,9 +893,9 @@ pub fn read_premium_slot(
     bid_for: AssetInfo,
     premium: u8,
 ) -> StdResult<PremiumSlot> {
-    let queue = QUEUES.load(deps, bid_for.to_string())?;
+    let queue = QUEUES.load(deps, bid_for.to_string())?;    
 
-    let slot = match queue
+    let slot = match queue.clone()
         .slots
         .into_iter()
         .find(|slot| slot.liq_premium == Decimal256::percent(premium as u64))

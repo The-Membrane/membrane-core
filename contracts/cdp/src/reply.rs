@@ -369,86 +369,82 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
 
                 //Save to propagate
                 LIQUIDATION.save(deps.storage, &liquidation_propagation)?;
-            } else {
-                //Go to SP/SW if LQ has leftovers
-                //Using 1 instead to account for rounding errors
-                if liquidation_propagation.clone().liq_queue_leftovers > Decimal::one() {
+
+            //Go to SP if LQ has leftovers
+            //Using 1 instead of 0 to account for rounding errors
+            } else if liquidation_propagation.clone().liq_queue_leftovers > Decimal::one(){
                     
-                    //Send LQ leftovers to SP
-                    //This is an SP reply so we don't have to check if the SP is okay to call
-                    let config: Config = CONFIG.load(deps.storage)?;
+                //Send LQ leftovers to SP
+                //This is an SP reply so we don't have to check if the SP is okay to call
+                let config: Config = CONFIG.load(deps.storage)?;
 
-                    //Check for stability pool funds before any liquidation attempts
-                    //Sell wall any leftovers
-                    let leftover_repayment = query_stability_pool_liquidatible(
-                        deps.querier,
-                        config.clone(),
-                        liquidation_propagation.clone().liq_queue_leftovers,
-                    )?;
+                //Check for stability pool funds before any liquidation attempts
+                //Sell wall any leftovers
+                // let leftover_repayment = query_stability_pool_liquidatible(
+                //     deps.querier,
+                //     config.clone(),
+                //     liquidation_propagation.clone().liq_queue_leftovers,
+                // )?;
 
-                    //If there are leftovers, send to sell wall
-                    if leftover_repayment > Decimal::one() {
-                        attrs.push(attr(
-                            "leftover_amount",
-                            leftover_repayment.clone().to_string(),
-                        ));
-                        
-                        panic!("sp_2nd_leftover: {}, liq_prop: {:?}...line-392", leftover_repayment, liquidation_propagation);
+                //If there are leftovers, send to sell wall
+                // if leftover_repayment > Decimal::one() {
+                //     attrs.push(attr(
+                //         "leftover_amount",
+                //         leftover_repayment.clone().to_string(),
+                //     ));
+                    
+                //     panic!("sp_2nd_leftover: {}, liq_prop: {:?}...line-392", leftover_repayment, liquidation_propagation);
 
-                        //Sell wall remaining
-                        let (lp_withdraw_msgs, sell_wall_msgs) = sell_wall_in_reply(
-                            deps.storage, 
-                            deps.api, 
-                            env, 
-                            deps.querier, 
-                            &mut liquidation_propagation, 
-                            leftover_repayment)?;
-                        //Turn lp withdraw msgs into submessages so they run before the sell_wall_msgs
-                        let lp_withdraw_msgs = lp_withdraw_msgs.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
-                        submessages.extend(lp_withdraw_msgs);
-                        submessages.extend(sell_wall_msgs);
+                //     //Sell wall remaining
+                //     let (lp_withdraw_msgs, sell_wall_msgs) = sell_wall_in_reply(
+                //         deps.storage, 
+                //         deps.api, 
+                //         env, 
+                //         deps.querier, 
+                //         &mut liquidation_propagation, 
+                //         leftover_repayment)?;
+                //     //Turn lp withdraw msgs into submessages so they run before the sell_wall_msgs
+                //     let lp_withdraw_msgs = lp_withdraw_msgs.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
+                //     submessages.extend(lp_withdraw_msgs);
+                //     submessages.extend(sell_wall_msgs);
 
-                        LIQUIDATION.save(deps.storage, &liquidation_propagation)?;                   
-                    }
+                //     LIQUIDATION.save(deps.storage, &liquidation_propagation)?;                   
+                // }
+            
+                //Send leftovers to the Stability Pool
+                let sp_repay_amount = liquidation_propagation.clone().liq_queue_leftovers;
+
+                // if !sp_repay_amount.is_zero() {
+                attrs.push(attr("sent_to_sp", sp_repay_amount.clone().to_string()));
+
+                //Stability Pool message builder
+                let liq_msg = SP_ExecuteMsg::Liquidate {
+                        liq_amount: sp_repay_amount
+                };
+
+                let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: config.stability_pool.unwrap().to_string(),
+                    msg: to_binary(&liq_msg)?,
+                    funds: vec![],
+                });
+
+                let sub_msg: SubMsg = SubMsg::reply_always(msg, STABILITY_POOL_REPLY_ID);
+
+                submessages.push(sub_msg);
+
+                //Have to reload due to prior saves
+                let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;
                 
-                    //Send whatever is able to the Stability Pool
-                    let sp_repay_amount = decimal_subtraction(
-                        liquidation_propagation.clone().liq_queue_leftovers,
-                        leftover_repayment,
-                    )?;
+                //Remove repayment from leftovers
+                liquidation_propagation.liq_queue_leftovers -= sp_repay_amount;
+                
+                //If the first stability pool message succeed and needs to call a 2nd here,
+                //We set the stability_pool amount in the propogation to the 2nd amount so that...
+                //..if the 2nd errors, then it'll sell wall the correct amount
+                liquidation_propagation.stability_pool = sp_repay_amount;
 
-                    if !sp_repay_amount.is_zero() {
-                        attrs.push(attr("sent_to_sp", sp_repay_amount.clone().to_string()));
-
-                        //Stability Pool message builder
-                        let liq_msg = SP_ExecuteMsg::Liquidate {
-                                liq_amount: sp_repay_amount
-                        };
-
-                        let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                            contract_addr: config.stability_pool.unwrap().to_string(),
-                            msg: to_binary(&liq_msg)?,
-                            funds: vec![],
-                        });
-
-                        let sub_msg: SubMsg = SubMsg::reply_always(msg, STABILITY_POOL_REPLY_ID);
-
-                        submessages.push(sub_msg);
-
-                        //Have to reload due to prior saves
-                        let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;
-                        
-                        //Remove repayment from leftovers
-                        liquidation_propagation.liq_queue_leftovers -= sp_repay_amount;
-                        
-                        //If the first stability pool message succeed and needs to call a 2nd here,
-                        //We set the stability_pool amount in the propogation to the 2nd amount so that...
-                        //..if the 2nd errors, then it'll sell wall the correct amount
-                        liquidation_propagation.stability_pool = sp_repay_amount;
-
-                        LIQUIDATION.save(deps.storage, &liquidation_propagation)?;
-                    }
-                }
+                LIQUIDATION.save(deps.storage, &liquidation_propagation)?;
+                // }                
             }
 
             Ok(Response::new()

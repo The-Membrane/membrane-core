@@ -63,24 +63,6 @@ pub fn liquidate(
         valid_position_owner.clone(),
         position_id,
     )?;
-    
-    //Accrue interest
-    accrue(
-        storage,
-        querier,
-        env.clone(),
-        &mut target_position,
-        &mut basket,
-        position_owner.clone(),
-        false,
-        false,
-    )?;
-    
-    //Save updated repayment price and basket debt
-    BASKET.save(storage, &basket)?;
-
-    //Save updated position to lock-in credit_amount and last_accrued time
-    update_position(storage, valid_position_owner.clone(), target_position.clone())?;
 
     //Check position health compared to max_LTV
     let (insolvent, current_LTV, _available_fee) = insolvency_check(
@@ -186,7 +168,7 @@ pub fn liquidate(
     
     //Build SubMsgs to send to the Stability Pool & Sell Wall
     //This will only run if config.stability_pool.is_some()
-    let ( leftover_repayment, lp_withdraw_msgs, sell_wall_messages ) = build_sp_sw_submsgs(
+    let ( leftover_repayment ) = build_sp_submsgs(
         storage, 
         querier,
         api, 
@@ -203,9 +185,6 @@ pub fn liquidate(
         per_asset_repayment, 
         user_repay_amount,
     )?;
-    
-    //Extend LP withdraw messages
-    lp_withdraw_messages.extend(lp_withdraw_msgs);
 
 
     //Create the Bad debt callback message to be added as the last SubMsg
@@ -225,15 +204,7 @@ pub fn liquidate(
     let mut liquidation_propagation: Option<String> = None;
     if let Ok(repay) = LIQUIDATION.load(storage) { liquidation_propagation = Some(format!("{:?}", repay)) }
 
-    //Transform LP withdraw msgs into submsgs or else they'll run after the sales
-    let lp_withdraw_submsgs = lp_withdraw_messages
-        .into_iter()
-        .map(|msg| SubMsg::new(msg))
-        .collect::<Vec<SubMsg>>();
-
     Ok(res
-        .add_submessages(lp_withdraw_submsgs)
-        .add_submessages(sell_wall_messages)
         .add_submessages(submessages) //LQ & SP msgs
         .add_submessage(call_back)
         .add_messages(caller_fee_messages)
@@ -244,6 +215,7 @@ pub fn liquidate(
                 "propagation_info",
                 format!("{:?}", liquidation_propagation.unwrap_or_else(|| String::from("None"))),
             ),
+            attr("leftover_repayment", leftover_repayment.to_string()),
         ]))
     
 }
@@ -553,7 +525,7 @@ fn per_asset_fulfillments(
 
 /// This function is used to build (sub)messages for the Stability Pool and sell wall.
 /// Also returns leftover debt repayment amount.
-fn build_sp_sw_submsgs(
+fn build_sp_submsgs(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     api: &dyn Api,
@@ -569,11 +541,11 @@ fn build_sp_sw_submsgs(
     submessages: &mut Vec<SubMsg>,
     per_asset_repayment: Vec<Decimal>,
     user_repay_amount: Decimal,
-) -> Result<(Decimal, Vec<CosmosMsg>,  Vec<SubMsg>), ContractError>{
-    let sell_wall_repayment_amount: Decimal;
-    let mut lp_withdraw_messages = vec![];
-    let mut sell_wall_messages = vec![];
-    let mut skip_sp = false;
+) -> Result<(Decimal), ContractError>{
+
+    //Leftover's starts as the total LQ is supposed to pay, and is subtracted by every successful LQ reply
+    let liq_queue_leftovers =
+        decimal_subtraction(credit_repay_amount, leftover_repayment)?;
     
     if config.stability_pool.is_some() && !leftover_repayment.is_zero() {
         let sp_liq_fee = query_stability_pool_fee(querier, config.clone().stability_pool.unwrap().to_string())?;
@@ -587,127 +559,43 @@ fn build_sp_sw_submsgs(
 
         //SP liq_fee Guarantee check
         //if leftover_position_value is less than leftover_repay value + the SP fee, we liquidate what we can and send the rest to the sell wall
-        if leftover_position_value < decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee))? || sp_liq_fee >= Decimal::one(){
-            //if liq_Fee is 100%+, skip fee discount and just use Sell Wall
-            if sp_liq_fee >= Decimal::one() {
-                skip_sp = true;
-                if leftover_position_value < leftover_repayment_value {
-                    //Set leftover_repayment to the amount of credit the Position value can pay
-                    leftover_repayment = Decimal::from_ratio(basket.credit_price.get_amount(leftover_position_value)?, Uint128::one());  
-                }
-            } else {
-                //Set Position value to the discounted value the SP will be distributed
-                leftover_position_value = decimal_multiplication(leftover_position_value, (Decimal::one() - sp_liq_fee))?;
-                //Set leftover_repayment to the amount of credit the Position value can pay
-                leftover_repayment = Decimal::from_ratio(basket.credit_price.get_amount(leftover_position_value)?, Uint128::one());  
-            }     
+        if leftover_position_value < decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee))?{
+            //Set Position value to the discounted value the SP will be distributed
+            leftover_position_value = decimal_multiplication(leftover_position_value, (Decimal::one() - sp_liq_fee))?;
+            //Set leftover_repayment to the amount of credit the Position value can pay
+            leftover_repayment = Decimal::from_ratio(basket.credit_price.get_amount(leftover_position_value)?, Uint128::one());            
         }
         
-        if !skip_sp {
-            //Check for stability pool funds before any liquidation attempts
-            //If no funds, go directly to the sell wall
-            let sp_leftover_repayment = query_stability_pool_liquidatible(
-                querier,
-                config.clone(),
-                leftover_repayment,
-            )?;
-            
-            if sp_leftover_repayment > Decimal::zero() {
-                sell_wall_repayment_amount = sp_leftover_repayment;
+        
+        // Set repay values for reply msg
+        let liquidation_propagation = LiquidationPropagation {
+            per_asset_repayment,
+            liq_queue_leftovers,
+            stability_pool: leftover_repayment,
+            user_repay_amount,
+            position_info: UserInfo {
+                position_id,
+                position_owner: valid_position_owner.to_string()
+            },
+            positions_contract: env.contract.address,
+        };
 
-                //Sell wall remaining
-                let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall(
-                    storage,
-                    querier,
-                    api,
-                    env.clone(),
-                    collateral_assets,
-                    sell_wall_repayment_amount,
-                    basket.clone(),
-                    position_id,
-                    valid_position_owner.to_string(),
-                )?;
-                lp_withdraw_messages = lp_withdraw_msgs;
-                sell_wall_messages = sell_wall_msgs;
-                
-            }
+        LIQUIDATION.save(storage, &liquidation_propagation)?;
 
-            //Set Stability Pool repay_amount
-            let sp_repay_amount = decimal_subtraction(leftover_repayment, sp_leftover_repayment)?;
+        //Stability Pool message builder
+        let liq_msg = SP_ExecuteMsg::Liquidate {
+            liq_amount: leftover_repayment
+        };
 
-            //Leftover's starts as the total LQ is supposed to pay, and is subtracted by every successful LQ reply
-            let liq_queue_leftovers =
-                decimal_subtraction(credit_repay_amount, leftover_repayment)?;
-            
-            // Set repay values for reply msg
-            let liquidation_propagation = LiquidationPropagation {
-                per_asset_repayment,
-                liq_queue_leftovers,
-                stability_pool: sp_repay_amount,
-                user_repay_amount,
-                position_info: UserInfo {
-                    position_id,
-                    position_owner: valid_position_owner.to_string()
-                },
-                positions_contract: env.contract.address,
-            };
+        let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.stability_pool.unwrap().to_string(),
+            msg: to_binary(&liq_msg)?,
+            funds: vec![],
+        });
 
-            LIQUIDATION.save(storage, &liquidation_propagation)?;
+        let sub_msg: SubMsg = SubMsg::reply_always(msg, STABILITY_POOL_REPLY_ID);
 
-            //Stability Pool message builder
-            let liq_msg = SP_ExecuteMsg::Liquidate {
-                liq_amount: sp_repay_amount
-            };
-
-            let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.stability_pool.unwrap().to_string(),
-                msg: to_binary(&liq_msg)?,
-                funds: vec![],
-            });
-
-            let sub_msg: SubMsg = SubMsg::reply_always(msg, STABILITY_POOL_REPLY_ID);
-
-            submessages.push(sub_msg);
-        } else {
-            if leftover_repayment > Decimal::zero() {
-                sell_wall_repayment_amount = leftover_repayment;
-
-                //Sell wall remaining
-                let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall(
-                    storage,
-                    querier,
-                    api,
-                    env.clone(),
-                    collateral_assets,
-                    sell_wall_repayment_amount,
-                    basket.clone(),
-                    position_id,
-                    valid_position_owner.to_string(),
-                )?;
-                lp_withdraw_messages = lp_withdraw_msgs;
-                sell_wall_messages = sell_wall_msgs;
-                
-            }
-
-            //Leftover's starts as the total LQ is supposed to pay, and is subtracted by every successful LQ reply
-            let liq_queue_leftovers =
-                decimal_subtraction(credit_repay_amount, leftover_repayment)?;
-
-            // Set repay values for reply msg
-            let liquidation_propagation = LiquidationPropagation {
-                per_asset_repayment,
-                liq_queue_leftovers,
-                stability_pool: Decimal::zero(),
-                user_repay_amount,
-                position_info: UserInfo {
-                    position_id,
-                    position_owner: valid_position_owner.to_string()
-                },
-                positions_contract: env.contract.address,
-            };
-
-            LIQUIDATION.save(storage, &liquidation_propagation)?;
-        }
+        submessages.push(sub_msg);
 
         //Because these are reply always, we can NOT make state changes that we wouldn't allow no matter the tx result, as our altereed state will NOT revert.
         //Errors also won't revert the whole transaction
@@ -719,7 +607,7 @@ fn build_sp_sw_submsgs(
         // Set repay values for reply msg
         let liquidation_propagation = LiquidationPropagation {
             per_asset_repayment,
-            liq_queue_leftovers: Decimal::zero(),
+            liq_queue_leftovers,
             stability_pool: Decimal::zero(),
             user_repay_amount,
             position_info: UserInfo {
@@ -732,7 +620,7 @@ fn build_sp_sw_submsgs(
         LIQUIDATION.save(storage, &liquidation_propagation)?;
     }
 
-    Ok((leftover_repayment, lp_withdraw_messages, sell_wall_messages))
+    Ok((leftover_repayment))
 }
 
 /// Returns LP withdrawal message use in liquidations

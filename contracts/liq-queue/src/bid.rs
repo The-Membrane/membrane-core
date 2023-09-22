@@ -400,7 +400,7 @@ pub fn execute_liquidation(
             deps.storage,
             &mut slot,
             premium as u8,
-            &deps.api.addr_validate(&bid_for.clone().to_string())?, 
+            bid_for.clone().to_string(), 
             remaining_collateral_to_liquidate,
             price.clone(),
             credit_price.to_decimal256()?,
@@ -590,7 +590,7 @@ fn execute_pool_liquidation(
     deps: &mut dyn Storage,
     slot: &mut PremiumSlot,
     premium: u8,
-    bid_for: &Addr,
+    bid_for: String,
     collateral_to_liquidate: Uint256,
     mut price: PriceResponse256,
     credit_price: PriceResponse256,
@@ -817,7 +817,7 @@ pub fn calculate_liquidated_collateral(
 /// Store epoch scale sum
 pub fn store_epoch_scale_sum(
     deps: &mut dyn Storage,
-    bid_for: &Addr,
+    bid_for: String,
     premium_slot: u8,
     epoch: Uint128,
     scale: Uint128,
@@ -827,7 +827,7 @@ pub fn store_epoch_scale_sum(
         deps,
         &[
             PREFIX_EPOCH_SCALE_SUM,
-            bid_for.as_bytes(),
+            &bid_for.as_bytes(),
             &premium_slot.to_be_bytes(),
             &epoch.u128().to_be_bytes(),
         ],

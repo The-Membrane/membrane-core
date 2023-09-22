@@ -580,7 +580,7 @@ pub fn query_price(
     //Try to use a stored price
     let stored_price_res = read_price(storage, &asset_info);
     
-    //If depositing, always query a new price to ensure removed asset aren't deposited
+    //If depositing, always query a new price to ensure removed assets aren't deposited
     if !is_deposit_function {
         //Use the stored price if within the oracle_time_limit
         if let Ok(ref stored_price) = stored_price_res {

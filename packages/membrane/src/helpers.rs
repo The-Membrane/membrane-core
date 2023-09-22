@@ -130,7 +130,7 @@ pub fn query_stability_pool_fee(
         contract_addr: stability_pool,
         msg: to_binary(&SP_QueryMsg::AssetPool { 
             user: None,
-            deposit_limit: 1.into(),
+            deposit_limit: None,
             start_after: None,
         })?,
     }))?;

@@ -152,6 +152,8 @@ pub fn liquidate(
     
     //Track total leftover repayment after the liq_queue
     let leftover_repayment: Decimal = credit_repay_amount;
+    //Set repay value to the repay_value post user_repay
+    let repay_value = basket.clone().credit_price.get_value(credit_repay_amount.to_uint_floor())?;
 
     //Track repay_amount_per_asset
     let mut per_asset_repayment: Vec<Decimal> = vec![];
@@ -311,7 +313,7 @@ fn get_user_repay_amount(
     //Let the user repay their position if they are in the SP
     if config.stability_pool.is_some() {
         //Query Stability Pool to see if the user has funds
-        let user_deposits = querier
+        let user_deposits = match querier
             .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.clone().stability_pool.unwrap().to_string(),
                 msg: to_binary(&SP_QueryMsg::AssetPool { 
@@ -319,8 +321,10 @@ fn get_user_repay_amount(
                     deposit_limit: None, 
                     start_after: None,
                 })?,
-            }))?
-            .deposits;
+            })){
+                Ok(res) => res.deposits,
+                Err(_) => vec![],
+            };
 
         let total_user_deposit: Decimal = user_deposits
             .iter()
@@ -400,7 +404,7 @@ fn per_asset_fulfillments(
 
     for (num, cAsset) in collateral_assets.clone().iter().enumerate() {
 
-        let repay_amount_per_asset = credit_repay_amount * cAsset_ratios[num];
+        let repay_amount_per_asset = leftover_repayment * cAsset_ratios[num];
 
 
         let collateral_price = cAsset_prices[num].clone();
@@ -481,12 +485,12 @@ fn per_asset_fulfillments(
                     contract_addr: basket.clone().liq_queue.unwrap().to_string(),
                     msg: to_binary(&LQ_QueryMsg::CheckLiquidatible {
                         bid_for: cAsset.clone().asset.info,
-                        collateral_price: collateral_price.price,
+                        collateral_price: collateral_price.clone(),
                         collateral_amount: Uint256::from(
                             (collateral_repay_amount).u128(),
                         ),
                         credit_info: basket.clone().credit_asset.info,
-                        credit_price: basket.clone().credit_price.price,
+                        credit_price: basket.clone().credit_price,
                     })?,
                 }))?;
 
@@ -497,8 +501,8 @@ fn per_asset_fulfillments(
                 
             //Call Liq Queue::Liquidate for the asset
             let liq_msg = LQ_ExecuteMsg::Liquidate {
-                credit_price: basket.credit_price.price,
-                collateral_price: collateral_price.price,
+                credit_price: basket.clone().credit_price,
+                collateral_price: collateral_price.clone(),
                 collateral_amount: Uint256::from(queue_asset_amount_paid.u128()),
                 bid_for: cAsset.clone().asset.info,
                 position_id,
@@ -547,7 +551,7 @@ fn per_asset_fulfillments(
     Ok((protocol_fee_msg, Decimal::from_ratio(leftover_repayment, Uint128::one())))
 }
 
-/// This fucntion is used to build (sub)messages for the Stability Pool and sell wall.
+/// This function is used to build (sub)messages for the Stability Pool and sell wall.
 /// Also returns leftover debt repayment amount.
 fn build_sp_sw_submsgs(
     storage: &mut dyn Storage,

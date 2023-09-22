@@ -46,9 +46,8 @@ pub fn update_basket_tally(
     basket: &mut Basket,
     collateral_assets: Vec<cAsset>,
     add_to_cAsset: bool,
-) -> Result<(), ContractError> {
-    let config = CONFIG.load(storage)?;
-    
+    config: Config,
+) -> Result<(), ContractError> {    
     //Update SupplyCap objects 
     for cAsset in collateral_assets.clone() {
         if let Some((index, mut cap)) = basket.clone().collateral_supply_caps
@@ -226,7 +225,7 @@ pub fn update_debt_per_asset_in_position(
     Ok(())
 }
 
-/// Update the distribution of Basket debt per asset after Position debt increases
+/// Update the distribution of Basket debt per asset after Position debt updates
 pub fn update_basket_debt(
     storage: &dyn Storage,
     env: Env,
@@ -236,15 +235,19 @@ pub fn update_basket_debt(
     collateral_assets: Vec<cAsset>,
     credit_amount: Uint128,
     add_to_debt: bool,
+    mut cAsset_ratios: Vec<Decimal>,
 ) -> Result<(), ContractError> {
     
-    let (cAsset_ratios, _) = get_cAsset_ratios(
-        storage,
-        env.clone(),
-        querier,
-        collateral_assets.clone(),
-        config,
-    )?;
+    if cAsset_ratios.is_empty() {
+        let (ratios, _) = get_cAsset_ratios(
+            storage,
+            env.clone(),
+            querier,
+            collateral_assets.clone(),
+            config,
+        )?;
+        cAsset_ratios = ratios;
+    }
 
     let mut asset_debt = vec![];
     //Save the debt distribution per asset to a list

@@ -1,3 +1,4 @@
+use membrane::oracle::PriceResponse;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +12,7 @@ use crate::ContractError;
 use crate::risk_engine::update_basket_tally;
 
 
+//This propogates liquidation info && state to reduce gas
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct LiquidationPropagation {
     pub per_asset_repayment: Vec<Decimal>,
@@ -18,8 +20,14 @@ pub struct LiquidationPropagation {
     pub stability_pool: Decimal,      //Value of repayment
     pub user_repay_amount: Decimal,
     pub positions_contract: Addr,
-    //So the sell wall knows who to repay to
-    pub position_info: UserInfo,
+    pub sp_liq_fee: Decimal,
+    pub cAsset_ratios: Vec<Decimal>, //these don't change during liquidation bc we liquidate based on the ratios
+    pub cAsset_prices: Vec<PriceResponse>,
+    pub target_position: Position,
+    pub liquidated_assets: Vec<cAsset>, //List of assets liquidated for supply caps
+    pub position_owner: Addr,
+    pub basket: Basket,
+    pub config: Config,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -52,7 +60,6 @@ pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
 pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");
 pub const LIQUIDATION: Item<LiquidationPropagation> = Item::new("repay_propagation");
 pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");
-pub const ROUTER_REPAY_MSG: Item<Binary> = Item::new("router_repay_msg");
 
 
 //Helper functions
@@ -61,6 +68,7 @@ pub fn update_position_claims(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
+    config: Config,
     position_id: Uint128,
     position_owner: Addr,
     liquidated_asset: AssetInfo,
@@ -126,7 +134,7 @@ pub fn update_position_claims(
     }
 
     let mut basket = BASKET.load(storage)?;
-    match update_basket_tally(storage, querier, env, &mut basket, collateral_assets, false) {
+    match update_basket_tally(storage, querier, env, &mut basket, collateral_assets, false, config) {
         Ok(_res) => {
             BASKET.save(storage, &basket)?;
         }

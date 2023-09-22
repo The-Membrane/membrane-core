@@ -448,7 +448,7 @@ fn check_and_fulfill_bad_debt(
     let (_i, mut target_position) = get_target_position(deps.storage, position_owner.clone(), position_id)?;
 
     //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
-    //This is allowed bc any calls here will be after a liquidation where the sell wall would've sold all it could to cover debts
+    //This is allowed bc any calls here will be after a liquidation where the SP would've sold all it could to cover debts
     let total_assets: Uint128 = target_position
         .collateral_assets
         .iter()

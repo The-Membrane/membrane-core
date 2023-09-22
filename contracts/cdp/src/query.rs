@@ -44,11 +44,12 @@ pub fn query_position(
     
     let config = CONFIG.load(deps.storage)?;
 
-    let (borrow, max, _value, _prices) = get_avg_LTV(
+    let (borrow, max, _value, _prices, ratios) = get_avg_LTV(
         deps.storage,
         env.clone(),
         deps.querier,
         config.clone(),
+        Some(basket.clone()),
         position.clone().collateral_assets,
         false,
         false,
@@ -68,13 +69,7 @@ pub fn query_position(
     Ok(PositionResponse {
         position_id: position.position_id,
         collateral_assets: position.clone().collateral_assets,
-        cAsset_ratios: get_cAsset_ratios(
-            deps.storage,
-            env,
-            deps.querier,
-            position.clone().collateral_assets,
-            config,
-        )?.0,
+        cAsset_ratios: ratios,
         credit_amount: position.credit_amount,
         basket_id: basket.basket_id,
         avg_borrow_LTV: borrow,
@@ -104,19 +99,20 @@ pub fn query_user_positions(
     
     for mut position in positions.into_iter().take(limit) {
         
-        let (borrow, max, _value, _prices) = match get_avg_LTV(
+        let (borrow, max, _value, _prices, ratios) = match get_avg_LTV(
             deps.storage,
             env.clone(),
             deps.querier,
             config.clone(),
+            Some(basket.clone()),
             position.clone().collateral_assets,
             false,
             false
         ) {
-            Ok((borrow, max, value, prices)) => (borrow, max, value, prices),
+            Ok((borrow, max, value, prices, ratios)) => (borrow, max, value, prices, ratios),
             Err(err) => {
                 error = Some(err);
-                (Decimal::zero(), Decimal::zero(), Decimal::zero(), vec![])
+                (Decimal::zero(), Decimal::zero(), Decimal::zero(), vec![], vec![])
             }
         };
 
@@ -134,19 +130,7 @@ pub fn query_user_positions(
             Err(err) => error = Some(err),
         };
 
-        let (cAsset_ratios, _) = match get_cAsset_ratios(
-            deps.storage,
-            env.clone(),
-            deps.querier,
-            position.clone().collateral_assets,
-            config.clone(),
-        ) {
-            Ok(ratios) => ratios,
-            Err(err) => {
-                error = Some(err);
-                (vec![], vec![])
-            }
-        };
+        let cAsset_ratios = ratios;
 
         if error.is_none() {
             user_positions.push(PositionResponse {
@@ -154,7 +138,7 @@ pub fn query_user_positions(
                 collateral_assets: position.collateral_assets,
                 cAsset_ratios,
                 credit_amount: position.credit_amount,
-                basket_id: basket.basket_id,
+                basket_id: basket.clone().basket_id,
                 avg_borrow_LTV: borrow,
                 avg_max_LTV: max,
             })
@@ -231,7 +215,7 @@ pub fn query_bad_debt(deps: Deps) -> StdResult<BadDebtResponse> {
 
             for position in positions {
                 //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
-                //This is allowed bc any calls here will be after a liquidation where the sell wall would've sold all it could to cover debts
+                //This is allowed bc any calls here will be after a liquidation where the SP would've sold all it could to cover debts
                 let empty = check_for_empty_position(position.collateral_assets);
 
                 //If there are no assets and outstanding debt
@@ -742,10 +726,11 @@ pub fn get_avg_LTV(
     env: Env,
     querier: QuerierWrapper,
     config: Config,
+    basket: Option<Basket>,
     collateral_assets: Vec<cAsset>,
     is_deposit_function: bool,
     is_liquidation_funciton: bool, //Skip softened borrow LTV
-) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>)> {
+) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>)> {
     //Calc total value of collateral
     let (cAsset_values, cAsset_price_res) = get_asset_values(
         storage,
@@ -757,7 +742,11 @@ pub fn get_avg_LTV(
     )?;
 
     //Load basket
-    let basket = BASKET.load(storage)?;
+    let basket = if let Some(basket) = basket {
+        basket
+    } else {
+        BASKET.load(storage)?
+    };
 
     //Get basket cAsset ratios
     let (basket_cAsset_ratios, _) = get_cAsset_ratios(
@@ -787,7 +776,7 @@ pub fn calculate_avg_LTV(
     basket_collateral_assets: Vec<cAsset>,
     basket_cAsset_ratios: Vec<Decimal>,
     is_liquidation_funciton: bool,
-) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>)> {
+) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>)> {
     let total_value: Decimal = cAsset_values.iter().sum();
 
     //getting each cAsset's % of total value
@@ -810,6 +799,7 @@ pub fn calculate_avg_LTV(
             Decimal::percent(0),
             Decimal::percent(0),
             vec![],
+            vec![],
         ));        
     }
 
@@ -820,6 +810,7 @@ pub fn calculate_avg_LTV(
             collateral_assets[0].max_LTV,
             total_value,
             cAsset_prices,
+            cAsset_ratios,
         ));
     }
 
@@ -850,7 +841,7 @@ pub fn calculate_avg_LTV(
         avg_max_LTV += decimal_multiplication(cAsset_ratios[i], collateral_assets[i].max_LTV)?;
     }
 
-    Ok((avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices))
+    Ok((avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices, cAsset_ratios))
 }
 
 
@@ -868,8 +859,8 @@ pub fn insolvency_check(
 ) -> StdResult<(bool, Decimal, Uint128)> { //insolvent, current_LTV, available_fee
 
     //Get avg LTVs
-    let avg_LTVs: (Decimal, Decimal, Decimal, Vec<PriceResponse>) =
-        get_avg_LTV(storage, env, querier, config, collateral_assets.clone(), false, true)?;
+    let avg_LTVs: (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>) =
+        get_avg_LTV(storage, env, querier, config, None, collateral_assets.clone(), false, true)?;
 
     //Insolvency check
     insolvency_check_calc(avg_LTVs, collateral_assets, credit_amount, credit_price, max_borrow)
@@ -878,7 +869,7 @@ pub fn insolvency_check(
 /// Function handles calculations for the insolvency check
 pub fn insolvency_check_calc(
     //BorrowLTV, MaxLTV, TotalAssetValue, cAssetPrices
-    avg_LTVs: (Decimal, Decimal, Decimal, Vec<PriceResponse>),    
+    avg_LTVs: (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>),    
     collateral_assets: Vec<cAsset>, 
     credit_amount: Uint128,
     credit_price: PriceResponse,

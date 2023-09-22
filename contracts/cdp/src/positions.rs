@@ -163,7 +163,8 @@ pub fn deposit(
                         env.clone(), 
                         &mut basket, 
                         cAssets.clone(),
-                        true
+                        true,
+                        config.clone(),
                     )?;
                     
                     //Update debt per asset
@@ -477,6 +478,7 @@ pub fn withdraw(
             &mut basket,
             tally_update_list,
             false,
+            config.clone(),
         )?;
 
         //Update debt distribution for position assets
@@ -624,7 +626,8 @@ pub fn repay(
             env.clone(), 
             &mut basket, 
             target_position.collateral_assets.clone(),
-            false
+            false,
+            config.clone(),
         )?;
     }
 
@@ -700,6 +703,7 @@ pub fn repay(
         target_position.collateral_assets,
         credit_asset.amount - excess_repayment,
         false,
+        vec![],
     )?;
 
     //Save updated repayment price and debts
@@ -757,11 +761,11 @@ pub fn liq_repay(
     env: Env,
     info: MessageInfo,
     credit_asset: Asset,
-) -> Result<Response, ContractError> {
-    let config = CONFIG.load(deps.storage)?;
+) -> Result<Response, ContractError> {    
+    //Fetch liquidaiton info and state propagation
+    let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;
     
-    //Fetch position info to repay for
-    let liquidation_propagation = LIQUIDATION.load(deps.storage)?;
+    let config = liquidation_propagation.clone().config;
 
     //Can only be called by the SP contract
     if config.stability_pool.is_none() || info.sender != config.clone().stability_pool.unwrap(){
@@ -770,54 +774,61 @@ pub fn liq_repay(
 
     //These 3 checks shouldn't error we are pulling the ids from state.
     //Would have to be an issue w/ the repay_progation initialization
-    let basket: Basket = BASKET.load(deps.storage)?;
+    let mut basket = liquidation_propagation.clone().basket;
 
-    let (_i, target_position) = get_target_position(
-        deps.storage, 
-        deps.api.addr_validate(&liquidation_propagation.position_info.position_owner)?,
-        liquidation_propagation.clone().position_info.position_id,
-    )?;
-    
-    //Position repayment
-    let res = match repay(
-        deps.storage,
-        deps.querier,
-        deps.api,
-        env.clone(),
-        info,
-        liquidation_propagation.position_info.position_id,
-        Some(liquidation_propagation.clone().position_info.position_owner),
-        credit_asset.clone(),
-        None,
-    ) {
-        Ok(res) => res,
-        Err(e) => return Err(e),
+    //This position has collateral & credit_amount updated in the liquidation process...
+    //From LQ replies && fee handling
+    let mut target_position = liquidation_propagation.clone().target_position;
+
+    //Update credit amount in target_position to account from SP's repayment
+    target_position.credit_amount = match target_position.credit_amount.checked_sub(credit_asset.amount){
+        Ok(difference) => difference,
+        Err(_err) => return Err(ContractError::CustomError { val: String::from("Repay amount is greater than credit amount in liq_repay") }),
     };
+
+    //////////Pseudo repay function
+    let mut messages = vec![];
+    
+    //Burn repayment & send revenue to stakers
+    let burn_and_rev_msgs = credit_burn_rev_msg(
+        config.clone(),
+        env.clone(),
+        credit_asset.clone(),
+        &mut basket,
+    )?;
+    messages.extend(burn_and_rev_msgs);
+    //Subtract paid debt from debt-per-asset tallies
+    update_basket_debt(
+        deps.storage,
+        env.clone(),
+        deps.querier,
+        config.clone(),
+        &mut basket,
+        target_position.clone().collateral_assets,
+        credit_asset.amount,
+        false,
+        liquidation_propagation.clone().cAsset_ratios,
+    )?;
+    ////////////
    
     //Set collateral_assets
-    let collateral_assets = target_position.collateral_assets;
+    let collateral_assets = target_position.clone().collateral_assets;
 
     //Get position's cAsset ratios
-    let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(
-        deps.storage,
-        env.clone(),
-        deps.querier,
-        collateral_assets.clone(),
-        config.clone(),
-    )?;
+    let (cAsset_ratios, cAsset_prices) = (liquidation_propagation.cAsset_ratios, liquidation_propagation.cAsset_prices);
 
     let repay_value = basket.clone().credit_price.get_value(credit_asset.amount)?;
-
-    let mut messages = vec![];
-    let mut coins: Vec<Coin> = vec![];
-    let mut native_repayment = Uint128::zero();
 
     //Stability Pool receives pro rata assets
     //Add distribute messages to the message builder, so the contract knows what to do with the received funds
     let mut distribution_assets = vec![];
 
+    let mut coins: Vec<Coin> = vec![];
+    let mut native_repayment = Uint128::zero();
+    
+
     //Query SP liq fee
-    let sp_liq_fee = query_stability_pool_fee(deps.querier, config.clone().stability_pool.unwrap().to_string())?;
+    let sp_liq_fee = liquidation_propagation.sp_liq_fee;
 
     //Calculate distribution of assets to send from the repaid position
     for (num, cAsset) in collateral_assets.into_iter().enumerate() {
@@ -831,15 +842,16 @@ pub fn liq_repay(
         let repay_amount_per_asset = credit_asset.amount * cAsset_ratios[num];
         
         //Remove collateral from user's position claims
-        update_position_claims(
-            deps.storage,
-            deps.querier,
-            env.clone(),
-            liquidation_propagation.clone().position_info.position_id,
-            deps.api.addr_validate(&liquidation_propagation.clone().position_info.position_owner)?,
-            cAsset.clone().asset.info,
-            collateral_w_fee,
-        )?;
+        target_position.collateral_assets[num].asset.amount -= collateral_w_fee;
+        liquidation_propagation.liquidated_assets.push(
+            cAsset {
+                asset: Asset {
+                    amount: collateral_w_fee,
+                    ..cAsset.clone().asset
+                },
+                ..cAsset.clone()
+            }
+        );
 
         //SP Distribution needs list of cAsset's and is pulling the amount from the Asset object
         match cAsset.clone().asset.info {
@@ -859,6 +871,35 @@ pub fn liq_repay(
         }
     }
 
+    if target_position.credit_amount.is_zero(){                
+        //Remove position's assets from Supply caps 
+        update_basket_tally(
+            deps.storage, 
+            deps.querier, 
+            env.clone(), 
+            &mut basket, 
+            target_position.clone().collateral_assets,
+            false, 
+            config.clone(),
+        )?;
+    } else {
+        //Remove liquidated assets from Supply caps
+        update_basket_tally(
+            deps.storage, 
+            deps.querier, 
+            env.clone(), 
+            &mut basket, 
+            liquidation_propagation.liquidated_assets,
+            false,
+            config.clone(),
+        )?;
+    }
+
+    //Update position
+    update_position(deps.storage, liquidation_propagation.position_owner, target_position)?;
+    //Update Basket
+    BASKET.save(deps.storage, &basket)?;
+
     //Adds Native token distribution msg to messages
     let distribution_msg = SP_ExecuteMsg::Distribute {
         distribution_assets: distribution_assets.clone(),
@@ -874,7 +915,7 @@ pub fn liq_repay(
 
     messages.push(msg);
 
-    Ok(res
+    Ok(Response::new()
         .add_messages(messages)
         .add_attribute("method", "liq_repay")
         .add_attribute("distribution_assets", format!("{:?}", distribution_assets))
@@ -925,7 +966,8 @@ pub fn increase_debt(
             env.clone(), 
             &mut basket, 
             target_position.collateral_assets.clone(),
-            true
+            true,
+            config.clone(),
         )?;
     }
 
@@ -1005,6 +1047,7 @@ pub fn increase_debt(
                 target_position.clone().collateral_assets,
                 amount,
                 true,
+                vec![],
             )?;
 
             //Accrue to save new rates
@@ -1449,6 +1492,7 @@ pub fn redeem_for_collateral(
                             deps.storage, 
                             deps.querier, 
                             env.clone(), 
+                            config.clone(),
                             position_redemption_info.position_id, 
                             user.clone().position_owner, 
                             cAsset.asset.info.clone(), 
@@ -2309,11 +2353,12 @@ fn get_amount_from_LTV(
     target_LTV: Decimal,
 ) -> Result<Uint128, ContractError>{
     //Get avg_borrow_LTV & total_value
-    let (avg_borrow_LTV, _avg_max_LTV, total_value, _cAsset_prices) = get_avg_LTV(
+    let (avg_borrow_LTV, _avg_max_LTV, total_value, _cAsset_prices, cAsset_ratios) = get_avg_LTV(
         storage, 
         env, 
         querier, 
         config, 
+        Some(basket.clone()),
         position.clone().collateral_assets,
         false,
         false,

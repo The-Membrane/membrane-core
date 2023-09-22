@@ -596,6 +596,7 @@ pub fn accrue(
             position.clone().collateral_assets,
             accrued_interest,
             true,
+            vec![],
         ){
             Ok(_ok) => {}
             Err(err) => {

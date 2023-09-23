@@ -1319,10 +1319,13 @@ fn deposit_fee(
         }
     }
 
-    //Act if there are CDT assets or this is the auction contract sending assets 
-    if !CDT_assets.is_empty() || config.clone().auction_contract.is_some_and(|addr| addr == info.sender) || config.auction_contract.is_none(){
+    //Distribute fees to stakers if:
+    // - there are CDT assets
+    // - this is the auction contract sending assets 
+    // - there is no auction contract
+    if !CDT_assets.is_empty() || (config.clone().auction_contract.is_some() && config.clone().auction_contract.unwrap() == info.sender) || config.auction_contract.is_none(){
         //Set fee assets
-        let fee_assets = if config.clone().auction_contract.is_some_and(|addr| addr == info.sender) || config.auction_contract.is_none(){
+        let fee_assets = if (config.clone().auction_contract.is_some() && config.clone().auction_contract.unwrap() == info.sender) || config.auction_contract.is_none(){
             //If auction contract, set fee_assets to all assets
             //bc it has just sent back the system's desired_Asset
             //If no auction contract then nothing was sent so deposit all to stakers

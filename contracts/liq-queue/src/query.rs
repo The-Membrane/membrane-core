@@ -222,8 +222,10 @@ pub fn query_premium_slots(
 
 /// Return BidResponse for a given bid_id
 pub fn query_bid(deps: Deps, bid_for: AssetInfo, bid_id: Uint128) -> StdResult<BidResponse> {
-    let bid: Bid = read_bid(deps.storage, bid_id, bid_for.clone())?;
-    let slot: PremiumSlot = match read_premium_slot(deps.storage, bid_for.clone(), bid.liq_premium)
+    let queue = QUEUES.load(deps.storage, bid_for.to_string())?;
+    let bid: Bid = read_bid(deps.storage, bid_id, queue.clone())?;
+
+    let slot: PremiumSlot = match read_premium_slot( queue.clone(), bid.liq_premium)
     {
         Ok(slot) => slot,
         Err(_) => {
@@ -274,10 +276,11 @@ pub fn query_bids_by_user(
     start_after: Option<Uint128>,
 ) -> StdResult<Vec<BidResponse>> {
     let valid_user = deps.api.addr_validate(&user)?;
+    let queue = QUEUES.load(deps.storage, bid_for.to_string())?;
 
     let user_bids = read_bids_by_user(
         deps.storage,
-        bid_for.to_string(),
+        queue.clone(),
         valid_user,
         limit,
         start_after,

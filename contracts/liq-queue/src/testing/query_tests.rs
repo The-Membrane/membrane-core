@@ -18,6 +18,7 @@ fn query_liquidatible() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
@@ -93,6 +94,7 @@ fn query_bid() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
@@ -228,6 +230,7 @@ fn query_slots_queues() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,

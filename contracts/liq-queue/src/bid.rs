@@ -7,7 +7,7 @@ use cosmwasm_std::{
 };
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
 use membrane::math::{Decimal256, Uint256, U256};
-use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
+use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::liq_queue::Config;
 use membrane::oracle::{PriceResponse256, PriceResponse};
 use membrane::types::{Asset, AssetInfo, Bid, BidInput, PremiumSlot, Queue};
@@ -440,18 +440,16 @@ pub fn execute_liquidation(
 
     QUEUES.save(deps.storage, bid_for.to_string(), &queue)?;
 
-    let repay_msg = CDP_ExecuteMsg::Repay {
-        position_id,
-        position_owner: Some(position_owner),
-        send_excess_to: None,
+    let burn_msg = OP_ExecuteMsg::BurnTokens { 
+        denom: repay_asset.info.to_string(), 
+        amount: repay_asset.amount, 
+        burn_from_address: env.contract.address.clone().to_string(),
     };
 
-    let coin: Coin = asset_to_coin(repay_asset)?;
-
     let message = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.positions_contract.to_string(),
-        msg: to_binary(&repay_msg)?,
-        funds: vec![coin],
+        contract_addr: config.osmosis_proxy_contract.to_string(),
+        msg: to_binary(&burn_msg)?,
+        funds: vec![],
     });
 
     match bid_for {

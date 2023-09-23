@@ -5,7 +5,7 @@ use membrane::liq_queue::{
     BidResponse, Config, ExecuteMsg, InstantiateMsg, QueryMsg, QueueResponse, ClaimsResponse, SlotResponse,
 };
 use membrane::math::{Decimal256, Uint256};
-use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
+use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::types::{AssetInfo, BidInput};
 use membrane::oracle::PriceResponse;
 
@@ -22,6 +22,7 @@ fn proper_initialization() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
@@ -41,6 +42,7 @@ fn proper_initialization() {
         Config {
             owner: Addr::unchecked("addr0000"),
             positions_contract: Addr::unchecked("positions_contract"),
+            osmosis_proxy_contract: Addr::unchecked("osmosis_proxy_contract"),
             waiting_period: 60u64,
             added_assets: Some(vec![]),
             bid_asset: AssetInfo::NativeToken {
@@ -59,6 +61,7 @@ fn update_config() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
@@ -70,6 +73,8 @@ fn update_config() {
     // update owner
     let msg = ExecuteMsg::UpdateConfig {
         owner: Some("owner0001".to_string()),
+        positions_contract: None,
+        osmosis_proxy_contract: None,
         waiting_period: None,
         minimum_bid: None,
         maximum_waiting_bids: None,
@@ -86,6 +91,7 @@ fn update_config() {
         Config {
             owner: Addr::unchecked("addr0000"),
             positions_contract: Addr::unchecked("positions_contract"),
+            osmosis_proxy_contract: Addr::unchecked("osmosis_proxy_contract"),
             waiting_period: 60u64,
             added_assets: Some(vec![]),
             bid_asset: AssetInfo::NativeToken {
@@ -96,10 +102,12 @@ fn update_config() {
         }
     );
 
-    // Update left items
+    // Update remaining items
     let info = mock_info("addr0000", &[]);
     let msg = ExecuteMsg::UpdateConfig {
         owner: None,
+        positions_contract: Some("new_positions_contract".to_string()),
+        osmosis_proxy_contract: Some("new_osmosis_proxy_contract".to_string()),
         waiting_period: Some(100u64),
         minimum_bid: Some(Uint128::one()),
         maximum_waiting_bids: Some(10),
@@ -115,7 +123,8 @@ fn update_config() {
         value,
         Config {
             owner: Addr::unchecked("addr0000"),
-            positions_contract: Addr::unchecked("positions_contract"),
+            positions_contract: Addr::unchecked("new_positions_contract"),
+            osmosis_proxy_contract: Addr::unchecked("new_osmosis_proxy_contract"),
             waiting_period: 100u64,
             added_assets: Some(vec![]),
             bid_asset: AssetInfo::NativeToken {
@@ -130,6 +139,8 @@ fn update_config() {
     let info = mock_info("owner0000", &[]);
     let msg = ExecuteMsg::UpdateConfig {
         owner: Some("addr0000".to_string()),
+        positions_contract: None,
+        osmosis_proxy_contract: None,
         waiting_period: Some(60u64),
         minimum_bid: None,
         maximum_waiting_bids: None,
@@ -149,6 +160,8 @@ fn update_config() {
      let info = mock_info("owner0001", &[]);
      let msg = ExecuteMsg::UpdateConfig {
          owner: None,
+         positions_contract: None,
+         osmosis_proxy_contract: None,
          waiting_period: None,
          minimum_bid: None,
          maximum_waiting_bids: None,
@@ -164,7 +177,8 @@ fn update_config() {
          value,
          Config {
              owner: Addr::unchecked("owner0001"),
-             positions_contract: Addr::unchecked("positions_contract"),
+             positions_contract: Addr::unchecked("new_positions_contract"),
+             osmosis_proxy_contract: Addr::unchecked("new_osmosis_proxy_contract"),
              waiting_period: 100u64,
              added_assets: Some(vec![]),
              bid_asset: AssetInfo::NativeToken {
@@ -183,6 +197,7 @@ fn submit_bid() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::new(2),
         maximum_waiting_bids: 0u64,
@@ -414,6 +429,8 @@ fn submit_bid() {
     //Change config to allow 1 waiting bid
     let config_msg = ExecuteMsg::UpdateConfig {
         maximum_waiting_bids: Some(1),
+        positions_contract: None,
+        osmosis_proxy_contract: None,
         owner: None,
         waiting_period: None,
         minimum_bid: None,
@@ -513,6 +530,7 @@ fn retract_bid() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::new(2),
         maximum_waiting_bids: 100u64,
@@ -629,6 +647,7 @@ fn execute_bid() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
@@ -710,17 +729,14 @@ fn execute_bid() {
     assert_eq!(
         res.messages,
         vec![SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: "positions_contract".to_string(),
-            msg: to_binary(&CDP_ExecuteMsg::Repay {
-                position_id: Uint128::new(1u128),
-                position_owner: Some("owner01".to_string()),
-                send_excess_to: None,
+            contract_addr: "osmosis_proxy_contract".to_string(),
+            msg: to_binary(&OP_ExecuteMsg::BurnTokens {
+                denom: String::from("cdt"),
+                amount: Uint128::from(495000u128),
+                burn_from_address: "cosmos2contract".to_string(),
             })
             .unwrap(),
-            funds: vec![Coin {
-                denom: "cdt".to_string(),
-                amount: Uint128::from(495000u128),
-            }],
+            funds: vec![],
         }))]
     );
 
@@ -757,6 +773,7 @@ fn claim_liquidations() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
@@ -854,6 +871,7 @@ fn update_queue() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,

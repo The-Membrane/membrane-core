@@ -12,6 +12,8 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     /// Positions contract address
     pub positions_contract: String,
+    /// Osmosis Proxy contract address
+    pub osmosis_proxy_contract: String,
     /// Waiting period before bids are activated
     pub waiting_period: u64, 
     /// Minimum bid amount
@@ -83,6 +85,10 @@ pub enum ExecuteMsg {
     UpdateConfig {
         /// Contract owner
         owner: Option<String>,
+        /// Positions contract address
+        positions_contract: Option<String>,
+        /// Osmosis Proxy contract address
+        osmosis_proxy_contract: Option<String>,
         /// Waiting period before bids are activated
         waiting_period: Option<u64>,
         /// Minimum bid amount
@@ -170,6 +176,8 @@ pub struct Config {
     pub owner: Addr,
     /// Positions contract address
     pub positions_contract: Addr,
+    /// Osmosis Proxy contract address
+    pub osmosis_proxy_contract: Addr,
     /// Available assets to bid for
     pub added_assets: Option<Vec<AssetInfo>>,
     /// Waiting period before bids are activated to prevent bots frontrunning bids.

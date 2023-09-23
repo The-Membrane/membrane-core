@@ -641,6 +641,7 @@ pub fn handle_sp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 msg: to_binary(&LQInstantiateMsg {
                     owner: None,
                     positions_contract: addrs.clone().positions.to_string(),
+                    osmosis_proxy_contract: addrs.clone().osmosis_proxy.to_string(),
                     waiting_period: 60u64,
                     minimum_bid: Uint128::new(5_000_000), //5
                     maximum_waiting_bids: 5_000u64, //5,000
@@ -852,6 +853,8 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
             //Update LQ owner to governance
             let msg = LQExecuteMsg::UpdateConfig { 
                 owner: Some(addrs.clone().governance.to_string()), 
+                positions_contract: None,
+                osmosis_proxy_contract: None,
                 waiting_period: None, 
                 minimum_bid: None, 
                 maximum_waiting_bids: None 

@@ -45,22 +45,24 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     let config: Config;
 
-    let positions_contract = deps.api.addr_validate(&msg.positions_contract)?;    
+    let positions_contract = deps.api.addr_validate(&msg.positions_contract)?;
     
     //Get bid_asset from Basket
-    let bid_asset = deps
-        .querier
-        .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: positions_contract.to_string(),
-            msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
-        }))?
-        .credit_asset
-        .info;
+    // let bid_asset = deps
+    //     .querier
+    //     .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
+    //         contract_addr: positions_contract.to_string(),
+    //         msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
+    //     }))?
+    //     .credit_asset
+    //     .info;
+    let bid_asset = AssetInfo::NativeToken { denom: "cdt".to_string() };
 
     if msg.owner.is_some() {
         config = Config {
             owner: deps.api.addr_validate(&msg.owner.unwrap())?,
             positions_contract,
+            osmosis_proxy_contract: deps.api.addr_validate(&msg.osmosis_proxy_contract)?,
             waiting_period: msg.waiting_period,
             added_assets: Some(vec![]),
             bid_asset,
@@ -71,6 +73,7 @@ pub fn instantiate(
         config = Config {
             owner: info.sender,
             positions_contract,
+            osmosis_proxy_contract: deps.api.addr_validate(&msg.osmosis_proxy_contract)?,
             waiting_period: msg.waiting_period,
             added_assets: Some(vec![]),
             bid_asset,
@@ -139,6 +142,8 @@ pub fn execute(
         } => edit_queue(deps, info, bid_for, max_premium, bid_threshold),
         ExecuteMsg::UpdateConfig {
             owner,
+            positions_contract,
+            osmosis_proxy_contract,
             waiting_period,
             minimum_bid,
             maximum_waiting_bids,
@@ -146,6 +151,8 @@ pub fn execute(
             deps,
             info,
             owner,
+            positions_contract,
+            osmosis_proxy_contract,
             waiting_period,
             minimum_bid,
             maximum_waiting_bids,
@@ -158,6 +165,8 @@ fn update_config(
     deps: DepsMut,
     info: MessageInfo,
     owner: Option<String>,
+    positions_contract: Option<String>,
+    osmosis_proxy_contract: Option<String>,
     waiting_period: Option<u64>,
     minimum_bid: Option<Uint128>,
     maximum_waiting_bids: Option<u64>,
@@ -182,6 +191,14 @@ fn update_config(
         OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
         attrs.push(attr("owner_transfer", valid_addr));     
     };
+    if let Some(positions_contract) = positions_contract {
+        let valid_addr = deps.api.addr_validate(&positions_contract)?;
+        config.positions_contract = valid_addr;
+    }
+    if let Some(osmosis_proxy_contract) = osmosis_proxy_contract {
+        let valid_addr = deps.api.addr_validate(&osmosis_proxy_contract)?;
+        config.osmosis_proxy_contract = valid_addr;
+    }
     if waiting_period.is_some() {
         config.waiting_period = waiting_period.unwrap();
     }

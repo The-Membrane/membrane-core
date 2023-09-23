@@ -16,6 +16,7 @@ fn one_bidder_distribution() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
@@ -118,6 +119,7 @@ fn two_bidder_distribution() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 1u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
@@ -296,6 +298,7 @@ fn two_bidder_distribution_big_number() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
@@ -474,6 +477,7 @@ fn one_user_two_slots() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
@@ -650,6 +654,7 @@ fn completely_empty_pool() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 10u64,
@@ -840,6 +845,7 @@ fn product_truncated_to_zero() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 2u64,
@@ -961,6 +967,7 @@ fn two_bidder_distribution_multiple_common_slots() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 1u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
@@ -1168,6 +1175,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
@@ -1379,6 +1387,7 @@ fn not_enough_bid_for_collateral() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 1u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,

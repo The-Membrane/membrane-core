@@ -7,7 +7,6 @@ use crate::apollo_router::ExecuteMsg as RouterExecuteMsg;
 use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool}; 
 use crate::osmosis_proxy::{QueryMsg as OsmoQueryMsg, OwnerResponse};
 use crate::liquidity_check::{QueryMsg as LiquidityQueryMsg, LiquidityResponse};
-use crate::stability_pool::QueryMsg as SP_QueryMsg;
 use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, PositionResponse};
 
 //Constants
@@ -126,16 +125,13 @@ pub fn query_stability_pool_fee(
     querier: QuerierWrapper,
     stability_pool: String,
 ) -> StdResult<Decimal> {
-    let resp: AssetPool = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: stability_pool,
-        msg: to_binary(&SP_QueryMsg::AssetPool { 
-            user: None,
-            deposit_limit: None,
-            start_after: None,
-        })?,
-    }))?;
+    let resp: Option<Vec<u8>> = querier.query_wasm_raw(stability_pool, b"asset")?;
+    let asset_pool: AssetPool = match resp {
+        Some(asset) => serde_json_wasm::from_slice(&asset).unwrap(),
+        None => return Err(StdError::GenericErr { msg: String::from("Asset pool not found") }),
+    };
 
-    Ok(resp.liq_premium)
+    Ok(asset_pool.liq_premium)
 }
 
 /// Get contract balances for list of assets

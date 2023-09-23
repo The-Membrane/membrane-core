@@ -8,7 +8,7 @@ use cosmwasm_std::{
 };
 
 use cw_storage_plus::Item;
-use membrane::helpers::{router_native_to_native, pool_query_and_exit, query_stability_pool_fee, validate_position_owner, asset_to_coin, withdrawal_msg, get_contract_balances};
+use membrane::helpers::{router_native_to_native, pool_query_and_exit, validate_position_owner, asset_to_coin, withdrawal_msg, get_contract_balances};
 use membrane::cdp::{Config, ExecuteMsg, EditBasket};
 use membrane::oracle::{AssetResponse, PriceResponse};
 use osmo_bindings::PoolStateResponse;
@@ -2353,7 +2353,7 @@ fn get_amount_from_LTV(
     target_LTV: Decimal,
 ) -> Result<Uint128, ContractError>{
     //Get avg_borrow_LTV & total_value
-    let (avg_borrow_LTV, _avg_max_LTV, total_value, _cAsset_prices, cAsset_ratios) = get_avg_LTV(
+    let (avg_borrow_LTV, _avg_max_LTV, total_value, _cAsset_prices, _cAsset_ratios) = get_avg_LTV(
         storage, 
         env, 
         querier, 

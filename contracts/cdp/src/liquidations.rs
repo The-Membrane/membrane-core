@@ -34,21 +34,21 @@ pub fn liquidate(
     position_owner: String,
 ) -> Result<Response, ContractError> {
     //Check for Osmosis downtime 
-    // match DowntimedetectorQuerier::new(&querier)
-    //     .recovered_since_downtime_of_length(
-    //         10 * 60 * 8, //8 hours from 6 second blocks
-    //         Some(Duration {
-    //             seconds: 60 * 60, //1 hour
-    //             nanos: 0,
-    //         })
-    // ){
-    //     Ok(resp) => {            
-    //         if !resp.succesfully_recovered {
-    //             return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
-    //         }
-    //     },
-    //     Err(_) => (),
-    // };
+    match DowntimedetectorQuerier::new(&querier)
+        .recovered_since_downtime_of_length(
+            10 * 60 * 8, //8 hours from 6 second blocks
+            Some(Duration {
+                seconds: 60 * 60, //1 hour
+                nanos: 0,
+            })
+    ){
+        Ok(resp) => {            
+            if !resp.succesfully_recovered {
+                return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
+            }
+        },
+        Err(_) => (),
+    };
 
     //Load state
     let config: Config = CONFIG.load(storage)?;
@@ -137,9 +137,7 @@ pub fn liquidate(
     //Calculate caller & protocol fees 
     //and amount to send to the Liquidation Queue.
     let (protocol_fee_msg, leftover_repayment) = per_asset_fulfillments(
-        storage, 
         querier, 
-        env.clone(), 
         config.clone(), 
         basket.clone(), 
         position_id, 
@@ -170,7 +168,6 @@ pub fn liquidate(
         env.clone(), 
         config, 
         basket.clone(), 
-        position_id, 
         valid_position_owner.clone(), 
         leftover_repayment, 
         credit_repay_amount, 
@@ -347,9 +344,7 @@ fn get_user_repay_amount(
 /// Calculate & send fees.
 /// Send liquidatible amount to Liquidation Queue.
 fn per_asset_fulfillments(
-    storage: &mut dyn Storage,
     querier: QuerierWrapper,
-    env: Env,
     config: Config,
     basket: Basket,
     position_id: Uint128,
@@ -368,7 +363,7 @@ fn per_asset_fulfillments(
     per_asset_repayment: &mut Vec<Decimal>,
     liquidated_assets: &mut Vec<cAsset>,
 ) -> StdResult<(CosmosMsg, Decimal)>{
-    
+
     let mut caller_coins: Vec<Coin> = vec![];
     let mut protocol_coins: Vec<Coin> = vec![];
 
@@ -455,7 +450,7 @@ fn per_asset_fulfillments(
 
             //Store repay amount
             per_asset_repayment.push(Decimal::from_ratio(repay_amount_per_asset, Uint128::one()));
-
+            
             let res: LQ_LiquidatibleResponse =
                 querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
                     contract_addr: basket.clone().liq_queue.unwrap().to_string(),
@@ -474,6 +469,7 @@ fn per_asset_fulfillments(
             let leftover: Uint128 = Uint128::from_str(&res.leftover_collateral)?;
             let queue_asset_amount_paid: Uint128 =
                 collateral_repay_amount  - leftover;
+
                 
             //Call Liq Queue::Liquidate for the asset
             let liq_msg = LQ_ExecuteMsg::Liquidate {
@@ -535,7 +531,6 @@ fn build_sp_submsgs(
     env: Env,
     config: Config,
     basket: Basket,
-    position_id: Uint128,
     valid_position_owner: Addr,
     mut leftover_repayment: Decimal,
     credit_repay_amount: Decimal,
@@ -638,7 +633,6 @@ fn build_sp_submsgs(
 
 /// Returns LP withdrawal message use in liquidations
 fn get_lp_liq_withdraw_msg(
-    storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     prop: &mut LiquidationPropagation,
@@ -679,7 +673,6 @@ fn get_lp_liq_withdraw_msg(
 pub fn sell_wall(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
-    api: &dyn Api,
     env: Env,
     prop: &mut LiquidationPropagation,
     repay_amount: Decimal,
@@ -701,7 +694,6 @@ pub fn sell_wall(
         if cAsset.clone().pool_info.is_some() {
 
             let msg = get_lp_liq_withdraw_msg( 
-                storage,
                 querier, 
                 env.clone(), 
                 prop,

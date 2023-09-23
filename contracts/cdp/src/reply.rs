@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, Api, CosmosMsg, Storage, QuerierWrapper, Binary};
+use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, CosmosMsg};
 
 use membrane::types::{AssetInfo, Asset, Basket, cAsset};
 use membrane::stability_pool::ExecuteMsg as SP_ExecuteMsg;
@@ -30,9 +30,9 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
             )?[0];
 
             //Skip if balance is 0
-            // if credit_asset_balance.is_zero() {
-            //     return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
-            // }
+            if credit_asset_balance.is_zero() {
+                return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
+            }
 
             //Create burn_msg with queried funds
             //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted
@@ -237,7 +237,6 @@ pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
                 let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall(
                     deps.storage, 
                     deps.querier,
-                    deps.api, 
                     env, 
                     &mut prop, 
                     repay_amount
@@ -404,7 +403,6 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall(
                     deps.storage, 
                     deps.querier,
-                    deps.api, 
                     env, 
                     &mut liquidation_propagation, 
                     repay_amount
@@ -472,7 +470,6 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall(
                 deps.storage, 
                 deps.querier,
-                deps.api, 
                 env, 
                 &mut liquidation_propagation, 
                 repay_amount
@@ -672,7 +669,6 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall(
                     deps.storage,
                     deps.querier,
-                    deps.api,
                     env,
                     &mut prop,
                     repay_amount,

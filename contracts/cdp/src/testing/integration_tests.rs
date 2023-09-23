@@ -123,7 +123,7 @@ mod tests {
                             attr("collateral_amount", collateral_amount),
                         ]))
                     //Liquidate_LPs()
-                    } else if collateral_amount.to_string() == String::from("1166666666666666665") {
+                    } else if collateral_amount.to_string() == String::from("1277777777388888889") {
                         Ok(Response::new().add_attributes(vec![
                             attr("action", "execute_bid"),
                             attr("repay_amount", 2555555555u128.to_string()),
@@ -217,9 +217,9 @@ mod tests {
                                 .to_string(),
                         })?)
                     //liquidate_LPs()
-                    } else if collateral_amount.to_string() == String::from("1388888888888888887"){
+                    } else if collateral_amount.to_string() == String::from("1388888888500000000"){
                         Ok(to_binary(&LQ_LiquidatibleResponse {
-                            leftover_collateral: "222222222222222222".to_string(),
+                            leftover_collateral: "111111111111111111".to_string(),
                             total_debt_repaid: (Uint256::from(2777_777777u128) - Uint256::from(222_222222u128))
                             .to_string(),
                         })?)
@@ -1850,8 +1850,6 @@ mod tests {
     }
 
     mod cdp {
-
-        use crate::state::LiquidationPropagation;
 
         use super::*;
         use cosmwasm_std::{coins, BlockInfo};
@@ -5090,7 +5088,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97516_727777777777781));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97405_616667055555557));
             //2777 credit liquidated at $1
             //lp_denom is worth $2
             //Assert sell wall wasn't sent assets
@@ -5118,7 +5116,7 @@ mod tests {
             );
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(1166_666_666_666_666_665, "lp_denom")]
+                vec![coin(1277_777_777_388_888_889, "lp_denom")]
             );
             
             /////////SP Errors////

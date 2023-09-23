@@ -235,7 +235,7 @@ pub fn execute(
                     .collect::<Vec<Asset>>()
             };
 
-            deposit_fee(deps, env, fee_assets)
+            deposit_fee(deps, info, env, fee_assets)
         },
         ExecuteMsg::TrimFeeEvents {  } => trim_fee_events(deps.storage, info),
     }
@@ -1262,6 +1262,7 @@ pub fn claim_rewards(
 /// Deposit assets for staking rewards
 fn deposit_fee(
     deps: DepsMut,
+    info: MessageInfo,
     env: Env,
     fee_assets: Vec<Asset>,
 ) -> Result<Response, ContractError> {
@@ -1281,45 +1282,60 @@ fn deposit_fee(
     let cdt_denom = basket.credit_asset.info;
 
     //Filter assets if stakers are keeping raw CDT
-    let non_CDT_assets = if config.keep_raw_cdt {
+    let (non_CDT_assets, CDT_assets) = if config.keep_raw_cdt {
         //Filter
-        fee_assets.clone()
+        let non_cdt = fee_assets.clone()
             .into_iter()
             .filter(|fee_asset| fee_asset.info != cdt_denom)
-            .collect::<Vec<Asset>>()
-    } else {
-        //Don't filter
-        fee_assets.clone()
-    };    
-    
-    //Act if there are non-CDT assets
-    if non_CDT_assets.len() != 0 {
-        if let Some(auction_contract) = config.clone().auction_contract {
-            //Create auction msgs
-            for asset in non_CDT_assets.clone() {
-                let message: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: auction_contract.to_string(),
-                    msg: to_binary(&AuctionExecuteMsg::StartAuction { 
-                        repayment_position_info: None, 
-                        send_to: None, 
-                        auction_asset: asset.clone(),
-                    })?,
-                    funds: vec![asset_to_coin(asset)?],
-                });
-
-                messages.push(message);
-            }
-        }
-    }
-
-    
-    if config.keep_raw_cdt{
-        //Remove non-CDT assets from fee assets
-        let CDT_assets = fee_assets.clone()
+            .collect::<Vec<Asset>>();
+        
+        let cdt = fee_assets.clone()
             .into_iter()
             .filter(|fee_asset| fee_asset.info == cdt_denom)
             .collect::<Vec<Asset>>();
 
+        ( non_cdt, cdt )
+    } else {
+        //Don't filter
+        (fee_assets.clone(), vec![])
+    };    
+    
+    //Act if there are non-CDT assets that didn't come from the auction contract
+    if non_CDT_assets.len() != 0 {
+        if let Some(auction_contract) = config.clone().auction_contract {
+            if info.sender != auction_contract {
+                //Create auction msgs
+                for asset in non_CDT_assets.clone() {
+                    let message: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: auction_contract.to_string(),
+                        msg: to_binary(&AuctionExecuteMsg::StartAuction { 
+                            repayment_position_info: None, 
+                            send_to: None, 
+                            auction_asset: asset.clone(),
+                        })?,
+                        funds: vec![asset_to_coin(asset)?],
+                    });
+
+                    messages.push(message);
+                }
+            }
+        }
+    }
+
+    //Act if there are CDT assets or this is the auction contract sending assets 
+    if !CDT_assets.is_empty() || config.clone().auction_contract.is_some_and(|addr| addr == info.sender) || config.auction_contract.is_none(){
+        //Set fee assets
+        let fee_assets = if config.clone().auction_contract.is_some_and(|addr| addr == info.sender) || config.auction_contract.is_none(){
+            //If auction contract, set fee_assets to all assets
+            //bc it has just sent back the system's desired_Asset
+            //If no auction contract then nothing was sent so deposit all to stakers
+            fee_assets.clone()
+        } else {
+            //If not auction contract, set fee_assets to CDT_assets
+            //bc the other assets were sent to the auction
+            CDT_assets.clone()
+        };
+    
         //Load Fee Events
         let mut fee_events = FEE_EVENTS.load(deps.storage)?;
 
@@ -1348,7 +1364,7 @@ fn deposit_fee(
         let decimal_total = Decimal::from_ratio(total, Uint128::new(1u128));
         
         //Add new Fee Event
-        for asset in CDT_assets.clone() {        
+        for asset in fee_assets.clone() {        
             let amount = Decimal::from_ratio(asset.amount, Uint128::new(1u128));
 
             fee_events.push(FeeEvent {

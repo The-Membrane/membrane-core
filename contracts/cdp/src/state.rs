@@ -2,7 +2,7 @@ use membrane::oracle::PriceResponse;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResult, StdError, Binary};
+use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResult, StdError};
 use cw_storage_plus::{Item, Map};
 
 use membrane::types::{Asset, Basket, Position, RedemptionInfo, UserInfo, AssetInfo, cAsset};

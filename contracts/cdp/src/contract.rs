@@ -32,7 +32,7 @@ use crate::query::{
     query_position, query_position_insolvency,
     query_user_positions, query_basket_redeemability,
 };
-use crate::liquidations::{liquidate};
+use crate::liquidations::liquidate;
 use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_close_position_reply, handle_router_repayment_reply};
 use crate::state::{
     BASKET, CONFIG, LIQUIDATION, get_target_position, update_position, OWNERSHIP_TRANSFER,

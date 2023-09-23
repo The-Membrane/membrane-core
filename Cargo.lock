@@ -1444,6 +1444,7 @@ dependencies = [
  "membrane",
  "schemars",
  "serde",
+ "serde-json-wasm 1.0.0",
  "thiserror",
  "wasm",
 ]

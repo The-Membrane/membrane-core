@@ -522,9 +522,14 @@ mod tests {
 
             //Check that the fee is deposited in the auction contract
             assert_eq!(
-                app.wrap().query_all_balances(auction_contract).unwrap(),
+                app.wrap().query_all_balances(auction_contract.clone()).unwrap(),
                 vec![coin(1000, "fee_asset")]
             );
+            
+            //DepositFee from Auction
+            let msg = ExecuteMsg::DepositFee {  };
+            let cosmos_msg = staking_contract.call(msg, vec![coin(1000, "fee_asset")]).unwrap();
+            app.execute(auction_contract, cosmos_msg).unwrap();
 
             //Assert FeeEventsResponse
             let resp: FeeEventsResponse = app
@@ -547,6 +552,15 @@ mod tests {
                         amount: Decimal::from_str("0.000833333333333333").unwrap(), 
                     },
                 },
+                FeeEvent {
+                    time_of_event: 1572056619,
+                    fee: LiqAsset {
+                        info: AssetInfo::NativeToken {
+                            denom: String::from("fee_asset")
+                        },
+                        amount: Decimal::from_str("0.000833333333333333").unwrap(), 
+                    },
+                }
             ]);
 
             //Skip fee waiting period + excess time
@@ -574,7 +588,7 @@ mod tests {
                     }
                 )
                 .unwrap();
-            assert_eq!(resp.claimables.len(), 1 as usize);
+            assert_eq!(resp.claimables.len(), 2 as usize);
             assert_eq!(resp.accrued_interest, Uint128::new(8_219));
 
             //User stake before Restake
@@ -597,7 +611,7 @@ mod tests {
             //Check that the rewards were sent
             assert_eq!(
                 app.wrap().query_all_balances("user_1").unwrap(),
-                vec![coin(833, "credit_fulldenom"), coin(9_000_000, "mbrn_denom")]
+                vec![coin(833, "credit_fulldenom"), coin(833, "fee_asset"), coin(9_000_000, "mbrn_denom")]
             );
                 
             //Assert Vesting Claims
@@ -610,7 +624,7 @@ mod tests {
                     }
                 )
                 .unwrap();
-            assert_eq!(resp.claimables.len(), 1 as usize);
+            assert_eq!(resp.claimables.len(), 2 as usize);
             assert_eq!(resp.accrued_interest, Uint128::new(0));
 
             //Claim Vesting
@@ -624,7 +638,7 @@ mod tests {
             //Check that the rewards were sent
             assert_eq!(
                 app.wrap().query_all_balances("contract3").unwrap(),
-                vec![coin(166, "credit_fulldenom")]
+                vec![coin(166, "credit_fulldenom"), coin(166, "fee_asset")]
             );
 
             //Claim: Assert claim was saved and can't be double claimed

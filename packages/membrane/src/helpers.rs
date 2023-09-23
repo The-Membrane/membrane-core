@@ -4,7 +4,7 @@ use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 use apollo_cw_asset::AssetInfoUnchecked;
 
 use crate::apollo_router::ExecuteMsg as RouterExecuteMsg;
-use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool}; 
+use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Basket}; 
 use crate::osmosis_proxy::{QueryMsg as OsmoQueryMsg, OwnerResponse};
 use crate::liquidity_check::{QueryMsg as LiquidityQueryMsg, LiquidityResponse};
 use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, PositionResponse};
@@ -133,6 +133,21 @@ pub fn query_stability_pool_fee(
 
     Ok(asset_pool.liq_premium)
 }
+
+//Return Basket
+pub fn query_basket(
+    querier: QuerierWrapper,
+    cdp_contract: String,
+) -> StdResult<Basket> {
+    let resp: Option<Vec<u8>> = querier.query_wasm_raw(cdp_contract, b"basket")?;
+    let basket: Basket = match resp {
+        Some(basket) => serde_json_wasm::from_slice(&basket).unwrap(),
+        None => return Err(StdError::GenericErr { msg: String::from("Basket not found") }),
+    };
+
+    Ok(basket)
+}
+
 
 /// Get contract balances for list of assets
 pub fn get_contract_balances(

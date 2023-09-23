@@ -13,7 +13,6 @@ use cw2::set_contract_version;
 use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, ProposalStatus};
 use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, accrue_user_positions, query_basket};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
-use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::staking::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg };
 use membrane::vesting::{QueryMsg as Vesting_QueryMsg, RecipientsResponse};
@@ -1276,7 +1275,7 @@ fn deposit_fee(
         .collect::<Vec<String>>();
 
     //Get CDT denom
-    let basket: Basket = query_basket(deps.querier, config.positions_contract.unwrap_or_default().to_string())?;
+    let basket: Basket = query_basket(deps.querier, config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string())?;
     let cdt_denom = basket.credit_asset.info;
 
     //Filter assets if stakers are keeping raw CDT

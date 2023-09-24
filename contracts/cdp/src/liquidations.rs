@@ -64,10 +64,14 @@ pub fn liquidate(
     )?;
 
     //Check position health compared to max_LTV
-    let (insolvent, current_LTV, _available_fee) = insolvency_check(
+    let (
+        (insolvent, current_LTV, _available_fee), 
+        (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices_res, cAsset_ratios)
+    ) = insolvency_check(
         storage,
         env.clone(),
         querier,
+        Some(basket.clone()),
         target_position.clone().collateral_assets,
         target_position.clone().credit_amount,
         basket.clone().credit_price,
@@ -80,19 +84,7 @@ pub fn liquidate(
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
     }
-
-    //Send liquidation amounts and info to the modules
-    //Calculate how much needs to be liquidated (down to max_borrow_LTV):
-    let (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices_res, cAsset_ratios) = get_avg_LTV(
-        storage,
-        env.clone(),
-        querier,
-        config.clone(),
-        Some(basket.clone()),
-        target_position.clone().collateral_assets,
-        false,
-        true,
-    )?;
+    
     //Convert from Response to price (Decimal)
     let cAsset_prices = cAsset_prices_res.clone().into_iter().map(|price| price.price).collect::<Vec<Decimal>>();
 
@@ -477,8 +469,6 @@ fn per_asset_fulfillments(
                 collateral_price: collateral_price.clone(),
                 collateral_amount: Uint256::from(queue_asset_amount_paid.u128()),
                 bid_for: cAsset.clone().asset.info,
-                position_id,
-                position_owner: valid_position_owner.clone().to_string(),
             };
 
             //Keep track of remaining position value

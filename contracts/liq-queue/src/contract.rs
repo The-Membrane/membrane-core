@@ -48,15 +48,14 @@ pub fn instantiate(
     let positions_contract = deps.api.addr_validate(&msg.positions_contract)?;
     
     //Get bid_asset from Basket
-    // let bid_asset = deps
-    //     .querier
-    //     .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
-    //         contract_addr: positions_contract.to_string(),
-    //         msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
-    //     }))?
-    //     .credit_asset
-    //     .info;
-    let bid_asset = AssetInfo::NativeToken { denom: "cdt".to_string() };
+    let bid_asset = deps
+        .querier
+        .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: positions_contract.to_string(),
+            msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
+        }))?
+        .credit_asset
+        .info;
 
     if msg.owner.is_some() {
         config = Config {
@@ -114,8 +113,6 @@ pub fn execute(
             collateral_price,
             collateral_amount,
             bid_for,
-            position_id,
-            position_owner,
         } => execute_liquidation(
             deps,
             env,
@@ -124,8 +121,6 @@ pub fn execute(
             bid_for,
             collateral_price,
             credit_price,
-            position_id,
-            position_owner,
         ),
         ExecuteMsg::ClaimLiquidations { bid_for, bid_ids } => {
             claim_liquidations(deps, env, info, bid_for, bid_ids)

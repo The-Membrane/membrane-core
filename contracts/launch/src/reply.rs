@@ -1143,6 +1143,13 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                         is_position_contract: false,
                     },
                     Owner {
+                        owner: addrs.clone().liq_queue,  //For repayment burns
+                        total_minted: Uint128::zero(),
+                        stability_pool_ratio: None,
+                        non_token_contract_auth: false,
+                        is_position_contract: false,
+                    },
+                    Owner {
                         owner: addrs.clone().governance, 
                         total_minted: Uint128::zero(),
                         stability_pool_ratio: None,

@@ -11,7 +11,7 @@ use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::liq_queue::Config;
 use membrane::oracle::{PriceResponse256, PriceResponse};
 use membrane::types::{Asset, AssetInfo, Bid, BidInput, PremiumSlot, Queue};
-use membrane::helpers::{validate_position_owner, withdrawal_msg, asset_to_coin};
+use membrane::helpers::{validate_position_owner, withdrawal_msg};
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, QUEUES};
@@ -351,15 +351,12 @@ pub fn execute_liquidation(
     env: Env,
     info: MessageInfo,
     //All from Positions Contract
-    collateral_amount: Uint256,
+    mut collateral_amount: Uint256,
     bid_for: AssetInfo, //aka collateral_info
     collateral_price: PriceResponse,
     credit_price: PriceResponse,
-    //For Repayment
-    position_id: Uint128,
-    position_owner: String,
 ) -> Result<Response, ContractError> {
-
+    
     let config: Config = CONFIG.load(deps.storage)?;
 
     //Only Positions contract can execute
@@ -368,7 +365,7 @@ pub fn execute_liquidation(
     }
     
     //Get bid_with asset from Config
-    let bid_with: AssetInfo = config.bid_asset;
+    let bid_with: AssetInfo = config.clone().bid_asset;
 
     let mut queue = QUEUES.load(deps.storage, bid_for.to_string())?;
     if queue.bid_asset.info != bid_with {
@@ -390,7 +387,7 @@ pub fn execute_liquidation(
                 Err(_) => continue,
             };
         //Activates necessary bids for a new total
-        slot = set_slot_total(deps.storage, slot, env.clone(), &mut queue)?;
+        slot = set_slot_total(deps.storage, slot, env.clone(), &mut queue, config.clone())?;
 
         if slot.total_bid_amount.is_zero() {
             continue;
@@ -422,7 +419,7 @@ pub fn execute_liquidation(
 
     //Because the Positions contract is querying balances beforehand, this should rarely occur
     if !remaining_collateral_to_liquidate.is_zero() {
-        return Err(ContractError::InsufficientBids {});
+        collateral_amount = collateral_amount - remaining_collateral_to_liquidate;     
     }
 
     //Repay for the user
@@ -445,7 +442,6 @@ pub fn execute_liquidation(
         amount: repay_asset.amount, 
         burn_from_address: env.contract.address.clone().to_string(),
     };
-
     let message = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.osmosis_proxy_contract.to_string(),
         msg: to_binary(&burn_msg)?,
@@ -681,10 +677,9 @@ pub(crate) fn set_slot_total(
     mut slot: PremiumSlot,
     env: Env,
     queue: &mut Queue,
+    config: Config,
 ) -> Result<PremiumSlot, ContractError> {
     let block_time = env.block.time.seconds();
-
-    let config = CONFIG.load(deps)?;
 
     //If elapsed time is less than wait_period && total is above threshold, don't recalculate/activate any bids
     //This can increase wait_period but decreases runtime for recurrent liquidations

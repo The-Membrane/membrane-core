@@ -296,13 +296,14 @@ pub fn query_position_insolvency(
         deps.storage,
         env,
         deps.querier,
+        Some(basket.clone()),
         target_position.collateral_assets,
         target_position.credit_amount,
         basket.credit_price,
         false,
         config,
     ){
-        Ok((insolvent, current_LTV, available_fee)) => (insolvent, current_LTV, available_fee),
+        Ok(((insolvent, current_LTV, available_fee), _)) => (insolvent, current_LTV, available_fee),
         Err(_) => {
             return Ok(InsolvencyResponse {
                 insolvent_positions: vec![
@@ -851,19 +852,20 @@ pub fn insolvency_check(
     storage: &dyn Storage,
     env: Env,
     querier: QuerierWrapper,
+    basket: Option<Basket>,
     collateral_assets: Vec<cAsset>,
     credit_amount: Uint128,
     credit_price: PriceResponse,
     max_borrow: bool, //Toggle for either over max_borrow or over max_LTV (liquidatable)
     config: Config,
-) -> StdResult<(bool, Decimal, Uint128)> { //insolvent, current_LTV, available_fee
+) -> StdResult<((bool, Decimal, Uint128), (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>))> { //insolvent, current_LTV, available_fee, (avg_LTV return values)
 
     //Get avg LTVs
     let avg_LTVs: (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>) =
-        get_avg_LTV(storage, env, querier, config, None, collateral_assets.clone(), false, true)?;
+        get_avg_LTV(storage, env, querier, config, basket, collateral_assets.clone(), false, true)?;
 
     //Insolvency check
-    insolvency_check_calc(avg_LTVs, collateral_assets, credit_amount, credit_price, max_borrow)
+    Ok((insolvency_check_calc(avg_LTVs.clone(), collateral_assets, credit_amount, credit_price, max_borrow)?, avg_LTVs))
 }
 
 /// Function handles calculations for the insolvency check

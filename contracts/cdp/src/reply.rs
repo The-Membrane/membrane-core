@@ -394,6 +394,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             //Success w/o leftovers: Send LQ leftovers to the SP
             //Error: Sell Wall combined leftovers
             if leftover_amount != Uint128::zero() {
+                panic!("{:?}, line 396", liquidation_propagation);
                 attrs.push(attr("leftover_amount", leftover_amount.clone().to_string()));
 
                 let repay_amount = liquidation_propagation.clone().liq_queue_leftovers
@@ -418,20 +419,19 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             //Go to SP if LQ has leftovers
             //Using 1 instead of 0 to account for rounding errors
             } else if liquidation_propagation.clone().liq_queue_leftovers > Decimal::one(){
-                    
+
                 //Send LQ leftovers to SP
                 //This is an SP reply so we don't have to check if the SP is okay to call
-                let config: Config = CONFIG.load(deps.storage)?;
+                let config: Config = liquidation_propagation.clone().config;
 
                 //Send leftovers to the Stability Pool
                 let sp_repay_amount = liquidation_propagation.clone().liq_queue_leftovers;
 
-                // if !sp_repay_amount.is_zero() {
                 attrs.push(attr("sent_to_sp", sp_repay_amount.clone().to_string()));
 
                 //Stability Pool message builder
                 let liq_msg = SP_ExecuteMsg::Liquidate {
-                        liq_amount: sp_repay_amount
+                    liq_amount: sp_repay_amount
                 };
 
                 let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -464,6 +464,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             //If error, sell wall the SP repay amount and LQ leftovers
             let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;
 
+            panic!("{:?}---line 467", liquidation_propagation);
             let repay_amount = liquidation_propagation.liq_queue_leftovers + liquidation_propagation.stability_pool;
             
             //Sell wall remaining
@@ -658,6 +659,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             let mut repay_amount = Decimal::zero();
 
             let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
+            panic!("{:?}---line 660", prop);
 
             //If SP wasn't called, meaning LQ leftovers can't be handled there, sell wall this asset's leftovers
             //Replies are FIFO so we remove from front

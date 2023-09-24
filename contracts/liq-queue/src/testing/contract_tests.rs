@@ -703,8 +703,6 @@ fn execute_bid() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
 
     // unauthorized attempt
@@ -758,8 +756,6 @@ fn execute_bid() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
 
     let res = execute(deps.as_mut(), env, info, liq_msg).unwrap_err();
@@ -827,8 +823,6 @@ fn claim_liquidations() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();

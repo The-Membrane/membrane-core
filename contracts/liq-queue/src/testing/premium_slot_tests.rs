@@ -69,8 +69,6 @@ fn one_bidder_distribution() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -173,8 +171,6 @@ fn two_bidder_distribution() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env.clone(), info, liq_msg).unwrap();
@@ -214,8 +210,6 @@ fn two_bidder_distribution() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
@@ -352,8 +346,6 @@ fn two_bidder_distribution_big_number() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env.clone(), info, liq_msg).unwrap();
@@ -393,8 +385,6 @@ fn two_bidder_distribution_big_number() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
@@ -543,8 +533,6 @@ fn one_user_two_slots() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
@@ -585,8 +573,6 @@ fn one_user_two_slots() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
@@ -708,8 +694,6 @@ fn completely_empty_pool() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env.clone(), info, liq_msg).unwrap();
@@ -778,8 +762,6 @@ fn completely_empty_pool() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
@@ -900,8 +882,6 @@ fn product_truncated_to_zero() {
             bid_for: AssetInfo::NativeToken {
                 denom: "gamm/pool/5".to_string(),
             },
-            position_id: Uint128::new(1u128),
-            position_owner: "owner01".to_string(),
         };
         let info = mock_info("positions_contract", &[]);
         execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
@@ -1082,8 +1062,6 @@ fn two_bidder_distribution_multiple_common_slots() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
@@ -1268,8 +1246,6 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the secondary bids
@@ -1333,8 +1309,6 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the secondary bids
@@ -1463,8 +1437,6 @@ fn not_enough_bid_for_collateral() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid

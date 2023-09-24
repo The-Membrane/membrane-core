@@ -40,7 +40,7 @@ pub enum ExecuteMsg {
         /// Amount to withdraw, None = withdraw full bid
         amount: Option<Uint256>,
     },
-    /// Use bids to fulfll liquidation of Position Contract basket. Called by Positions
+    /// Use bids to fulfill liquidation of Position Contract basket. Called by Positions
     Liquidate {
         /// Basket credit price, sent from Position's contract
         credit_price: PriceResponse,
@@ -50,10 +50,6 @@ pub enum ExecuteMsg {
         collateral_amount: Uint256,
         /// Collateral asset info to bid_for
         bid_for: AssetInfo,
-        /// Position id to liquidate
-        position_id: Uint128,
-        /// Position owner 
-        position_owner: String,
     },
     /// Claim liquidated assets
     ClaimLiquidations {

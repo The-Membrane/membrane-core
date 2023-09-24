@@ -91,8 +91,6 @@ fn partial_one_collateral_one_slot() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -182,8 +180,6 @@ fn partial_one_collateral_one_slot_w_fees() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -272,8 +268,6 @@ fn one_collateral_one_slot() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -363,8 +357,6 @@ fn one_collateral_one_slot_w_fees() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -473,8 +465,6 @@ fn two_slot_w_fees() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -584,8 +574,6 @@ fn partial_two_slot_w_fees() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -695,8 +683,6 @@ fn partial_two_slot_w_fees_bignums() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();

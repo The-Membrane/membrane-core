@@ -410,10 +410,11 @@ pub fn withdraw(
 
                 //If resulting LTV makes the position insolvent, error. If not construct withdrawal_msg
                 //This is taking max_borrow_LTV so users can't max borrow and then withdraw to get a higher initial LTV
-                let insolvency_res = insolvency_check(
+                let (insolvency_res, _) = insolvency_check(
                     deps.storage,
                     env.clone(),
                     deps.querier,
+                    Some(basket.clone()),
                     target_position.clone().collateral_assets,
                     target_position.clone().credit_amount,
                     basket.clone().credit_price,
@@ -997,10 +998,11 @@ pub fn increase_debt(
     //Can't take credit before an oracle is set
     if basket.oracle_set {
         //If resulting LTV makes the position insolvent, error. If not construct mint msg
-        let insolvency_res = insolvency_check(
+        let (insolvency_res, _) = insolvency_check(
             deps.storage,
             env.clone(),
             deps.querier,
+            Some(basket.clone()),
             target_position.clone().collateral_assets,
             target_position.credit_amount,
             basket.clone().credit_price,

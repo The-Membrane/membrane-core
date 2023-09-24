@@ -16,7 +16,7 @@ use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, Pool
 
 use crate::error::ContractError; 
 use crate::positions::{BAD_DEBT_REPLY_ID, ROUTER_REPLY_ID, STABILITY_POOL_REPLY_ID, USER_SP_REPAY_REPLY_ID, LIQ_QUEUE_REPLY_ID};
-use crate::query::{insolvency_check, get_avg_LTV, get_cAsset_ratios};
+use crate::query::{insolvency_check, get_cAsset_ratios};
 use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation, get_target_position};
 
 
@@ -84,7 +84,7 @@ pub fn liquidate(
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
     }
-    
+
     //Convert from Response to price (Decimal)
     let cAsset_prices = cAsset_prices_res.clone().into_iter().map(|price| price.price).collect::<Vec<Decimal>>();
 
@@ -132,8 +132,6 @@ pub fn liquidate(
         querier, 
         config.clone(), 
         basket.clone(), 
-        position_id, 
-        valid_position_owner.clone(), 
         info.sender.to_string(),
         caller_fee,
         &mut collateral_assets, 
@@ -339,8 +337,6 @@ fn per_asset_fulfillments(
     querier: QuerierWrapper,
     config: Config,
     basket: Basket,
-    position_id: Uint128,
-    valid_position_owner: Addr,
     fee_recipient: String,
     caller_fee: Decimal,
     collateral_assets: &mut Vec<cAsset>,

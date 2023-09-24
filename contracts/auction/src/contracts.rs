@@ -362,7 +362,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
 
     let mut msgs: Vec<CosmosMsg> = vec![];
     let mut attrs = vec![attr("method", "swap_with_contract_desired_asset")];
-
+    
     //Validate MBRN send
     if info.funds.len() != 1 {
         return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Only one coin can be sent") }));
@@ -441,26 +441,28 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
         }
 
         //Send desired asset to Governance or deposit to Stakers
-        if config.send_to_stakers {
-            //Staking DepositFee
-            msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.clone().staking_contract.to_string(),
-                msg: to_binary(&StakingExecuteMsg::DepositFee { })?,
-                funds: vec![Coin {
-                    denom: config.clone().desired_asset,
-                    amount: coin.amount - overpay,
-                }],
-            }));
+        if coin.amount - overpay > Uint128::zero(){
+            if config.send_to_stakers {
+                //Staking DepositFee
+                msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: config.clone().staking_contract.to_string(),
+                    msg: to_binary(&StakingExecuteMsg::DepositFee { })?,
+                    funds: vec![Coin {
+                        denom: config.clone().desired_asset,
+                        amount: coin.amount - overpay,
+                    }],
+                }));
 
-        } else {
-            //Governance
-            msgs.push(CosmosMsg::Bank(BankMsg::Send {
-                to_address: config.clone().governance_contract.to_string(),
-                amount: vec![Coin {
-                    denom: config.clone().desired_asset,
-                    amount: coin.amount - overpay,
-                }],
-            }));
+            } else {
+                //Governance
+                msgs.push(CosmosMsg::Bank(BankMsg::Send {
+                    to_address: config.clone().governance_contract.to_string(),
+                    amount: vec![Coin {
+                        denom: config.clone().desired_asset,
+                        amount: coin.amount - overpay,
+                    }],
+                }));
+            }
         }
 
         //Send fee asset to the sender
@@ -470,7 +472,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
                 denom: auction.auction_asset.info.to_string(),
                 amount: successful_swap_amount,
             }],
-        }));
+        })); 
 
         //If there is overpay, send it back to the sender
         if !overpay.is_zero() {
@@ -798,12 +800,13 @@ fn get_ongoing_fee_auctions(
                 });
             }
         }
-        let start_after = match start_after {
-            Some(index) => index + 1,
-            None => 0,
+        match start_after {
+            Some(index) => {                
+                let _ = resp.split_off(index as usize);
+            },
+            None => {},
         };
 
-        let _ = resp.split_off(start_after as usize);
         let resp = resp.into_iter().take(limit as usize).collect();
 
         Ok(resp)

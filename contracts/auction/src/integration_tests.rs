@@ -76,10 +76,8 @@ mod tests {
                         amount,
                         burn_from_address,
                     } => {
-                        if amount != Uint128::new(93000u128) && amount != Uint128::new(940u128)
-                        {
-                            panic!("{}", amount)
-                        }
+                            panic!("{}", amount);
+                        
                         Ok(Response::new())
                     }
                 }
@@ -134,7 +132,7 @@ mod tests {
                             Ok(to_binary(&PriceResponse {
                                 prices: vec![],
                                 price: Decimal::one(),
-                                decimals: 6,
+                                decimals: 0,
                             })?)
                         }
                     }
@@ -233,7 +231,7 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked(USER),
-                vec![coin(99, "error"), coin(201_000, "credit_fulldenom"), coin(96_000, "mbrn_denom"), coin(96_000, "uosmo")],
+                vec![coin(99, "error"), coin(201_000, "credit_fulldenom"), coin(96_000, "mbrn_denom"), coin(196_000, "uosmo")],
             )
             .unwrap();
             bank.init_balance(
@@ -508,7 +506,7 @@ mod tests {
         }
 
         #[test]
-        fn swap_with_mbrn(){
+        fn swap_for_fee(){
             let (mut app, debt_contract, cdp_contract) = proper_instantiate();
 
             //Successful StartAuction: FeeAuction
@@ -554,7 +552,6 @@ mod tests {
             });
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            ///Burn amount asserted in mock contract definition
             //Assert Auction partial fulfillment
             let auction: Vec<FeeAuction> = app
                 .wrap()
@@ -585,7 +582,7 @@ mod tests {
             //Swap cost 940 MBRN for 1000 fee_asset
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(201_000, "credit_fulldenom"), coin(99, "error"), coin(94_000, "fee_asset"),  coin(96_000, "mbrn_denom"), coin(2060, "uosmo")]
+                vec![coin(201_000, "credit_fulldenom"), coin(99, "error"), coin(94_000, "fee_asset"),  coin(96_000, "mbrn_denom"), coin(102060, "uosmo")]
             );
             //Assert Governance got the proceeds
             assert_eq!(
@@ -617,6 +614,48 @@ mod tests {
                 .call(msg, vec![coin(1_000, "uosmo")])
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            let (mut app, debt_contract, cdp_contract) = proper_instantiate();
+
+            //Successful StartAuction: FeeAuction
+            let msg = ExecuteMsg::StartAuction {
+                repayment_position_info: None,
+                send_to: None,
+                auction_asset: Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("fee_asset"),
+                    },
+                    amount: Uint128::new(100_000u128),
+                },
+            };
+            let cosmos_msg = debt_contract.call(msg, vec![coin(100_000, "fee_asset")]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(360*60 + 1u64), //an 6hrs plus one second
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Assert Auction returns even at 100% discount
+            let err = app
+                .wrap()
+                .query_wasm_smart::<Vec<FeeAuction>>(
+                    debt_contract.addr(),
+                    &QueryMsg::OngoingFeeAuctions {
+                        auction_asset: None,
+                        limit: None,
+                        start_after: None,
+                    },
+                )
+                .unwrap();
+            //Successful Overpay Swap that doesn't send extra fee_asset
+            let msg = ExecuteMsg::SwapForFee { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
+            let cosmos_msg = debt_contract
+                .call(msg, vec![coin(3_000, "uosmo")])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
         }
 

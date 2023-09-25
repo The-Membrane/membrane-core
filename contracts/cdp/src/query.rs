@@ -59,6 +59,7 @@ pub fn query_position(
         deps.storage,
         deps.querier,
         env.clone(),
+        config.clone(),
         &mut position,
         &mut basket,
         user.to_string(),
@@ -120,13 +121,14 @@ pub fn query_user_positions(
             deps.storage,
             deps.querier,
             env.clone(),
+            config.clone(),
             &mut position,
             &mut basket,
             user.to_string(),
             false,
             true,
         ) {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(err) => error = Some(err),
         };
 
@@ -268,13 +270,14 @@ pub fn query_position_insolvency(
         deps.storage,
         deps.querier,
         env.clone(),
+        config.clone(),
         &mut target_position,
         &mut basket,
         position_owner.clone(),
         false,
         true,
     ){
-        Ok(()) => {}
+        Ok(_) => {}
         Err(_) => return Ok(InsolvencyResponse {
             insolvent_positions: vec![
                 InsolventPosition {

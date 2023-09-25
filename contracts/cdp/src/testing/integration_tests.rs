@@ -6285,6 +6285,17 @@ mod tests {
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
 
+            //Query Basket Debt Caps after 1st deposit
+            let query_msg = QueryMsg::GetBasketDebtCaps { };
+            let res: Vec<DebtCap> = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(
+                format!("{:?}", res),
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(249997000000), cap: Uint128(249995050000) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(0), cap: Uint128(0) }]")
+            );
+
             //2nd Deposit
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
@@ -6302,7 +6313,7 @@ mod tests {
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
 
-            //Query Basket Debt Caps
+            //Query Basket Debt Caps after 2nd deposit of new asset
             let query_msg = QueryMsg::GetBasketDebtCaps { };
             let res: Vec<DebtCap> = app
                 .wrap()
@@ -6331,7 +6342,7 @@ mod tests {
                 .unwrap();
 
             //Query Basket Debt Caps
-            //Caps should shift to the LP denom since deposit was withdraw
+            //Caps should shift to the LP denom since deposit was withdrawn
             let query_msg = QueryMsg::GetBasketDebtCaps { };
             let res: Vec<DebtCap> = app
                 .wrap()

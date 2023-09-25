@@ -136,18 +136,32 @@ pub fn update_debt_per_asset_in_position(
     config: Config,
     mut basket: Basket,
     old_assets: Vec<cAsset>,
+    mut old_ratios: Vec<Decimal>,
     new_assets: Vec<cAsset>,
+    mut new_ratios: Vec<Decimal>,
     credit_amount: Decimal,
 ) -> Result<(), ContractError> {
     //Note: Vec lengths need to match, enforced in withdraw()
-    let (old_ratios, _) = get_cAsset_ratios(
-        storage,
-        env.clone(),
-        querier,
-        old_assets.clone(),
-        config.clone(),
-    )?;
-    let (new_ratios, _) = get_cAsset_ratios(storage, env.clone(), querier, new_assets, config)?;
+    if old_ratios.is_empty() {
+        let (ratios, _) = get_cAsset_ratios(
+            storage,
+            env.clone(),
+            querier,
+            old_assets.clone(),
+            config.clone(),
+        )?;
+        old_ratios = ratios;
+    }
+    if new_ratios.is_empty() {
+        let (ratios, _) = get_cAsset_ratios(
+            storage,
+            env.clone(),
+            querier,
+            new_assets.clone(),
+            config.clone(),
+        )?;
+        new_ratios = ratios;
+    }
 
     let mut error: Option<StdError> = None;
 

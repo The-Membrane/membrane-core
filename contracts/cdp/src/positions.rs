@@ -93,6 +93,7 @@ pub fn deposit(
                 .into_iter()
                 .enumerate()
                 .find(|(_i, position)| position.position_id == position_id){
+
                 //Set old_assets for debt cap update
                 old_assets = position.clone().collateral_assets;
 
@@ -140,10 +141,11 @@ pub fn deposit(
                 positions[position_index] = position.clone();
                 
                 //Accrue
-                accrue(
+                let new_cAsset_ratios = accrue(
                     deps.storage,
                     deps.querier,
                     env.clone(),
+                    config.clone(),
                     &mut position.clone(),
                     &mut basket,
                     valid_owner_addr.to_string(),
@@ -175,7 +177,9 @@ pub fn deposit(
                         config,
                         basket,
                         old_assets,
+                        vec![],
                         new_assets,
+                        new_cAsset_ratios,
                         Decimal::from_ratio(position.credit_amount, Uint128::new(1u128)),
                     )?;
                 }
@@ -189,6 +193,7 @@ pub fn deposit(
                 deps.storage,
                 deps.querier,
                 env,
+                config.clone(),
                 valid_owner_addr.clone(),
                 cAssets.clone(),
                 &mut basket
@@ -213,6 +218,7 @@ pub fn deposit(
             deps.storage,
             deps.querier,
             env,
+            config.clone(),
             valid_owner_addr.clone(),
             cAssets.clone(),
             &mut basket
@@ -246,6 +252,7 @@ fn create_position_in_deposit(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
+    config: Config,
     valid_owner_addr: Addr,
     cAssets: Vec<cAsset>,
     basket: &mut Basket,
@@ -263,6 +270,7 @@ fn create_position_in_deposit(
         storage,
         querier,
         env,
+        config.clone(),
         &mut new_position,
         basket,
         valid_owner_addr.to_string(),
@@ -348,10 +356,11 @@ pub fn withdraw(
     //This forces withdrawals to be done by the info.sender
     let (position_index, mut target_position) = get_target_position(deps.storage, valid_position_owner.clone(), position_id)?;
     //Accrue interest
-    accrue(
+    let old_cAsset_ratios = accrue(
         deps.storage,
         deps.querier,
         env.clone(),
+        config.clone(),
         &mut target_position,
         &mut basket,
         valid_position_owner.to_string(),
@@ -531,7 +540,9 @@ pub fn withdraw(
             config,
             basket,
             old_assets,
+            old_cAsset_ratios,
             new_assets,
+            vec![],
             Decimal::from_ratio(target_position.credit_amount, Uint128::new(1u128)),
         )?;
     }
@@ -591,10 +602,11 @@ pub fn repay(
     let (position_index, mut target_position) = get_target_position(storage, valid_owner_addr.clone(), position_id)?;
 
     //Accrue interest
-    accrue(
+    let cAsset_ratios = accrue(
         storage,
         querier,
         env.clone(),
+        config.clone(),
         &mut target_position,
         &mut basket,
         valid_owner_addr.to_string(),
@@ -704,7 +716,7 @@ pub fn repay(
         target_position.collateral_assets,
         credit_asset.amount - excess_repayment,
         false,
-        vec![],
+        cAsset_ratios,
     )?;
 
     //Save updated repayment price and debts
@@ -945,10 +957,11 @@ pub fn increase_debt(
     let (position_index, mut target_position) = get_target_position(deps.storage, info.clone().sender, position_id)?;
 
     //Accrue interest
-    accrue(
+    let cAsset_ratios = accrue(
         deps.storage,
         deps.querier,
         env.clone(),
+        config.clone(),
         &mut target_position,
         &mut basket,
         info.sender.to_string(),
@@ -1044,24 +1057,12 @@ pub fn increase_debt(
                 deps.storage,
                 env.clone(),
                 deps.querier,
-                config,
+                config.clone(),
                 &mut basket,
                 target_position.clone().collateral_assets,
                 amount,
                 true,
-                vec![],
-            )?;
-
-            //Accrue to save new rates
-            accrue(
-                deps.storage,
-                deps.querier,
-                env.clone(),
-                &mut target_position,
-                &mut basket,
-                info.sender.to_string(),
-                false,
-                false,
+                cAsset_ratios,
             )?;
             
             //Save updated repayment price and debts

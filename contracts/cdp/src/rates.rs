@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 
 use cosmwasm_std::{Uint128, Decimal, Storage, QuerierWrapper, Env, StdResult, StdError, DepsMut, MessageInfo, Response, attr, Addr};
 
+use membrane::cdp::Config;
 use membrane::system_discounts::QueryMsg as DiscountQueryMsg;
 use membrane::types::{Basket, cAsset, Position, Rate};
 use membrane::helpers::get_asset_liquidity;
@@ -25,6 +26,7 @@ pub fn external_accrue_call(
     position_ids: Vec<Uint128>,
 ) -> Result<Response, ContractError>{
     let mut basket = BASKET.load(deps.storage)?;
+    let config = CONFIG.load(deps.storage)?;
 
     //Validate position owner
     let valid_position_owner: Addr;
@@ -52,7 +54,8 @@ pub fn external_accrue_call(
         accrue(
             deps.storage, 
             deps.querier, 
-            env.clone(), 
+            env.clone(),             
+            config.clone(),
             &mut position,
             &mut basket, 
             info.sender.to_string(),
@@ -349,13 +352,13 @@ fn get_credit_rate_of_change(
     storage: &dyn Storage,
     querier: QuerierWrapper,
     env: Env,
+    config: Config,
     basket: &mut Basket,
     position: &mut Position,
     negative_rate: bool,
     credit_price_rate: Decimal,
     for_query: bool,
-) -> StdResult<Decimal> {
-    let config = CONFIG.load(storage)?;
+) -> StdResult<(Decimal, Vec<Decimal>)> {
     let (ratios, _) = match get_cAsset_ratios(storage, env.clone(), querier, position.clone().collateral_assets, config){
         Ok(ratios) => ratios,
         Err(err) => {
@@ -392,7 +395,7 @@ fn get_credit_rate_of_change(
         }
     }    
     //The change in index represents the rate accrued to the cAsset's index in the time since last accrual
-    Ok(avg_change_in_index)
+    Ok((avg_change_in_index, ratios))
 }
 
 /// Accrue interest to the repayment price & Position debt amount
@@ -400,14 +403,13 @@ pub fn accrue(
     storage: &dyn Storage,
     querier: QuerierWrapper,
     env: Env,
+    config: Config,
     position: &mut Position,
     basket: &mut Basket,
     user: String,
     is_deposit_function: bool,
     for_query: bool, //necessary to reduce gas costs
-) -> StdResult<()> {
-    let config = CONFIG.load(storage)?;
-
+) -> StdResult<Vec<Decimal>> {
     /////Accrue Interest to the Repayment Price///
     //Calc Time-elapsed and update last_Accrued
     let time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
@@ -544,10 +546,11 @@ pub fn accrue(
 
     /////Accrue interest to the debt/////      
     //Calc rate_of_change for the position's credit amount
-    let rate_of_change = match get_credit_rate_of_change(
+    let (rate_of_change, ratios) = match get_credit_rate_of_change(
         storage,
         querier,
         env.clone(),
+        config.clone(),
         basket,
         position,
         negative_rate,
@@ -596,7 +599,7 @@ pub fn accrue(
             position.clone().collateral_assets,
             accrued_interest,
             true,
-            vec![],
+            ratios.clone(),
         ){
             Ok(_ok) => {}
             Err(err) => {
@@ -607,7 +610,7 @@ pub fn accrue(
         };
     }    
 
-    Ok(())
+    Ok(ratios)
 }
 
 /// Calculate the discounted interest for a user

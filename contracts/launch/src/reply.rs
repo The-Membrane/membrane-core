@@ -1437,29 +1437,29 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
 
                 //Incentivize the OSMO/CDT pool
                 //14 day guage
-                // let msg = MsgCreateGauge { 
-                //     pool_id: None,
-                //     is_perpetual: false, 
-                //     owner: env.clone().contract.address.to_string(),
-                //     distribute_to: Some(QueryCondition { 
-                //         lock_query_type: 0, //ByDuration
-                //         denom: pool_denom,
-                //         duration: Some(Duration { seconds: 13 * SECONDS_PER_DAY as i64, nanos: 0 }), 
-                //         timestamp: None,
-                //     }), 
-                //     coins: vec![Coin {
-                //         denom: config.clone().mbrn_denom, 
-                //         amount: String::from("2_000_000_000_000"),
-                //     }], 
-                //     start_time: Some(
-                //         Timestamp { 
-                //             seconds: env.clone().block.time.seconds()as i64,
-                //             nanos: 0 
-                //         }
-                //     ), 
-                //     num_epochs_paid_over: 365, //days, 1 year
-                // }.into();
-                // msgs.push(msg);
+                let msg = MsgCreateGauge { 
+                    pool_id:  0,
+                    is_perpetual: false, 
+                    owner: env.clone().contract.address.to_string(),
+                    distribute_to: Some(QueryCondition { 
+                        lock_query_type: 0, //ByDuration
+                        denom: pool_denom,
+                        duration: Some(Duration { seconds: 14 * SECONDS_PER_DAY as i64, nanos: 0 }), 
+                        timestamp: None,
+                    }), 
+                    coins: vec![Coin {
+                        denom: config.clone().mbrn_denom, 
+                        amount: String::from("2_000_000_000_000"),
+                    }], 
+                    start_time: Some(
+                        Timestamp { 
+                            seconds: env.clone().block.time.seconds()as i64,
+                            nanos: 0 
+                        }
+                    ), 
+                    num_epochs_paid_over: 365, //days, 1 year
+                }.into();
+                msgs.push(msg);
             } 
             OSMO_POOL_ID.save(deps.storage, &osmo_pool_id)?;
 

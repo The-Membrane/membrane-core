@@ -167,6 +167,7 @@ pub fn deposit(
                         cAssets.clone(),
                         true,
                         config.clone(),
+                        false,
                     )?;
                     
                     //Update debt per asset
@@ -429,6 +430,7 @@ pub fn withdraw(
                     basket.clone().credit_price,
                     true,
                     config.clone(),
+                    false,
                 )?;
                 if insolvency_res.0 {
                     return Err(ContractError::PositionInsolvent { insolvency_res });
@@ -489,6 +491,7 @@ pub fn withdraw(
             tally_update_list,
             false,
             config.clone(),
+            false,
         )?;
 
         //Update debt distribution for position assets
@@ -641,6 +644,7 @@ pub fn repay(
             target_position.collateral_assets.clone(),
             false,
             config.clone(),
+            false,
         )?;
     }
 
@@ -793,7 +797,7 @@ pub fn liq_repay(
     //From LQ replies && fee handling
     let mut target_position = liquidation_propagation.clone().target_position;
 
-    //Update credit amount in target_position to account from SP's repayment
+    //Update credit amount in target_position to account for SP's repayment
     target_position.credit_amount = match target_position.credit_amount.checked_sub(credit_asset.amount){
         Ok(difference) => difference,
         Err(_err) => return Err(ContractError::CustomError { val: String::from("Repay amount is greater than credit amount in liq_repay") }),
@@ -836,9 +840,7 @@ pub fn liq_repay(
     //Add distribute messages to the message builder, so the contract knows what to do with the received funds
     let mut distribution_assets = vec![];
 
-    let mut coins: Vec<Coin> = vec![];
-    let mut native_repayment = Uint128::zero();
-    
+    let mut coins: Vec<Coin> = vec![];    
 
     //Query SP liq fee
     let sp_liq_fee = liquidation_propagation.sp_liq_fee;
@@ -852,36 +854,24 @@ pub fn liq_repay(
         //Add fee %
         let collateral_w_fee = collateral_repay_amount * (sp_liq_fee+Decimal::one());
 
-        let repay_amount_per_asset = credit_asset.amount * cAsset_ratios[num];
+        //Set asset
+        let asset: Asset = Asset {
+            amount: collateral_w_fee,
+            ..cAsset.clone().asset
+        };
         
         //Remove collateral from user's position claims
         target_position.collateral_assets[num].asset.amount -= collateral_w_fee;
         liquidation_propagation.liquidated_assets.push(
             cAsset {
-                asset: Asset {
-                    amount: collateral_w_fee,
-                    ..cAsset.clone().asset
-                },
+                asset: asset.clone(),
                 ..cAsset.clone()
             }
         );
 
         //SP Distribution needs list of cAsset's and is pulling the amount from the Asset object
-        match cAsset.clone().asset.info {
-            AssetInfo::NativeToken { denom: _ } => {
-                //Adding each native token to the list of distribution assets
-                let asset = Asset {
-                    amount: collateral_w_fee,
-                    ..cAsset.clone().asset
-                };
-                //Add to the distribution_for field for native sends
-                native_repayment += repay_amount_per_asset;
-
-                distribution_assets.push(asset.clone());
-                coins.push(asset_to_coin(asset)?);
-            },            
-            AssetInfo::Token { address: _ } => { return Err(ContractError::CustomError { val: String::from("Collateral assets are supposed to be native") }) }
-        }
+        distribution_assets.push(asset.clone());
+        coins.push(asset_to_coin(asset)?);
     }
 
     if target_position.credit_amount.is_zero(){                
@@ -894,6 +884,7 @@ pub fn liq_repay(
             target_position.clone().collateral_assets,
             false, 
             config.clone(),
+            true,
         )?;
     } else {
         //Remove liquidated assets from Supply caps
@@ -901,10 +892,11 @@ pub fn liq_repay(
             deps.storage, 
             deps.querier, 
             env.clone(), 
-            &mut basket, 
+            &mut basket,
             liquidation_propagation.liquidated_assets,
             false,
             config.clone(),
+            true,
         )?;
     }
 
@@ -917,7 +909,7 @@ pub fn liq_repay(
     let distribution_msg = SP_ExecuteMsg::Distribute {
         distribution_assets: distribution_assets.clone(),
         distribution_asset_ratios: cAsset_ratios, //The distributions are based off cAsset_ratios so they shouldn't change
-        distribute_for: native_repayment,
+        distribute_for: credit_asset.amount,
     };
     //Build the Execute msg w/ the full list of native tokens
     let msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -927,12 +919,12 @@ pub fn liq_repay(
     });
 
     messages.push(msg);
-
+    
     Ok(Response::new()
         .add_messages(messages)
         .add_attribute("method", "liq_repay")
         .add_attribute("distribution_assets", format!("{:?}", distribution_assets))
-        .add_attribute("distribute_for", native_repayment))
+        .add_attribute("distribute_for", credit_asset.amount))
 }
 
 /// Increase debt of a position.
@@ -982,6 +974,7 @@ pub fn increase_debt(
             target_position.collateral_assets.clone(),
             true,
             config.clone(),
+            false,
         )?;
     }
 
@@ -1021,6 +1014,7 @@ pub fn increase_debt(
             basket.clone().credit_price,
             true,
             config.clone(),
+            false,
         )?;
 
         if insolvency_res.0 {

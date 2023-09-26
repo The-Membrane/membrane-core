@@ -30,9 +30,9 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
             )?[0];
 
             //Skip if balance is 0
-            if credit_asset_balance.is_zero() {
-                return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
-            }
+            // if credit_asset_balance.is_zero() {
+            //     return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
+            // }
 
             //Create burn_msg with queried funds
             //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted
@@ -63,7 +63,8 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
                     &mut basket, 
                     prop.clone().target_position.collateral_assets,
                     false, 
-                    prop.clone().config
+                    prop.clone().config,
+                    true
                 ).map_err(|err| StdError::GenericErr { msg: err.to_string() })?;
             } else {                    
                 //Remove liquidated assets from Supply caps 
@@ -74,7 +75,8 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
                     &mut basket, 
                     prop.clone().liquidated_assets, 
                     false, 
-                    prop.clone().config
+                    prop.clone().config,
+                    true
                 ).map_err(|err| StdError::GenericErr { msg: err.to_string() })?;
             }
 
@@ -394,11 +396,12 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             //Success w/o leftovers: Send LQ leftovers to the SP
             //Error: Sell Wall combined leftovers
             if leftover_amount != Uint128::zero() {
+                panic!("{:?}--line 397", liquidation_propagation);
                 attrs.push(attr("leftover_amount", leftover_amount.clone().to_string()));
 
                 let repay_amount = liquidation_propagation.clone().liq_queue_leftovers
                 + Decimal::from_ratio(leftover_amount, Uint128::new(1u128));
-
+                
                 //Sell Wall SP, LQ and User's SP Fund leftovers
                 let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall(
                     deps.storage, 
@@ -462,6 +465,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
         Err(_) => {
             //If error, sell wall the SP repay amount and LQ leftovers
             let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;
+            panic!("{:?}--line 465", liquidation_propagation);
 
             let repay_amount = liquidation_propagation.liq_queue_leftovers + liquidation_propagation.stability_pool;
             
@@ -618,7 +622,8 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                         &mut basket, 
                         prop.clone().target_position.collateral_assets,
                         false, 
-                        prop.clone().config
+                        prop.clone().config,
+                        true
                     ).map_err(|err| StdError::GenericErr { msg: err.to_string() })?;
                 } else {                    
                     //Remove liquidated assets from Supply caps 
@@ -629,7 +634,8 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                         &mut basket, 
                         prop.clone().liquidated_assets, 
                         false, 
-                        prop.clone().config
+                        prop.clone().config,
+                        true
                     ).map_err(|err| StdError::GenericErr { msg: err.to_string() })?;
                 }
                 BASKET.save(deps.storage, &basket)?;
@@ -657,6 +663,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             let mut repay_amount = Decimal::zero();
 
             let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
+            panic!("{:?}--line 662", prop);
 
             //If SP wasn't called, meaning LQ leftovers can't be handled there, sell wall this asset's leftovers
             //Replies are FIFO so we remove from front

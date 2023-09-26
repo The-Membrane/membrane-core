@@ -47,6 +47,7 @@ pub fn update_basket_tally(
     collateral_assets: Vec<cAsset>,
     add_to_cAsset: bool,
     config: Config,
+    from_liquidation: bool,
 ) -> Result<(), ContractError> {    
     //Update SupplyCap objects 
     for cAsset in collateral_assets.clone() {
@@ -76,52 +77,54 @@ pub fn update_basket_tally(
     
     }
     
-    let (new_basket_ratios, _) =
-        get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config)?;
+    if !from_liquidation {
+        let (new_basket_ratios, _) =
+            get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config)?;
 
- 
-    //Assert new ratios aren't above Collateral Supply Caps. If so, error.
-    for (i, ratio) in new_basket_ratios.clone().into_iter().enumerate() {
-        if basket.collateral_supply_caps != vec![] && ratio > basket.collateral_supply_caps[i].supply_cap_ratio && add_to_cAsset{
-            
-            return Err(ContractError::CustomError {
-                val: format!(
-                    "Supply cap ratio for {} is over the limit ({} > {})",
-                    basket.collateral_supply_caps[i].asset_info,
-                    ratio,
-                    basket.collateral_supply_caps[i].supply_cap_ratio
-                ),
-            });            
-        }
-    }
-
-    //Assert for Multi-asset caps as well
-    if basket.multi_asset_supply_caps != vec![]{
-        for multi_asset_cap in basket.clone().multi_asset_supply_caps {
-
-            //Initialize total_ratio
-            let mut total_ratio = Decimal::zero();
-
-            
-            //Find & add ratio for each asset
-            for asset in multi_asset_cap.clone().assets{
-                if let Some((i, _cap)) = basket.clone().collateral_supply_caps.into_iter().enumerate().find(|(_i, cap)| cap.asset_info.equal(&asset)){
-                    total_ratio += new_basket_ratios[i];
-                }
-            }
-
-            //Error if over cap
-            if total_ratio > multi_asset_cap.supply_cap_ratio {
+    
+        //Assert new ratios aren't above Collateral Supply Caps. If so, error.
+        for (i, ratio) in new_basket_ratios.clone().into_iter().enumerate() {
+            if basket.collateral_supply_caps != vec![] && ratio > basket.collateral_supply_caps[i].supply_cap_ratio && add_to_cAsset{
+                
                 return Err(ContractError::CustomError {
                     val: format!(
-                        "Multi-Asset supply cap ratio for {:?} is over the limit ({} > {})",
-                        multi_asset_cap.assets,
-                        total_ratio,
-                        multi_asset_cap.supply_cap_ratio,
+                        "Supply cap ratio for {} is over the limit ({} > {})",
+                        basket.collateral_supply_caps[i].asset_info,
+                        ratio,
+                        basket.collateral_supply_caps[i].supply_cap_ratio
                     ),
-                });
+                });            
             }
+        }
 
+        //Assert for Multi-asset caps as well
+        if basket.multi_asset_supply_caps != vec![]{
+            for multi_asset_cap in basket.clone().multi_asset_supply_caps {
+
+                //Initialize total_ratio
+                let mut total_ratio = Decimal::zero();
+
+                
+                //Find & add ratio for each asset
+                for asset in multi_asset_cap.clone().assets{
+                    if let Some((i, _cap)) = basket.clone().collateral_supply_caps.into_iter().enumerate().find(|(_i, cap)| cap.asset_info.equal(&asset)){
+                        total_ratio += new_basket_ratios[i];
+                    }
+                }
+
+                //Error if over cap
+                if total_ratio > multi_asset_cap.supply_cap_ratio {
+                    return Err(ContractError::CustomError {
+                        val: format!(
+                            "Multi-Asset supply cap ratio for {:?} is over the limit ({} > {})",
+                            multi_asset_cap.assets,
+                            total_ratio,
+                            multi_asset_cap.supply_cap_ratio,
+                        ),
+                    });
+                }
+
+            }
         }
     }
 
@@ -296,8 +299,8 @@ pub fn update_basket_debt(
                     } else if let Ok(difference) = cap.debt_total.checked_sub(asset_debt[index]) {
                         cap.debt_total = difference;
                     } else {
-                        //Cap debt_total should always equal outstanding debt for the asset
-                        err = Some(Err(ContractError::FaultyCalc { msg: "Cap debt_total should always equal outstanding debt for the asset".to_string() }));
+                        //If ratios change between updates the debt cap could be less than the debt total allotted to said asset
+                        cap.debt_total = Uint128::zero();
                     }
                 }
 
@@ -355,6 +358,20 @@ pub fn get_basket_debt_caps(
         basket.clone().collateral_types,
         config.clone(),
     )?;
+
+    //Split the basket's total debt into each asset's SupplyCap.debt total
+    for (i, cAsset) in basket.clone().collateral_types.into_iter().enumerate() {
+        basket.collateral_supply_caps = basket.clone().collateral_supply_caps
+            .into_iter()
+            .map(|mut cap| {
+                if cap.asset_info.equal(&cAsset.asset.info) {
+                    cap.debt_total = decimal_multiplication(cAsset_ratios[i], Decimal::from_ratio(basket.credit_asset.amount, Uint128::one())).unwrap_or(Decimal::zero()).to_uint_floor();
+                }
+
+                cap
+            })
+            .collect::<Vec<SupplyCap>>();
+    }
     
     //Get owner liquidity parameters from Osmosis Proxy
     let owner_params = match get_owner_liquidity_multiplier(
@@ -404,19 +421,11 @@ pub fn get_basket_debt_caps(
         }
     }
 
-    //Calc total basket debt
-    let total_debt: Uint128 = basket.clone().collateral_supply_caps
-        .into_iter()
-        .map(|cap| cap.debt_total)
-        .collect::<Vec<Uint128>>()
-        .into_iter()
-        .sum();
-
     //If the basket's proportion of it's debt cap is >= 1, negative rates are turned off
     //This protects against perpetual devaluing of the credit asset as Membrane is disincentivizing new debt w/ high rates
     //Note: This could be changed to "IF each asset's util is above desired"...
     //...but the current implementation turns them off faster, might as well be on the safe side
-    if Decimal::from_ratio(total_debt, debt_cap) >= Decimal::one() {
+    if Decimal::from_ratio(basket.credit_asset.amount, debt_cap) >= Decimal::one() {
         basket.negative_rates = false;
     }
 

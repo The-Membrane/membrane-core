@@ -51,8 +51,6 @@ mod tests {
             collateral_price: PriceResponse, //Sent from Position's contract
             collateral_amount: Uint256,
             bid_for: AssetInfo,
-            position_id: Uint128,
-            position_owner: String,
         },
         AddQueue {
             bid_for: AssetInfo,
@@ -96,8 +94,6 @@ mod tests {
                         collateral_price: _,
                         collateral_amount,
                         bid_for,
-                        position_id: _,
-                        position_owner: _,
                     } => if collateral_amount.to_string() == String::from("1165777777777778") {
                         Ok(Response::new().add_attributes(vec![
                             attr("action", "execute_bid"),
@@ -216,6 +212,12 @@ mod tests {
                             total_debt_repaid: (Uint256::from(2222222222u128) - Uint256::from(222222222u128))
                                 .to_string(),
                         })?)
+                    } else if collateral_amount.to_string() == String::from("1250000000"){
+                        Ok(to_binary(&LQ_LiquidatibleResponse {
+                            leftover_collateral: "0".to_string(),
+                            total_debt_repaid: (Uint256::from(1250000000u128))
+                                .to_string(),
+                        })?)
                     //liquidate_LPs()
                     } else if collateral_amount.to_string() == String::from("1388888888500000000"){
                         Ok(to_binary(&LQ_LiquidatibleResponse {
@@ -241,8 +243,6 @@ mod tests {
                         collateral_price: _,
                         collateral_amount,
                         bid_for,
-                        position_id: _,
-                        position_owner: _,
                     } => {
                         match bid_for {
                             AssetInfo::Token { address: _ } => {
@@ -313,8 +313,6 @@ mod tests {
                         collateral_price: _,
                         collateral_amount: _,
                         bid_for: _,
-                        position_id: _,
-                        position_owner: _,
                     } =>
                      Err(StdError::GenericErr {
                         msg: "no siree".to_string(),
@@ -393,8 +391,6 @@ mod tests {
                         collateral_price: _,
                         collateral_amount,
                         bid_for,
-                        position_id: _,
-                        position_owner: _,
                     } => match bid_for {
                         AssetInfo::Token { address: _ } => {
                             return Ok(Response::new().add_attributes(vec![
@@ -4410,12 +4406,33 @@ mod tests {
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
-                added_cAsset: None,
+                added_cAsset: Some(cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "2nddebit".to_string(),
+                        },
+                        amount: Uint128::zero(),
+                    },
+                    max_borrow_LTV: Decimal::percent(40),
+                    max_LTV: Decimal::percent(60),
+                    pool_info: None,
+                    rate_index: Decimal::one(),
+                }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
                 collateral_supply_caps: Some(vec![SupplyCap {
                     asset_info: AssetInfo::NativeToken {
                         denom: "debit".to_string(),
+                    },
+                    current_supply: Uint128::zero(),
+                    debt_total: Uint128::zero(),
+                    supply_cap_ratio: Decimal::percent(100),
+                    lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                },
+                SupplyCap {
+                    asset_info: AssetInfo::NativeToken {
+                        denom: "2nddebit".to_string(),
                     },
                     current_supply: Uint128::zero(),
                     debt_total: Uint128::zero(),
@@ -4445,6 +4462,10 @@ mod tests {
                     vec![Coin {
                         denom: "debit".to_string(),
                         amount: Uint128::from(100_000_000000u128),
+                    },
+                    Coin {
+                        denom: "2nddebit".to_string(),
+                        amount: Uint128::from(100_000_000000u128),
                     }],
                 )
                 .unwrap();
@@ -4468,14 +4489,28 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Call LiqRepay to mimic a successfull SP Liquidate call
+            //Call LiqRepay to mimic a successful SP Liquidate call (even tho they don't actually repay anything here)
             let msg = ExecuteMsg::LiqRepay {};
-
             let cosmos_msg = cdp_contract
                 .call(msg, vec![coin(222_222222, "credit_fulldenom")])
                 .unwrap();
-            app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
+            let res = app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
                 .unwrap();
+            //Assert messages
+            let response = res
+                .events
+                .into_iter()
+                .find(|e| e.attributes.iter().any(|attr| attr.value == "liq_repay"))
+                .ok_or_else(|| panic!("unable to find LIQ_REPAY event"))
+                .unwrap();
+            assert_eq!(
+                response.attributes[1..],
+                vec![             
+                    attr("method", "liq_repay"),
+                    attr("distribution_assets", String::from("[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(111111111) }, Asset { info: NativeToken { denom: \"2nddebit\" }, amount: Uint128(111111111) }]")),
+                    attr("distribute_for", "222222222"),
+                ]
+            );
 
             let query_msg = QueryMsg::GetPosition {
                 position_id: Uint128::new(1u128),
@@ -4485,7 +4520,8 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97288_888_890));
+            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98313888889));
+            assert_eq!(res.collateral_assets[1].asset.amount, Uint128::new(98313888889));
 
             //Assert sell wall wasn't sent assets
             assert_eq!(
@@ -4498,21 +4534,21 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(22_222222, "debit")]
+                vec![coin(12_500_000, "2nddebit"), coin(12_500_000, "debit")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000_000000, "2nddebit"), coin(444_444444, "debit")]
+                vec![coin(312_500_000, "2nddebit"), coin(312_500_000, "debit")]
             );
 
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(2002_777_778, "credit_fulldenom"), coin(244_444444, "debit")]
+                vec![coin(111_111111, "2nddebit"), coin(2002_777_778, "credit_fulldenom"), coin(111_111111, "debit")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(2000_000000, "debit")]
+                vec![coin(1250_000_000, "2nddebit"), coin(1250_000_000, "debit")]
             );
             //Assert asset tally is working
             let query_msg = QueryMsg::GetBasket { };
@@ -4522,7 +4558,11 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.collateral_supply_caps[0].current_supply,
-                Uint128::new(97288_888_890)
+                Uint128::new(98313_888889)
+            );
+            assert_eq!(
+                res.collateral_supply_caps[1].current_supply,
+                Uint128::new(98313_888889)
             );
         
 

@@ -27,7 +27,7 @@ fn one_bidder_distribution() {
 
     let msg = ExecuteMsg::AddQueue {
         bid_for: AssetInfo::NativeToken {
-            denom: "osmo".to_string(),
+            denom: "gamm/pool/5".to_string(),
         },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000_000u128),
@@ -37,7 +37,7 @@ fn one_bidder_distribution() {
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
             bid_for: AssetInfo::NativeToken {
-                denom: "osmo".to_string(),
+                denom: "gamm/pool/5".to_string(),
             },
             liq_premium: 1u8,
         },
@@ -67,7 +67,7 @@ fn one_bidder_distribution() {
         },
         collateral_amount: Uint256::from(5000u128),
         bid_for: AssetInfo::NativeToken {
-            denom: "osmo".to_string(),
+            denom: "gamm/pool/5".to_string(),
         },
     };
     let info = mock_info("positions_contract", &[]);
@@ -75,7 +75,7 @@ fn one_bidder_distribution() {
 
     let msg = ExecuteMsg::ClaimLiquidations {
         bid_for: AssetInfo::NativeToken {
-            denom: "osmo".to_string(),
+            denom: "gamm/pool/5".to_string(),
         },
         bid_ids: None,
     };
@@ -85,7 +85,7 @@ fn one_bidder_distribution() {
         res.attributes,
         vec![
             attr("action", "claim_liquidations"),
-            attr("collateral_token", "osmo"),
+            attr("collateral_token", "gamm/pool/5"),
             attr("collateral_amount", "5000"),
         ]
     );
@@ -94,7 +94,7 @@ fn one_bidder_distribution() {
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(1u128),
         bid_for: AssetInfo::NativeToken {
-            denom: "osmo".to_string(),
+            denom: "gamm/pool/5".to_string(),
         },
         amount: None,
     };
@@ -103,7 +103,7 @@ fn one_bidder_distribution() {
         res.attributes,
         vec![
             attr("method", "retract_bid"),
-            attr("bid_for", "osmo"),
+            attr("bid_for", "gamm/pool/5"),
             attr("bid_id", "1"),
             attr("amount", "995050"),
         ]

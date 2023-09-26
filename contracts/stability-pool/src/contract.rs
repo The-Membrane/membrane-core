@@ -743,57 +743,21 @@ pub fn distribute_funds(
     deps: DepsMut,
     info: MessageInfo,
     env: Env,
-    mut distribution_assets: Vec<Asset>,
+    distribution_assets: Vec<Asset>,
     distribution_asset_ratios: Vec<Decimal>,
     distribute_for: Uint128, //How much repayment is this distributing for
 ) -> Result<Response, ContractError> {
+    //Load State
+    let mut asset_pool = ASSET.load(deps.storage)?;   
     let config = CONFIG.load(deps.storage)?;
 
     //Can only be called by the positions contract
     if info.sender != config.positions_contract {
         return Err(ContractError::Unauthorized {});
-    }
-    //Assert correct parameters
-    if distribution_assets.is_empty() {
-        return Err(ContractError::InsufficientFunds {});
-    }
+    } 
 
-    let mut asset_pool = ASSET.load(deps.storage)?;
-
-    //Assert that the distributed assets were sent
-    let assets: Vec<AssetInfo> = distribution_assets
-        .clone()
-        .into_iter()
-        .map(|asset| asset.info)
-        .collect::<Vec<AssetInfo>>();
-
-    let valid_assets = validate_assets(deps.storage, assets.clone(), info, false)?;
-
-    if valid_assets.len() != distribution_assets.len() {
-        return Err(ContractError::InvalidAssetObject {});
-    }
-    //Set distribution_assets to the validated assets
-    distribution_assets = valid_assets;
-    
-
-    //Load repaid_amount
-    //Liquidations are one msg at a time and PROP is always saved to first
-    //so we can propagate without worry
-    let mut prop = PROP.load(deps.storage)?;
-    let repaid_amount: Uint128;
-    //If this distribution is more than what was repaid, error
-    if distribute_for <= prop.repaid_amount {
-        repaid_amount = distribute_for;
-        prop.repaid_amount -= distribute_for;
-        PROP.save(deps.storage, &prop)?;
-    } else {
-        return Err(ContractError::CustomError {
-            val: format!(
-                "Distribution attempting to distribute_for too much ( {} > {} )",
-                distribute_for, prop.repaid_amount
-            ),
-        });
-    }
+    //Set repaid_amount
+    let repaid_amount: Uint128 = distribute_for;
 
     ///Calculate the user distributions
     let mut pool_parse = asset_pool.clone().deposits.into_iter();
@@ -1072,8 +1036,6 @@ fn user_claims_msgs(
             //Add to native list
             native_claims.push(asset.clone());  
         }
-        
-        
     }    
 
     if native_claims != vec![] {

@@ -33,22 +33,22 @@ pub fn liquidate(
     position_id: Uint128,
     position_owner: String,
 ) -> Result<Response, ContractError> {
-    //Check for Osmosis downtime 
-    match DowntimedetectorQuerier::new(&querier)
-        .recovered_since_downtime_of_length(
-            10 * 60 * 8, //8 hours from 6 second blocks
-            Some(Duration {
-                seconds: 60 * 60, //1 hour
-                nanos: 0,
-            })
-    ){
-        Ok(resp) => {            
-            if !resp.succesfully_recovered {
-                return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
-            }
-        },
-        Err(_) => (),
-    };
+    // //Check for Osmosis downtime 
+    // match DowntimedetectorQuerier::new(&querier)
+    //     .recovered_since_downtime_of_length(
+    //         10 * 60 * 8, //8 hours from 6 second blocks
+    //         Some(Duration {
+    //             seconds: 60 * 60, //1 hour
+    //             nanos: 0,
+    //         })
+    // ){
+    //     Ok(resp) => {            
+    //         if !resp.succesfully_recovered {
+    //             return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
+    //         }
+    //     },
+    //     Err(_) => (),
+    // };
 
     //Load state
     let config: Config = CONFIG.load(storage)?;
@@ -77,6 +77,7 @@ pub fn liquidate(
         basket.clone().credit_price,
         false,
         config.clone(),
+        true,
     )?;
     let insolvent = true;
     let current_LTV = Decimal::percent(90);
@@ -87,7 +88,7 @@ pub fn liquidate(
 
     //Convert from Response to price (Decimal)
     let cAsset_prices = cAsset_prices_res.clone().into_iter().map(|price| price.price).collect::<Vec<Decimal>>();
-
+    
     //Get repay value and repay_amount
     let (pre_user_repay_repay_value, mut credit_repay_amount) = get_repay_quantities(
         config.clone(),
@@ -163,7 +164,7 @@ pub fn liquidate(
         credit_repay_amount, 
         leftover_position_value, 
         &mut submessages, 
-        per_asset_repayment, 
+        per_asset_repayment.clone(), 
         user_repay_amount,
         target_position.clone(),
         liquidated_assets,
@@ -187,7 +188,7 @@ pub fn liquidate(
     
     let mut liquidation_propagation: Option<String> = None;
     if let Ok(repay) = LIQUIDATION.load(storage) { liquidation_propagation = Some(format!("{:?}", repay)) }
-
+    
     Ok(res
         .add_submessages(submessages) //LQ & SP msgs
         .add_submessage(call_back)
@@ -354,11 +355,13 @@ fn per_asset_fulfillments(
 
     let mut caller_coins: Vec<Coin> = vec![];
     let mut protocol_coins: Vec<Coin> = vec![];
+    //the repayment value used for the LQ function
+    //Other wise multiple collateral assets will save the wrong repay_amount_per_asset each time
+    let fn_repayment = leftover_repayment;
 
     for (num, cAsset) in collateral_assets.clone().iter().enumerate() {
 
-        let repay_amount_per_asset = leftover_repayment * cAsset_ratios[num];
-
+        let repay_amount_per_asset = fn_repayment * cAsset_ratios[num];
         
         let collateral_price = cAsset_prices[num].clone();
         let collateral_repay_value = decimal_multiplication(pre_user_repay_repay_value, cAsset_ratios[num])?;

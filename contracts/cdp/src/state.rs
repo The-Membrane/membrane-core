@@ -134,7 +134,7 @@ pub fn update_position_claims(
     }
 
     let mut basket = BASKET.load(storage)?;
-    match update_basket_tally(storage, querier, env, &mut basket, collateral_assets, false, config) {
+    match update_basket_tally(storage, querier, env, &mut basket, collateral_assets, false, config, false) {
         Ok(_res) => {
             BASKET.save(storage, &basket)?;
         }

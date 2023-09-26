@@ -35,9 +35,9 @@ pub fn query_position(
     position_id: Uint128,
     user: Addr,
 ) -> StdResult<PositionResponse> {
-    let mut basket = BASKET.load(deps.storage)?;
+    let basket = BASKET.load(deps.storage)?;
 
-    let (_i, mut position) = match get_target_position(deps.storage, user.clone(), position_id){
+    let (_i, position) = match get_target_position(deps.storage, user.clone(), position_id){
         Ok(position) => position,
         Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
     };
@@ -53,18 +53,6 @@ pub fn query_position(
         position.clone().collateral_assets,
         false,
         false,
-    )?;
-
-    accrue(
-        deps.storage,
-        deps.querier,
-        env.clone(),
-        config.clone(),
-        &mut position,
-        &mut basket,
-        user.to_string(),
-        false,
-        true,
     )?;
     
     Ok(PositionResponse {
@@ -115,21 +103,6 @@ pub fn query_user_positions(
                 error = Some(err);
                 (Decimal::zero(), Decimal::zero(), Decimal::zero(), vec![], vec![])
             }
-        };
-
-        match accrue(
-            deps.storage,
-            deps.querier,
-            env.clone(),
-            config.clone(),
-            &mut position,
-            &mut basket,
-            user.to_string(),
-            false,
-            true,
-        ) {
-            Ok(_) => {}
-            Err(err) => error = Some(err),
         };
 
         let cAsset_ratios = ratios;
@@ -305,6 +278,7 @@ pub fn query_position_insolvency(
         basket.credit_price,
         false,
         config,
+        true,
     ){
         Ok(((insolvent, current_LTV, available_fee), _)) => (insolvent, current_LTV, available_fee),
         Err(_) => {
@@ -861,11 +835,12 @@ pub fn insolvency_check(
     credit_price: PriceResponse,
     max_borrow: bool, //Toggle for either over max_borrow or over max_LTV (liquidatable)
     config: Config,
+    is_liquidation_funciton: bool, //Skip softened borrow LTV
 ) -> StdResult<((bool, Decimal, Uint128), (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>))> { //insolvent, current_LTV, available_fee, (avg_LTV return values)
 
     //Get avg LTVs
     let avg_LTVs: (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>) =
-        get_avg_LTV(storage, env, querier, config, basket, collateral_assets.clone(), false, true)?;
+        get_avg_LTV(storage, env, querier, config, basket, collateral_assets.clone(), false, is_liquidation_funciton)?;
 
     //Insolvency check
     Ok((insolvency_check_calc(avg_LTVs.clone(), collateral_assets, credit_amount, credit_price, max_borrow)?, avg_LTVs))

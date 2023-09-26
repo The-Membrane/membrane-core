@@ -30,9 +30,9 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
             )?[0];
 
             //Skip if balance is 0
-            // if credit_asset_balance.is_zero() {
-            //     return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
-            // }
+            if credit_asset_balance.is_zero() {
+                return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
+            }
 
             //Create burn_msg with queried funds
             //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted
@@ -634,6 +634,11 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 }
                 BASKET.save(deps.storage, &basket)?;
                 
+                //LQ rounding errors can cause the repay_amount to be 1e-6 off
+                if prop.clone().target_position.credit_amount == Uint128::one(){
+                    prop.target_position.credit_amount = Uint128::zero();
+                }
+
                 //Update position
                 update_position(deps.storage, prop.clone().position_owner, prop.clone().target_position)?;
 

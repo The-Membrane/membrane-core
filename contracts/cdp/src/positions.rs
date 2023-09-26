@@ -792,7 +792,14 @@ pub fn liq_repay(
 
     //Update credit amount in target_position to account for SP's repayment
     target_position.credit_amount = match target_position.credit_amount.checked_sub(credit_asset.amount){
-        Ok(difference) => difference,
+        Ok(difference) => {
+            //LQ rounding errors can cause the repay_amount to be 1e-6 off
+            if target_position.credit_amount == Uint128::one(){
+                Uint128::zero()
+            } else {
+                difference
+            }
+        },
         Err(_err) => return Err(ContractError::CustomError { val: String::from("Repay amount is greater than credit amount in liq_repay") }),
     };
 

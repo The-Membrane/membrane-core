@@ -3,7 +3,7 @@ use cosmwasm_std::{Decimal, Uint128, Env, QuerierWrapper, Storage, to_binary, Qu
 use membrane::cdp::Config;
 use membrane::stability_pool::QueryMsg as SP_QueryMsg;
 use membrane::types::{Basket, Asset, cAsset, SupplyCap, AssetPool};
-use membrane::helpers::{get_asset_liquidity, get_owner_liquidity_multiplier};
+use membrane::helpers::{get_asset_liquidity, get_owner_liquidity_multiplier, get_stability_pool_liquidity};
 use membrane::math::decimal_multiplication; 
 
 use crate::state::{CONFIG, BASKET};
@@ -242,29 +242,6 @@ pub fn update_debt_per_asset_in_position(
     Ok(())
 }
 
-/// Get total amount of debt token in the Stability Pool
-pub fn get_stability_pool_liquidity(
-    querier: QuerierWrapper,
-    config: Config,
-) -> StdResult<Uint128> {
-    if let Some(sp_addr) = config.stability_pool {
-        //Query the SP Asset Pool
-        Ok(querier
-            .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: sp_addr.to_string(),
-                msg: to_binary(&SP_QueryMsg::AssetPool { 
-                    user: None,
-                    start_after: None,
-                    deposit_limit: 0.into(),
-                })?,
-            }))?
-            .credit_asset
-            .amount)
-    } else {
-        Ok(Uint128::zero())
-    }
-}
-
 /// Calculate the debt cap for each asset in the Basket using network liquidity 
 pub fn get_basket_debt_caps(
     storage: &dyn Storage,
@@ -321,11 +298,9 @@ pub fn get_basket_debt_caps(
 
 
     //Get SP cap space the contract is allowed to use
-    let sp_liquidity = match get_stability_pool_liquidity(querier, config.clone()){
+    let sp_liquidity = match get_stability_pool_liquidity(querier, config.clone().stability_pool.unwrap().to_string()){
         Ok(liquidity) => liquidity,
-        Err(err) => return Err(StdError::GenericErr { msg: format!( 
-            "Error getting stability pool liquidity, line 368: {}", err
-         )})
+        Err(_) => Uint128::zero()
     };
     let sp_liquidity = Decimal::from_ratio(sp_liquidity, Uint128::new(1));
     let sp_cap_space = decimal_multiplication(sp_liquidity, owner_params.1)?;

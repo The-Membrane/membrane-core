@@ -134,6 +134,20 @@ pub fn query_stability_pool_fee(
     Ok(asset_pool.liq_premium)
 }
 
+/// Get total amount of debt token in the Stability Pool
+pub fn get_stability_pool_liquidity(
+    querier: QuerierWrapper,
+    stability_pool: String,
+) -> StdResult<Uint128> {
+    let resp: Option<Vec<u8>> = querier.query_wasm_raw(stability_pool, b"asset")?;
+    let asset_pool: AssetPool = match resp {
+        Some(asset) => serde_json_wasm::from_slice(&asset).unwrap(),
+        None => return Err(StdError::GenericErr { msg: String::from("Asset pool not found") }),
+    };
+
+    Ok(asset_pool.credit_asset.amount)
+}
+
 //Return Basket
 pub fn query_basket(
     querier: QuerierWrapper,

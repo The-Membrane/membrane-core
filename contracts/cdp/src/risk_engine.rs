@@ -1,8 +1,7 @@
-use cosmwasm_std::{Decimal, Uint128, Env, QuerierWrapper, Storage, to_binary, QueryRequest, WasmQuery, StdResult, StdError, Addr};
+use cosmwasm_std::{Decimal, Uint128, Env, QuerierWrapper, Storage, StdResult, StdError, Addr};
 
 use membrane::cdp::Config;
-use membrane::stability_pool::QueryMsg as SP_QueryMsg;
-use membrane::types::{Basket, Asset, cAsset, SupplyCap, AssetPool};
+use membrane::types::{Basket, Asset, cAsset, SupplyCap};
 use membrane::helpers::{get_asset_liquidity, get_owner_liquidity_multiplier, get_stability_pool_liquidity};
 use membrane::math::decimal_multiplication; 
 
@@ -131,116 +130,6 @@ pub fn update_basket_tally(
     Ok(())
 }
 
-/// Update the distribution of Basket debt per asset after Position collateral makeup changes
-pub fn update_debt_per_asset_in_position(
-    storage: &mut dyn Storage,
-    env: Env,
-    querier: QuerierWrapper,
-    config: Config,
-    mut basket: Basket,
-    old_assets: Vec<cAsset>,
-    mut old_ratios: Vec<Decimal>,
-    new_assets: Vec<cAsset>,
-    mut new_ratios: Vec<Decimal>,
-    credit_amount: Decimal,
-) -> Result<(), ContractError> {
-    //Note: Vec lengths need to match, enforced in withdraw()
-    if old_ratios.is_empty() {
-        let (ratios, _) = get_cAsset_ratios(
-            storage,
-            env.clone(),
-            querier,
-            old_assets.clone(),
-            config.clone(),
-        )?;
-        old_ratios = ratios;
-    }
-    if new_ratios.is_empty() {
-        let (ratios, _) = get_cAsset_ratios(
-            storage,
-            env.clone(),
-            querier,
-            new_assets.clone(),
-            config.clone(),
-        )?;
-        new_ratios = ratios;
-    }
-
-    let mut error: Option<StdError> = None;
-
-    for i in 0..old_ratios.len() {
-        match old_ratios[i].atomics().checked_sub(new_ratios[i].atomics()) {
-            Ok(difference) => {
-                //Old ratio was > than New
-                basket.collateral_supply_caps = basket.clone().collateral_supply_caps
-                    .into_iter() 
-                    .map(|mut cap| {
-                        if cap.asset_info.equal(&old_assets[i].asset.info) {
-                            let debt_difference = match decimal_multiplication(Decimal::new(difference), credit_amount){
-                                Ok(debt_difference) => {
-                                    debt_difference
-                                },
-                                Err(e) => {
-                                    error = Some(e);                                    
-                                    Decimal::zero()
-                                }
-                            };
-                            //So we subtract the % difference in debt from said asset
-                            if let Ok(debt_difference) = cap.debt_total.checked_sub( debt_difference * Uint128::new(1u128)) {
-                                if cap.current_supply.is_zero() {
-                                    //This removes rounding errors that would slowly increase resting interest rates
-                                    //Doesn't effect checks for bad debt since its basket debt not position.credit_amount
-                                    //its a .000001 error, so shouldn't effect overall calcs or be profitably spammable
-                                    cap.debt_total = Uint128::zero();
-                                } else {
-                                    cap.debt_total = debt_difference;
-                                }
-                            };
-                        }
-
-                        cap
-                    })
-                    .collect::<Vec<SupplyCap>>();
-            }
-            Err(_) => {
-                //Old was < than New
-                //So we add the % difference in debt to said asset
-                let difference = new_ratios[i] - old_ratios[i];
-
-                basket.collateral_supply_caps = basket.clone().collateral_supply_caps
-                    .into_iter()
-                    .map(|mut cap| {
-                        if cap.asset_info.equal(&old_assets[i].asset.info) {
-                            let debt_difference = match decimal_multiplication(difference, credit_amount){
-                                Ok(debt_difference) => {
-                                    debt_difference
-                                },
-                                Err(e) => {
-                                    error = Some(e);
-                                    Decimal::zero()
-                                }
-                            };
-                            let asset_debt = debt_difference * Uint128::new(1u128);
-
-                            //Add to debt total
-                            cap.debt_total += asset_debt;
-                        }
-
-                        cap
-                    })
-                    .collect::<Vec<SupplyCap>>();
-            }
-        }
-    }
-
-    if let Some(error) = error{
-        return Err(ContractError::Std(error));
-    }
-
-    BASKET.save(storage, &basket)?;
-
-    Ok(())
-}
 
 /// Calculate the debt cap for each asset in the Basket using network liquidity 
 pub fn get_basket_debt_caps(

@@ -26,7 +26,7 @@ use membrane::types::{
 
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
 use crate::rates::accrue;
-use crate::risk_engine::{update_basket_tally, update_debt_per_asset_in_position};
+use crate::risk_engine::update_basket_tally;
 use crate::state::{CLOSE_POSITION, ClosePositionPropagation, BASKET, get_target_position, update_position_claims, REDEMPTION_OPT_IN, update_position};
 use crate::{
     state::{
@@ -75,10 +75,6 @@ pub fn deposit(
     let mut positions_prev_collateral = vec![];
     let position_info: UserInfo;
 
-    //For debt per asset updates
-    let mut old_assets: Vec<cAsset>;
-    let new_assets;
-
     if let Ok(mut positions) = POSITIONS.load(deps.storage, valid_owner_addr.clone()){
 
         //Enforce max positions
@@ -93,9 +89,6 @@ pub fn deposit(
                 .into_iter()
                 .enumerate()
                 .find(|(_i, position)| position.position_id == position_id){
-
-                //Set old_assets for debt cap update
-                old_assets = position.clone().collateral_assets;
 
                 //Store position_info for reply
                 position_info = UserInfo {
@@ -124,24 +117,13 @@ pub fn deposit(
                         //Store positions_prev_collateral
                         positions_prev_collateral.push(placeholder_asset.clone());
 
-                        //Add empty asset to old_assets as a placeholder
-                        old_assets.push(cAsset {
-                            asset: placeholder_asset.clone(),
-                            max_borrow_LTV: deposit.clone().max_borrow_LTV,
-                            max_LTV: deposit.clone().max_LTV,
-                            pool_info: deposit.clone().pool_info,
-                            rate_index: deposit.clone().rate_index,
-                        });
                     }
-                }
-                //Set new_assets for debt cap updates
-                new_assets = position.clone().collateral_assets;
-                
+                }                
                 //Set updated position
                 positions[position_index] = position.clone();
                 
                 //Accrue
-                let new_cAsset_ratios = accrue(
+                accrue(
                     deps.storage,
                     deps.querier,
                     env.clone(),
@@ -168,20 +150,6 @@ pub fn deposit(
                         true,
                         config.clone(),
                         false,
-                    )?;
-                    
-                    //Update debt per asset
-                    update_debt_per_asset_in_position(
-                        deps.storage,
-                        env,
-                        deps.querier,
-                        config,
-                        basket,
-                        old_assets,
-                        vec![],
-                        new_assets,
-                        new_cAsset_ratios,
-                        Decimal::from_ratio(position.credit_amount, Uint128::new(1u128)),
                     )?;
                 }
             } else {                
@@ -278,7 +246,7 @@ fn create_position_in_deposit(
         true,
         false,
     )?;
-    //Save Basket. This only doesn't overwrite the save in update_debt_per_asset_in_position() bc they are certain to never happen at the same time
+    //Save Basket
     BASKET.save(storage, basket)?;
 
     Ok((position_info, new_position))
@@ -357,7 +325,7 @@ pub fn withdraw(
     //This forces withdrawals to be done by the info.sender
     let (position_index, mut target_position) = get_target_position(deps.storage, valid_position_owner.clone(), position_id)?;
     //Accrue interest
-    let old_cAsset_ratios = accrue(
+    accrue(
         deps.storage,
         deps.querier,
         env.clone(),
@@ -371,7 +339,6 @@ pub fn withdraw(
 
     //For debt cap updates
     let old_assets = target_position.clone().collateral_assets;
-    let mut new_assets: Vec<cAsset> = vec![];
     let mut tally_update_list: Vec<cAsset> = vec![];
 
     //Set withdrawal prop variables
@@ -452,9 +419,6 @@ pub fn withdraw(
                     })?;
                 }
                 
-                //Save for debt cap updates
-                new_assets = target_position.clone().collateral_assets;
-
                 //Push withdraw asset to list for withdraw prop
                 withdraw_amounts.push(withdraw_asset.clone().amount);
 
@@ -479,7 +443,7 @@ pub fn withdraw(
     //Save updated repayment price and asset tallies
     BASKET.save(deps.storage, &basket)?;
 
-    //Update debt cap distribution & supply cap tallies
+    //Update supply cap tallies
     if !target_position.clone().credit_amount.is_zero() {
         
         //Update basket supply cap tallies after the full withdrawal to improve UX by smoothing debt_cap restrictions
@@ -492,61 +456,6 @@ pub fn withdraw(
             false,
             config.clone(),
             false,
-        )?;
-
-        //Update debt distribution for position assets
-        //Make sure lists are equal and add blank assets if not
-        if old_assets.len() != new_assets.len() {
-            for i in 0..old_assets.len() {
-                let mut already_pushed = false;
-                if i == new_assets.len() {
-                    new_assets.push(cAsset {
-                        asset: Asset {
-                            info: old_assets[i].clone().asset.info,
-                            amount: Uint128::zero(),
-                        },
-                        ..old_assets[i].clone()
-                    });
-                    already_pushed = true;
-                }
-                //If the index isn't equal, push a blank asset (0 amount) beforehand
-                if !already_pushed && !old_assets[i].asset.info.equal(&new_assets[i].asset.info){
-                     
-                    let temp_vec = vec![cAsset {
-                        asset: Asset {
-                            info: old_assets[i].clone().asset.info,
-                            amount: Uint128::zero(),
-                        },
-                        ..old_assets[i].clone()
-                    }];
-
-                    let mut left: Vec<cAsset> = vec![];
-                    let mut right: Vec<cAsset> = vec![];
-                    for (index, asset) in new_assets.into_iter().enumerate() {
-                        if index < i {
-                            left.push(asset)
-                        } else {
-                            right.push(asset)
-                        }
-                    }
-                    left.extend(temp_vec);
-                    left.extend(right);
-                    new_assets = left;                    
-                }
-            }
-        }
-        //Update debt caps
-        update_debt_per_asset_in_position(
-            deps.storage,
-            env.clone(),
-            deps.querier,
-            config,
-            basket,
-            old_assets,
-            old_cAsset_ratios,
-            new_assets,
-            vec![],
-            Decimal::from_ratio(target_position.credit_amount, Uint128::new(1u128)),
         )?;
     }
     
@@ -605,7 +514,7 @@ pub fn repay(
     let (position_index, mut target_position) = get_target_position(storage, valid_owner_addr.clone(), position_id)?;
 
     //Accrue interest
-    let cAsset_ratios = accrue(
+    accrue(
         storage,
         querier,
         env.clone(),
@@ -940,7 +849,7 @@ pub fn increase_debt(
     let (position_index, mut target_position) = get_target_position(deps.storage, info.clone().sender, position_id)?;
 
     //Accrue interest
-    let cAsset_ratios = accrue(
+    accrue(
         deps.storage,
         deps.querier,
         env.clone(),

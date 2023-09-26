@@ -483,7 +483,18 @@ pub fn claim_liquidations(
 ) -> Result<Response, ContractError> {
     let mut queue = QUEUES.load(deps.storage, bid_for.to_string())?;
 
+    
     let bids: Vec<Bid> = if let Some(bid_ids) = bid_ids {
+        //Assert bid_ids are unique
+        let mut seen: Vec<Uint128> = Vec::new();
+        for bid_id in bid_ids.clone() {
+            if seen.contains(&bid_id) {
+                return Err(ContractError::CustomError { val: String::from("Duplicate bid ids") });
+            } else {
+                seen.push(bid_id);
+            }
+        }
+
         bid_ids
             .into_iter()
             .map(|id| read_bid(deps.storage, id, queue.clone()))

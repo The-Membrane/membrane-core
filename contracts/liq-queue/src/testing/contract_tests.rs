@@ -844,6 +844,16 @@ fn claim_liquidations() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
+        bid_ids: Some(vec![Uint128::new(1u128), Uint128::new(1u128)]),
+    };
+    let info = mock_info("owner0000", &[]);
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+    assert_eq!(err.to_string(), String::from("Custom Error val: \"Duplicate bid ids\""));
+
+    let msg = ExecuteMsg::ClaimLiquidations {
+        bid_for: AssetInfo::NativeToken {
+            denom: "osmo".to_string(),
+        },
         bid_ids: Some(vec![Uint128::new(1u128)]),
     };
     let info = mock_info("owner0000", &[]);

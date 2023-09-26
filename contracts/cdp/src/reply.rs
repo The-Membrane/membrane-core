@@ -10,7 +10,7 @@ use membrane::math::decimal_subtraction;
 use membrane::helpers::{withdrawal_msg, get_contract_balances, asset_to_coin};
 
 use crate::positions::STABILITY_POOL_REPLY_ID;
-use crate::risk_engine::{update_basket_tally, update_basket_debt};
+use crate::risk_engine::update_basket_tally;
 use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, CONFIG, BASKET, CLOSE_POSITION, ClosePositionPropagation, get_target_position, update_position_claims, update_position};
 use crate::liquidations::sell_wall;
 
@@ -80,17 +80,11 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
                 ).map_err(|err| StdError::GenericErr { msg: err.to_string() })?;
             }
 
-            update_basket_debt(
-                deps.storage, 
-                env, 
-                deps.querier, 
-                prop.config, 
-                &mut basket, 
-                prop.target_position.collateral_assets, 
-                credit_asset_balance,
-                false, 
-                prop.cAsset_ratios
-            ).map_err(|err| StdError::GenericErr { msg: err.to_string() })?;
+            //Subtract repaid debt from Basket
+            basket.credit_asset.amount = match basket.credit_asset.amount.checked_sub(credit_asset_balance){
+                Ok(difference) => difference,
+                Err(_err) => return Err(StdError::GenericErr { msg: String::from("Repay amount is greater than Basket credit amount from the router") }),
+            };
             BASKET.save(deps.storage, &basket)?;
             ////
 

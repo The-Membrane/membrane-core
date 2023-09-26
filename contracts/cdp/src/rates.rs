@@ -10,7 +10,7 @@ use membrane::math::{decimal_multiplication, decimal_division, decimal_subtracti
 
 use crate::ContractError;
 use crate::query::{get_asset_values, get_cAsset_ratios};
-use crate::risk_engine::{get_basket_debt_caps, update_basket_debt};
+use crate::risk_engine::get_basket_debt_caps;
 use crate::state::{CONFIG, BASKET, get_target_position, update_position};
 
 //Constants
@@ -589,25 +589,8 @@ pub fn accrue(
         //Set position's debt to the debt + accrued_interest
         position.credit_amount += accrued_interest;
 
-        //Add accrued interest to the basket's debt cap
-        match update_basket_debt(
-            storage,
-            env,
-            querier,
-            config,
-            basket,
-            position.clone().collateral_assets,
-            accrued_interest,
-            true,
-            ratios.clone(),
-        ){
-            Ok(_ok) => {}
-            Err(err) => {
-                return Err(StdError::GenericErr {
-                    msg: format!("Error at line 540, liquidity: {}, error: {:?}", liquidity, err),
-                })
-            }
-        };
+        //Add accrued interest to the Basket's debt tally
+        basket.credit_asset.amount += accrued_interest;
     }    
 
     Ok(ratios)

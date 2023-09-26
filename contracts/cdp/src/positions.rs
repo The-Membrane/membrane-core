@@ -26,7 +26,7 @@ use membrane::types::{
 
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
 use crate::rates::accrue;
-use crate::risk_engine::{update_basket_tally, update_basket_debt, update_debt_per_asset_in_position};
+use crate::risk_engine::{update_basket_tally, update_debt_per_asset_in_position};
 use crate::state::{CLOSE_POSITION, ClosePositionPropagation, BASKET, get_target_position, update_position_claims, REDEMPTION_OPT_IN, update_position};
 use crate::{
     state::{
@@ -710,18 +710,11 @@ pub fn repay(
         }                                
     }
 
-    //Subtract paid debt from debt-per-asset tallies
-    update_basket_debt(
-        storage,
-        env,
-        querier,
-        config,
-        &mut basket,
-        target_position.collateral_assets,
-        credit_asset.amount - excess_repayment,
-        false,
-        cAsset_ratios,
-    )?;
+    //Subtract paid debt from Basket
+    basket.credit_asset.amount = match basket.credit_asset.amount.checked_sub(credit_asset.amount - excess_repayment){
+        Ok(difference) => difference,
+        Err(_err) => return Err(ContractError::CustomError { val: String::from("Repay amount is greater than Basket credit amount in repay") }),
+    };
 
     //Save updated repayment price and debts
     BASKET.save(storage, &basket)?;
@@ -803,7 +796,6 @@ pub fn liq_repay(
         Err(_err) => return Err(ContractError::CustomError { val: String::from("Repay amount is greater than credit amount in liq_repay") }),
     };
 
-    //////////Pseudo repay function
     let mut messages = vec![];
     
     //Burn repayment & send revenue to stakers
@@ -814,19 +806,12 @@ pub fn liq_repay(
         &mut basket,
     )?;
     messages.extend(burn_and_rev_msgs);
-    //Subtract paid debt from debt-per-asset tallies
-    update_basket_debt(
-        deps.storage,
-        env.clone(),
-        deps.querier,
-        config.clone(),
-        &mut basket,
-        target_position.clone().collateral_assets,
-        credit_asset.amount,
-        false,
-        liquidation_propagation.clone().cAsset_ratios,
-    )?;
-    ////////////
+
+    //Subtract paid debt from Basket
+    basket.credit_asset.amount = match basket.credit_asset.amount.checked_sub(credit_asset.amount){
+        Ok(difference) => difference,
+        Err(_err) => return Err(ContractError::CustomError { val: String::from("Repay amount is greater than Basket credit amount in liq_repay") }),
+    };
    
     //Set collateral_assets
     let collateral_assets = target_position.clone().collateral_assets;
@@ -1046,18 +1031,8 @@ pub fn increase_debt(
                 Ok(updating_positions)
             })?;
 
-            //Add new debt to debt-per-asset tallies
-            update_basket_debt(
-                deps.storage,
-                env.clone(),
-                deps.querier,
-                config.clone(),
-                &mut basket,
-                target_position.clone().collateral_assets,
-                amount,
-                true,
-                cAsset_ratios,
-            )?;
+            //Add new debt to Basket
+            basket.credit_asset.amount += amount;
             
             //Save updated repayment price and debts
             BASKET.save(deps.storage, &basket)?;

@@ -461,7 +461,7 @@ fn per_asset_fulfillments(
             let queue_asset_amount_paid: Uint128 =
                 collateral_repay_amount  - leftover;
 
-                
+
             //Call Liq Queue::Liquidate for the asset
             let liq_msg = LQ_ExecuteMsg::Liquidate {
                 credit_price: basket.clone().credit_price,

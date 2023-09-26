@@ -794,7 +794,7 @@ pub fn liq_repay(
     target_position.credit_amount = match target_position.credit_amount.checked_sub(credit_asset.amount){
         Ok(difference) => {
             //LQ rounding errors can cause the repay_amount to be 1e-6 off
-            if target_position.credit_amount == Uint128::one(){
+            if difference == Uint128::one(){
                 Uint128::zero()
             } else {
                 difference
@@ -909,7 +909,6 @@ pub fn liq_repay(
         msg: to_binary(&distribution_msg)?,
         funds: coins,
     });
-
     messages.push(msg);
     
     Ok(Response::new()

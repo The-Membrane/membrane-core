@@ -390,7 +390,6 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             //Success w/o leftovers: Send LQ leftovers to the SP
             //Error: Sell Wall combined leftovers
             if leftover_amount != Uint128::zero() {
-                panic!("{:?}--line 397", liquidation_propagation);
                 attrs.push(attr("leftover_amount", leftover_amount.clone().to_string()));
 
                 let repay_amount = liquidation_propagation.clone().liq_queue_leftovers
@@ -441,7 +440,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 submessages.push(sub_msg);
                 
                 //Remove repayment from leftovers
-                liquidation_propagation.liq_queue_leftovers -= sp_repay_amount;
+                liquidation_propagation.liq_queue_leftovers = Decimal::zero();
                 
                 //If the first stability pool message succeed and needs to call a 2nd here,
                 //We set the stability_pool amount in the propogation to the 2nd amount so that...
@@ -459,7 +458,6 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
         Err(_) => {
             //If error, sell wall the SP repay amount and LQ leftovers
             let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;
-            panic!("{:?}--line 465", liquidation_propagation);
 
             let repay_amount = liquidation_propagation.liq_queue_leftovers + liquidation_propagation.stability_pool;
             
@@ -662,7 +660,6 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             let mut repay_amount = Decimal::zero();
 
             let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
-            panic!("{:?}--line 662", prop);
 
             //If SP wasn't called, meaning LQ leftovers can't be handled there, sell wall this asset's leftovers
             //Replies are FIFO so we remove from front

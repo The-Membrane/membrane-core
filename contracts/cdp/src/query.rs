@@ -166,7 +166,7 @@ pub fn query_basket_debt_caps(deps: Deps, env: Env) -> StdResult<Vec<DebtCap>> {
     //Append DebtCap
     for (index, cap) in basket.collateral_supply_caps.iter().enumerate() {        
         res.push(
-                DebtCap{
+                DebtCap {
                     collateral: cap.clone().asset_info,
                     debt_total: cap.debt_total,
                     cap: asset_caps[index],

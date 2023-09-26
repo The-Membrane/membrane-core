@@ -853,7 +853,6 @@ pub fn distribute_funds(
 
     //Calc user ratios and distribute collateral based on them
     //Distribute 1 collateral at a time (not pro-rata) for gas and UX optimizations (ie if a user wants to sell they won't have to sell on 4 different pairs)
-    //Also bc native tokens come in batches, CW20s come separately
     let (ratios, user_deposits) = get_distribution_ratios(distribution_list.clone())?;
 
     let distribution_ratios: Vec<UserRatio> = user_deposits
@@ -1072,7 +1071,7 @@ fn split_assets_to_users(
                 let send_amount = distribution_assets[index].amount;
 
                 //Set distribution_asset amount to difference
-                distribution_assets[index].amount -= send_amount;
+                distribution_assets[index].amount = Uint128::zero();
 
                 //Add all of this asset to existing claims
                 //Add to existing user claims
@@ -1108,7 +1107,7 @@ fn split_assets_to_users(
                 let send_amount = distribution_assets[index].amount;
 
                 //Set distribution_asset amount to difference
-                distribution_assets[index].amount -= send_amount;
+                distribution_assets[index].amount = Uint128::zero();
 
                 //Add to existing user claims
                 add_to_user_claims(storage, user_ratio.clone().user, distribution_assets[index].clone().info, send_amount)?;
@@ -1143,7 +1142,6 @@ fn add_to_user_claims(
                     Some(mut user) => {
                         //Add Coin to user claims
                         user.claimable_assets.add(&coin(send_amount.u128(), distribution_asset.to_string()))?;
-                        if user.claimable_assets.len() > 2 as usize {panic!("{:?}", user.claimable_assets)}
 
                         Ok(user)
                     }

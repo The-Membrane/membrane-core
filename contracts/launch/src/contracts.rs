@@ -767,8 +767,8 @@ pub fn end_of_launch(
 
     //Get uosmo contract balance
     let uosmo_balance = get_contract_balances(deps.querier, env.clone(), vec![AssetInfo::NativeToken { denom: String::from("uosmo") }])?[0];
-    //Make sure to deduct the amount of OSMO used to create Pools. Contract balance - 100uosmo * 2 pools - 1 OSMO to init CDT LP
-    let uosmo_pool_delegation_amount = (uosmo_balance - Uint128::new(2001_000_000)).to_string(); 
+    //Make sure to deduct the amount of OSMO used to create Pools. Contract balance - 100uosmo * 2 pools - 1 OSMO to init CDT LP - 50 OSMO to create a gauge
+    let uosmo_pool_delegation_amount = (uosmo_balance - Uint128::new(2051_000_000)).to_string(); 
     
     //Mint MBRN for LP
     let msg = OPExecuteMsg::MintTokens { 

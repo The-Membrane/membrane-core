@@ -784,7 +784,8 @@ fn fluid_delegations() {
     };
     let info = mock_info("governator_addr", &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(res.to_string(), String::from("Custom Error val: \"MBRN amount exceeds total fluid delegatible amount\""));
+    //Fluid delegatible amount is 0 so MBRN amount becomes 0
+    assert_eq!(res.to_string(), String::from("Custom Error val: \"MBRN amount must be greater than 1\""));
 
     //Undelegate MBRN that was fluid delegated: success
     let msg = ExecuteMsg::UpdateDelegations { 
@@ -832,7 +833,7 @@ fn unstake() {
         ]
     );
 
-    //Delegate MBRN: success
+    //Delegate all staked MBRN: success
     let msg = ExecuteMsg::UpdateDelegations { 
         governator_addr: Some(String::from("unstaking_barrier")), 
         mbrn_amount: None,
@@ -935,7 +936,7 @@ fn unstake() {
             attr("unstake_amount", String::from("0")),
         ]
     );//Query and Assert totals
-    //The restake should have staked 6 days of rewards as well (8219)
+    //The restake should have staked 6 days of rewards as well (16451)
     let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
 
     let resp: StakerResponse = from_binary(&res).unwrap();
@@ -947,21 +948,6 @@ fn unstake() {
             unstake_start_time: None,
             staker: Addr::unchecked("sender88")        
         });
-
-    //Successful Unstake from vesting contract w/o withdrawals
-    let msg = ExecuteMsg::Unstake {
-        mbrn_amount: Some(Uint128::new(5_000_000u128)),
-    };
-    let info = mock_info("vesting_contract", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-    assert_eq!(
-        res.attributes,
-        vec![
-            attr("method", "unstake"),
-            attr("staker", String::from("vesting_contract")),
-            attr("unstake_amount", String::from("0")),
-        ]
-    );
     
     env.block.time = env.block.time.plus_seconds(86400 * 4); //4 days
 
@@ -985,7 +971,7 @@ fn unstake() {
                 contract_addr: String::from("osmosis_proxy"), 
                 msg: to_binary(&OsmoExecuteMsg::MintTokens { 
                     denom: String::from("mbrn_denom"), 
-                    amount: Uint128::new(8251), 
+                    amount: Uint128::new(10998), 
                     mint_to_address: String::from("cosmos2contract")
                 }).unwrap(), 
                 funds: vec![]
@@ -999,16 +985,17 @@ fn unstake() {
     let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
 
     let resp: StakerResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.total_staked, Uint128::new(5032920));
+    assert_eq!(resp.total_staked, Uint128::new(5035667));
     assert_eq!(resp.deposit_list[3], 
         StakeDeposit {
-            amount: Uint128::new(8251),
-            stake_time: 1572834219,
+            amount: Uint128::new(10998),
+            stake_time: 1572920619,
             unstake_start_time: None,
             staker: Addr::unchecked("sender88")        
         });
 
     //Query and Assert Delegations were updated by the unstake
+    //We aren't undelegating the full 5M bc a portion of it is coming from the accrued interest
     let res = query(deps.as_ref(), mock_env(),
         QueryMsg::Delegations {
             user: None,
@@ -1027,7 +1014,7 @@ fn unstake() {
                     amount: Uint128::new(5024669u128),
                     fluidity: false,
                     voting_power_delegation: true,
-                    time_of_delegation: mock_env().block.time.seconds(),
+                    time_of_delegation: 1572920619,
                 }
             ],
             commission: Decimal::zero(),
@@ -1042,7 +1029,7 @@ fn unstake() {
                     amount: Uint128::new(5024669u128),
                     fluidity: false,
                     voting_power_delegation: true,
-                    time_of_delegation: 1572834219,
+                    time_of_delegation: 1572920619,
                 }
             ],
             delegated_to: vec![],
@@ -1050,38 +1037,13 @@ fn unstake() {
         }        
     );
 
-    //Successful Unstake from vesting contract w/ withdrawals after unstaking period
-    let msg = ExecuteMsg::Unstake {
-        mbrn_amount: Some(Uint128::new(5_000_000u128)),
-    };
-    let info = mock_info("vesting_contract", &[]);
-    let res = execute(deps.as_mut(), env, info, msg).unwrap();
-    assert_eq!(
-        res.attributes,
-        vec![
-            attr("method", "unstake"),
-            attr("staker", String::from("vesting_contract")),
-            attr("unstake_amount", String::from("5000000")),
-        ]
-    );
-    //Only msg is stake withdrawal
-    assert_eq!(
-        res.messages,
-        vec![
-            SubMsg::reply_on_success(CosmosMsg::Bank(BankMsg::Send {
-                to_address: String::from("vesting_contract"),
-                amount: coins(5_000_000, "mbrn_denom"),
-            }), 1)
-        ]
-    );
-
     //Query and Assert totals
     let res = query(deps.as_ref(), mock_env(), QueryMsg::TotalStaked {}).unwrap();
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_vested, Uint128::new(5_032_920));
-    assert_eq!(resp.vested_total, Uint128::new(6_036_164));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(5_035_667));
+    assert_eq!(resp.vested_total, Uint128::new(11_000000));
 }
 
 

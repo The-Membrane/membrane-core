@@ -440,7 +440,7 @@ pub fn unstake(
     let config = CONFIG.load(deps.storage)?;
 
     //Restrict unstaking
-    // can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
+    can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
 
     //Get total Stake
     let total_stake = {
@@ -472,6 +472,7 @@ pub fn unstake(
         withdraw_amount,
     )?;
 
+    //withdraw_from_state() check
     //if withdrawable_amount is greter than total stake or withdraw amount, error
     if withdrawable_amount > total_stake || withdrawable_amount > withdraw_amount {
         return Err(ContractError::CustomError {
@@ -487,13 +488,13 @@ pub fn unstake(
     //Also update delegations
     if !withdrawable_amount.is_zero() {
         //Create Position accrual msgs to lock in user discounts before withdrawing
-        // let accrual_msg = accrue_user_positions(
-        //     deps.querier, 
-        //     config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-        //     info.sender.clone().to_string(), 
-        //     32,
-        // )?;
-        // sub_msgs.push(SubMsg::new(accrual_msg));
+        let accrual_msg = accrue_user_positions(
+            deps.querier, 
+            config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+            info.sender.clone().to_string(), 
+            32,
+        )?;
+        sub_msgs.push(SubMsg::new(accrual_msg));
 
         //Push to native claims list
         native_claims.push(asset_to_coin(Asset {
@@ -644,8 +645,13 @@ fn update_delegations(
                 val: String::from("Delegate cannot be the user"),
             });
         }
+        let mut attrs = vec![
+            attr("action", "update_delegations"),
+            attr("delegator", info.sender.clone()),
+            attr("delegate", valid_gov_addr.clone()),
+        ];
 
-        //Assert its a staker
+        //Assert user is a staker
         let staker_deposits: Vec<StakeDeposit> = STAKED.load(deps.storage, info.sender.clone())?;
         
         //Calc total stake
@@ -666,16 +672,16 @@ fn update_delegations(
             },
         };
 
-        //Set total_delegatible_amount
-        let total_delegatible_amount = total_staker_deposits.clone() - user_delegation_info.delegated_to
+        //Set total_delegated_amount
+        let total_delegated_amount = user_delegation_info.delegated_to
             .iter()
             .map(|delegation| delegation.amount)
             .collect::<Vec<Uint128>>()
             .into_iter()
             .sum::<Uint128>();
 
-        //Validate MBRN amount
-        let mbrn_amount = mbrn_amount.unwrap_or(total_delegatible_amount);
+        //Set total_delegatible_amount
+        let total_delegatible_amount = total_staker_deposits.clone() - total_delegated_amount;
             
         let mut claim_msgs: Vec<CosmosMsg> = vec![];
 
@@ -697,7 +703,10 @@ fn update_delegations(
             )?;
 
             //If delegating, add to staker's delegated_to & delegates delegated
-            if delegate {
+            if delegate {                
+                //Validate MBRN amount
+                let mbrn_amount = mbrn_amount.unwrap_or(total_delegatible_amount).min(total_delegatible_amount);
+                attrs.push(attr("amount", mbrn_amount));
                 //If mbrn_amount is greater than total delegatible amount, return error
                 if mbrn_amount > total_delegatible_amount {
                     return Err(ContractError::CustomError {
@@ -724,7 +733,7 @@ fn update_delegations(
                         commission: Decimal::zero(),
                     }
                 };
-                //Add to existing delegation from the Staker or add new Delegation object 
+                //Add to existing "delegated" from the Staker or add new Delegation object 
                 match delegates_delegations.delegated.iter().enumerate().find(|(_i, delegation)| delegation.delegate == info.sender.clone()){
                     Some((index, _)) => delegates_delegations.delegated[index].amount += mbrn_amount,
                     None => {
@@ -741,7 +750,7 @@ fn update_delegations(
                 DELEGATIONS.save(deps.storage, valid_gov_addr.clone(), &delegates_delegations)?;
 
                 //Add to staker's delegated_to
-                //Add to existing delegation or add new Delegation object 
+                //Add to existing "delegated_to" or add new Delegation object 
                 match user_delegation_info.delegated_to.iter().enumerate().find(|(_i, delegation)| delegation.delegate == valid_gov_addr.clone()){
                     Some((index, _)) => user_delegation_info.delegated_to[index].amount += mbrn_amount,
                     None => {
@@ -757,7 +766,26 @@ fn update_delegations(
                 //Save staker's info
                 DELEGATIONS.save(deps.storage, info.sender.clone(), &user_delegation_info)?;
             } else {
-                //If undelegating, remove from staker's delegations & delegates delegations
+                //Validate MBRN amount
+                let mbrn_amount = mbrn_amount.unwrap_or(total_delegated_amount).min(total_delegated_amount);
+                attrs.push(attr("amount", mbrn_amount));
+                //If mbrn_amount is greater than total delegated amount, return error
+                if mbrn_amount > total_delegated_amount {
+                    return Err(ContractError::CustomError {
+                        val: String::from("MBRN amount exceeds delegated amount"),
+                    });
+                } else if mbrn_amount < 1_000_000u128.into(){
+                    return Err(ContractError::CustomError {
+                        val: String::from("MBRN amount must be greater than 1"),
+                    });
+                }
+                //If no delegatible amount, return error
+                if total_delegated_amount.is_zero() {
+                    return Err(ContractError::CustomError {
+                        val: String::from("No delegated amount"),
+                    });
+                }
+                /////If undelegating, remove from staker's "delegated_to" & delegates "delegated"///
                 //Remove from delegate's
                 let mut delegates_delegations = DELEGATIONS.load(deps.storage, valid_gov_addr.clone())?;
                 match delegates_delegations.delegated.iter().enumerate().find(|(_i, delegation)| delegation.delegate == info.clone().sender){
@@ -880,12 +908,7 @@ fn update_delegations(
             };        
         }
         
-        return Ok(Response::new().add_messages(claim_msgs).add_attributes(vec![
-            attr("action", "update_delegations"),
-            attr("delegator", info.sender),
-            attr("delegate", valid_gov_addr),
-            attr("amount", mbrn_amount),
-        ]))
+        return Ok(Response::new().add_messages(claim_msgs).add_attributes(attrs))
     }
 
     Ok(Response::new().add_attributes(vec![
@@ -943,15 +966,14 @@ fn delegate_fluid_delegations(
         .collect();
 
     //Set total_fluid_delegatible_amount
-    let total_fluid_delegatible_amount = delegate_delegation_info.delegated
-        .iter()
-        .filter(|delegation| delegation.fluidity)
+    let total_fluid_delegatible_amount = fluid_delegations.clone()
+        .into_iter()
         .map(|delegation| delegation.amount)
         .collect::<Vec<Uint128>>()
         .into_iter()
         .sum::<Uint128>();
     //Validate MBRN amount
-    let mut mbrn_amount = mbrn_amount.unwrap_or(total_fluid_delegatible_amount);
+    let mut mbrn_amount = mbrn_amount.unwrap_or(total_fluid_delegatible_amount).min(total_fluid_delegatible_amount);
     
     if total_fluid_delegatible_amount < mbrn_amount {
         return Err(ContractError::CustomError {
@@ -970,6 +992,7 @@ fn delegate_fluid_delegations(
  
     //Parse through delegate's fluid delegations
     for (i, delegation) in fluid_delegations.clone().into_iter().enumerate() {
+        /////////Calc delegation amount & update fluid_delegations
         //If delegation amount is less than mbrn_amount, remove delegation from delegate's delegated
         let delegation_amount = if delegation.amount <= mbrn_amount {
             fluid_delegations.remove(i);
@@ -1004,6 +1027,7 @@ fn delegate_fluid_delegations(
                 commission: Decimal::zero(),
             }
         };
+        ///We are searching for the initial Delegate's delegation to the Governator
         match delegate_delegation_info.delegated.iter().enumerate().find(|(_i, listed_delegation)| listed_delegation.delegate == delegation.delegate.clone()){
             Some((index, _)) => delegate_delegation_info.delegated[index].amount += delegation_amount,
             None => {
@@ -1019,7 +1043,7 @@ fn delegate_fluid_delegations(
         //Save delegate's info           
         DELEGATIONS.save(deps.storage, valid_gov_addr.clone(), &delegate_delegation_info)?;
 
-        //Add delegation_amount to initial delegate's delegated_to
+        //Add delegation_amount to initial delegate's delegated_to the Governator
         let mut initial_delegator_delegation_info = DELEGATIONS.load(deps.storage, delegation.delegate.clone())?;
         match initial_delegator_delegation_info.delegated_to.iter().enumerate().find(|(_i, listed_delegation)| listed_delegation.delegate == valid_gov_addr.clone()){
             Some((index, _)) => initial_delegator_delegation_info.delegated_to[index].amount += delegation_amount,
@@ -1080,10 +1104,10 @@ fn restake(
     let initial_restake = restake_amount;
     let error: Option<StdError> = None;
 
-    //Load deposits
+    //Load staker's deposits
     let deposits = STAKED.load(deps.storage, info.clone().sender)?;
 
-    //Iterate through deposits
+    //Iterate through staker's deposits
     let restaked_deposits: Vec<StakeDeposit> = deposits.clone()
         .into_iter()
         .map(|mut deposit| {
@@ -1462,6 +1486,7 @@ fn add_deposit_claimables(
     claimables: &mut Vec<Asset>,
     accrued_interest: &mut Uint128,
     total_rewarding_stake: Uint128, //stake thats being rewarded
+    user_commission_rate: Decimal,
 ) -> StdResult<()>{
     //Calc claimables from this deposit
     let (deposit_claimables, deposit_interest) = get_deposit_claimables(
@@ -1474,6 +1499,7 @@ fn add_deposit_claimables(
         delegated.clone(),
         delegated_to.clone(),
         total_rewarding_stake,
+        user_commission_rate,
     )?;
     *accrued_interest += deposit_interest;
 
@@ -1706,7 +1732,7 @@ fn user_claims(
     let (user_claimables, accrued_interest) =
         get_user_claimables(storage, env.clone(), info.clone().sender)?;
         
-    //Claim the available assets///
+    ///Claim the available assets///
     //If we are sending to the sender
     if send_to.clone().is_none() {                
         //Send to sender
@@ -1748,14 +1774,16 @@ fn get_user_claimables(
     env: Env,
     user: Addr,
 ) -> StdResult<(Vec<Asset>, Uint128)> {
-    //Load state
+    //Load contract state
     let mut config = CONFIG.load(storage)?;
     let incentive_schedule = INCENTIVE_SCHEDULING.load(storage)?;
+    let fee_events = FEE_EVENTS.load(storage)?;
+    //Load User State
     let deposits: Vec<StakeDeposit> = match STAKED.load(storage, user.clone()){
         Ok(deposits) => { deposits },
         Err(_) => { vec![] },
     };
-    let DelegationInfo { delegated, delegated_to, commission } = match DELEGATIONS.load(storage, user.clone()){
+    let DelegationInfo { delegated, delegated_to, commission: user_commission_rate } = match DELEGATIONS.load(storage, user.clone()){
         Ok(res) => res,
         Err(_) => DelegationInfo {
             delegated: vec![],
@@ -1765,15 +1793,11 @@ fn get_user_claimables(
     };
 
     //Find rewards from deposits
-    if deposits != vec![] {            
-        //Load Fee events
-        let fee_events = FEE_EVENTS.load(storage)?;
-
+    if deposits != vec![] {
         let mut claimables: Vec<Asset> = vec![];
-        let mut total_deposits = Uint128::zero();
         let mut accrued_interest = Uint128::zero();
         
-        //Calc total deposits past fee wait period
+        //Calc total deposits used to reward
         let total_rewarding_stake: Uint128 = deposits.clone()
             .into_iter()
             .map(|deposit| deposit.amount)
@@ -1793,22 +1817,20 @@ fn get_user_claimables(
                 &mut claimables, 
                 &mut accrued_interest,
                 total_rewarding_stake,
+                user_commission_rate,
             )?;
-
-            //Total deposits
-            total_deposits += deposit.amount;
         }
 
         //Save new condensed deposit for user
         STAKED.save(storage, user.clone(), &vec![
             StakeDeposit {
                 staker: user.clone(),
-                amount: total_deposits,
+                amount: total_rewarding_stake,
                 stake_time: env.block.time.seconds(),
                 unstake_start_time: None,
         }])?;
 
-        //Find and save claimables for the user's delegates' commissions
+        //Find and save claimables for the user's delegates
         if !delegated_to.is_empty(){
             for delegate in delegated_to {
                 //Load delegate's commission
@@ -1834,7 +1856,7 @@ fn get_user_claimables(
                         None => Err(StdError::generic_err("Delegate not found")),
                     }
                 })?;
-                //Update time of delegation on delegator's side
+                //Update time of delegation on user's (delegator's) side
                 DELEGATIONS.update(storage, user.clone(), |delegation_info| -> StdResult<DelegationInfo>{
                     match delegation_info {
                         Some(mut delegation_info) => {
@@ -1862,7 +1884,7 @@ fn get_user_claimables(
                         Err(_) => Decimal::zero(),
                     }.to_uint_floor();
 
-                let deposit =
+                let delegate_temp_deposit =
                     StakeDeposit {
                         staker: user.clone(),
                         amount: delegate_commission,
@@ -1877,12 +1899,14 @@ fn get_user_claimables(
                     incentive_schedule.clone(), 
                     env.clone(), 
                     fee_events.clone(), 
-                    deposit.clone(), 
+                    delegate_temp_deposit.clone(), 
                     vec![],
                     vec![],
-                    delegate.amount,
+                    delegate_commission,
+                    Decimal::zero(), //Since it won't be used anyway
                 )?;
 
+                //Transform claimables to sendable Coins
                 let delegate_claimables = delegate_claimables
                     .into_iter()
                     .map(|asset| asset_to_coin(asset))
@@ -1922,8 +1946,6 @@ fn get_user_claimables(
         }   return Ok((claimables, accrued_interest))
 
     } else if config.vesting_contract.is_some() && user == config.clone().vesting_contract.unwrap().to_string() {
-        //Load Fee events
-        let fee_events = FEE_EVENTS.load(storage)?;
         //Load total vesting, altered by the vesting rev multiplier
         let total = STAKING_TOTALS.load(storage)?
             .vesting_contract;
@@ -1935,7 +1957,7 @@ fn get_user_claimables(
                     
         let mut claimables = vec![];
 
-        let deposit = StakeDeposit {
+        let temp_deposit = StakeDeposit {
             staker: Addr::unchecked(config.clone().vesting_contract.unwrap().to_string()),
             amount: total,
             stake_time: VESTING_STAKE_TIME.load(storage)?,
@@ -1957,10 +1979,11 @@ fn get_user_claimables(
             incentive_schedule.clone(), 
             env.clone(), 
             fee_events.clone(), 
-            deposit,
-            delegated.clone(),
-            delegated_to.clone(),
+            temp_deposit,
+            vec![],
+            vec![],
             total,
+            Decimal::zero(),
         )?;
         claimables.extend(claims);
 
@@ -2031,8 +2054,9 @@ pub fn get_delegation_commission(
     delegated: Vec<Delegation>,
     delegated_to: Vec<Delegation>,
     total_rewarding_stake: Uint128,
+    user_commission_rate: Decimal,
 ) -> StdResult<(Decimal, Decimal)>{
-    if total_rewarding_stake == Uint128::zero() {
+    if total_rewarding_stake == Uint128::zero() || (delegated.is_empty() && delegated_to.is_empty()){
         return Ok((Decimal::zero(), Decimal::zero()))
     }
 
@@ -2049,7 +2073,7 @@ pub fn get_delegation_commission(
 
             let like_delegations = delegated_to.clone()
                 .into_iter()
-                .filter(|delegation| delegation.delegate == delegation.delegate)
+                .filter(|listed_delegation| listed_delegation.delegate == delegation.delegate)
                 .collect::<Vec<Delegation>>();
 
             let delegated_to_sum: Uint128 = like_delegations
@@ -2073,54 +2097,27 @@ pub fn get_delegation_commission(
     };
     
     //Calc the ratio of the total delegated_to to the total stake
-    let ratio = Decimal::from_ratio(total_delegated_to, total_rewarding_stake);
+    let total_delegated_ratio = Decimal::from_ratio(total_delegated_to, total_rewarding_stake);
 
     //Calculate the per deposit commission rate
-    let per_deposit_commission_subtraction = decimal_multiplication(ratio, commission_rate)?;
+    let per_deposit_commission_subtraction = decimal_multiplication(total_delegated_ratio, commission_rate)?;
 
     
     ///////Now do the same for delegated, to add to this deposit's claimables///////
+    /// Don't need an average commission bc its the commission of the User
     /// //Initialize the total the amount of MBRN delegated to the depositor
-    let mut total_delegated = Uint128::zero();
-
-    //Get the average commission rate of the delegations
-    let commission_rate = {
-        let mut commission_rates: Vec<(Decimal, Uint128)> = vec![];
-
-        //Create tuples for (Commission rate + total delegated) for each delegate
-        for delegation in delegated.clone() {
-            let delegator_commission = DELEGATIONS.load(storage, delegation.delegate.clone())?.commission;
-
-            let like_delegations = delegated_to.clone()
-                .into_iter()
-                .filter(|delegation| delegation.delegate == delegation.delegate)
-                .collect::<Vec<Delegation>>();
-
-            let delegated_sum: Uint128 = like_delegations
-                .into_iter()
-                .map(|delegation| delegation.amount)
-                .collect::<Vec<Uint128>>()
-                .iter()
-                .sum();
-            total_delegated += delegated_sum;
-
-            commission_rates.push((delegator_commission, delegated_sum));
-        }
-
-        //Get the average commission rate, weighted by the amount delegated_to
-        let mut weighted_commission_rate = Decimal::zero();
-        for (commission_rate, delegated) in commission_rates {
-            weighted_commission_rate += commission_rate * Decimal::from_ratio(delegated, total_delegated);
-        }
-
-        weighted_commission_rate
-    };
+    let total_delegated: Uint128 = delegated.clone()
+        .into_iter()
+        .map(|delegation| delegation.amount)
+        .collect::<Vec<Uint128>>()
+        .iter()
+        .sum();
     
     //Calc the ratio of the total delegated_to to the total stake
-    let ratio = Decimal::from_ratio(total_delegated, total_rewarding_stake);
+    let total_delegated_ratio = Decimal::from_ratio(total_delegated, total_rewarding_stake);
 
     //Calculate the per deposit commission rate
-    let per_deposit_commission_addition = decimal_multiplication(ratio, commission_rate)?;
+    let per_deposit_commission_addition = decimal_multiplication(total_delegated_ratio, user_commission_rate)?;
 
     Ok((per_deposit_commission_subtraction, per_deposit_commission_addition))
 }
@@ -2136,6 +2133,7 @@ pub fn get_deposit_claimables(
     delegated: Vec<Delegation>,
     delegated_to: Vec<Delegation>,
     total_rewarding_stake: Uint128, //stake thats being rewarded
+    user_commission_rate: Decimal,
 ) -> StdResult<(Vec<Asset>, Uint128)> {
     let mut claimables: Vec<Asset> = vec![];
 
@@ -2162,6 +2160,7 @@ pub fn get_deposit_claimables(
         delegated.clone(), 
         delegated_to.clone(), 
         total_rewarding_stake,
+        user_commission_rate,
     )?;
     
     //Subtract commission from deposit
@@ -2180,7 +2179,8 @@ pub fn get_deposit_claimables(
         )?.to_uint_floor();
     }
 
-    //Add delegations into per deposit fee calculation && Condense like Assets in claimables
+    //Calc & condense claimables
+    //due to the above, claims incorporate the delegation commissions
     for event in events_experienced {
         //Check if asset is already in the list of claimables and add accordingly
         match claimables

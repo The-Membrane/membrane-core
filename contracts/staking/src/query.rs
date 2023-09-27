@@ -2,9 +2,9 @@ use cosmwasm_std::{Deps, StdResult, Uint128, Env, Addr, Decimal, StdError};
 use cw_storage_plus::Bound;
 use membrane::math::decimal_multiplication;
 use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, RewardsResponse, StakedResponse, DelegationResponse};
-use membrane::types::{FeeEvent, StakeDeposit, DelegationInfo, Delegation, Asset};
+use membrane::types::{FeeEvent, StakeDeposit, DelegationInfo, Asset};
 
-use crate::contract::{get_deposit_claimables, SECONDS_PER_DAY, get_total_vesting};
+use crate::contract::{get_deposit_claimables, get_total_vesting};
 use crate::state::{STAKING_TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING, DELEGATIONS, VESTING_STAKE_TIME, DELEGATE_CLAIMS};
 
 const DEFAULT_LIMIT: u32 = 32u32;
@@ -45,14 +45,14 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
     //Load state
     let config = CONFIG.load(deps.storage)?;
     let incentive_schedule = INCENTIVE_SCHEDULING.load(deps.storage)?;
+    let fee_events = FEE_EVENTS.load(deps.storage)?;
     //Validate address
     let valid_addr = deps.api.addr_validate(&user)?;
-    //Load state
+    //Load user state
     let mut user_deposits: Vec<StakeDeposit> = match STAKED.load(deps.storage, valid_addr.clone()){
         Ok(deposits) => { deposits }
         Err(_) => vec![], //Not a staker
     };
-    let fee_events = FEE_EVENTS.load(deps.storage)?;
     let DelegationInfo { mut delegated, delegated_to, commission } = match DELEGATIONS.load(deps.storage, valid_addr.clone()){
         Ok(delegation) => delegation,
         Err(_) => DelegationInfo {
@@ -82,6 +82,7 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
                 delegated.clone(),
                 delegated_to.clone(),
                 total_rewarding_stake,
+                commission,
             )?;
             claimables.extend(claims);
             accrued_interest += incentives;
@@ -124,9 +125,10 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
             env.clone(), 
             fee_events.clone(), 
             deposit,
-            delegated.clone(),
-            delegated_to.clone(),
+            vec![],
+            vec![],
             total,
+            Decimal::zero(),
         )?;
         claimables.extend(claims);
         
@@ -175,7 +177,7 @@ pub fn query_staked(
             
             let stakers_in_loop = stakers_in_loop.clone()
                 .into_iter()
-                .filter(|deposit| deposit.stake_time >= start_after && deposit.stake_time < end_before)
+                .filter(|deposit| deposit.stake_time > start_after && deposit.stake_time < end_before)
                 .take(limit as usize)
                 .collect::<Vec<StakeDeposit>>();
 

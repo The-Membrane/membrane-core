@@ -82,6 +82,7 @@ mod tests {
                     } => {
                         if (amount != Uint128::new(8_219) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1")) 
                         && (amount != Uint128::new(8219) || denom != String::from("mbrn_denom") || mint_to_address != String::from("contract4")) 
+                        && (amount != Uint128::new(10958) || denom != String::from("mbrn_denom") || mint_to_address != String::from("contract4")) 
                         && (amount != Uint128::new(8) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
                         && (amount != Uint128::new(78082) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
                         && (amount != Uint128::new(156164) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
@@ -1020,12 +1021,12 @@ mod tests {
             //Skip unstaking period
             app.set_block(BlockInfo {
                 height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(86_400u64 * 3u64), //Added 3 days
+                time: app.block_info().time.plus_seconds(86_400u64 * 4u64), //Added 4 days
                 chain_id: app.block_info().chain_id,
             });
 
-            //Send the contract 8219 MBRN to get past the claim reply check
-            app.send_tokens(Addr::unchecked("coin_God"), staking_contract.addr(), &[coin(8219, "mbrn_denom")]).unwrap();
+            //Send the contract 10958 MBRN to get past the claim reply check
+            app.send_tokens(Addr::unchecked("coin_God"), staking_contract.addr(), &[coin(10958, "mbrn_denom")]).unwrap();
 
 
             //Successful Unstake all w/ withdrawal
@@ -1049,7 +1050,7 @@ mod tests {
                     &QueryMsg::TotalStaked {},
                 )
                 .unwrap();
-            assert_eq!(resp.total_not_including_vested, Uint128::new(8219));//This is from accrual during the unstaking period
+            assert_eq!(resp.total_not_including_vested, Uint128::new(10958));//This is from accrual during the unstaking period
             assert_eq!(resp.vested_total, Uint128::new(0));
 
         }

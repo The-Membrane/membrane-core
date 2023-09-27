@@ -528,9 +528,13 @@ fn distribute() {
     let deposit_msg = ExecuteMsg::Deposit { user: None };
     let _res = execute(deps.as_mut(), mock_env(), info.clone(), deposit_msg).unwrap();
 
+    //Deposit for second user
+    let deposit_msg = ExecuteMsg::Deposit { user: Some(String::from("2nduser")) };
+    let _res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
+
     //Successful attempt
     //Liquidation
-    let liq_msg = ExecuteMsg::Liquidate { liq_amount: Decimal::from_ratio(50000000u128, 1u128) };
+    let liq_msg = ExecuteMsg::Liquidate { liq_amount: Decimal::from_ratio(80000000u128, 1u128) };
     let cdp_info = mock_info("positions_contract", &vec![]);
     let _res = execute(deps.as_mut(), mock_env(), cdp_info, liq_msg).unwrap();
 
@@ -541,23 +545,24 @@ fn distribute() {
                 info: AssetInfo::NativeToken {
                     denom: "debit".to_string(),
                 },
-                amount: Uint128::new(100000000u128),
+                amount: Uint128::new(85),
             },
             Asset {
                 info: AssetInfo::NativeToken {
                     denom: "second_debit_LP".to_string(),
                 },
-                amount: Uint128::new(100000000000000u128),
+                amount: Uint128::new(15),
             },
         ],
-        distribution_asset_ratios: vec![Decimal::percent(84), Decimal::percent(15)],
-        distribute_for: Uint128::new(50000000),
+        distribution_asset_ratios: vec![Decimal::percent(85), Decimal::percent(15)],
+        distribute_for: Uint128::new(80000000),
     };
+    
     let mut env = mock_env();
     env.block.time = env.block.time.plus_seconds(86400u64); //Added a day
 
-    let mut coin = coins(100000000, "debit");
-    coin.append(&mut coins(100000000000000, "second_debit"));
+    let mut coin = coins(85, "debit");
+    coin.append(&mut coins(15, "second_debit_LP"));
 
     let cdp_info = mock_info("positions_contract", &coin);
 
@@ -568,7 +573,7 @@ fn distribute() {
         vec![
             attr("method", "distribute"),
             attr("credit_asset", "credit"),
-            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100000000) }, Asset { info: NativeToken { denom: \"second_debit_LP\" }, amount: Uint128(100000000000000) }]"),
+            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(85) }, Asset { info: NativeToken { denom: \"second_debit_LP\" }, amount: Uint128(15) }]"),
         ]
     );
 
@@ -584,8 +589,8 @@ fn distribute() {
 
     let resp: ClaimsResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.claims[0].to_string(), "100debit".to_string());
-    assert_eq!(resp.claims[1].to_string(), "25second_debit".to_string());
+    assert_eq!(resp.claims[0].to_string(), "62debit".to_string());
+    assert_eq!(resp.claims[1].to_string(), "12328mbrn_denom".to_string());
 
     //Query and assert 2ndUser claimables
     let res = query(
@@ -599,7 +604,9 @@ fn distribute() {
 
     let resp: ClaimsResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.claims[0].to_string(), "75second_debit".to_string());
+    assert_eq!(resp.claims[0].to_string(), "23debit".to_string());
+    assert_eq!(resp.claims[1].to_string(), "7397mbrn_denom".to_string());
+    assert_eq!(resp.claims[2].to_string(), "15second_debit_LP".to_string());
 
     //Query position data to make sure 0 is leftover for "user"
     let res = query(
@@ -630,7 +637,7 @@ fn distribute() {
     .unwrap();
 
     let resp: AssetPool = from_binary(&res).unwrap();
-    assert_eq!(resp.deposits[0].to_string(), String::from("2nduser 2"));
+    assert_eq!(resp.deposits[0].to_string(), String::from("2nduser 20000000"));
 
     //2nd Liquidation
     let liq_msg = ExecuteMsg::Liquidate { liq_amount: Decimal::from_ratio(2u128, 1u128) };
@@ -648,7 +655,7 @@ fn distribute() {
             },
             Asset {
                 info: AssetInfo::NativeToken {
-                    denom: "second_debit".to_string(),
+                    denom: "second_debit_LP".to_string(),
                 },
                 amount: Uint128::new(100u128),
             },
@@ -658,7 +665,7 @@ fn distribute() {
     };
     
     let mut coin = coins(100, "debit");
-    coin.append(&mut coins(100, "second_debit"));
+    coin.append(&mut coins(100, "second_debit_LP"));
 
     let cdp_info = mock_info("positions_contract", &coin);
     let res = execute(deps.as_mut(), mock_env(), cdp_info, distribute_msg).unwrap();
@@ -667,7 +674,7 @@ fn distribute() {
         vec![
             attr("method", "distribute"),
             attr("credit_asset", "credit"),
-            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100) }, Asset { info: NativeToken { denom: \"second_debit\" }, amount: Uint128(100) }]"),
+            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100) }, Asset { info: NativeToken { denom: \"second_debit_LP\" }, amount: Uint128(100) }]"),
         ]
     );
 
@@ -688,11 +695,15 @@ fn distribute() {
         vec![
             Coin {
                 denom: "debit".to_string(),
-                amount: Uint128::new(100)
+                amount: Uint128::new(123)
+            },
+            Coin {
+                denom: "mbrn_denom".to_string(),
+                amount: Uint128::new(7397)
             },      
             Coin {
-                denom: "second_debit".to_string(),
-                amount: Uint128::new(175)
+                denom: "second_debit_LP".to_string(),
+                amount: Uint128::new(115)
             },
         ],
     )

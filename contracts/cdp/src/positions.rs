@@ -513,18 +513,21 @@ pub fn repay(
     //Get target_position
     let (position_index, mut target_position) = get_target_position(storage, valid_owner_addr.clone(), position_id)?;
 
-    //Accrue interest
-    accrue(
-        storage,
-        querier,
-        env.clone(),
-        config.clone(),
-        &mut target_position,
-        &mut basket,
-        valid_owner_addr.to_string(),
-        false,
-        false,
-    )?;
+    //SP accrues external before calling repay, so we only accrue if the sender isn't the SP
+    if info.sender != config.clone().stability_pool.unwrap_or(Addr::unchecked("")){   
+        //Accrue interest
+        accrue(
+            storage,
+            querier,
+            env.clone(),
+            config.clone(),
+            &mut target_position,
+            &mut basket,
+            valid_owner_addr.to_string(),
+            false,
+            false,
+        )?;
+    }
 
     //Set prev_credit_amount
     let prev_credit_amount = target_position.credit_amount;

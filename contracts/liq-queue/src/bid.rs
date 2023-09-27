@@ -494,7 +494,7 @@ pub fn claim_liquidations(
                 seen.push(bid_id);
             }
         }
-
+        //Read bids
         bid_ids
             .into_iter()
             .map(|id| read_bid(deps.storage, id, queue.clone()))

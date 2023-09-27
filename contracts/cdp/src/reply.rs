@@ -460,6 +460,10 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;
 
             let repay_amount = liquidation_propagation.liq_queue_leftovers + liquidation_propagation.stability_pool;
+
+            if repay_amount <= Decimal::one() {
+                return Ok(Response::new())
+            }
             
             //Sell wall remaining
             let (sell_wall_msgs, lp_withdraw_msgs) = sell_wall(

@@ -49,11 +49,11 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
     //Validate address
     let valid_addr = deps.api.addr_validate(&user)?;
     //Load user state
-    let mut user_deposits: Vec<StakeDeposit> = match STAKED.load(deps.storage, valid_addr.clone()){
+    let user_deposits: Vec<StakeDeposit> = match STAKED.load(deps.storage, valid_addr.clone()){
         Ok(deposits) => { deposits }
         Err(_) => vec![], //Not a staker
     };
-    let DelegationInfo { mut delegated, delegated_to, commission } = match DELEGATIONS.load(deps.storage, valid_addr.clone()){
+    let DelegationInfo { delegated, delegated_to, commission } = match DELEGATIONS.load(deps.storage, valid_addr.clone()){
         Ok(delegation) => delegation,
         Err(_) => DelegationInfo {
             delegated: vec![],

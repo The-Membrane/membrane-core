@@ -73,7 +73,7 @@ pub enum ExecuteMsg {
     },
     /// Claim all claimables
     ClaimRewards {
-        /// Send rewards to address
+        /// Send MBRN rewards to address, other fees are automatically sent to the sender
         send_to: Option<String>,
         /// Toggle to restake MBRN rewards
         restake: bool,

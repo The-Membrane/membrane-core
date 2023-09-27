@@ -738,6 +738,23 @@ mod tests {
 
             //Assert that the stake was restaked
             assert_eq!(resp_before.total_staked + Uint128::new(8_219), resp_after.total_staked);
+
+            //Trim fee events since all were used & claimed
+            let msg = ExecuteMsg::TrimFeeEvents { };
+            let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            //Query FeeEvents
+            let resp: FeeEventsResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    staking_contract.addr(),
+                    &QueryMsg::FeeEvents {
+                        limit: None,
+                        start_after: None,
+                    },
+                )
+                .unwrap();
+            assert_eq!(resp.fee_events.len(), 0 as usize);
         }
 
         #[test]
@@ -1024,12 +1041,22 @@ mod tests {
                 time: app.block_info().time.plus_seconds(86_400u64 * 4u64), //Added 4 days
                 chain_id: app.block_info().chain_id,
             });
+            
+            ////Claiming during an unstaking period resets the unstaking period////
+            // let claim_msg = ExecuteMsg::ClaimRewards {
+            //     send_to: None,
+            //     restake: true,
+            // };
+            // let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
+            // app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap(); 
 
             //Send the contract 10958 MBRN to get past the claim reply check
             app.send_tokens(Addr::unchecked("coin_God"), staking_contract.addr(), &[coin(10958, "mbrn_denom")]).unwrap();
 
 
             //Successful Unstake all w/ withdrawal
+            //Would error if staking totals isn't updated when creating
+            // a position for the accrued_interest
             let msg = ExecuteMsg::Unstake {
                 mbrn_amount: None
             };

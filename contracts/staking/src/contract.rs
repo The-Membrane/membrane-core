@@ -440,7 +440,7 @@ pub fn unstake(
     let config = CONFIG.load(deps.storage)?;
 
     //Restrict unstaking
-    can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
+    // can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
 
     //Get total Stake
     let total_stake = {
@@ -488,13 +488,13 @@ pub fn unstake(
     //Also update delegations
     if !withdrawable_amount.is_zero() {
         //Create Position accrual msgs to lock in user discounts before withdrawing
-        let accrual_msg = accrue_user_positions(
-            deps.querier, 
-            config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-            info.sender.clone().to_string(), 
-            32,
-        )?;
-        sub_msgs.push(SubMsg::new(accrual_msg));
+        // let accrual_msg = accrue_user_positions(
+        //     deps.querier, 
+        //     config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+        //     info.sender.clone().to_string(), 
+        //     32,
+        // )?;
+        // sub_msgs.push(SubMsg::new(accrual_msg));
 
         //Push to native claims list
         native_claims.push(asset_to_coin(Asset {
@@ -1289,8 +1289,9 @@ fn deposit_fee(
         .collect::<Vec<String>>();
 
     //Get CDT denom
-    let basket: Basket = query_basket(deps.querier, config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string())?;
-    let cdt_denom = basket.credit_asset.info;
+    // let basket: Basket = query_basket(deps.querier, config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string())?;
+    // let cdt_denom = basket.credit_asset.info;
+    let cdt_denom = AssetInfo::NativeToken { denom: String::from("credit_fulldenom") };
 
     //Filter assets if stakers are keeping raw CDT
     let (non_CDT_assets, CDT_assets) = if config.keep_raw_cdt {
@@ -1893,7 +1894,7 @@ fn get_user_claimables(
                     };
 
                 //Get claimables 
-                let (delegate_claimables, accrued_interest) = get_deposit_claimables(
+                let (delegate_claimables, delegate_accrued_interest) = get_deposit_claimables(
                     storage,
                     config.clone(), 
                     incentive_schedule.clone(), 
@@ -1928,11 +1929,11 @@ fn get_user_claimables(
                             }
 
                             //Add MBRN interest
-                            interest += accrued_interest;        
+                            interest += delegate_accrued_interest;        
 
                             Ok((claims, interest))
                         },
-                        None => Ok((delegate_claimables, accrued_interest))
+                        None => Ok((delegate_claimables, delegate_accrued_interest))
                     }
                 })?;                                        
             }
@@ -2231,7 +2232,7 @@ fn handle_claim_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response
             let config = CONFIG.load(deps.storage)?;
 
             let contract_total = deps.querier.query_balance(env.contract.address, config.mbrn_denom)?.amount;
-
+            
             if staker_total != contract_total{
                 return Err(StdError::GenericErr { msg: format!("Staking total: ({}) is not equal to the total contract owned MBRN amount: ({})", staker_total, contract_total) });
             }

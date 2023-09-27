@@ -667,7 +667,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
 
             //If SP wasn't called, meaning LQ leftovers can't be handled there, sell wall this asset's leftovers
             //Replies are FIFO so we remove from front
-            if prop.stability_pool == Decimal::zero() {
+            if prop.stability_pool == Decimal::zero() && prop.clone().per_asset_repayment[0] != Decimal::zero(){
                 
                 repay_amount = prop.clone().per_asset_repayment[0];
 

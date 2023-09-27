@@ -5,7 +5,7 @@ use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, 
 use membrane::types::{FeeEvent, StakeDeposit, DelegationInfo, Delegation, Asset};
 
 use crate::contract::{get_deposit_claimables, SECONDS_PER_DAY, get_total_vesting};
-use crate::state::{STAKING_TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING, DELEGATIONS, VESTING_STAKE_TIME};
+use crate::state::{STAKING_TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING, DELEGATIONS, VESTING_STAKE_TIME, DELEGATE_CLAIMS};
 
 const DEFAULT_LIMIT: u32 = 32u32;
 
@@ -49,15 +49,7 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
     let valid_addr = deps.api.addr_validate(&user)?;
     //Load state
     let mut user_deposits: Vec<StakeDeposit> = match STAKED.load(deps.storage, valid_addr.clone()){
-        Ok(deposits) => {
-            //Filter for deposits past the fee wait period
-            deposits
-                .into_iter()
-                .filter(|deposit| {
-                    deposit.stake_time + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds()
-                })
-                .collect::<Vec<StakeDeposit>>()
-        }
+        Ok(deposits) => { deposits }
         Err(_) => vec![], //Not a staker
     };
     let fee_events = FEE_EVENTS.load(deps.storage)?;
@@ -70,45 +62,8 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
         }
     };
 
-    if delegated != vec![] {
-        //Filter out delegations that are not past the wait period
-        delegated = delegated.clone()
-            .into_iter()
-            .filter(|delegation| delegation.time_of_delegation + (config.fee_wait_period * SECONDS_PER_DAY) <= env.block.time.seconds())
-            .collect::<Vec<Delegation>>();
-
-        //Sum the total commission amount (delegated * commission)
-        let total_commission: Uint128 = delegated.clone()
-            .into_iter()
-            .map(|delegation| 
-                match decimal_multiplication(Decimal::from_ratio(delegation.amount, Uint128::one()), commission){
-                    Ok(res) => res,
-                    Err(_) => Decimal::zero(),
-                }.to_uint_floor()
-        ).sum();
-
-        //Find earliest delegation
-        let earliest_delegation = delegated
-            .into_iter()
-            .min_by(|a, b| a.time_of_delegation.cmp(&b.time_of_delegation))
-            .unwrap();
-
-        //Set delegated to empty so we dont double count
-        delegated = vec![];
-        
-        user_deposits.push(
-            StakeDeposit {
-                staker: valid_addr.clone(),
-                amount: total_commission,
-                stake_time: earliest_delegation.time_of_delegation, //We filtered for delegations past the wait period so no need to wait again
-                unstake_start_time: None,
-            }
-        );
-    }
-
-    //If no deposits, check if there are any delegations
+    //Get claimables for each deposit
     if user_deposits != vec![] {    
-        //Calc total deposits past fee wait period
         let total_rewarding_stake: Uint128 = user_deposits.clone()
             .into_iter()
             .map(|deposit| deposit.amount)
@@ -184,6 +139,11 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
         Ok(RewardsResponse {
             claimables,
             accrued_interest: Uint128::zero(),
+        })
+    } else if let Ok(claims) = DELEGATE_CLAIMS.load(deps.storage, valid_addr.clone()){
+        Ok(RewardsResponse {
+            claimables: claims.0.clone().into_iter().map(|coin| Asset { amount: coin.amount, info: membrane::types::AssetInfo::NativeToken { denom: coin.denom } }).collect::<Vec<Asset>>(),
+            accrued_interest: claims.1,
         })
     } else {
         Ok(RewardsResponse {

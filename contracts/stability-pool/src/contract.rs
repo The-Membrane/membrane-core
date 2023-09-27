@@ -604,7 +604,7 @@ fn restake(
         .deposits
         .into_iter()
         .map(|mut deposit| {
-            if deposit.user == info.clone().sender && !restake_amount.is_zero() {
+            if deposit.user == info.clone().sender && !restake_amount.is_zero() && deposit.unstake_time.is_some(){
 
                 //Accrue the deposit's incentives
                 incentives += match accrue_incentives(

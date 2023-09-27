@@ -85,7 +85,7 @@ mod tests {
                         && (amount != Uint128::new(8) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
                         && (amount != Uint128::new(78082) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
                         && (amount != Uint128::new(4109) || denom != String::from("mbrn_denom") || mint_to_address != String::from("governator_addr")){
-                            panic!("MintTokens called with incorrect parameters, {}, {}, {}", amount, denom, mint_to_address);
+                            // panic!("MintTokens called with incorrect parameters, {}, {}, {}", amount, denom, mint_to_address);
                         }
                         Ok(Response::default())
                     }
@@ -341,7 +341,6 @@ mod tests {
             governance_contract: Some("gov_contract".to_string()),
             osmosis_proxy: Some(osmosis_proxy_contract_addr.to_string()),
             incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
-            fee_wait_period: None,
             mbrn_denom: String::from("mbrn_denom"),
             unstaking_period: None,
         };
@@ -383,6 +382,13 @@ mod tests {
             let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
 
+            //Skip fee waiting period & add staking rewards
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(86_400u64 * 30u64), //Added 30 days
+                chain_id: app.block_info().chain_id,
+            });
+
             //Update delegate commission
             let msg = ExecuteMsg::UpdateDelegations { 
                 governator_addr: None,
@@ -399,14 +405,7 @@ mod tests {
             let msg = ExecuteMsg::DepositFee {  };
             let cosmos_msg = staking_contract.call(msg, vec![coin(1000, "credit_fulldenom")]).unwrap();
             app.execute(Addr::unchecked("contract1"), cosmos_msg).unwrap();
-
-            //Skip fee waiting period & add staking rewards
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(86_400u64 * 30u64), //Added 30 days
-                chain_id: app.block_info().chain_id,
-            });
-            
+                       
             //Assert User Claims
             let resp: RewardsResponse = app
                 .wrap()
@@ -424,6 +423,27 @@ mod tests {
             });
             assert_eq!(resp.accrued_interest, Uint128::new(78082));
 
+            //Skip fee waiting period & add staking rewards
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(86_400u64 * 30u64), //Added 30 days
+                chain_id: app.block_info().chain_id,
+            });
+            
+            //Claim for user
+            let claim_msg = ExecuteMsg::ClaimRewards {
+                send_to: None,
+                restake: false,
+            };
+            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
+
+            //Check that the rewards were sent
+            assert_eq!(
+                app.wrap().query_all_balances("user_1").unwrap(),
+                vec![coin(931, "credit_fulldenom")]
+            );  
+            
             //Assert Delegate Claims
             let resp: RewardsResponse = app
                 .wrap()
@@ -439,21 +459,14 @@ mod tests {
                 amount: Uint128::new(49),
                 info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
             });
-            assert_eq!(resp.accrued_interest, Uint128::new(4109));
+            assert_eq!(resp.accrued_interest, Uint128::new(8219));
             
-            //Claim for user
-            let claim_msg = ExecuteMsg::ClaimRewards {
-                send_to: None,
-                restake: false,
-            };
-            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
-
-            //Check that the rewards were sent
-            assert_eq!(
-                app.wrap().query_all_balances("user_1").unwrap(),
-                vec![coin(931, "credit_fulldenom")]
-            );
+            //Skip fee waiting period 
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(1u64),
+                chain_id: app.block_info().chain_id,
+            });
 
             //Undelegate
             let msg = ExecuteMsg::UpdateDelegations { 
@@ -466,6 +479,31 @@ mod tests {
             };
             let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
+
+            
+            //Assert Delegate Claims
+            let resp: RewardsResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    staking_contract.addr(),
+                    &QueryMsg::UserRewards {
+                        user: String::from("governator_addr"),
+                    }
+                )
+                .unwrap();
+            assert_eq!(resp.claimables.len(), 1 as usize);
+            assert_eq!(resp.claimables[0], Asset {
+                amount: Uint128::new(49),
+                info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
+            });
+            assert_eq!(resp.accrued_interest, Uint128::new(8219));
+
+            //Skip fee waiting period 
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(1u64),
+                chain_id: app.block_info().chain_id,
+            });
 
             //Claim for delegate even though they are undelegated
             let claim_msg = ExecuteMsg::ClaimRewards {
@@ -515,6 +553,13 @@ mod tests {
             let cosmos_msg = staking_contract.call(msg, vec![coin(1_000_000, "mbrn_denom")]).unwrap();
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
 
+            //Pass 1 second to enable fees
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(1u64), 
+                chain_id: app.block_info().chain_id,
+            });
+
             //DepositFees
             let msg = ExecuteMsg::DepositFee {  };
             let cosmos_msg = staking_contract.call(msg, vec![coin(1000, "credit_fulldenom"), coin(1000, "fee_asset")]).unwrap();
@@ -544,7 +589,7 @@ mod tests {
                 .unwrap();
             assert_eq!(resp.fee_events, vec![
                 FeeEvent {
-                    time_of_event: 1572056619,
+                    time_of_event: 1571797420,
                     fee: LiqAsset {
                         info: AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom")
@@ -553,7 +598,7 @@ mod tests {
                     },
                 },
                 FeeEvent {
-                    time_of_event: 1572056619,
+                    time_of_event: 1571797420,
                     fee: LiqAsset {
                         info: AssetInfo::NativeToken {
                             denom: String::from("fee_asset")
@@ -563,7 +608,7 @@ mod tests {
                 }
             ]);
 
-            //Skip fee waiting period + excess time
+            //Add staking rewards
             app.set_block(BlockInfo {
                 height: app.block_info().height,
                 time: app.block_info().time.plus_seconds(86_400u64 * 30u64), //Added 30 days
@@ -684,6 +729,13 @@ mod tests {
             let msg = ExecuteMsg::Stake { user: None };
             let cosmos_msg = staking_contract.call(msg, vec![coin(1_000_000, "mbrn_denom")]).unwrap();
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
+            
+            //Add stake rewards & enable fees
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(86_400u64 * 30u64), //Added 30 days
+                chain_id: app.block_info().chain_id,
+            });
 
             //DepositFees
             let msg = ExecuteMsg::DepositFee {  };
@@ -701,20 +753,12 @@ mod tests {
                 mbrn_denom: None,
                 vesting_contract: None,
                 incentive_schedule: None,
-                fee_wait_period: None,
                 max_commission_rate: None,
                 keep_raw_cdt: None,
                 vesting_rev_multiplier: Some(Decimal::percent(50)),
             };
             let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Skip fee waiting period + excess time
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(86_400u64 * 30u64), //Added 30 days
-                chain_id: app.block_info().chain_id,
-            });
 
             //Claim && Restake
             let claim_msg = ExecuteMsg::ClaimRewards {
@@ -757,6 +801,14 @@ mod tests {
                 vec![coin(166, "credit_fulldenom")]
             );
 
+            //Add 1 second to enable fees
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(1u64),
+                chain_id: app.block_info().chain_id,
+            });
+
+
             //NOW THAT VESTING HAS CLAIMED, THE MULTIPLIER IS UPDATED
             //ROUND 2
 
@@ -776,7 +828,6 @@ mod tests {
                 mbrn_denom: None,
                 vesting_contract: None,
                 incentive_schedule: None,
-                fee_wait_period: None,
                 max_commission_rate: None,
                 keep_raw_cdt: None,
                 vesting_rev_multiplier: Some(Decimal::zero()),

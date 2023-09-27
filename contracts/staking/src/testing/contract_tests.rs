@@ -29,7 +29,6 @@ fn update_config(){
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
-        fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
     };
@@ -48,7 +47,6 @@ fn update_config(){
         mbrn_denom: Some(String::from("new_denom")), 
         vesting_contract: Some(String::from("new_bv")), 
         incentive_schedule: Some(StakeDistribution { rate: Decimal::one(), duration: 0 }),
-        fee_wait_period: Some(1),  
         max_commission_rate: Some(Decimal::percent(11)),
         keep_raw_cdt: Some(false),
         vesting_rev_multiplier: None,
@@ -84,7 +82,6 @@ fn update_config(){
             mbrn_denom: String::from("new_denom"), 
             vesting_contract: Some( Addr::unchecked("new_bv")),             
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
-            fee_wait_period: 1,
             max_commission_rate: Decimal::percent(11),
             keep_raw_cdt: false,
             vesting_rev_multiplier: Decimal::percent(20),      
@@ -101,7 +98,6 @@ fn update_config(){
         mbrn_denom: None,
         vesting_contract: None,
         incentive_schedule: None,
-        fee_wait_period: Some(0),
         max_commission_rate: None,
         keep_raw_cdt: None,
         vesting_rev_multiplier: None,
@@ -126,7 +122,6 @@ fn update_config(){
         mbrn_denom: None,
         vesting_contract: None,
         incentive_schedule: None,
-        fee_wait_period: None,
         max_commission_rate: None,
         keep_raw_cdt: None,
         vesting_rev_multiplier: None,
@@ -162,7 +157,6 @@ fn update_config(){
             mbrn_denom: String::from("new_denom"), 
             vesting_contract: Some( Addr::unchecked("new_bv")),             
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
-            fee_wait_period: 0, 
             max_commission_rate: Decimal::percent(11),  
             keep_raw_cdt: false,
             vesting_rev_multiplier: Decimal::percent(20),
@@ -182,7 +176,6 @@ fn stake() {
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
-        fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
     };
@@ -303,7 +296,6 @@ fn delegate() {
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
-        fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
     };
@@ -524,7 +516,6 @@ fn commissions() {
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
-        fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
     };
@@ -578,7 +569,7 @@ fn commissions() {
         QueryMsg::UserRewards { user: String::from("governator_addr") },
     ).unwrap();
     let resp: RewardsResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.accrued_interest, Uint128::new(4109u128));
+    assert_eq!(resp.accrued_interest, Uint128::new(0u128));
 
 }
 
@@ -597,7 +588,6 @@ fn fluid_delegations() {
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
-        fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
     };
@@ -821,7 +811,6 @@ fn unstake() {
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
-        fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
     };
@@ -1044,7 +1033,7 @@ fn unstake() {
                     amount: Uint128::new(5024669u128),
                     fluidity: false,
                     voting_power_delegation: true,
-                    time_of_delegation: 1572575020,
+                    time_of_delegation: 1572834219,
                 }
             ],
             delegated_to: vec![],

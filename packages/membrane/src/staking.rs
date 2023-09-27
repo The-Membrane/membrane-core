@@ -19,8 +19,6 @@ pub struct InstantiateMsg {
     pub osmosis_proxy: Option<String>,
     /// Incentive scheduling
     pub incentive_schedule: Option<StakeDistribution>,
-    /// Fee wait period in days
-    pub fee_wait_period: Option<u64>,
     /// Unstaking period in days
     pub unstaking_period: Option<u64>,
     /// MBRN denom
@@ -48,8 +46,6 @@ pub enum ExecuteMsg {
         incentive_schedule: Option<StakeDistribution>,
         /// Unstaking period in days
         unstaking_period: Option<u64>,
-        /// Fee wait period in days
-        fee_wait_period: Option<u64>,
         /// Max commission rate
         max_commission_rate: Option<Decimal>,
         /// Toggle to keep raw CDT revenue
@@ -171,8 +167,6 @@ pub struct Config {
     pub mbrn_denom: String,
     /// Incentive schedule
     pub incentive_schedule: StakeDistribution,
-    /// Wait period between deposit & ability to earn fee events, in days
-    pub fee_wait_period: u64,
     /// Unstaking period, in days
     pub unstaking_period: u64,
     /// Max commission rate

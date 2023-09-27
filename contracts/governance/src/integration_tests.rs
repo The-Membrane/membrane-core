@@ -198,7 +198,6 @@ mod tests {
                             duration: 0,
                         },
                         unstaking_period: 0,
-                        fee_wait_period: 0,
                         mbrn_denom: String::from("mbrn_denom"),
                         max_commission_rate: Decimal::zero(),
                         keep_raw_cdt: false,

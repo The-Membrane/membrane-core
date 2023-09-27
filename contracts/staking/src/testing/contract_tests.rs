@@ -963,7 +963,7 @@ fn unstake() {
         ]
     );
     
-    env.block.time = env.block.time.plus_seconds(259200); //3 days
+    env.block.time = env.block.time.plus_seconds(86400 * 4); //4 days
 
     //Successful Unstake w/ withdrawals after unstaking period
     let msg = ExecuteMsg::Unstake { mbrn_amount: None };
@@ -981,6 +981,15 @@ fn unstake() {
     assert_eq!(
         res.messages,
         vec![
+            SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: String::from("osmosis_proxy"), 
+                msg: to_binary(&OsmoExecuteMsg::MintTokens { 
+                    denom: String::from("mbrn_denom"), 
+                    amount: Uint128::new(8251), 
+                    mint_to_address: String::from("cosmos2contract")
+                }).unwrap(), 
+                funds: vec![]
+            })), 
             SubMsg::reply_on_success(CosmosMsg::Bank(BankMsg::Send {
                 to_address: String::from("sender88"),
                 amount: coins(5_000_001, "mbrn_denom"),

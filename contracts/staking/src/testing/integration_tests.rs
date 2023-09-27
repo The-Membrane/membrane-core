@@ -84,8 +84,9 @@ mod tests {
                         && (amount != Uint128::new(8219) || denom != String::from("mbrn_denom") || mint_to_address != String::from("contract4")) 
                         && (amount != Uint128::new(8) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
                         && (amount != Uint128::new(78082) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
+                        && (amount != Uint128::new(156164) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
                         && (amount != Uint128::new(4109) || denom != String::from("mbrn_denom") || mint_to_address != String::from("governator_addr")){
-                            // panic!("MintTokens called with incorrect parameters, {}, {}, {}", amount, denom, mint_to_address);
+                            panic!("MintTokens called with incorrect parameters, {}, {}, {}", amount, denom, mint_to_address);
                         }
                         Ok(Response::default())
                     }
@@ -422,6 +423,23 @@ mod tests {
                 info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
             });
             assert_eq!(resp.accrued_interest, Uint128::new(78082));
+
+            //Assert Vesting Claims to find remaining claims
+            let resp: RewardsResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    staking_contract.addr(),
+                    &QueryMsg::UserRewards {
+                        user: String::from("contract3"),
+                    }
+                )
+                .unwrap();
+            assert_eq!(resp.claimables.len(), 1 as usize);
+            assert_eq!(resp.claimables[0], Asset {
+                amount: Uint128::new(19),
+                info: AssetInfo::NativeToken { denom: String::from("credit_fulldenom") },
+            });
+            assert_eq!(resp.accrued_interest, Uint128::new(0));
 
             //Skip fee waiting period & add staking rewards
             app.set_block(BlockInfo {

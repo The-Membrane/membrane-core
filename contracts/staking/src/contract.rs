@@ -440,7 +440,7 @@ pub fn unstake(
     let config = CONFIG.load(deps.storage)?;
 
     //Restrict unstaking
-    can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
+    // can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
 
     //Get total Stake
     let total_stake = {
@@ -487,13 +487,13 @@ pub fn unstake(
     //Also update delegations
     if !withdrawable_amount.is_zero() {
         //Create Position accrual msgs to lock in user discounts before withdrawing
-        let accrual_msg = accrue_user_positions(
-            deps.querier, 
-            config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-            info.sender.clone().to_string(), 
-            32,
-        )?;
-        sub_msgs.push(SubMsg::new(accrual_msg));
+        // let accrual_msg = accrue_user_positions(
+        //     deps.querier, 
+        //     config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+        //     info.sender.clone().to_string(), 
+        //     32,
+        // )?;
+        // sub_msgs.push(SubMsg::new(accrual_msg));
 
         //Push to native claims list
         native_claims.push(asset_to_coin(Asset {
@@ -1265,10 +1265,8 @@ fn deposit_fee(
         .collect::<Vec<String>>();
 
     //Get CDT denom
-    // let basket: Basket = query_basket(deps.querier, config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string())?;
-    let cdt_denom = AssetInfo::NativeToken {
-        denom: String::from("credit_fulldenom"),
-    };
+    let basket: Basket = query_basket(deps.querier, config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string())?;
+    let cdt_denom = basket.credit_asset.info;
 
     //Filter assets if stakers are keeping raw CDT
     let (non_CDT_assets, CDT_assets) = if config.keep_raw_cdt {
@@ -1422,9 +1420,22 @@ fn create_rewards_msgs(
         DELEGATE_CLAIMS.remove(storage, staker.clone());
     }
 
-    //Add accrued interest as a staking deposit
+    //Add accrued interest as a staking deposit && mint the amount to the contract
     if !accrued_interest.is_zero(){
-        add_staking_deposit(storage, env, config, staker, accrued_interest)?;
+        //Add accrued interest as a staking deposit
+        add_staking_deposit(storage, env.clone(), config.clone(), staker, accrued_interest)?;
+
+        //mint to contract for accounting purposes
+        let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.osmosis_proxy.unwrap().to_string(),
+            msg: to_binary(&OsmoExecuteMsg::MintTokens {
+                denom: config.mbrn_denom,
+                amount: accrued_interest,
+                mint_to_address: env.contract.address.to_string(),
+            })?,
+            funds: vec![],
+        });
+        msgs.push(msg);
     }
 
     if native_claims != vec![] {
@@ -1556,7 +1567,7 @@ fn withdraw_from_state(
             if let Some(deposit_unstake_start) = deposit.unstake_start_time {
                 //If the unstake period has been fulfilled
                 if env.block.time.seconds() - deposit_unstake_start
-                    >= config.unstaking_period
+                    >= config.unstaking_period * SECONDS_PER_DAY
                 {
                     this_deposit_is_withdrawable = true;
                 }
@@ -1737,16 +1748,12 @@ fn get_user_claimables(
     env: Env,
     user: Addr,
 ) -> StdResult<(Vec<Asset>, Uint128)> {
-    let mut not_a_staker: bool = false;
     //Load state
     let mut config = CONFIG.load(storage)?;
     let incentive_schedule = INCENTIVE_SCHEDULING.load(storage)?;
     let deposits: Vec<StakeDeposit> = match STAKED.load(storage, user.clone()){
         Ok(deposits) => { deposits },
-        Err(_) => {
-            not_a_staker = true;
-            vec![]
-        },
+        Err(_) => { vec![] },
     };
     let DelegationInfo { delegated, delegated_to, commission } = match DELEGATIONS.load(storage, user.clone()){
         Ok(res) => res,
@@ -1792,16 +1799,14 @@ fn get_user_claimables(
             total_deposits += deposit.amount;
         }
 
-        if !not_a_staker {
-            //Save new condensed deposit for user
-            STAKED.save(storage, user.clone(), &vec![
-                StakeDeposit {
-                    staker: user.clone(),
-                    amount: total_deposits,
-                    stake_time: env.block.time.seconds(),
-                    unstake_start_time: None,
-            }])?;
-        }
+        //Save new condensed deposit for user
+        STAKED.save(storage, user.clone(), &vec![
+            StakeDeposit {
+                staker: user.clone(),
+                amount: total_deposits,
+                stake_time: env.block.time.seconds(),
+                unstake_start_time: None,
+        }])?;
 
         //Find and save claimables for the user's delegates' commissions
         if !delegated_to.is_empty(){

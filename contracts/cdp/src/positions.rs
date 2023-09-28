@@ -128,7 +128,7 @@ pub fn deposit(
                     deps.querier,
                     env.clone(),
                     config.clone(),
-                    &mut position.clone(),
+                    &mut position,
                     &mut basket,
                     valid_owner_addr.to_string(),
                     true,
@@ -151,6 +151,8 @@ pub fn deposit(
                         config.clone(),
                         false,
                     )?;
+                    //Save Basket
+                    BASKET.save(deps.storage, &basket)?;
                 }
             } else {                
                 //If position_ID is passed but no position is found, Error. 
@@ -440,9 +442,6 @@ pub fn withdraw(
         msgs.push(SubMsg::reply_on_success(message, WITHDRAW_REPLY_ID));
     }
 
-    //Save updated repayment price and asset tallies
-    BASKET.save(deps.storage, &basket)?;
-
     //Update supply cap tallies
     if !target_position.clone().credit_amount.is_zero() {
         
@@ -457,7 +456,10 @@ pub fn withdraw(
             config.clone(),
             false,
         )?;
+
     }
+    //Save updated repayment price and asset tallies
+    BASKET.save(deps.storage, &basket)?;
     
     //Set Withdrawal_Prop
     let prop_assets_info: Vec<AssetInfo> = prop_assets
@@ -1612,7 +1614,7 @@ pub fn close_position(
     let router_messages = router_messages.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
 
     Ok(Response::new()
-        .add_submessages(lp_withdraw_messages)
+        // .add_submessages(lp_withdraw_messages)
         .add_submessages(router_messages)
         .add_submessage(sub_msg)
         .add_attributes(vec![

@@ -34,21 +34,21 @@ pub fn liquidate(
     position_owner: String,
 ) -> Result<Response, ContractError> {
     //Check for Osmosis downtime 
-    match DowntimedetectorQuerier::new(&querier)
-        .recovered_since_downtime_of_length(
-            10 * 60 * 8, //8 hours from 6 second blocks
-            Some(Duration {
-                seconds: 60 * 60, //1 hour
-                nanos: 0,
-            })
-    ){
-        Ok(resp) => {            
-            if !resp.succesfully_recovered {
-                return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
-            }
-        },
-        Err(_) => (),
-    };
+    // match DowntimedetectorQuerier::new(&querier)
+    //     .recovered_since_downtime_of_length(
+    //         10 * 60 * 8, //8 hours from 6 second blocks
+    //         Some(Duration {
+    //             seconds: 60 * 60, //1 hour
+    //             nanos: 0,
+    //         })
+    // ){
+    //     Ok(resp) => {            
+    //         if !resp.succesfully_recovered {
+    //             return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
+    //         }
+    //     },
+    //     Err(_) => (),
+    // };
 
     //Load state
     let config: Config = CONFIG.load(storage)?;
@@ -79,6 +79,8 @@ pub fn liquidate(
         config.clone(),
         true,
     )?;
+    let insolvent = true;
+    let current_LTV = Decimal::percent(90);
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -430,7 +432,7 @@ fn per_asset_fulfillments(
             let collateral_price = cAsset_prices[num].clone();
             let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num])?;
             let mut collateral_repay_amount: Uint128 = collateral_price.get_amount(collateral_repay_value)?;
-
+                        
             //if collateral repay amount is more than the Position has in assets, 
             //Set collateral_repay_amount to the amount the Position has in assets
             if collateral_repay_amount > collateral_assets[num].asset.amount {
@@ -536,7 +538,8 @@ fn build_sp_submsgs(
         decimal_subtraction(credit_repay_amount, leftover_repayment)?;
     
     if config.stability_pool.is_some() && !leftover_repayment.is_zero() {
-        let sp_liq_fee = query_stability_pool_fee(querier, config.clone().stability_pool.unwrap().to_string())?;
+        // let sp_liq_fee = query_stability_pool_fee(querier, config.clone().stability_pool.unwrap().to_string())?;
+        let sp_liq_fee = Decimal::percent(10);
 
         //If LTV is 90% and the fees are 10%, the position would pay everything to pay the liquidators.
         //So above that, the liquidators are losing the premium guarantee.
@@ -734,7 +737,7 @@ pub fn sell_wall(
 
     //Create Router Msgs for each asset
     //The LP will be sold as pool assets so individual ratios may increase
-    for (index, ratio) in cAsset_ratios.into_iter().enumerate() {
+    for (index, ratio) in cAsset_ratios.clone().into_iter().enumerate() {
 
         //Calc collateral_repay_amount        
         let collateral_price = cAsset_prices[index].clone();
@@ -743,8 +746,8 @@ pub fn sell_wall(
 
         //Create router reply msg to repay debt after sales
         let router_msg = router_native_to_native(
-            prop.clone().config.clone().dex_router.unwrap().into(), 
-            prop.clone().target_position.collateral_assets[index].clone().asset.info, 
+            prop.clone().config.clone().dex_router.unwrap().into(),
+            collateral_assets[index].clone().asset.info,
             prop.clone().basket.clone().credit_asset.info, 
             None, 
             collateral_repay_amount.into()

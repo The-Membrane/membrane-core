@@ -158,9 +158,9 @@ pub fn query_basket_positions(
 
 //Calculate debt caps
 pub fn query_basket_debt_caps(deps: Deps, env: Env) -> StdResult<Vec<DebtCap>> {    
-    let basket: Basket = BASKET.load(deps.storage)?;
+    let mut basket: Basket = BASKET.load(deps.storage)?;
 
-    let asset_caps = get_basket_debt_caps(deps.storage, deps.querier, env, &mut basket.clone())?;
+    let asset_caps = get_basket_debt_caps(deps.storage, deps.querier, env, &mut basket)?;
 
     let mut res = vec![];
     //Append DebtCap

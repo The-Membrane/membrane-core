@@ -231,7 +231,7 @@ pub fn get_basket_debt_caps(
             {
                 per_asset_debt_caps.push(Uint128::zero());
             } else if let Some(sp_ratio) = basket.clone().collateral_supply_caps[i].stability_pool_ratio_for_debt_cap{
-                //If cap is supposed to be based off of a ratio of SP liquidity, calculate                                
+                //If cap is supposed to be based off of a ratio of SP liquidity, calculate
                 per_asset_debt_caps.push(
                     decimal_multiplication(sp_liquidity, sp_ratio)? * Uint128::new(1)
                 );

@@ -199,7 +199,7 @@ pub fn get_interest_rates(
     //Get proportion of debt && supply caps filled
     let mut debt_proportions = vec![];
     let mut supply_proportions = vec![];
-
+    
     let debt_caps = match get_basket_debt_caps(storage, querier, env.clone(), basket) {
         Ok(caps) => caps,
         Err(err) => {

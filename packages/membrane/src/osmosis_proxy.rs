@@ -1,6 +1,8 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Uint128, Addr, Decimal};
 
+use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
+
 use crate::types::Owner;
 
 #[cw_serde]
@@ -41,6 +43,7 @@ pub enum ExecuteMsg {
         /// Burn from address
         burn_from_address: String,
     },
+    CreateOsmosisGauge { gauge_msg: MsgCreateGauge },
     /// Edit the max supply of a denom
     EditTokenMaxSupply {
         /// Native token denom
@@ -53,21 +56,22 @@ pub enum ExecuteMsg {
         /// List of owners
         owners: Option<Vec<Owner>>,
         /// Toggle to add or remove list of owners
-        add_owner: bool,
+        add_owner: Option<bool>,
+        /// Liquidity multiplier for CDT mint caps
+        liquidity_multiplier: Option<Decimal>,
         /// Debt auction contract address
         debt_auction: Option<String>,
         /// Positions contract address
         positions_contract: Option<String>,
         /// Liquidity contract address
         liquidity_contract: Option<String>,
+        /// Oracle contract address
+        oracle_contract: Option<String>,
     },
     /// Edit owner params & permissions
     EditOwner {
         /// Owner address
         owner: String,
-        /// Liquidity multiplier for debt caps.
-        /// Ex: 5 = debt cap at 5x liquidity
-        liquidity_multiplier: Option<Decimal>,
         /// Distribute cap space from Stability Pool liquidity
         stability_pool_ratio: Option<Decimal>,
         /// Toggle authority over non-token contract state
@@ -114,18 +118,31 @@ pub enum QueryMsg {
 pub struct Config {
     /// List of owners
     pub owners: Vec<Owner>,
+    /// Liquidity multiplier for CDT mint caps.
+    /// Ex: 5 = debt cap at 5x liquidity
+    pub liquidity_multiplier: Option<Decimal>,
     /// Debt auction contract address
     pub debt_auction: Option<Addr>,
-    /// Positions contract address
+    /// Positions contract address, used to source a canonical debt token denom
     pub positions_contract: Option<Addr>,
     /// Liquidity contract address
     pub liquidity_contract: Option<Addr>,
+    /// Oracle contract address
+    pub oracle_contract: Option<Addr>,
 }
 
 #[cw_serde]
 pub struct GetDenomResponse {
     /// Token full denom
     pub denom: String,
+}
+
+#[cw_serde]
+pub struct OwnerResponse {
+    /// Owner object
+    pub owner: Owner,
+    /// Liquidity multiplier for debt token token minting caps
+    pub liquidity_multiplier: Decimal,
 }
 
 #[cw_serde]
@@ -136,4 +153,12 @@ pub struct TokenInfoResponse {
     pub current_supply: Uint128,
     /// Max supply
     pub max_supply: Uint128,
+    /// Burned supply
+    pub burned_supply: Uint128,
+}
+
+#[cw_serde]
+pub struct ContractDenomsResponse {
+    /// List of denoms owned by the contract
+    pub denoms: Vec<String>,
 }

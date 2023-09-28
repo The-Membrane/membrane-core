@@ -1,16 +1,18 @@
+use membrane::oracle::PriceResponse;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResult, StdError};
 use cw_storage_plus::{Item, Map};
 
-use membrane::types::{Asset, Basket, Position, UserInfo, AssetInfo, cAsset};
+use membrane::types::{Asset, Basket, Position, RedemptionInfo, UserInfo, AssetInfo, cAsset};
 use membrane::cdp::Config;
 
 use crate::ContractError;
 use crate::risk_engine::update_basket_tally;
 
 
+//This propogates liquidation info && state to reduce gas
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct LiquidationPropagation {
     pub per_asset_repayment: Vec<Decimal>,
@@ -18,8 +20,14 @@ pub struct LiquidationPropagation {
     pub stability_pool: Decimal,      //Value of repayment
     pub user_repay_amount: Decimal,
     pub positions_contract: Addr,
-    //So the sell wall knows who to repay to
-    pub position_info: UserInfo,
+    pub sp_liq_fee: Decimal,
+    pub cAsset_ratios: Vec<Decimal>, //these don't change during liquidation bc we liquidate based on the ratios
+    pub cAsset_prices: Vec<PriceResponse>,
+    pub target_position: Position,
+    pub liquidated_assets: Vec<cAsset>, //List of assets liquidated for supply caps
+    pub position_owner: Addr,
+    pub basket: Basket,
+    pub config: Config,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -39,7 +47,14 @@ pub struct ClosePositionPropagation {
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const BASKET: Item<Basket> = Item::new("basket"); 
-pub const POSITIONS: Map<Addr, Vec<Position>> = Map::new("positions"); //owner
+pub const POSITIONS: Map<Addr, Vec<Position>> = Map::new("positions"); //owner, list of positions
+
+/// CDT redemption premium, opt-in mechanism.
+/// This is the premium that the user will pay to redeem their debt token.
+pub const REDEMPTION_OPT_IN: Map<u128, Vec<RedemptionInfo>> = Map::new("redemption_opt_in"); 
+
+/// Config ownership transfer
+pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
 
 //Reply State Propagations
 pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");
@@ -53,11 +68,14 @@ pub fn update_position_claims(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
+    config: Config,
     position_id: Uint128,
     position_owner: Addr,
     liquidated_asset: AssetInfo,
     liquidated_amount: Uint128,
 ) -> StdResult<()> {
+    let mut credit_amount: Uint128 = Uint128::zero();
+
     POSITIONS.update(
         storage,
         position_owner,
@@ -68,13 +86,16 @@ pub fn update_position_claims(
                     .map(|mut position| {
                         //Find position
                         if position.position_id == position_id {
+                            //Set credit_amount
+                            credit_amount = position.credit_amount;
+
                             //Find asset in position
                             position.collateral_assets = position
                                 .collateral_assets
                                 .into_iter()
                                 .map(|mut c_asset| {
                                     //Subtract amount liquidated from claims
-                                    if c_asset.asset.info.equal(&liquidated_asset) {
+                                    if c_asset.asset.info.equal(&liquidated_asset) {                                    
                                         c_asset.asset.amount -= liquidated_amount;
                                     }
 
@@ -107,8 +128,13 @@ pub fn update_position_claims(
         rate_index: Decimal::one(),
     }];
 
+    //If there is no credit, basket tallies were updated in the repay function
+    if credit_amount.is_zero() {
+        return Ok(());
+    }
+
     let mut basket = BASKET.load(storage)?;
-    match update_basket_tally(storage, querier, env, &mut basket, collateral_assets, false) {
+    match update_basket_tally(storage, querier, env, &mut basket, collateral_assets, false, config, false) {
         Ok(_res) => {
             BASKET.save(storage, &basket)?;
         }
@@ -137,7 +163,7 @@ pub fn get_target_position(
 
     match positions.into_iter().enumerate().find(|(_i, x)| x.position_id == position_id) {
         Some(position) => Ok(position),
-        None => Err(ContractError::NonExistentPosition {}),
+        None => Err(ContractError::NonExistentPosition { id: position_id }),
     }
 }
 

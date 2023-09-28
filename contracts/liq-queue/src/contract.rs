@@ -3,13 +3,13 @@ use std::env;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, QueryRequest, Response,
-    StdResult, Uint128, WasmQuery,
+    attr, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response,
+    StdResult, Uint128, QueryRequest, WasmQuery, 
 };
 use cw2::set_contract_version;
+use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::liq_queue::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::{Decimal256, Uint256};
-use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue, Basket};
 
 use crate::bid::{claim_liquidations, execute_liquidation, retract_bid, submit_bid};
@@ -18,7 +18,7 @@ use crate::query::{
     query_bid, query_bids_by_user, query_liquidatible, query_premium_slot,
     query_premium_slots, query_queues, query_user_claims,
 };
-use crate::state::{CONFIG, QUEUES};
+use crate::state::{CONFIG, QUEUES, OWNERSHIP_TRANSFER};
 
 // Modifications from origin
 
@@ -28,6 +28,9 @@ use crate::state::{CONFIG, QUEUES};
 // - The position is assumed insolvent since called by the Positions contract, ie there is no additional solvency check in this contract.
 // - ExecuteMsg::Liquidate doesn't take any assets up front, instead receiving assets in the Reply fn of the Positions contract
 // - Removed bid_with, instead saving the bid_asset from the Positions contract
+// - Added minimum_bid amount & maximum_waiting_bids to config
+// - Created a separate Vector for PremiumSlot waiting bids
+// - Submitted bids on the (bid) threshold get split into 1 active bid & 1 waiting bid
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:liq-queue";
@@ -53,24 +56,29 @@ pub fn instantiate(
     //     }))?
     //     .credit_asset
     //     .info;
-    //Comment out above and use below for testing
-    let bid_asset = AssetInfo::NativeToken { denom: String::from("cdt") };
+    let bid_asset = AssetInfo::NativeToken { denom: "cdt".to_string() };
 
     if msg.owner.is_some() {
         config = Config {
             owner: deps.api.addr_validate(&msg.owner.unwrap())?,
             positions_contract,
+            osmosis_proxy_contract: deps.api.addr_validate(&msg.osmosis_proxy_contract)?,
             waiting_period: msg.waiting_period,
             added_assets: Some(vec![]),
             bid_asset,
+            minimum_bid: msg.minimum_bid,
+            maximum_waiting_bids: msg.maximum_waiting_bids,
         };
     } else {
         config = Config {
             owner: info.sender,
             positions_contract,
+            osmosis_proxy_contract: deps.api.addr_validate(&msg.osmosis_proxy_contract)?,
             waiting_period: msg.waiting_period,
             added_assets: Some(vec![]),
             bid_asset,
+            minimum_bid: msg.minimum_bid,
+            maximum_waiting_bids: msg.maximum_waiting_bids,
         };
     }
 
@@ -106,8 +114,6 @@ pub fn execute(
             collateral_price,
             collateral_amount,
             bid_for,
-            position_id,
-            position_owner,
         } => execute_liquidation(
             deps,
             env,
@@ -116,8 +122,6 @@ pub fn execute(
             bid_for,
             collateral_price,
             credit_price,
-            position_id,
-            position_owner,
         ),
         ExecuteMsg::ClaimLiquidations { bid_for, bid_ids } => {
             claim_liquidations(deps, env, info, bid_for, bid_ids)
@@ -135,13 +139,19 @@ pub fn execute(
         ExecuteMsg::UpdateConfig {
             owner,
             positions_contract,
+            osmosis_proxy_contract,
             waiting_period,
+            minimum_bid,
+            maximum_waiting_bids,
         } => update_config(
             deps,
             info,
             owner,
             positions_contract,
+            osmosis_proxy_contract,
             waiting_period,
+            minimum_bid,
+            maximum_waiting_bids,
         ),
     }
 } //Functions assume Cw20 asset amounts are taken from Messageinfo
@@ -152,45 +162,54 @@ fn update_config(
     info: MessageInfo,
     owner: Option<String>,
     positions_contract: Option<String>,
+    osmosis_proxy_contract: Option<String>,
     waiting_period: Option<u64>,
+    minimum_bid: Option<Uint128>,
+    maximum_waiting_bids: Option<u64>,
 ) -> Result<Response, ContractError> {
-
     let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs = vec![attr("method", "update_config")];
 
-    //Only owner can update
+    //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
     }
 
-    if owner.is_some() {
-        config.owner = deps.api.addr_validate(&owner.unwrap())?;
+    if let Some(owner) = owner {
+        let valid_addr = deps.api.addr_validate(&owner)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+        attrs.push(attr("owner_transfer", valid_addr));     
+    };
+    if let Some(positions_contract) = positions_contract {
+        let valid_addr = deps.api.addr_validate(&positions_contract)?;
+        config.positions_contract = valid_addr;
     }
-    if positions_contract.is_some() {
-        config.positions_contract = deps.api.addr_validate(&positions_contract.unwrap())?;
-
-        //Get bid_asset from Basket
-        let bid_asset = deps
-            .querier
-            .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.clone().positions_contract.to_string(),
-                msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
-            }))?
-            .credit_asset
-            .info;
-
-        config.bid_asset = bid_asset;
+    if let Some(osmosis_proxy_contract) = osmosis_proxy_contract {
+        let valid_addr = deps.api.addr_validate(&osmosis_proxy_contract)?;
+        config.osmosis_proxy_contract = valid_addr;
     }
     if waiting_period.is_some() {
         config.waiting_period = waiting_period.unwrap();
     }
+    if let Some(minimum_bid) = minimum_bid {
+        config.minimum_bid = minimum_bid;
+    }
+    if let Some(maximum_waiting_bids) = maximum_waiting_bids {
+        config.maximum_waiting_bids = maximum_waiting_bids;
+    }
 
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::new().add_attributes(vec![
-        attr("method", "update_config"),
-        attr("owner", config.owner.to_string()),
-        attr("waiting_period", config.waiting_period.to_string()),
-    ]))
+    attrs.push(attr("updated_config", format!("{:?}", config)));  
+
+    Ok(Response::new().add_attributes(attrs))
 }
 
 /// Edit queue
@@ -210,11 +229,51 @@ fn edit_queue(
 
     let mut queue = QUEUES.load(deps.storage, bid_for.to_string())?;
 
-    if max_premium.is_some() {
-        queue.max_premium = max_premium.unwrap();
+    if let Some(new_premium) = max_premium {
+        //Enforce max_premium range of 1%-50%
+        if new_premium > Uint128::from(50u128) || new_premium < Uint128::from(1u128) {
+            return Err(ContractError::InvalidPremium {});
+        }
+
+        let new_premium_delta = match new_premium.checked_sub(queue.max_premium) {
+            Ok(delta) => delta,
+            Err(_err) => Uint128::zero(),
+        };
+
+        //Add new slots if there is a positive delta
+        if !new_premium_delta.is_zero() {
+
+            let premium_floor = (queue.max_premium.u128() + 1) as u64;
+            let premium_ceiling = (new_premium.u128()) as u64;
+    
+            for premium in premium_floor..=premium_ceiling {
+                queue.slots.push(PremiumSlot {
+                    bids: vec![],
+                    waiting_bids: vec![],
+                    liq_premium: Decimal256::percent(premium), //This is a hard coded 1% per slot
+                    sum_snapshot: Decimal256::zero(),
+                    product_snapshot: Decimal256::one(),
+                    total_bid_amount: Uint256::zero(),
+                    last_total: 0u64,
+                    current_epoch: Uint128::zero(),
+                    current_scale: Uint128::zero(),
+                    residue_collateral: Decimal256::zero(),
+                    residue_bid: Decimal256::zero(),
+                });
+            }
+        }
+      
+            
+        //Set new max premium
+        queue.max_premium = new_premium;
+
     }
-    if bid_threshold.is_some() {
-        queue.bid_threshold = bid_threshold.unwrap();
+    if let Some(bid_threshold) = bid_threshold {
+        //Enforce bid_threshold range of 1M-10M
+        if bid_threshold > Uint256::from(10_000_000u128) || bid_threshold < Uint256::from(1_000_000u128) {
+            return Err(ContractError::InvalidBidThreshold {});
+        } 
+        queue.bid_threshold = bid_threshold;
     }
 
     QUEUES.save(deps.storage, bid_for.to_string(), &queue)?;
@@ -239,7 +298,7 @@ fn add_queue(
 
     let bid_asset = config.clone().bid_asset;
 
-    if info.sender != config.owner {
+    if info.sender != config.owner && info.sender != config.positions_contract{
         return Err(ContractError::Unauthorized {});
     }
 
@@ -250,6 +309,7 @@ fn add_queue(
     for premium in 0..max_premium_plus_1 as u64 {
         slots.push(PremiumSlot {
             bids: vec![],
+            waiting_bids: vec![],
             liq_premium: Decimal256::percent(premium), //This is a hard coded 1% per slot
             sum_snapshot: Decimal256::zero(),
             product_snapshot: Decimal256::one(),

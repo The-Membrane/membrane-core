@@ -39,10 +39,12 @@ fn deposit() {
         mbrn_denom: String::from("mbrn_denom"),
         incentive_rate: None,
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     let mut coin = coins(11, "credit");
     coin.append(&mut coins(11, "2ndcredit"));
+
     //Instantiating contract
     let info = mock_info("sender88", &coin);
     let res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
@@ -58,14 +60,12 @@ fn deposit() {
         vec![attr("method", "instantiate"), attr("config", format!("{:?}", resp)), attr("contract_address", "cosmos2contract")]
     );
 
-    //Depositing an invalid asset
+    //Depositing an invalid asset: Error
     let deposit_msg = ExecuteMsg::Deposit { user: None };
     let mut coinz = coins(10, "notcredit");
     coinz.extend(coins(10, "notnotnotcredit"));
 
     let invalid_info = mock_info("sender88", &coinz);
-
-    //Fail due to Invalid Asset
     let _err = execute(deps.as_mut(), mock_env(), invalid_info, deposit_msg).unwrap_err();
 
     //Query position data to make sure it was NOT saved to state
@@ -84,9 +84,24 @@ fn deposit() {
         panic!("State wasn't saved correctly");
     }
 
-    //Successful attempt
+    //Depositing below minimum: Error
+    let mut minimum_coin = coins(4, "credit");
+    let minimum_info = mock_info("sender88", &minimum_coin);
     let deposit_msg = ExecuteMsg::Deposit { user: None };
+    let err = execute(deps.as_mut(), mock_env(), minimum_info, deposit_msg).unwrap_err();
+    match err {
+        ContractError::MinimumDeposit { min } => assert_eq!(min, Uint128::new(5)),
+        _ => panic!("Unexpected error: {:?}", err),
+    }
 
+    // Deposit too many assets: Error
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
+    let err = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap_err();
+    
+    //Successful attempt
+    let mut coin = coins(11, "credit");
+    let info = mock_info("sender88", &coin);
+    let deposit_msg = ExecuteMsg::Deposit { user: None };
     let res = execute(deps.as_mut(), mock_env(), info, deposit_msg).unwrap();
 
     assert_eq!(
@@ -139,6 +154,7 @@ fn withdrawal() {
         positions_contract: String::from("positions_contract"),
         oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5),
     };
 
     //Instantiating contract
@@ -324,10 +340,10 @@ fn liquidate() {
         positions_contract: String::from("positions_contract"),
         oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     let mut coin = coins(11, "credit");
-    coin.append(&mut coins(11, "2ndcredit"));
     //Instantiating contract
     let info = mock_info("sender88", &coin);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
@@ -371,7 +387,7 @@ fn liquidate() {
         res.attributes,
         vec![
             attr("method", "liquidate"),
-            attr("leftover_repayment", "1 credit"),
+            attr("leftover_repayment", "1"),
         ]
     );
 
@@ -412,10 +428,10 @@ fn liquidate_bignums() {
         positions_contract: String::from("positions_contract"),
         oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     let mut coin = coins(11_000_000_000_000, "credit");
-    coin.append(&mut coins(11_000_000_000_000, "2ndcredit"));
     //Instantiating contract
     let info = mock_info("sender88", &coin);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
@@ -439,7 +455,7 @@ fn liquidate_bignums() {
         res.attributes,
         vec![
             attr("method", "liquidate"),
-            attr("leftover_repayment", "0 credit"),
+            attr("leftover_repayment", "0"),
         ]
     );
 
@@ -480,10 +496,11 @@ fn distribute() {
         positions_contract: String::from("positions_contract"),
         oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     //Instantiating contract
-    let info = mock_info("user", &coins(5, "credit"));
+    let info = mock_info("user", &coins(50000000, "credit"));
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     //Unauthorized Sender
@@ -522,7 +539,7 @@ fn distribute() {
 
     //Successful attempt
     //Liquidation
-    let liq_msg = ExecuteMsg::Liquidate { liq_amount: Decimal::from_ratio(8u128, 1u128) };
+    let liq_msg = ExecuteMsg::Liquidate { liq_amount: Decimal::from_ratio(80000000u128, 1u128) };
     let cdp_info = mock_info("positions_contract", &vec![]);
     let _res = execute(deps.as_mut(), mock_env(), cdp_info, liq_msg).unwrap();
 
@@ -533,32 +550,35 @@ fn distribute() {
                 info: AssetInfo::NativeToken {
                     denom: "debit".to_string(),
                 },
-                amount: Uint128::new(100u128),
+                amount: Uint128::new(85),
             },
             Asset {
                 info: AssetInfo::NativeToken {
-                    denom: "2nddebit".to_string(),
+                    denom: "second_debit_LP".to_string(),
                 },
-                amount: Uint128::new(100u128),
+                amount: Uint128::new(15),
             },
         ],
-        distribution_asset_ratios: vec![Decimal::percent(50), Decimal::percent(50)],
-        distribute_for: Uint128::new(8),
+        distribution_asset_ratios: vec![Decimal::percent(85), Decimal::percent(15)],
+        distribute_for: Uint128::new(80000000),
     };
+    
+    let mut env = mock_env();
+    env.block.time = env.block.time.plus_seconds(86400u64); //Added a day
 
-    let mut coin = coins(100, "debit");
-    coin.append(&mut coins(100, "2nddebit"));
+    let mut coin = coins(85, "debit");
+    coin.append(&mut coins(15, "second_debit_LP"));
 
     let cdp_info = mock_info("positions_contract", &coin);
 
-    let res = execute(deps.as_mut(), mock_env(), cdp_info, distribute_msg).unwrap();
+    let res = execute(deps.as_mut(), env, cdp_info, distribute_msg).unwrap();
 
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "distribute"),
             attr("credit_asset", "credit"),
-            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100) }, Asset { info: NativeToken { denom: \"2nddebit\" }, amount: Uint128(100) }]"),
+            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(85) }, Asset { info: NativeToken { denom: \"second_debit_LP\" }, amount: Uint128(15) }]"),
         ]
     );
 
@@ -574,8 +594,8 @@ fn distribute() {
 
     let resp: ClaimsResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.claims[0].to_string(), "100 debit".to_string());
-    assert_eq!(resp.claims[1].to_string(), "25 2nddebit".to_string());
+    assert_eq!(resp.claims[0].to_string(), "62debit".to_string());
+    assert_eq!(resp.claims[1].to_string(), "12328mbrn_denom".to_string());
 
     //Query and assert 2ndUser claimables
     let res = query(
@@ -589,7 +609,9 @@ fn distribute() {
 
     let resp: ClaimsResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.claims[0].to_string(), "75 2nddebit".to_string());
+    assert_eq!(resp.claims[0].to_string(), "23debit".to_string());
+    assert_eq!(resp.claims[1].to_string(), "7397mbrn_denom".to_string());
+    assert_eq!(resp.claims[2].to_string(), "15second_debit_LP".to_string());
 
     //Query position data to make sure 0 is leftover for "user"
     let res = query(
@@ -620,14 +642,14 @@ fn distribute() {
     .unwrap();
 
     let resp: AssetPool = from_binary(&res).unwrap();
-    assert_eq!(resp.deposits[0].to_string(), String::from("2nduser 2"));
+    assert_eq!(resp.deposits[0].to_string(), String::from("2nduser 20000000"));
 
     //2nd Liquidation
     let liq_msg = ExecuteMsg::Liquidate { liq_amount: Decimal::from_ratio(2u128, 1u128) };
     let cdp_info = mock_info("positions_contract", &vec![]);
     let _res = execute(deps.as_mut(), mock_env(), cdp_info, liq_msg).unwrap();
 
-    //2nd Distribute to only th 2nduser
+    //2nd Distribute to only the 2nduser
     let distribute_msg = ExecuteMsg::Distribute {
         distribution_assets: vec![
             Asset {
@@ -638,7 +660,7 @@ fn distribute() {
             },
             Asset {
                 info: AssetInfo::NativeToken {
-                    denom: "2nddebit".to_string(),
+                    denom: "second_debit_LP".to_string(),
                 },
                 amount: Uint128::new(100u128),
             },
@@ -648,18 +670,16 @@ fn distribute() {
     };
     
     let mut coin = coins(100, "debit");
-    coin.append(&mut coins(100, "2nddebit"));
+    coin.append(&mut coins(100, "second_debit_LP"));
 
     let cdp_info = mock_info("positions_contract", &coin);
-
     let res = execute(deps.as_mut(), mock_env(), cdp_info, distribute_msg).unwrap();
-
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "distribute"),
             attr("credit_asset", "credit"),
-            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100) }, Asset { info: NativeToken { denom: \"2nddebit\" }, amount: Uint128(100) }]"),
+            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100) }, Asset { info: NativeToken { denom: \"second_debit_LP\" }, amount: Uint128(100) }]"),
         ]
     );
 
@@ -677,15 +697,19 @@ fn distribute() {
 
     assert_eq!(
         resp.claims,
-        vec![            
-            Asset {
-                info: AssetInfo::NativeToken { denom: "2nddebit".to_string() },
-                amount: Uint128::new(175)
+        vec![
+            Coin {
+                denom: "debit".to_string(),
+                amount: Uint128::new(123)
             },
-            Asset {
-                info: AssetInfo::NativeToken { denom: "debit".to_string() },
-                amount: Uint128::new(100)
-            }
+            Coin {
+                denom: "mbrn_denom".to_string(),
+                amount: Uint128::new(7397)
+            },      
+            Coin {
+                denom: "second_debit_LP".to_string(),
+                amount: Uint128::new(115)
+            },
         ],
     )
 
@@ -713,6 +737,7 @@ fn distribute_bignums() {
         positions_contract: String::from("positions_contract"),
         oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     //Instantiating contract
@@ -768,7 +793,7 @@ fn distribute_bignums() {
             },
             Asset {
                 info: AssetInfo::NativeToken {
-                    denom: "2nddebit".to_string(),
+                    denom: "second_debit".to_string(),
                 },
                 amount: Uint128::new(100_000_000_000_000u128),
             },
@@ -778,7 +803,7 @@ fn distribute_bignums() {
     };
 
     let mut coin = coins(100_000_000_000_000, "debit");
-    coin.append(&mut coins(100_000_000_000_000, "2nddebit"));
+    coin.append(&mut coins(100_000_000_000_000, "second_debit"));
 
     let info = mock_info("positions_contract", &coin);
 
@@ -789,7 +814,7 @@ fn distribute_bignums() {
         vec![
             attr("method", "distribute"),
             attr("credit_asset", "credit"),
-            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100000000000000) }, Asset { info: NativeToken { denom: \"2nddebit\" }, amount: Uint128(100000000000000) }]"),
+            attr("distribution_assets", "[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(100000000000000) }, Asset { info: NativeToken { denom: \"second_debit\" }, amount: Uint128(100000000000000) }]"),
         ]
     );
 
@@ -807,11 +832,11 @@ fn distribute_bignums() {
 
     assert_eq!(
         resp.claims[0].to_string(),
-        "100000000000000 debit".to_string()
+        "100000000000000debit".to_string()
     );
     assert_eq!(
         resp.claims[1].to_string(),
-        "25000000000000 2nddebit".to_string()
+        "25000000000000second_debit".to_string()
     );
 
     //Query and assert User claimables
@@ -828,7 +853,7 @@ fn distribute_bignums() {
 
     assert_eq!(
         resp.claims[0].to_string(),
-        "75000000000000 2nddebit".to_string()
+        "75000000000000second_debit".to_string()
     );
 
     //Query position data to assert leftovers
@@ -877,6 +902,7 @@ fn claims() {
         positions_contract: String::from("positions_contract"),
         oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     //Instantiating contract
@@ -907,7 +933,7 @@ fn claims() {
             },
             Asset {
                 info: AssetInfo::NativeToken {
-                    denom: "2nddebit".to_string(),
+                    denom: "second_debit".to_string(),
                 },
                 amount: Uint128::new(100u128),
             },
@@ -917,7 +943,7 @@ fn claims() {
     };
 
     let mut coin = coins(100, "debit");
-    coin.append(&mut coins(100, "2nddebit"));
+    coin.append(&mut coins(100, "second_debit"));
 
     let info = mock_info("positions_contract", &coin);
     let _res = execute(deps.as_mut(), mock_env(), info.clone(), distribute_msg).unwrap();
@@ -930,22 +956,23 @@ fn claims() {
     assert_eq!(res.messages, vec![
         SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
             to_address: "sender88".to_string(),
-            amount: vec![Coin {
-                denom: "debit".to_string(),
-                amount: Uint128::new(100u128)
-            },
-            Coin {
-                denom: "2nddebit".to_string(),
-                amount: Uint128::new(25u128)
-            }],
+            amount: vec![
+                Coin {
+                    denom: "debit".to_string(),
+                    amount: Uint128::new(100u128)
+                },
+                Coin {
+                    denom: "second_debit".to_string(),
+                    amount: Uint128::new(25u128)
+                }, 
+            ],
         }))
     ]);
     
     //Claim: Error, nothing to claim
     let claim_msg = ExecuteMsg::ClaimRewards {};
     let info = mock_info("sender88", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap();
-    assert_eq!(res.attributes[2].value, "[]".to_string());
+    let err = execute(deps.as_mut(), mock_env(), info, claim_msg).unwrap_err();
 
     //Claim
     let claim_msg = ExecuteMsg::ClaimRewards {};
@@ -956,7 +983,7 @@ fn claims() {
         SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
             to_address: "2nduser".to_string(),
             amount: vec![Coin {
-                denom: "2nddebit".to_string(),
+                denom: "second_debit".to_string(),
                 amount: Uint128::new(75u128)
             }],
         }))
@@ -967,24 +994,25 @@ fn claims() {
 // fn cdp_repay() {
 //     let mut deps = mock_dependencies();
 
-//     let msg = InstantiateMsg {
-//         owner: Some("sender88".to_string()),
-//         asset_pool: AssetPool {
-//             credit_asset: Asset {
-//                 info: AssetInfo::NativeToken {
-//                     denom: "credit".to_string(),
-//                 },
-//                 amount: Uint128::zero(),
-//             },
-//             liq_premium: Decimal::zero(),
-//             deposits: vec![],
-//         },
-//         osmosis_proxy: String::from("osmosis_proxy"),
-//         mbrn_denom: String::from("mbrn_denom"),
-//         incentive_rate: None,
-//         positions_contract: String::from("positions_contract"),
-//         max_incentives: None,
-//     };
+    let msg = InstantiateMsg {
+        owner: Some("sender88".to_string()),
+        asset_pool: AssetPool {
+            credit_asset: Asset {
+                info: AssetInfo::NativeToken {
+                    denom: "credit".to_string(),
+                },
+                amount: Uint128::zero(),
+            },
+            liq_premium: Decimal::zero(),
+            deposits: vec![],
+        },
+        osmosis_proxy: String::from("osmosis_proxy"),
+        mbrn_denom: String::from("mbrn_denom"),
+        incentive_rate: None,
+        positions_contract: String::from("positions_contract"),
+        max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
+    };
 
 //     //Instantiating contract
 //     let info = mock_info("sender88", &[]);
@@ -1152,17 +1180,20 @@ fn update_config(){
         positions_contract: String::from("positions_contract"),
         oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     //Instantiating contract
     let info = mock_info("sender88", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
     
+    //Update Config
     let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
         owner: Some(String::from("new_owner")),
-        incentive_rate: Some(Decimal::one()), 
-        max_incentives: Some(Uint128::new(100)), 
+        incentive_rate: Some(Decimal::percent(20)), 
+        max_incentives: Some(Uint128::new(1_000_000)), 
         unstaking_period: Some(1),  
+        minimum_deposit_amount: Some(Uint128::new(10)),
         osmosis_proxy: Some(String::from("new_op")), 
         positions_contract: Some(String::from("new_cdp")),
         oracle_contract: Some(String::from("new_oracle")),
@@ -1189,10 +1220,54 @@ fn update_config(){
     assert_eq!(
         config,
         Config {
+            owner: Addr::unchecked("sender88"),
+            incentive_rate: Decimal::percent(20), 
+            max_incentives: Uint128::new(1_000_000),
+            unstaking_period: 1,
+            minimum_deposit_amount: Uint128::new(10),
+            osmosis_proxy: Addr::unchecked("new_op"), 
+            positions_contract: Addr::unchecked("new_cdp"), 
+            mbrn_denom: String::from("new_denom"), 
+        },
+    );
+
+    //Transfer ownership
+    let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
+        owner: None,
+        incentive_rate: None,
+        max_incentives: None,
+        unstaking_period: None,
+        minimum_deposit_amount: None,
+        osmosis_proxy: None,
+        positions_contract: None,
+        mbrn_denom: None,
+    });
+
+    execute(
+        deps.as_mut(),
+        mock_env(),
+        mock_info("new_owner", &vec![]),
+        msg,
+    )
+    .unwrap();
+
+    //Query Config
+    let res = query(
+        deps.as_ref(),
+        mock_env(),
+        QueryMsg::Config {},
+    )
+    .unwrap();
+    let config: Config = from_binary(&res).unwrap();
+
+    assert_eq!(
+        config,
+        Config {
             owner: Addr::unchecked("new_owner"),
-            incentive_rate: Decimal::one(), 
-            max_incentives: Uint128::new(100),
-            unstaking_period: 1,  
+            incentive_rate: Decimal::percent(20), 
+            max_incentives: Uint128::new(1_000_000),
+            unstaking_period: 1,
+            minimum_deposit_amount: Uint128::new(10),
             osmosis_proxy: Addr::unchecked("new_op"), 
             positions_contract: Addr::unchecked("new_cdp"),
             oracle_contract: Addr::unchecked("new_oracle"), 
@@ -1223,6 +1298,7 @@ fn capital_ahead_of_deposits() {
         positions_contract: String::from("positions_contract"),
         oracle_contract: String::from("oracle_contract"),
         max_incentives: None,
+        minimum_deposit_amount: Uint128::new(5)
     };
 
     //Instantiating contract

@@ -1,11 +1,11 @@
-use cosmwasm_std::{Addr, Decimal, Uint128, StdResult, Api};
+use cosmwasm_std::{Addr, Decimal, Uint128, StdResult, Api, StdError};
 use cosmwasm_schema::cw_serde;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
     cAsset, Asset, AssetInfo, InsolventPosition, Position, PositionUserInfo,
-    SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType, Basket, equal,
+    SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType, Basket, equal, PremiumInfo,
 };
 
 #[cw_serde]
@@ -21,7 +21,11 @@ pub struct InstantiateMsg {
     /// Timeframe for Collateral TWAPs in minutes
     pub collateral_twap_timeframe: u64, 
     /// Timeframe for Credit TWAP in minutes
-    pub credit_twap_timeframe: u64,     
+    pub credit_twap_timeframe: u64,    
+    /// Interest rate slope multiplier
+    pub rate_slope_multiplier: Decimal, 
+    /// Base debt cap multiplier
+    pub base_debt_cap_multiplier: Uint128,
     /// Stability Pool contract
     pub stability_pool: Option<String>,
     /// Apollo DEX Router contract
@@ -90,6 +94,28 @@ pub enum ExecuteMsg {
         position_id: Uint128,
         /// Position owner to liquidate
         position_owner: String,
+    },
+    /// Redeem CDT for collateral
+    /// Redemption limit based on Position owner buy-in
+    RedeemCollateral {
+        /// Max % premium on the redeemed collateral`
+        max_collateral_premium: Option<u128>,
+    },
+    /// Edit Redeemability for owned Positions
+    EditRedeemability {
+        /// Position IDs to edit
+        position_ids: Vec<Uint128>,
+        /// Add or remove redeemability
+        redeemable: Option<bool>,
+        /// Edit premium on the redeemed collateral.
+        /// Can't set a 100% premium, as that would be a free loan repayment.
+        premium: Option<u128>,
+        /// Edit Max loan repayment %
+        max_loan_repayment: Option<Decimal>,
+        /// Restricted collateral assets.
+        /// These are restricted from use in redemptions.
+        /// Swaps the full list.
+        restricted_collateral_assets: Option<Vec<String>>,
     },
     /// Close a Position by selling collateral and repaying debt
     ClosePosition {
@@ -183,6 +209,15 @@ pub enum QueryMsg {
         position_id: Uint128,
         //Position owner to query
         position_owner: String,
+    },
+    /// Get Basket redeemability
+    GetBasketRedeemability {
+        /// Position owner to query.
+        position_owner: Option<String>,
+        /// Premium to start after 
+        start_after: Option<u128>,
+        /// Response limiter
+        limit: Option<u32>,
     },
     /// Returns Positions in the contract's Basket
     GetBasketPositions {
@@ -300,9 +335,6 @@ impl UpdateConfig {
         config: &mut Config,
     ) -> StdResult<()>{
         //Set Optionals
-        if let Some(owner) = self.owner {
-            config.owner = api.addr_validate(&owner)?;
-        }
         if let Some(stability_pool) = self.stability_pool {
             config.stability_pool = Some(api.addr_validate(&stability_pool)?);
         }
@@ -328,6 +360,10 @@ impl UpdateConfig {
             config.discounts_contract = Some(api.addr_validate(&discounts_contract)?);
         }
         if let Some(liq_fee) = self.liq_fee {
+            //Enforce 0-100% range
+            if liq_fee > Decimal::percent(100) || liq_fee < Decimal::zero() {
+                return Err(StdError::GenericErr{ msg: "Liquidation fee must be between 0-100%".to_string() });
+            }
             config.liq_fee = liq_fee;
         }
         if let Some(debt_minimum) = self.debt_minimum {
@@ -337,6 +373,10 @@ impl UpdateConfig {
             config.base_debt_cap_multiplier = base_debt_cap_multiplier;
         }
         if let Some(oracle_time_limit) = self.oracle_time_limit {
+            //Assert oracle time limit is max the collateral_twap_timeframe
+            if oracle_time_limit > config.collateral_twap_timeframe * 60 {
+                return Err(StdError::GenericErr{ msg: "Oracle time limit ceiling is the collateral twap timeframe".to_string() });
+            }
             config.oracle_time_limit = oracle_time_limit;
         }
         if let Some(collateral_twap_timeframe) = self.collateral_twap_timeframe {
@@ -346,9 +386,17 @@ impl UpdateConfig {
             config.credit_twap_timeframe = credit_twap_timeframe;
         }
         if let Some(cpc_multiplier) = self.cpc_multiplier {
+            //Enforce 0-1k%
+            if cpc_multiplier > Decimal::percent(10_00) || cpc_multiplier < Decimal::zero() {
+                return Err(StdError::GenericErr{ msg: "CPC multiplier must be between 0-1000%".to_string() });
+            }
             config.cpc_multiplier = cpc_multiplier;
         }
         if let Some(rate_slope_multiplier) = self.rate_slope_multiplier {
+            //Enforce 0-1k%
+            if rate_slope_multiplier > Decimal::percent(10_00) || rate_slope_multiplier < Decimal::zero() {
+                return Err(StdError::GenericErr{ msg: "Rate slope multiplier must be between 0-10000%".to_string() });
+            }            
             config.rate_slope_multiplier = rate_slope_multiplier;
         }
         Ok(())
@@ -369,9 +417,9 @@ pub struct EditBasket {
     pub multi_asset_supply_caps: Option<Vec<MultiAssetSupplyCap>>,
     /// Base interest rate
     pub base_interest_rate: Option<Decimal>,
-    /// Osmosis Pool info for credit TWAP price
+    /// Osmosis Pool info for credit->OSMO TWAP price
     /// Non-USD denominated baskets don't work due to the debt minimum
-    pub credit_asset_twap_price_source: Option<TWAPPoolInfo>,
+    pub credit_asset_twap_price_source: Option<(TWAPPoolInfo)>,
     /// Toggle allowance negative redemption rate
     pub negative_rates: Option<bool>, 
     /// Margin of error for difference in TWAP price and redemption price
@@ -502,4 +550,10 @@ pub struct InterestResponse {
 pub struct CollateralInterestResponse {
     /// Collateral interest rates in the order of the collateral types
     pub rates: Vec<Decimal>,
+}
+
+#[cw_serde]
+pub struct RedeemabilityResponse {
+    /// State for each premium 
+    pub premium_infos: Vec<PremiumInfo>,
 }

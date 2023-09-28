@@ -1,6 +1,6 @@
 use cosmwasm_schema::cw_serde;
 
-use cosmwasm_std::{Decimal, Uint128, Addr};
+use cosmwasm_std::{Decimal, Uint128, Addr, Coin};
 
 use crate::types::{Asset, AssetPool, Deposit, UserInfo};
 
@@ -14,6 +14,8 @@ pub struct InstantiateMsg {
     pub incentive_rate: Option<Decimal>,
     /// Max incentives 
     pub max_incentives: Option<Uint128>,
+    /// Minimum bid amount
+    pub minimum_deposit_amount: Uint128,
     /// Osmosis Proxy contract address
     pub osmosis_proxy: String,
     /// Positions contract address
@@ -113,6 +115,8 @@ pub struct Config {
     pub max_incentives: Uint128,
     /// Unstaking period in days
     pub unstaking_period: u64,
+    /// Minimum bid amount
+    pub minimum_deposit_amount: Uint128,
     /// MBRN denom
     pub mbrn_denom: String,
     /// Osmosis Proxy contract address
@@ -133,6 +137,8 @@ pub struct UpdateConfig {
     pub max_incentives: Option<Uint128>,
     /// Unstaking period in days
     pub unstaking_period: Option<u64>,
+    /// Minimum bid amount
+    pub minimum_deposit_amount: Option<Uint128>,
     /// Osmosis Proxy contract address
     pub osmosis_proxy: Option<String>,
     /// Positions contract address
@@ -152,7 +158,7 @@ pub struct LiquidatibleResponse {
 #[cw_serde]
 pub struct ClaimsResponse {
     /// Claimable assets
-    pub claims: Vec<Asset>,
+    pub claims: Vec<Coin>,
 }
 
 #[cw_serde]
@@ -161,4 +167,10 @@ pub struct DepositPositionResponse {
     pub deposit: Deposit,
     /// Capital ahead of deposit
     pub capital_ahead: Decimal,
+}
+
+#[cw_serde] 
+pub struct UserIncentivesResponse {
+    /// User's unclaimed incentives
+    pub incentives: Uint128,
 }

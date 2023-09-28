@@ -5,13 +5,16 @@ use std::ops::RangeInclusive;
 
 use self::helpers::is_safe_link;
 
-pub const MINIMUM_PROPOSAL_REQUIRED_THRESHOLD_PERCENTAGE: u64 = 66;
+//Osmosis Constants
+pub const BLOCKS_PER_DAY: u64 = 2400; //6 sec blocks
+
+pub const MINIMUM_PROPOSAL_REQUIRED_THRESHOLD_PERCENTAGE: u64 = 51;
 pub const MAX_PROPOSAL_REQUIRED_THRESHOLD_PERCENTAGE: u64 = 100;
 pub const MAX_PROPOSAL_REQUIRED_QUORUM_PERCENTAGE: u64 = 100;
 pub const MINIMUM_PROPOSAL_REQUIRED_QUORUM_PERCENTAGE: u64 = 33;
-pub const VOTING_PERIOD_INTERVAL: RangeInclusive<u64> = 14400..=14 * 14400; //1 to 14 days in blocks (6 seconds per block)
-pub const DELAY_INTERVAL: RangeInclusive<u64> = 0..=14400; // from 0 to 1 day in blocks (6 seconds per block)
-pub const EXPIRATION_PERIOD_INTERVAL: RangeInclusive<u64> = 14400..=100800; //1 to 14 days in blocks (6 seconds per block)
+pub const VOTING_PERIOD_INTERVAL: RangeInclusive<u64> = BLOCKS_PER_DAY..=14 * BLOCKS_PER_DAY; //1 to 14 days in blocks (6 seconds per block)
+pub const DELAY_INTERVAL: RangeInclusive<u64> = 0..=BLOCKS_PER_DAY; // from 0 to 1 day in blocks (6 seconds per block)
+pub const EXPIRATION_PERIOD_INTERVAL: RangeInclusive<u64> = BLOCKS_PER_DAY..=14 * BLOCKS_PER_DAY; //1 to 14 days in blocks (6 seconds per block)
 pub const STAKE_INTERVAL: RangeInclusive<u128> = 1000000000..=5000000000; // from 1000 to 5000 $MBRN
 
 /// Proposal validation attributes
@@ -46,7 +49,7 @@ pub struct InstantiateMsg {
     pub proposal_required_stake: Uint128,
     /// Proposal required quorum
     pub proposal_required_quorum: String,
-    /// Proposal required threshold
+    /// Proposal required threshold for executable proposals
     pub proposal_required_threshold: String,
     /// Whitelisted links
     pub whitelisted_links: Vec<String>,
@@ -108,8 +111,14 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     /// Return the contract's configuration
     Config {},
-    /// Return the current list of proposals
-    Proposals {
+    /// Return the current list of active proposals
+    ActiveProposals {
+        /// Id from which to start querying
+        start: Option<u64>,
+        /// The amount of proposals to return
+        limit: Option<u32>,
+    },
+    PendingProposals {
         /// Id from which to start querying
         start: Option<u64>,
         /// The amount of proposals to return
@@ -167,7 +176,7 @@ pub struct Config {
     pub proposal_required_stake: Uint128,
     /// Proposal required quorum
     pub proposal_required_quorum: Decimal,
-    /// Proposal required threshold
+    /// Proposal required threshold for executable proposals
     pub proposal_required_threshold: Decimal,
     /// Whitelisted links
     pub whitelisted_links: Vec<String>,
@@ -260,7 +269,7 @@ pub struct UpdateConfig {
     pub proposal_required_stake: Option<u128>,
     /// Proposal required quorum
     pub proposal_required_quorum: Option<String>,
-    /// Proposal required threshold
+    /// Proposal required threshold for executable proposals
     pub proposal_required_threshold: Option<String>,
     /// Links to remove from whitelist
     pub whitelist_remove: Option<Vec<String>>,
@@ -273,20 +282,34 @@ pub struct UpdateConfig {
 /// This structure stores data for a proposal.
 #[cw_serde]
 pub struct Proposal {
+    /// Voting power per user for this proposal
+    pub voting_power: Vec<(Addr, Uint128)>,
     /// Unique proposal ID
     pub proposal_id: Uint64,
     /// The address of the proposal submitter
     pub submitter: Addr,
     /// Status of the proposal
     pub status: ProposalStatus,
+    /// Aligned power of proposal
+    pub aligned_power: Uint128,
     /// `For` power of proposal
     pub for_power: Uint128,
     /// `Against` power of proposal
     pub against_power: Uint128,
+    /// `Amend` power of proposal
+    pub amendment_power: Uint128,
+    /// `Remove` power of proposal
+    pub removal_power: Uint128,
+    /// Proposal boosters
+    pub aligned_voters: Vec<Addr>,
     /// `For` votes for the proposal
     pub for_voters: Vec<Addr>,
     /// `Against` votes for the proposal
     pub against_voters: Vec<Addr>,
+    /// `Amend` votes for the proposal
+    pub amendment_voters: Vec<Addr>,
+    /// `Remove` votes for the proposal
+    pub removal_voters: Vec<Addr>,
     /// Start block of proposal
     pub start_block: u64,
     /// Start time of proposal
@@ -310,16 +333,24 @@ pub struct Proposal {
 /// This structure describes a proposal response.
 #[cw_serde]
 pub struct ProposalResponse {
+    /// Voting power per user for this proposal
+    pub voting_power: Vec<(Addr, Uint128)>,
     /// Unique proposal ID
     pub proposal_id: Uint64,
     /// The address of the proposal submitter
     pub submitter: Addr,
     /// Status of the proposal
     pub status: ProposalStatus,
+    /// Aligned power of proposal
+    pub aligned_power: Uint128,
     /// `For` power of proposal
     pub for_power: Uint128,
     /// `Against` power of proposal
     pub against_power: Uint128,
+    /// `Amend` power of proposal
+    pub amendment_power: Uint128,
+    /// `Remove` power of proposal
+    pub removal_power: Uint128,
     /// Start block of proposal
     pub start_block: u64,
     /// Start time of proposal
@@ -399,6 +430,7 @@ impl Proposal {
 pub enum ProposalStatus {
     Active,
     Passed,
+    AmendmentDesired,
     Rejected,
     Executed,
     Expired,
@@ -409,6 +441,7 @@ impl Display for ProposalStatus {
         match self {
             ProposalStatus::Active {} => fmt.write_str("active"),
             ProposalStatus::Passed {} => fmt.write_str("passed"),
+            ProposalStatus::AmendmentDesired {} => fmt.write_str("amendment_required"),
             ProposalStatus::Rejected {} => fmt.write_str("rejected"),
             ProposalStatus::Executed {} => fmt.write_str("executed"),
             ProposalStatus::Expired {} => fmt.write_str("expired"),
@@ -439,6 +472,9 @@ pub struct ProposalVote {
 pub enum ProposalVoteOption {
     For,
     Against,
+    Amend,
+    Remove,
+    Align,
 }
 
 impl Display for ProposalVoteOption {
@@ -446,6 +482,9 @@ impl Display for ProposalVoteOption {
         match self {
             ProposalVoteOption::For {} => fmt.write_str("for"),
             ProposalVoteOption::Against {} => fmt.write_str("against"),
+            ProposalVoteOption::Amend {} => fmt.write_str("amend"),
+            ProposalVoteOption::Remove {} => fmt.write_str("remove"),
+            ProposalVoteOption::Align {} => fmt.write_str("align"),
         }
     }
 }
@@ -459,6 +498,12 @@ pub struct ProposalVotesResponse {
     pub for_power: Uint128,
     /// Total amount of `against` votes for a proposal.
     pub against_power: Uint128,
+    /// Total amount of `amend` votes for a proposal.
+    pub amendment_power: Uint128,
+    /// Total amount of `remove` votes for a proposal.
+    pub removal_power: Uint128,
+    /// Total amount of `align` votes for a proposal.
+    pub aligned_power: Uint128,
 }
 
 /// This structure describes a proposal list response.

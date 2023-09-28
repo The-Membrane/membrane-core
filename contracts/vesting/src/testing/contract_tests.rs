@@ -20,7 +20,7 @@ mod tests {
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: String::from("osmosis_proxy"),
             staking_contract: String::from("staking_contract"),
-            labs_addr: String::from("labs")
+            pre_launch_contributors: String::from("labs")
         };
 
         //Instantiating contract
@@ -98,7 +98,7 @@ mod tests {
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: String::from("osmosis_proxy"),
             staking_contract: String::from("staking_contract"),
-            labs_addr: String::from("labs")
+            pre_launch_contributors: String::from("labs")
         };
 
         //Instantiating contract
@@ -234,7 +234,7 @@ mod tests {
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: String::from("osmosis_proxy"),
             staking_contract: String::from("staking_contract"),
-            labs_addr: String::from("labs")
+            pre_launch_contributors: String::from("labs")
         };
 
         //Instantiating contract

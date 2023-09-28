@@ -1,0 +1,159 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Config",
+  "type": "object",
+  "required": [
+    "fee_wait_period",
+    "incentive_schedule",
+    "keep_raw_cdt",
+    "max_commission_rate",
+    "mbrn_denom",
+    "owner",
+    "unstaking_period",
+    "vesting_rev_multiplier"
+  ],
+  "properties": {
+    "auction_contract": {
+      "description": "Auction contract address",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Addr"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fee_wait_period": {
+      "description": "Wait period between deposit & ability to earn fee events, in days",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "governance_contract": {
+      "description": "Governance contract address",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Addr"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "incentive_schedule": {
+      "description": "Incentive schedule",
+      "allOf": [
+        {
+          "$ref": "#/definitions/StakeDistribution"
+        }
+      ]
+    },
+    "keep_raw_cdt": {
+      "description": "Toggle to keep raw CDT revenue If false, CDT revenue is converted in the FeeAuction",
+      "type": "boolean"
+    },
+    "max_commission_rate": {
+      "description": "Max commission rate",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Decimal"
+        }
+      ]
+    },
+    "mbrn_denom": {
+      "description": "MBRN denom",
+      "type": "string"
+    },
+    "osmosis_proxy": {
+      "description": "Osmosis Proxy contract address",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Addr"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "owner": {
+      "description": "Contract owner",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Addr"
+        }
+      ]
+    },
+    "positions_contract": {
+      "description": "Positions contract address",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Addr"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "unstaking_period": {
+      "description": "Unstaking period, in days",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "vesting_contract": {
+      "description": "Vesting contract address",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Addr"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "vesting_rev_multiplier": {
+      "description": "Vesting contract revenue multiplier Transforms the total stake in the revenue calculations, not the revenue directly WARNING: SETTING TO 0 IS PERMANENT",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Decimal"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Addr": {
+      "description": "A human readable address.\n\nIn Cosmos, this is typically bech32 encoded. But for multi-chain smart contracts no assumptions should be made other than being UTF-8 encoded and of reasonable length.\n\nThis type represents a validated address. It can be created in the following ways 1. Use `Addr::unchecked(input)` 2. Use `let checked: Addr = deps.api.addr_validate(input)?` 3. Use `let checked: Addr = deps.api.addr_humanize(canonical_addr)?` 4. Deserialize from JSON. This must only be done from JSON that was validated before such as a contract's state. `Addr` must not be used in messages sent by the user because this would result in unvalidated instances.\n\nThis type is immutable. If you really need to mutate it (Really? Are you sure?), create a mutable copy using `let mut mutable = Addr::to_string()` and operate on that `String` instance.",
+      "type": "string"
+    },
+    "Decimal": {
+      "description": "A fixed-point decimal value with 18 fractional digits, i.e. Decimal(1_000_000_000_000_000_000) == 1.0\n\nThe greatest possible value that can be represented is 340282366920938463463.374607431768211455 (which is (2^128 - 1) / 10^18)",
+      "type": "string"
+    },
+    "StakeDistribution": {
+      "type": "object",
+      "required": [
+        "duration",
+        "rate"
+      ],
+      "properties": {
+        "duration": {
+          "description": "Duration of distribution in days",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "rate": {
+          "description": "Distribution rate",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

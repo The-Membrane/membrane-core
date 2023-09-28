@@ -4,8 +4,8 @@ use cosmwasm_schema::cw_serde;
 
 #[cw_serde]
 pub struct InstantiateMsg {
-    /// Emergent Labs multisig address
-    pub labs_addr: String,
+    /// Pre launch contributors address
+    pub pre_launch_contributors: String,
     /// Apollo router address
     pub apollo_router: String,
     /// Osmosis Proxy contract id
@@ -43,6 +43,15 @@ pub enum ExecuteMsg {
         /// Lock duration of MBRN rewards, in days
         lock_up_duration: u64, 
     },
+    /// Change lockup duration of a subset of locked deposits.
+    ChangeLockDuration {
+        /// Amount of uosmo to change lock duration of
+        uosmo_amount: Option<Uint128>,
+        /// Lock duration of MBRN rewards, in days
+        old_lock_up_duration: u64,
+        /// Lock duration of MBRN rewards, in days
+        new_lock_up_duration: u64,
+    },
     /// Withdraw OSMO from a specified lockup duration
     Withdraw {
         /// OSMO amount to withdraw
@@ -67,8 +76,14 @@ pub enum QueryMsg {
     Config {},
     /// Returns Lockdrop object
     Lockdrop {},
+    /// Return Protocol Addresses
+    ContractAddresses {},
     /// Returns MBRN lockup distributions
     IncentiveDistribution {},
+    /// Returns User incentive distribution
+    UserIncentives { user: String },
+    /// Returns locked User info
+    UserInfo { user: String },
 }
 
 #[cw_serde]
@@ -77,8 +92,8 @@ pub struct Config {
     pub mbrn_denom: String,
     /// Basket credit asset denom
     pub credit_denom: String,
-    /// Emergent Labs multisig address
-    pub labs_addr: Addr,
+    /// Pre launch contributors address
+    pub pre_launch_contributors: Addr,
     /// Apollo router address
     pub apollo_router: Addr,
     /// Amount of MBRN for launch incentives & LPs

@@ -101,12 +101,15 @@ The default fee is the Stability Pool's liquidation fee since if the LQ doesn't 
 
 ### To Pass Tests...
 In liquidations.rs for sell wall usage & liquidation LTV
-- Uncomment lines 75 & 76
-- Comment 229 & 246
+- line 38-52, downtime detector
+- Create a Static LTV of 90 & insolvent variable after line 94
+- Comment 233 for lp_withdraw_messages
 
-In reply.rs for sell wall usage 
-- Comment 113, 337, 365, 496
+In positions.rs for close_position
+- Comment 1681 lp withdrawl msgs
 
-In lib.rs
-- Comment stress tests
+In reply.rs for sell wall usage & Router Errors
+- Comment 197, 364, 399, 478, 614
+- Comment 29-47 & 50 for Router successful sale asset calc & repay msg send
+
 

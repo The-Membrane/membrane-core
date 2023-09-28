@@ -1,0 +1,217 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QueryMsg",
+  "oneOf": [
+    {
+      "description": "Returns contract config",
+      "type": "object",
+      "required": [
+        "config"
+      ],
+      "properties": {
+        "config": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Returns StakerResponse",
+      "type": "object",
+      "required": [
+        "user_stake"
+      ],
+      "properties": {
+        "user_stake": {
+          "type": "object",
+          "required": [
+            "staker"
+          ],
+          "properties": {
+            "staker": {
+              "description": "Staker address",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Returns fee claimables && # of staking rewards",
+      "type": "object",
+      "required": [
+        "user_rewards"
+      ],
+      "properties": {
+        "user_rewards": {
+          "type": "object",
+          "required": [
+            "user"
+          ],
+          "properties": {
+            "user": {
+              "description": "User address",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Returns list of StakeDeposits",
+      "type": "object",
+      "required": [
+        "staked"
+      ],
+      "properties": {
+        "staked": {
+          "type": "object",
+          "required": [
+            "unstaking"
+          ],
+          "properties": {
+            "end_before": {
+              "description": "End before timestamp in seconds",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "limit": {
+              "description": "Response limit",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "start_after": {
+              "description": "Start after timestamp in seconds",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "unstaking": {
+              "description": "Include unstakers",
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Returns list of DelegationInfo",
+      "type": "object",
+      "required": [
+        "delegations"
+      ],
+      "properties": {
+        "delegations": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "description": "Response limit",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "start_after": {
+              "description": "Start after governator address",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "user": {
+              "description": "Query a specific user",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Returns list of FeeEvents",
+      "type": "object",
+      "required": [
+        "fee_events"
+      ],
+      "properties": {
+        "fee_events": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "description": "Response limit",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "start_after": {
+              "description": "Start after timestamp in seconds",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Returns total MBRN staked",
+      "type": "object",
+      "required": [
+        "total_staked"
+      ],
+      "properties": {
+        "total_staked": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Returns progress of current incentive schedule",
+      "type": "object",
+      "required": [
+        "incentive_schedule"
+      ],
+      "properties": {
+        "incentive_schedule": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

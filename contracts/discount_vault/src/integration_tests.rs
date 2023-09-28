@@ -6,6 +6,7 @@ mod tests {
 
     use membrane::cdp::PositionResponse;
     use membrane::discount_vault::{ExecuteMsg, InstantiateMsg, QueryMsg, UserResponse};
+    use membrane::oracle::PriceResponse;
     use membrane::types::{AssetInfo, Asset, Basket, PoolStateResponse, LPPoolInfo};
 
     use cosmwasm_std::{
@@ -68,8 +69,13 @@ mod tests {
                             current_position_id: Uint128::zero(),
                             collateral_types: vec![],
                             collateral_supply_caps: vec![],
+                            lastest_collateral_rates: vec![],
                             credit_asset: Asset { info: AssetInfo::NativeToken { denom: String::from("cdt") }, amount: Uint128::zero() },
-                            credit_price: Decimal::one(),
+                            credit_price: PriceResponse { 
+                                prices: vec![], 
+                                price: Decimal::one(), 
+                                decimals: 6
+                            },
                             liq_queue: None,
                             base_interest_rate: Decimal::zero(),
                             pending_revenue: Uint128::zero(),
@@ -229,6 +235,8 @@ mod tests {
 
     mod vault {
 
+        use std::vec;
+
         use membrane::{discount_vault::Config, types::VaultedLP};
 
         use crate::contracts::SECONDS_PER_DAY;
@@ -350,8 +358,16 @@ mod tests {
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
+            //Remove accept_lps
+            let msg = ExecuteMsg::EditAcceptedLPs { 
+                pool_ids: vec![1],
+                remove: true
+            };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
             //Withdraw: Success
-            //Invalid asset has no effect on outcome
+            //Invalid asset nor Removed LPs have an effect on outcome
             let msg = ExecuteMsg::Withdraw { 
                 withdrawal_assets: vec![
                     Asset {
@@ -376,7 +392,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 user.discount_value,        
-                Uint128::new(2),
+                Uint128::new(0),
             );
             assert_eq!(
                 user.deposits,        
@@ -402,6 +418,26 @@ mod tests {
             };
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Owner unchanged until new owner accepts
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    vault_contract.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            assert_eq!(
+                config.owner.to_string(),        
+                String::from(ADMIN),
+            );
+
+            //Accept ownership
+            let msg = ExecuteMsg::ChangeOwner {
+                owner: String::from("different_owner"),
+            };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("different_owner"), cosmos_msg).unwrap();
 
             //Query Config
             let config: Config = app

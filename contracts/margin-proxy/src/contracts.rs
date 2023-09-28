@@ -2,19 +2,19 @@ use std::str::FromStr;
 
 use cosmwasm_std::{
     attr, entry_point, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, 
-    Response, StdResult, Uint128, WasmQuery, SubMsg, Storage, Addr, CosmosMsg, WasmMsg, Reply, StdError, QueryRequest, Decimal, QuerierWrapper, Attribute, Order,
+    Response, StdResult, Uint128, WasmQuery, SubMsg, Storage, Addr, CosmosMsg, WasmMsg, Reply, StdError, QueryRequest, Decimal, QuerierWrapper, Attribute, Order, Coin, ReplyOn,
 };
 use cw2::set_contract_version;
 
 use cw_storage_plus::Bound;
-use membrane::helpers::router_native_to_native;
+use membrane::helpers::{router_native_to_native, get_contract_balances, asset_to_coin};
 use membrane::margin_proxy::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::decimal_multiplication;
 use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, PositionResponse};
-use membrane::types::{AssetInfo, Basket};
+use membrane::types::{AssetInfo, Basket, Asset};
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, COMPOSITION_CHECK, USERS, NEW_POSITION_INFO, NUM_OF_LOOPS, LOOP_PARAMETERS};
+use crate::state::{CONFIG, COMPOSITION_CHECK, USERS, NEW_POSITION_INFO, NUM_OF_LOOPS, LOOP_PARAMETERS, OWNERSHIP_TRANSFER, ROUTER_DEPOSIT_MSG};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "margin_proxy";
@@ -29,6 +29,7 @@ const EXISTING_DEPOSIT_REPLY_ID: u64 = 1u64;
 const NEW_DEPOSIT_REPLY_ID : u64 = 2u64;
 const LOOP_REPLY_ID: u64 = 3u64;
 const CLOSE_POSITION_REPLY_ID: u64 = 4u64;
+const ROUTER_REPLY_ID: u64 = 5u64;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -393,23 +394,26 @@ fn handle_loop_reply(
                 
                 let credit_to_sell = decimal_multiplication(credit_amount, ratio)?;
 
-                let hook_msg = Some(to_binary(&CDP_ExecuteMsg::Deposit { 
-                    position_id: Some(previous_composition.clone().position_id),
-                    position_owner: Some(env.contract.address.to_string()), //Owner is this contract
-                })?);
-
                 let msg = router_native_to_native(                    
                     config.clone().apollo_router_contract.to_string(),                    
                     credit_asset.clone().info,
-                    collateral,
-                    Some(config.clone().max_slippage),                     
+                    collateral,          
                     Some(config.clone().positions_contract.to_string()),
-                    hook_msg, 
                     (credit_to_sell * Uint128::new(1u128)).u128(),
                 )?;
-
+                //Add a reply msg to execute the hook msg
                 messages.push(SubMsg::new(msg));
             }
+            //Save Router Reply Hook Msg
+            let hook_msg = to_binary(&CDP_ExecuteMsg::Deposit { 
+                position_id: Some(previous_composition.clone().position_id),
+                position_owner: Some(env.contract.address.to_string()), //Owner is this contract
+            })?;
+            ROUTER_DEPOSIT_MSG.save(deps.storage, &hook_msg)?;
+            //Update the last router_msg to be a ROUTER_REPLY
+            let msg_index = messages.clone().len()-1;
+            messages[msg_index].id = ROUTER_REPLY_ID;
+            messages[msg_index].reply_on = ReplyOn::Success;
             
             //Load parameters from last loop
             let loop_parameters = LOOP_PARAMETERS.load(deps.storage)?;
@@ -469,6 +473,62 @@ fn handle_loop_reply(
             Ok(Response::new().add_attribute("increase_debt_error", string))
         }
     }
+}
+
+/// Handle reply from router contract
+pub fn handle_router_deposit_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => {
+            //Load Previous Composition
+            let previous_composition = COMPOSITION_CHECK.load(deps.storage)?;
+            
+            //Query contract balance of all position collateral assets
+            let asset_balances = get_contract_balances(
+                deps.querier, 
+                env.clone(), 
+                previous_composition.clone().collateral_assets
+                    .into_iter()
+                    .map(|asset| asset.asset.info)
+                    .collect::<Vec<AssetInfo>>()
+            )?;
+
+            //Map balances to Asset object
+            let asset_balances: Vec<Asset> = asset_balances
+                .into_iter()
+                .enumerate()
+                .filter(|(_, amount)| !amount.is_zero())//Skip if balance is 0            
+                .map(|(i, amount)| Asset {
+                    info: previous_composition.collateral_assets[i].clone().asset.info,
+                    amount,
+                })
+                .collect::<Vec<Asset>>();
+
+            //Map asset_balances to coins
+            let asset_balances: Vec<Coin> = asset_balances
+                .into_iter()
+                .map(|asset| asset_to_coin(asset))
+                .collect::<StdResult<Vec<Coin>>>()?;
+            
+
+            //Load DEPOSIT msg binary from storage
+            let hook_msg: Binary = ROUTER_DEPOSIT_MSG.load(deps.storage)?;
+
+            //Create repay_msg with queried funds
+            //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted
+            let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: CONFIG.load(deps.storage)?.positions_contract.to_string(), 
+                msg: hook_msg, 
+                funds: asset_balances.clone(),
+            });
+
+            Ok(Response::new().add_message(deposit_msg).add_attribute("amount_deposited", format!("{:?}", asset_balances)))
+        },
+        
+        Err(err) => {
+            //Its reply on success only
+            Ok(Response::new().add_attribute("error", err))
+        }
+    }    
 }
 
 /// Remove User claim over a position in this contract
@@ -746,17 +806,26 @@ fn update_config(
     positions_contract: Option<String>,
     max_slippage: Option<Decimal>,
 ) -> Result<Response, ContractError> {
-
     let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs = vec![attr("method", "update_config")];
 
-    //Assert authority
+    //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
     }
 
     //Save optionals
     if let Some(addr) = owner {
-        config.owner = deps.api.addr_validate(&addr)?;
+        let valid_addr = deps.api.addr_validate(&addr)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+        attrs.push(attr("owner_transfer", valid_addr));  
     }
     if let Some(addr) = apollo_router_contract {
         config.apollo_router_contract = deps.api.addr_validate(&addr)?;
@@ -770,7 +839,8 @@ fn update_config(
 
     //Save Config
     CONFIG.save(deps.storage, &config)?;
+    attrs.push(attr("updated_config", format!("{:?}", config)));
 
-    Ok(Response::new())
+    Ok(Response::new().add_attributes(attrs))
 }
 

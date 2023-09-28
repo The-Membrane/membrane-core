@@ -2,6 +2,7 @@ use crate::contract::{execute, instantiate, query};
 
 use membrane::liq_queue::{ExecuteMsg, InstantiateMsg, LiquidatibleResponse, QueryMsg};
 use membrane::math::Uint256;
+use membrane::oracle::PriceResponse;
 use membrane::types::{AssetInfo, BidInput};
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
@@ -13,8 +14,11 @@ fn partial_one_collateral_one_slot() {
 
     let msg = InstantiateMsg {
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         owner: None, //Defaults to sender
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -53,26 +57,40 @@ fn partial_one_collateral_one_slot() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        collateral_price: Decimal::one(),
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(999u128),
         credit_info: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        credit_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
     assert_eq!(resp.total_debt_repaid, String::from("999"));
 
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(999u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -85,7 +103,10 @@ fn partial_one_collateral_one_slot_w_fees() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -125,26 +146,40 @@ fn partial_one_collateral_one_slot_w_fees() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        collateral_price: Decimal::one(),
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(1110u128),
         credit_info: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        credit_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
     assert_eq!(resp.total_debt_repaid, String::from("999"));
 
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(1110u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -157,7 +192,10 @@ fn one_collateral_one_slot() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -196,26 +234,40 @@ fn one_collateral_one_slot() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        collateral_price: Decimal::one(),
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(1000u128),
         credit_info: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        credit_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
     assert_eq!(resp.total_debt_repaid, String::from("1000"));
 
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(1000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -228,7 +280,10 @@ fn one_collateral_one_slot_w_fees() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -268,26 +323,40 @@ fn one_collateral_one_slot_w_fees() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        collateral_price: Decimal::one(),
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(1112u128),
         credit_info: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        credit_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
     assert_eq!(resp.total_debt_repaid, String::from("1000"));
 
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(1112u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -300,7 +369,10 @@ fn two_slot_w_fees() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -359,26 +431,40 @@ fn two_slot_w_fees() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        collateral_price: Decimal::one(),
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(2000u128),
         credit_info: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        credit_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
     assert_eq!(resp.total_debt_repaid, String::from("1900"));
 
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(2000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -391,7 +477,10 @@ fn partial_two_slot_w_fees() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -450,12 +539,20 @@ fn partial_two_slot_w_fees() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        collateral_price: Decimal::one(),
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(2222u128),
         credit_info: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        credit_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
@@ -463,14 +560,20 @@ fn partial_two_slot_w_fees() {
     assert_eq!(resp.total_debt_repaid, String::from("2000"));
 
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(2111u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -483,7 +586,10 @@ fn partial_two_slot_w_fees_bignums() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -542,12 +648,20 @@ fn partial_two_slot_w_fees_bignums() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        collateral_price: Decimal::one(),
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(2_222_222_222_u128),
         credit_info: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        credit_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
@@ -555,14 +669,20 @@ fn partial_two_slot_w_fees_bignums() {
     assert_eq!(resp.total_debt_repaid, String::from("2000000000"));
 
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(2_111_111_111_u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();

@@ -5,12 +5,12 @@ use cosmwasm_std::{to_binary, Addr, Coin, CosmosMsg, StdResult, WasmMsg};
 
 use membrane::system_discounts::ExecuteMsg;
 
-/// DiscountsContract is a wrapper around Addr that provides a lot of helpers
+/// LaunchContract is a wrapper around Addr that provides a lot of helpers
 /// for working with this.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct DiscountsContract(pub Addr);
+pub struct LaunchContract(pub Addr);
 
-impl DiscountsContract {
+impl LaunchContract {
     pub fn addr(&self) -> Addr {
         self.0.clone()
     }

@@ -12,6 +12,8 @@ pub struct TokenInfo {
     pub current_supply: Uint128,
     /// Max supply 
     pub max_supply: Option<Uint128>,
+    /// Burned supply
+    pub burned_supply: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

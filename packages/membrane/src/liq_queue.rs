@@ -1,9 +1,10 @@
 use cosmwasm_schema::cw_serde;
 
-use cosmwasm_std::{Decimal, Addr, Uint128};
+use cosmwasm_std::{Addr, Uint128};
 
 use crate::math::{Decimal256, Uint256};
 use crate::types::{AssetInfo, Bid, BidInput, Asset};
+use crate::oracle::PriceResponse;
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -11,8 +12,14 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     /// Positions contract address
     pub positions_contract: String,
+    /// Osmosis Proxy contract address
+    pub osmosis_proxy_contract: String,
     /// Waiting period before bids are activated
     pub waiting_period: u64, 
+    /// Minimum bid amount
+    pub minimum_bid: Uint128,
+    /// Maximum total bids
+    pub maximum_waiting_bids: u64,
 }
 
 #[cw_serde]
@@ -33,20 +40,16 @@ pub enum ExecuteMsg {
         /// Amount to withdraw, None = withdraw full bid
         amount: Option<Uint256>,
     },
-    /// Use bids to fulfll liquidation of Position Contract basket. Called by Positions
+    /// Use bids to fulfill liquidation of Position Contract basket. Called by Positions
     Liquidate {
         /// Basket credit price, sent from Position's contract
-        credit_price: Decimal,
+        credit_price: PriceResponse,
         /// Collateral price, sent from Position's contract
-        collateral_price: Decimal,
+        collateral_price: PriceResponse,
         /// Collateral amount
         collateral_amount: Uint256,
         /// Collateral asset info to bid_for
         bid_for: AssetInfo,
-        /// Position id to liquidate
-        position_id: Uint128,
-        /// Position owner 
-        position_owner: String,
     },
     /// Claim liquidated assets
     ClaimLiquidations {
@@ -80,8 +83,14 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         /// Positions contract address
         positions_contract: Option<String>,
+        /// Osmosis Proxy contract address
+        osmosis_proxy_contract: Option<String>,
         /// Waiting period before bids are activated
         waiting_period: Option<u64>,
+        /// Minimum bid amount
+        minimum_bid: Option<Uint128>,
+        /// Maximum waiting bids
+        maximum_waiting_bids: Option<u64>,
     },
 }
 
@@ -125,13 +134,13 @@ pub enum QueryMsg {
         /// Bid for asset
         bid_for: AssetInfo,
         /// Collateral price
-        collateral_price: Decimal,
+        collateral_price: PriceResponse,
         /// Collateral amount
         collateral_amount: Uint256,
         /// Credit asset info
         credit_info: AssetInfo,
         /// Credit price
-        credit_price: Decimal,
+        credit_price: PriceResponse,
     },
     /// Returns User's claimable assetss
     UserClaims {
@@ -163,6 +172,8 @@ pub struct Config {
     pub owner: Addr,
     /// Positions contract address
     pub positions_contract: Addr,
+    /// Osmosis Proxy contract address
+    pub osmosis_proxy_contract: Addr,
     /// Available assets to bid for
     pub added_assets: Option<Vec<AssetInfo>>,
     /// Waiting period before bids are activated to prevent bots frontrunning bids.
@@ -170,12 +181,18 @@ pub struct Config {
     pub waiting_period: u64, 
     /// Bid with asset
     pub bid_asset: AssetInfo,
+    /// Minimum bid amount
+    pub minimum_bid: Uint128,
+    /// Maximum total bids
+    pub maximum_waiting_bids: u64,
 }
 
 #[cw_serde]
 pub struct SlotResponse {
     /// List of bids
     pub bids: Vec<Bid>,
+    /// List of waiting bids
+    pub waiting_bids: Vec<Bid>,
     /// Liquidation premium 
     pub liq_premium: String,
     /// Sum Snapshot

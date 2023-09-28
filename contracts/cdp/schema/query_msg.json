@@ -75,6 +75,47 @@
       "additionalProperties": false
     },
     {
+      "description": "Get Basket redeemability",
+      "type": "object",
+      "required": [
+        "get_basket_redeemability"
+      ],
+      "properties": {
+        "get_basket_redeemability": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "description": "Response limiter",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "position_owner": {
+              "description": "Position owner to query.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "start_after": {
+              "description": "Premium to start after",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint128",
+              "minimum": 0.0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
       "description": "Returns Positions in the contract's Basket",
       "type": "object",
       "required": [

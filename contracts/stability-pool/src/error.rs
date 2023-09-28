@@ -1,4 +1,4 @@
-use cosmwasm_std::StdError;
+use cosmwasm_std::{StdError, Uint128};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -20,6 +20,9 @@ pub enum ContractError {
 
     #[error("Asset pool hasn't been added for this asset yet")]
     InvalidAsset {},
+
+    #[error("Deposit is too small, minimum is {min:?}")]
+    MinimumDeposit { min: Uint128 },
 
     #[error("Asset that was passed in has uncongruent object field & deposit amounts")]
     InvalidAssetObject {},

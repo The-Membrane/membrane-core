@@ -1,4 +1,4 @@
-use cosmwasm_std::{StdError, Decimal};
+use cosmwasm_std::{StdError, Decimal, Uint128};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -6,8 +6,8 @@ pub enum ContractError {
     #[error("{0}")]
     Std(#[from] StdError),
 
-    #[error("Unauthorized")]
-    Unauthorized {},
+    #[error("Unauthorized, owner is {owner}")]
+    Unauthorized { owner: String},
 
     #[error("Invalid Collateral")]
     InvalidCollateral {},
@@ -21,14 +21,14 @@ pub enum ContractError {
     #[error("Position is solvent and shouldn't be liquidated")]
     PositionSolvent {},
 
-    #[error("Makes position insolvent")]
-    PositionInsolvent {},
+    #[error("Makes position insolvent: {insolvency_res:?}")]
+    PositionInsolvent { insolvency_res: (bool, Decimal, Uint128)},
 
     #[error("User has no positions in this basket")]
     NoUserPositions {},
 
-    #[error("Position doesn't exist")]
-    NonExistentPosition {},
+    #[error("Position doesn't exist: {id}")]
+    NonExistentPosition { id: Uint128},
 
     #[error("Basket doesn't exist")]
     NonExistentBasket {},
@@ -45,8 +45,8 @@ pub enum ContractError {
     #[error("Repayment exceeds outstanding credit")]
     ExcessRepayment {},
 
-    #[error("Position's debt is below minimum")]
-    BelowMinimumDebt {},
+    #[error("Position's debt ({debt}) is below minimum: {minimum}")]
+    BelowMinimumDebt { minimum: Uint128, debt: Uint128 },
 
     #[error("Cw20Msg Error")]
     Cw20MsgError {},
@@ -60,11 +60,17 @@ pub enum ContractError {
     #[error("Info.sender is not the basket.owner")]
     NotBasketOwner {},
 
-    #[error("This calculation was out of desirable bounds")]
-    FaultyCalc {},
+    #[error("{msg}")]
+    FaultyCalc { msg: String },
 
     #[error("Invalid target_LTV for debt increase: {target_LTV}")]
     InvalidLTV { target_LTV: Decimal },
+
+    #[error("Invalid Max LTV")]
+    InvalidMaxLTV { max_LTV: Decimal },
+
+    #[error("Maximum position number reached")]
+    MaxPositionsReached {},
 
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },

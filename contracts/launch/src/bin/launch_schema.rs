@@ -2,8 +2,9 @@ use std::{fs::create_dir_all, env::current_dir};
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
+use launch::state::LaunchAddrs;
 use membrane::launch::{InstantiateMsg, ExecuteMsg, QueryMsg, Config};
-use membrane::types::{Lockdrop, UserRatio};
+use membrane::types::{Lockdrop, UserRatio, LockedUser};
 fn main() {
     let mut out_dir = current_dir().unwrap();
     out_dir.push("schema");
@@ -16,5 +17,6 @@ fn main() {
     export_schema(&schema_for!(Config), &out_dir);
     export_schema(&schema_for!(Lockdrop), &out_dir);
     export_schema(&schema_for!(UserRatio), &out_dir);
-    
+    export_schema(&schema_for!(LockedUser), &out_dir);
+    export_schema(&schema_for!(LaunchAddrs), &out_dir);
 }

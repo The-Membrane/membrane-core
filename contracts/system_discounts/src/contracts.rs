@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use cosmwasm_std::{
     entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo,
-    QueryRequest, Response, StdResult, Uint128, WasmQuery, QuerierWrapper, Addr,
+    QueryRequest, Response, StdResult, Uint128, WasmQuery, QuerierWrapper, attr,
 };
 use cw2::set_contract_version;
 
@@ -10,7 +10,7 @@ use osmosis_std::shim::Duration;
 use osmosis_std::types::osmosis::lockup::{LockupQuerier, AccountLockedLongerDurationDenomResponse};
 
 use membrane::math::{decimal_multiplication, decimal_division};
-use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
+use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, UserDiscountResponse};
 use membrane::stability_pool::{QueryMsg as SP_QueryMsg, ClaimsResponse};
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
 use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse, Config as DV_Config};
@@ -19,7 +19,7 @@ use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
 use membrane::types::{AssetInfo, Basket, Deposit, AssetPool, LPPoolInfo};
 
 use crate::error::ContractError;
-use crate::state::CONFIG;
+use crate::state::{CONFIG, OWNERSHIP_TRANSFER};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "system_discounts";
@@ -28,7 +28,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 //Constants
 const SECONDS_PER_DAY: u64 = 86_400u64;
 
-
+#[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
@@ -98,17 +98,26 @@ fn update_config(
     info: MessageInfo,
     update: UpdateConfig,
 ) -> Result<Response, ContractError> {
-
     let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs = vec![attr("method", "update_config")];
 
-    //Assert authority
+    //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
     }
 
     //Save optionals
     if let Some(addr) = update.owner {
-        config.owner = deps.api.addr_validate(&addr)?;
+        let valid_addr = deps.api.addr_validate(&addr)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+        attrs.push(attr("owner_transfer", valid_addr));    
     }
     if let Some(addr) = update.positions_contract {
         config.positions_contract = deps.api.addr_validate(&addr)?;
@@ -166,7 +175,7 @@ fn get_discount(
     deps: Deps,
     env: Env,
     user: String, 
-)-> StdResult<Decimal>{
+)-> StdResult<UserDiscountResponse>{
     //Load Config
     let config = CONFIG.load(deps.storage)?;
 
@@ -199,7 +208,10 @@ fn get_discount(
         }
     };
 
-    Ok(percent_discount)
+    Ok(UserDiscountResponse {
+        user,
+        discount: percent_discount,
+    })
 }
 
 /// Get the value of the user's capital in
@@ -218,27 +230,27 @@ fn get_user_value_in_network(
     let credit_price = basket.clone().credit_price;
     let credit_denom = basket.clone().credit_asset.info;
 
-    let mbrn_price = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    let mbrn_price_res = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().oracle_contract.to_string(),
         msg: to_binary(&Oracle_QueryMsg::Price {
             asset_info: AssetInfo::NativeToken { denom: config.clone().mbrn_denom },
             twap_timeframe: 60,
+            oracle_time_limit: 600,
             basket_id: None,
         })?,
-    }))?
-    .price;
+    })){
+        Ok(price_res) => price_res,
+        //Default to CDT price
+        Err(_) => credit_price.clone()
+    };
 
     //Initialize variables
     let mut total_value = Decimal::zero();
     let mut accepted_lps: Vec<LPPoolInfo> = vec![];
     let mut valid_denoms: Vec<AssetInfo> = vec![];
 
-    total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone(), mbrn_price)?;
-    total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price.clone(), credit_price.clone())?;
-    
-    if config.discount_vault_contract.len() != 0 {
-        for discount_vault in config.clone().discount_vault_contract {
-            total_value += get_discounts_vault_value(querier, discount_vault.clone(), user.clone(), config.clone().minimum_time_in_network)?;
+    total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone(), mbrn_price_res.price)?;
+    total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price_res.clone(), credit_price.clone().price)?;
 
             //Add to accepted LPs
             let res: DV_Config = querier.query_wasm_smart(discount_vault, &Discount_QueryMsg::Config {  })?;
@@ -325,9 +337,9 @@ fn get_discounts_vault_value(
     minimum_time_in_network: u64,
 ) -> StdResult<Decimal>{
 
-     //Get user info from the Gauge Vault
-     let user = querier.query::<Discount_UserResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: discount_vault.to_string(),
+    //Get user capital from the Gauge Vault
+    let user = querier.query::<Discount_UserResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.clone().discount_vault_contract.unwrap().to_string(),
         msg: to_binary(&Discount_QueryMsg::User {
             user,
             minimum_deposit_time: Some(minimum_time_in_network),
@@ -343,7 +355,7 @@ fn get_staked_MBRN_value(
     querier: QuerierWrapper,
     config: Config,
     user: String,
-    mbrn_price: Decimal,
+    mbrn_price_res: PriceResponse,
     credit_price: Decimal,
 ) -> StdResult<Decimal>{
 
@@ -357,8 +369,8 @@ fn get_staked_MBRN_value(
 
     let rewards = querier.query::<RewardsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().staking_contract.to_string(),
-        msg: to_binary(&Staking_QueryMsg::StakerRewards {
-            staker: user.clone(),
+        msg: to_binary(&Staking_QueryMsg::UserRewards {
+            user: user.clone(),
         })?,
     }))?;
 
@@ -370,25 +382,25 @@ fn get_staked_MBRN_value(
     
     for asset in rewards.claimables {
 
-        let mut price = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        let mut price_res = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.clone().oracle_contract.to_string(),
             msg: to_binary(&Oracle_QueryMsg::Price {
                 asset_info: asset.info,
                 twap_timeframe: 60,
+                oracle_time_limit: 600,
                 basket_id: None,
             })?,
-        }))?
-        .price;
+        }))?;
 
-        if price < credit_price { price = credit_price }
+        if price_res.price < credit_price { price_res.price = credit_price }
 
-        let value = decimal_multiplication(price, Decimal::from_ratio(asset.amount, Uint128::one()))?;
+        let value = price_res.get_value(asset.amount)?;
 
         staked_value += value;
     }
 
     //Add MBRN value to staked_value
-    let value = decimal_multiplication(mbrn_price, Decimal::from_ratio(user_stake, Uint128::one()))?;
+    let value = mbrn_price_res.get_value(user_stake)?;
 
     staked_value += value;
     
@@ -447,17 +459,17 @@ fn get_sp_value(
     
     for asset in res.claims {
 
-        let price = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        let price_res = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.clone().oracle_contract.to_string(),
             msg: to_binary(&Oracle_QueryMsg::Price {
-                asset_info: asset.info,
+                asset_info: AssetInfo::NativeToken { denom: asset.denom },
                 twap_timeframe: 60,
+                oracle_time_limit: 600,
                 basket_id: None,
             })?,
-        }))?
-        .price;
+        }))?;
 
-        let value = decimal_multiplication(price, Decimal::from_ratio(asset.amount, Uint128::one()))?;
+        let value = price_res.get_value(asset.amount)?;
 
         claims_value += value;
     }

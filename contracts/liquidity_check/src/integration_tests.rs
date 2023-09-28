@@ -339,6 +339,34 @@ mod tests {
             assert_eq!(
                 config, 
                 Config {
+                    owner: Addr::unchecked(ADMIN), 
+                    osmosis_proxy:  Addr::unchecked("new_op_contract"),  
+                    positions_contract:  Addr::unchecked("new_pos_contract"), 
+                    stableswap_multiplier: Decimal::one(),
+            });
+
+            //Ownership transfer
+            let msg = ExecuteMsg::UpdateConfig { 
+                owner: None,
+                osmosis_proxy: None,
+                positions_contract: None,
+                stableswap_multiplier: None,
+            };
+            let cosmos_msg = liquidity_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
+
+            
+            //Query Config
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    liquidity_contract.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            assert_eq!(
+                config, 
+                Config {
                     owner: Addr::unchecked("new_owner"), 
                     osmosis_proxy:  Addr::unchecked("new_op_contract"),  
                     positions_contract:  Addr::unchecked("new_pos_contract"), 

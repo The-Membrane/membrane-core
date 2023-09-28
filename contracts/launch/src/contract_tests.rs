@@ -4,7 +4,7 @@ use crate::error::ContractError;
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
 use cosmwasm_std::{
     attr, coin, coins, from_binary, to_binary, BankMsg, CosmosMsg, SubMsg, Uint128,
-    WasmMsg
+    WasmMsg, Addr
 };
 
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
@@ -12,7 +12,7 @@ use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::launch::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig
 };
-use membrane::types::{Lockdrop, LockedUser, Lock};
+use membrane::types::{LockedUser, Lock};
 
 
 #[test]
@@ -21,7 +21,7 @@ fn update_config(){
     let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
-        labs_addr: String::from("labs"),
+        pre_launch_contributors: String::from("labs"),
         apollo_router: String::from("router"),
         //Contract IDs
         osmosis_proxy_id: 0,
@@ -38,7 +38,6 @@ fn update_config(){
         system_discounts_id: 0,
         discount_vault_id: 0,
     };
-
     //Instantiating contract
     let info = mock_info("sender88", &[coin(20_000_000, "uosmo")]);
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -91,7 +90,7 @@ fn lock() {
     let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
-        labs_addr: String::from("labs"),
+        pre_launch_contributors: String::from("labs"),
         apollo_router: String::from("router"),
         //Contract IDs
         osmosis_proxy_id: 0,
@@ -115,7 +114,7 @@ fn lock() {
 
     //Invalid lock asset
     let msg = ExecuteMsg::Lock { lock_up_duration: 0u64 };
-    let info = mock_info("user1", &[coin(10, "not_uosmo")]);
+    let info = mock_info("user1", &[coin(10_000_000, "not_uosmo")]);
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(
         err.to_string(),
@@ -124,7 +123,7 @@ fn lock() {
 
     //Invalid lock duration
     let msg = ExecuteMsg::Lock { lock_up_duration: 366u64 };
-    let info = mock_info("user1", &[coin(10, "not_uosmo")]);
+    let info = mock_info("user1", &[coin(10_000_000, "not_uosmo")]);
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(
         err.to_string(),
@@ -133,7 +132,7 @@ fn lock() {
     
     //Lock uosmo for 7 days
     let msg = ExecuteMsg::Lock { lock_up_duration: 7u64 };
-    let info = mock_info("user1", &[coin(10, "uosmo")]);
+    let info = mock_info("user1", &[coin(10_000_000, "uosmo")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -141,30 +140,44 @@ fn lock() {
             attr("method", "deposit"),
             attr("user", "user1"),
             attr("lock_up_duration", "7"),
-            attr("deposit", "10 uosmo"),
+            attr("deposit", "10000000 uosmo"),
         ]
-    );       
-    
-    //Query and Assert lock
-    let res = query(deps.as_ref(), mock_env(), QueryMsg::Lockdrop {  }).unwrap();
-    let resp: Lockdrop = from_binary(&res).unwrap();
+    ); 
 
-    assert_eq!(resp.locked_users[0], 
+    //Lock uosmo for 7 days & assert its added to the same deposit
+    let msg = ExecuteMsg::Lock { lock_up_duration: 7u64 };
+    let info = mock_info("user1", &[coin(10_000_000, "uosmo")]);
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query and Assert lock
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::UserInfo { user: String::from("user1") }).unwrap();
+    let resp: LockedUser = from_binary(&res).unwrap();
+
+    assert_eq!(resp, 
         LockedUser { 
-            user: String::from("user1"), 
+            user: Addr::unchecked("user1"), 
             deposits: vec![
                 Lock { 
-                    deposit: Uint128::new(10), 
+                    deposit: Uint128::new(20_000_000), 
                     lock_up_duration: 7u64, 
                 }],
             total_tickets: Uint128::zero(),
             incentives_withdrawn: Uint128::zero(),
         }
     );
+    
+    //Error at lock under minimum
+    let msg = ExecuteMsg::Lock { lock_up_duration: 7u64 };
+    let info = mock_info("user1", &[coin(10, "uosmo")]);
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Generic error: Minimum deposit is 1_000_000 uosmo".to_string()
+    );
 
     //Lock attempt after deposit period
     let msg = ExecuteMsg::Lock { lock_up_duration: 7u64 };
-    let info = mock_info("user1", &[coin(10, "uosmo")]);
+    let info = mock_info("user1", &[coin(10_000_000, "uosmo")]);
     
     let mut env = mock_env();
     env.block.time = env.block.time.plus_seconds(5 * SECONDS_PER_DAY + 1); // 5 days + 1
@@ -177,11 +190,131 @@ fn lock() {
 }
 
 #[test]
+fn edit_lockup_duration() {
+    let mut deps = mock_dependencies();
+
+    let msg = InstantiateMsg {
+        pre_launch_contributors: String::from("labs"),
+        apollo_router: String::from("router"),
+        //Contract IDs
+        osmosis_proxy_id: 0,
+        oracle_id: 0,
+        staking_id: 0,
+        vesting_id: 0,
+        governance_id: 0,
+        positions_id: 0,
+        stability_pool_id: 0,
+        liq_queue_id: 0,
+        liquidity_check_id: 0,
+        mbrn_auction_id: 0,    
+        margin_proxy_id: 0,
+        system_discounts_id: 0,
+        discount_vault_id: 0,
+    };
+
+    //Instantiating contract
+    let info = mock_info("sender88", &[coin(20_000_000, "uosmo")]);
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+    
+    //Lock uosmo for 7 days
+    let msg = ExecuteMsg::Lock { lock_up_duration: 7u64 };
+    let info = mock_info("user1", &[coin(10_000_000, "uosmo")]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    assert_eq!(
+        res.attributes,
+        vec![
+            attr("method", "deposit"),
+            attr("user", "user1"),
+            attr("lock_up_duration", "7"),
+            attr("deposit", "10000000 uosmo"),
+        ]
+    ); 
+
+    //Split lock up duration to a 14 day
+    let msg = ExecuteMsg::ChangeLockDuration {
+        uosmo_amount: Some(Uint128::new(5_000_000)),
+        old_lock_up_duration: 7u64,
+        new_lock_up_duration: 14u64, 
+        };    
+    let info = mock_info("user1", &[]);
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query and Assert lock
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::UserInfo { user: String::from("user1") }).unwrap();
+    let resp: LockedUser = from_binary(&res).unwrap();
+
+    assert_eq!(resp, 
+        LockedUser { 
+            user: Addr::unchecked("user1"), 
+            deposits: vec![
+                Lock { 
+                    deposit: Uint128::new(5_000_000), 
+                    lock_up_duration: 7u64, 
+                },
+                Lock { 
+                    deposit: Uint128::new(5_000_000), 
+                    lock_up_duration: 14u64, 
+                }],
+            total_tickets: Uint128::zero(),
+            incentives_withdrawn: Uint128::zero(),
+        }
+    );
+
+    //Change lock up duration to a 30 day
+    let msg = ExecuteMsg::ChangeLockDuration {
+        uosmo_amount: Some(Uint128::new(5_000_001)), //over allo is set to the minimum
+        old_lock_up_duration: 7u64,
+        new_lock_up_duration: 30u64, 
+        };    
+    let info = mock_info("user1", &[]);
+    execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query and Assert lock
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::UserInfo { user: String::from("user1") }).unwrap();
+    let resp: LockedUser = from_binary(&res).unwrap();
+
+    assert_eq!(resp, 
+        LockedUser { 
+            user: Addr::unchecked("user1"), 
+            deposits: vec![
+                Lock { 
+                    deposit: Uint128::new(5_000_000), 
+                    lock_up_duration: 14u64, 
+                },
+                Lock { 
+                    deposit: Uint128::new(5_000_000), 
+                    lock_up_duration: 30u64, 
+                }],
+            total_tickets: Uint128::zero(),
+            incentives_withdrawn: Uint128::zero(),
+        }
+    );
+    
+    //Change attempt after deposit period
+    let msg = ExecuteMsg::ChangeLockDuration {
+        uosmo_amount: Some(Uint128::new(5_000_000)),
+        old_lock_up_duration: 7u64,
+        new_lock_up_duration: 14u64, 
+        };    
+    let info = mock_info("user1", &[coin(10_000_000, "uosmo")]);
+    
+    let mut env = mock_env();
+    env.block.time = env.block.time.plus_seconds(5 * SECONDS_PER_DAY + 1); // 5 days + 1
+    let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Deposit period over".to_string()
+    ); 
+
+}
+
+
+#[test]
 fn withdraw() {
     let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
-        labs_addr: String::from("labs"),
+        pre_launch_contributors: String::from("labs"),
         apollo_router: String::from("router"),
         //Contract IDs
         osmosis_proxy_id: 0,
@@ -205,7 +338,7 @@ fn withdraw() {
 
     //Lock uosmo for 7 days
     let msg = ExecuteMsg::Lock { lock_up_duration: 7u64 };
-    let info = mock_info("user1", &[coin(10, "uosmo")]);
+    let info = mock_info("user1", &[coin(10_000_000, "uosmo")]);
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Withdraw during deposit period: Error
@@ -218,7 +351,7 @@ fn withdraw() {
     );
 
     //Withdraw after deposit period: Success
-    let msg = ExecuteMsg::Withdraw { withdrawal_amount: Uint128::new(5), lock_up_duration: 7u64 };
+    let msg = ExecuteMsg::Withdraw { withdrawal_amount: Uint128::new(5_000_000), lock_up_duration: 7u64 };
     let info = mock_info("user1", &[]);
     let mut env = mock_env();
     env.block.time = env.block.time.plus_seconds(5 * SECONDS_PER_DAY + 1); // 5 days + 1
@@ -229,18 +362,18 @@ fn withdraw() {
             attr("method", "withdraw"),
             attr("user", "user1"),
             attr("lock_up_duration", "7"),
-            attr("withdraw", "5"),
+            attr("withdraw", "5000000"),
         ]
     ); 
     assert_eq!(res.messages, vec![
         SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
             to_address: String::from("user1"),
-            amount: coins(5, "uosmo"),
+            amount: coins(5_000_000, "uosmo"),
         }))
     ] );    
 
     //Withdraw as a non-user: Error
-    let msg = ExecuteMsg::Withdraw { withdrawal_amount: Uint128::new(5), lock_up_duration: 7u64 };
+    let msg = ExecuteMsg::Withdraw { withdrawal_amount: Uint128::new(5_000_000), lock_up_duration: 7u64 };
     let info = mock_info("non-user", &[]);
     let err = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
     assert_eq!(
@@ -249,12 +382,12 @@ fn withdraw() {
     );
     
     //Withdraw more than deposited: Error
-    let msg = ExecuteMsg::Withdraw { withdrawal_amount: Uint128::new(11), lock_up_duration: 7u64 };
+    let msg = ExecuteMsg::Withdraw { withdrawal_amount: Uint128::new(11_000_000), lock_up_duration: 7u64 };
     let info = mock_info("user1", &[]);
     let err = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
     assert_eq!(
         err.to_string(),
-        "Custom Error val: This user only owns 5 of the locked asset in this lockup duration: 7, retry withdrawal at or below that amount".to_string()
+        "Custom Error val: This user only owns 5000000 of the locked asset in this lockup duration: 7, retry withdrawal at or below that amount".to_string()
     );
 
     //Withdraw after withdraw period: Error
@@ -272,7 +405,7 @@ fn claim() {
     let mut deps = mock_dependencies();
 
     let msg = InstantiateMsg {
-        labs_addr: String::from("labs"),
+        pre_launch_contributors: String::from("labs"),
         apollo_router: String::from("router"),
         //Contract IDs
         osmosis_proxy_id: 0,
@@ -296,13 +429,21 @@ fn claim() {
 
     //Lock uosmo for 7 days
     let msg = ExecuteMsg::Lock { lock_up_duration: 7u64 };
-    let info = mock_info("user1", &[coin(10, "uosmo")]);
+    let info = mock_info("user1", &[coin(10_000_000, "uosmo")]);
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Lock uosmo for 14 days
     let msg = ExecuteMsg::Lock { lock_up_duration: 14u64 };
-    let info = mock_info("user1", &[coin(10, "uosmo")]);
+    let info = mock_info("user1", &[coin(10_000_000, "uosmo")]);
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Overload user calculations
+    for i in 0..90000{
+        //Lock uosmo for 7 days
+        let msg = ExecuteMsg::Lock { lock_up_duration: 7u64 };
+        let info = mock_info(&i.to_string(), &[coin(1_000_000, "uosmo")]);
+        execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    }    
 
     //Claim before lockdrop has ended: Error
     let msg = ExecuteMsg::Claim {  };
@@ -313,23 +454,9 @@ fn claim() {
         "Custom Error val: Lockdrop hasn't ended yet".to_string()
     );
 
-    //Claim before lock time ends: No mints
-    let msg = ExecuteMsg::Claim {  };
-    let info = mock_info("user1", &[]);
+    
     let mut env = mock_env();
-    env.block.time = env.block.time.plus_seconds(7 * SECONDS_PER_DAY + 1); // 7 days + 1sec
-    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
-    assert_eq!(
-        res.attributes,
-        vec![
-            attr("method", "claim"),
-            attr("minted_incentives", "0"),
-        ]
-    ); 
-    assert_eq!(
-        res.messages,
-        vec![]
-    );
+    env.block.time = env.block.time.plus_seconds(7 * SECONDS_PER_DAY + 1); // 7 days + 1sec to end of lockdrop
     
     //Claim as a non-user: Error
     let msg = ExecuteMsg::Claim {  };
@@ -340,16 +467,15 @@ fn claim() {
         String::from("Generic error: User didn't participate in the lockdrop"),
     );
 
-    //Claim after lock time of first deposit: Partial Mint
+    //Claim before lock time ends: Partial linear mints
     let msg = ExecuteMsg::Claim {  };
     let info = mock_info("user1", &[]);
-    env.block.time = env.block.time.plus_seconds(7 * SECONDS_PER_DAY); // 7 days + 1sec past the end of lockdrop
     let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "claim"),
-            attr("minted_incentives", "3478260869565"), //3_478_260_869_565
+            attr("staked_ownership", "3554"),
         ]
     );
     assert_eq!(
@@ -360,14 +486,51 @@ fn claim() {
                 funds: vec![],
                 msg: to_binary(&OsmoExecuteMsg::MintTokens {
                     denom: String::from(""),
-                    amount: Uint128::new(3478260869565),
-                    mint_to_address: String::from("user1")
+                    amount: Uint128::new(3554),
+                    mint_to_address: String::from("cosmos2contract")
                 })
                 .unwrap()
             })),
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from(""),
-                funds: vec![coin(3478260869565, "")],
+                funds: vec![coin(3554, "")],
+                msg: to_binary(&StakingExecuteMsg::Stake {
+                    user: Some(String::from("user1"))
+                })
+                .unwrap()
+            }))
+        ]
+    );
+
+
+    //Claim after lock time of first deposit: Partial Mint
+    let msg = ExecuteMsg::Claim {  };
+    let info = mock_info("user1", &[]);
+    env.block.time = env.block.time.plus_seconds(7 * SECONDS_PER_DAY); // 7 days + 1sec past the end of lockdrop
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+    assert_eq!(
+        res.attributes,
+        vec![
+            attr("method", "claim"),
+            attr("staked_ownership", "2152088471"), //2_152_088_471
+        ]
+    );
+    assert_eq!(
+        res.messages,
+        vec![
+            SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: String::from(""),
+                funds: vec![],
+                msg: to_binary(&OsmoExecuteMsg::MintTokens {
+                    denom: String::from(""),
+                    amount: Uint128::new(2152088471),
+                    mint_to_address: String::from("cosmos2contract")
+                })
+                .unwrap()
+            })),
+            SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: String::from(""),
+                funds: vec![coin(2152088471, "")],
                 msg: to_binary(&StakingExecuteMsg::Stake {
                     user: Some(String::from("user1"))
                 })
@@ -377,23 +540,23 @@ fn claim() {
     );
 
     //Query and Assert incentive tracking
-    let res = query(deps.as_ref(), mock_env(), QueryMsg::Lockdrop {  }).unwrap();
-    let resp: Lockdrop = from_binary(&res).unwrap();
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::UserInfo { user: String::from("user1") }).unwrap();
+    let resp: LockedUser = from_binary(&res).unwrap();
 
-    assert_eq!(resp.locked_users[0], 
+    assert_eq!(resp, 
         LockedUser { 
-            user: String::from("user1"), 
+            user: Addr::unchecked("user1"), 
             deposits: vec![
                 Lock { 
-                    deposit: Uint128::new(10), 
+                    deposit: Uint128::new(10_000_000), 
                     lock_up_duration: 7u64, 
                 },
                 Lock { 
-                    deposit: Uint128::new(10), 
+                    deposit: Uint128::new(10_000_000), 
                     lock_up_duration: 14u64, 
                 }],
-            total_tickets: Uint128::new(230),
-            incentives_withdrawn: Uint128::new(3478260869565),
+            total_tickets: Uint128::new(230000000),
+            incentives_withdrawn: Uint128::new(2152088471+3554),
         }
     );
 
@@ -406,7 +569,7 @@ fn claim() {
         res.attributes,
         vec![
             attr("method", "claim"),
-            attr("minted_incentives", "6521739130435"),
+            attr("staked_ownership", "1041332297"),
         ]
     );
     assert_eq!(
@@ -417,14 +580,14 @@ fn claim() {
                 funds: vec![],
                 msg: to_binary(&OsmoExecuteMsg::MintTokens {
                     denom: String::from(""),
-                    amount: Uint128::new(6521739130435), //6_521_739_130_435
-                    mint_to_address: String::from("user1")
+                    amount: Uint128::new(1041332297), //1_041_332_297
+                    mint_to_address: String::from("cosmos2contract")
                 })
                 .unwrap()
             })),
             SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: String::from(""),
-                funds: vec![coin(6521739130435, "")],
+                funds: vec![coin(1041332297, "")],
                 msg: to_binary(&StakingExecuteMsg::Stake {
                     user: Some(String::from("user1"))
                 })
@@ -437,37 +600,29 @@ fn claim() {
     let msg = ExecuteMsg::Claim {  };
     let info = mock_info("user1", &[]);
     env.block.time = env.block.time.plus_seconds(7 * SECONDS_PER_DAY); // 21 days + 1sec past the end of lockdrop
-    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
     assert_eq!(
-        res.attributes,
-        vec![
-            attr("method", "claim"),
-            attr("minted_incentives", "0"),
-        ]
-    );
-    assert_eq!(
-        res.messages,
-        vec![]
-    );
+        res.to_string(),
+        "Custom Error val: No incentives to claim".to_string());
 
     //Query and Assert incentive tracking
-    let res = query(deps.as_ref(), mock_env(), QueryMsg::Lockdrop {  }).unwrap();
-    let resp: Lockdrop = from_binary(&res).unwrap();
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::UserInfo { user: String::from("user1") }).unwrap();
+    let resp: LockedUser = from_binary(&res).unwrap();
 
-    assert_eq!(resp.locked_users[0], 
+    assert_eq!(resp, 
         LockedUser { 
-            user: String::from("user1"), 
+            user: Addr::unchecked("user1"), 
             deposits: vec![
                 Lock { 
-                    deposit: Uint128::new(10), 
+                    deposit: Uint128::new(10_000_000), 
                     lock_up_duration: 7u64, 
                 },
                 Lock { 
-                    deposit: Uint128::new(10), 
+                    deposit: Uint128::new(10_000_000), 
                     lock_up_duration: 14u64, 
                 }],
-            total_tickets: Uint128::new(230),
-            incentives_withdrawn: Uint128::new(10000000000000), //10_000_000_000_000
+            total_tickets: Uint128::new(230000000),
+            incentives_withdrawn: Uint128::new(3193424322), //3_193_424_322
         }
     );
 }

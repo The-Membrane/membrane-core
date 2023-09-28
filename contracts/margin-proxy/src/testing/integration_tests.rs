@@ -4,9 +4,11 @@ mod tests {
 
     use crate::helpers::MarginContract;
 
-    use membrane::apollo_router::SwapToAssetsInput;
+    use apollo_cw_asset::{AssetInfoUnchecked, AssetListUnchecked};
+
     use membrane::margin_proxy::{ExecuteMsg, InstantiateMsg, QueryMsg};
     use membrane::cdp::PositionResponse;
+    use membrane::oracle::PriceResponse;
     use membrane::types::{AssetInfo, cAsset, Asset, Basket};
 
     use cosmwasm_std::{
@@ -155,8 +157,13 @@ mod tests {
                             current_position_id: Uint128::zero(),
                             collateral_types: vec![],
                             collateral_supply_caps: vec![],
+                            lastest_collateral_rates: vec![],
                             credit_asset: Asset { info: AssetInfo::NativeToken { denom: String::from("credit") }, amount: Uint128::zero() },
-                            credit_price: Decimal::zero(),
+                            credit_price: PriceResponse { 
+                                prices: vec![], 
+                                price: Decimal::zero(), 
+                                decimals: 6
+                            },
                             liq_queue: None,
                             base_interest_rate: Decimal::zero(),
                             pending_revenue: Uint128::zero(),
@@ -180,11 +187,11 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Router_MockExecuteMsg {
-        Swap {
-            to: SwapToAssetsInput,
-            max_spread: Option<Decimal>,
-            recipient: Option<String>,
-            hook_msg: Option<Binary>,
+        BasketLiquidate {
+            offer_assets: AssetListUnchecked,
+            receive_asset: AssetInfoUnchecked,
+            minimum_receive: Option<Uint128>,
+            to: Option<String>,
         },
     }
 
@@ -204,11 +211,11 @@ mod tests {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Router_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
-                    Router_MockExecuteMsg::Swap {
+                    Router_MockExecuteMsg::BasketLiquidate {
+                        offer_assets,
+                        receive_asset,
+                        minimum_receive,
                         to,
-                        max_spread,
-                        recipient,
-                        hook_msg
                     } => Ok(Response::default()),
                 }
             },
@@ -391,7 +398,7 @@ mod tests {
         fn update_config() {
             let (mut app, margin_contract) = proper_instantiate();
 
-            //Successful AddAsset
+            //Successful UpdateConfig
             let msg = ExecuteMsg::UpdateConfig { 
                 owner: Some(String::from("new_owner")), 
                 positions_contract: Some(String::from("new_pos_contract")),
@@ -413,10 +420,38 @@ mod tests {
             assert_eq!(
                 config, 
                 Config {
-                    owner: Addr::unchecked("new_owner"), 
+                    owner: Addr::unchecked(ADMIN), 
                     positions_contract:  Addr::unchecked("new_pos_contract"), 
                     apollo_router_contract: Addr::unchecked("new_router_contract"),
                     max_slippage: Decimal::one(),
+            });
+
+            //Successful Ownership transfer
+            let msg = ExecuteMsg::UpdateConfig { 
+                owner: None,
+                positions_contract: None,
+                apollo_router_contract: None,
+                max_slippage: Some(Decimal::zero()),
+            };
+            let cosmos_msg = margin_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
+
+            
+            //Query Liquidity
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    margin_contract.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            assert_eq!(
+                config, 
+                Config {
+                    owner: Addr::unchecked("new_owner"), 
+                    positions_contract:  Addr::unchecked("new_pos_contract"), 
+                    apollo_router_contract: Addr::unchecked("new_router_contract"),
+                    max_slippage: Decimal::zero(),
             });
         }
     }

@@ -3,13 +3,23 @@
   "title": "InstantiateMsg",
   "type": "object",
   "required": [
+    "base_debt_cap_multiplier",
     "collateral_twap_timeframe",
     "credit_twap_timeframe",
     "debt_minimum",
     "liq_fee",
-    "oracle_time_limit"
+    "oracle_time_limit",
+    "rate_slope_multiplier"
   ],
   "properties": {
+    "base_debt_cap_multiplier": {
+      "description": "Base debt cap multiplier",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Uint128"
+        }
+      ]
+    },
     "collateral_twap_timeframe": {
       "description": "Timeframe for Collateral TWAPs in minutes",
       "type": "integer",
@@ -91,6 +101,14 @@
       "type": [
         "string",
         "null"
+      ]
+    },
+    "rate_slope_multiplier": {
+      "description": "Interest rate slope multiplier",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Decimal"
+        }
       ]
     },
     "stability_pool": {

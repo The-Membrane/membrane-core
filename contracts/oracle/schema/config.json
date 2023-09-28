@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Config",
+  "type": "object",
+  "required": [
+    "osmo_usd_pyth_feed_id",
+    "owner",
+    "pools_for_usd_par_twap"
+  ],
+  "properties": {
+    "osmo_usd_pyth_feed_id": {
+      "description": "OSMO/USD Pyth price feed id",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Identifier"
+        }
+      ]
+    },
+    "osmosis_proxy_contract": {
+      "description": "Osmosis Proxy contract address Used to check for removed assets in Positions Owners",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Addr"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "owner": {
+      "description": "Contract owner",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Addr"
+        }
+      ]
+    },
+    "pools_for_usd_par_twap": {
+      "description": "Osmosis pools for OSMO/USD-par TWAP. This list of pools will be used separately and medianized.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TWAPPoolInfo"
+      }
+    },
+    "positions_contract": {
+      "description": "Positions contract address Can edit asset & config",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Addr"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "pyth_osmosis_address": {
+      "description": "Pyth Osmosis address",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Addr"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Addr": {
+      "description": "A human readable address.\n\nIn Cosmos, this is typically bech32 encoded. But for multi-chain smart contracts no assumptions should be made other than being UTF-8 encoded and of reasonable length.\n\nThis type represents a validated address. It can be created in the following ways 1. Use `Addr::unchecked(input)` 2. Use `let checked: Addr = deps.api.addr_validate(input)?` 3. Use `let checked: Addr = deps.api.addr_humanize(canonical_addr)?` 4. Deserialize from JSON. This must only be done from JSON that was validated before such as a contract's state. `Addr` must not be used in messages sent by the user because this would result in unvalidated instances.\n\nThis type is immutable. If you really need to mutate it (Really? Are you sure?), create a mutable copy using `let mut mutable = Addr::to_string()` and operate on that `String` instance.",
+      "type": "string"
+    },
+    "Identifier": {
+      "type": "string"
+    },
+    "TWAPPoolInfo": {
+      "type": "object",
+      "required": [
+        "base_asset_denom",
+        "pool_id",
+        "quote_asset_denom"
+      ],
+      "properties": {
+        "base_asset_denom": {
+          "description": "Base asset denom",
+          "type": "string"
+        },
+        "pool_id": {
+          "description": "Pool ID",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "quote_asset_denom": {
+          "description": "Quote asset denom",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

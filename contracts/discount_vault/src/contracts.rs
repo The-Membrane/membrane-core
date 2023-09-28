@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 #[cfg(not(feature = "library"))]
 use cw_storage_plus::Bound;
-use cosmwasm_std::entry_point;
+use cosmwasm_std::{entry_point, Attribute};
 use cosmwasm_std::{
     attr, to_binary, Addr, Binary, Deps, Order,
     DepsMut, Env, MessageInfo, Response, StdError, StdResult, Uint128, QuerierWrapper, Coin,
@@ -16,7 +16,7 @@ use membrane::discount_vault::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, Use
 use membrane::types::{Asset, AssetInfo, VaultedLP, VaultUser, LPPoolInfo, Basket};
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, USERS};
+use crate::state::{CONFIG, USERS, OWNERSHIP_TRANSFER};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:discount_vault";
@@ -97,11 +97,11 @@ fn create_and_validate_LP_object(
     let share_token = AssetInfo::NativeToken { denom: res.clone().shares.denom };
     
     //Get debt token
-    let basket: Basket = querier.query_wasm_smart(positions_contract, &CDPQueryMsg::GetBasket{  })?;
-    let debt_token = basket.credit_asset.info;
+    let basket_res: Basket = querier.query_wasm_smart(positions_contract, &CDPQueryMsg::GetBasket{  })?;
+    let debt_token = basket_res.credit_asset.info;
 
     if let false = res.clone().assets.into_iter().any(|deposit| deposit.denom == debt_token.to_string()){
-        return Err(StdError::GenericErr { msg: format!("LP dosn't contain the debt token: {}", debt_token) })
+        return Err(StdError::GenericErr { msg: format!("LP doesn't contain the debt token: {}", debt_token) })
     }
 
     Ok(LPPoolInfo { share_token, pool_id })
@@ -130,12 +130,7 @@ fn deposit(
     info: MessageInfo,
 ) -> Result<Response, ContractError>{
     let config = CONFIG.load(deps.storage)?;
-
-    //Check if deposits are enabled
-    if config.deposits_enabled == false { return Err(ContractError::DepositsDisabled {  }) }
-
-    let valid_assets = validate_assets(info.clone().funds, config.clone().accepted_LPs);
-    
+    let valid_assets = validate_assets(info.clone().funds, config.clone().accepted_LPs)?;
     if valid_assets.len() < info.clone().funds.len(){ return Err(ContractError::InvalidAsset {  }) }
 
     //Add deposits to User
@@ -253,23 +248,31 @@ fn change_owner(
     owner: String,
 ) -> Result<Response, ContractError>{
     let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs: Vec<Attribute> = vec![attr("method", "change_owner")];
+    
+    //Assert Authority
+    if info.sender != config.owner {
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
 
-    //Validate Authority
-    if info.clone().sender != config.clone().owner{ return Err(ContractError::Unauthorized {  }) }
+            //Save new owner
+            CONFIG.save(deps.storage, &config)?;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
+    }
 
     //Validate owner
-    let valid_owner = deps.api.addr_validate(&owner)?;
+    let valid_addr = deps.api.addr_validate(&owner)?;
 
-    //Set owner
-    config.owner = valid_owner.clone();
+    //Set owner transfer state
+    OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+    attrs.push(attr("owner_transfer", valid_addr));  
 
-    //Save config
-    CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new()
-        .add_attributes(vec![
-            attr("method", "change_owner"),
-            attr("new_owner", valid_owner)]),
+        .add_attributes(attrs),
     )
 }
 
@@ -344,17 +347,24 @@ fn toggle_deposits(
 fn validate_assets(
     funds: Vec<Coin>,
     accepted_LPs: Vec<LPPoolInfo>,
-) -> Vec<Asset>{
+) -> StdResult<Vec<Asset>>{
     let accepted_LPs = accepted_LPs.into_iter().map(|pool| pool.share_token).collect::<Vec<AssetInfo>>();
 
-    funds
+    let valid_assets: Vec<Asset> = funds.clone()
         .into_iter()
         .filter(|coin| accepted_LPs.clone().iter().any(|lp| lp.equal(&AssetInfo::NativeToken { denom: coin.clone().denom } )))
         .map(|coin| Asset {
             amount: coin.amount,
             info: AssetInfo::NativeToken { denom: coin.clone().denom },
         })
-        .collect::<Vec<Asset>>()    
+        .collect::<Vec<Asset>>();
+
+    //Assert that all assets are accepted
+    if funds.len() != valid_assets.len() {
+        return Err(StdError::GenericErr{msg: "Invalid asset(s)".into()})
+    }
+
+    Ok(valid_assets)
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -368,6 +378,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 /// Return UserResponse for a given user. 
 /// Return the LP value so that the System Discounts contract can calculate the discount.
+/// LPs are assumed 50:50
 fn get_user_response(
     deps: Deps, 
     env: Env, 
@@ -399,7 +410,7 @@ fn get_user_response(
             get_pool_state_response(deps.querier,  config.clone().osmosis_proxy.into(), pool_info.pool_id)?.shares_value(lp.amount);
             //Add the share asset that is the debt token
             if let Some(coin) = share_asset_amounts.into_iter().find(|coin| coin.denom == basket.clone().credit_asset.info.to_string()){
-                LP_value += Uint128::from_str(&coin.amount).unwrap() * basket.clone().credit_price;
+                LP_value += basket.clone().credit_price.get_value(Uint128::from_str(&coin.amount).unwrap())?.to_uint_floor();
             }
         }
     }

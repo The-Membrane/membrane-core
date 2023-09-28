@@ -1,5 +1,6 @@
 To Pass Tests...
 
 In contract.rs:
-- Comment line 424 for unstake checks
-- Comment lines 473-479 for accrual msgs
+- Comment line 460 for unstake checks
+- Comment lines 500-506 for accrual msgs
+- hardcode credit denom in line 1284 to "credit_fulldenom"

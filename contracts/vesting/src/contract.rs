@@ -2,7 +2,7 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
-    MessageInfo, QueryRequest, Response, StdResult, Uint128, WasmMsg, WasmQuery, QuerierWrapper,
+    MessageInfo, QueryRequest, Response, StdResult, Uint128, WasmMsg, WasmQuery, QuerierWrapper, Storage, Coin, BankMsg,
 };
 use cw2::set_contract_version;
 
@@ -13,12 +13,12 @@ use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
     ExecuteMsg as StakingExecuteMsg, QueryMsg as StakingQueryMsg, RewardsResponse, StakerResponse,
 };
-use membrane::types::{Allocation, Asset, VestingPeriod, Recipient};
-use membrane::helpers::withdrawal_msg;
+use membrane::types::{Allocation, Asset, VestingPeriod, Recipient, AssetInfo};
+use membrane::helpers::asset_to_coin;
 
 use crate::error::ContractError;
 use crate::query::{query_allocation, query_unlocked, query_recipients, query_recipient};
-use crate::state::{CONFIG, RECIPIENTS};
+use crate::state::{CONFIG, RECIPIENTS, OWNERSHIP_TRANSFER};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:vesting";
@@ -50,12 +50,12 @@ pub fn instantiate(
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
 
-    //Save Recipients w/ the Labs team as the first Recipient
+    //Save Recipients w/ the pre_launch_contributors as the first Recipient
     RECIPIENTS.save(deps.storage, &vec![
         Recipient { 
-            recipient: deps.api.addr_validate(&msg.labs_addr)?, 
+            recipient: deps.api.addr_validate(&msg.pre_launch_contributors)?, 
             allocation: Some(Allocation { 
-                remaining_amount: msg.initial_allocation, 
+                amount: msg.initial_allocation, 
                 amount_withdrawn: Uint128::zero(), 
                 start_time_of_allocation: env.block.time.seconds(), 
                 vesting_period: VestingPeriod { cliff: 730, linear: 365 },
@@ -87,7 +87,7 @@ pub fn execute(
             vesting_period,
         } => add_allocation(deps, env, info, recipient, allocation, vesting_period),
         ExecuteMsg::WithdrawUnlocked {} => withdraw_unlocked(deps, env, info),
-        ExecuteMsg::ClaimFeesforContract {} => claim_fees_for_contract(deps, env),
+        ExecuteMsg::ClaimFeesforContract {} => claim_fees_for_contract(deps.storage, deps.querier, env),
         ExecuteMsg::ClaimFeesforRecipient {} => claim_fees_for_recipient(deps, info),
         ExecuteMsg::SubmitProposal {
             title,
@@ -202,7 +202,7 @@ fn claim_fees_for_recipient(deps: DepsMut, info: MessageInfo) -> Result<Response
     let mut recipients = RECIPIENTS.load(deps.storage)?;
 
     let mut messages: Vec<CosmosMsg> = vec![];
-    let claimables: Vec<Asset> = vec![];
+    let mut claimables: Vec<Coin> = vec![];
 
     //Find Recipient claimables
     match recipients
@@ -218,13 +218,23 @@ fn claim_fees_for_recipient(deps: DepsMut, info: MessageInfo) -> Result<Response
                 });
             }
 
-            //Create withdraw msg for each claimable asset
+            //Aggregate native claims
             for claimable in recipient.clone().claimables {
-                messages.push(withdrawal_msg(claimable, recipient.clone().recipient)?);
+                if let AssetInfo::NativeToken { denom: _ } = claimable.info {
+                    //Add Asset as Coin
+                    claimables.push(asset_to_coin(claimable.clone())?);
+                }     
             }
+            //Remove claimables from recipient
+            recipients[i].claimables = vec![];            
 
-            //Set claims to Empty Vec
-            recipients[i].claimables = vec![];
+            //Create withdraw msg for all native tokens
+            messages.push(
+                CosmosMsg::Bank(BankMsg::Send {
+                    to_address: recipient.clone().recipient.to_string(),
+                    amount: claimables.clone(),
+                })
+            );
         }
         None => return Err(ContractError::InvalidRecipient {}),
     }
@@ -244,21 +254,25 @@ fn claim_fees_for_recipient(deps: DepsMut, info: MessageInfo) -> Result<Response
 }
 
 /// Claim staking rewards for allocated MBRN
-fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
+fn claim_fees_for_contract(
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+) -> Result<Response, ContractError> {
     //Load Config
-    let config = CONFIG.load(deps.storage)?;
+    let config = CONFIG.load(storage)?;
 
     //Query Rewards
-    let res: RewardsResponse = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+    let res: RewardsResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.staking_contract.to_string(),
-        msg: to_binary(&StakingQueryMsg::StakerRewards {
-            staker: env.contract.address.to_string(),
+        msg: to_binary(&StakingQueryMsg::UserRewards {
+            user: env.contract.address.to_string(),
         })?,
     }))?;
 
     //Split rewards w/ recipients based on allocation amounts
     if res.claimables != vec![] {
-        let recipients = RECIPIENTS.load(deps.storage)?;
+        let recipients = RECIPIENTS.load(storage)?;
 
         let mut allocated_recipients: Vec<Recipient> = recipients
             .clone()
@@ -267,7 +281,7 @@ fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, Contract
             .collect::<Vec<Recipient>>();
 
         //Calculate allocation ratios
-        let allocation_ratios = get_allocation_ratios(deps.querier, env.clone(), config.clone(), &mut allocated_recipients)?;
+        let allocation_ratios = get_allocation_ratios(querier, env.clone(), config.clone(), &mut allocated_recipients)?;
         
         //Add Recipient's ratio of each claim asset to position
         for claim_asset in res.clone().claimables {
@@ -300,34 +314,34 @@ fn claim_fees_for_contract(deps: DepsMut, env: Env) -> Result<Response, Contract
             .filter(|recipient| recipient.allocation.is_none())
             .collect::<Vec<Recipient>>();
         new_recipients.extend(allocated_recipients);
-        RECIPIENTS.save(deps.storage, &new_recipients)?;
+        RECIPIENTS.save(storage, &new_recipients)?;
+       
+
+        //Construct ClaimRewards Msg to Staking Contract
+        let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.staking_contract.to_string(),
+            msg: to_binary(&StakingExecuteMsg::ClaimRewards {
+                restake: false,
+                send_to: None,
+            })?,
+            funds: vec![],
+        });
+    
+        return Ok(Response::new().add_message(msg).add_attributes(vec![
+            attr("method", "claim_fees_for_contract"),
+            attr("claimables", format!("{:?}", res.claimables)),
+        ]))
     }
 
-    //Construct ClaimRewards Msg to Staking Contract
-    let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.staking_contract.to_string(),
-        msg: to_binary(&StakingExecuteMsg::ClaimRewards {
-            claim_as_native: None,
-            restake: false,
-            send_to: None,
-        })?,
-        funds: vec![],
-    });
-
-    //Claimables into String List
-    let claimables_string: Vec<String> = res
-        .claimables
-        .into_iter()
-        .map(|claim| claim.to_string())
-        .collect::<Vec<String>>();
-
-    Ok(Response::new().add_message(msg).add_attributes(vec![
+    Ok(Response::new().add_attributes(vec![
         attr("method", "claim_fees_for_contract"),
-        attr("claimables", format!("{:?}", claimables_string)),
+        attr("claimables", format!("{:?}", res.claimables)),
     ]))
+
 }
 
 /// Get allocation ratios for list of recipients
+/// Only used for allocated recipients
 fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, recipients: &mut Vec<Recipient>) -> StdResult<Vec<Decimal>> {
     let mut allocation_ratios: Vec<Decimal> = vec![];
 
@@ -342,10 +356,10 @@ fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, reci
         //Initialize allocation 
         let allocation = recipient.clone().allocation.unwrap();
         
-        //Ratio of base Recipient's allocation.remaining_amount to total_staked
+        //Ratio of base Recipient's remaining allocation amount to total_staked
         allocation_ratios.push(decimal_division(
             Decimal::from_ratio(
-                allocation.remaining_amount,
+                allocation.amount - allocation.amount_withdrawn,
                 Uint128::new(1u128),
             ),
             Decimal::from_ratio(staked_mbrn, Uint128::new(1u128)),
@@ -368,14 +382,24 @@ fn update_config(
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
+    //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
     }
 
     let mut attrs = vec![attr("method", "update_config")];
 
     if let Some(owner) = owner {
-        config.owner = deps.api.addr_validate(&owner)?;
+        let valid_addr = deps.api.addr_validate(&owner)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+        attrs.push(attr("owner_transfer", valid_addr));  
     };
     if let Some(osmosis_proxy) = osmosis_proxy {
         config.osmosis_proxy = deps.api.addr_validate(&osmosis_proxy)?;
@@ -391,8 +415,8 @@ fn update_config(
     };
 
     CONFIG.save(deps.storage, &config)?;
+    attrs.push(attr("updated_config", format!("{:?}", config)));
 
-    attrs.push(attr("config", format!("{:?}", config)));
     Ok(Response::new().add_attributes(attrs))
 }
 
@@ -471,6 +495,11 @@ pub fn get_unlocked_amount(
     let mut allocation = allocation.unwrap();
     let mut unlocked_amount = Uint128::zero();
 
+    //Skip if allocation amount is 0
+    if allocation.amount == Uint128::zero() {
+        return Ok((unlocked_amount, allocation));
+    }
+
     //Calculate unlocked amount
     let time_passed = current_block_time - allocation.clone().start_time_of_allocation;
     let cliff_in_seconds = allocation.clone().vesting_period.cliff * SECONDS_IN_A_DAY;
@@ -488,21 +517,23 @@ pub fn get_unlocked_amount(
             )?;
 
             let newly_unlocked: Uint128;
+            //Partial unlock
             if !ratio_unlocked.is_zero() {
-                newly_unlocked = (ratio_unlocked * allocation.clone().remaining_amount)
+                newly_unlocked = (ratio_unlocked * allocation.clone().amount)
                     - allocation.clone().amount_withdrawn;
-            } else {
+            }//Unlock nothing
+            else {
                 newly_unlocked = Uint128::zero();
             }
 
-            unlocked_amount += newly_unlocked;
+            unlocked_amount = newly_unlocked;
 
             //Edit Allocation object
             allocation.amount_withdrawn += newly_unlocked;
         } else {
             //Unlock full amount
-            unlocked_amount += allocation.clone().remaining_amount - allocation.clone().amount_withdrawn;
-            allocation.amount_withdrawn += allocation.clone().remaining_amount;
+            unlocked_amount = allocation.clone().amount - allocation.clone().amount_withdrawn;
+            allocation.amount_withdrawn += allocation.clone().amount;
         }
     }
 
@@ -519,6 +550,17 @@ fn add_allocation(
     allocation: Uint128,
     vesting_period: Option<VestingPeriod>,
 ) -> Result<Response, ContractError> {
+    //Run claim_fees_for_contract beforehand to accurately allot claims before new allocations
+    let res = claim_fees_for_contract(deps.storage, deps.querier, env.clone())?;
+
+    //Assert allocation is not 0
+    if allocation.is_zero() {
+        return Err(ContractError::InvalidAllocation {});
+    }
+    
+    //Validate recipient
+    let valid_recipient = deps.api.addr_validate(&recipient)?;
+
     let config = CONFIG.load(deps.storage)?;    
 
     match vesting_period {
@@ -537,9 +579,9 @@ fn add_allocation(
                     recipients = recipients
                         .into_iter()
                         .map(|mut stored_recipient| {
-                            if stored_recipient.recipient == recipient {
+                            if stored_recipient.recipient == valid_recipient.to_string() {
                                 stored_recipient.allocation = Some(Allocation {
-                                    remaining_amount: allocation,
+                                    amount: allocation,
                                     amount_withdrawn: Uint128::zero(),
                                     start_time_of_allocation: env.block.time.seconds(),
                                     vesting_period: vesting_period.clone(),
@@ -556,9 +598,6 @@ fn add_allocation(
         //If None && called by an existing Recipient, subtract & delegate part of the allocation to the allotted recipient
         //Add new Recipient object for the new recipient 
         None => {
-            //Validate recipient
-            let valid_recipient = deps.api.addr_validate(&recipient)?;
-
             //Initialize new_allocation
             let mut new_allocation: Option<Allocation> = None;
 
@@ -577,13 +616,13 @@ fn add_allocation(
                                 let mut stored_allocation = stored_recipient.allocation.unwrap();                               
 
                                 //Decrease stored_allocation.amount & set new_allocation
-                                stored_allocation.remaining_amount = match stored_allocation.remaining_amount.checked_sub(allocation){
+                                stored_allocation.amount = match stored_allocation.amount.checked_sub(allocation){
                                     Ok(diff) => {
                                     
                                         //Set new_allocation
                                         new_allocation = Some(
                                             Allocation { 
-                                                remaining_amount: allocation, 
+                                                amount: allocation, 
                                                 amount_withdrawn: Uint128::zero(),
                                                 ..stored_allocation.clone()
                                             }
@@ -595,7 +634,7 @@ fn add_allocation(
                                         //Set new_allocation
                                         new_allocation = Some(
                                             Allocation { 
-                                                remaining_amount: stored_allocation.remaining_amount, 
+                                                amount: stored_allocation.amount, 
                                                 amount_withdrawn: Uint128::zero(),
                                                 ..stored_allocation.clone()
                                             }
@@ -637,7 +676,7 @@ fn add_allocation(
     let mut allocation_total: Uint128 = Uint128::zero();
     for recipient in RECIPIENTS.load(deps.storage)?.into_iter() {
          if recipient.allocation.is_some() {
-             allocation_total += recipient.allocation.unwrap().remaining_amount;
+             allocation_total += recipient.allocation.unwrap().amount;
          }
     }
 
@@ -646,7 +685,7 @@ fn add_allocation(
         return Err(ContractError::OverAllocated {});
     }
 
-    Ok(Response::new().add_attributes(vec![
+    Ok(res.add_attributes(vec![
         attr("method", "increase_allocation"),
         attr("recipient", recipient),
         attr("allocation_increase", String::from(allocation)),

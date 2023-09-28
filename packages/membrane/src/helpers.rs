@@ -1,12 +1,12 @@
-use cosmwasm_std::{CosmosMsg, StdResult, Decimal, Binary, to_binary, WasmMsg, coin, StdError, Addr, Coin, BankMsg, Uint128, MessageInfo, Api, QuerierWrapper, Env, WasmQuery, QueryRequest};
+use cosmwasm_std::{CosmosMsg, StdResult, Decimal, to_binary, WasmMsg, coin, StdError, Addr, Coin, BankMsg, Uint128, MessageInfo, Api, QuerierWrapper, Env, WasmQuery, QueryRequest};
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
-use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Owner}; 
-use crate::apollo_router::{ExecuteMsg as RouterExecuteMsg, SwapToAssetsInput};
-use crate::osmosis_proxy::QueryMsg as OsmoQueryMsg;
-use crate::liquidity_check::QueryMsg as LiquidityQueryMsg;
-use crate::stability_pool::QueryMsg as SP_QueryMsg;
-use crate::oracle::PriceResponse;
+use apollo_cw_asset::AssetInfoUnchecked;
+
+use crate::apollo_router::ExecuteMsg as RouterExecuteMsg;
+use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Basket}; 
+use crate::osmosis_proxy::{QueryMsg as OsmoQueryMsg, OwnerResponse};
+use crate::liquidity_check::{QueryMsg as LiquidityQueryMsg, LiquidityResponse};
 use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, PositionResponse};
 
 //Constants
@@ -39,12 +39,12 @@ pub fn get_asset_liquidity(
     liquidity_contract: String,
     asset_info: AssetInfo,
 ) -> StdResult<Uint128> {
-    let total_pooled: Uint128 = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+    let res: LiquidityResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: liquidity_contract,
         msg: to_binary(&LiquidityQueryMsg::Liquidity { asset: asset_info })?,
     }))?;
 
-    Ok(total_pooled)   
+    Ok(res.liquidity)   
 }
 
 /// Query Osmosis proxy for pool state then create & return LP withdraw msg
@@ -105,19 +105,20 @@ pub fn router_native_to_native(
     router_addr: String,
     asset_to_sell: AssetInfo,
     asset_to_buy: AssetInfo,
-    max_spread: Option<Decimal>,
     recipient: Option<String>,
-    hook_msg: Option<Binary>,
     amount_to_sell: u128,
 ) -> StdResult<CosmosMsg>{
     if let AssetInfo::NativeToken { denom } = asset_to_sell {
         if let AssetInfo::NativeToken { denom:_ } = asset_to_buy {
 
-            let router_msg = RouterExecuteMsg::Swap {
-                to: SwapToAssetsInput::Single(asset_to_buy), //Buy
-                max_spread, 
-                recipient,
-                hook_msg,
+            let router_msg = RouterExecuteMsg::BasketLiquidate { 
+                offer_assets: vec![apollo_cw_asset::AssetUnchecked {
+                    info: AssetInfoUnchecked::Native(denom.clone()),
+                    amount: Uint128::new(amount_to_sell),
+                }].into(),
+                receive_asset: asset_to_buy.into_apollo_cw_asset(), 
+                minimum_receive: None, 
+                to: recipient 
             };
     
             let payment = coin(
@@ -145,17 +146,43 @@ pub fn query_stability_pool_fee(
     querier: QuerierWrapper,
     stability_pool: String,
 ) -> StdResult<Decimal> {
-    let resp: AssetPool = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: stability_pool,
-        msg: to_binary(&SP_QueryMsg::AssetPool { 
-            user: None,
-            deposit_limit: 1.into(),
-            start_after: None,
-        })?,
-    }))?;
+    let resp: Option<Vec<u8>> = querier.query_wasm_raw(stability_pool, b"asset")?;
+    let asset_pool: AssetPool = match resp {
+        Some(asset) => serde_json_wasm::from_slice(&asset).unwrap(),
+        None => return Err(StdError::GenericErr { msg: String::from("Asset pool not found") }),
+    };
 
-    Ok(resp.liq_premium)
+    Ok(asset_pool.liq_premium)
 }
+
+/// Get total amount of debt token in the Stability Pool
+pub fn get_stability_pool_liquidity(
+    querier: QuerierWrapper,
+    stability_pool: String,
+) -> StdResult<Uint128> {
+    let resp: Option<Vec<u8>> = querier.query_wasm_raw(stability_pool, b"asset")?;
+    let asset_pool: AssetPool = match resp {
+        Some(asset) => serde_json_wasm::from_slice(&asset).unwrap(),
+        None => return Err(StdError::GenericErr { msg: String::from("Asset pool not found") }),
+    };
+
+    Ok(asset_pool.credit_asset.amount)
+}
+
+//Return Basket
+pub fn query_basket(
+    querier: QuerierWrapper,
+    cdp_contract: String,
+) -> StdResult<Basket> {
+    let resp: Option<Vec<u8>> = querier.query_wasm_raw(cdp_contract, b"basket")?;
+    let basket: Basket = match resp {
+        Some(basket) => serde_json_wasm::from_slice(&basket).unwrap(),
+        None => return Err(StdError::GenericErr { msg: String::from("Basket not found") }),
+    };
+
+    Ok(basket)
+}
+
 
 /// Get contract balances for list of assets
 pub fn get_contract_balances(
@@ -288,12 +315,12 @@ pub fn get_owner_liquidity_multiplier(
     owner: String,
     proxy_addr: String,
 ) -> StdResult<(Decimal, Decimal)> {
-    let resp: Owner = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+    let resp: OwnerResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: proxy_addr,
         msg: to_binary(&OsmoQueryMsg::GetOwner { owner })?,
     }))?;
 
-    Ok((resp.liquidity_multiplier.unwrap_or_else(|| Decimal::zero()), resp.stability_pool_ratio.unwrap_or_else(|| Decimal::zero())))
+    Ok((resp.liquidity_multiplier, resp.owner.stability_pool_ratio.unwrap_or_else(|| Decimal::zero())))
 }
 
 /// Create accrual msg for User Positions

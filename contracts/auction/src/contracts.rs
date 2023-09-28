@@ -9,12 +9,13 @@ use membrane::auction::{ExecuteMsg, InstantiateMsg, QueryMsg, Config, UpdateConf
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
+use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
 use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient, Basket, DebtAuction, FeeAuction};
 use membrane::helpers::withdrawal_msg;
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, DEBT_AUCTION, FEE_AUCTIONS};
+use crate::state::{CONFIG, DEBT_AUCTION, FEE_AUCTIONS, OWNERSHIP_TRANSFER};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "auctions";
@@ -23,6 +24,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 //Constants
 const MAX_LIMIT: u64 = 31u64;
 
+#[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
@@ -37,11 +39,15 @@ pub fn instantiate(
         osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
         mbrn_denom: msg.mbrn_denom,
         cdt_denom: String::new(),
+        desired_asset: String::from("uosmo"),
         positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
+        governance_contract: deps.api.addr_validate(&msg.governance_contract)?,
+        staking_contract: deps.api.addr_validate(&msg.staking_contract)?,
         twap_timeframe: msg.twap_timeframe,
         initial_discount: msg.initial_discount,
         discount_increase_timeframe: msg.discount_increase_timeframe,
         discount_increase: msg.discount_increase,
+        send_to_stakers: false,
     };
 
     if let Some(owner) = msg.owner {
@@ -78,9 +84,9 @@ pub fn execute(
             auction_asset,
         } => start_auction(deps, env, info, repayment_position_info, send_to, auction_asset),
         ExecuteMsg::SwapForMBRN { } => swap_for_mbrn(deps, info, env),
-        ExecuteMsg::SwapWithMBRN { auction_asset } => swap_with_mbrn(deps, info, env, auction_asset),
+        ExecuteMsg::SwapForFee { auction_asset } => swap_with_the_contracts_desired_asset(deps, info, env, auction_asset),
         ExecuteMsg::RemoveAuction { } => remove_auction(deps, info),
-        ExecuteMsg::UpdateConfig ( update)  => update_config( deps, info, update ),
+        ExecuteMsg::UpdateConfig ( update)  => update_config( deps, info, update),
     }
 }
 
@@ -91,15 +97,29 @@ fn update_config(
     update: UpdateConfig,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs = vec![attr("method", "update_config")];
 
-    //Assert authority
+    //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        if let Ok(new_owner) = OWNERSHIP_TRANSFER.load(deps.storage) {
+            if info.sender == new_owner {
+                config.owner = info.sender;
+            } else {
+                return Err(ContractError::Unauthorized {});
+            }
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
     }
 
     //Save optionals
     if let Some(addr) = update.owner {
-        config.owner = deps.api.addr_validate(&addr)?;
+        let valid_addr = deps.api.addr_validate(&addr)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+        attrs.push(attr("owner_transfer", valid_addr));        
     }
     if let Some(addr) = update.oracle_contract {
         config.oracle_contract = deps.api.addr_validate(&addr)?;
@@ -110,29 +130,61 @@ fn update_config(
     if let Some(addr) = update.positions_contract {
         config.positions_contract = deps.api.addr_validate(&addr)?;
     }
+    if let Some(addr) = update.governance_contract {
+        config.governance_contract = deps.api.addr_validate(&addr)?;
+    }
+    if let Some(addr) = update.staking_contract {
+        config.staking_contract = deps.api.addr_validate(&addr)?;
+    }
     if let Some(mbrn_denom) = update.mbrn_denom {
         config.mbrn_denom = mbrn_denom;
     }
     if let Some(cdt_denom) = update.cdt_denom {
         config.cdt_denom = cdt_denom;
     }
+    //Ensure desired asset has an oracle price
+    if let Some(asset) = update.desired_asset {
+        //Set desired asset
+        config.desired_asset = asset;
+    }
     if let Some(twap_timeframe) = update.twap_timeframe {
+        //Enforce 1 hr - 8 hr timeframe
+        if twap_timeframe < 60 || twap_timeframe > 480 {
+            return Err(ContractError::CustomError { val: String::from("Invalid TWAP timeframe") });
+        }
         config.twap_timeframe = twap_timeframe;
     }
     if let Some(initial_discount) = update.initial_discount {
+        //Enforce 1% - 10% discount
+        if initial_discount < Decimal::percent(1) || initial_discount > Decimal::percent(10) {
+            return Err(ContractError::CustomError { val: String::from("Invalid initial discount") });
+        }
         config.initial_discount = initial_discount;
     }
     if let Some(discount_increase_timeframe) = update.discount_increase_timeframe {
+        //Enforce 10 sec - 300 sec timeframe
+        if discount_increase_timeframe < 10 || discount_increase_timeframe > 300 {
+            return Err(ContractError::CustomError { val: String::from("Invalid discount increase timeframe") });
+        }
         config.discount_increase_timeframe = discount_increase_timeframe;
     }
     if let Some(discount_increase) = update.discount_increase {
+        //Enforce 1% - 5% discount
+        if discount_increase < Decimal::percent(1) || discount_increase > Decimal::percent(5) {
+            return Err(ContractError::CustomError { val: String::from("Invalid discount increase") });
+        }
         config.discount_increase = discount_increase;
+    }
+    if let Some(send_to_stakers) = update.send_to_stakers {
+        config.send_to_stakers = send_to_stakers;
     }
 
     //Save Config
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::new())
+    attrs.push(attr("updated_config", format!("{:?}", config)));
+
+    Ok(Response::new().add_attributes(attrs))
 }
 
 /// Start or add to ongoing Auction.
@@ -149,7 +201,7 @@ fn start_auction(
     let config = CONFIG.load(deps.storage)?;
 
     //Only positions contract or owner can start auctions
-    if info.sender != config.owner && info.sender != config.positions_contract {
+    if info.sender != config.owner && info.sender != config.positions_contract && info.sender != config.staking_contract {
         return Err(ContractError::Unauthorized {});
     }
 
@@ -159,8 +211,8 @@ fn start_auction(
         attr("auction_asset", auction_asset.to_string()),
     ];
     
-    //If not CDT, start FeeAuction
-    if auction_asset.info.to_string() != config.cdt_denom {
+    //If not minting CDT, start FeeAuction
+    if info.funds.len() > 0 {
         //Validate auction_asset
         if info.funds.len() == 1 {
             validate_asset(info.funds[0].clone(), auction_asset.info.to_string())?;
@@ -184,7 +236,8 @@ fn start_auction(
                 }
             }
         })?;
-    } else {//If CDT, start DebtAuction
+    } //If CDT, start DebtAuction
+    else if auction_asset.info.to_string() == config.clone().cdt_denom{
 
         //Both can't be Some
         if send_to.is_some() && user_info.is_some(){
@@ -290,7 +343,7 @@ fn validate_asset(
     valid_denom: String
 )-> StdResult<Coin>{
     if coin.denom != valid_denom {
-        return Err(StdError::generic_err("Invalid asset sent to fulfill auction"));
+        return Err(StdError::GenericErr{msg: format!("Invalid asset ({}) sent to fulfill auction. Must be {}", coin.denom, valid_denom)});
     }
 
     if coin.amount.is_zero() {
@@ -300,55 +353,58 @@ fn validate_asset(
     Ok(coin)
 }
 
-/// Swap MBRN for non-CDT asset at a discount
-/// Burn MBRN and send non-CDT asset to the sender.
-fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: AssetInfo) -> Result<Response, ContractError> {
+/// Swap desired asset for Some(fee_asset) at a discount
+/// Send desired asset to governance or stakers and send Some(fee_asset) to the sender.
+fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: AssetInfo) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
     let mut overpay = Uint128::zero();
     let successful_swap_amount;
 
     let mut msgs: Vec<CosmosMsg> = vec![];
-    let mut attrs = vec![attr("method", "swap_with_mbrn")];
-
+    let mut attrs = vec![attr("method", "swap_with_contract_desired_asset")];
+    
     //Validate MBRN send
-    let coin = validate_asset(info.funds[0].clone(), config.clone().mbrn_denom)?;
+    if info.funds.len() != 1 {
+        return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Only one coin can be sent") }));
+    }
+    let coin = validate_asset(info.funds[0].clone(), config.clone().desired_asset)?;
 
     //Get FeeAuction
     let mut auction = FEE_AUCTIONS.load(deps.storage, auction_asset.clone().to_string())?;
 
-    //If the auction is active, i.e. there is still debt to be repaid, swap for auctioned asset
-    if !auction.auction_asset.amount.is_zero() {
+    //If the auction is active, i.e. there is still debt to be repaid & auction has started
+    //...swap for auctioned asset
+    if !auction.auction_asset.amount.is_zero() && auction.auction_start_time <= env.block.time.seconds() {
 
-        //Get MBRN price
-        let res: PriceResponse = deps.querier.query_wasm_smart(
+        //Get desired_asset price
+        let desired_res: PriceResponse = deps.querier.query_wasm_smart(
             config.clone().oracle_contract.to_string(), 
-            &OracleQueryMsg::Price {
-                    asset_info: AssetInfo::NativeToken {
-                        denom: config.clone().mbrn_denom,
-                    },
-                    twap_timeframe: config.clone().twap_timeframe,
-                    basket_id: None,
-                })?;
-        let mbrn_price = res.price;
+        &OracleQueryMsg::Price {
+                asset_info: AssetInfo::NativeToken {
+                    denom: config.clone().desired_asset,
+                },
+                twap_timeframe: config.clone().twap_timeframe,
+                oracle_time_limit: 600,
+                basket_id: None,
+            })?;
+            
+        //Get value of sent desired asset
+        let desired_asset_value = desired_res.get_value(coin.amount)?;
                 
         //Get auction asset price
-        let res: PriceResponse = deps.querier.query_wasm_smart(
+        let auction_res: PriceResponse = deps.querier.query_wasm_smart(
             config.clone().oracle_contract.to_string(), 
             &OracleQueryMsg::Price {
                     asset_info: AssetInfo::NativeToken {
                         denom: auction.auction_asset.info.to_string(),
                     },
                     twap_timeframe: config.clone().twap_timeframe,
+                    oracle_time_limit: 600,
                     basket_id: None,
-                })?;
-        let auction_asset_price = res.price;
-
-        //Get value of sent MBRN
-        let mbrn_value = decimal_multiplication(mbrn_price, Decimal::from_ratio(coin.amount, Uint128::one()))?;
-
-        //Get value of auction asset - discount
-        let mut auction_asset_value = decimal_multiplication(auction_asset_price, Decimal::from_ratio(auction.auction_asset.amount, Uint128::one()))?;
+                })?;      
+        //Get value of auction asset
+        let mut auction_asset_value = auction_res.get_value(auction.auction_asset.amount)?;
         
         //Get discount
         let discount_ratio = get_discount_ratio(env.clone(), auction.clone().auction_start_time, config.clone())?;
@@ -356,34 +412,59 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
         auction_asset_value = decimal_multiplication(auction_asset_value, discount_ratio)?.floor();
 
         //Get successful_swap_amount
-        //If the value of the sent MBRN is greater than the value of the auction asset, set overpay amount
+        //If the value of the sent desired_Asset is greater than the value of the auction asset, set overpay amount
         //Zero auction asset amount
-        if mbrn_value > auction_asset_value {
+        if desired_asset_value > auction_asset_value {
 
-            overpay = decimal_division((mbrn_value - auction_asset_value), mbrn_price)? * Uint128::one();
+            //Calc overpay amount in desired_asset
+            overpay = desired_res.get_amount((desired_asset_value - auction_asset_value))?;
+
             successful_swap_amount = auction.auction_asset.amount;
             auction.auction_asset.amount = Uint128::zero();
 
-        } else if mbrn_value < auction_asset_value {
-            //If the value of the sent MBRN is less than the value of the auction asset, set successful_swap_amount
+            //Delete Auction
+            FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
+
+        } else if desired_asset_value < auction_asset_value {
+            //If the value of the sent desired_Asset is less than the value of the auction asset, set successful_swap_amount
             //Update auction asset amount
-            successful_swap_amount = decimal_division(mbrn_value, auction_asset_price)? * Uint128::one();
-            auction.auction_asset.amount = decimal_division((auction_asset_value - mbrn_value), auction_asset_price)? * Uint128::one();
+            successful_swap_amount = auction_res.get_amount(desired_asset_value)?;
+            auction.auction_asset.amount = auction_res.get_amount(auction_asset_value - desired_asset_value)?;
+            
+            //Update Auction
+            FEE_AUCTIONS.save(deps.storage, auction_asset.clone().to_string(), &auction)?;
         } else {
             successful_swap_amount = auction.auction_asset.amount;
             auction.auction_asset.amount = Uint128::zero();
+
+            //Delete Auction
+            FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
         }
 
-        //Burn MBRN
-        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.clone().osmosis_proxy.to_string(),
-            funds: vec![],
-            msg: to_binary(&OsmoExecuteMsg::BurnTokens { 
-                denom: config.mbrn_denom.clone(),
-                amount: coin.amount - overpay, 
-                burn_from_address: env.contract.address.to_string(),
-            })?,
-        }));
+        //Send desired asset to Governance or deposit to Stakers
+        if coin.amount - overpay > Uint128::zero(){
+            if config.send_to_stakers {
+                //Staking DepositFee
+                msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: config.clone().staking_contract.to_string(),
+                    msg: to_binary(&StakingExecuteMsg::DepositFee { })?,
+                    funds: vec![Coin {
+                        denom: config.clone().desired_asset,
+                        amount: coin.amount - overpay,
+                    }],
+                }));
+
+            } else {
+                //Governance
+                msgs.push(CosmosMsg::Bank(BankMsg::Send {
+                    to_address: config.clone().governance_contract.to_string(),
+                    amount: vec![Coin {
+                        denom: config.clone().desired_asset,
+                        amount: coin.amount - overpay,
+                    }],
+                }));
+            }
+        }
 
         //Send fee asset to the sender
         msgs.push(CosmosMsg::Bank(BankMsg::Send {
@@ -414,7 +495,7 @@ fn swap_with_mbrn(deps: DepsMut, info: MessageInfo, env: Env, auction_asset: Ass
 
         attrs.push(attr("auction_asset", auction.auction_asset.to_string()));
     } else {
-        return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Auction ended") }));
+        return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Auction isn't running now") }));
     }
 
     Ok(Response::new().add_messages(msgs).add_attributes(attrs))
@@ -438,10 +519,18 @@ fn get_discount_ratio(
         ),
         config.discount_increase,
     )?;
+
+    //Ensure discount is not greater than 1
+    let current_discount = if (current_discount_increase + config.initial_discount) > Decimal::one() {
+        Decimal::one()
+    } else {
+        current_discount_increase + config.initial_discount
+    };
+
     let discount_ratio = decimal_subtraction(
         Decimal::one(),
-        (current_discount_increase + config.initial_discount),
-    )?;
+        current_discount,
+    )?;    
     
     Ok(discount_ratio)
 }
@@ -457,6 +546,9 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
     let mut msgs: Vec<CosmosMsg> = vec![];
     let mut attrs = vec![attr("method", "swap_for_mbrn")];
 
+    if info.funds.len() != 1 {
+        return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Only one coin can be sent") }));
+    }
     let coin = validate_asset(info.funds[0].clone(), config.clone().cdt_denom)?;
 
     //Get DebtAuction
@@ -469,13 +561,14 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
 
         let res: PriceResponse = deps.querier.query_wasm_smart(
             config.clone().oracle_contract.to_string(), 
-            &OracleQueryMsg::Price {
-                    asset_info: AssetInfo::NativeToken {
-                        denom: config.clone().mbrn_denom,
-                    },
-                    twap_timeframe: config.clone().twap_timeframe,
-                    basket_id: None,
-                })?;
+        &OracleQueryMsg::Price {
+                asset_info: AssetInfo::NativeToken {
+                    denom: config.clone().mbrn_denom,
+                },
+                twap_timeframe: config.clone().twap_timeframe,
+                oracle_time_limit: 600,
+                basket_id: None,
+            })?;
         let mbrn_price = res.price;
 
         //Get credit price at peg to further incentivize recapitalization
@@ -492,7 +585,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
 
         //Mint MBRN for user
         let discounted_mbrn_price = decimal_multiplication(mbrn_price, discount_ratio)?;
-        let credit_value = decimal_multiplication(swap_amount, basket_credit_price)?;
+        let credit_value = basket_credit_price.get_value(swap_amount.to_uint_floor())?;
         let mbrn_mint_amount =
             decimal_division(credit_value, discounted_mbrn_price)? * Uint128::new(1u128);
 
@@ -644,7 +737,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
         )?);
     }
 
-    //Save or Remove auction
+    //Update or Remove DebtAuction 
     if auction.remaining_recapitalization.is_zero() {
         DEBT_AUCTION.remove(deps.storage);
     } else {
@@ -686,7 +779,7 @@ fn get_ongoing_fee_auctions(
             
         } else {
             Err(StdError::GenericErr {
-                msg: format!("Auction asset: {}, auction has ended", auction_asset),
+                msg: format!("Auction asset: {}, doesn't have an ongoing auction", auction_asset),
             })
         }
     } else {
@@ -709,12 +802,13 @@ fn get_ongoing_fee_auctions(
                 });
             }
         }
-        let start_after = match start_after {
-            Some(index) => index + 1,
-            None => 0,
+        match start_after {
+            Some(index) => {                
+                let _ = resp.split_off(index as usize);
+            },
+            None => {},
         };
 
-        let _ = resp.split_off(start_after as usize);
         let resp = resp.into_iter().take(limit as usize).collect();
 
         Ok(resp)

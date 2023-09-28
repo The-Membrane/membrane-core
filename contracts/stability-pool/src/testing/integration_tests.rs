@@ -35,9 +35,9 @@ mod tests {
     pub enum Osmo_MockExecuteMsg {
         MintTokens {
             denom: String,
-            mint_to_address: String,
             amount: Uint128,
-        },
+            mint_to_address: Option<String>,
+        }
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
@@ -78,6 +78,7 @@ mod tests {
                             denom,
                             current_supply: Uint128::new(110_000u128),
                             max_supply: Uint128::zero(),
+                            burned_supply: Uint128::zero(),
                         })?)
                     }
                 }
@@ -360,6 +361,7 @@ mod tests {
             positions_contract: cdp_contract_addr.to_string(),
             oracle_contract: oracle_contract_addr.to_string(),
             max_incentives: None,
+            minimum_deposit_amount: Uint128::new(5),
         };
 
         let sp_contract_addr = app
@@ -374,8 +376,8 @@ mod tests {
     mod stability_pool {
 
         use super::*;
-        use cosmwasm_std::BlockInfo;
-        use membrane::stability_pool::Config;
+        use cosmwasm_std::{BlockInfo, Coin};
+        use membrane::stability_pool::{Config, UserIncentivesResponse};
 
         #[test]
         fn cdp_repay() {
@@ -502,12 +504,12 @@ mod tests {
             //Deposit credit to AssetPool: #2
             let deposit_msg = ExecuteMsg::Deposit { user: None };
             let cosmos_msg = sp_contract
-                .call(deposit_msg, vec![coin(100_000, "credit")])
+                .call(deposit_msg, vec![coin(5, "credit")])
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Withdraw: Invalid "Amount too high"
-            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(200_001u128) };
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_006u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
                 .unwrap();
@@ -516,9 +518,9 @@ mod tests {
                 err.root_cause().to_string(),
                 String::from("Invalid withdrawal")
             );
-            //Withdraw all of first, 1 of 2nd Deposit: Success
+            //Withdraw all of first, and 2nd Deposit: Success
             //First msg begins unstaking
-            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_001u128) };
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_004u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
                 .unwrap();
@@ -541,23 +543,16 @@ mod tests {
                     },
                     Deposit {
                         user: Addr::unchecked(USER),
-                        amount: Decimal::percent(1_00),
+                        amount: Decimal::percent(5_00),
                         deposit_time: app.block_info().time.seconds(),
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: Some(app.block_info().time.seconds()),
                     },
-                    Deposit {
-                        user: Addr::unchecked(USER),
-                        amount: Decimal::percent(99_999_00),
-                        deposit_time: app.block_info().time.seconds(),
-                        last_accrued: app.block_info().time.seconds(),
-                        unstake_time: None,
-                    }
                 ]
             );
 
             //Restake
-            let restake_msg = ExecuteMsg::Restake { restake_amount: Decimal::percent(100_001_00) };
+            let restake_msg = ExecuteMsg::Restake { restake_amount: Decimal::percent(100_004_00) };
             let cosmos_msg = sp_contract
                 .call(restake_msg, vec![])
                 .unwrap();
@@ -580,23 +575,16 @@ mod tests {
                     },
                     Deposit {
                         user: Addr::unchecked(USER),
-                        amount: Decimal::percent(1_00),
+                        amount: Decimal::percent(5_00),
                         deposit_time: app.block_info().time.seconds(),
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: None,
                     },
-                    Deposit {
-                        user: Addr::unchecked(USER),
-                        amount: Decimal::percent(99_999_00),
-                        deposit_time: app.block_info().time.seconds(),
-                        last_accrued: app.block_info().time.seconds(),
-                        unstake_time: None,
-                    }
                 ]
             );
 
-            //Reunstake Success
-            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_001u128) };
+            //Rewithdrawl Success
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_004u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
                 .unwrap();
@@ -619,18 +607,11 @@ mod tests {
                     },
                     Deposit {
                         user: Addr::unchecked(USER),
-                        amount: Decimal::percent(1_00),
+                        amount: Decimal::percent(5_00),
                         deposit_time: app.block_info().time.seconds(),
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: Some(app.block_info().time.seconds()),
                     },
-                    Deposit {
-                        user: Addr::unchecked(USER),
-                        amount: Decimal::percent(99_999_00),
-                        deposit_time: app.block_info().time.seconds(),
-                        last_accrued: app.block_info().time.seconds(),
-                        unstake_time: None,
-                    }
                 ]
             );
 
@@ -648,30 +629,14 @@ mod tests {
             );
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Assert success
+            //Assert success, 2nd depodit is withdrawn bc it'd leave below the minimum amount (5)
             let resp: AssetPool = app
                 .wrap()
                 .query_wasm_smart(sp_contract.addr(), &QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None })
                 .unwrap();
             assert_eq!(
                 resp.deposits,
-                vec![
-                    Deposit {
-                        user: Addr::unchecked(USER),
-                        amount: Decimal::percent(1_00),
-                        deposit_time: 1571797419, 
-                        last_accrued: app.block_info().time.seconds(),
-                        unstake_time: Some(app.block_info().time.seconds()),
-                    },
-                    Deposit {
-                        user: Addr::unchecked(USER),
-                        amount: Decimal::percent(99_998_00),
-                        deposit_time: 1571797419, 
-                        //Updated during the withdrawal
-                        last_accrued: app.block_info().time.seconds(),
-                        unstake_time: None,
-                    }
-                ]
+                vec![ ]
             );
         }
 
@@ -696,15 +661,14 @@ mod tests {
 
             //Query Incentives
             let query_msg = QueryMsg::UnclaimedIncentives { user: String::from(USER) };
-            let total_incentives: Uint128 = app
+            let total_incentives: UserIncentivesResponse = app
                 .wrap()
                 .query_wasm_smart(sp_contract.addr(), &query_msg)
                 .unwrap();
-            assert_eq!(total_incentives, Uint128::new(10000));
+            assert_eq!(total_incentives.incentives, Uint128::new(10000));
 
             //Initial withdrawal to start unstaking
             let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::from(100_000u128) };
-
             let cosmos_msg = sp_contract.call(withdraw_msg.clone(), vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
@@ -718,21 +682,36 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.claims,
-                vec![Asset {
-                    info: AssetInfo::NativeToken {
-                        denom: String::from("mbrn_denom")
-                    },
+                vec![Coin {
+                    denom: String::from("mbrn_denom"),
                     amount: Uint128::new(10_000u128),
                 },]
             );
 
-            //Query Incentives and assert that there are none after being added to claimables
+            //Skip unstaking period
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
+                chain_id: app.block_info().chain_id,
+            });
+            //Restake
+            let restake_msg = ExecuteMsg::Restake { restake_amount: Decimal::percent(100_000_00) };
+            let cosmos_msg = sp_contract
+                .call(restake_msg, vec![])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            //Rewithdraw
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::from(100_000u128) };
+            let cosmos_msg = sp_contract.call(withdraw_msg.clone(), vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Query Incentives and assert that there are none after being added to claimables & no retroactive rewards from a malfunctioning restake
             let query_msg = QueryMsg::UnclaimedIncentives { user: String::from(USER) };
-            let total_incentives: Uint128 = app
+            let total_incentives: UserIncentivesResponse = app
                 .wrap()
                 .query_wasm_smart(sp_contract.addr(), &query_msg)
                 .unwrap();
-            assert_eq!(total_incentives, Uint128::new(0));
+            assert_eq!(total_incentives.incentives, Uint128::new(0));
 
             //Successful Withdraw
             let cosmos_msg = sp_contract.call(withdraw_msg, vec![]).unwrap();
@@ -833,17 +812,13 @@ mod tests {
             assert_eq!(
                 res.claims,
                 vec![
-                    Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: String::from("mbrn_denom")
-                        },
-                        amount: Uint128::new(10_000u128),
-                    },
-                    Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: String::from("debit")
-                        },
+                    Coin {
+                        denom: String::from("debit"),
                         amount: Uint128::new(100u128),
+                    },
+                    Coin {
+                        denom: String::from("mbrn_denom"),
+                        amount: Uint128::new(10_000u128),
                     },
                 ]
             );
@@ -856,8 +831,7 @@ mod tests {
             //Claim but get nothing
             let claim_msg = ExecuteMsg::ClaimRewards { };
             let cosmos_msg = sp_contract.call(claim_msg, vec![]).unwrap();
-            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
-            assert_eq!(res.events[1].attributes[3].value, "[]".to_string());
+            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
         }
     }

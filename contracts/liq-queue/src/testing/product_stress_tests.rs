@@ -5,6 +5,7 @@ use crate::contract::{execute, instantiate, query};
 use membrane::liq_queue::{BidResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::{Decimal256, Uint256};
 use membrane::types::{AssetInfo, BidInput};
+use membrane::oracle::PriceResponse;
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockApi, MockQuerier};
 use cosmwasm_std::{from_binary, Coin, Decimal, MemoryStorage, OwnedDeps, Uint128};
@@ -20,8 +21,11 @@ fn stress_tests() {
     // with very tight liquidations, constatly resetting product
     // 1M USD bids
     simulate_bids_with_2_liq_amounts(
-        ITERATIONS,
-        Decimal::percent(2000),
+        ITERATIONS, PriceResponse {
+            prices: vec![],
+            price: Decimal::percent(2000),
+            decimals: 6u64,
+        },
         1000000000000u128,
         49999999999,
         49999999990,
@@ -29,7 +33,11 @@ fn stress_tests() {
     // 10 USD bids
     simulate_bids_with_2_liq_amounts(
         ITERATIONS,
-        Decimal::percent(2000),
+        PriceResponse {
+            prices: vec![],
+            price: Decimal::percent(2000),
+            decimals: 6u64,
+        },
         10000000u128,
         499999,
         499999,
@@ -39,7 +47,11 @@ fn stress_tests() {
     // 1M USD bids
     simulate_bids_with_2_liq_amounts(
         ITERATIONS,
-        Decimal::percent(1000000),
+        PriceResponse {
+            prices: vec![],
+            price: Decimal::percent(1000000),
+            decimals: 6u64,
+        },
         1000000000000u128,
         99999999,
         99999999,
@@ -47,7 +59,11 @@ fn stress_tests() {
     // 10,001 USD bids
     simulate_bids_with_2_liq_amounts(
         ITERATIONS,
-        Decimal::percent(1000000),
+        PriceResponse {
+            prices: vec![],
+            price: Decimal::percent(1000000),
+            decimals: 6u64,
+        },
         10001000000u128,
         1000000,
         1000000,
@@ -57,7 +73,11 @@ fn stress_tests() {
     // 1M USD bids
     simulate_bids_with_2_liq_amounts(
         ITERATIONS,
-        Decimal::percent(5000),
+        PriceResponse {
+            prices: vec![],
+            price: Decimal::percent(5000),
+            decimals: 6u64,
+        },
         1000000000000u128,
         19999999999,
         19900000000,
@@ -65,7 +85,11 @@ fn stress_tests() {
     // 100 USD bids
     simulate_bids_with_2_liq_amounts(
         ITERATIONS,
-        Decimal::percent(5000),
+        PriceResponse {
+            prices: vec![],
+            price: Decimal::percent(5000),
+            decimals: 6u64,
+        },
         100000000u128,
         1999999,
         1900000,
@@ -74,7 +98,11 @@ fn stress_tests() {
     // 100k USD bids with very tight liquidations
     simulate_bids_with_2_liq_amounts(
         ITERATIONS,
-        Decimal::percent(10000),
+        PriceResponse {
+            prices: vec![],
+            price: Decimal::percent(10000),
+            decimals: 6u64,
+        },
         100000000000u128,
         999999999,
         999999999,
@@ -83,7 +111,11 @@ fn stress_tests() {
     // 100k USD bids with very small asset price, so even tighter liquidations
     simulate_bids_with_2_liq_amounts(
         ITERATIONS,
-        Decimal::percent(10), // 0.1 USD/asset
+        PriceResponse {
+            prices: vec![],
+            price: Decimal::percent(10),
+            decimals: 6u64,
+        }, // 0.1 USD/asset
         100000000000u128,
         999999999900, // 10 micros of residue
         999999999999, // no residue
@@ -149,7 +181,11 @@ fn simulate_bids_with_2_liq_amounts(
         if i % 2 == 0 {
             // EXECUTE ALL EXCEPT 1uusd
             let liq_msg = ExecuteMsg::Liquidate {
-                credit_price: Decimal::one(),
+                credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
                 collateral_price: asset_price,
                 collateral_amount: Uint256::from(liq_amount_1),
                 bid_for: AssetInfo::NativeToken {
@@ -166,7 +202,11 @@ fn simulate_bids_with_2_liq_amounts(
         } else {
             // EXECUTE ALL EXCEPT 1uusd
             let liq_msg = ExecuteMsg::Liquidate {
-                credit_price: Decimal::one(),
+                credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
                 collateral_price: asset_price,
                 collateral_amount: Uint256::from(liq_amount_2),
                 bid_for: AssetInfo::NativeToken {

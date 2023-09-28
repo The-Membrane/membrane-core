@@ -1,3 +1,6 @@
+use core::panic;
+
+use crate::ContractError;
 use crate::contract::{execute, instantiate, query};
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
@@ -8,9 +11,10 @@ use cosmwasm_std::{
 
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::{
-    Config, ExecuteMsg, InstantiateMsg, QueryMsg, StakedResponse, TotalStakedResponse, StakerResponse,
+    Config, ExecuteMsg, InstantiateMsg, QueryMsg, 
+    StakedResponse, TotalStakedResponse, StakerResponse, DelegationResponse, RewardsResponse,
 };
-use membrane::types::{StakeDeposit, StakeDistribution};
+use membrane::types::{StakeDeposit, StakeDistribution, DelegationInfo, Delegation};
 
 #[test]
 fn update_config(){
@@ -19,15 +23,12 @@ fn update_config(){
 
     let msg = InstantiateMsg {
         owner: None,
-        dex_router: Some(String::from("router_addr")),
-        max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
         auction_contract: Some("auction_contract".to_string()),
         vesting_contract: Some("vesting_contract".to_string()),
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
-        fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
     };
@@ -38,17 +39,17 @@ fn update_config(){
     
     let msg = ExecuteMsg::UpdateConfig { 
         owner: Some(String::from("new_owner")),
-        unstaking_period: Some(1),  
+        unstaking_period: Some(2),  
         osmosis_proxy: Some(String::from("new_op")), 
         positions_contract: Some(String::from("new_cdp")), 
         auction_contract: Some("new_auction".to_string()),
         governance_contract: Some("new_gov".to_string()),
         mbrn_denom: Some(String::from("new_denom")), 
-        dex_router: Some(String::from("new_router")), 
-        max_spread: Some(Decimal::one()),
         vesting_contract: Some(String::from("new_bv")), 
         incentive_schedule: Some(StakeDistribution { rate: Decimal::one(), duration: 0 }),
-        fee_wait_period: Some(1),  
+        max_commission_rate: Some(Decimal::percent(11)),
+        keep_raw_cdt: Some(false),
+        vesting_rev_multiplier: None,
     };
 
     execute(
@@ -67,23 +68,98 @@ fn update_config(){
     )
     .unwrap();
     let config: Config = from_binary(&res).unwrap();
-
+    
+    //No owner change yet
     assert_eq!(
         config,
         Config {
-            owner: Addr::unchecked("new_owner"),
-            unstaking_period:1,  
+            owner: Addr::unchecked("sender88"),
+            unstaking_period: 2,  
             osmosis_proxy: Some( Addr::unchecked("new_op")), 
             positions_contract: Some( Addr::unchecked("new_cdp")), 
             auction_contract: Some(Addr::unchecked("new_auction")),
             governance_contract: Some(Addr::unchecked("new_gov")),
             mbrn_denom: String::from("new_denom"), 
-            dex_router: Some( Addr::unchecked("new_router")), 
-            max_spread: Some(Decimal::one()), 
             vesting_contract: Some( Addr::unchecked("new_bv")),             
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
-            fee_wait_period: 1, 
-            
+            max_commission_rate: Decimal::percent(11),
+            keep_raw_cdt: false,
+            vesting_rev_multiplier: Decimal::percent(20),      
+        },
+    );
+    //Previous owner can still update bc the ownership hasn't transferred yet
+    let msg = ExecuteMsg::UpdateConfig { 
+        owner: None,
+        unstaking_period: None,
+        osmosis_proxy: None,
+        positions_contract: None,
+        auction_contract: None,
+        governance_contract: None,
+        mbrn_denom: None,
+        vesting_contract: None,
+        incentive_schedule: None,
+        max_commission_rate: None,
+        keep_raw_cdt: None,
+        vesting_rev_multiplier: None,
+    };
+
+    execute(
+        deps.as_mut(),
+        mock_env(),
+        mock_info("sender88", &vec![]),
+        msg,
+    )
+    .unwrap();
+
+    //New owner calls update_config
+    let msg = ExecuteMsg::UpdateConfig { 
+        owner: None,
+        unstaking_period: None,
+        osmosis_proxy: None,
+        positions_contract: None,
+        auction_contract: None,
+        governance_contract: None,
+        mbrn_denom: None,
+        vesting_contract: None,
+        incentive_schedule: None,
+        max_commission_rate: None,
+        keep_raw_cdt: None,
+        vesting_rev_multiplier: None,
+    };
+
+    execute(
+        deps.as_mut(),
+        mock_env(),
+        mock_info("new_owner", &vec![]),
+        msg,
+    )
+    .unwrap();
+
+    //Query Config
+    let res = query(
+        deps.as_ref(),
+        mock_env(),
+        QueryMsg::Config {},
+    )
+    .unwrap();
+    let config: Config = from_binary(&res).unwrap();
+
+    //Assert change after new_owner calls update_config
+    assert_eq!(
+        config,
+        Config {
+            owner: Addr::unchecked("new_owner"),
+            unstaking_period: 2,  
+            osmosis_proxy: Some( Addr::unchecked("new_op")), 
+            positions_contract: Some( Addr::unchecked("new_cdp")), 
+            auction_contract: Some(Addr::unchecked("new_auction")),
+            governance_contract: Some(Addr::unchecked("new_gov")),
+            mbrn_denom: String::from("new_denom"), 
+            vesting_contract: Some( Addr::unchecked("new_bv")),             
+            incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
+            max_commission_rate: Decimal::percent(11),  
+            keep_raw_cdt: false,
+            vesting_rev_multiplier: Decimal::percent(20),
         },
     );
 }
@@ -94,15 +170,12 @@ fn stake() {
 
     let msg = InstantiateMsg {
         owner: Some("owner0000".to_string()),
-        dex_router: Some(String::from("router_addr")),
-        max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
         auction_contract: Some("auction_contract".to_string()),
         vesting_contract: Some("vesting_contract".to_string()),
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
-        fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
     };
@@ -113,7 +186,7 @@ fn stake() {
 
     //Stake non-MBRN asset
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("sender88", &[coin(10, "not-mbrn")]);
+    let info = mock_info("sender88", &[coin(10_000_000, "not-mbrn")]);
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(
         err.to_string(),
@@ -122,27 +195,27 @@ fn stake() {
 
     //Successful Stake
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("sender88", &[coin(10, "mbrn_denom")]);
+    let info = mock_info("sender88", &[coin(10_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "stake"),
             attr("staker", String::from("sender88")),
-            attr("amount", String::from("10")),
+            attr("amount", String::from("10000000")),
         ]
     );
 
     //Successful Stake from vesting contract
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("vesting_contract", &[coin(11, "mbrn_denom")]);
+    let info = mock_info("vesting_contract", &[coin(11_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "stake"),
             attr("staker", String::from("vesting_contract")),
-            attr("amount", String::from("11")),
+            attr("amount", String::from("11000000")),
         ]
     );
 
@@ -164,13 +237,13 @@ fn stake() {
         vec![
             StakeDeposit {
                 staker: Addr::unchecked("sender88"),
-                amount: Uint128::new(10u128),
+                amount: Uint128::new(10_000_000u128),
                 stake_time: mock_env().block.time.seconds(),
                 unstake_start_time: None,
             },
             StakeDeposit {
                 staker: Addr::unchecked("vesting_contract"),
-                amount: Uint128::new(11u128),
+                amount: Uint128::new(11000000u128),
                 stake_time: mock_env().block.time.seconds(),
                 unstake_start_time: None,
             },
@@ -182,8 +255,8 @@ fn stake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_vested, Uint128::new(10));
-    assert_eq!(resp.vested_total,  Uint128::new(11));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(10_000_000));
+    assert_eq!(resp.vested_total,  Uint128::new(11000000));
 
     //Query and Assert User stake
     let res = query(
@@ -196,12 +269,535 @@ fn stake() {
     assert_eq!(resp, 
         StakerResponse { 
             staker: String::from("sender88"),
-            total_staked: Uint128::new(10),
+            total_staked: Uint128::new(10_000_000),
             deposit_list: vec![
-                ( Uint128::new(10), mock_env().block.time.seconds() )
+                StakeDeposit {
+                    amount: Uint128::new(10_000_000),
+                    stake_time: mock_env().block.time.seconds(),
+                    unstake_start_time: None,
+                    staker: Addr::unchecked("sender88")        
+                }
             ],
         }
     );
+}
+
+#[test]
+fn delegate() {
+    //Instantiate test
+    let mut deps = mock_dependencies();
+
+    //Instantiate contract
+    let msg = InstantiateMsg {
+        owner: Some("owner0000".to_string()),
+        positions_contract: Some("positions_contract".to_string()),
+        auction_contract: Some("auction_contract".to_string()),
+        vesting_contract: Some("vesting_contract".to_string()),
+        governance_contract: Some("gov_contract".to_string()),
+        osmosis_proxy: Some("osmosis_proxy".to_string()),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
+        mbrn_denom: String::from("mbrn_denom"),
+        unstaking_period: None,
+    };
+
+    //Instantiating contract
+    let info = mock_info("sender88", &[]);
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Stake MBRN: sender88
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("sender88", &[coin(10_000_000, "mbrn_denom")]);
+    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Stake MBRN: placeholder99
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("placeholder99", &[coin(10_000_000, "mbrn_denom")]);
+    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Delegate MBRN: Error can't delegate to self
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("sender88")), 
+        mbrn_amount: None, 
+        delegate: Some(true), 
+        fluid: None, 
+        voting_power_delegation: None,
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Custom Error val: \"Delegate cannot be the user\"".to_string()
+    );   
+
+    //Delegate MBRN: success
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("governator_addr")), 
+        mbrn_amount: None,
+        delegate: Some(true), 
+        fluid: None, 
+        voting_power_delegation: None,
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query and Assert Delegations
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::Delegations {
+            user: None,
+            limit: None,
+            start_after: None,
+        },
+    ).unwrap();
+    let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
+    assert_eq!(resp.len(), 2);
+    assert_eq!(
+        resp[1].delegation_info,
+        DelegationInfo {
+            delegated: vec![],
+            delegated_to: vec![
+                Delegation {
+                    delegate: Addr::unchecked("governator_addr"),
+                    amount: Uint128::new(10_000_000u128),
+                    fluidity: false,
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
+                }
+            ],
+            commission: Decimal::zero(),
+        }        
+    );
+    assert_eq!(
+        resp[0].delegation_info,
+        DelegationInfo {
+            delegated: vec![
+                Delegation {
+                    delegate: Addr::unchecked("sender88"),
+                    amount: Uint128::new(10_000_000u128),
+                    fluidity: false,
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
+                }
+            ],
+            delegated_to: vec![],
+            commission: Decimal::zero(),
+        }        
+    );
+
+    //Delegate MBRN: success from placeholder99
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("too_many_addr")), 
+        mbrn_amount: None,
+        delegate: Some(true), 
+        fluid: None, 
+        voting_power_delegation: None,
+        commission: None,
+    };
+    let info = mock_info("placeholder99", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Undelegate: Error
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("governator_addr")), 
+        mbrn_amount: None,
+        delegate: Some(false), 
+        fluid: Some(true),
+        voting_power_delegation: None,
+        commission: None,
+    };
+    let info = mock_info("placeholder99", &[]);
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+    assert_eq!(err.to_string(), String::from("Custom Error val: \"Delegator not found in delegate's delegated\""));
+
+    //Undelegate: Error
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("non_governator")), 
+        mbrn_amount: Some(Uint128::new(6_000_000)), 
+        delegate: Some(false), 
+        fluid: Some(true),
+        voting_power_delegation: None,
+        commission: Some(Decimal::one()),
+    };
+    let info = mock_info("sender88", &[]);
+    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+    assert_eq!(err.to_string(), String::from("membrane::types::DelegationInfo not found"));
+
+    //Undelegate partially, change commission, vp delegations & fluidity
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("governator_addr")), 
+        mbrn_amount: Some(Uint128::new(6_000_000)), 
+        delegate: Some(false), 
+        fluid: Some(true),
+        voting_power_delegation: Some(false),
+        commission: Some(Decimal::one()),
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query and Assert Delegations
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::Delegations {
+            user: None,
+            limit: None,
+            start_after: None,
+        },
+    ).unwrap();
+    let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
+    assert_eq!(resp.len(), 4);
+    assert_eq!(
+        resp[2].delegation_info,
+        DelegationInfo {
+            delegated: vec![],
+            delegated_to: vec![
+                Delegation {
+                    delegate: Addr::unchecked("governator_addr"),
+                    amount: Uint128::new(4_000_000u128),
+                    fluidity: true,
+                    voting_power_delegation: false,
+                    time_of_delegation: mock_env().block.time.seconds(),
+                }
+            ],
+            commission: Decimal::percent(10),
+        }        
+    );
+    assert_eq!(
+        resp[0].delegation_info,
+        DelegationInfo {
+            delegated: vec![
+                Delegation {
+                    delegate: Addr::unchecked("sender88"),
+                    amount: Uint128::new(4_000_000u128),
+                    fluidity: true,
+                    voting_power_delegation: false,
+                    time_of_delegation: mock_env().block.time.seconds(),
+                }
+            ],
+            delegated_to: vec![],
+            commission: Decimal::zero(),
+        }        
+    );
+
+    //Undelegate fully 
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("governator_addr")), 
+        mbrn_amount: None, //this will be more than 4 but it should work anyway
+        delegate: Some(false), 
+        fluid: None, 
+        voting_power_delegation: None,
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query and Assert Delegations were deleted from state
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::Delegations {
+            user: None,
+            limit: None,
+            start_after: None,
+        },
+    ).unwrap();
+    let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
+    assert_eq!(resp.len(), 2); //4 -> 2 
+}
+
+#[test]
+fn commissions() {
+    //Instantiate test
+    let mut deps = mock_dependencies();
+
+    //Instantiate contract
+    let msg = InstantiateMsg {
+        owner: Some("owner0000".to_string()),
+        positions_contract: Some("positions_contract".to_string()),
+        auction_contract: Some("auction_contract".to_string()),
+        vesting_contract: Some("vesting_contract".to_string()),
+        governance_contract: Some("gov_contract".to_string()),
+        osmosis_proxy: Some("osmosis_proxy".to_string()),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
+        mbrn_denom: String::from("mbrn_denom"),
+        unstaking_period: None,
+    };
+
+    //Instantiating contract
+    let info = mock_info("sender88", &[]);
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Stake MBRN: sender88
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("sender88", &[coin(10_000000, "mbrn_denom")]);
+    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Delegate MBRN: success
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("governator_addr")), 
+        mbrn_amount: Some(Uint128::new(5_000000)),
+        delegate: Some(true), 
+        fluid: None, 
+        voting_power_delegation: None,
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Delegate sets commission
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: None,
+        mbrn_amount: None,
+        delegate: None,
+        fluid: None, 
+        voting_power_delegation: None, 
+        commission: Some(Decimal::percent(10)),
+    };
+    let info = mock_info("governator_addr", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Skip 30 days
+    let mut env = mock_env();
+    env.block.time = env.block.time.plus_seconds(259200 * 10); //30 days
+
+    //Query claimables
+    let res = query(deps.as_ref(), env.clone(),
+        QueryMsg::UserRewards { user: String::from("sender88") },
+    ).unwrap();
+    let resp: RewardsResponse = from_binary(&res).unwrap();
+    assert_eq!(resp.accrued_interest, Uint128::new(78082u128));
+
+    //Query claimables
+    let res = query(deps.as_ref(), env.clone(),
+        QueryMsg::UserRewards { user: String::from("governator_addr") },
+    ).unwrap();
+    let resp: RewardsResponse = from_binary(&res).unwrap();
+    assert_eq!(resp.accrued_interest, Uint128::new(0u128));
+
+}
+
+
+#[test]
+fn fluid_delegations() {
+    //Instantiate test
+    let mut deps = mock_dependencies();
+
+    //Instantiate contract
+    let msg = InstantiateMsg {
+        owner: Some("owner0000".to_string()),
+        positions_contract: Some("positions_contract".to_string()),
+        auction_contract: Some("auction_contract".to_string()),
+        vesting_contract: Some("vesting_contract".to_string()),
+        governance_contract: Some("gov_contract".to_string()),
+        osmosis_proxy: Some("osmosis_proxy".to_string()),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
+        mbrn_denom: String::from("mbrn_denom"),
+        unstaking_period: None,
+    };
+
+    //Instantiating contract
+    let info = mock_info("sender88", &[]);
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Stake MBRN: sender88
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("sender88", &[coin(10_000_000, "mbrn_denom")]);
+    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Delegate MBRN: success
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("governator_addr")), 
+        mbrn_amount: None,
+        delegate: Some(true), 
+        fluid: Some(true),
+        voting_power_delegation: None,
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Delegate fluid MBRN: success
+    let msg = ExecuteMsg::DelegateFluidDelegations { 
+        governator_addr: String::from("governator_too_addr"), 
+        mbrn_amount: Some(Uint128::new(4_000_000)),
+    };
+    let info = mock_info("governator_addr", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    
+    //Query and Assert Delegations
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::Delegations {
+            user: None,
+            limit: None,
+            start_after: None,
+        },
+    ).unwrap();
+    let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
+    assert_eq!(resp.len(), 3);
+    assert_eq!(
+        resp[1].delegation_info,
+        DelegationInfo {
+            delegated: vec![
+                Delegation {
+                    delegate: Addr::unchecked("sender88"),
+                    amount: Uint128::new(4_000_000u128),
+                    fluidity: true,
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
+                }
+            ],
+            delegated_to: vec![],
+            commission: Decimal::zero(),
+        }        
+    );
+    assert_eq!(
+        resp[2].delegation_info,
+        DelegationInfo {
+            delegated: vec![],
+            delegated_to: vec![
+                Delegation {
+                    delegate: Addr::unchecked("governator_addr"),
+                    amount: Uint128::new(6_000_000u128),
+                    fluidity: true,
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
+                },
+                Delegation {
+                    delegate: Addr::unchecked("governator_too_addr"),
+                    amount: Uint128::new(4_000_000u128),
+                    fluidity: true,
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
+                }
+            ],
+            commission: Decimal::zero(),
+        }        
+    );
+    assert_eq!(
+        resp[0].delegation_info,
+        DelegationInfo {
+            delegated: vec![
+                Delegation {
+                    delegate: Addr::unchecked("sender88"),
+                    amount: Uint128::new(6_000_000u128),
+                    fluidity: true,
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
+                }
+            ],
+            delegated_to: vec![],
+            commission: Decimal::zero(),
+        }        
+    );
+
+    //Remove fluidity from delegations
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("governator_addr")), 
+        mbrn_amount: None,
+        delegate: None,
+        fluid: Some(false), 
+        voting_power_delegation: None,
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query and Assert Delegations
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::Delegations {
+            user: None,
+            limit: None,
+            start_after: None,
+        },
+    ).unwrap();
+    let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
+    assert_eq!(resp.len(), 3);
+    assert_eq!(
+        resp[1].delegation_info,
+        DelegationInfo {
+            delegated: vec![
+                Delegation {
+                    delegate: Addr::unchecked("sender88"),
+                    amount: Uint128::new(4_000_000u128),
+                    fluidity: true,
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
+                }
+            ],
+            delegated_to: vec![],
+            commission: Decimal::zero(),
+        }        
+    );
+    assert_eq!(
+        resp[2].delegation_info,
+        DelegationInfo {
+            delegated: vec![],
+            delegated_to: vec![
+                Delegation {
+                    delegate: Addr::unchecked("governator_addr"),
+                    amount: Uint128::new(6_000_000u128),
+                    fluidity: false,
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
+                },
+                Delegation {
+                    delegate: Addr::unchecked("governator_too_addr"),
+                    amount: Uint128::new(4_000_000u128),
+                    fluidity: true,
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
+                }
+            ],
+            commission: Decimal::zero(),
+        }        
+    );
+    assert_eq!(
+        resp[0].delegation_info,
+        DelegationInfo {
+            delegated: vec![
+                Delegation {
+                    delegate: Addr::unchecked("sender88"),
+                    amount: Uint128::new(6_000_000u128),
+                    fluidity: false,
+                    voting_power_delegation: true,
+                    time_of_delegation: mock_env().block.time.seconds(),
+                }
+            ],
+            delegated_to: vec![],
+            commission: Decimal::zero(),
+        }        
+    );
+
+    //Remove fluidity from delegations
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("governator_too_addr")), 
+        mbrn_amount: None,
+        delegate: None,
+        fluid: Some(false), 
+        voting_power_delegation: None,
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Attempt to delegate solid delegations: failure
+    let msg = ExecuteMsg::DelegateFluidDelegations { 
+        governator_addr: String::from("governator_too_addr"), 
+        mbrn_amount: Some(Uint128::new(4_000_000)),
+    };
+    let info = mock_info("governator_addr", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+    //Fluid delegatible amount is 0 so MBRN amount becomes 0
+    assert_eq!(res.to_string(), String::from("Custom Error val: \"MBRN amount must be greater than 1\""));
+
+    //Undelegate MBRN that was fluid delegated: success
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("governator_too_addr")), 
+        mbrn_amount: Some(Uint128::new(4_000_000)),
+        delegate: Some(false), 
+        fluid: None, 
+        voting_power_delegation: None, 
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 }
 
 #[test]
@@ -210,15 +806,12 @@ fn unstake() {
 
     let msg = InstantiateMsg {
         owner: Some("owner0000".to_string()),
-        dex_router: Some(String::from("router_addr")),
-        max_spread: Some(Decimal::percent(10)),
         positions_contract: Some("positions_contract".to_string()),
         auction_contract: Some("auction_contract".to_string()),
         vesting_contract: Some("vesting_contract".to_string()),
         governance_contract: Some("gov_contract".to_string()),
         osmosis_proxy: Some("osmosis_proxy".to_string()),
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
-        fee_wait_period: None,
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
     };
@@ -240,16 +833,28 @@ fn unstake() {
         ]
     );
 
+    //Delegate all staked MBRN: success
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("unstaking_barrier")), 
+        mbrn_amount: None,
+        delegate: Some(true), 
+        fluid: None, 
+        voting_power_delegation: None, 
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
     //Successful Stake from vesting contract
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("vesting_contract", &[coin(11, "mbrn_denom")]);
+    let info = mock_info("vesting_contract", &[coin(11_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "stake"),
             attr("staker", String::from("vesting_contract")),
-            attr("amount", String::from("11")),
+            attr("amount", String::from("11000000")),
         ]
     );
 
@@ -258,18 +863,7 @@ fn unstake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
     assert_eq!(resp.total_not_including_vested, Uint128::new(10000000));
-    assert_eq!(resp.vested_total, Uint128::new(11));
-
-    //Unstake more than Staked Error
-    let msg = ExecuteMsg::Unstake {
-        mbrn_amount: Some(Uint128::new(11_000_000u128)),
-    };
-    let info = mock_info("sender88", &[]);
-    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "Custom Error val: \"Invalid withdrawal amount\"".to_string()
-    );
+    assert_eq!(resp.vested_total, Uint128::new(11000000));
 
     //Not a staker Error
     let msg = ExecuteMsg::Unstake { mbrn_amount: None };
@@ -281,7 +875,10 @@ fn unstake() {
     );
 
     //Successful Unstake w/o withdrawals
-    let msg = ExecuteMsg::Unstake { mbrn_amount: None };
+    //Unstake more than Staked doesn't Error but doesn't overstkae
+    let msg = ExecuteMsg::Unstake {
+        mbrn_amount: Some(Uint128::new(11_000_000u128)),
+    };
     let info = mock_info("sender88", &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
@@ -293,12 +890,16 @@ fn unstake() {
         ]
     );
 
+    //Skip 3 days
+    let mut env = mock_env();
+    env.block.time = env.block.time.plus_seconds(259200); //3 days
+
     //Successful Restake to reset the deposits
     let msg = ExecuteMsg::Restake {
         mbrn_amount: Uint128::new(10_000_000u128),
     };
     let info = mock_info("sender88", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -307,21 +908,26 @@ fn unstake() {
         ]
     );
 
-    //Unstake more than Staked Error
-    let msg = ExecuteMsg::Unstake {
-        mbrn_amount: Some(Uint128::new(11_000_000u128)),
-    };
-    let info = mock_info("sender88", &[]);
-    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "Custom Error val: \"Invalid withdrawal amount\"".to_string()
-    );
+    //Query and Assert UserStake
+    //The restake should have staked 3 days of rewards as well (8219)
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
 
-    //Successful Unstake w/o withdrawals to assert Restake
-    let msg = ExecuteMsg::Unstake { mbrn_amount: None };
+    let resp: StakerResponse = from_binary(&res).unwrap();
+    assert_eq!(resp.total_staked, Uint128::new(10008219));
+    assert_eq!(resp.deposit_list[1], 
+        StakeDeposit {
+            amount: Uint128::new(8219),
+            stake_time: 1572056619,
+            unstake_start_time: None,
+            staker: Addr::unchecked("sender88")        
+        });
+        
+    env.block.time = env.block.time.plus_seconds(259200 *2); //6 days
+
+    //Successful partial unstake w/o withdrawals to assert Restake
+    let msg = ExecuteMsg::Unstake { mbrn_amount: Some(Uint128::new(5000001)) };
     let info = mock_info("sender88", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
@@ -329,25 +935,21 @@ fn unstake() {
             attr("staker", String::from("sender88")),
             attr("unstake_amount", String::from("0")),
         ]
-    );
+    );//Query and Assert totals
+    //The restake should have staked 6 days of rewards as well (16451)
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
 
-    //Successful Unstake from vesting contract w/o withdrawals
-    let msg = ExecuteMsg::Unstake {
-        mbrn_amount: Some(Uint128::new(5u128)),
-    };
-    let info = mock_info("vesting_contract", &[]);
-    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-    assert_eq!(
-        res.attributes,
-        vec![
-            attr("method", "unstake"),
-            attr("staker", String::from("vesting_contract")),
-            attr("unstake_amount", String::from("0")),
-        ]
-    );
-
-    let mut env = mock_env();
-    env.block.time = env.block.time.plus_seconds(259200); //3 days
+    let resp: StakerResponse = from_binary(&res).unwrap();
+    assert_eq!(resp.total_staked, Uint128::new(10024670));
+    assert_eq!(resp.deposit_list[3], 
+        StakeDeposit {
+            amount: Uint128::new(16451),
+            stake_time: 1572575019,
+            unstake_start_time: None,
+            staker: Addr::unchecked("sender88")        
+        });
+    
+    env.block.time = env.block.time.plus_seconds(86400 * 4); //4 days
 
     //Successful Unstake w/ withdrawals after unstaking period
     let msg = ExecuteMsg::Unstake { mbrn_amount: None };
@@ -358,53 +960,81 @@ fn unstake() {
         vec![
             attr("method", "unstake"),
             attr("staker", String::from("sender88")),
-            attr("unstake_amount", String::from("10000000")),
+            attr("unstake_amount", String::from("5000001")),
         ]
     );
     //Bc its a normal staker, they should have accrued interest as well
     assert_eq!(
         res.messages,
         vec![
-            SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
+            SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: String::from("osmosis_proxy"), 
+                msg: to_binary(&OsmoExecuteMsg::MintTokens { 
+                    denom: String::from("mbrn_denom"), 
+                    amount: Uint128::new(10998), 
+                    mint_to_address: String::from("cosmos2contract")
+                }).unwrap(), 
+                funds: vec![]
+            })), 
+            SubMsg::reply_on_success(CosmosMsg::Bank(BankMsg::Send {
                 to_address: String::from("sender88"),
-                amount: coins(10_000_000, "mbrn_denom"),
-            })),
-            SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: String::from("osmosis_proxy"),
-                funds: vec![],
-                msg: to_binary(&OsmoExecuteMsg::MintTokens {
-                    denom: String::from("mbrn_denom"),
-                    amount: Uint128::new(8_219u128),
-                    mint_to_address: String::from("sender88")
-                })
-                .unwrap()
-            }))
+                amount: coins(5_000_001, "mbrn_denom"),
+            }), 1)
         ]
     );
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
 
-    //Successful Unstake from vesting contract w/ withdrawals after unstaking period
-    let msg = ExecuteMsg::Unstake {
-        mbrn_amount: Some(Uint128::new(5u128)),
-    };
-    let info = mock_info("vesting_contract", &[]);
-    let res = execute(deps.as_mut(), env, info, msg).unwrap();
+    let resp: StakerResponse = from_binary(&res).unwrap();
+    assert_eq!(resp.total_staked, Uint128::new(5035667));
+    assert_eq!(resp.deposit_list[3], 
+        StakeDeposit {
+            amount: Uint128::new(10998),
+            stake_time: 1572920619,
+            unstake_start_time: None,
+            staker: Addr::unchecked("sender88")        
+        });
+
+    //Query and Assert Delegations were updated by the unstake
+    //We aren't undelegating the full 5M bc a portion of it is coming from the accrued interest
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::Delegations {
+            user: None,
+            limit: None,
+            start_after: None,
+        },
+    ).unwrap();
+    let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
     assert_eq!(
-        res.attributes,
-        vec![
-            attr("method", "unstake"),
-            attr("staker", String::from("vesting_contract")),
-            attr("unstake_amount", String::from("5")),
-        ]
+        resp[0].delegation_info,
+        DelegationInfo {
+            delegated: vec![],
+            delegated_to: vec![
+                Delegation {
+                    delegate: Addr::unchecked("unstaking_barrier"),
+                    amount: Uint128::new(5024669u128),
+                    fluidity: false,
+                    voting_power_delegation: true,
+                    time_of_delegation: 1572920619,
+                }
+            ],
+            commission: Decimal::zero(),
+        }        
     );
-    //Only msg is stake withdrawal
     assert_eq!(
-        res.messages,
-        vec![
-            SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
-                to_address: String::from("vesting_contract"),
-                amount: coins(5, "mbrn_denom"),
-            })),
-        ]
+        resp[1].delegation_info,
+        DelegationInfo {
+            delegated: vec![
+                Delegation {
+                    delegate: Addr::unchecked("sender88"),
+                    amount: Uint128::new(5024669u128),
+                    fluidity: false,
+                    voting_power_delegation: true,
+                    time_of_delegation: 1572920619,
+                }
+            ],
+            delegated_to: vec![],
+            commission: Decimal::zero(),
+        }        
     );
 
     //Query and Assert totals
@@ -412,8 +1042,8 @@ fn unstake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_vested, Uint128::zero());
-    assert_eq!(resp.vested_total, Uint128::new(6));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(5_035_667));
+    assert_eq!(resp.vested_total, Uint128::new(11_000000));
 }
 
 

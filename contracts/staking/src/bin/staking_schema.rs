@@ -2,7 +2,7 @@ use std::{fs::create_dir_all, env::current_dir};
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use membrane::staking::{InstantiateMsg, ExecuteMsg, QueryMsg, Config, RewardsResponse, StakedResponse, StakerResponse, TotalStakedResponse, FeeEventsResponse};
+use membrane::staking::{InstantiateMsg, ExecuteMsg, QueryMsg, Config, RewardsResponse, StakedResponse, StakerResponse, TotalStakedResponse, FeeEventsResponse, DelegationResponse};
 use membrane::types::StakeDistributionLog;
 fn main() {
     let mut out_dir = current_dir().unwrap();
@@ -20,4 +20,5 @@ fn main() {
     export_schema(&schema_for!(TotalStakedResponse), &out_dir);
     export_schema(&schema_for!(FeeEventsResponse), &out_dir);
     export_schema(&schema_for!(StakeDistributionLog), &out_dir);
+    export_schema(&schema_for!(DelegationResponse), &out_dir);
 }

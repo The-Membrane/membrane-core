@@ -6,7 +6,7 @@ https://github.com/Anchor-Protocol/money-market-contracts/tree/main/contracts/li
 
 # Liquidation Queue Contract
 
-The Liquidation Queue contract is used to pool debt tokens used to liquidate specific collateral assets, acting as the first layer in the liquidation system
+The Liquidation Queue contract is used to pool debt tokens to liquidate specific collateral assets, acting as the 1st layer in the liquidation system. Each collateral type has a list of viable liquidation premium slots that users can bid within. Slots are emptied starting at the lowest premium to increase the efficiency of liquidations. During a successful liquidation, collateral is distributed pro-rata to each user in the premium slot. Its expected to attract bots but the goal is to distribute liquidated collateral to less technical users as well. For this, there is a waiting period that forces any just in time bids to wait if the liquidation slot is filled past a configurable threshold. Specific to Membrane, any collateral not liquidated in the Queue, which is at least the premium %, is sent further down the filter to the 2nd layer, the Stability Pool.
 
 Modifications
 

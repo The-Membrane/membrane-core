@@ -6,14 +6,14 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::liquidity_check::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
+use membrane::liquidity_check::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, LiquidityResponse};
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::types::{AssetInfo, LiquidityInfo, PoolStateResponse, PoolType};
 
 use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
-use crate::state::{ASSETS, CONFIG};
+use crate::state::{ASSETS, CONFIG, OWNERSHIP_TRANSFER};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "liquidity_check";
@@ -23,7 +23,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_LIMIT: u64 = 31u64;
 
 //Assumption that pools are 50:50 or 1:1 (Stableswap)
-
+#[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
@@ -182,17 +182,26 @@ fn update_config(
     positions_contract: Option<String>,
     stableswap_multiplier: Option<Decimal>,
 ) -> Result<Response, ContractError> {
-
     let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs = vec![attr("method", "update_config")];
 
-    //Assert authority
+    //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        if info.sender == OWNERSHIP_TRANSFER.load(deps.storage)? {
+            config.owner = info.sender;
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
     }
 
     //Save optionals
     if let Some(addr) = owner {
-        config.owner = deps.api.addr_validate(&addr)?;
+        let valid_addr = deps.api.addr_validate(&addr)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
+        attrs.push(attr("owner_transfer", valid_addr));   
     }
     if let Some(addr) = osmosis_proxy {
         config.osmosis_proxy = deps.api.addr_validate(&addr)?;
@@ -201,14 +210,21 @@ fn update_config(
         config.positions_contract = deps.api.addr_validate(&addr)?;
     }
     if let Some(multiplier) = stableswap_multiplier {
+        //Assert multiplier is between 1 and 10
+        if multiplier > Decimal::percent(10_00) || multiplier < Decimal::one() {
+            return Err(ContractError::CustomError {
+                val: String::from("Stableswap multiplier must be between 1 and 10"),
+            });
+        }
         config.stableswap_multiplier = multiplier;
     }
 
     //Save Config
     CONFIG.save(deps.storage, &config)?;
+    attrs.push(attr("updated_config", format!("{:?}", config)));
 
     Ok(Response::new()
-        .add_attribute("updated_config", format!("{:?}", config)))
+        .add_attributes(attrs))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -253,17 +269,17 @@ fn get_assets(
 
 /// Returns # of tokens in the list of pools for an asset.
 /// This only works for native tokens on Osmosis, which is fine for now.
-fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<Uint128> {
+fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<LiquidityResponse> {
     
     let config = CONFIG.load(deps.storage)?;
 
     let denom = asset.to_string();
 
-    let asset = ASSETS.load(deps.storage, denom.clone())?;
+    let liq_info = ASSETS.load(deps.storage, denom.clone())?;
 
     let mut total_pooled = Uint128::zero();
 
-    for info in asset.pool_infos {
+    for info in liq_info.pool_infos {
         //Set ID and liquidity multiplier
         let (id, multiplier) = { 
             if let PoolType::Balancer { pool_id } = info {
@@ -305,5 +321,5 @@ fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<Uint128> {
         total_pooled += pooled_amount * multiplier;
     }
 
-    Ok(total_pooled)
+    Ok(LiquidityResponse { asset, liquidity: total_pooled })
 }

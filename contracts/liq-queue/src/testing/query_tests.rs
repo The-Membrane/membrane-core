@@ -6,6 +6,7 @@ use membrane::liq_queue::{
 };
 use membrane::math::{Decimal256, Uint256};
 use membrane::types::{AssetInfo, Bid, BidInput, Asset};
+use membrane::oracle::PriceResponse;
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
 use cosmwasm_std::{from_binary, Addr, Coin, Decimal, Uint128};
@@ -17,7 +18,10 @@ fn query_liquidatible() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -57,12 +61,20 @@ fn query_liquidatible() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        collateral_price: Decimal::percent(100),
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(10_000u128),
         credit_info: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
-        credit_price: Decimal::percent(100),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
@@ -82,7 +94,10 @@ fn query_bid() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -215,7 +230,10 @@ fn query_slots_queues() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -279,7 +297,7 @@ fn query_slots_queues() {
         bid_for: AssetInfo::NativeToken {
             denom: "atom".to_string(),
         },
-        start_after: None,
+        start_after: Some(1),
         limit: Some(2),
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
@@ -289,7 +307,8 @@ fn query_slots_queues() {
         vec![
             SlotResponse {
                 bids: vec![],
-                liq_premium: Decimal256::percent(0).to_string(),
+                waiting_bids: vec![],
+                liq_premium: Decimal256::percent(2).to_string(),
                 sum_snapshot: Uint128::zero().to_string(),
                 product_snapshot: Decimal::one().to_string(),
                 total_bid_amount: Uint128::zero().to_string(),
@@ -300,7 +319,8 @@ fn query_slots_queues() {
             },
             SlotResponse {
                 bids: vec![],
-                liq_premium: Decimal256::percent(1).to_string(),
+                waiting_bids: vec![],
+                liq_premium: Decimal256::percent(3).to_string(),
                 sum_snapshot: Uint128::zero().to_string(),
                 product_snapshot: Decimal::one().to_string(),
                 total_bid_amount: Uint128::zero().to_string(),
@@ -358,6 +378,7 @@ fn query_slots_queues() {
                 epoch_snapshot: Uint128::zero(),
                 scale_snapshot: Uint128::zero(),
             }],
+            waiting_bids: vec![],
             liq_premium: Decimal256::percent(1).to_string(),
             sum_snapshot: Uint128::zero().to_string(),
             product_snapshot: Decimal::one().to_string(),

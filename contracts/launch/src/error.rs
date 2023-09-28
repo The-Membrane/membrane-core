@@ -11,7 +11,7 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
-    #[error("Need 20 uosmo to instantiate")]
+    #[error("Need 20_000_000 uosmo to instantiate")]
     NeedOsmo {},
 
     #[error("Deposit period over")]

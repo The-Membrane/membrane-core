@@ -6,6 +6,7 @@ use membrane::liq_queue::{
     Config, BidResponse, ClaimsResponse, LiquidatibleResponse, SlotResponse, QueueResponse,
 };
 use membrane::math::{Decimal256, Uint256};
+use membrane::oracle::{PriceResponse256, PriceResponse};
 use membrane::types::{AssetInfo, Bid, PremiumSlot, Queue};
 
 use crate::state::{CONFIG, QUEUES};
@@ -54,10 +55,10 @@ pub fn query_queues(
 pub fn query_liquidatible(
     deps: Deps,
     bid_for: AssetInfo,
-    collateral_price: Decimal,
+    collateral_price: PriceResponse,
     collateral_amount: Uint256,
     credit_info: AssetInfo,
-    credit_price: Decimal,
+    credit_price: PriceResponse,
 ) -> StdResult<LiquidatibleResponse> {
     let queue: Queue = match QUEUES.load(deps.storage, bid_for.to_string()) {
         Err(_) => {
@@ -86,37 +87,31 @@ pub fn query_liquidatible(
 
         let slot_total = slot.total_bid_amount;
 
-        let collateral_price: Decimal256 = match Decimal256::from_str(&collateral_price.to_string())
-        {
-            Ok(price) => price,
-            Err(err) => {
-                return Err(StdError::GenericErr {
-                    msg: err.to_string(),
-                })
-            }
-        };
+        let mut collateral_price: PriceResponse256 = collateral_price.to_decimal256()?;
 
-        let credit_price: Decimal256 = match Decimal256::from_str(&credit_price.to_string()) {
-            Ok(price) => price,
-            Err(err) => {
-                return Err(StdError::GenericErr {
-                    msg: err.to_string(),
-                })
-            }
-        };
+        let credit_price: PriceResponse256 = credit_price.to_decimal256()?;
 
         //price * (1- premium)
         let premium_price: Decimal256 =
-            collateral_price * (Decimal256::one() - slot.clone().liq_premium);
+            collateral_price.price * (Decimal256::one() - slot.clone().liq_premium);
+        //Update
+        collateral_price.price = premium_price;
 
         //Amount = c_amount * (collateral price in stables)
-        let mut slot_required_stable: Uint256 =
-            (remaining_collateral_to_liquidate) * (premium_price / credit_price);
+        let mut slot_required_stable: Uint256 = {
+            let remaining_collateral_value_to_liquidate = collateral_price.get_value(remaining_collateral_to_liquidate);
+
+            credit_price.get_amount(remaining_collateral_value_to_liquidate)
+        };
 
         if slot_required_stable > slot_total {
             slot_required_stable = slot_total;
-            //slot_required_stable / premium_price
-            let slot_collateral_to_liquidate: Uint256 = slot_required_stable / premium_price;
+            //Transform required stable to amount of collateral it can liquidate
+            let slot_collateral_to_liquidate: Uint256 = {
+                let slot_required_stable_value = credit_price.get_value(slot_required_stable);
+
+                collateral_price.get_amount(slot_required_stable_value)
+            };
 
             remaining_collateral_to_liquidate =
                 remaining_collateral_to_liquidate - slot_collateral_to_liquidate;
@@ -158,6 +153,7 @@ pub fn query_premium_slot(
 
     Ok(SlotResponse {
         bids: slot.bids,
+        waiting_bids: slot.waiting_bids,
         liq_premium: slot.liq_premium.to_string(),
         sum_snapshot: slot.sum_snapshot.to_string(),
         product_snapshot: slot.product_snapshot.to_string(),
@@ -177,21 +173,22 @@ pub fn query_premium_slots(
     limit: Option<u8>,
 ) -> StdResult<Vec<SlotResponse>> {
     let queue = QUEUES.load(deps.storage, bid_for.to_string())?;
-
+    
     let limit = limit
-        .unwrap_or_else(|| queue.max_premium.u128() as u8)
-        .min(queue.max_premium.u128() as u8) as usize;
+        .unwrap_or_else(|| (queue.max_premium.u128() + 1) as u8)
+        .min((queue.max_premium.u128() + 1) as u8) as usize;
 
     let temp = queue.slots.into_iter();
-
+    
     if start_after.is_some() {
         temp.filter(|slot| {
-            slot.liq_premium > Decimal256::from_uint256(Uint256::from(start_after.unwrap() as u128))
+            (slot.liq_premium * Decimal256::from_uint256(Uint256::from(100 as u128))) > Decimal256::from_uint256(Uint256::from(start_after.unwrap() as u128))
         })
         .take(limit)
         .map(|slot| {
             Ok(SlotResponse {
                 bids: slot.bids,
+                waiting_bids: slot.waiting_bids,
                 liq_premium: slot.liq_premium.to_string(),
                 sum_snapshot: slot.sum_snapshot.to_string(),
                 product_snapshot: slot.product_snapshot.to_string(),
@@ -208,6 +205,7 @@ pub fn query_premium_slots(
             .map(|slot| {
                 Ok(SlotResponse {
                     bids: slot.bids,
+                    waiting_bids: slot.waiting_bids,
                     liq_premium: slot.liq_premium.to_string(),
                     sum_snapshot: slot.sum_snapshot.to_string(),
                     product_snapshot: slot.product_snapshot.to_string(),
@@ -224,8 +222,10 @@ pub fn query_premium_slots(
 
 /// Return BidResponse for a given bid_id
 pub fn query_bid(deps: Deps, bid_for: AssetInfo, bid_id: Uint128) -> StdResult<BidResponse> {
-    let bid: Bid = read_bid(deps.storage, bid_id, bid_for.clone())?;
-    let slot: PremiumSlot = match read_premium_slot(deps.storage, bid_for.clone(), bid.liq_premium)
+    let queue = QUEUES.load(deps.storage, bid_for.to_string())?;
+    let bid: Bid = read_bid(deps.storage, bid_id, queue.clone())?;
+
+    let slot: PremiumSlot = match read_premium_slot( queue.clone(), bid.liq_premium)
     {
         Ok(slot) => slot,
         Err(_) => {
@@ -241,7 +241,7 @@ pub fn query_bid(deps: Deps, bid_for: AssetInfo, bid_id: Uint128) -> StdResult<B
         // calculate remaining bid amount
         let (remaining_bid, _) = calculate_remaining_bid(&bid, &slot)?;
 
-        let bid_for = deps.api.addr_canonicalize(&bid_for.to_string())?;
+        let bid_for = bid_for.to_string();
 
         // calculate liquidated collateral
         let (liquidated_collateral, _) =
@@ -276,10 +276,11 @@ pub fn query_bids_by_user(
     start_after: Option<Uint128>,
 ) -> StdResult<Vec<BidResponse>> {
     let valid_user = deps.api.addr_validate(&user)?;
+    let queue = QUEUES.load(deps.storage, bid_for.to_string())?;
 
     let user_bids = read_bids_by_user(
         deps.storage,
-        bid_for.to_string(),
+        queue.clone(),
         valid_user,
         limit,
         start_after,

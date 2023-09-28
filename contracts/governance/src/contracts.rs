@@ -1,8 +1,9 @@
 //Fork of: https://github.com/astroport-fi/astroport-governance/tree/main/contracts/assembly
+//Proposal Msg tutorial: https://blog.astroport.fi/post/tutorial-structuring-executable-messages-for-assembly-proposals-part-2-adding-proxy-contracts
 
 use cosmwasm_std::{
     attr, entry_point, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
-    MessageInfo, Order, QueryRequest, Response, StdResult, Uint128, Uint64, WasmMsg, WasmQuery,
+    MessageInfo, Order, QueryRequest, Response, StdResult, Uint128, Uint64, WasmMsg, WasmQuery, Storage, QuerierWrapper,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::Bound;
@@ -12,17 +13,17 @@ use membrane::governance::helpers::validate_links;
 use membrane::governance::{
     Config, ExecuteMsg, InstantiateMsg, Proposal, ProposalListResponse, ProposalMessage,
     ProposalResponse, ProposalStatus, ProposalVoteOption, ProposalVotesResponse, QueryMsg,
-    UpdateConfig,
+    UpdateConfig, BLOCKS_PER_DAY
 };
 use membrane::staking::{
-    Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse,
+    Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse, DelegationResponse,
 };
 
+use std::cmp::min;
 use std::str::FromStr;
-use num::integer::Roots;
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, PROPOSALS, PROPOSAL_COUNT};
+use crate::state::{CONFIG, PROPOSALS, PROPOSAL_COUNT, PENDING_PROPOSALS};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "mbrn-governance";
@@ -35,6 +36,7 @@ const DEFAULT_VOTERS_LIMIT: u32 = 100;
 const MAX_VOTERS_LIMIT: u32 = 250;
 
 
+#[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
@@ -56,7 +58,7 @@ pub fn instantiate(
 
     let config = Config {
         mbrn_denom,
-        minimum_total_stake: Uint128::new(5_000_000_000_000),  //5M MBRN
+        minimum_total_stake: Uint128::new(1_000_000_000_000),  //1M MBRN
         staking_contract_addr: deps.api.addr_validate(&msg.mbrn_staking_contract_addr)?,
         vesting_contract_addr: deps.api.addr_validate(&msg.vesting_contract_addr)?,
         vesting_voting_power_multiplier: msg.vesting_voting_power_multiplier,
@@ -143,7 +145,7 @@ pub fn submit_proposal(
 
     //Assert minimum total stake from staking contract
     let res: TotalStakedResponse = deps.querier.query_wasm_smart(
-        config.staking_contract_addr,
+        config.clone().staking_contract_addr,
         &StakingQueryMsg::TotalStaked {  },
     )?;
     let total_staked = res.total_not_including_vested;
@@ -163,7 +165,8 @@ pub fn submit_proposal(
 
     //Validate voting power
     let voting_power = calc_voting_power(
-        deps.as_ref(),
+        deps.storage,
+        deps.querier,
         info.sender.to_string(),
         env.block.time.seconds(),
         vesting,
@@ -171,11 +174,6 @@ pub fn submit_proposal(
         false, //No quadratic for proposal submissions
     )?;
     
-    if voting_power < config.proposal_required_stake {
-        return Err(ContractError::InsufficientStake {});
-    }
-
-
     // Update the proposal count
     let count = PROPOSAL_COUNT.update(deps.storage, |c| -> StdResult<_> {
         Ok(c.checked_add(Uint64::new(1))?)
@@ -190,21 +188,54 @@ pub fn submit_proposal(
     let end_block: u64 = {
         if expedited {
             env.block.height + config.expedited_proposal_voting_period
-        } else if messages.is_some() && config.proposal_voting_period <  (7 * 14400){ //Proposals with executables have to be at least 7 days
-            env.block.height + (7 * 14400)
+        } else if messages.is_some() && config.proposal_voting_period <  (7 * BLOCKS_PER_DAY){ //Proposals with executables have to be at least 7 days
+            env.block.height + (7 * BLOCKS_PER_DAY)
         } else {
             env.block.height + config.proposal_voting_period
         }
     };    
 
-    let proposal = Proposal {
+    let mut voting_power_list: Vec<(Addr, Uint128)> = vec![];
+
+    for staker in deps
+        .querier
+        .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.staking_contract_addr.to_string(),
+            msg: to_binary(&StakingQueryMsg::Staked {
+                limit: None,
+                start_after: None,
+                end_before: Some(env.block.time.seconds()),
+                unstaking: false,
+            })?,
+        }))?
+            .stakers {
+                let vp = calc_voting_power(
+                    deps.storage,
+                    deps.querier,
+                    staker.staker.to_string(), 
+                    env.block.time.seconds(), 
+                    false, 
+                    recipient.clone(), 
+                    config.quadratic_voting,
+                )?;
+
+                voting_power_list.push((staker.staker, vp));
+            }
+    let mut proposal = Proposal {
+        voting_power: voting_power_list,
         proposal_id: count,
         submitter: submitter.unwrap_or_else(|| info.sender.clone()),
         status: ProposalStatus::Active,
+        aligned_power: voting_power,
         for_power: Uint128::zero(),
         against_power: Uint128::zero(),
+        amendment_power: Uint128::zero(),
+        removal_power: Uint128::zero(),
+        aligned_voters: vec![info.sender.clone()],
         for_voters: Vec::new(),
         against_voters: Vec::new(),
+        amendment_voters: Vec::new(),
+        removal_voters: Vec::new(),
         start_block: env.block.height,
         start_time: env.block.time.seconds(),
         end_block,
@@ -220,8 +251,16 @@ pub fn submit_proposal(
     };
 
     proposal.validate(config.whitelisted_links)?;
+    
+    //If proposal has insufficient alignment, send to pending
+    if proposal.aligned_power < config.proposal_required_stake {
+        //Set end block to 1 day from now
+        proposal.end_block = env.block.height + 14400;
+        PENDING_PROPOSALS.save(deps.storage, count.to_string(), &proposal)?;
+    } else {
+        PROPOSALS.save(deps.storage, count.to_string(), &proposal)?;
+    }
 
-    PROPOSALS.save(deps.storage, count.to_string(), &proposal)?;
 
     Ok(Response::new().add_attributes(vec![
         attr("action", "submit_proposal"),
@@ -248,25 +287,31 @@ pub fn cast_vote(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    //If sender is vesting Contract, toggle
-    let mut vesting: bool = false;
-    if info.sender == config.vesting_contract_addr {
-        vesting = true;
-    }
+    let mut pending = false;
+    let mut saved = false;
 
-    let mut proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
+    //Load proposal
+    let mut proposal = match PROPOSALS.load(deps.storage, proposal_id.to_string()){
+        Ok(proposal) => proposal,
+        Err(_) => match PENDING_PROPOSALS.load(deps.storage, proposal_id.to_string()){
+            Ok(proposal) => {
+                pending = true;
+                proposal
+            },
+            Err(err) => return Err(ContractError::Std(err)),
+        }
+    };
 
-    if proposal.status != ProposalStatus::Active {
-        return Err(ContractError::ProposalNotActive {});
-    }
+    //Init recipient    
+    let mut recipient_addr: Addr = Addr::unchecked("");
 
     //Can't vote on your own proposal
-    if proposal.submitter == info.sender {
+    if proposal.submitter == info.sender || proposal.aligned_voters.contains(&info.sender) {
         return Err(ContractError::Unauthorized {});
     } else if let Some(recipient) = recipient.clone() {
-        let recipient = deps.api.addr_validate(&recipient)?;
+        recipient_addr = deps.api.addr_validate(&recipient)?;
 
-        if proposal.submitter == recipient {
+        if proposal.submitter == recipient || proposal.aligned_voters.contains(&recipient_addr) {
             return Err(ContractError::Unauthorized {});
         }
     }
@@ -275,14 +320,32 @@ pub fn cast_vote(
         return Err(ContractError::VotingPeriodEnded {});
     }
 
-    let voting_power = calc_voting_power(
-        deps.as_ref(),
-        info.sender.to_string(),
-        proposal.clone().start_time,
-        vesting,
-        recipient.clone(),
-        config.quadratic_voting,
-    )?;
+    if proposal.for_voters.contains(&info.sender) || proposal.against_voters.contains(&info.sender) || proposal.amendment_voters.contains(&info.sender) || proposal.removal_voters.contains(&info.sender)
+    {
+        return Err(ContractError::UserAlreadyVoted {});
+    }
+
+    //Get voting power from Proposal struct
+    let mut voting_power: Uint128 = Uint128::zero();  
+    for vp in proposal.clone().voting_power.into_iter() {
+        
+        if recipient.is_some(){
+            voting_power = calc_voting_power(
+                deps.storage, 
+                deps.querier, 
+                recipient_addr.to_string(), 
+                proposal.start_time,
+                true, 
+                recipient.clone(), 
+                config.quadratic_voting,
+            )?;
+            break;
+        } else if vp.0 == info.sender {
+            voting_power = vp.1;
+            break;
+        }
+    }
+    
 
     if voting_power.is_zero() {
         return Err(ContractError::NoVotingPower {});
@@ -300,16 +363,56 @@ pub fn cast_vote(
 
     match vote_option {
         ProposalVoteOption::For => {
+            if proposal.aligned_power < config.proposal_required_stake {
+                return Err(ContractError::ProposalNotActive {});
+            }
             proposal.for_power = proposal.for_power.checked_add(voting_power)?;
             proposal.for_voters.push(info.sender.clone());
         }
         ProposalVoteOption::Against => {
+            if proposal.aligned_power < config.proposal_required_stake {
+                return Err(ContractError::ProposalNotActive {});
+            }
             proposal.against_power = proposal.against_power.checked_add(voting_power)?;
             proposal.against_voters.push(info.sender.clone());
         }
+        ProposalVoteOption::Amend => {
+            if proposal.aligned_power < config.proposal_required_stake {
+                return Err(ContractError::ProposalNotActive {});
+            }
+            proposal.amendment_power = proposal.amendment_power.checked_add(voting_power)?;
+            proposal.amendment_voters.push(info.sender.clone());
+        }
+        ProposalVoteOption::Remove => {
+            if proposal.aligned_power < config.proposal_required_stake {
+                return Err(ContractError::ProposalNotActive {});
+            }
+            proposal.removal_power = proposal.removal_power.checked_add(voting_power)?;
+            proposal.removal_voters.push(info.sender.clone());
+        }
+        ProposalVoteOption::Align => {
+            proposal.aligned_power = proposal.aligned_power.checked_add(voting_power)?;
+            proposal.aligned_voters.push(info.sender.clone());
+
+            //If alignment is reached, move to active proposal state
+            if proposal.aligned_power >= config.proposal_required_stake {
+                saved = true;
+                //Remove from pending proposals
+                PENDING_PROPOSALS.remove(deps.storage, proposal_id.to_string());
+                //Add to active proposals
+                PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;
+            }
+        }
     };
 
-    PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;
+    //Save proposal
+    if !saved {        
+        if !pending {
+            PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;
+        } else {
+            PENDING_PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;
+        }   
+    }
 
     Ok(Response::new().add_attributes(vec![
         attr("action", "cast_vote"),
@@ -332,11 +435,14 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
         return Err(ContractError::VotingPeriodNotEnded {});
     }
 
-    let config = CONFIG.load(deps.storage)?;
+    let mut config = CONFIG.load(deps.storage)?;
 
     let for_votes = proposal.for_power;
     let against_votes = proposal.against_power;
-    let total_votes = for_votes + against_votes;
+    let amend_votes = proposal.amendment_power;
+    let removal_votes = proposal.removal_power;
+
+    let total_votes = for_votes + against_votes + amend_votes + removal_votes;
 
     let total_voting_power =
         calc_total_voting_power_at(
@@ -346,26 +452,52 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
         )?;
 
     let mut proposal_quorum: Decimal = Decimal::zero();
-    let mut proposal_threshold: Decimal = Decimal::zero();
+    let mut for_threshold: Decimal = Decimal::zero();
+    let mut amend_threshold: Decimal = Decimal::zero();
+    let mut removal_threshold: Decimal = Decimal::zero();
 
     if !total_voting_power.is_zero() {
-        proposal_quorum = Decimal::from_ratio(total_votes, total_voting_power);
+        proposal_quorum = Decimal::from_ratio(total_votes+proposal.aligned_power, total_voting_power);
+        //If aligned_power isn't added, proposals made by large holders can potentially never reach quorum
     }
 
     if !total_votes.is_zero() {
-        proposal_threshold = Decimal::from_ratio(for_votes, total_votes);
-    }
+        for_threshold = Decimal::from_ratio(for_votes, total_votes);
+        amend_threshold = Decimal::from_ratio(for_votes + amend_votes, total_votes);
+        removal_threshold = Decimal::from_ratio(removal_votes, total_votes);
 
+        //Set config.proposal_required_threshold to 50 if the proposal has no executables
+        if proposal.messages.is_none() || proposal.messages.clone().unwrap().is_empty() {
+            config.proposal_required_threshold = Decimal::percent(50);
+        }
+    }
+    
+    let mut removed = false;
     // Determine the proposal result
     proposal.status = if proposal_quorum >= config.proposal_required_quorum
-        && proposal_threshold > config.proposal_required_threshold
+        && for_threshold > config.proposal_required_threshold
     {
         ProposalStatus::Passed
+    } //Amend check
+    else if proposal_quorum >= config.proposal_required_quorum
+        && amend_threshold > config.proposal_required_threshold {
+        ProposalStatus::AmendmentDesired
+    } // Removal check
+    else if proposal_quorum >= config.proposal_required_quorum
+        && removal_threshold > config.proposal_required_quorum {
+        //Remove from state
+        PROPOSALS.remove(deps.storage, proposal_id.to_string());
+        removed = true;
+
+        ProposalStatus::Rejected
     } else {
         ProposalStatus::Rejected
     };
 
-    PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;
+    //Update proposal if still in state
+    if !removed {
+        PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;    
+    }
 
     let response = Response::new().add_attributes(vec![
         attr("action", "end_proposal"),
@@ -444,20 +576,45 @@ pub fn remove_completed_proposal(
     proposal_id: u64,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
+    let mut aligned = false;
 
-    let mut proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
+    //Load proposal
+    let mut proposal = match PROPOSALS.load(deps.storage, proposal_id.to_string()){
+        Ok(proposal) => {
+            aligned = true;
+            proposal
+        },
+        Err(_) => match PENDING_PROPOSALS.load(deps.storage, proposal_id.to_string()){
+            Ok(proposal) => proposal,
+            Err(err) => return Err(ContractError::Std(err)),
+        }
+    };
 
-    if env.block.height
+    if aligned {
+        
+        if env.block.height
         > (proposal.end_block + config.proposal_effective_delay + config.proposal_expiration_period)
-    {
-        proposal.status = ProposalStatus::Expired;
+        {
+            proposal.status = ProposalStatus::Expired;
+        }
+    } //If pending, expiration starts at end_block
+    else {
+        if env.block.height > proposal.end_block {
+            proposal.status = ProposalStatus::Expired;
+        }
     }
 
-    if proposal.status != ProposalStatus::Expired && proposal.status != ProposalStatus::Rejected {
-        return Err(ContractError::ProposalNotCompleted {});
+    //If pending proposal is expired, remove
+    if proposal.status == ProposalStatus::Expired && !aligned{
+        PENDING_PROPOSALS.remove(deps.storage, proposal_id.to_string());    
     }
-
-    PROPOSALS.remove(deps.storage, proposal_id.to_string());
+    //If proposal is expired or rejected, remove
+    else if proposal.status == ProposalStatus::Expired || proposal.status == ProposalStatus::Rejected{
+        PROPOSALS.remove(deps.storage, proposal_id.to_string());
+    }  else {
+        return Err(ContractError::CantRemove {});
+    }
+    
 
     Ok(Response::new()
         .add_attribute("action", "remove_completed_proposal")
@@ -574,7 +731,15 @@ pub fn calc_total_voting_power_at(
         total = staked_mbrn
             .into_iter()
             .map(|stake| {
-                stake.amount               
+                // Take square root of total stake if quadratic voting is enabled
+                if quadratic_voting {
+                    let stake_total = Decimal::from_ratio(stake.amount, Uint128::one()).sqrt().to_uint_floor();
+                    
+                    stake_total
+                } else {
+                    stake.amount
+                }
+                
                 
             })
             .collect::<Vec<Uint128>>()
@@ -609,18 +774,24 @@ pub fn calc_total_voting_power_at(
 
 /// Calc voting power for sender at a Proposal's start_time
 pub fn calc_voting_power(
-    deps: Deps,
+    storage: &dyn Storage,
+    querier: QuerierWrapper,
     sender: String,
     start_time: u64,
     vesting: bool,
     recipient: Option<String>,
     quadratic_voting: bool,
 ) -> StdResult<Uint128> {
-    let config = CONFIG.load(deps.storage)?;
+    let config = CONFIG.load(storage)?;
+    let non_vested_total: Uint128 = querier
+        .query::<TotalStakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.staking_contract_addr.to_string(),
+            msg: to_binary(&StakingQueryMsg::TotalStaked {  })?,
+        }))?
+        .total_not_including_vested;
 
-    //Pulls stake from before Proposal's start_time
-    let staked_mbrn = deps
-        .querier
+    //Query stake from before Proposal's start_time
+    let staked_mbrn = querier
         .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.staking_contract_addr.to_string(),
             msg: to_binary(&StakingQueryMsg::Staked {
@@ -630,7 +801,7 @@ pub fn calc_voting_power(
                 unstaking: false,
             })?,
         }))?
-        .stakers;
+        .stakers;    
 
     let mut total: Uint128;
     //If calculating vesting voting power, we take from recipient's allocation
@@ -655,34 +826,64 @@ pub fn calc_voting_power(
     } else if recipient.is_some() {
         let recipient = recipient.unwrap();
 
-        let allocation = deps
-            .querier
+        let allocation = querier
             .query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.vesting_contract_addr.to_string(),
                 msg: to_binary(&VestingQueryMsg::Allocation { recipient })?,
             }))?;
             
-        total = allocation.amount * config.vesting_voting_power_multiplier;
+        total = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
+        // Vested voting power can't be more than 19% of total voting power pre-quadratic 
+        total = min(total, non_vested_total * Decimal::percent(19));
     } else if vesting {
         //If vesting but recipient isn't passed, use the sender
-        let recipient = sender;
+        let recipient = sender.clone();
 
-        let allocation = deps
-            .querier
+        let allocation = querier
             .query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.vesting_contract_addr.to_string(),
                 msg: to_binary(&VestingQueryMsg::Allocation { recipient: recipient })?,
             }))?;
 
-        total = allocation.amount * config.vesting_voting_power_multiplier;
+        total = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
+        // Vested voting power can't be more than 19% of total voting power pre-quadratic 
+        total = min(total, non_vested_total * Decimal::percent(19));        
+        
     } else {
         total = Uint128::zero();
     }
+
+    // Query delegations
+    if let Ok(delegation_info) = querier
+        .query::<DelegationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.staking_contract_addr.to_string(),
+            msg: to_binary(&StakingQueryMsg::Delegations {
+                limit: None,
+                start_after: None,
+                user: Some(sender.clone()),
+            })?,
+        })){
+            //Get total delegated to user from before proposal start time
+            let total_delegated_to_user: Uint128 = delegation_info.delegation_info.clone().delegated
+                .into_iter()
+                .filter(|delegation| delegation.time_of_delegation <= start_time && delegation.voting_power_delegation)
+                .map(|dele| dele.amount)
+                .sum();
+
+            //Get total delegated away from user from before proposal start time
+            let total_delegated_from_user: Uint128 = delegation_info.delegation_info.clone().delegated_to
+                .into_iter()
+                .filter(|delegation| delegation.time_of_delegation <= start_time && delegation.voting_power_delegation)
+                .map(|dele| dele.amount)
+                .sum();
+            //Add delegated to user and subtract delegated from user
+            total += total_delegated_to_user - total_delegated_from_user;
+        };
+    
     
     // Take square root of total stake if quadratic voting is enabled
     if quadratic_voting {
-        let total_root = (total.u128()).sqrt();
-        total = Uint128::from(total_root);
+        total = Decimal::from_ratio(total, Uint128::one()).sqrt().to_uint_floor();
     }    
     
     Ok(total)
@@ -692,7 +893,8 @@ pub fn calc_voting_power(
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::Proposals { start, limit } => to_binary(&query_proposals(deps, start, limit)?),
+        QueryMsg::ActiveProposals { start, limit } => to_binary(&query_proposals(deps, start, limit)?),
+        QueryMsg::PendingProposals { start, limit } => to_binary(&query_pending_proposals(deps, start, limit)?),
         QueryMsg::Proposal { proposal_id } => to_binary(&PROPOSALS.load(deps.storage, proposal_id.to_string())?),
         QueryMsg::ProposalVotes { proposal_id } => {
             to_binary(&query_proposal_votes(deps, proposal_id)?)
@@ -706,7 +908,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             let user = deps.api.addr_validate(&user)?;
 
             to_binary(&calc_voting_power(
-                deps,
+                deps.storage,
+                deps.querier,
                 user.to_string(),
                 proposal.start_time,
                 vesting,
@@ -756,11 +959,60 @@ pub fn query_proposals(
         .map(|item| {
             let (_, proposal) = item?;
             Ok(ProposalResponse {
+                voting_power: proposal.voting_power,
                 proposal_id: proposal.proposal_id,
                 submitter: proposal.submitter,
                 status: proposal.status,
+                aligned_power: proposal.aligned_power,
                 for_power: proposal.for_power,
                 against_power: proposal.against_power,
+                amendment_power: proposal.amendment_power,
+                removal_power: proposal.removal_power,
+                start_block: proposal.start_block,
+                start_time: proposal.start_time,
+                end_block: proposal.end_block,
+                delayed_end_block: proposal.delayed_end_block,
+                expiration_block: proposal.expiration_block,
+                title: proposal.title,
+                description: proposal.description,
+                link: proposal.link,
+                messages: proposal.messages,
+            })
+        })
+        .collect::<StdResult<Vec<_>>>()?;
+
+    Ok(ProposalListResponse {
+        proposal_count,
+        proposal_list,
+    })
+}
+
+/// Return a list of Pending Proposals
+pub fn query_pending_proposals(
+    deps: Deps,
+    start: Option<u64>,
+    limit: Option<u32>,
+) -> StdResult<ProposalListResponse> {
+    let proposal_count = PROPOSAL_COUNT.load(deps.storage)?;
+
+    let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+    let start = start.map(|start| Bound::inclusive(start.to_string()));
+
+    let proposal_list = PENDING_PROPOSALS
+        .range(deps.storage, start, None, Order::Ascending)
+        .take(limit)
+        .map(|item| {
+            let (_, proposal) = item?;
+            Ok(ProposalResponse {
+                voting_power: proposal.voting_power,
+                proposal_id: proposal.proposal_id,
+                submitter: proposal.submitter,
+                status: proposal.status,
+                aligned_power: proposal.aligned_power,
+                for_power: proposal.for_power,
+                against_power: proposal.against_power,
+                amendment_power: proposal.amendment_power,
+                removal_power: proposal.removal_power,
                 start_block: proposal.start_block,
                 start_time: proposal.start_time,
                 end_block: proposal.end_block,
@@ -797,6 +1049,9 @@ pub fn query_proposal_voters(
     let voters = match vote_option {
         ProposalVoteOption::For => proposal.for_voters,
         ProposalVoteOption::Against => proposal.against_voters,
+        ProposalVoteOption::Amend => proposal.amendment_voters,
+        ProposalVoteOption::Remove => proposal.removal_voters,
+        ProposalVoteOption::Align => proposal.aligned_voters,
     };
 
     if let Some(specific_user) = specific_user {
@@ -824,5 +1079,8 @@ pub fn query_proposal_votes(deps: Deps, proposal_id: u64) -> StdResult<ProposalV
         proposal_id,
         for_power: proposal.for_power,
         against_power: proposal.against_power,
+        amendment_power: proposal.amendment_power,
+        removal_power: proposal.removal_power,
+        aligned_power: proposal.aligned_power,
     })
 }

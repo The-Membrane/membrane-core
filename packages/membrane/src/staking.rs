@@ -1,7 +1,7 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Decimal, Uint128, Addr};
+use cosmwasm_std::{Uint128, Addr, Decimal};
 
-use crate::types::{Asset, FeeEvent, StakeDeposit, StakeDistribution};
+use crate::types::{Asset, FeeEvent, StakeDeposit, StakeDistribution, DelegationInfo};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -17,18 +17,12 @@ pub struct InstantiateMsg {
     pub governance_contract: Option<String>,
     /// Osmosis Proxy contract address
     pub osmosis_proxy: Option<String>,
-    /// Dex router contract address
-    pub dex_router: Option<String>,
     /// Incentive scheduling
     pub incentive_schedule: Option<StakeDistribution>,
-    /// Fee wait period in days
-    pub fee_wait_period: Option<u64>,
     /// Unstaking period in days
     pub unstaking_period: Option<u64>,
     /// MBRN denom
     pub mbrn_denom: String,
-    /// Max spread for dex swaps
-    pub max_spread: Option<Decimal>,
 }
 
 #[cw_serde]
@@ -46,18 +40,21 @@ pub enum ExecuteMsg {
         governance_contract: Option<String>,
         /// Osmosis Proxy contract address
         osmosis_proxy: Option<String>,
-        /// Dex router contract address
-        dex_router: Option<String>,
         /// MBRN denom
         mbrn_denom: Option<String>,
         /// Incentive scheduling
         incentive_schedule: Option<StakeDistribution>,
         /// Unstaking period in days
         unstaking_period: Option<u64>,
-        /// Fee wait period in days
-        fee_wait_period: Option<u64>,
-        /// Max spread for dex swaps
-        max_spread: Option<Decimal>,
+        /// Max commission rate
+        max_commission_rate: Option<Decimal>,
+        /// Toggle to keep raw CDT revenue
+        /// If false, CDT revenue is converted in the FeeAuction
+        keep_raw_cdt: Option<bool>,
+        /// Vesting contract revenue multiplier
+        /// Transforms the total stake in the revenue calculations, not the revenue directly
+        /// WARNING: SETTING TO 0 IS PERMANENT
+        vesting_rev_multiplier: Option<Decimal>,
     },
     /// Stake MBRN tokens
     Stake {
@@ -76,13 +73,37 @@ pub enum ExecuteMsg {
     },
     /// Claim all claimables
     ClaimRewards {
-        /// Claim rewards as a native token full denom
-        ///NOTE: Claim_As is for liq_fees, not MBRN tokens.
-        claim_as_native: Option<String>,
-        /// Send rewards to address
+        /// Send MBRN rewards to address, other fees are automatically sent to the sender
         send_to: Option<String>,
         /// Toggle to restake MBRN rewards
         restake: bool,
+    },
+    /// Delegate MBRN to a Governator
+    UpdateDelegations {
+        /// Governator address
+        governator_addr: Option<String>,
+        /// MBRN amount
+        /// If None, act on total delegatible MBRN
+        mbrn_amount: Option<Uint128>,
+        /// Delegate or Undelegate
+        delegate: Option<bool>,
+        /// Set fluidity
+        /// To change fluidity, you must undelegate & redelegate because your delegate may have delegated your MBRN
+        fluid: Option<bool>,
+        /// Update commission rate
+        commission: Option<Decimal>,
+        /// Toggle voting power delegation
+        voting_power_delegation: Option<bool>,
+    },
+    /// Delegate delegated MBRN
+    /// i.e. MBRN that is fluid delegated to a governator
+    /// Once delegated, the MBRN can't be undelegated by the governator, only the initial staker
+    DelegateFluidDelegations {
+        /// Governator address
+        governator_addr: String,
+        /// MBRN amount
+        /// If None, act on total delegatible MBRN
+        mbrn_amount: Option<Uint128>,
     },
     /// Position's contract deposits protocol revenue
     DepositFee {},
@@ -101,11 +122,11 @@ pub enum QueryMsg {
         staker: String,
     },
     /// Returns fee claimables && # of staking rewards
-    StakerRewards {
-        /// Staker address
-        staker: String,
+    UserRewards {
+        /// User address
+        user: String,
     },
-    /// returns list of StakeDeposits
+    /// Returns list of StakeDeposits
     Staked {
         /// Response limit
         limit: Option<u32>,
@@ -115,6 +136,15 @@ pub enum QueryMsg {
         end_before: Option<u64>,
         /// Include unstakers
         unstaking: bool,
+    },
+    /// Returns list of DelegationInfo
+    Delegations {
+        /// User limit
+        limit: Option<u32>,
+        /// Start after governator address
+        start_after: Option<String>,
+        /// Query a specific user
+        user: Option<String>,
     },
     /// Returns list of FeeEvents
     FeeEvents {
@@ -137,10 +167,17 @@ pub struct Config {
     pub mbrn_denom: String,
     /// Incentive schedule
     pub incentive_schedule: StakeDistribution,
-    /// Wait period between deposit & ability to earn fee events, in days
-    pub fee_wait_period: u64,
     /// Unstaking period, in days
     pub unstaking_period: u64,
+    /// Max commission rate
+    pub max_commission_rate: Decimal,
+    /// Toggle to keep raw CDT revenue
+    /// If false, CDT revenue is converted in the FeeAuction
+    pub keep_raw_cdt: bool,
+    /// Vesting contract revenue multiplier
+    /// Transforms the total stake in the revenue calculations, not the revenue directly
+    /// WARNING: SETTING TO 0 IS PERMANENT
+    pub vesting_rev_multiplier: Decimal,
     /// Positions contract address
     pub positions_contract: Option<Addr>,
     /// Auction contract address
@@ -151,10 +188,6 @@ pub struct Config {
     pub governance_contract: Option<Addr>,
     /// Osmosis Proxy contract address
     pub osmosis_proxy: Option<Addr>,
-    /// Dex router contract address
-    pub dex_router: Option<Addr>,
-    /// Max spread for dex swaps
-    pub max_spread: Option<Decimal>,
 }
 
 #[cw_serde]
@@ -163,8 +196,8 @@ pub struct StakerResponse {
     pub staker: String,
     /// Total MBRN staked
     pub total_staked: Uint128,
-    /// Deposit list (amount, timestamp)
-    pub deposit_list: Vec<(Uint128, u64)>,
+    /// Deposit list 
+    pub deposit_list: Vec<StakeDeposit>,
 }
 
 #[cw_serde]
@@ -193,4 +226,12 @@ pub struct TotalStakedResponse {
 pub struct FeeEventsResponse {
     /// List of FeeEvents
     pub fee_events: Vec<FeeEvent>,
+}
+
+#[cw_serde]
+pub struct DelegationResponse {
+    /// User
+    pub user: Addr,
+    /// DelegationInfo
+    pub delegation_info: DelegationInfo,
 }

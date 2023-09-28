@@ -13,7 +13,7 @@ mod tests {
     use membrane::types::{Asset, AssetInfo, AssetPool, Basket, Deposit, StakeDistribution};
 
     use cosmwasm_std::{
-        to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal,
+        to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal, Coin,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
     
@@ -80,8 +80,13 @@ mod tests {
                             current_position_id: Uint128::one(),
                             collateral_types: vec![],
                             collateral_supply_caps: vec![],
+                            lastest_collateral_rates: vec![],
                             credit_asset: Asset { info: AssetInfo::NativeToken { denom: String::from("credit") }, amount: Uint128::zero() },
-                            credit_price: Decimal::one(),
+                            credit_price: PriceResponse { 
+                                prices: vec![], 
+                                price: Decimal::one(), 
+                                decimals: 6
+                            },
                             liq_queue: None,
                             base_interest_rate: Decimal::zero(),
                             pending_revenue: Uint128::zero(),
@@ -138,6 +143,7 @@ mod tests {
                         Ok(to_binary(&PriceResponse {
                             prices: vec![],
                             price: Decimal::one(),
+                            decimals: 6,
                         })?)
                         
                     }
@@ -179,15 +185,15 @@ mod tests {
                             owner: Addr::unchecked(""),
                             mbrn_denom: String::from("mbrn_denom"),
                             incentive_schedule: StakeDistribution { rate: Decimal::zero(), duration: 0 },
-                            fee_wait_period: 0,
+                            max_commission_rate: Decimal::zero(),
                             unstaking_period: 0,
+                            keep_raw_cdt: false,
+                            vesting_rev_multiplier: Decimal::one(),
                             positions_contract: None,
                             auction_contract: None,
                             vesting_contract: None,
                             governance_contract: None,
                             osmosis_proxy: None,
-                            dex_router: None,
-                            max_spread: None,
                         })?)
                     },
                     Staking_MockQueryMsg::StakerRewards { staker } => {
@@ -264,8 +270,8 @@ mod tests {
                         user: _,
                     } => Ok(to_binary(&ClaimsResponse {
                         claims: vec![
-                            Asset {
-                                info: AssetInfo::NativeToken { denom: String::from("juicy_claims") },
+                            Coin {
+                                denom: String::from("juicy_claims"),
                                 amount: Uint128::new(4),
                             }
                         ],
@@ -495,6 +501,43 @@ mod tests {
             });
             let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            
+            //Query Config
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    discounts_contract.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            assert_eq!(
+                config, 
+                Config {
+                    owner: Addr::unchecked(ADMIN), 
+                    mbrn_denom: String::from("mbrn_denom"),
+                    positions_contract: Addr::unchecked("new_pos_contract"),                
+                    oracle_contract: Addr::unchecked("new_oracle_contract"), 
+                    staking_contract: Addr::unchecked("contract2"), 
+                    stability_pool_contract: Addr::unchecked("new_stability_pool_contract"), 
+                    lockdrop_contract: Some(Addr::unchecked("new_lockdrop_contract")), 
+                    discount_vault_contract: Some(Addr::unchecked("new_discount_vault_contract")), 
+                    minimum_time_in_network: 14,
+            });
+
+            //Successful ownership transfer
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
+                owner: None,
+                positions_contract: None,
+                oracle_contract: None,
+                staking_contract: None, 
+                stability_pool_contract: None,
+                lockdrop_contract: None,
+                discount_vault_contract: None,
+                minimum_time_in_network: None,
+            });
+            let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
 
             
             //Query Config

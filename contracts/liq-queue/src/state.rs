@@ -1,7 +1,7 @@
 use membrane::liq_queue::Config;
 use membrane::types::Queue;
 
-use cosmwasm_std::{Decimal, Uint128};
+use cosmwasm_std::{Decimal, Uint128, Addr};
 use cw_storage_plus::{Item, Map};
 
 
@@ -10,3 +10,5 @@ pub const QUEUES: Map<String, Queue> = Map::new("queue"); //Each asset (String o
                                                           //(bid_for, premium, epoch, scale) -> sum_snapshot
 pub const EPOCH_SCALE_SUM: Map<(String, Uint128, Uint128, Uint128), Decimal> =
     Map::new("epoch_scale_sum");
+
+pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");

@@ -4,6 +4,7 @@ use crate::ContractError;
 use membrane::liq_queue::{BidResponse, ExecuteMsg, InstantiateMsg, QueryMsg, SlotResponse};
 use membrane::math::{Decimal256, Uint256};
 use membrane::types::{AssetInfo, BidInput};
+use membrane::oracle::PriceResponse;
 
 use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
 use cosmwasm_std::{attr, from_binary, Coin, Decimal, StdError, Uint128};
@@ -15,7 +16,10 @@ fn one_bidder_distribution() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -23,7 +27,7 @@ fn one_bidder_distribution() {
 
     let msg = ExecuteMsg::AddQueue {
         bid_for: AssetInfo::NativeToken {
-            denom: "osmo".to_string(),
+            denom: "gamm/pool/5".to_string(),
         },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000_000u128),
@@ -33,7 +37,7 @@ fn one_bidder_distribution() {
     let msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
             bid_for: AssetInfo::NativeToken {
-                denom: "osmo".to_string(),
+                denom: "gamm/pool/5".to_string(),
             },
             liq_premium: 1u8,
         },
@@ -51,21 +55,27 @@ fn one_bidder_distribution() {
     execute(deps.as_mut(), env.clone(), submit_info, msg).unwrap();
 
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::one(),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(5000u128),
         bid_for: AssetInfo::NativeToken {
-            denom: "osmo".to_string(),
+            denom: "gamm/pool/5".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
 
     let msg = ExecuteMsg::ClaimLiquidations {
         bid_for: AssetInfo::NativeToken {
-            denom: "osmo".to_string(),
+            denom: "gamm/pool/5".to_string(),
         },
         bid_ids: None,
     };
@@ -75,7 +85,7 @@ fn one_bidder_distribution() {
         res.attributes,
         vec![
             attr("action", "claim_liquidations"),
-            attr("collateral_token", "osmo"),
+            attr("collateral_token", "gamm/pool/5"),
             attr("collateral_amount", "5000"),
         ]
     );
@@ -84,7 +94,7 @@ fn one_bidder_distribution() {
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(1u128),
         bid_for: AssetInfo::NativeToken {
-            denom: "osmo".to_string(),
+            denom: "gamm/pool/5".to_string(),
         },
         amount: None,
     };
@@ -93,7 +103,7 @@ fn one_bidder_distribution() {
         res.attributes,
         vec![
             attr("method", "retract_bid"),
-            attr("bid_for", "osmo"),
+            attr("bid_for", "gamm/pool/5"),
             attr("bid_id", "1"),
             attr("amount", "995050"),
         ]
@@ -107,7 +117,10 @@ fn two_bidder_distribution() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 1u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -144,14 +157,20 @@ fn two_bidder_distribution() {
 
     ///Liquidate 4 at $10
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(10u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(10u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(4u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env.clone(), info, liq_msg).unwrap();
@@ -177,14 +196,20 @@ fn two_bidder_distribution() {
 
     //Liquidate 6 at $20
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(20u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(20u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(6u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
@@ -267,7 +292,10 @@ fn two_bidder_distribution_big_number() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -304,14 +332,20 @@ fn two_bidder_distribution_big_number() {
 
     ///Liquidate 400 at $10
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(10u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(10u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(400_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env.clone(), info, liq_msg).unwrap();
@@ -337,14 +371,20 @@ fn two_bidder_distribution_big_number() {
 
     //Liquidate 600 at $20
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(20u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(20u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(600_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
@@ -427,7 +467,10 @@ fn one_user_two_slots() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -438,7 +481,7 @@ fn one_user_two_slots() {
             denom: "osmo".to_string(),
         },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
-        bid_threshold: Uint256::zero(),
+        bid_threshold: Uint256::from(5_000_000_000_000u128),
     };
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -476,14 +519,20 @@ fn one_user_two_slots() {
 
     //Liquidate 5 at $10
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(10u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(10u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(5_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
@@ -510,14 +559,20 @@ fn one_user_two_slots() {
 
     //Liquidate 10 at $10
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(10u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(10u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(10_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
@@ -585,7 +640,10 @@ fn completely_empty_pool() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 10u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -596,7 +654,7 @@ fn completely_empty_pool() {
             denom: "osmo".to_string(),
         },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
-        bid_threshold: Uint256::zero(),
+        bid_threshold: Uint256::from(5_000_000_000_000u128),
     };
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -622,14 +680,20 @@ fn completely_empty_pool() {
 
     ///Liquidate 20 at $50
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(50u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price:  Decimal::from_ratio(50u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(20_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     execute(deps.as_mut(), env.clone(), info, liq_msg).unwrap();
@@ -661,7 +725,7 @@ fn completely_empty_pool() {
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: BidResponse = from_binary(&res).unwrap();
-    assert!(!resp.product_snapshot.is_zero(),);
+    assert!(!resp.product_snapshot.is_zero());
     assert!(resp.epoch_snapshot == Uint128::from(1u128)); // epoch increased
 
     let msg = QueryMsg::PremiumSlot {
@@ -684,14 +748,20 @@ fn completely_empty_pool() {
 
     //Liquidate 20 at $50
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(50u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price:  Decimal::from_ratio(50u128, 1u128),
+            decimals: 6u64,
+        }, 
         collateral_amount: Uint256::from(20_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
@@ -757,7 +827,10 @@ fn product_truncated_to_zero() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 2u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -765,10 +838,10 @@ fn product_truncated_to_zero() {
 
     let msg = ExecuteMsg::AddQueue {
         bid_for: AssetInfo::NativeToken {
-            denom: "osmo".to_string(),
+            denom: "gamm/pool/5".to_string(),
         },
         max_premium: Uint128::new(30u128), //A slot for each premium is created when queue is created
-        bid_threshold: Uint256::from(10000u128),
+        bid_threshold: Uint256::from(10_000_000_000u128),
     };
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -777,7 +850,7 @@ fn product_truncated_to_zero() {
         let msg = ExecuteMsg::SubmitBid {
             bid_input: BidInput {
                 bid_for: AssetInfo::NativeToken {
-                    denom: "osmo".to_string(),
+                    denom: "gamm/pool/5".to_string(),
                 },
                 liq_premium: 0u8,
             },
@@ -795,14 +868,20 @@ fn product_truncated_to_zero() {
         execute(deps.as_mut(), env.clone(), submit_info.clone(), msg).unwrap();
 
         let liq_msg = ExecuteMsg::Liquidate {
-            credit_price: Decimal::one(),
-            collateral_price: Decimal::one(),
+            credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+            collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
             collateral_amount: Uint256::from(999_999_995u128), //5 uusd residue //999_999_999
             bid_for: AssetInfo::NativeToken {
-                denom: "osmo".to_string(),
+                denom: "gamm/pool/5".to_string(),
             },
-            position_id: Uint128::new(1u128),
-            position_owner: "owner01".to_string(),
         };
         let info = mock_info("positions_contract", &[]);
         execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
@@ -810,7 +889,7 @@ fn product_truncated_to_zero() {
 
     let msg = ExecuteMsg::ClaimLiquidations {
         bid_for: AssetInfo::NativeToken {
-            denom: "osmo".to_string(),
+            denom: "gamm/pool/5".to_string(),
         },
         bid_ids: None,
     };
@@ -820,7 +899,7 @@ fn product_truncated_to_zero() {
         res.attributes,
         vec![
             attr("action", "claim_liquidations"),
-            attr("collateral_token", "osmo"),
+            attr("collateral_token", "gamm/pool/5"),
             attr("collateral_amount", "7999999959"), // 999999995 * 8 = 7,999,999,960 missing 1ucol due to rounding and product resolution
         ]
     );
@@ -831,7 +910,7 @@ fn product_truncated_to_zero() {
             mock_env(),
             QueryMsg::PremiumSlot {
                 bid_for: AssetInfo::NativeToken {
-                    denom: "osmo".to_string(),
+                    denom: "gamm/pool/5".to_string(),
                 },
                 premium: 0u64,
             },
@@ -845,7 +924,7 @@ fn product_truncated_to_zero() {
     let msg = ExecuteMsg::RetractBid {
         bid_id: Uint128::from(8u128),
         bid_for: AssetInfo::NativeToken {
-            denom: "osmo".to_string(),
+            denom: "gamm/pool/5".to_string(),
         },
         amount: None,
     };
@@ -854,7 +933,7 @@ fn product_truncated_to_zero() {
         res.attributes,
         vec![
             attr("method", "retract_bid"),
-            attr("bid_for", "osmo"),
+            attr("bid_for", "gamm/pool/5"),
             attr("bid_id", "8"),
             attr("amount", "39"), // 5 * 8 = 40 missing 1ucol due to rounding
         ]
@@ -868,7 +947,10 @@ fn two_bidder_distribution_multiple_common_slots() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 1u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -879,7 +961,7 @@ fn two_bidder_distribution_multiple_common_slots() {
             denom: "osmo".to_string(),
         },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
-        bid_threshold: Uint256::zero(),
+        bid_threshold: Uint256::from(5_000_000_000_000u128),
     };
 
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -966,14 +1048,20 @@ fn two_bidder_distribution_multiple_common_slots() {
 
     //Liquidate 32 at $10
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(10u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(10u128, 1u128),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(32_000_000u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
@@ -1065,7 +1153,10 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 60u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -1076,7 +1167,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
             denom: "osmo".to_string(),
         },
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
-        bid_threshold: Uint256::zero(),
+        bid_threshold: Uint256::from(5_000_000_000_000u128),
     };
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -1141,14 +1232,20 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
 
     ///Liquidate 100 at $1
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(1u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(100u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the secondary bids
@@ -1198,14 +1295,20 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
 
     //Liquidate 50 at $1
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(1u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(50u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the secondary bids
@@ -1258,7 +1361,10 @@ fn not_enough_bid_for_collateral() {
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
         positions_contract: String::from("positions_contract"),
+        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
         waiting_period: 1u64,
+        minimum_bid: Uint128::zero(),
+        maximum_waiting_bids: 100u64,
     };
 
     let info = mock_info("owner0000", &[]);
@@ -1317,14 +1423,20 @@ fn not_enough_bid_for_collateral() {
     // TOTAL COLLATERAL VALUE: 300 UST
     // TOTAL BID POOL AMOUNT: 200 UST
     let liq_msg = ExecuteMsg::Liquidate {
-        credit_price: Decimal::one(),
-        collateral_price: Decimal::from_ratio(3u128, 1u128),
+        credit_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::one(),
+            decimals: 6u64,
+        },
+        collateral_price: PriceResponse {
+            prices: vec![],
+            price: Decimal::from_ratio(3u128, 1u128),
+            decimals: 6u64,
+        },
         collateral_amount: Uint256::from(100u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        position_id: Uint128::new(1u128),
-        position_owner: "owner01".to_string(),
     };
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid

@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::str::FromStr;
 
 use cosmwasm_std::{
     to_binary, Addr, Decimal, Deps, Env, Order, QuerierWrapper, QueryRequest, StdError, StdResult,
@@ -9,15 +8,14 @@ use cosmwasm_std::{
 use cw_storage_plus::Bound;
 
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
-use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::cdp::{
     Config, BadDebtResponse, CollateralInterestResponse,
-    InsolvencyResponse, InterestResponse, PositionResponse, BasketPositionsResponse,
+    InsolvencyResponse, InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse,
 };
 
 use membrane::types::{
     cAsset, AssetInfo, Basket, InsolventPosition, Position, PositionUserInfo,
-    UserInfo, DebtCap, PoolInfo, PoolStateResponse
+    UserInfo, DebtCap, RedemptionInfo, PremiumInfo
 };
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
@@ -26,7 +24,7 @@ use crate::positions::check_for_empty_position;
 use crate::rates::{accrue, get_interest_rates};
 use crate::risk_engine::get_basket_debt_caps;
 use crate::positions::read_price;
-use crate::state::{BASKET, CONFIG, POSITIONS, get_target_position};
+use crate::state::{BASKET, CONFIG, POSITIONS, get_target_position, REDEMPTION_OPT_IN};
 
 const MAX_LIMIT: u32 = 31;
 
@@ -37,42 +35,30 @@ pub fn query_position(
     position_id: Uint128,
     user: Addr,
 ) -> StdResult<PositionResponse> {
-    let mut basket = BASKET.load(deps.storage)?;
+    let basket = BASKET.load(deps.storage)?;
 
-    let (_i, mut position) = match get_target_position(deps.storage, user.clone(), position_id){
+    let (_i, position) = match get_target_position(deps.storage, user.clone(), position_id){
         Ok(position) => position,
         Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
     };
     
     let config = CONFIG.load(deps.storage)?;
 
-    let (borrow, max, _value, _prices) = get_avg_LTV(
+    let (borrow, max, _value, _prices, ratios) = get_avg_LTV(
         deps.storage,
         env.clone(),
         deps.querier,
         config.clone(),
+        Some(basket.clone()),
         position.clone().collateral_assets,
-    )?;
-
-    accrue(
-        deps.storage,
-        deps.querier,
-        env.clone(),
-        &mut position,
-        &mut basket,
-        user.to_string(),
+        false,
+        false,
     )?;
     
     Ok(PositionResponse {
         position_id: position.position_id,
         collateral_assets: position.clone().collateral_assets,
-        cAsset_ratios: get_cAsset_ratios(
-            deps.storage,
-            env,
-            deps.querier,
-            position.clone().collateral_assets,
-            config,
-        )?.0,
+        cAsset_ratios: ratios,
         credit_amount: position.credit_amount,
         basket_id: basket.basket_id,
         avg_borrow_LTV: borrow,
@@ -102,45 +88,24 @@ pub fn query_user_positions(
     
     for mut position in positions.into_iter().take(limit) {
         
-        let (borrow, max, _value, _prices) = match get_avg_LTV(
+        let (borrow, max, _value, _prices, ratios) = match get_avg_LTV(
             deps.storage,
             env.clone(),
             deps.querier,
             config.clone(),
+            Some(basket.clone()),
             position.clone().collateral_assets,
+            false,
+            false
         ) {
-            Ok((borrow, max, value, prices)) => (borrow, max, value, prices),
+            Ok((borrow, max, value, prices, ratios)) => (borrow, max, value, prices, ratios),
             Err(err) => {
                 error = Some(err);
-                (Decimal::zero(), Decimal::zero(), Decimal::zero(), vec![])
+                (Decimal::zero(), Decimal::zero(), Decimal::zero(), vec![], vec![])
             }
         };
 
-        match accrue(
-            deps.storage,
-            deps.querier,
-            env.clone(),
-            &mut position,
-            &mut basket,
-            user.to_string(),
-        ) {
-            Ok(()) => {}
-            Err(err) => error = Some(err),
-        };
-
-        let (cAsset_ratios, _) = match get_cAsset_ratios(
-            deps.storage,
-            env.clone(),
-            deps.querier,
-            position.clone().collateral_assets,
-            config.clone(),
-        ) {
-            Ok(ratios) => ratios,
-            Err(err) => {
-                error = Some(err);
-                (vec![], vec![])
-            }
-        };
+        let cAsset_ratios = ratios;
 
         if error.is_none() {
             user_positions.push(PositionResponse {
@@ -148,7 +113,7 @@ pub fn query_user_positions(
                 collateral_assets: position.collateral_assets,
                 cAsset_ratios,
                 credit_amount: position.credit_amount,
-                basket_id: basket.basket_id,
+                basket_id: basket.clone().basket_id,
                 avg_borrow_LTV: borrow,
                 avg_max_LTV: max,
             })
@@ -201,7 +166,7 @@ pub fn query_basket_debt_caps(deps: Deps, env: Env) -> StdResult<Vec<DebtCap>> {
     //Append DebtCap
     for (index, cap) in basket.collateral_supply_caps.iter().enumerate() {        
         res.push(
-                DebtCap{
+                DebtCap {
                     collateral: cap.clone().asset_info,
                     debt_total: cap.debt_total,
                     cap: asset_caps[index],
@@ -225,7 +190,7 @@ pub fn query_bad_debt(deps: Deps) -> StdResult<BadDebtResponse> {
 
             for position in positions {
                 //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
-                //This is allowed bc any calls here will be after a liquidation where the sell wall would've sold all it could to cover debts
+                //This is allowed bc any calls here will be after a liquidation where the SP would've sold all it could to cover debts
                 let empty = check_for_empty_position(position.collateral_assets);
 
                 //If there are no assets and outstanding debt
@@ -245,6 +210,7 @@ pub fn query_bad_debt(deps: Deps) -> StdResult<BadDebtResponse> {
 }
 
 /// Returns Position's insolvency status
+/// The idea is that the response can be handled by acting on the fee. So if the fee is 0, then the position is solvent or doesn't exist.
 pub fn query_position_insolvency(
     deps: Deps,
     env: Env,
@@ -257,46 +223,94 @@ pub fn query_position_insolvency(
 
     let (_i, mut target_position) = match get_target_position(deps.storage, valid_owner_addr, position_id){
         Ok(position) => position,
-        Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+        //If position doesn't exist, return solvent response
+        Err(_) => return Ok(InsolvencyResponse {
+            insolvent_positions: vec![
+                InsolventPosition {
+                    insolvent: false,
+                    position_info: UserInfo {
+                        position_id,
+                        position_owner,
+                    },
+                    current_LTV: Decimal::zero(),
+                    available_fee: Uint128::zero(),
+                }
+            ],
+        })
     };
 
-    accrue(
+    match accrue(
         deps.storage,
         deps.querier,
         env.clone(),
+        config.clone(),
         &mut target_position,
         &mut basket,
         position_owner.clone(),
-    )?;
-
-    ///
-    let mut res = InsolvencyResponse {
-        insolvent_positions: vec![],
+        false,
+        true,
+    ){
+        Ok(_) => {}
+        Err(_) => return Ok(InsolvencyResponse {
+            insolvent_positions: vec![
+                InsolventPosition {
+                    insolvent: false,
+                    position_info: UserInfo {
+                        position_id,
+                        position_owner,
+                    },
+                    current_LTV: Decimal::zero(),
+                    available_fee: Uint128::zero(),
+                }
+            ],
+        })
+    
     };
 
-    let (insolvent, current_LTV, available_fee) = insolvency_check(
+    //Query insolvency
+    let (insolvent, current_LTV, available_fee) = match insolvency_check(
         deps.storage,
         env,
         deps.querier,
+        Some(basket.clone()),
         target_position.collateral_assets,
-        Decimal::from_ratio(target_position.credit_amount, Uint128::new(1u128)),
+        target_position.credit_amount,
         basket.credit_price,
         false,
         config,
-    )?;
+        true,
+    ){
+        Ok(((insolvent, current_LTV, available_fee), _)) => (insolvent, current_LTV, available_fee),
+        Err(_) => {
+            return Ok(InsolvencyResponse {
+                insolvent_positions: vec![
+                    InsolventPosition {
+                        insolvent: false,
+                        position_info: UserInfo {
+                            position_id,
+                            position_owner,
+                        },
+                        current_LTV: Decimal::zero(),
+                        available_fee: Uint128::zero(),
+                    }
+                ],
+            })
+        }
+    };
 
-    //Since its a Singular position we'll output whether insolvent or not
-    res.insolvent_positions.push(InsolventPosition {
-        insolvent,
-        position_info: UserInfo {
-            position_id: target_position.position_id,
-            position_owner,
-        },
-        current_LTV,
-        available_fee,
-    });
-
-    Ok(res)
+    Ok(InsolvencyResponse {
+        insolvent_positions: vec![
+            InsolventPosition {
+                insolvent,
+                position_info: UserInfo {
+                    position_id,
+                    position_owner,
+                },
+                current_LTV,
+                available_fee,
+            }
+        ],
+    })
 }
 
 /// Returns cAsset interest rates for the Basket
@@ -306,7 +320,7 @@ pub fn query_collateral_rates(
 ) -> StdResult<CollateralInterestResponse> {
     let mut basket = BASKET.load(deps.storage)?;
 
-    let rates = get_interest_rates(deps.storage, deps.querier, env.clone(), &mut basket)?;
+    let rates = get_interest_rates(deps.storage, deps.querier, env.clone(), &mut basket, true)?;
 
     let config = CONFIG.load(deps.storage)?;
 
@@ -328,28 +342,37 @@ pub fn query_collateral_rates(
             pool_info: None,
             rate_index: Decimal::one(),
         };
-        let credit_TWAP_price = get_asset_values(
+        let credit_TWAP_price = match get_asset_values(
             deps.storage,
             env,
             deps.querier,
             vec![credit_asset],
             config,
-        )?
-        .1[0];
+            false
+        ){
+            Ok((_, prices)) => {
+                if prices[0].price.is_zero() {
+                    return Ok(CollateralInterestResponse { rates });
+                }
+                prices[0].price
+            },
+            //It'll error if the twap is longer than the pool lifespan
+            Err(_) => return Ok(CollateralInterestResponse { rates }),
+        };
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
             //Compare market price & redemption price
-            match credit_TWAP_price.cmp(&basket.credit_price) {
+            match credit_TWAP_price.cmp(&basket.credit_price.price) {
                 Ordering::Greater => {
                     negative_rate = true;
                     decimal_subtraction(
-                        decimal_division(credit_TWAP_price, basket.credit_price)?,
+                        decimal_division(credit_TWAP_price, basket.credit_price.price)?,
                         Decimal::one(),
                     )?
                 }
                 Ordering::Less => {
                     decimal_subtraction(
-                        decimal_division(basket.credit_price, credit_TWAP_price)?,
+                        decimal_division(basket.credit_price.price, credit_TWAP_price)?,
                         Decimal::one(),
                     )?
                 }
@@ -406,30 +429,45 @@ pub fn query_basket_credit_interest(
             rate_index: Decimal::one(),
         };
 
-        let credit_TWAP_price = get_asset_values(
+        let credit_TWAP_price = match  get_asset_values(
             deps.storage,
             env,
             deps.querier,
             vec![credit_asset],
             config,
-        )?
-        .1[0];
+            false
+        ){
+            Ok((_, prices)) => {
+                if prices[0].price.is_zero() {
+                    return Ok(InterestResponse {
+                        credit_interest: Decimal::zero(),
+                        negative_rate: false,
+                    })
+                }
+                prices[0].price
+            },
+            //It'll error if the twap is longer than the pool lifespan
+            Err(_) => return Ok(InterestResponse {
+                credit_interest: Decimal::zero(),
+                negative_rate: false,
+            })
+        };
 
         //We divide w/ the greater number first so the quotient is always 1.__
         price_difference = {
             //Compare market price & redemption price
-            match credit_TWAP_price.cmp(&basket.credit_price) {
+            match credit_TWAP_price.cmp(&basket.credit_price.price) {
                 Ordering::Greater => {
                     negative_rate = true;
                     decimal_subtraction(
-                        decimal_division(credit_TWAP_price, basket.credit_price)?,
+                        decimal_division(credit_TWAP_price, basket.credit_price.price)?,
                         Decimal::one(),
                     )?
                 }
                 Ordering::Less => {
                     negative_rate = false;
                     decimal_subtraction(
-                        decimal_division(basket.credit_price, credit_TWAP_price)?,
+                        decimal_division(basket.credit_price.price, credit_TWAP_price)?,
                         Decimal::one(),
                     )?
                 }
@@ -457,15 +495,16 @@ pub fn get_cAsset_ratios(
     querier: QuerierWrapper,
     collateral_assets: Vec<cAsset>,
     config: Config,
-) -> StdResult<(Vec<Decimal>, Vec<Decimal>)> {
+) -> StdResult<(Vec<Decimal>, Vec<PriceResponse>)> {
     let (cAsset_values, cAsset_prices) = get_asset_values(
         storage,
         env,
         querier,
         collateral_assets,
         config,
+        false
     )?;
-
+    
     let total_value: Decimal = cAsset_values.iter().sum();
 
     //getting each cAsset's % of total value
@@ -489,7 +528,8 @@ pub fn query_price(
     env: Env,
     config: Config,
     asset_info: AssetInfo,
-) -> StdResult<Decimal> {
+    is_deposit_function: bool,
+) -> StdResult<PriceResponse> {
     //Set timeframe
     let mut twap_timeframe: u64 = config.collateral_twap_timeframe;
 
@@ -502,32 +542,115 @@ pub fn query_price(
     //Try to use a stored price
     let stored_price_res = read_price(storage, &asset_info);
     
-    //Use the stored price if within the oracle_time_limit
-    if let Ok(stored_price) = stored_price_res {
-        let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
+    //If depositing, always query a new price to ensure removed assets aren't deposited
+    if !is_deposit_function {
+        //Use the stored price if within the oracle_time_limit
+        if let Ok(ref stored_price) = stored_price_res {
+            let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
 
-        if time_elapsed <= config.oracle_time_limit {
-            return Ok(stored_price.price)
+            if time_elapsed <= config.oracle_time_limit {
+                return Ok(stored_price.clone().price)
+            }
         }
     }
     
     //Query Price
-    let price = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    let res = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.oracle_contract.unwrap().to_string(),
         msg: to_binary(&OracleQueryMsg::Price {
             asset_info,
             twap_timeframe,
+            oracle_time_limit: config.oracle_time_limit,
             basket_id: None,
         })?,
     })) {
         Ok(res) => {
-            res.price
+            res
         }
-        Err(err) => { return Err(err) }
+        Err(err) => {
+            //if the oracle is down, error
+            return Err(err)
+        }
     };
 
-    Ok(price)
+    Ok(res)
 }
+
+/// Get Basket Redeemability
+pub fn query_basket_redeemability(
+    deps: Deps,
+    position_owner: Option<String>,
+    start_after: Option<u128>,
+    limit: Option<u32>,
+) -> StdResult<RedeemabilityResponse>{
+    //Set premium start 
+    let start = start_after.unwrap_or(0u128);
+
+    let mut limit = limit.unwrap_or(MAX_LIMIT);
+
+    //Set valid address
+    let mut valid_address = None;
+    if let Some(_user) = position_owner.clone(){
+        valid_address = Some(deps.api.addr_validate(&_user)?);
+    }
+
+    //Initialize response
+    let mut res: Vec<PremiumInfo> = vec![];
+
+    //Query by premium
+    for premium in start..100u128 {
+        let users_of_premium: Vec<RedemptionInfo> = match REDEMPTION_OPT_IN.load(deps.storage, premium){
+            Ok(list)=> list,
+            Err(_err) => vec![], //If no users, return empty vec
+        };
+
+        //If there are users of this premium, add the state to the response
+        if !users_of_premium.is_empty(){
+
+            if let Some(_user) = position_owner.clone(){    
+                //Add to the user's info to the response if in the premium
+                let users_info_in_premium = users_of_premium
+                    .into_iter()
+                    .filter(|info: &RedemptionInfo| info.position_owner == valid_address.clone().unwrap())
+                    .collect::<Vec<RedemptionInfo>>();
+
+                if !users_info_in_premium.is_empty(){
+                    res.push(PremiumInfo {
+                        premium,
+                        users_of_premium: users_info_in_premium,
+                    });
+                }
+
+            } else {
+                //Assert limit 
+                if limit >= users_of_premium.len() as u32 {
+                    //Add all users in this premium
+                    res.push(PremiumInfo {
+                        premium,
+                        users_of_premium: users_of_premium.clone(),
+                    });
+                    //Update limit
+                    limit = limit.checked_sub(users_of_premium.len() as u32).unwrap_or(0u32);
+                } else {
+                    //Add up to the remaining limit
+                    let final_addition = users_of_premium.clone().into_iter().take(limit as usize).collect::<Vec<RedemptionInfo>>();
+
+                    res.push(PremiumInfo {
+                        premium,
+                        users_of_premium: final_addition,
+                    });
+                }
+            }            
+        }
+    }
+
+    Ok(
+        RedeemabilityResponse {
+            premium_infos: res,
+        }
+    )
+}
+
 
 /// Calculate cAsset values & returns a tuple of (cAsset_values, cAsset_prices)
 pub fn get_asset_values(
@@ -536,142 +659,42 @@ pub fn get_asset_values(
     querier: QuerierWrapper,
     assets: Vec<cAsset>,
     config: Config,
-) -> StdResult<(Vec<Decimal>, Vec<Decimal>)> {
+    is_deposit_function: bool,
+) -> StdResult<(Vec<Decimal>, Vec<PriceResponse>)> {
+    //Enforce Vec max size
+    if assets.len() > 50 {
+        return Err(StdError::GenericErr {
+            msg: String::from("Max asset_infos length is 50"),
+        });
+    }
+
     //Getting proportions for position collateral to calculate avg LTV
     //Using the index in the for loop to parse through the assets Vec and collateral_assets Vec
     //, as they are now aligned due to the collateral check w/ the Config's data
     let mut cAsset_values: Vec<Decimal> = vec![];
-    let mut cAsset_prices: Vec<Decimal> = vec![];
+    let mut cAsset_prices: Vec<PriceResponse> = vec![];
 
     if config.oracle_contract.is_some() {
         for (_i, cAsset) in assets.iter().enumerate() {
-            //If an Osmosis LP
-            if cAsset.pool_info.is_some() {
-                let pool_info = cAsset.clone().pool_info.unwrap();
-                let mut asset_prices = vec![];
-
-                for (pool_asset) in pool_info.clone().asset_infos {
-                    let price = query_price(
-                        storage,
-                        querier,
-                        env.clone(),
-                        config.clone(),
-                        pool_asset.info,
-                    )?;
-                    //Append price
-                    asset_prices.push(price);
-                }
-
-                //Calculate & append LP price & value
-                append_lp_price(
-                    querier,
-                    config.clone(),
-                    cAsset.clone(),
-                    asset_prices,
-                    &mut cAsset_values,
-                    &mut cAsset_prices,
-                    pool_info.clone(),
-                )?;
-            } else {
-                let price = query_price(
-                    storage,
-                    querier,
-                    env.clone(),
-                    config.clone(),
-                    cAsset.clone().asset.info,
-                )?;
-
-                cAsset_prices.push(price);
-                let collateral_value = decimal_multiplication(
-                    Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128)),
-                    price,
-                )?;
-                cAsset_values.push(collateral_value);
-            }
+            //Query prices
+            //The oracle handles LP pricing
+            let price_res = query_price(
+                storage,
+                querier,
+                env.clone(),
+                config.clone(),
+                cAsset.clone().asset.info,
+                is_deposit_function,
+            )?;
+            let cAsset_value = price_res.get_value(cAsset.asset.amount)?;
+            
+            cAsset_prices.push(price_res);
+            cAsset_values.push(cAsset_value);
+        
         }
     }
 
     Ok((cAsset_values, cAsset_prices))
-}
-
-
-/// Calculate LP share token value.
-/// Calculate LP price.
-/// Append price and value to lists.
-pub fn append_lp_price(
-    querier: QuerierWrapper,
-    config: Config,
-    cAsset: cAsset,
-    asset_prices: Vec<Decimal>,
-    cAsset_values: &mut Vec<Decimal>,
-    cAsset_prices: &mut Vec<Decimal>,
-    pool_info: PoolInfo,
-) -> StdResult<()>{
-    //Calculate share value
-    let cAsset_value = {
-        //Query share asset amount
-        let share_asset_amounts = querier
-            .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.osmosis_proxy.unwrap().to_string(),
-                msg: to_binary(&OsmoQueryMsg::PoolState {
-                    id: pool_info.pool_id,
-                })?,
-            }))?
-            .shares_value(cAsset.asset.amount);
-
-        //Calculate value of cAsset
-        let mut value = Decimal::zero();
-        for (i, price) in asset_prices.into_iter().enumerate() {
-            //Assert we are pulling asset amount from the correct asset
-            let asset_share =
-                match share_asset_amounts.clone().into_iter().find(|coin| {
-                    AssetInfo::NativeToken {
-                        denom: coin.denom.clone(),
-                    } == pool_info.clone().asset_infos[i].info
-                }) {
-                    Some(coin) => coin,
-                    None => {
-                        return Err(StdError::GenericErr {
-                            msg: format!(
-                                "Invalid asset denom: {}",
-                                pool_info.clone().asset_infos[i].info
-                            ),
-                        })
-                    }
-                };
-            //Normalize Asset amounts to native token decimal amounts (6 places: 1 = 1_000_000)
-            let exponent_difference = pool_info.clone().asset_infos[i]
-                .decimals
-                .checked_sub(6u64)
-                .unwrap();
-            let asset_amount = Uint128::from_str(&asset_share.amount).map_err(|_| StdError::GenericErr { msg: String::from("Error parsing String into Uint128") })?
-                / Uint128::new(10u64.pow(exponent_difference as u32) as u128);
-            let decimal_asset_amount =
-                Decimal::from_ratio(asset_amount, Uint128::new(1u128));
-
-            //Price * # of assets in LP shares
-            value += decimal_multiplication(price, decimal_asset_amount)?;
-        }
-
-        value
-    };
-
-    //Calculate LP price
-    let cAsset_price = {
-        let share_amount =
-            Decimal::from_ratio(cAsset.asset.amount, Uint128::new(1u128));
-        if !share_amount.is_zero() {
-            decimal_division(cAsset_value, share_amount)?
-        } else {
-            Decimal::zero()
-        }
-    };
-
-    //Push to price and value list
-    cAsset_prices.push(cAsset_price);
-    cAsset_values.push(cAsset_value);
-
-    Ok(())
 }
 
 /// Calculates the average LTV of a position.
@@ -681,27 +704,57 @@ pub fn get_avg_LTV(
     env: Env,
     querier: QuerierWrapper,
     config: Config,
+    basket: Option<Basket>,
     collateral_assets: Vec<cAsset>,
-) -> StdResult<(Decimal, Decimal, Decimal, Vec<Decimal>)> {
+    is_deposit_function: bool,
+    is_liquidation_funciton: bool, //Skip softened borrow LTV
+) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>)> {
     //Calc total value of collateral
-    let (cAsset_values, cAsset_prices) = get_asset_values(
+    let (cAsset_values, cAsset_price_res) = get_asset_values(
         storage,
-        env,
+        env.clone(),
         querier,
         collateral_assets.clone(),
-        config,
+        config.clone(),
+        is_deposit_function,
+    )?;
+
+    //Load basket
+    let basket = if let Some(basket) = basket {
+        basket
+    } else {
+        BASKET.load(storage)?
+    };
+
+    //Get basket cAsset ratios
+    let (basket_cAsset_ratios, _) = get_cAsset_ratios(
+        storage, 
+        env, 
+        querier, 
+        basket.clone().collateral_types, 
+        config
     )?;
     
     //Calculate avg LTV & return values
-    calculate_avg_LTV(cAsset_values, cAsset_prices, collateral_assets)
+    calculate_avg_LTV(
+        cAsset_values, 
+        cAsset_price_res, 
+        collateral_assets, 
+        basket.clone().collateral_types, 
+        basket_cAsset_ratios,
+        is_liquidation_funciton,
+    )
 }
 
 /// Calculations for avg_borrow_LTV, avg_max_LTV, total_value and cAsset_prices
 pub fn calculate_avg_LTV(
     cAsset_values: Vec<Decimal>,
-    cAsset_prices: Vec<Decimal>,    
-    collateral_assets: Vec<cAsset>,
-) -> StdResult<(Decimal, Decimal, Decimal, Vec<Decimal>)> {
+    cAsset_prices: Vec<PriceResponse>,    
+    mut collateral_assets: Vec<cAsset>,
+    basket_collateral_assets: Vec<cAsset>,
+    basket_cAsset_ratios: Vec<Decimal>,
+    is_liquidation_funciton: bool,
+) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>)> {
     let total_value: Decimal = cAsset_values.iter().sum();
 
     //getting each cAsset's % of total value
@@ -724,6 +777,7 @@ pub fn calculate_avg_LTV(
             Decimal::percent(0),
             Decimal::percent(0),
             vec![],
+            vec![],
         ));        
     }
 
@@ -734,7 +788,26 @@ pub fn calculate_avg_LTV(
             collateral_assets[0].max_LTV,
             total_value,
             cAsset_prices,
+            cAsset_ratios,
         ));
+    }
+
+    //Don't soften avg_borrow_LTV if we are liquidating, to keep liquidation price flat
+    if !is_liquidation_funciton {
+        //Alter borrow_LTV based on Basket supply ratio
+        for (i, cAsset) in collateral_assets.clone().into_iter().enumerate() {
+            //Find cAsset_ratio in basket
+            if let Some((basket_index, _)) = basket_collateral_assets.iter().enumerate().find(|(_, x)| x.asset == cAsset.asset) {
+                //Get the difference between max & borrow LTV
+                let LTV_difference = cAsset.max_LTV - cAsset.max_borrow_LTV;
+
+                //Multiply difference by basket ratio
+                let added_LTV_difference = decimal_multiplication(LTV_difference, 
+                    decimal_subtraction(Decimal::one(), basket_cAsset_ratios[basket_index])?
+                )?;
+                collateral_assets[i].max_borrow_LTV = cAsset.max_borrow_LTV + added_LTV_difference;
+            }
+        }
     }
 
     for (i, _cAsset) in collateral_assets.iter().enumerate() {
@@ -746,7 +819,7 @@ pub fn calculate_avg_LTV(
         avg_max_LTV += decimal_multiplication(cAsset_ratios[i], collateral_assets[i].max_LTV)?;
     }
 
-    Ok((avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices))
+    Ok((avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices, cAsset_ratios))
 }
 
 
@@ -756,28 +829,30 @@ pub fn insolvency_check(
     storage: &dyn Storage,
     env: Env,
     querier: QuerierWrapper,
+    basket: Option<Basket>,
     collateral_assets: Vec<cAsset>,
-    credit_amount: Decimal,
-    credit_price: Decimal,
+    credit_amount: Uint128,
+    credit_price: PriceResponse,
     max_borrow: bool, //Toggle for either over max_borrow or over max_LTV (liquidatable)
     config: Config,
-) -> StdResult<(bool, Decimal, Uint128)> { //insolvent, current_LTV, available_fee
+    is_liquidation_funciton: bool, //Skip softened borrow LTV
+) -> StdResult<((bool, Decimal, Uint128), (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>))> { //insolvent, current_LTV, available_fee, (avg_LTV return values)
 
     //Get avg LTVs
-    let avg_LTVs: (Decimal, Decimal, Decimal, Vec<Decimal>) =
-        get_avg_LTV(storage, env, querier, config, collateral_assets.clone())?;
+    let avg_LTVs: (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>) =
+        get_avg_LTV(storage, env, querier, config, basket, collateral_assets.clone(), false, is_liquidation_funciton)?;
 
     //Insolvency check
-    insolvency_check_calc(avg_LTVs, collateral_assets, credit_amount, credit_price, max_borrow)
+    Ok((insolvency_check_calc(avg_LTVs.clone(), collateral_assets, credit_amount, credit_price, max_borrow)?, avg_LTVs))
 }
 
 /// Function handles calculations for the insolvency check
 pub fn insolvency_check_calc(
     //BorrowLTV, MaxLTV, TotalAssetValue, cAssetPrices
-    avg_LTVs: (Decimal, Decimal, Decimal, Vec<Decimal>),    
+    avg_LTVs: (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>),    
     collateral_assets: Vec<cAsset>, 
-    credit_amount: Decimal,
-    credit_price: Decimal,
+    credit_amount: Uint128,
+    credit_price: PriceResponse,
     max_borrow: bool, //Toggle for either over max_borrow or over max_LTV (liquidatable), ie taking the minimum collateral ratio into account.
 ) -> StdResult<(bool, Decimal, Uint128)>{ 
     //No assets but still has debt, return insolvent and skip other checks
@@ -792,15 +867,19 @@ pub fn insolvency_check_calc(
     if total_assets.is_zero() && !credit_amount.is_zero() {
         return Ok((true, Decimal::percent(100), Uint128::zero()));
     } // No assets and no debt, return not insolvent        
-    else if total_assets.is_zero() && credit_amount.is_zero() {
+    else if credit_amount.is_zero() {
         return Ok((false, Decimal::percent(0), Uint128::zero()));
     }
+
     
     let total_asset_value: Decimal = avg_LTVs.2; //pulls total_asset_value
-    //current_LTV = credit_amount * credit_price / total_asset_value);
+    let debt_value = credit_price.get_value(credit_amount)?;
+    //current_LTV = debt_value / total_asset_value);
     let current_LTV = 
-        credit_amount.checked_mul(credit_price)?
-        .checked_div(total_asset_value).map_err(|_| StdError::generic_err("Division by zero in insolvency_check_calc"))?; 
+        debt_value.checked_div(total_asset_value).map_err(|_| StdError::GenericErr{msg: format!("Division by zero in insolvency_check_calc, line 907. debt_value: {}, total_asset_value: {}", debt_value, total_asset_value)})?; 
+    
+    //Return for testing
+    // return Err(StdError::GenericErr{msg: format!("debt_value: {}, total_asset_value: {}, current_LTV: {}, max_borrow: {}", debt_value, total_asset_value, current_LTV, avg_LTVs.0)});
 
     let check: bool = match max_borrow {
         true => {
@@ -813,15 +892,14 @@ pub fn insolvency_check_calc(
         }
     };
 
-    let available_fee = if check {    
+    let available_fee = if check && current_LTV > avg_LTVs.1{    
         //current_LTV - max_LTV
         let fee = current_LTV.checked_sub(avg_LTVs.1)?;
         //current_LTV - borrow_LTV
         let liq_range = current_LTV.checked_sub(avg_LTVs.0)?;
         //Fee value = repay_amount * fee
-        liq_range.checked_div(current_LTV).map_err(|_| StdError::generic_err("Division by zeroin insolvency_check_calc"))?
-                .checked_mul(
-        credit_amount.checked_mul(credit_price)?)?
+        liq_range.checked_div(current_LTV).map_err(|_| StdError::GenericErr{msg: format!("Division by zero in insolvency_check_calc, line 926. liq_range: {}, current_LTV: {}", liq_range, current_LTV)})?
+                .checked_mul(debt_value)?
                 .checked_mul(fee)?
         * Uint128::new(1)        
     } else {

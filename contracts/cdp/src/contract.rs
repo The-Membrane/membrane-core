@@ -1,5 +1,4 @@
 use std::env;
-use std::str::FromStr;
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
@@ -23,19 +22,20 @@ use crate::risk_engine::assert_basket_assets;
 use crate::positions::{
     create_basket, deposit,
     edit_basket, increase_debt,
-    liq_repay, mint_revenue, repay,
-    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID,
+    liq_repay, mint_revenue, repay, redeem_for_collateral, edit_redemption_info,
+    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID, ROUTER_REPLY_ID, 
+    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID
 };
 use crate::query::{
     query_bad_debt, query_basket_credit_interest, query_basket_debt_caps,
     query_basket_positions, query_collateral_rates,
     query_position, query_position_insolvency,
-    query_user_positions,
+    query_user_positions, query_basket_redeemability,
 };
-use crate::liquidations::{liquidate, LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID,};
-use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_close_position_reply};
+use crate::liquidations::liquidate;
+use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_close_position_reply, handle_router_repayment_reply};
 use crate::state::{
-    BASKET, CONFIG, LIQUIDATION, get_target_position, update_position,
+    BASKET, CONFIG, LIQUIDATION, get_target_position, update_position, OWNERSHIP_TRANSFER,
 };
 
 // version info for migration info
@@ -49,7 +49,7 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
-
+    
     let mut config = Config {
         liq_fee: msg.liq_fee,
         owner: info.sender,
@@ -63,9 +63,9 @@ pub fn instantiate(
         discounts_contract: None,
         oracle_time_limit: msg.oracle_time_limit,
         cpc_multiplier: Decimal::one(), 
-        rate_slope_multiplier: Decimal::from_str("0.618").unwrap(),
+        rate_slope_multiplier: msg.rate_slope_multiplier,
         debt_minimum: msg.debt_minimum,
-        base_debt_cap_multiplier: Uint128::new(21u128),
+        base_debt_cap_multiplier: msg.base_debt_cap_multiplier,
         collateral_twap_timeframe: msg.collateral_twap_timeframe,
         credit_twap_timeframe: msg.credit_twap_timeframe,
     };
@@ -133,7 +133,6 @@ pub fn execute(
                 deps.querier,
                 env.clone(),
                 valid_assets,
-                true,
             )?;
 
             deposit(deps, env, info, position_owner, position_id, cAssets )
@@ -149,7 +148,6 @@ pub fn execute(
                 deps.querier,
                 env.clone(),
                 assets,
-                false,
             )?;
             //If there is nothing being withdrawn, error
             if cAssets == vec![] { return Err(ContractError::CustomError { val: String::from("No withdrawal assets passed") }) }
@@ -169,6 +167,7 @@ pub fn execute(
         } => {
             let basket: Basket = BASKET.load(deps.storage)?;                        
             let credit_asset = assert_sent_native_token_balance(basket.credit_asset.info, &info)?;
+
             repay(
                 deps.storage,
                 deps.querier,
@@ -182,6 +181,25 @@ pub fn execute(
             )
         },
         ExecuteMsg::Accrue { position_owner, position_ids } => { external_accrue_call(deps, info, env, position_owner, position_ids) },
+        ExecuteMsg::RedeemCollateral { max_collateral_premium } => {
+            redeem_for_collateral(
+                deps, 
+                env, 
+                info, 
+                max_collateral_premium.unwrap_or(99u128)
+            )
+        },
+        ExecuteMsg::EditRedeemability { position_ids, redeemable, premium, max_loan_repayment, restricted_collateral_assets } => {
+            edit_redemption_info(
+                deps, 
+                info, 
+                position_ids, 
+                redeemable, 
+                premium, 
+                max_loan_repayment,
+                restricted_collateral_assets
+            )
+        },
         ExecuteMsg::ClosePosition { 
             position_id, 
             max_spread, 
@@ -256,7 +274,7 @@ pub fn execute(
             if info.sender == env.contract.address {
                 callback_handler(deps, env, msg)
             } else {
-                Err(ContractError::Unauthorized {})
+                Err(ContractError::Unauthorized { owner: env.contract.address.to_string() })
             }
         }
     }
@@ -274,7 +292,7 @@ fn edit_cAsset(
 
     //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        return Err(ContractError::Unauthorized { owner: config.owner.to_string() });
     }
 
     let mut basket: Basket = BASKET.load(deps.storage)?;
@@ -295,6 +313,10 @@ fn edit_cAsset(
             attrs.push(attr("asset", asset.asset.info.to_string()));
 
             if let Some(LTV) = max_LTV {
+                //Enforce 1-100% range
+                if LTV > Decimal::percent(100) || LTV < Decimal::percent(1) {
+                    return Err(ContractError::InvalidMaxLTV { max_LTV: LTV });
+                }
                 asset.max_LTV = LTV;
 
                 //Edit the asset's liq_queue max_premium
@@ -303,7 +325,11 @@ fn edit_cAsset(
                     //Gets Liquidation Queue max premium.
                     //The premium has to be at most 5% less than the difference between max_LTV and 100%
                     //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
-                    let max_premium = Uint128::new(95u128) - LTV.atomics();
+                    let max_premium = match Uint128::new(95u128).checked_sub( LTV * Uint128::new(100u128) ){
+                        Ok( diff ) => diff,
+                        //A default to 10 assuming that will be the highest sp_liq_fee
+                        Err( _err ) => Uint128::new(10u128),
+                    };
 
                     msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                         contract_addr: basket.clone().liq_queue.unwrap().into_string(),
@@ -323,6 +349,10 @@ fn edit_cAsset(
                 if LTV < Decimal::percent(100) && LTV < asset.max_LTV {
                     asset.max_borrow_LTV = LTV;
                     attrs.push(attr("max_borrow_LTV", LTV.to_string()));
+                } else {
+                    return Err(ContractError::CustomError {
+                        val:String::from("Invalid borrow LTV"),
+                    })
                 }
             }
             new_asset = asset;
@@ -355,10 +385,27 @@ fn update_config(
     update: UpdateConfig,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs = vec![
+        attr("method", "update_config"),
+    ];
 
     //Assert Authority
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        //Check if ownership transfer is in progress & transfer if so
+        let new_owner = OWNERSHIP_TRANSFER.load(deps.storage)?;
+        if info.sender == new_owner {
+            config.owner = info.sender;
+        } else {
+            return Err(ContractError::Unauthorized { owner: new_owner.to_string() });
+        }
+    }
+    
+    if let Some(owner) = update.clone().owner {
+        let valid_addr = deps.api.addr_validate(&owner)?;
+
+        //Set owner transfer state
+        OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?; 
+        attrs.push(attr("owner_transfer", valid_addr));
     }
     
     //Update Config
@@ -366,11 +413,10 @@ fn update_config(
 
     //Save new Config
     CONFIG.save(deps.storage, &config)?;
-
-    Ok(Response::new().add_attributes(vec![
-        attr("method", "update_config"),
-        attr("updated_config", format!("{:?}", config))
-    ]))
+    
+    attrs.push(
+        attr("updated_config", format!("{:?}", config)));
+    Ok(Response::new().add_attributes(attrs))
 }
 
 /// Handle CallbackMsgs
@@ -402,7 +448,7 @@ fn check_and_fulfill_bad_debt(
     let (_i, mut target_position) = get_target_position(deps.storage, position_owner.clone(), position_id)?;
 
     //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
-    //This is allowed bc any calls here will be after a liquidation where the sell wall would've sold all it could to cover debts
+    //This is allowed bc any calls here will be after a liquidation where the SP would've sold all it could to cover debts
     let total_assets: Uint128 = target_position
         .collateral_assets
         .iter()
@@ -521,9 +567,10 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         LIQ_QUEUE_REPLY_ID => handle_liq_queue_reply(deps, msg, env),
         STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, env, msg),
-        WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
         USER_SP_REPAY_REPLY_ID => handle_user_sp_repay_reply(deps, env, msg),
+        WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
         CLOSE_POSITION_REPLY_ID => handle_close_position_reply(deps, env, msg),
+        ROUTER_REPLY_ID => handle_router_repayment_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
@@ -561,6 +608,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             limit,
         )?),
         QueryMsg::GetBasket { } => to_binary(&BASKET.load(deps.storage)?),
+        QueryMsg::GetBasketRedeemability { position_owner, start_after, limit } => {
+            to_binary(&query_basket_redeemability(deps, position_owner, start_after, limit)?)
+        }
         QueryMsg::Propagation {} => to_binary(&LIQUIDATION.load(deps.storage)?),
         QueryMsg::GetBasketDebtCaps { } => {
             to_binary(&query_basket_debt_caps(deps, env)?)

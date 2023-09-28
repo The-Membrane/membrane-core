@@ -12,8 +12,8 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     /// Initial allocation
     pub initial_allocation: Uint128,
-    /// Labs address
-    pub labs_addr: String,
+    /// Address receiving pre-launch contributors allocation
+    pub pre_launch_contributors: String,
     /// MBRN denom
     pub mbrn_denom: String,
     /// Osomosis proxy contract address
@@ -168,7 +168,7 @@ impl RecipientsResponse {
 
         for recipient in self.clone().recipients {
             if let Some(allocation) = recipient.allocation{
-                total_vesting += allocation.remaining_amount;
+                total_vesting += allocation.amount - allocation.amount_withdrawn;
             }
         }
 

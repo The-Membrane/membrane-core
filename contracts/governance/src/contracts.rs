@@ -18,6 +18,7 @@ use membrane::governance::{
 use membrane::staking::{
     Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse, DelegationResponse,
 };
+use num::integer::Roots;
 
 use std::cmp::min;
 use std::str::FromStr;
@@ -757,7 +758,7 @@ pub fn calc_total_voting_power_at(
         //Add voting power of each vesting recipient
         for recipient in recipients.recipients {
             if let Some(allocation) = recipient.allocation {
-                total += allocation.remaining_amount * config.vesting_voting_power_multiplier;
+                total += (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
             }            
         }
         

@@ -1405,13 +1405,10 @@ mod tests {
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
                                 }],
-<<<<<<< HEAD
-=======
                                 is_usd_par: false,
                                 lp_pool_info: None,
                                 decimals: 6,
                                 pyth_price_feed_id: None,
->>>>>>> audit_issues
                             }],
                         },
                         AssetResponse {
@@ -1425,13 +1422,10 @@ mod tests {
                                     base_asset_denom: String::from("denom"),
                                     quote_asset_denom: String::from("denom"),
                                 }],
-<<<<<<< HEAD
-=======
                                 is_usd_par: false,
                                 lp_pool_info: None,
                                 decimals: 6,
                                 pyth_price_feed_id: None,
->>>>>>> audit_issues
                             }],
                         }
                     ])?),

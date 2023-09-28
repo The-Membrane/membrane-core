@@ -521,7 +521,7 @@ mod tests {
                     staking_contract: Addr::unchecked("contract2"), 
                     stability_pool_contract: Addr::unchecked("new_stability_pool_contract"), 
                     lockdrop_contract: Some(Addr::unchecked("new_lockdrop_contract")), 
-                    discount_vault_contract: Some(Addr::unchecked("new_discount_vault_contract")), 
+                    discount_vault_contract: vec![Addr::unchecked("new_discount_vault_contract")], 
                     minimum_time_in_network: 14,
             });
 

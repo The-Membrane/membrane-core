@@ -12,6 +12,7 @@ use cw2::set_contract_version;
 use cw_coins::Coins;
 
 use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg};
+use membrane::oracle::PriceResponse;
 use membrane::stability_pool::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig,
 };
@@ -543,6 +544,7 @@ fn withdrawal_from_state(
                     //Calc incentives
                     let accrued_incentives = match accrue_incentives(
                         storage,
+                        querier,
                         env.clone(),
                         config.clone(),
                         withdrawal_amount * Uint128::new(1u128),
@@ -652,6 +654,7 @@ fn restake(
                 //Accrue the deposit's incentives
                 incentives += match accrue_incentives(
                     deps.storage, 
+                    deps.querier,
                     env.clone(), 
                     config.clone(),
                     deposit.amount * Uint128::new(1u128), 

@@ -4,6 +4,8 @@ use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 use apollo_cw_asset::AssetInfoUnchecked;
 
 use crate::apollo_router::ExecuteMsg as RouterExecuteMsg;
+use crate::oracle::PriceResponse;
+use crate::discount_vault::Config as DV_Config;
 use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Basket}; 
 use crate::osmosis_proxy::{QueryMsg as OsmoQueryMsg, OwnerResponse};
 use crate::liquidity_check::{QueryMsg as LiquidityQueryMsg, LiquidityResponse};
@@ -26,6 +28,7 @@ pub fn query_asset_price(
         msg: to_binary(&crate::oracle::QueryMsg::Price {
             asset_info,
             twap_timeframe,
+            oracle_time_limit: 600, //10 mins
             basket_id,
         })?,
     }))?;
@@ -153,6 +156,21 @@ pub fn query_stability_pool_fee(
     };
 
     Ok(asset_pool.liq_premium)
+}
+
+
+/// Get Discount vault config
+pub fn get_discount_vault_config(
+    querier: QuerierWrapper,
+    discount_vault: String,
+) -> StdResult<DV_Config> {
+    let resp: Option<Vec<u8>> = querier.query_wasm_raw(discount_vault, b"config")?;
+    let config: DV_Config = match resp {
+        Some(asset) => serde_json_wasm::from_slice(&asset).unwrap(),
+        None => return Err(StdError::GenericErr { msg: String::from("Config not found") }),
+    };
+
+    Ok(config)
 }
 
 /// Get total amount of debt token in the Stability Pool

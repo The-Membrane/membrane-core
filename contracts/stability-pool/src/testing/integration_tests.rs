@@ -7,7 +7,7 @@ mod tests {
     use membrane::oracle::PriceResponse;
     use membrane::osmosis_proxy::TokenInfoResponse;
     use membrane::stability_pool::{ClaimsResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::types::{Asset, AssetInfo, AssetPool, UserInfo, Deposit};
+    use membrane::types::{Asset, AssetInfo, AssetPool, UserInfo, Deposit, Basket};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
@@ -61,8 +61,8 @@ mod tests {
                         mint_to_address,
                         amount,
                     } => {
-                        if amount != Uint128::new(10_000u128) && amount != Uint128::new(20_000u128) || denom != "mbrn_denom" || mint_to_address != "user" {
-                            panic!("Params incorrect: {}, {}, {}", amount, denom, mint_to_address);
+                        if amount != Uint128::new(10_000u128) && amount != Uint128::new(20_000u128) || denom != "mbrn_denom" || mint_to_address != Some("user".to_string()) {
+                            panic!("Params incorrect: {}, {}, {:?}", amount, denom, mint_to_address);
                         }
                         Ok(Response::default())
                     }
@@ -145,7 +145,8 @@ mod tests {
         GetUserPositions {
             user: String,
             limit: Option<u32>,
-        }
+        }, 
+        GetBasket {},
     }
 
     pub fn cdp_contract() -> Box<dyn Contract<Empty>> {
@@ -154,15 +155,52 @@ mod tests {
                     Ok(Response::default())
             },
             |_, _, _, _: CDP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
-            |_, _, _: CDP_MockQueryMsg| -> StdResult<Binary> { to_binary(&vec![PositionResponse { 
-                position_id: Uint128::one(),
-                collateral_assets: vec![],
-                cAsset_ratios: vec![],
-                credit_amount: Uint128::one(),
-                basket_id: Uint128::one(),
-                avg_borrow_LTV: Decimal::one(),
-                avg_max_LTV: Decimal::one()
-            }]) },
+            |_, _, msg: CDP_MockQueryMsg| -> StdResult<Binary> { 
+                match msg {
+                    CDP_MockQueryMsg::GetUserPositions { user, limit } => {
+                        Ok(to_binary(&vec![PositionResponse { 
+                            position_id: Uint128::one(),
+                            collateral_assets: vec![],
+                            cAsset_ratios: vec![],
+                            credit_amount: Uint128::one(),
+                            basket_id: Uint128::one(),
+                            avg_borrow_LTV: Decimal::one(),
+                            avg_max_LTV: Decimal::one()
+                        }])?)
+                    },
+                    CDP_MockQueryMsg::GetBasket {} => {
+                        Ok(to_binary(&Basket {
+                            basket_id: Uint128::one(),
+                            current_position_id: Uint128::one(),
+                            collateral_types: vec![],
+                            collateral_supply_caps: vec![],
+                            lastest_collateral_rates: vec![],
+                            credit_asset: Asset {
+                                info: AssetInfo::NativeToken {
+                                    denom: String::from("credit_fulldenom"),
+                                },
+                                amount: Uint128::zero(),
+                            },
+                            credit_price: PriceResponse { 
+                                prices: vec![], 
+                                price: Decimal::one(), 
+                                decimals: 6
+                            },
+                            liq_queue: None,
+                            base_interest_rate: Decimal::zero(),
+                            pending_revenue: Uint128::zero(),
+                            negative_rates: true,
+                            cpc_margin_of_error: Decimal::zero(),
+                            multi_asset_supply_caps: vec![],
+                            frozen: false,
+                            rev_to_stakers: true,
+                            credit_last_accrued: 0,
+                            rates_last_accrued: 0,
+                            oracle_set: false,
+                        })?)
+                    }
+                }
+             },
         );
         Box::new(contract)
     }
@@ -204,6 +242,7 @@ mod tests {
                         Ok(to_binary(&PriceResponse {
                             prices: vec![],
                             price: Decimal::one(),
+                            decimals: 6,
                         })?)
                         
                     }
@@ -732,11 +771,9 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.claims,
-                vec![Asset {
-                    info: AssetInfo::NativeToken {
-                        denom: String::from("mbrn_denom")
-                    },
-                    amount: Uint128::new(10_000u128),
+                vec![Coin {
+                        denom: String::from("mbrn_denom"),
+                        amount: Uint128::new(10_000u128),
                 },]
             );
 

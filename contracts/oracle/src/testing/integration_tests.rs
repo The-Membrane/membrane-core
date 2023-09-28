@@ -8,7 +8,7 @@ mod tests {
     use membrane::types::{AssetInfo, AssetOracleInfo, TWAPPoolInfo, PriceInfo, Asset, Basket, SupplyCap, Owner};
 
     use cosmwasm_std::{
-        coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128,
+        coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
     use schemars::JsonSchema;

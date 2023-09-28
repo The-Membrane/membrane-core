@@ -994,25 +994,25 @@ fn claims() {
 // fn cdp_repay() {
 //     let mut deps = mock_dependencies();
 
-    let msg = InstantiateMsg {
-        owner: Some("sender88".to_string()),
-        asset_pool: AssetPool {
-            credit_asset: Asset {
-                info: AssetInfo::NativeToken {
-                    denom: "credit".to_string(),
-                },
-                amount: Uint128::zero(),
-            },
-            liq_premium: Decimal::zero(),
-            deposits: vec![],
-        },
-        osmosis_proxy: String::from("osmosis_proxy"),
-        mbrn_denom: String::from("mbrn_denom"),
-        incentive_rate: None,
-        positions_contract: String::from("positions_contract"),
-        max_incentives: None,
-        minimum_deposit_amount: Uint128::new(5)
-    };
+    // let msg = InstantiateMsg {
+    //     owner: Some("sender88".to_string()),
+    //     asset_pool: AssetPool {
+    //         credit_asset: Asset {
+    //             info: AssetInfo::NativeToken {
+    //                 denom: "credit".to_string(),
+    //             },
+    //             amount: Uint128::zero(),
+    //         },
+    //         liq_premium: Decimal::zero(),
+    //         deposits: vec![],
+    //     },
+    //     osmosis_proxy: String::from("osmosis_proxy"),
+    //     mbrn_denom: String::from("mbrn_denom"),
+    //     incentive_rate: None,
+    //     positions_contract: String::from("positions_contract"),
+    //     max_incentives: None,
+    //     minimum_deposit_amount: Uint128::new(5)
+    // };
 
 //     //Instantiating contract
 //     let info = mock_info("sender88", &[]);
@@ -1226,6 +1226,7 @@ fn update_config(){
             unstaking_period: 1,
             minimum_deposit_amount: Uint128::new(10),
             osmosis_proxy: Addr::unchecked("new_op"), 
+            oracle_contract: Addr::unchecked("new_oracle"),
             positions_contract: Addr::unchecked("new_cdp"), 
             mbrn_denom: String::from("new_denom"), 
         },
@@ -1239,6 +1240,7 @@ fn update_config(){
         unstaking_period: None,
         minimum_deposit_amount: None,
         osmosis_proxy: None,
+        oracle_contract: None,
         positions_contract: None,
         mbrn_denom: None,
     });

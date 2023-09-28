@@ -2,10 +2,11 @@ use std::str::FromStr;
 
 use cosmwasm_std::{
     entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo,
-    QueryRequest, Response, StdResult, Uint128, WasmQuery, QuerierWrapper, attr,
+    QueryRequest, Response, StdResult, Uint128, WasmQuery, QuerierWrapper, attr, Addr,
 };
 use cw2::set_contract_version;
 
+use membrane::helpers::{get_discount_vault_config, query_basket};
 use osmosis_std::shim::Duration;
 use osmosis_std::types::osmosis::lockup::{LockupQuerier, AccountLockedLongerDurationDenomResponse};
 
@@ -223,10 +224,7 @@ fn get_user_value_in_network(
     user: String,
 )-> StdResult<Decimal>{
 
-    let basket: Basket = querier.query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().positions_contract.to_string(),
-        msg: to_binary(&CDP_QueryMsg::GetBasket { })?,
-    }))?;
+    let basket: Basket = query_basket(querier, config.positions_contract.to_string())?;
     let credit_price = basket.clone().credit_price;
     let credit_denom = basket.clone().credit_asset.info;
 
@@ -246,25 +244,21 @@ fn get_user_value_in_network(
 
     //Initialize variables
     let mut total_value = Decimal::zero();
-    let mut accepted_lps: Vec<LPPoolInfo> = vec![];
-    let mut valid_denoms: Vec<AssetInfo> = vec![];
+
+    //Handle Discount Vault
+    for vault in config.clone().discount_vault_contract {
+        //Add DV value
+        total_value += get_discounts_vault_value(querier.clone(), vault.clone(), user.clone(), config.clone().minimum_time_in_network)?;
+        //Get denoms to query for gauges
+        let dv_config: DV_Config = get_discount_vault_config(querier, vault.to_string())?;
+        let accepted_lps: Vec<AssetInfo> = dv_config.clone().accepted_LPs.into_iter().map(|lp| lp.share_token).collect();
+        //Add gauge vaule
+        total_value += get_incentive_gauge_value(querier, config.clone(), accepted_lps, user.clone(), config.clone().minimum_time_in_network)?;
+    }
 
     total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone(), mbrn_price_res.price)?;
     total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price_res.clone(), credit_price.clone().price)?;
-
-            //Add to accepted LPs
-            let res: DV_Config = querier.query_wasm_smart(discount_vault, &Discount_QueryMsg::Config {  })?;
-
-            for lp in res.accepted_LPs {
-                if let false = accepted_lps.contains(&lp) {
-                    accepted_lps.push(lp);
-                }
-            }
-        }
-        valid_denoms = accepted_lps.clone().into_iter().map(|x| x.share_token).collect::<Vec<AssetInfo>>();    
-    }   
-
-    total_value += get_incentive_gauge_value(querier, valid_denoms, user.clone(), config.clone().minimum_time_in_network, credit_price.clone(), credit_denom.to_string())?;
+    
     
     Ok( total_value )
 }
@@ -272,14 +266,13 @@ fn get_user_value_in_network(
 /// Return value of LPs in Osmosis Incentive Lockups
 fn get_incentive_gauge_value(
     querier: QuerierWrapper,
+    config: Config,
     valid_denoms: Vec<AssetInfo>,
     user: String,
     minimum_time_in_network: u64,
-    debt_price: Decimal,
-    debt_denom: String,
 ) -> StdResult<Decimal>{
-    //Initialize total value
-    let mut total_value = Decimal::zero();
+    //Initialize user_locked_value
+    let mut user_locked_value = Decimal::zero();
 
     //Parse through all valid denoms
     for denom in valid_denoms {
@@ -293,40 +286,31 @@ fn get_incentive_gauge_value(
         )?;
 
 
-        let mut user_locked_debt = vec![];
-        //Parse through all locked coins
+        //Parse through all locks, price, & value
         for user_lock_period in res.locks.clone().into_iter(){
-            user_locked_debt.extend(
-                user_lock_period.coins
-                    .into_iter()
-                    .filter(|coin| coin.denom == debt_denom)
-            )
+            //Parse thru locked coins in the lock
+            for coin in user_lock_period.coins {
+                let coin_price = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                    contract_addr: config.clone().oracle_contract.to_string(),
+                    msg: to_binary(&Oracle_QueryMsg::Price {
+                        asset_info: AssetInfo::NativeToken { denom: coin.clone().denom },
+                        twap_timeframe: 60,
+                        oracle_time_limit: 600,
+                        basket_id: None,
+                    })?,
+                })){
+                    Ok(price) => price,
+                    Err(_) => continue,
+                };
+    
+                //If price is found, add its value
+                user_locked_value += coin_price.get_value(Uint128::from_str(&coin.clone().amount).unwrap())?;
+            }
         }
-
-        //Get total locked debt
-        let mut total_locked_debt = Uint128::zero();
-
-        for coin in user_locked_debt {
-            total_locked_debt += Uint128::from_str(&coin.amount)?;
-        }
-        
-        //Get total locked debt value
-        let total_debt_value = decimal_multiplication(
-            Decimal::from_ratio(total_locked_debt, Uint128::one()),
-            debt_price
-        )?;
-        
-        //Multiply LP value by 2 to account for the non-debt side
-        //Assumption of a 50:50 LP, meaning unbalanced stableswaps are boosted
-        //This could be a "bug" but for now it's a feature to benefit LPs during distressed times
-        total_value = decimal_multiplication(
-            Decimal::percent(200),
-            total_debt_value
-        )?;
 
     }
     
-    Ok(total_value)
+    Ok(user_locked_value)
 }
 
 /// Return value of LPs in the discount vault
@@ -339,7 +323,7 @@ fn get_discounts_vault_value(
 
     //Get user capital from the Gauge Vault
     let user = querier.query::<Discount_UserResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().discount_vault_contract.unwrap().to_string(),
+        contract_addr: discount_vault.to_string(),
         msg: to_binary(&Discount_QueryMsg::User {
             user,
             minimum_deposit_time: Some(minimum_time_in_network),

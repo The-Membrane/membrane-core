@@ -21,7 +21,7 @@ use membrane::liquidity_check::{InstantiateMsg as LCInstantiateMsg, ExecuteMsg a
 use membrane::auction::{InstantiateMsg as DAInstantiateMsg, ExecuteMsg as DAExecuteMsg, UpdateConfig as AuctionUpdateConfig};
 use membrane::osmosis_proxy::{ExecuteMsg as OPExecuteMsg, QueryMsg as OPQueryMsg, ContractDenomsResponse};
 use membrane::system_discounts::InstantiateMsg as SystemDiscountInstantiateMsg;
-use membrane::discount_vault::InstantiateMsg as DiscountVaultInstantiateMsg;
+use membrane::discount_vault::{InstantiateMsg as DiscountVaultInstantiateMsg, ExecuteMsg as DiscountVaultExecuteMsg};
 use membrane::types::{AssetInfo, Basket, AssetPool, Asset, PoolInfo, LPAssetInfo, cAsset, TWAPPoolInfo, SupplyCap, AssetOracleInfo, PoolStateResponse, Owner, LiquidityInfo, PoolType};
 
 use osmosis_std::shim::{Duration, Timestamp};
@@ -382,7 +382,7 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 msg: to_binary(&CDP_InstantiateMsg {
                     owner: None,
                     liq_fee: Decimal::percent(1),
-                    oracle_time_limit: 60u64,
+                    oracle_time_limit: 600u64, //10 mins
                     debt_minimum: Uint128::new(100u128),
                     collateral_twap_timeframe: 60u64,
                     credit_twap_timeframe: 480u64,
@@ -1468,24 +1468,24 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
             });
             msgs.push(msg);
             // Add OSMO Pool as accepted LP for the Discount Vault
-            // let msg = DiscountVaultExecuteMsg::EditAcceptedLPs { 
-            //     pool_ids: vec![osmo_pool_id], 
-            //     remove: false 
-            // };
-            // let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-            //     contract_addr: addrs.clone().discount_vault.to_string(), 
-            //     msg: to_binary(&msg)?, 
-            //     funds: vec![], 
-            // });
-            // msgs.push(msg);
+            let msg = DiscountVaultExecuteMsg::EditAcceptedLPs { 
+                pool_ids: vec![osmo_pool_id], 
+                remove: false 
+            };
+            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: addrs.clone().discount_vault.to_string(), 
+                msg: to_binary(&msg)?, 
+                funds: vec![], 
+            });
+            msgs.push(msg);
             // Set DV Owner to governance
-            // let msg = DiscountVaultExecuteMsg::ChangeOwner { owner: addrs.clone().governance.to_string() };
-            // let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-            //     contract_addr: addrs.clone().discount_vault.to_string(), 
-            //     msg: to_binary(&msg)?, 
-            //     funds: vec![], 
-            // });
-            // msgs.push(msg);
+            let msg = DiscountVaultExecuteMsg::ChangeOwner { owner: addrs.clone().governance.to_string() };
+            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: addrs.clone().discount_vault.to_string(), 
+                msg: to_binary(&msg)?, 
+                funds: vec![], 
+            });
+            msgs.push(msg);
 
             // Add MBRN-OSMO LP to oracle for MBRN pricing
             msgs.push(

@@ -12,12 +12,13 @@ mod tests {
     use membrane::staking::{
         Config as StakingConfig, StakedResponse, TotalStakedResponse, DelegationResponse
     };
-    use membrane::types::{StakeDeposit, VestingPeriod, StakeDistribution, DelegationInfo, Delegation};
+    use membrane::types::{StakeDeposit, VestingPeriod, StakeDistribution, DelegationInfo, Delegation, Allocation};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
+    use membrane::vesting::{RecipientsResponse, RecipientResponse};
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 
@@ -226,6 +227,7 @@ mod tests {
     #[serde(rename_all = "snake_case")]
     pub enum Vesting_MockQueryMsg {
         Allocation { recipient: String },
+        Recipients { },
     }
 
     pub fn bv_contract() -> Box<dyn Contract<Empty>> {
@@ -247,6 +249,25 @@ mod tests {
                                 cliff: 0u64,
                                 linear: 0u64,
                             },
+                        })?)
+                    },
+                    Vesting_MockQueryMsg::Recipients {  } => {
+                        Ok(to_binary(&RecipientsResponse {
+                            recipients: vec![
+                                RecipientResponse {
+                                    allocation: Some(Allocation {
+                                        amount: Uint128::new(1000000000_000000),
+                                        amount_withdrawn: Uint128::zero(),
+                                        start_time_of_allocation: 0,
+                                        vesting_period: VestingPeriod {
+                                            cliff: 0u64,
+                                            linear: 0u64,
+                                        },
+                                    }),
+                                    claimables: vec![],
+                                    recipient: String::from("recipient"),
+                                }
+                            ],
                         })?)
                     }
                 }
@@ -818,7 +839,7 @@ mod tests {
             //This isn't equal bc the test delegated votes go to both voters
             //assert_eq!(total_voting_power, voting_power_1 + voting_power_2);
 
-            //Change the initial "Against" to For
+            //Change the initial "Against" to "For"
             let msg = ExecuteMsg::CastVote {
                 proposal_id: 1u64,
                 vote: ProposalVoteOption::For,
@@ -873,10 +894,10 @@ mod tests {
                 .unwrap();
 
             // Check proposal votes & assert quadratic weighing
-            assert_eq!(proposal.for_power, Uint128::new(39_367)); 
+            assert_eq!(proposal.for_power, Uint128::new(40146)); 
             assert_eq!(proposal.against_power, Uint128::zero());
 
-            assert_eq!(proposal_votes.for_power, Uint128::new(39_367));
+            assert_eq!(proposal_votes.for_power, Uint128::new(40146));
             assert_eq!(proposal_votes.against_power, Uint128::zero());
 
             assert_eq!(proposal_for_voters, vec![Addr::unchecked("user"), Addr::unchecked("admin")]);

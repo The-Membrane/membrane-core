@@ -83,10 +83,10 @@ pub fn query_user_positions(
         Ok(positions) => positions,
     };
     
-    let mut basket = BASKET.load(deps.storage)?;
+    let basket = BASKET.load(deps.storage)?;
     let mut user_positions: Vec<PositionResponse> = vec![];
     
-    for mut position in positions.into_iter().take(limit) {
+    for position in positions.into_iter().take(limit) {
         
         let (borrow, max, _value, _prices, ratios) = match get_avg_LTV(
             deps.storage,

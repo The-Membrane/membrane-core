@@ -30,9 +30,9 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
             )?[0];
 
             //Skip if balance is 0
-            // if credit_asset_balance.is_zero() {
-            //     return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
-            // }
+            if credit_asset_balance.is_zero() {
+                return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
+            }
 
             //Create burn_msg with queried funds
             //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted
@@ -89,7 +89,7 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
             ////
 
             Ok(Response::new()
-            // .add_message(burn_msg)
+            .add_message(burn_msg)
             .add_attribute("amount_repaid", credit_asset_balance))
         },
         
@@ -239,7 +239,7 @@ pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
                 ).map_err(|err| StdError::GenericErr { msg: err.to_string() } )?;
                 //Turn lp withdraw msgs into submessages so they run before the sell_wall_msgs
                 let lp_withdraw_msgs = lp_withdraw_msgs.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
-                // submessages.extend(lp_withdraw_msgs);
+                submessages.extend(lp_withdraw_msgs);
                 submessages.extend(sell_wall_msgs);
 
             } else {                    
@@ -405,7 +405,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 ).map_err(|err| StdError::GenericErr { msg: err.to_string() } )?;
                 //Turn lp withdraw msgs into submessages so they run before the sell_wall_msgs
                 let lp_withdraw_msgs = lp_withdraw_msgs.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
-                // submessages.extend(lp_withdraw_msgs);
+                submessages.extend(lp_withdraw_msgs);
                 submessages.extend(sell_wall_msgs);
 
                 //Save to propagate
@@ -489,7 +489,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             LIQUIDATION.save(deps.storage, &liquidation_propagation)?;
             
             Ok(Response::new()
-                // .add_submessages(lp_withdraw_msgs)
+                .add_submessages(lp_withdraw_msgs)
                 .add_submessages(sell_wall_msgs)
                 .add_attributes(attrs))
         }
@@ -686,7 +686,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 LIQUIDATION.save(deps.storage, &prop)?;
 
                 return Ok(Response::new()
-                    // .add_submessages(lp_withdraw_msgs)
+                    .add_submessages(lp_withdraw_msgs)
                     .add_submessages(sell_wall_msgs)
                     .add_attribute("error", string)
                     .add_attribute("sent_to_sell_wall", repay_amount.to_string()))

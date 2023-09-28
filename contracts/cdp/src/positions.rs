@@ -1614,7 +1614,7 @@ pub fn close_position(
     let router_messages = router_messages.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
 
     Ok(Response::new()
-        // .add_submessages(lp_withdraw_messages)
+        .add_submessages(lp_withdraw_messages)
         .add_submessages(router_messages)
         .add_submessage(sub_msg)
         .add_attributes(vec![

@@ -414,7 +414,7 @@ fn get_user_response(
             }
         }
     }
-    //Multiply LP value by 2 to account for the non-debt side
+    //Multiply, LP value by 2 to account for the non-debt side
     //Assumption of a 50:50 LP, meaning unbalanced stableswaps are boosted
     //This could be a "bug" but for now it's a feature to benefit LPs during distressed times
     LP_value = LP_value * Uint128::new(2);

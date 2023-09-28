@@ -321,11 +321,6 @@ pub fn cast_vote(
         return Err(ContractError::VotingPeriodEnded {});
     }
 
-    if proposal.for_voters.contains(&info.sender) || proposal.against_voters.contains(&info.sender) || proposal.amendment_voters.contains(&info.sender) || proposal.removal_voters.contains(&info.sender)
-    {
-        return Err(ContractError::UserAlreadyVoted {});
-    }
-
     //Get voting power from Proposal struct
     let mut voting_power: Uint128 = Uint128::zero();  
     for vp in proposal.clone().voting_power.into_iter() {
@@ -345,8 +340,7 @@ pub fn cast_vote(
             voting_power = vp.1;
             break;
         }
-    }
-    
+    }    
 
     if voting_power.is_zero() {
         return Err(ContractError::NoVotingPower {});
@@ -360,6 +354,14 @@ pub fn cast_vote(
     } else if let Some((vote, _)) = proposal.against_voters.clone().into_iter().enumerate().find(|(_, voter)| voter == &info.sender) {
         proposal.against_voters.remove(vote);
         proposal.against_power = proposal.against_power.checked_sub(voting_power)?;
+
+    } else if let Some((vote, _)) = proposal.amendment_voters.clone().into_iter().enumerate().find(|(_, voter)| voter == &info.sender) {
+        proposal.amendment_voters.remove(vote);
+        proposal.amendment_power = proposal.amendment_power.checked_sub(voting_power)?;
+
+    } else if let Some((vote, _)) = proposal.removal_voters.clone().into_iter().enumerate().find(|(_, voter)| voter == &info.sender) {
+        proposal.removal_voters.remove(vote);
+        proposal.removal_power = proposal.removal_power.checked_sub(voting_power)?;
     }
 
     match vote_option {

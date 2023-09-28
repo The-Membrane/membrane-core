@@ -543,12 +543,12 @@ mod tests {
             //Deposit credit to AssetPool: #2
             let deposit_msg = ExecuteMsg::Deposit { user: None };
             let cosmos_msg = sp_contract
-                .call(deposit_msg, vec![coin(5, "credit")])
+                .call(deposit_msg, vec![coin(10, "credit")])
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Withdraw: Invalid "Amount too high"
-            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_006u128) };
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_011u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
                 .unwrap();
@@ -557,9 +557,9 @@ mod tests {
                 err.root_cause().to_string(),
                 String::from("Invalid withdrawal")
             );
-            //Withdraw all of first, and 2nd Deposit: Success
+            //Withdraw all of first, and partial of 2nd Deposit: Success
             //First msg begins unstaking
-            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_004u128) };
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_005u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
                 .unwrap();
@@ -586,12 +586,19 @@ mod tests {
                         deposit_time: app.block_info().time.seconds(),
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: Some(app.block_info().time.seconds()),
+                    },                    
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(5_00),
+                        deposit_time: app.block_info().time.seconds(),
+                        last_accrued: app.block_info().time.seconds(),
+                        unstake_time: None,
                     },
                 ]
             );
 
             //Restake
-            let restake_msg = ExecuteMsg::Restake { restake_amount: Decimal::percent(100_004_00) };
+            let restake_msg = ExecuteMsg::Restake { restake_amount: Decimal::percent(100_005_00) };
             let cosmos_msg = sp_contract
                 .call(restake_msg, vec![])
                 .unwrap();
@@ -619,11 +626,18 @@ mod tests {
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: None,
                     },
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(5_00),
+                        deposit_time: app.block_info().time.seconds(),
+                        last_accrued: app.block_info().time.seconds(),
+                        unstake_time: None,
+                    },
                 ]
             );
 
             //Rewithdrawl Success
-            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_004u128) };
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_001u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
                 .unwrap();
@@ -651,11 +665,18 @@ mod tests {
                         last_accrued: app.block_info().time.seconds(),
                         unstake_time: Some(app.block_info().time.seconds()),
                     },
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(5_00),
+                        deposit_time: app.block_info().time.seconds(),
+                        last_accrued: app.block_info().time.seconds(),
+                        unstake_time: None,
+                    },
                 ]
             );
 
-            //Withdrawl Success that adds another unstaking deposit
-            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_002u128) };
+            //Withdrawl Success, anythiing between 100_001 & 100_005 will withdraw the first 2 deposits to enforce the minimum
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_004u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
                 .unwrap();
@@ -668,14 +689,23 @@ mod tests {
             );
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Assert success, 2nd depodit is withdrawn bc it'd leave below the minimum amount (5)
+            //Assert success
+            //3rd is left
             let resp: AssetPool = app
                 .wrap()
                 .query_wasm_smart(sp_contract.addr(), &QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None })
                 .unwrap();
             assert_eq!(
                 resp.deposits,
-                vec![ ]
+                vec![
+                    Deposit {
+                        user: Addr::unchecked(USER),
+                        amount: Decimal::percent(5_00),
+                        deposit_time: 1571797419,
+                        last_accrued: app.block_info().time.seconds(),
+                        unstake_time: None,
+                    },
+                    ]
             );
         }
 

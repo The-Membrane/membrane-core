@@ -270,7 +270,7 @@ fn accrue_incentives(
 ) -> StdResult<Uint128> {    
     //Time elapsed starting from now or unstake time
     let time_elapsed = match deposit.unstake_time {
-        Some( unstake_time ) => {            
+        Some(_) => {            
             //Set last_accrued
             deposit.last_accrued = env.block.time.seconds();
 
@@ -296,11 +296,11 @@ fn accrue_incentives(
     let mut incentives = accumulate_interest(stake, rate, time_elapsed)?;   
 
     //Get CDT Price
-    // let basket = query_basket(querier, config.clone().positions_contract.to_string())?;
-    let basket = querier.query_wasm_smart::<Basket>(
-        config.clone().positions_contract,
-        &CDP_QueryMsg::GetBasket {}
-    )?;
+    let basket: Basket = query_basket(querier, config.clone().positions_contract.to_string())?;
+    // let basket = querier.query_wasm_smart::<Basket>(
+    //     config.clone().positions_contract,
+    //     &CDP_QueryMsg::GetBasket {}
+    // )?;
     let cdt_price: PriceResponse = basket.credit_price;
 
     //Get MBRN price
@@ -495,7 +495,7 @@ fn withdrawal_from_state(
                             //Set new deposit
                             returning_deposit = Some(Deposit {
                                 amount: deposit_item.amount - withdrawal_amount,
-                                unstake_time:None,
+                                unstake_time: None,
                                 ..deposit_item.clone()
                             });
 
@@ -510,7 +510,7 @@ fn withdrawal_from_state(
                             //Set unstaking time
                             deposit_item.unstake_time = Some(env.block.time.seconds());
                             //Subtract from withdrawal_amount 
-                            withdrawal_amount.checked_sub(deposit_item.amount).unwrap();
+                            withdrawal_amount -= deposit_item.amount;
                         }                        
                     }
                 } else {
@@ -522,24 +522,22 @@ fn withdrawal_from_state(
 
                 //Subtract from each deposit until there is none left to withdraw
                 //If not withdrawable we only edit withdraw amount to make sure the deposits...
-                //..that would get parsed through in a valid withdrawal get their unstaking_time set/checked
-                if withdrawal_amount != Decimal::zero() && deposit_item.amount > withdrawal_amount {
+                //..that would get parsed through in a valid withdrawal get edited
+                if withdrawal_amount != Decimal::zero() && deposit_item.amount > withdrawal_amount && (skip_unstaking || withdrawable) {
 
-                    if withdrawable {
-                        //Add to withdrawable
-                        withdrawable_amount += withdrawal_amount * Uint128::new(1u128);
+                    withdrawable_amount += withdrawal_amount * Uint128::new(1u128);
 
-                        //Subtract from deposit.amount
-                        deposit_item.amount.checked_sub(withdrawal_amount).unwrap();
+                    //Subtract from deposit.amount
+                    deposit_item.amount -= withdrawal_amount;
 
-                        //Check if deposit is below minimum
-                        if deposit_item.amount * Uint128::new(1u128) < config.minimum_deposit_amount {
-                            //If it is, add to withdrawable
-                            withdrawable_amount += deposit_item.amount * Uint128::new(1u128);
-                            //Set deposit amount to 0
-                            deposit_item.amount = Decimal::zero();
-                        }                      
-                    }
+                    //Check if deposit is below minimum
+                    if deposit_item.amount * Uint128::new(1u128) < config.minimum_deposit_amount {
+                        //If it is, add to withdrawable
+                        withdrawable_amount += deposit_item.amount * Uint128::new(1u128);
+                        //Set deposit amount to 0
+                        deposit_item.amount = Decimal::zero();
+                    }                      
+                    
 
                     //Calc incentives
                     let accrued_incentives = match accrue_incentives(
@@ -556,22 +554,20 @@ fn withdrawal_from_state(
                             Uint128::zero()
                         }
                     };
+
                     mbrn_incentives += accrued_incentives;
                     
                     withdrawal_amount = Decimal::zero();
 
                 } else if withdrawal_amount != Decimal::zero() && deposit_item.amount <= withdrawal_amount {
-                    //If it's less than amount, 0 the deposit and substract it from the withdrawal amount
-                    withdrawal_amount.checked_sub(deposit_item.amount).unwrap();
-
-                    if withdrawable {
-                        //Add to withdrawable_amount
-                        withdrawable_amount += deposit_item.amount * Uint128::new(1u128);                        
-
-                        //If the deposit is less than withdrawal amount, substract it from the withdrawal amount and 0 the deposit 
-                        withdrawal_amount.checked_sub(deposit_item.amount).unwrap();
-                        deposit_item.amount = Decimal::zero();                
-                    }          
+                    //If deposit.amount less than withdrawal_amount, subtract it from the withdrawal amount
+                    withdrawal_amount -= deposit_item.amount;  
+                    
+                    //Add to withdrawable_amount
+                    withdrawable_amount += deposit_item.amount * Uint128::new(1u128);  
+                    //Set deposit amount to 0      
+                    deposit_item.amount = Decimal::zero();                
+                    
                 }
 
                 withdrawable = false;
@@ -592,7 +588,7 @@ fn withdrawal_from_state(
     }//Set new deposits
     pool.deposits = new_deposits;
     //Subtract withdrawable from total pool amount
-    pool.credit_asset.amount.checked_sub(withdrawable_amount).unwrap();
+    pool.credit_asset.amount = pool.credit_asset.amount.checked_sub(withdrawable_amount).unwrap();
 
     if error.is_some() {
         return Err(ContractError::CustomError {

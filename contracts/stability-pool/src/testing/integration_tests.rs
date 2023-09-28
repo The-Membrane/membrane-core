@@ -184,7 +184,7 @@ mod tests {
                             credit_price: PriceResponse { 
                                 prices: vec![], 
                                 price: Decimal::one(), 
-                                decimals: 6
+                                decimals: 0
                             },
                             liq_queue: None,
                             base_interest_rate: Decimal::zero(),
@@ -242,7 +242,7 @@ mod tests {
                         Ok(to_binary(&PriceResponse {
                             prices: vec![],
                             price: Decimal::one(),
-                            decimals: 6,
+                            decimals: 0,
                         })?)
                         
                     }
@@ -744,13 +744,28 @@ mod tests {
             let cosmos_msg = sp_contract.call(withdraw_msg.clone(), vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Query Incentives and assert that there are none after being added to claimables & no retroactive rewards from a malfunctioning restake
+            //Query Incentives and assert that there are none after being added to claimables & no retroactive rewards while unstaking
             let query_msg = QueryMsg::UnclaimedIncentives { user: String::from(USER) };
             let total_incentives: UserIncentivesResponse = app
                 .wrap()
                 .query_wasm_smart(sp_contract.addr(), &query_msg)
                 .unwrap();
             assert_eq!(total_incentives.incentives, Uint128::new(0));
+            //Query and Assert Claimables
+            let query_msg = QueryMsg::UserClaims {
+                user: String::from(USER),
+            };
+            let res: ClaimsResponse = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
+                .unwrap();
+            assert_eq!(
+                res.claims,
+                vec![Coin {
+                    denom: String::from("mbrn_denom"),
+                    amount: Uint128::new(10_000u128),
+                },]
+            );
 
             //Successful Withdraw
             let cosmos_msg = sp_contract.call(withdraw_msg, vec![]).unwrap();
@@ -773,7 +788,7 @@ mod tests {
                 res.claims,
                 vec![Coin {
                         denom: String::from("mbrn_denom"),
-                        amount: Uint128::new(10_000u128),
+                        amount: Uint128::new(10_000u128), //This +10k is from the restake->withdraw->1year->withdraw
                 },]
             );
 

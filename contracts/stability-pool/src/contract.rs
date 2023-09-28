@@ -20,7 +20,7 @@ use membrane::osmosis_proxy::ExecuteMsg as OsmosisProxy_ExecuteMsg;
 use membrane::types::{
     Asset, AssetInfo, AssetPool, Deposit, User, UserInfo, UserRatio, Basket,
 };
-use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest, accrue_user_positions, query_asset_price};
+use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest, accrue_user_positions, query_asset_price, query_basket};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
@@ -270,15 +270,14 @@ fn accrue_incentives(
 ) -> StdResult<Uint128> {    
     //Time elapsed starting from now or unstake time
     let time_elapsed = match deposit.unstake_time {
-        Some( unstake_time ) => {
-
-            let last_accrued = deposit.last_accrued;
-            
+        Some( unstake_time ) => {            
             //Set last_accrued
-            deposit.last_accrued = unstake_time;
+            deposit.last_accrued = env.block.time.seconds();
 
-            //Calculate time elapsed
-            unstake_time - last_accrued
+            //Set time elapsed
+            //If its unstaking, there are no rewards
+            0
+
         },
         None => {
             let last_accrued = deposit.last_accrued;
@@ -297,6 +296,7 @@ fn accrue_incentives(
     let mut incentives = accumulate_interest(stake, rate, time_elapsed)?;   
 
     //Get CDT Price
+    // let basket = query_basket(querier, config.clone().positions_contract.to_string())?;
     let basket = querier.query_wasm_smart::<Basket>(
         config.clone().positions_contract,
         &CDP_QueryMsg::GetBasket {}
@@ -510,7 +510,7 @@ fn withdrawal_from_state(
                             //Set unstaking time
                             deposit_item.unstake_time = Some(env.block.time.seconds());
                             //Subtract from withdrawal_amount 
-                            withdrawal_amount -= deposit_item.amount;
+                            withdrawal_amount.checked_sub(deposit_item.amount).unwrap();
                         }                        
                     }
                 } else {
@@ -530,7 +530,7 @@ fn withdrawal_from_state(
                         withdrawable_amount += withdrawal_amount * Uint128::new(1u128);
 
                         //Subtract from deposit.amount
-                        deposit_item.amount -= withdrawal_amount;
+                        deposit_item.amount.checked_sub(withdrawal_amount).unwrap();
 
                         //Check if deposit is below minimum
                         if deposit_item.amount * Uint128::new(1u128) < config.minimum_deposit_amount {
@@ -562,14 +562,14 @@ fn withdrawal_from_state(
 
                 } else if withdrawal_amount != Decimal::zero() && deposit_item.amount <= withdrawal_amount {
                     //If it's less than amount, 0 the deposit and substract it from the withdrawal amount
-                    withdrawal_amount -= deposit_item.amount;
+                    withdrawal_amount.checked_sub(deposit_item.amount).unwrap();
 
                     if withdrawable {
                         //Add to withdrawable_amount
                         withdrawable_amount += deposit_item.amount * Uint128::new(1u128);                        
 
                         //If the deposit is less than withdrawal amount, substract it from the withdrawal amount and 0 the deposit 
-                        withdrawal_amount -= deposit_item.amount;
+                        withdrawal_amount.checked_sub(deposit_item.amount).unwrap();
                         deposit_item.amount = Decimal::zero();                
                     }          
                 }
@@ -592,7 +592,7 @@ fn withdrawal_from_state(
     }//Set new deposits
     pool.deposits = new_deposits;
     //Subtract withdrawable from total pool amount
-    pool.credit_asset.amount -= withdrawable_amount;
+    pool.credit_asset.amount.checked_sub(withdrawable_amount).unwrap();
 
     if error.is_some() {
         return Err(ContractError::CustomError {

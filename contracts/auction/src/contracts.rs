@@ -142,10 +142,22 @@ fn update_config(
     if let Some(cdt_denom) = update.cdt_denom {
         config.cdt_denom = cdt_denom;
     }
-    //Ensure desired asset has an oracle price
+    //Ensure desired asset has an oracle price to save
     if let Some(asset) = update.desired_asset {
-        //Set desired asset
-        config.desired_asset = asset;
+        ///Get desired_asset price
+        if let Ok(_) = deps.querier.query_wasm_smart::<PriceResponse>(
+            config.clone().oracle_contract.to_string(),
+            &OracleQueryMsg::Price {
+                asset_info: AssetInfo::NativeToken {
+                    denom: asset.clone(),
+                },
+                twap_timeframe: 0,
+                oracle_time_limit: 0,
+                basket_id: None,
+            }) {
+                //Set desired asset
+                config.desired_asset = asset;
+            };    
     }
     if let Some(twap_timeframe) = update.twap_timeframe {
         //Enforce 1 hr - 8 hr timeframe

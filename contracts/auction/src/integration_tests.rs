@@ -67,7 +67,7 @@ mod tests {
                     } => {
                         if amount != Uint128::new(105_319u128) && amount != Uint128::new(1_063u128) && amount != Uint128::new(3_191)
                         {
-                            panic!("{}", amount)
+                            panic!("{}, {}, {}", denom, amount, mint_to_address)
                         }
                         Ok(Response::new())
                     },
@@ -107,6 +107,7 @@ mod tests {
         Price {
             asset_info: AssetInfo,
             twap_timeframe: u64,
+            oracle_time_limit: u64,
             basket_id: Option<Uint128>,
         }
     }
@@ -124,6 +125,7 @@ mod tests {
                     Oracle_MockQueryMsg::Price {
                         asset_info,
                         twap_timeframe,
+                        oracle_time_limit,
                         basket_id,
                     } => {
                         if asset_info.to_string() == String::from("no_price"){
@@ -192,7 +194,7 @@ mod tests {
                         credit_price: PriceResponse { 
                             prices: vec![], 
                             price: Decimal::one(), 
-                            decimals: 6
+                            decimals: 0
                         },
                         liq_queue: None,
                         base_interest_rate: Decimal::zero(),
@@ -799,7 +801,7 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(1_000, "credit_fulldenom"), coin(99, "error"), coin(96_000, "mbrn_denom"),  coin(96_000, "uosmo")]
+                vec![coin(1_000, "credit_fulldenom"), coin(99, "error"), coin(96_000, "mbrn_denom"),  coin(196_000, "uosmo")]
             );
 
             //Assert Auction is empty & therefore removed
@@ -878,8 +880,19 @@ mod tests {
                 send_to_stakers: None,
             });
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
-            let err = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap_err();
-            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: Generic error: Querier contract error: Generic error: Asset has no oracle price"));
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            //Assert desired asset isn't changed
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    debt_contract.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            assert_eq!(
+                config.desired_asset,
+                String::from("uosmo"),
+            );
 
             //Update Config
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 

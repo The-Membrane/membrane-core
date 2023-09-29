@@ -143,7 +143,7 @@ mod tests {
                         Ok(to_binary(&PriceResponse {
                             prices: vec![],
                             price: Decimal::one(),
-                            decimals: 6,
+                            decimals: 0,
                         })?)
                         
                     }
@@ -166,8 +166,9 @@ mod tests {
     #[serde(rename_all = "snake_case")]
     pub enum Staking_MockQueryMsg {
         Config {},
-        StakerRewards { staker: String },
+        UserRewards { user: String },
         UserStake { staker: String },
+
     }
 
     pub fn staking_contract() -> Box<dyn Contract<Empty>> {
@@ -196,7 +197,7 @@ mod tests {
                             osmosis_proxy: None,
                         })?)
                     },
-                    Staking_MockQueryMsg::StakerRewards { staker } => {
+                    Staking_MockQueryMsg::UserRewards { user } => {
                         Ok(to_binary(&RewardsResponse {
                             claimables: vec![
                                 Asset {
@@ -462,7 +463,7 @@ mod tests {
     mod discounts {
 
         use cosmwasm_std::Decimal;
-        use membrane::system_discounts::{Config, UpdateConfig};
+        use membrane::system_discounts::{Config, UpdateConfig, UserDiscountResponse};
 
         use super::*;
         
@@ -472,7 +473,7 @@ mod tests {
             let (app, discounts_contract) = proper_instantiate();
             
             //Query Liquidity
-            let discount: Decimal = app
+            let discount: UserDiscountResponse = app
                 .wrap()
                 .query_wasm_smart(
                     discounts_contract.addr(),
@@ -481,7 +482,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(discount.to_string(), String::from("0.486"));
+            assert_eq!(discount.discount.to_string(), String::from("0.486"));
         }
 
         #[test]
@@ -521,7 +522,7 @@ mod tests {
                     staking_contract: Addr::unchecked("contract2"), 
                     stability_pool_contract: Addr::unchecked("new_stability_pool_contract"), 
                     lockdrop_contract: Some(Addr::unchecked("new_lockdrop_contract")), 
-                    discount_vault_contract: vec![Addr::unchecked("new_discount_vault_contract")], 
+                    discount_vault_contract: vec![Addr::unchecked("contract3"), Addr::unchecked("new_discount_vault_contract")], 
                     minimum_time_in_network: 14,
             });
 

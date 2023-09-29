@@ -92,7 +92,7 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Staking_MockQueryMsg {
-        StakerRewards { staker: String },
+        UserRewards { user: String },
         UserStake { staker: String },
     }
 
@@ -114,7 +114,7 @@ mod tests {
             },
             |_, _, msg: Staking_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Staking_MockQueryMsg::StakerRewards { staker } => {
+                    Staking_MockQueryMsg::UserRewards { user } => {
                         Ok(to_binary(&RewardsResponse {
                             claimables: vec![
                                 Asset {

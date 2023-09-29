@@ -424,7 +424,10 @@ fn claim (
         let unlocked_incentives = ratio_of_unlock * incentives;
 
         //Calc amount available to mint
-        amount_to_mint = unlocked_incentives - locked_user.incentives_withdrawn;
+        amount_to_mint = match unlocked_incentives.checked_sub(locked_user.incentives_withdrawn){
+            Ok(amount) => amount,
+            Err(_) => Uint128::zero(),
+        };
         //Update incentives withdraw
         locked_user.incentives_withdrawn += amount_to_mint;
         

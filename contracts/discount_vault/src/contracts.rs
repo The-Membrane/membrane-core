@@ -130,6 +130,10 @@ fn deposit(
     info: MessageInfo,
 ) -> Result<Response, ContractError>{
     let config = CONFIG.load(deps.storage)?;
+
+    //Disabled deposits?
+    if !config.deposits_enabled { return Err(ContractError::DepositsDisabled {  }) };
+
     let valid_assets = validate_assets(info.clone().funds, config.clone().accepted_LPs)?;
     if valid_assets.len() < info.clone().funds.len(){ return Err(ContractError::InvalidAsset {  }) }
 

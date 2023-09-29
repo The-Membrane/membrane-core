@@ -145,7 +145,7 @@ mod tests {
 
     mod liquidity {
 
-        use membrane::liquidity_check::Config;
+        use membrane::liquidity_check::{Config, LiquidityResponse};
 
         use super::*;
         use membrane::types::LiquidityInfo;
@@ -298,7 +298,7 @@ mod tests {
                 .unwrap_err();
 
             //Query Liquidity
-            let liquidity: Uint128 = app
+            let liquidity: LiquidityResponse = app
                 .wrap()
                 .query_wasm_smart(
                     liquidity_contract.addr(),
@@ -309,8 +309,8 @@ mod tests {
                     },
                 )
                 .unwrap();
-            //49_999 * 11 bc of the StableSwap 10x boost
-            assert_eq!(liquidity, Uint128::new(549989u128));
+            //49_999 + 49_999 = 99_998 from two different pools
+            assert_eq!(liquidity.liquidity, Uint128::new(99_998u128));
         }
 
         #[test]

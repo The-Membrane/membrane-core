@@ -106,10 +106,10 @@ In liquidations.rs for sell wall usage & liquidation LTV
 - set sp_liq_fee to 10% on line 542
 
 In positions.rs for close_position
-- Comment 1615 lp withdrawal msgs
+- Comment 1627 lp withdrawal msgs
 
 In reply.rs for sell wall usage & Router Errors
-- Comment 242, 408, 492, 686
+- Comment 242, 408, 492, 689
 - Comment 33-35 & 92 for Router successful sale asset calc & burn msg send
 
 

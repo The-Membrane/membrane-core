@@ -1289,9 +1289,8 @@ fn deposit_fee(
         .collect::<Vec<String>>();
 
     //Get CDT denom
-    // let basket: Basket = query_basket(deps.querier, config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string())?;
-    // let cdt_denom = basket.credit_asset.info;
-    let cdt_denom = AssetInfo::NativeToken { denom: String::from("credit_fulldenom") };
+    let basket: Basket = query_basket(deps.querier, config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string())?;
+    let cdt_denom = basket.credit_asset.info;
 
     //Filter assets if stakers are keeping raw CDT
     let (non_CDT_assets, CDT_assets) = if config.keep_raw_cdt {

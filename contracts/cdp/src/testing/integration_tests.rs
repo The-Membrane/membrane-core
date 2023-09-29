@@ -2343,6 +2343,29 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
+            //Duplicate asset error
+            let withdrawal_msg = ExecuteMsg::Withdraw {
+                position_id: Uint128::from(1u128),
+                assets: vec![
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "debit".to_string(),
+                        },
+                        amount: Uint128::from(45_000_000_000u128),
+                    },
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "debit".to_string(),
+                        },
+                        amount: Uint128::from(45_000_000_000u128),
+                    },
+                ],
+                send_to: Some(String::from("very_trusted_contract")),
+            };
+
+            let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
             //Successful attempt
             let withdrawal_msg = ExecuteMsg::Withdraw {
                 position_id: Uint128::from(1u128),
@@ -2565,6 +2588,32 @@ mod tests {
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             assert_eq!(res.credit_amount, Uint128::zero());
+
+            //Fully withdraw from position
+            let withdrawal_msg = ExecuteMsg::Withdraw {
+                position_id: Uint128::from(1u128),
+                assets: vec![Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: "debit".to_string(),
+                    },
+                    amount: Uint128::from(100_000_000_000u128),
+                }],
+                send_to: None,
+            };
+            let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
+
+            //Query Basket Positions
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None,
+                limit: None,
+            };
+            let res: Vec<BasketPositionsResponse> = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(res.is_empty(), true);
+
         }
 
         #[test]
@@ -9315,6 +9364,13 @@ mod tests {
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
+            
+            ////Redeem///// (No enabled positions yet)
+            //Error
+            let redemption_msg = ExecuteMsg::RedeemCollateral { max_collateral_premium: None };
+            let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![coin(100_000_000000, "credit_fulldenom")]).unwrap();
+            let err = app.execute(Addr::unchecked("redeemer"), cosmos_msg).unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"No collateral to redeem with a max premium of: 99\""));  
 
             //Set #1 to 10% premium
             let redemption_msg = ExecuteMsg::EditRedeemability { 

@@ -278,7 +278,7 @@ fn get_liquidity(deps: Deps, asset: AssetInfo) -> StdResult<LiquidityResponse> {
     let liq_info = ASSETS.load(deps.storage, denom.clone())?;
 
     let mut total_pooled = Uint128::zero();
-
+    
     for info in liq_info.pool_infos {
         //Set ID and liquidity multiplier
         let (id, multiplier) = { 

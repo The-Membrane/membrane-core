@@ -707,7 +707,7 @@ pub fn get_avg_LTV(
     basket: Option<Basket>,
     collateral_assets: Vec<cAsset>,
     is_deposit_function: bool,
-    is_liquidation_funciton: bool, //Skip softened borrow LTV
+    is_liquidation_function: bool, //Skip softened borrow LTV
 ) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>)> {
     //Calc total value of collateral
     let (cAsset_values, cAsset_price_res) = get_asset_values(
@@ -742,7 +742,7 @@ pub fn get_avg_LTV(
         collateral_assets, 
         basket.clone().collateral_types, 
         basket_cAsset_ratios,
-        is_liquidation_funciton,
+        is_liquidation_function,
     )
 }
 
@@ -753,7 +753,7 @@ pub fn calculate_avg_LTV(
     mut collateral_assets: Vec<cAsset>,
     basket_collateral_assets: Vec<cAsset>,
     basket_cAsset_ratios: Vec<Decimal>,
-    is_liquidation_funciton: bool,
+    is_liquidation_function: bool,
 ) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>)> {
     let total_value: Decimal = cAsset_values.iter().sum();
 
@@ -793,7 +793,7 @@ pub fn calculate_avg_LTV(
     }
 
     //Don't soften avg_borrow_LTV if we are liquidating, to keep liquidation price flat
-    if !is_liquidation_funciton {
+    if !is_liquidation_function {
         //Alter borrow_LTV based on Basket supply ratio
         for (i, cAsset) in collateral_assets.clone().into_iter().enumerate() {
             //Find cAsset_ratio in basket
@@ -835,12 +835,12 @@ pub fn insolvency_check(
     credit_price: PriceResponse,
     max_borrow: bool, //Toggle for either over max_borrow or over max_LTV (liquidatable)
     config: Config,
-    is_liquidation_funciton: bool, //Skip softened borrow LTV
+    is_liquidation_function: bool, //Skip softened borrow LTV
 ) -> StdResult<((bool, Decimal, Uint128), (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>))> { //insolvent, current_LTV, available_fee, (avg_LTV return values)
 
     //Get avg LTVs
     let avg_LTVs: (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>) =
-        get_avg_LTV(storage, env, querier, config, basket, collateral_assets.clone(), false, is_liquidation_funciton)?;
+        get_avg_LTV(storage, env, querier, config, basket, collateral_assets.clone(), false, is_liquidation_function)?;
 
     //Insolvency check
     Ok((insolvency_check_calc(avg_LTVs.clone(), collateral_assets, credit_amount, credit_price, max_borrow)?, avg_LTVs))

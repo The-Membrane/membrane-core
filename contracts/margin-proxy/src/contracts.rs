@@ -315,6 +315,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         NEW_DEPOSIT_REPLY_ID => handle_new_deposit_reply(deps, msg),
         LOOP_REPLY_ID => handle_loop_reply(deps, env, msg),
         CLOSE_POSITION_REPLY_ID => handle_close_position_reply(deps, env, msg),
+        ROUTER_REPLY_ID => handle_router_deposit_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 }

@@ -189,7 +189,7 @@ fn get_discount(
         contract_addr: config.clone().positions_contract.to_string(),
         msg: to_binary(&CDP_QueryMsg::GetUserPositions {
             user: user.clone(),
-            limit: None,
+            limit: Some(3),
         })?,
     }))?;
 

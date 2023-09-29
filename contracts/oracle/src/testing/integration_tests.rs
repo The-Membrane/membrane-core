@@ -529,7 +529,7 @@ mod tests {
         fn scaling_test() {
             let amount = Decimal::from_ratio(Uint128::new(187931653491861157), Uint128::new(1));
             let price = decimal_multiplication(Decimal::from_str("0.000000000000001954").unwrap(), amount).unwrap();
-            panic!("{}", price);
+            
             let quote_price;
             let price = 78574968;
             let expo: i32 = -6;
@@ -549,7 +549,6 @@ mod tests {
                     ).unwrap();
                 }
             };
-            panic!("{}", quote_price);
         }
 
         #[test]

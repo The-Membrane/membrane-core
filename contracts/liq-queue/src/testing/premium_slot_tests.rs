@@ -1441,6 +1441,14 @@ fn not_enough_bid_for_collateral() {
     let info = mock_info("positions_contract", &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
-    let err = execute(deps.as_mut(), env, info, liq_msg).unwrap_err();
-    assert_eq!(err, ContractError::InsufficientBids {});
+    //Liquidate whats possible
+    let res = execute(deps.as_mut(), env, info, liq_msg).unwrap();
+    assert_eq!(res.attributes, vec![
+        attr("action", "execute_bid"),
+        attr("denom", "cdt"),
+        attr("repay_amount", "200"),
+        attr("collateral_token", "osmo"),
+        attr("collateral_info", "native_token"),
+        attr("collateral_amount", "70"),
+    ]);
 }

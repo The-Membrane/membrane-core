@@ -419,7 +419,8 @@ pub fn execute_liquidation(
 
     //Because the Positions contract is querying balances beforehand, this should rarely occur
     if !remaining_collateral_to_liquidate.is_zero() {
-        collateral_amount = collateral_amount - remaining_collateral_to_liquidate;     
+        //Update collateral amount
+        collateral_amount = collateral_amount - remaining_collateral_to_liquidate;
     }
 
     //Repay for the user
@@ -437,20 +438,24 @@ pub fn execute_liquidation(
 
     QUEUES.save(deps.storage, bid_for.to_string(), &queue)?;
 
-    let burn_msg = OP_ExecuteMsg::BurnTokens { 
-        denom: repay_asset.info.to_string(), 
-        amount: repay_asset.amount, 
-        burn_from_address: env.contract.address.clone().to_string(),
-    };
-    let message = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.osmosis_proxy_contract.to_string(),
-        msg: to_binary(&burn_msg)?,
-        funds: vec![],
-    });
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    if !repay_amount.is_zero(){
+        let burn_msg = OP_ExecuteMsg::BurnTokens { 
+            denom: repay_asset.info.to_string(), 
+            amount: repay_asset.amount, 
+            burn_from_address: env.contract.address.clone().to_string(),
+        };
+        let message = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.osmosis_proxy_contract.to_string(),
+            msg: to_binary(&burn_msg)?,
+            funds: vec![],
+        });
+        msgs.push(message);
+    }
 
     match bid_for {
         AssetInfo::Token { address: _ } => {
-            Ok(Response::new().add_message(message).add_attributes(vec![
+            Ok(Response::new().add_messages(msgs).add_attributes(vec![
                 attr("action", "execute_bid"),
                 attr("denom", queue.bid_asset.info.to_string()),
                 attr("repay_amount", repay_amount),
@@ -460,7 +465,7 @@ pub fn execute_liquidation(
             ]))
         }
         AssetInfo::NativeToken { denom: _ } => {
-            Ok(Response::new().add_message(message).add_attributes(vec![
+            Ok(Response::new().add_messages(msgs).add_attributes(vec![
                 attr("action", "execute_bid"),
                 attr("denom", queue.bid_asset.info.to_string()),
                 attr("repay_amount", repay_amount),

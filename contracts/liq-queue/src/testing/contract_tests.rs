@@ -715,7 +715,7 @@ fn execute_bid() {
         liq_msg.clone(),
     )
     .unwrap_err();
-    assert_eq!(err, ContractError::Unauthorized {},);
+    assert_eq!(err, ContractError::Unauthorized {},);    
     let info = mock_info(
         "positions_contract",
         &[Coin {
@@ -737,9 +737,16 @@ fn execute_bid() {
             funds: vec![],
         }))]
     );
-
-    let err = execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap_err();
-    assert_eq!(err, ContractError::InsufficientBids {});
+    //Liquidate only what's possible
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
+    assert_eq!(res.attributes, vec![
+        attr("action", "execute_bid"),
+        attr("denom", "cdt"),
+        attr("repay_amount", "5000"),
+        attr("collateral_token", "osmo"),
+        attr("collateral_info", "native_token"),
+        attr("collateral_amount", "5050"),
+    ]);
 
     let liq_msg = ExecuteMsg::Liquidate {
         credit_price: PriceResponse {
@@ -758,8 +765,15 @@ fn execute_bid() {
         },
     };
 
-    let res = execute(deps.as_mut(), env, info, liq_msg).unwrap_err();
-    assert_eq!(res, ContractError::InsufficientBids {});
+    let res = execute(deps.as_mut(), env, info, liq_msg).unwrap();
+    assert_eq!(res.attributes, vec![
+        attr("action", "execute_bid"),
+        attr("denom", "cdt"),
+        attr("repay_amount", "0"),
+        attr("collateral_token", "osmo"),
+        attr("collateral_info", "native_token"),
+        attr("collateral_amount", "0"),
+    ]);
 }
 
 #[test]

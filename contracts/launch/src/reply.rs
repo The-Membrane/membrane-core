@@ -1253,23 +1253,6 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                     funds: vec![],
                 }));
 
-            //Create Margin Proxy InstantiationMsg
-            //Proxy positions don't scale so it'd have to be a contract per user
-            // let msg = CosmosMsg::Wasm(WasmMsg::Instantiate {                 
-            //     admin: Some(addrs.clone().governance.to_string()), 
-            //     code_id: config.clone().margin_proxy_id, 
-            //     msg: to_binary(&ProxyInstantiateMsg {
-            //         owner: Some(addrs.clone().governance.to_string()),
-            //         positions_contract: addrs.clone().positions.to_string(),
-            //         apollo_router_contract: config.clone().apollo_router.to_string(),
-            //         max_slippage: Decimal::percent(1),
-            //     })?, 
-            //     funds: vec![], 
-            //     label: String::from("margin_proxy"),
-            // });
-            // msgs.push(msg);
-
-
             Ok(Response::new()
                 .add_messages(msgs)
             )

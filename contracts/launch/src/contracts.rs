@@ -75,7 +75,6 @@ pub fn instantiate(
         liq_queue_id: msg.liq_queue_id,
         liquidity_check_id: msg.liquidity_check_id,
         mbrn_auction_id: msg.mbrn_auction_id,
-        margin_proxy_id: msg.margin_proxy_id,
         system_discounts_id: msg.system_discounts_id,
         discount_vault_id: msg.discount_vault_id,
         atom_denom: String::from("ibc/A8C2D23A1E6F95DA4E48BA349667E322BD7A6C996D8A4AAE8BA72E190F3D1477"), //mainnet: ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2

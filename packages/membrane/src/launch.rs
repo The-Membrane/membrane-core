@@ -28,8 +28,6 @@ pub struct InstantiateMsg {
     pub liquidity_check_id: u64,
     /// MBRN Auction contract id
     pub mbrn_auction_id: u64,
-    /// Margin Proxy contract id
-    pub margin_proxy_id: u64,
     /// System Discounts contract id
     pub system_discounts_id: u64,
     /// Discount Vault contract id
@@ -128,8 +126,6 @@ pub struct Config {
     pub liquidity_check_id: u64,
     /// MBRN Auction contract id
     pub mbrn_auction_id: u64,   
-    /// Margin Proxy contract id  
-    pub margin_proxy_id: u64,   
     /// System Discounts contract id
     pub system_discounts_id: u64,
     /// Discount Vault contract id

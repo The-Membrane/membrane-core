@@ -34,7 +34,6 @@ fn update_config(){
         liq_queue_id: 0,
         liquidity_check_id: 0,
         mbrn_auction_id: 0,
-        margin_proxy_id: 0,
         system_discounts_id: 0,
         discount_vault_id: 0,
     };
@@ -103,7 +102,6 @@ fn lock() {
         liq_queue_id: 0,
         liquidity_check_id: 0,
         mbrn_auction_id: 0,    
-        margin_proxy_id: 0,
         system_discounts_id: 0,
         discount_vault_id: 0,
     };
@@ -207,7 +205,6 @@ fn edit_lockup_duration() {
         liq_queue_id: 0,
         liquidity_check_id: 0,
         mbrn_auction_id: 0,    
-        margin_proxy_id: 0,
         system_discounts_id: 0,
         discount_vault_id: 0,
     };
@@ -327,7 +324,6 @@ fn withdraw() {
         liq_queue_id: 0,
         liquidity_check_id: 0,
         mbrn_auction_id: 0,    
-        margin_proxy_id: 0,
         system_discounts_id: 0,
         discount_vault_id: 0,
     };
@@ -418,7 +414,6 @@ fn claim() {
         liq_queue_id: 0,
         liquidity_check_id: 0,
         mbrn_auction_id: 0,    
-        margin_proxy_id: 0,
         system_discounts_id: 0,
         discount_vault_id: 0,
     };

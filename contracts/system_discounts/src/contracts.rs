@@ -280,7 +280,7 @@ fn get_incentive_gauge_value(
             &LockupQuerier::new(&querier),
             user.clone(),
             Some(Duration { 
-                seconds: (minimum_time_in_network * SECONDS_PER_DAY) as i64, 
+                seconds: ((minimum_time_in_network * SECONDS_PER_DAY) - 1) as i64, 
                 nanos: 0 }),
             denom.to_string(),
         )?;

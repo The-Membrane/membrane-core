@@ -63,6 +63,46 @@ pub fn instantiate(
             claimables: vec![], 
         }
     ])?;
+    //Save Recipients w/ all addresses in the pre_launch_community
+    for address in msg.pre_launch_community {
+        //validate address
+        let address = match deps.api.addr_validate(&address){
+            Ok(address) => address,
+            Err(_) => continue,
+        };
+        //Save recipient w/ 1_000_000_000 allocation
+        RECIPIENTS.update(
+            deps.storage,
+            |mut recipients| -> Result<Vec<Recipient>, ContractError> {
+                if recipients
+                    .iter()
+                    .any(|recipient| recipient.recipient == address)
+                {
+                    return Ok(recipients)
+                }
+
+                recipients.push(Recipient {
+                    recipient: address,
+                    allocation: Some(Allocation { 
+                        amount: Uint128::new(1_000_000_000),  //1k
+                        amount_withdrawn: Uint128::zero(), 
+                        start_time_of_allocation: env.block.time.seconds(), 
+                        vesting_period: VestingPeriod { cliff: 0, linear: 365 },
+                    }),
+                    claimables: vec![],
+                });
+
+                Ok(recipients)
+            },
+        )?;
+    }
+    //Calc additional allocation
+    let recipients = RECIPIENTS.load(deps.storage)?;
+    let additional_allocation = (recipients.len()-1) as u128 * 1_000_000_000 as u128;
+    //Add additional_allocation to config.total_allocation
+    config.total_allocation += Uint128::new(additional_allocation);
+    //Save config
+    CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -532,7 +572,10 @@ pub fn get_unlocked_amount(
             allocation.amount_withdrawn += newly_unlocked;
         } else {
             //Unlock full amount
-            unlocked_amount = allocation.clone().amount - allocation.clone().amount_withdrawn;
+            unlocked_amount = match allocation.clone().amount.checked_sub(allocation.clone().amount_withdrawn){
+                Ok(diff) => diff,
+                Err(_err) => return Err(cosmwasm_std::StdError::GenericErr { msg: String::from("Nothing left to unlock") }),
+            };
             allocation.amount_withdrawn += allocation.clone().amount;
         }
     }

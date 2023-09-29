@@ -6,7 +6,7 @@ mod tests {
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cosmwasm_std::{from_binary, to_binary, CosmosMsg, SubMsg, Uint128, WasmMsg, attr};
 
-    use membrane::vesting::{QueryMsg, InstantiateMsg, ExecuteMsg, AllocationResponse, UnlockedResponse, RecipientsResponse};
+    use membrane::vesting::{QueryMsg, InstantiateMsg, Config, ExecuteMsg, AllocationResponse, UnlockedResponse, RecipientsResponse};
     use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
     use membrane::types::VestingPeriod;
 
@@ -17,6 +17,7 @@ mod tests {
         let msg = InstantiateMsg {
             owner: Some(String::from("owner0000")),
             initial_allocation: Uint128::new(30_000_000_000_000u128),
+            pre_launch_community: vec![String::from("community0000"), String::from("community0000"), String::from("community0001"), String::from("community0002"), String::from("0")],
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: String::from("osmosis_proxy"),
             staking_contract: String::from("staking_contract"),
@@ -84,8 +85,17 @@ mod tests {
         let res = query(deps.as_ref(), mock_env(), msg).unwrap();
 
         let resp: RecipientsResponse = from_binary(&res).unwrap();
-        assert_eq!(resp.recipients[1].recipient, String::from("recipient0000"));
-        assert_eq!(resp.recipients.len().to_string(), String::from("2"));
+        assert_eq!(resp.recipients.len().to_string(), String::from("5"));
+        assert_eq!(resp.recipients[1].recipient, String::from("community0000"));
+        assert_eq!(resp.recipients[2].recipient, String::from("community0001"));
+        assert_eq!(resp.recipients[3].recipient, String::from("community0002"));
+        assert_eq!(resp.recipients[4].recipient, String::from("recipient0000"));
+
+        //Query Config
+        let msg = QueryMsg::Config {};
+        let res = query(deps.as_ref(), mock_env(), msg).unwrap();
+        let resp: Config = from_binary(&res).unwrap();
+        assert_eq!(resp.total_allocation, Uint128::new(30_003_000_000000)); //allocations added from pre_launch_community
     }
 
     #[test]
@@ -95,6 +105,7 @@ mod tests {
         let msg = InstantiateMsg {
             owner: Some(String::from("owner0000")),
             initial_allocation: Uint128::new(30_000_000_000_000u128),
+            pre_launch_community: vec![],
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: String::from("osmosis_proxy"),
             staking_contract: String::from("staking_contract"),
@@ -231,6 +242,7 @@ mod tests {
         let msg = InstantiateMsg {
             owner: Some(String::from("owner0000")),
             initial_allocation: Uint128::new(30_000_000_000_000u128),
+            pre_launch_community: vec![],
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: String::from("osmosis_proxy"),
             staking_contract: String::from("staking_contract"),
@@ -410,6 +422,22 @@ mod tests {
                 attr("recipient", String::from("recipient0000")),
                 attr("withdrawn_amount", String::from("500000000000")),
             ]
+        );
+
+        ///Withdraw unlocked but nothing to withdraw
+        let withdraw_msg = ExecuteMsg::WithdrawUnlocked {};
+        let err = execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info("recipient0000", &[]),
+            withdraw_msg,
+        )
+        .unwrap_err();
+
+        //everything has already been withdrawn
+        assert_eq!(
+            err.to_string(),
+            String::from("Generic error: Nothing left to unlock")
         );
  
     }

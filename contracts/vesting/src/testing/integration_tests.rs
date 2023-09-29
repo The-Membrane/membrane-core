@@ -249,6 +249,7 @@ mod tests {
             osmosis_proxy: osmosis_proxy_contract_addr.to_string(),
             staking_contract: staking_contract_addr.to_string(),
             pre_launch_contributors: String::from("labs"),
+            pre_launch_community: vec![],
         };
 
         let bv_contract_addr = app

@@ -6,6 +6,8 @@ use cosmwasm_schema::cw_serde;
 pub struct InstantiateMsg {
     /// Pre launch contributors address
     pub pre_launch_contributors: String,
+    /// Address receiving pre-launch community allocation
+    pub pre_launch_community: Vec<String>,
     /// Apollo router address
     pub apollo_router: String,
     /// Osmosis Proxy contract id
@@ -92,6 +94,8 @@ pub struct Config {
     pub credit_denom: String,
     /// Pre launch contributors address
     pub pre_launch_contributors: Addr,
+    /// Address receiving pre-launch community allocation
+    pub pre_launch_community: Vec<String>,
     /// Apollo router address
     pub apollo_router: Addr,
     /// Amount of MBRN for launch incentives & LPs

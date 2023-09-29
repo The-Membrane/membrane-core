@@ -14,6 +14,8 @@ pub struct InstantiateMsg {
     pub initial_allocation: Uint128,
     /// Address receiving pre-launch contributors allocation
     pub pre_launch_contributors: String,
+    /// Address receiving pre-launch community allocation
+    pub pre_launch_community: Vec<String>,
     /// MBRN denom
     pub mbrn_denom: String,
     /// Osomosis proxy contract address

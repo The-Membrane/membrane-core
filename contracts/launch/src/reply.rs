@@ -242,6 +242,7 @@ pub fn handle_staking_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Res
                     owner: None,
                     initial_allocation: Uint128::new(9_000_000_000_000),
                     pre_launch_contributors: config.clone().pre_launch_contributors.to_string(),
+                    pre_launch_community: config.clone().pre_launch_community,
                     mbrn_denom: config.clone().mbrn_denom,
                     osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),
                     staking_contract: addrs.clone().staking.to_string(),

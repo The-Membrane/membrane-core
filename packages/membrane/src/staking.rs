@@ -215,6 +215,12 @@ pub struct StakedResponse {
 }
 
 #[cw_serde]
+pub struct Totals {
+    pub stakers: Uint128,
+    pub vesting_contract: Uint128,
+}
+
+#[cw_serde]
 pub struct TotalStakedResponse {
     /// Total MBRN staked not including vested
     pub total_not_including_vested: Uint128,

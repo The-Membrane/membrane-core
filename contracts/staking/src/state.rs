@@ -1,17 +1,9 @@
-use membrane::types::{FeeEvent, StakeDeposit, StakeDistributionLog, DelegationInfo};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use membrane::{types::{FeeEvent, StakeDeposit, StakeDistributionLog, DelegationInfo}, staking::Totals};
 
 use cosmwasm_std::{Uint128, Addr, Coin, Decimal};
 use cw_storage_plus::{Item, Map};
 
 use membrane::staking::Config;
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-pub struct Totals {
-    pub stakers: Uint128,
-    pub vesting_contract: Uint128,
-}
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const STAKING_TOTALS: Item<Totals> = Item::new("totals"); 

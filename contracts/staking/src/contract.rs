@@ -14,14 +14,14 @@ use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, Propo
 use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, accrue_user_positions, query_basket};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
-use membrane::staking::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg };
+use membrane::staking::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg, Totals};
 use membrane::vesting::{QueryMsg as Vesting_QueryMsg, RecipientsResponse};
 use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit, StakeDistributionLog, StakeDistribution, Basket, Delegation, DelegationInfo};
 use membrane::math::{decimal_division, decimal_multiplication};
 
 use crate::error::ContractError;
 use crate::query::{query_user_stake, query_user_rewards, query_staked, query_fee_events, query_totals, query_delegations};
-use crate::state::{Totals, CONFIG, FEE_EVENTS, STAKED, STAKING_TOTALS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, DELEGATIONS, DELEGATE_CLAIMS, VESTING_STAKE_TIME, VESTING_REV_MULTIPLIER};
+use crate::state::{CONFIG, FEE_EVENTS, STAKED, STAKING_TOTALS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, DELEGATIONS, DELEGATE_CLAIMS, VESTING_STAKE_TIME, VESTING_REV_MULTIPLIER};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:staking";

@@ -8,6 +8,8 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use cw_storage_plus::Bound;
 
+use membrane::helpers::query_staking_totals;
+use membrane::types::StakeDeposit;
 use membrane::vesting::{AllocationResponse, QueryMsg as VestingQueryMsg, RecipientsResponse};
 use membrane::governance::helpers::validate_links;
 use membrane::governance::{
@@ -145,13 +147,19 @@ pub fn submit_proposal(
     let config = CONFIG.load(deps.storage)?;
 
     //Assert minimum total stake from staking contract
-    let res: TotalStakedResponse = deps.querier.query_wasm_smart(
-        config.clone().staking_contract_addr,
-        &StakingQueryMsg::TotalStaked {  },
-    )?;
-    let total_staked = res.total_not_including_vested;
+    let non_vested_total: Uint128 = match query_staking_totals(deps.querier, config.staking_contract_addr.to_string()){
+        Ok(totals) => totals.stakers,
+        Err(_) => {
+            //On error do regular query for totals
+            let res: TotalStakedResponse = deps.querier.query_wasm_smart(
+                config.clone().staking_contract_addr,
+                &StakingQueryMsg::TotalStaked {  },
+            )?;
+            res.total_not_including_vested
+        },
+    };
     
-    if total_staked < config.minimum_total_stake {
+    if non_vested_total < config.minimum_total_stake {
         return Err(ContractError::InsufficientTotalStake { minimum: config.minimum_total_stake.into() });
     }
 
@@ -165,10 +173,25 @@ pub fn submit_proposal(
         vesting = true;
     }
 
+    //Query stake from before Proposal's start_time
+    let staked_mbrn = deps.querier
+        .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.staking_contract_addr.to_string(),
+            msg: to_binary(&StakingQueryMsg::Staked {
+                limit: None,
+                start_after: None,
+                end_before: Some(env.block.time.seconds()),
+                unstaking: false,
+            })?,
+        }))?
+        .stakers;  
+
     //Validate voting power
     let voting_power = calc_voting_power(
         deps.storage,
         deps.querier,
+        Some(staked_mbrn.clone()),
+        Some(non_vested_total),
         info.sender.to_string(),
         env.block.time.seconds(),
         vesting,
@@ -214,6 +237,8 @@ pub fn submit_proposal(
                 let vp = calc_voting_power(
                     deps.storage,
                     deps.querier,
+                    Some(staked_mbrn.clone()),
+                    Some(non_vested_total),
                     staker.staker.to_string(), 
                     env.block.time.seconds(), 
                     false, 
@@ -303,7 +328,7 @@ pub fn cast_vote(
             Err(err) => return Err(ContractError::Std(err)),
         }
     };
-
+    //Only vesting can use the recipient parameter
     if info.sender != config.vesting_contract_addr {
         recipient = None;
     }
@@ -333,7 +358,9 @@ pub fn cast_vote(
         if recipient.is_some(){
             voting_power = calc_voting_power(
                 deps.storage, 
-                deps.querier, 
+                deps.querier,
+                None,
+                None,
                 info.sender.to_string(), 
                 proposal.start_time,
                 true, 
@@ -784,6 +811,8 @@ pub fn calc_total_voting_power_at(
 pub fn calc_voting_power(
     storage: &dyn Storage,
     querier: QuerierWrapper,
+    mut staked_mbrn: Option<Vec<StakeDeposit>>,
+    mut non_vested_total: Option<Uint128>,
     sender: String,
     start_time: u64,
     vesting: bool,
@@ -791,15 +820,25 @@ pub fn calc_voting_power(
     quadratic_voting: bool,
 ) -> StdResult<Uint128> {
     let config = CONFIG.load(storage)?;
-    let non_vested_total: Uint128 = querier
-        .query::<TotalStakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.staking_contract_addr.to_string(),
-            msg: to_binary(&StakingQueryMsg::TotalStaked {  })?,
-        }))?
-        .total_not_including_vested;
+    if non_vested_total.is_none(){
+        let new_non_vested_total: Uint128 = match query_staking_totals(querier, config.staking_contract_addr.to_string()){
+            Ok(totals) => totals.stakers,
+            Err(_) => {
+                //On error do regular query for totals
+                let res: TotalStakedResponse = querier.query_wasm_smart(
+                    config.clone().staking_contract_addr,
+                    &StakingQueryMsg::TotalStaked {  },
+                )?;
+                res.total_not_including_vested
+            },
+        };
 
-    //Query stake from before Proposal's start_time
-    let staked_mbrn = querier
+        non_vested_total = Some(new_non_vested_total);
+    }
+
+    if staked_mbrn.is_none(){        
+        //Query stake from before Proposal's start_time
+        let new_staked_mbrn = querier
         .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.staking_contract_addr.to_string(),
             msg: to_binary(&StakingQueryMsg::Staked {
@@ -811,14 +850,16 @@ pub fn calc_voting_power(
         }))?
         .stakers;    
 
+        staked_mbrn = Some(new_staked_mbrn);
+    }
     let mut total: Uint128;
     //If calculating vesting voting power, we take from recipient's allocation
     if !vesting {
         //Calc total voting power
-        if staked_mbrn == vec![] {
+        if staked_mbrn.clone().unwrap() == vec![] {
             total = Uint128::zero()
         } else {
-            total = staked_mbrn
+            total = staked_mbrn.unwrap()
                 .into_iter()
                 .map(|stake| {
                     if stake.staker.to_string() == sender {
@@ -846,7 +887,7 @@ pub fn calc_voting_power(
             
         total = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
         // Vested voting power can't be more than 19% of total voting power pre-quadratic 
-        total = min(total, non_vested_total * Decimal::percent(19));
+        total = min(total, non_vested_total.unwrap() * Decimal::percent(19));
     } else {
         total = Uint128::zero();
     }
@@ -908,6 +949,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_binary(&calc_voting_power(
                 deps.storage,
                 deps.querier,
+                None,
+                None,
                 user.to_string(),
                 proposal.start_time,
                 vesting,

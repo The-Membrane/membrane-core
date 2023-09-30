@@ -6,7 +6,8 @@ use apollo_cw_asset::AssetInfoUnchecked;
 use crate::apollo_router::ExecuteMsg as RouterExecuteMsg;
 use crate::oracle::PriceResponse;
 use crate::discount_vault::Config as DV_Config;
-use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Basket}; 
+use crate::staking::Totals;
+use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Basket, StakeDeposit}; 
 use crate::osmosis_proxy::{QueryMsg as OsmoQueryMsg, OwnerResponse};
 use crate::liquidity_check::{QueryMsg as LiquidityQueryMsg, LiquidityResponse};
 use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, PositionResponse};
@@ -201,6 +202,33 @@ pub fn query_basket(
     Ok(basket)
 }
 
+//Return Staking totals
+pub fn query_staking_totals(
+    querier: QuerierWrapper,
+    staking_contract: String,
+) -> StdResult<Totals> {
+    let resp: Option<Vec<u8>> = querier.query_wasm_raw(staking_contract, b"totals")?;
+    let totals: Totals = match resp {
+        Some(totals) => serde_json_wasm::from_slice(&totals).unwrap(),
+        None => return Err(StdError::GenericErr { msg: String::from("Totals not found") }),
+    };
+
+    Ok(totals)
+}
+
+//Return Stakers
+pub fn query_stakers(
+    querier: QuerierWrapper,
+    staking_contract: String,
+) -> StdResult<Vec<StakeDeposit>> {
+    let resp: Option<Vec<u8>> = querier.query_wasm_raw(staking_contract, b"stake")?;
+    let staked: Vec<StakeDeposit> = match resp {
+        Some(staked) => serde_json_wasm::from_slice(&staked).unwrap(),
+        None => return Err(StdError::GenericErr { msg: String::from("Totals not found") }),
+    };
+
+    Ok(staked)
+}
 
 /// Get contract balances for list of assets
 pub fn get_contract_balances(

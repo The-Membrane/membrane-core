@@ -16,6 +16,7 @@ Modifications
 - The position is assumed insolvent since called by the Positions contract, ie there is no additional solvency check in this contract.
 - ExecuteMsg::Liquidate doesn't take any assets up front, instead receiving assets in the Reply fn of the Positions contract
 - Removed bid_with, instead saving the bid_asset from the Positions contract
+- Don't error if the full collateral amount isn't liquidated, just update the returning attribute
 
 To Pass tests:
 - Comment bid_asset in instantiate msg & add below:

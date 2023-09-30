@@ -22,6 +22,7 @@ fn update_config(){
 
     let msg = InstantiateMsg {
         pre_launch_contributors: String::from("labs"),
+        pre_launch_community: vec![],
         apollo_router: String::from("router"),
         //Contract IDs
         osmosis_proxy_id: 0,
@@ -90,6 +91,7 @@ fn lock() {
 
     let msg = InstantiateMsg {
         pre_launch_contributors: String::from("labs"),
+        pre_launch_community: vec![],
         apollo_router: String::from("router"),
         //Contract IDs
         osmosis_proxy_id: 0,
@@ -193,6 +195,7 @@ fn edit_lockup_duration() {
 
     let msg = InstantiateMsg {
         pre_launch_contributors: String::from("labs"),
+        pre_launch_community: vec![],
         apollo_router: String::from("router"),
         //Contract IDs
         osmosis_proxy_id: 0,
@@ -312,6 +315,7 @@ fn withdraw() {
 
     let msg = InstantiateMsg {
         pre_launch_contributors: String::from("labs"),
+        pre_launch_community: vec![],
         apollo_router: String::from("router"),
         //Contract IDs
         osmosis_proxy_id: 0,
@@ -402,6 +406,7 @@ fn claim() {
 
     let msg = InstantiateMsg {
         pre_launch_contributors: String::from("labs"),
+        pre_launch_community: vec![],
         apollo_router: String::from("router"),
         //Contract IDs
         osmosis_proxy_id: 0,

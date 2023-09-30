@@ -55,7 +55,7 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
 
     //Need 20 OSMO for CreateDenom Msgs
-    // if deps.querier.query_balance(env.clone().contract.address, "uosmo")?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
+    if deps.querier.query_balance(env.clone().contract.address, "uosmo")?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
@@ -63,6 +63,7 @@ pub fn instantiate(
         mbrn_denom: String::from(""),
         credit_denom: String::from(""),
         pre_launch_contributors: deps.api.addr_validate(&msg.pre_launch_contributors)?,
+        pre_launch_community: msg.pre_launch_community,
         apollo_router: deps.api.addr_validate(&msg.apollo_router)?,
         mbrn_launch_amount: Uint128::new(10_000_000_000_000),
         osmosis_proxy_id: msg.osmosis_proxy_id,

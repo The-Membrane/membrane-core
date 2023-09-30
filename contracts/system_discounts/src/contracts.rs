@@ -17,7 +17,7 @@ use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, 
 use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse, Config as DV_Config};
 use membrane::cdp::{QueryMsg as CDP_QueryMsg, PositionResponse};
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
-use membrane::types::{AssetInfo, Basket, Deposit, AssetPool, LPPoolInfo};
+use membrane::types::{AssetInfo, Basket, Deposit, AssetPool};
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, OWNERSHIP_TRANSFER};
@@ -226,7 +226,6 @@ fn get_user_value_in_network(
 
     let basket: Basket = query_basket(querier, config.positions_contract.to_string())?;
     let credit_price = basket.clone().credit_price;
-    let credit_denom = basket.clone().credit_asset.info;
 
     let mbrn_price_res = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().oracle_contract.to_string(),

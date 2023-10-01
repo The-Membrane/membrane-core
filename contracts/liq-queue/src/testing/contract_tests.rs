@@ -598,7 +598,7 @@ fn retract_bid() {
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(
         err,
-        ContractError::InvalidWithdrawal {  }
+        ContractError::InvalidWithdrawal { minimum: Uint256::from(2u128) }
     );
 
     //Successful RetractBid

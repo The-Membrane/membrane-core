@@ -20,7 +20,6 @@ use membrane::governance::{
 use membrane::staking::{
     Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse, DelegationResponse,
 };
-use num::integer::Roots;
 
 use std::cmp::min;
 use std::str::FromStr;
@@ -800,8 +799,7 @@ pub fn calc_total_voting_power_at(
         
     // Take square root of total stake if quadratic voting is enabled
     if quadratic_voting {
-        let total_root = (total.u128()).sqrt();
-        total = Uint128::from(total_root);
+        total = Uint128::from(total);
     }    
 
     Ok(total)

@@ -1,4 +1,5 @@
 use cosmwasm_std::StdError;
+use membrane::math::Uint256;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
@@ -27,8 +28,8 @@ pub enum ContractError {
     #[error("Asset that was passed in has uncongruent object field & deposit amounts")]
     InvalidAssetObject {},
 
-    #[error("Invalid withdrawal")]
-    InvalidWithdrawal {},
+    #[error("Invalid withdrawal, can't leave less than the minimum bid ({minimum:?}) or withdraw more than the withdrawable bid amount")]
+    InvalidWithdrawal { minimum: Uint256 },
 
     #[error("A bid with this bid id doesn't exist in the queue")]
     InvalidBidID {},

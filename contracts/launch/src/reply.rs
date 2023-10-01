@@ -7,7 +7,7 @@ use cosmwasm_std::{
 };
 use membrane::math::Uint256;
 use crate::error::ContractError;
-use crate::contracts::{SECONDS_PER_DAY, POSITIONS_REPLY_ID, DEBT_AUCTION_REPLY_ID, SYSTEM_DISCOUNTS_REPLY_ID, DISCOUNT_VAULT_REPLY_ID, CREATE_DENOM_REPLY_ID, ORACLE_REPLY_ID, STAKING_REPLY_ID, VESTING_REPLY_ID, LIQ_QUEUE_REPLY_ID, GOVERNANCE_REPLY_ID, STABILITY_POOL_REPLY_ID ,LIQUIDITY_CHECK_REPLY_ID};
+use crate::contracts::{SECONDS_PER_DAY, POSITIONS_REPLY_ID, DEBT_AUCTION_REPLY_ID, SYSTEM_DISCOUNTS_REPLY_ID, DISCOUNT_VAULT_REPLY_ID, CREATE_DENOM_REPLY_ID, ORACLE_REPLY_ID, STAKING_REPLY_ID, VESTING_REPLY_ID, LIQ_QUEUE_REPLY_ID, GOVERNANCE_REPLY_ID, STABILITY_POOL_REPLY_ID ,LIQUIDITY_CHECK_REPLY_ID, NO_ACTION_ID};
 use crate::state::{ADDRESSES, CONFIG, MBRN_POOL, OSMO_POOL_ID};
 
 use membrane::governance::{InstantiateMsg as Gov_InstantiateMsg, VOTING_PERIOD_INTERVAL, STAKE_INTERVAL};
@@ -541,6 +541,18 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                },                
+                cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: config.clone().usdc_denom,
+                        },
+                        amount: Uint128::from(0u128),
+                    },
+                    max_borrow_LTV: Decimal::percent(90),
+                    max_LTV: Decimal::percent(96),
+                    pool_info: None,
+                    rate_index: Decimal::one(),
                 }],
                 credit_asset: Asset {
                     info: AssetInfo::NativeToken {
@@ -738,6 +750,16 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                     supply_cap_ratio: Decimal::percent(100),
                     lp: false,
                     stability_pool_ratio_for_debt_cap: None,
+                },
+                SupplyCap {
+                    asset_info: AssetInfo::NativeToken {
+                        denom: config.clone().usdc_denom,
+                    },
+                    current_supply: Uint128::zero(),
+                    debt_total: Uint128::zero(),
+                    supply_cap_ratio: Decimal::percent(100),
+                    lp: false,
+                    stability_pool_ratio_for_debt_cap: None,
                 }]),
                 base_interest_rate: None,
                 credit_asset_twap_price_source: None,
@@ -907,9 +929,9 @@ pub fn handle_lc_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 admin: Some(addrs.clone().governance.to_string()), 
                 code_id: config.clone().discount_vault_id, 
                 msg: to_binary(&DiscountVaultInstantiateMsg {
-                    owner: Some(addrs.clone().governance.to_string()),
+                    owner: None,
                     positions_contract: addrs.clone().positions.to_string(),
-                    osmosis_proxy: addrs.clone().positions.to_string(),
+                    osmosis_proxy: addrs.clone().osmosis_proxy.to_string(),
                     accepted_LPs: vec![],
                 })?, 
                 funds: vec![], 
@@ -1037,7 +1059,7 @@ pub fn handle_system_discounts_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                     discount_increase: Decimal::percent(1),
                 })?, 
                 funds: vec![], 
-                label: String::from("debt_auction"), 
+                label: String::from("auction"), 
             });
             let sub_msg = SubMsg::reply_on_success(da_instantiation, DEBT_AUCTION_REPLY_ID);     
             
@@ -1270,6 +1292,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
         let addrs = ADDRESSES.load(deps.storage)?;
         let config = CONFIG.load(deps.storage)?;
 
+        let mut sub_msgs: Vec<SubMsg> = vec![];
         let mut msgs: Vec<CosmosMsg> = vec![];
         
         //Get Balancer Pool denom from Response
@@ -1305,7 +1328,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                     msg: to_binary(&op_msg)?, 
                     funds: vec![], 
                 });
-                msgs.push(op_msg);
+                sub_msgs.push(SubMsg::reply_on_error(op_msg, NO_ACTION_ID));
                 
                 //Get Balancer denom from Response
                 let pool_denom = deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
@@ -1398,29 +1421,30 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
 
                 //Incentivize the OSMO/CDT pool
                 //14 day guage
-                // let msg = MsgCreateGauge { 
-                //     pool_id:  0,
-                //     is_perpetual: false, 
-                //     owner: env.clone().contract.address.to_string(),
-                //     distribute_to: Some(QueryCondition { 
-                //         lock_query_type: 0, //ByDuration
-                //         denom: pool_denom,
-                //         duration: Some(Duration { seconds: 14 * SECONDS_PER_DAY as i64, nanos: 0 }), 
-                //         timestamp: None,
-                //     }), 
-                //     coins: vec![Coin {
-                //         denom: config.clone().mbrn_denom, 
-                //         amount: String::from("2_000_000_000_000"),
-                //     }], 
-                //     start_time: Some(
-                //         Timestamp { 
-                //             seconds: env.clone().block.time.seconds()as i64,
-                //             nanos: 0 
-                //         }
-                //     ), 
-                //     num_epochs_paid_over: 365, //days, 1 year
-                // }.into();
-                // msgs.push(msg);
+                let msg: CosmosMsg = MsgCreateGauge { 
+                    pool_id:  0,
+                    is_perpetual: false, 
+                    owner: env.clone().contract.address.to_string(),
+                    distribute_to: Some(QueryCondition { 
+                        lock_query_type: 0, //ByDuration
+                        denom: pool_denom,
+                        duration: Some(Duration { seconds: 60 as i64, nanos: 0 }), 
+                        // duration: Some(Duration { seconds: 14 * SECONDS_PER_DAY as i64, nanos: 0 }), 
+                        timestamp: None,
+                    }), 
+                    coins: vec![Coin {
+                        denom: config.clone().mbrn_denom, 
+                        amount: String::from("2_000_000_000_000"),
+                    }], 
+                    start_time: Some(
+                        Timestamp { 
+                            seconds: env.clone().block.time.seconds()as i64,
+                            nanos: 0 
+                        }
+                    ), 
+                    num_epochs_paid_over: 365, //days, 1 year
+                }.into();
+                sub_msgs.push(SubMsg::reply_on_error(msg, NO_ACTION_ID));                
             } 
             OSMO_POOL_ID.save(deps.storage, &osmo_pool_id)?;
 
@@ -1583,6 +1607,8 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
         }
 
         Ok(Response::new()
+            //If incentive msgs error I don't want it to halt the launch since we are using a duration that is untestable on testnet
+            .add_submessages(sub_msgs)
             .add_messages(msgs)
             .add_attribute("pool_saved", format!("{:?}", osmo_pool_id))
             .add_attribute("mbrn_pool_saved", format!("{:?}", MBRN_POOL.load(deps.storage).unwrap_or(0)))

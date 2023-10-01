@@ -1,8 +1,6 @@
-use std::str::FromStr;
-
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::{
-    attr, to_binary, Addr, Coin, CosmosMsg, Decimal, DepsMut, Env,
+    attr, to_binary, Addr, CosmosMsg, DepsMut, Env,
     MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg,
 };
 use cosmwasm_storage::{Bucket, ReadonlyBucket};
@@ -16,7 +14,7 @@ use membrane::helpers::{validate_position_owner, withdrawal_msg};
 use crate::error::ContractError;
 use crate::state::{CONFIG, QUEUES};
 
-const MAX_LIMIT: u32 = 2147483646;
+const MAX_LIMIT: u32 = 32;
 
 static PREFIX_EPOCH_SCALE_SUM: &[u8] = b"epoch_scale_sum";
 
@@ -152,7 +150,7 @@ pub fn submit_bid(
         None => return Err(ContractError::InvalidPremium {}), //Shouldn't be reached due to validate_bid_input() above
     };
 
-    //Filter for unedited slot
+    //Filter for unedited slots
     let mut new_slots: Vec<PremiumSlot> = queue
         .slots
         .into_iter()
@@ -688,8 +686,8 @@ fn execute_pool_liquidation(
 }
 
 /// Calculate & update PremiumSlot total bid amount
-pub(crate) fn set_slot_total(
-    deps: &mut dyn Storage,
+pub(crate) fn set_slot_total(    
+    _deps: &mut dyn Storage,
     mut slot: PremiumSlot,
     env: Env,
     queue: &mut Queue,
@@ -991,7 +989,7 @@ fn remove_bid(bid: Bid, queue: &mut Queue) -> Result<(), ContractError> {
 }
 
 /// Store bid in premium slot
-fn store_bid(deps: &mut dyn Storage, queue: &mut Queue, bid: Bid) -> Result<(), ContractError> {
+fn store_bid(_deps: &mut dyn Storage, queue: &mut Queue, bid: Bid) -> Result<(), ContractError> {
 
     //Get premium_slot to edit
     let some_slot: Option<PremiumSlot> = queue
@@ -1065,10 +1063,10 @@ fn assert_withdraw_amount(
     let withdrawal_amount = match withdraw_amount {
         Some(withdraw_amount) => {
             if withdraw_amount > withdrawable_amount {
-                return Err(ContractError::InvalidWithdrawal {});
+                return Err(ContractError::InvalidWithdrawal { minimum: minimum_bid });
             //Less than minimum bid & greater than 0
             } else if withdrawable_amount - withdraw_amount < minimum_bid && withdrawable_amount - withdraw_amount > Uint256::zero(){
-                return Err(ContractError::InvalidWithdrawal {});
+                return Err(ContractError::InvalidWithdrawal { minimum: minimum_bid });
             }
             
             withdraw_amount
@@ -1080,7 +1078,7 @@ fn assert_withdraw_amount(
 }
 
 /// Return Bid from storage
-pub fn read_bid(deps: &dyn Storage, bid_id: Uint128, queue: Queue) -> StdResult<Bid> {
+pub fn read_bid(_deps: &dyn Storage, bid_id: Uint128, queue: Queue) -> StdResult<Bid> {
     let mut read_bid: Option<Bid> = None;
 
     let premium_range = 0..(queue.max_premium.u128() as u8 + 1u8);
@@ -1115,7 +1113,7 @@ pub fn read_bid(deps: &dyn Storage, bid_id: Uint128, queue: Queue) -> StdResult<
 
 /// Return Bids for a user
 pub fn read_bids_by_user(
-    deps: &dyn Storage,
+    _deps: &dyn Storage,
     queue: Queue,
     user: Addr,
     limit: Option<u32>,

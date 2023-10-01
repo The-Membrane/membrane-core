@@ -42,6 +42,7 @@ pub const CREATE_DENOM_REPLY_ID: u64 = 12;
 pub const SYSTEM_DISCOUNTS_REPLY_ID: u64 = 13;
 pub const DISCOUNT_VAULT_REPLY_ID: u64 = 14;
 pub const BALANCER_POOL_REPLY_ID: u64 = 15;
+pub const NO_ACTION_ID: u64 = 16;
 
 //Constants
 pub const SECONDS_PER_DAY: u64 = 86_400u64;
@@ -742,6 +743,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         SYSTEM_DISCOUNTS_REPLY_ID => handle_system_discounts_reply(deps, env, msg),
         DISCOUNT_VAULT_REPLY_ID => handle_discount_vault_reply(deps, env, msg),
         BALANCER_POOL_REPLY_ID => handle_balancer_reply(deps, env, msg),
+        NO_ACTION_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 }

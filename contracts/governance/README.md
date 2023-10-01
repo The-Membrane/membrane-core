@@ -1,7 +1,7 @@
 Fork of: https://github.com/astroport-fi/astroport-governance/tree/main/contracts/assembly
 
 Changes: 
-- Count vesting staked tokens differently than normal users
+- Vesting tokens voting power is reduced by a config multiplier
 - Change deposit requirement to stake requirement
 - Add proposal voting period minimum for proposals with executables
 - Minimum total staked to submit proposals

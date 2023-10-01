@@ -1428,8 +1428,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                     distribute_to: Some(QueryCondition { 
                         lock_query_type: 0, //ByDuration
                         denom: pool_denom,
-                        duration: Some(Duration { seconds: 60 as i64, nanos: 0 }), 
-                        // duration: Some(Duration { seconds: 14 * SECONDS_PER_DAY as i64, nanos: 0 }), 
+                        duration: Some(Duration { seconds: 14 * SECONDS_PER_DAY as i64, nanos: 0 }), 
                         timestamp: None,
                     }), 
                     coins: vec![Coin {

@@ -1,7 +1,5 @@
-use std::str::FromStr;
-
 #[cfg(not(feature = "library"))]
-use cosmwasm_std::{Decimal, Deps, StdError, StdResult, Uint128};
+use cosmwasm_std::{Deps, StdError, StdResult, Uint128};
 use membrane::liq_queue::{
     Config, BidResponse, ClaimsResponse, LiquidatibleResponse, SlotResponse, QueueResponse,
 };

@@ -79,11 +79,11 @@ pub fn instantiate(
         mbrn_auction_id: msg.mbrn_auction_id,
         system_discounts_id: msg.system_discounts_id,
         discount_vault_id: msg.discount_vault_id,
-        atom_denom: String::from("ibc/A8C2D23A1E6F95DA4E48BA349667E322BD7A6C996D8A4AAE8BA72E190F3D1477"), //mainnet: ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2
+        atom_denom: String::from("ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2"), //mainnet: ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2
         osmo_denom: String::from("uosmo"),
-        usdc_denom: String::from("ibc/6F34E1BD664C36CE49ACC28E60D62559A5F96C4F9A6CCE4FC5A67B2852E24CFE"),  //axl wrapped usdc //mainnet: D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858
-        atomosmo_pool_id: 12, //mainnet is 1
-        osmousdc_pool_id: 5, //axl wrapped usdc, mainnet is 678
+        usdc_denom: String::from("ibc/D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858"),  //axl wrapped usdc //mainnet: D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858
+        atomosmo_pool_id: 1, //mainnet is 1
+        osmousdc_pool_id: 678, //axl wrapped usdc, mainnet is 678
     };
     CONFIG.save(deps.storage, &config)?;
 
@@ -117,8 +117,8 @@ pub fn instantiate(
         locked_asset: AssetInfo::NativeToken { denom: String::from("uosmo") },
         lock_up_ceiling: 365,
         start_time: env.block.time.seconds(),
-        deposit_end: env.block.time.seconds() + 0,//(5 * SECONDS_PER_DAY), //5 days 
-        withdrawal_end: env.block.time.seconds() + 0,//(7 * SECONDS_PER_DAY), //2 day after the deposit
+        deposit_end: env.block.time.seconds() + (5 * SECONDS_PER_DAY), //5 days 
+        withdrawal_end: env.block.time.seconds() + (7 * SECONDS_PER_DAY), //2 day after the deposit
         launched: false,
     };
     LOCKDROP.save(deps.storage, &lockdrop)?;

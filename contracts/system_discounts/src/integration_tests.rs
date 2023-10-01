@@ -462,7 +462,6 @@ mod tests {
 
     mod discounts {
 
-        use cosmwasm_std::Decimal;
         use membrane::system_discounts::{Config, UpdateConfig, UserDiscountResponse};
 
         use super::*;

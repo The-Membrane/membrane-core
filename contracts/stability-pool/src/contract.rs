@@ -296,11 +296,15 @@ fn accrue_incentives(
     let mut incentives = accumulate_interest(stake, rate, time_elapsed)?;   
 
     //Get CDT Price
-    let basket: Basket = query_basket(querier, config.clone().positions_contract.to_string())?;
-    // let basket = querier.query_wasm_smart::<Basket>(
-    //     config.clone().positions_contract,
-    //     &CDP_QueryMsg::GetBasket {}
-    // )?;
+    let basket: Basket = match query_basket(querier, config.clone().positions_contract.to_string()){
+        Ok(basket) => basket,
+        Err(_) => {
+            querier.query_wasm_smart::<Basket>(
+            config.clone().positions_contract,
+            &CDP_QueryMsg::GetBasket {}
+            )?
+        },
+    };
     let cdt_price: PriceResponse = basket.credit_price;
 
     //Get MBRN price

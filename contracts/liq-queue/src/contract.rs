@@ -23,14 +23,13 @@ use crate::state::{CONFIG, QUEUES, OWNERSHIP_TRANSFER};
 // Modifications from origin
 
 // - Automatic activation after wait_period elapses. This increases computation time in return for less reliance on external contract calls.
-// - Liquidations send the RepayMsg for the position in the Positions contract
+// - Liquidations send BurnMsg for the debt to the Osmosis Proxy
 // - Prices are taken from input by the Positions contract, the messages are guaranteed the same block so the price will be block_time + Position's config oracle_time_limit second's old.
 // - The position is assumed insolvent since called by the Positions contract, ie there is no additional solvency check in this contract.
 // - ExecuteMsg::Liquidate doesn't take any assets up front, instead receiving assets in the Reply fn of the Positions contract
 // - Removed bid_with, instead saving the bid_asset from the Positions contract
-// - Added minimum_bid amount & maximum_waiting_bids to config
-// - Created a separate Vector for PremiumSlot waiting bids
-// - Submitted bids on the (bid) threshold get split into 1 active bid & 1 waiting bid
+// - Don't error if the full collateral amount isn't liquidated, just update the returning attribute
+// - bid_for is a String in functions that require .as_bytes() to allow LP tokens to work
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:liq-queue";

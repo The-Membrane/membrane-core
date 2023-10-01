@@ -216,20 +216,6 @@ pub fn query_staking_totals(
     Ok(totals)
 }
 
-//Return Stakers
-pub fn query_stakers(
-    querier: QuerierWrapper,
-    staking_contract: String,
-) -> StdResult<Vec<StakeDeposit>> {
-    let resp: Option<Vec<u8>> = querier.query_wasm_raw(staking_contract, b"stake")?;
-    let staked: Vec<StakeDeposit> = match resp {
-        Some(staked) => serde_json_wasm::from_slice(&staked).unwrap(),
-        None => return Err(StdError::GenericErr { msg: String::from("Totals not found") }),
-    };
-
-    Ok(staked)
-}
-
 /// Get contract balances for list of assets
 pub fn get_contract_balances(
     querier: QuerierWrapper,

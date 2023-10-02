@@ -19,19 +19,18 @@ use crate::error::ContractError;
 use crate::rates::external_accrue_call;
 use crate::risk_engine::assert_basket_assets;
 use crate::positions::{
-    deposit, close_position,
+    deposit,
     edit_basket, increase_debt,
     liq_repay, repay, redeem_for_collateral, edit_redemption_info,
     withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, ROUTER_REPLY_ID, 
-    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID, create_basket, CLOSE_POSITION_REPLY_ID,
-    //close_position
+    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID, create_basket,
 };
 use crate::query::{
     query_basket_credit_interest, query_basket_debt_caps,
-    query_basket_positions, query_collateral_rates, query_basket_redeemability, query_position_insolvency,
+    query_basket_positions, query_collateral_rates, query_basket_redeemability,
 };
 use crate::liquidations::liquidate;
-use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_router_repayment_reply, handle_close_position_reply};
+use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_router_repayment_reply};
 use crate::state::{ CONTRACT, ContractVersion,
     BASKET, CONFIG, get_target_position, update_position, OWNERSHIP_TRANSFER,
 };
@@ -216,20 +215,6 @@ pub fn execute(
                 restricted_collateral_assets
             )
         },
-        // ExecuteMsg::ClosePosition { 
-        //     position_id, 
-        //     max_spread, 
-        //     send_to 
-        // } => {
-        //     close_position(
-        //         deps, 
-        //         env, 
-        //         info, 
-        //         position_id, 
-        //         max_spread, 
-        //         send_to
-        //     )
-        // },
         ExecuteMsg::LiqRepay {} => {
             if !info.funds.is_empty() {
                 let credit_asset = Asset {
@@ -528,7 +513,6 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, env, msg),
         USER_SP_REPAY_REPLY_ID => handle_user_sp_repay_reply(deps, env, msg),
         WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
-        CLOSE_POSITION_REPLY_ID => handle_close_position_reply(deps, env, msg),
         ROUTER_REPLY_ID => handle_router_repayment_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
@@ -565,9 +549,6 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetCollateralInterest { } => {
             to_binary(&query_collateral_rates(deps, env)?)
         },
-        // QueryMsg::GetPositionInsolvency { position_id, position_owner } => {
-        //     to_binary(&query_position_insolvency(deps, env, position_id, position_owner)?)
-        // }
     }
 }
 

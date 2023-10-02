@@ -171,9 +171,7 @@ pub fn get_basket_debt_caps(
         config.clone().osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string()
     ){
         Ok(params) => params,
-        Err(err) => return Err(StdError::GenericErr { msg: format!( 
-            "Error getting owner liquidity parameters, line 350: {}", err
-         )})
+        Err(err) => return Err(StdError::GenericErr { msg: String::from("Error at line 174")})
     };
     
     let liquidity = get_asset_liquidity(

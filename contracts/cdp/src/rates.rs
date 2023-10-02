@@ -103,7 +103,7 @@ pub fn update_rate_indices(
         Ok(rates) => rates,
         Err(err) => {
             return Err(StdError::GenericErr {
-                msg: format!("Error at line 98, error: {:?}", err)
+                msg: String::from("Error at line 106")
             })
         }
     };
@@ -204,7 +204,7 @@ pub fn get_interest_rates(
         Ok(caps) => caps,
         Err(err) => {
             return Err(StdError::GenericErr {
-                msg: format!("Error at line 190, error: {:?}", err)
+                msg: String::from("Error at line 207")
             })            
         }
     };
@@ -363,7 +363,7 @@ fn get_credit_rate_of_change(
         Ok(ratios) => ratios,
         Err(err) => {
             return Err(StdError::GenericErr {
-                msg: format!("Error at line 332, error: {:?}", err)
+                msg: String::from("Error at line 366")
             })
         }
     };
@@ -372,7 +372,7 @@ fn get_credit_rate_of_change(
         Ok(_ok) => {},
         Err(err) => {
             return Err(StdError::GenericErr {
-                msg: format!("Error at line 341, error: {:?}", err)
+                msg: String::from("Error at line 375")
             })
         }
     };
@@ -560,7 +560,7 @@ pub fn accrue(
         Ok(rate) => rate,
         Err(err) => {
             return Err(StdError::GenericErr {
-                msg: format!("Error at line 498, liquidity: {}, error: {:?}", liquidity, err)
+                msg: String::from("Error at line 563")
             })
         }
     };

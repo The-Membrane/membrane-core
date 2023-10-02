@@ -31,7 +31,7 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
 
             //Skip if balance is 0
             if credit_asset_balance.is_zero() {
-                return Err(StdError::GenericErr { msg: format!("Router sale success returned 0 {}", basket.credit_asset.info) });
+                return Err(StdError::GenericErr { msg: String::from("Router sale success returned 0") });
             }
 
             //Create burn_msg with queried funds

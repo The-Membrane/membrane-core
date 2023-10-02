@@ -10,6 +10,8 @@ cw-dex = { version = "0.1.3", default-features = false, features = ["osmosis"] }
 osmosis-std = { version = "0.15.2" }
 cosmwasm-std = { version = "1.0.0", default-features = false, features = ["cosmwasm_1_1"] }
 cosmwasm-schema = "1.1.0"
+cw-coins = "0.6.1"
+pyth-sdk-cw = "1.0.0"
 prost = "0.11"
 uint = "0.8"
 cw-storage-plus = "0.13.2"

@@ -125,14 +125,14 @@ pub enum ExecuteMsg {
         position_ids: Vec<Uint128>
     },
     /// Close a Position by selling collateral and repaying debt
-    ClosePosition {
-        /// Position ID to close
-        position_id: Uint128,
-        /// Max spread for the sale of collateral
-        max_spread: Decimal,
-        /// Send excess assets to this address if not the Position owner
-        send_to: Option<String>,
-    },
+    // ClosePosition {
+    //     /// Position ID to close
+    //     position_id: Uint128,
+    //     /// Max spread for the sale of collateral
+    //     max_spread: Decimal,
+    //     /// Send excess assets to this address if not the Position owner
+    //     send_to: Option<String>,
+    // },
     /// Edit the contract's Basket
     EditBasket(EditBasket),
     /// Edit a cAsset in the contract's Basket

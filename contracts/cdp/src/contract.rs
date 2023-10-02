@@ -216,20 +216,20 @@ pub fn execute(
                 restricted_collateral_assets
             )
         },
-        ExecuteMsg::ClosePosition { 
-            position_id, 
-            max_spread, 
-            send_to 
-        } => {
-            close_position(
-                deps, 
-                env, 
-                info, 
-                position_id, 
-                max_spread, 
-                send_to
-            )
-        },
+        // ExecuteMsg::ClosePosition { 
+        //     position_id, 
+        //     max_spread, 
+        //     send_to 
+        // } => {
+        //     close_position(
+        //         deps, 
+        //         env, 
+        //         info, 
+        //         position_id, 
+        //         max_spread, 
+        //         send_to
+        //     )
+        // },
         ExecuteMsg::LiqRepay {} => {
             if !info.funds.is_empty() {
                 let credit_asset = Asset {

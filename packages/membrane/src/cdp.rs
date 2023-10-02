@@ -195,13 +195,13 @@ pub enum QueryMsg {
     GetCreditRate { },
     /// Returns Basket collateral interest rates
     GetCollateralInterest { },
-    /// Returns insolvency status of a Position
-    GetPositionInsolvency {
-        /// Position ID to query
-        position_id: Uint128,
-        /// Position owner to query
-        position_owner: String,
-    },
+    // Returns insolvency status of a Position
+    // GetPositionInsolvency {
+    //     /// Position ID to query
+    //     position_id: Uint128,
+    //     /// Position owner to query
+    //     position_owner: String,
+    // },
     // Used internally to test state propagation
     // Propagation {},
 }

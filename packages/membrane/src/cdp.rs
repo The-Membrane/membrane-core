@@ -42,6 +42,8 @@ pub struct InstantiateMsg {
     pub liquidity_contract: Option<String>,
     /// System Discounts contract    
     pub discounts_contract: Option<String>,
+    /// Basket Creation struct
+    pub create_basket: CreateBasket,
 }
 
 #[cw_serde]
@@ -117,15 +119,6 @@ pub enum ExecuteMsg {
         /// Swaps the full list.
         restricted_collateral_assets: Option<Vec<String>>,
     },
-    /// Close a Position by selling collateral and repaying debt
-    ClosePosition {
-        /// Position ID to close
-        position_id: Uint128,
-        /// Max spread for the sale of collateral
-        max_spread: Decimal,
-        /// Send excess assets to this address if not the Position owner
-        send_to: Option<String>,
-    },
     /// Accrue interest for a Position
     Accrue { 
         /// Positon owner to accrue interest for, defaults to sender
@@ -141,25 +134,6 @@ pub enum ExecuteMsg {
         repay_for: Option<UserInfo>, 
         /// Amount of revenue to mint
         amount: Option<Uint128>,
-    },
-    /// Create the contract's Basket
-    CreateBasket {
-        /// Basket ID
-        basket_id: Uint128,
-        /// Collateral asset types.
-        /// Note: Also used to tally asset amounts for ease of calculation of Basket ratios
-        collateral_types: Vec<cAsset>,
-        /// Creates native denom for credit_asset
-        credit_asset: Asset, 
-        /// Credit redemption price
-        credit_price: Decimal,
-        /// Base collateral interest rate.
-        /// Used to calculate the interest rate for each collateral type.
-        base_interest_rate: Option<Decimal>,
-        /// To measure liquidity for the credit asset
-        credit_pool_infos: Vec<PoolType>, 
-        /// Liquidation queue for collateral assets
-        liq_queue: Option<String>,
     },
     /// Edit the contract's Basket
     EditBasket(EditBasket),
@@ -196,20 +170,6 @@ pub enum CallbackMsg {
 pub enum QueryMsg {
     /// Returns the contract's config
     Config {},
-    /// Returns Positions owned by a user
-    GetUserPositions {
-        /// User to query
-        user: String,
-        /// Response limiter
-        limit: Option<u32>,
-    },
-    /// Returns a single Position
-    GetPosition {
-        //Position ID to query
-        position_id: Uint128,
-        //Position owner to query
-        position_owner: String,
-    },
     /// Get Basket redeemability
     GetBasketRedeemability {
         /// Position owner to query.
@@ -225,26 +185,21 @@ pub enum QueryMsg {
         start_after: Option<String>,
         /// Response limiter
         limit: Option<u32>,
+        /// Single position
+        user_info: Option<UserInfo>,
+        /// Single user
+        user: Option<String>,
     },
     /// Returns the contract's Basket
     GetBasket { }, 
     /// Returns Basket collateral debt caps
     GetBasketDebtCaps { },
-    /// Returns Positions with bad debt in the Basket
-    GetBasketBadDebt { },
-    /// Returns insolvency status of a Position
-    GetPositionInsolvency {
-        /// Position ID to query
-        position_id: Uint128,
-        /// Position owner to query
-        position_owner: String,
-    },
     /// Returns credit redemption rate
     GetCreditRate { },
     /// Returns Basket collateral interest rates
     GetCollateralInterest { },
-    /// Used internally to test state propagation
-    Propagation {},
+    // Used internally to test state propagation
+    // Propagation {},
 }
 
 #[cw_serde]
@@ -287,6 +242,28 @@ pub struct Config {
     pub base_debt_cap_multiplier: Uint128,
     /// Interest rate 2nd Slope multiplier
     pub rate_slope_multiplier: Decimal,
+}
+
+
+/// Create the contract's Basket
+#[cw_serde]
+pub struct CreateBasket {
+    /// Basket ID
+    pub basket_id: Uint128,
+    /// Collateral asset types.
+    /// Note: Also used to tally asset amounts for ease of calculation of Basket ratios
+    pub collateral_types: Vec<cAsset>,
+    /// Creates native denom for credit_asset
+    pub credit_asset: Asset, 
+    /// Credit redemption price
+    pub credit_price: Decimal,
+    /// Base collateral interest rate.
+    /// Used to calculate the interest rate for each collateral type.
+    pub base_interest_rate: Option<Decimal>,
+    /// To measure liquidity for the credit asset
+    pub credit_pool_infos: Vec<PoolType>, 
+    /// Liquidation queue for collateral assets
+    pub liq_queue: Option<String>,
 }
 
 #[cw_serde]
@@ -509,8 +486,6 @@ pub struct PositionResponse {
     pub cAsset_ratios: Vec<Decimal>,
     /// Position outstanding debt
     pub credit_amount: Uint128,
-    /// Basket ID
-    pub basket_id: Uint128,
     /// Average borrow LTV of collateral assets
     pub avg_borrow_LTV: Decimal,
     /// Average max LTV of collateral assets
@@ -522,19 +497,7 @@ pub struct BasketPositionsResponse {
     /// Position user
     pub user: String,
     /// List of Positions
-    pub positions: Vec<Position>,
-}
-
-#[cw_serde]
-pub struct BadDebtResponse {
-    /// List of Positions with bad debt 
-    pub has_bad_debt: Vec<(PositionUserInfo, Uint128)>,
-}
-
-#[cw_serde]
-pub struct InsolvencyResponse {
-    /// List of insolvent Positions
-    pub insolvent_positions: Vec<InsolventPosition>,
+    pub positions: Vec<PositionResponse>,
 }
 
 /// Response for credit redemption price

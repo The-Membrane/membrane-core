@@ -270,7 +270,7 @@ fn get_user_repay_amount(
         //Query Stability Pool to see if the user has funds
         let user_deposits = match querier
             .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.clone().stability_pool.unwrap().to_string(),
+                contract_addr: config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                 msg: to_binary(&SP_QueryMsg::AssetPool { 
                     user: Some(position_owner.clone()),
                     deposit_limit: None, 
@@ -313,7 +313,7 @@ fn get_user_repay_amount(
             };
 
             let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.stability_pool.unwrap().to_string(),
+                contract_addr: config.stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                 msg: to_binary(&repay_msg)?,
                 funds: vec![],
             });
@@ -442,7 +442,7 @@ fn per_asset_fulfillments(
             
             let res: LQ_LiquidatibleResponse =
                 querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-                    contract_addr: basket.clone().liq_queue.unwrap().to_string(),
+                    contract_addr: basket.clone().liq_queue.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                     msg: to_binary(&LQ_QueryMsg::CheckLiquidatible {
                         bid_for: cAsset.clone().asset.info,
                         collateral_price: collateral_price.clone(),
@@ -482,7 +482,7 @@ fn per_asset_fulfillments(
             
             //Create CosmosMsg
             let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: basket.clone().liq_queue.unwrap().to_string(),
+                contract_addr: basket.clone().liq_queue.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                 msg: to_binary(&liq_msg)?,
                 funds: vec![],
             });
@@ -502,7 +502,7 @@ fn per_asset_fulfillments(
     
     //Create Msg to send all native token liq fees for MBRN to the staking contract
     let protocol_fee_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.clone().staking_contract.unwrap().to_string(),
+        contract_addr: config.clone().staking_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
         msg: to_binary(&StakingExecuteMsg::DepositFee {})?,
         funds: protocol_coins,
     }); 
@@ -536,7 +536,7 @@ fn build_sp_submsgs(
         decimal_subtraction(credit_repay_amount, leftover_repayment)?;
     
     if config.stability_pool.is_some() && !leftover_repayment.is_zero() {
-        let sp_liq_fee = query_stability_pool_fee(querier, config.clone().stability_pool.unwrap().to_string())?;
+        let sp_liq_fee = query_stability_pool_fee(querier, config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string())?;
 
         //If LTV is 90% and the fees are 10%, the position would pay everything to pay the liquidators.
         //So above that, the liquidators are losing the premium guarantee.
@@ -579,7 +579,7 @@ fn build_sp_submsgs(
         };
 
         let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.stability_pool.unwrap().to_string(),
+            contract_addr: config.stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
             msg: to_binary(&liq_msg)?,
             funds: vec![],
         });
@@ -650,7 +650,7 @@ fn get_lp_liq_withdraw_msg(
     Ok( pool_query_and_exit(
         querier, 
         env, 
-        prop.clone().config.osmosis_proxy.unwrap().to_string(), 
+        prop.clone().config.osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string(), 
         pool_info.pool_id, 
         lp_liquidate_amount
     )?.0 )
@@ -743,7 +743,7 @@ pub fn sell_wall(
 
         //Create router reply msg to repay debt after sales
         let router_msg = router_native_to_native(
-            prop.clone().config.clone().dex_router.unwrap().into(),
+            prop.clone().config.clone().dex_router.unwrap_or_else(|| Addr::unchecked("")).into(),
             collateral_assets[index].clone().asset.info,
             prop.clone().basket.clone().credit_asset.info, 
             None, 
@@ -769,7 +769,7 @@ pub fn query_stability_pool_liquidatible(
 ) -> StdResult<Decimal> {
     let query_res: SP_LiquidatibleResponse =
         querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.stability_pool.unwrap().to_string(),
+            contract_addr: config.stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
             msg: to_binary(&SP_QueryMsg::CheckLiquidatible {
                 amount
             })?,
@@ -799,7 +799,7 @@ pub fn get_LP_pool_cAssets(
             //Query share asset amount
             let share_asset_amounts = querier
                 .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+                    contract_addr: config.clone().osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                     msg: to_binary(&OsmoQueryMsg::PoolState {
                         id: pool_info.pool_id,
                     })?,

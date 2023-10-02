@@ -181,15 +181,11 @@ checksum = "a2bd12c1caf447e69cd4528f47f94d203fd2582878ecb9e9465484c4148a8223"
 name = "cdp"
 version = "0.1.0"
 dependencies = [
- "apollo-cw-asset",
  "cosmwasm-schema",
  "cosmwasm-std",
- "cosmwasm-storage",
  "cw-multi-test 0.13.4",
  "cw-storage-plus 0.13.4",
- "cw2 0.13.4",
  "membrane",
- "osmo-bindings",
  "osmosis-std 0.15.3",
  "schemars",
  "serde",

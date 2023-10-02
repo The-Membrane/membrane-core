@@ -6,7 +6,6 @@ use cosmwasm_std::{
     attr, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
     MessageInfo, Reply, Response, StdError, StdResult, Uint128, WasmMsg,
 };
-use cw2::set_contract_version;
 
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::helpers::assert_sent_native_token_balance;
@@ -20,22 +19,21 @@ use crate::error::ContractError;
 use crate::rates::external_accrue_call;
 use crate::risk_engine::assert_basket_assets;
 use crate::positions::{
-    create_basket, deposit,
+    deposit,
     edit_basket, increase_debt,
     liq_repay, mint_revenue, repay, redeem_for_collateral, edit_redemption_info,
-    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, close_position, CLOSE_POSITION_REPLY_ID, ROUTER_REPLY_ID, 
-    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID
+    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, ROUTER_REPLY_ID, 
+    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID, create_basket,
+    //close_position
 };
 use crate::query::{
-    query_bad_debt, query_basket_credit_interest, query_basket_debt_caps,
-    query_basket_positions, query_collateral_rates,
-    query_position, query_position_insolvency,
-    query_user_positions, query_basket_redeemability,
+    query_basket_credit_interest, query_basket_debt_caps,
+    query_basket_positions, query_collateral_rates, query_basket_redeemability,
 };
 use crate::liquidations::liquidate;
-use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_close_position_reply, handle_router_repayment_reply};
-use crate::state::{
-    BASKET, CONFIG, LIQUIDATION, get_target_position, update_position, OWNERSHIP_TRANSFER,
+use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_router_repayment_reply};
+use crate::state::{ CONTRACT, ContractVersion,
+    BASKET, CONFIG, get_target_position, update_position, OWNERSHIP_TRANSFER,
 };
 
 // version info for migration info
@@ -52,7 +50,7 @@ pub fn instantiate(
     
     let mut config = Config {
         liq_fee: msg.liq_fee,
-        owner: info.sender,
+        owner: info.clone().sender,
         stability_pool: None,
         dex_router: None,
         staking_contract: None,
@@ -98,7 +96,25 @@ pub fn instantiate(
     
     CONFIG.save(deps.storage, &config)?;
 
-    set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+    //Set contract version
+    CONTRACT.save(deps.storage, &ContractVersion {
+        contract: CONTRACT_NAME.to_string(),
+        version: CONTRACT_VERSION.to_string(),
+    })?;
+
+    //Create basket
+    create_basket(
+        deps, 
+        info, 
+        env.clone(), 
+        msg.create_basket.basket_id, 
+        msg.create_basket.collateral_types, 
+        msg.create_basket.credit_asset, 
+        msg.create_basket.credit_price, 
+        msg.create_basket.base_interest_rate, 
+        msg.create_basket.credit_pool_infos, 
+        msg.create_basket.liq_queue
+    )?;
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -200,20 +216,20 @@ pub fn execute(
                 restricted_collateral_assets
             )
         },
-        ExecuteMsg::ClosePosition { 
-            position_id, 
-            max_spread, 
-            send_to 
-        } => {
-            close_position(
-                deps, 
-                env, 
-                info, 
-                position_id, 
-                max_spread, 
-                send_to
-            )
-        },
+        // ExecuteMsg::ClosePosition { 
+        //     position_id, 
+        //     max_spread, 
+        //     send_to 
+        // } => {
+        //     close_position(
+        //         deps, 
+        //         env, 
+        //         info, 
+        //         position_id, 
+        //         max_spread, 
+        //         send_to
+        //     )
+        // },
         ExecuteMsg::LiqRepay {} => {
             if !info.funds.is_empty() {
                 let credit_asset = Asset {
@@ -233,26 +249,26 @@ pub fn execute(
             max_LTV,
         } => edit_cAsset(deps, info, asset, max_borrow_LTV, max_LTV),
         ExecuteMsg::EditBasket(edit) => edit_basket(deps, info,edit),
-        ExecuteMsg::CreateBasket {
-            basket_id,
-            collateral_types,
-            credit_asset,
-            credit_price,
-            base_interest_rate,
-            credit_pool_infos,
-            liq_queue,
-        } => create_basket(
-            deps,
-            info,
-            env,
-            basket_id,
-            collateral_types,
-            credit_asset,
-            credit_price,
-            base_interest_rate,
-            credit_pool_infos,
-            liq_queue,
-        ),
+        // ExecuteMsg::CreateBasket {
+        //     basket_id,
+        //     collateral_types,
+        //     credit_asset,
+        //     credit_price,
+        //     base_interest_rate,
+        //     credit_pool_infos,
+        //     liq_queue,
+        // } => create_basket(
+        //     deps,
+        //     info,
+        //     env,
+        //     basket_id,
+        //     collateral_types,
+        //     credit_asset,
+        //     credit_price,
+        //     base_interest_rate,
+        //     credit_pool_infos,
+        //     liq_queue,
+        // ),
         ExecuteMsg::Liquidate {
             position_id,
             position_owner,
@@ -332,7 +348,7 @@ fn edit_cAsset(
                     };
 
                     msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: basket.clone().liq_queue.unwrap().into_string(),
+                        contract_addr: basket.clone().liq_queue.unwrap_or_else(|| Addr::unchecked("")).into_string(),
                         msg: to_binary(&LQ_ExecuteMsg::UpdateQueue {
                             bid_for: asset.clone().asset.info,
                             max_premium: Some(max_premium),
@@ -539,7 +555,7 @@ fn check_and_fulfill_bad_debt(
             };
 
             messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.debt_auction.unwrap().to_string(),
+                contract_addr: config.debt_auction.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                 msg: to_binary(&auction_msg)?,
                 funds: vec![],
             }));
@@ -569,7 +585,6 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, env, msg),
         USER_SP_REPAY_REPLY_ID => handle_user_sp_repay_reply(deps, env, msg),
         WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
-        CLOSE_POSITION_REPLY_ID => handle_close_position_reply(deps, env, msg),
         ROUTER_REPLY_ID => handle_router_repayment_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
@@ -580,51 +595,26 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::GetPosition {
-            position_id,
-            position_owner,
-        } => {
-            to_binary(&query_position(
-                deps,
-                env,
-                position_id,
-                deps.api.addr_validate(&position_owner)?
-            )?)
-        }
-        QueryMsg::GetUserPositions {
-            user,
-            limit,
-        } => {
-            to_binary(&query_user_positions(
-                deps, env, deps.api.addr_validate(&user)?, limit,
-            )?)
-        }
         QueryMsg::GetBasketPositions {
             start_after,
             limit,
+            user_info, 
+            user,
         } => to_binary(&query_basket_positions(
             deps,
+            env,
             start_after,
             limit,
+            user_info, 
+            user,
         )?),
         QueryMsg::GetBasket { } => to_binary(&BASKET.load(deps.storage)?),
         QueryMsg::GetBasketRedeemability { position_owner, start_after, limit } => {
             to_binary(&query_basket_redeemability(deps, position_owner, start_after, limit)?)
         }
-        QueryMsg::Propagation {} => to_binary(&LIQUIDATION.load(deps.storage)?),
         QueryMsg::GetBasketDebtCaps { } => {
             to_binary(&query_basket_debt_caps(deps, env)?)
         }
-        QueryMsg::GetBasketBadDebt { } => to_binary(&query_bad_debt(deps)?),
-        QueryMsg::GetPositionInsolvency {
-            position_id,
-            position_owner,
-        } => to_binary(&query_position_insolvency(
-            deps,
-            env,
-            position_id,
-            position_owner,
-        )?),
         QueryMsg::GetCreditRate { } => {
             to_binary(&query_basket_credit_interest(deps, env)?)
         }

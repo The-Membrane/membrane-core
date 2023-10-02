@@ -1,94 +1,109 @@
 use std::cmp::Ordering;
 
 use cosmwasm_std::{
-    to_binary, Addr, Decimal, Deps, Env, Order, QuerierWrapper, QueryRequest, StdError, StdResult,
-    Storage, Uint128, WasmQuery,
+    to_binary, Decimal, Deps, Env, Order, QuerierWrapper, QueryRequest, StdError, StdResult,
+    Storage, Uint128, WasmQuery, Addr,
 };
 
 use cw_storage_plus::Bound;
 
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::cdp::{
-    Config, BadDebtResponse, CollateralInterestResponse,
-    InsolvencyResponse, InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse,
+    Config, CollateralInterestResponse,
+    InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse,
 };
 
 use membrane::types::{
-    cAsset, AssetInfo, Basket, InsolventPosition, Position, PositionUserInfo,
+    cAsset, AssetInfo, Basket, Position,
     UserInfo, DebtCap, RedemptionInfo, PremiumInfo
 };
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 
-use crate::positions::check_for_empty_position;
-use crate::rates::{accrue, get_interest_rates};
+use crate::rates::get_interest_rates;
 use crate::risk_engine::get_basket_debt_caps;
 use crate::positions::read_price;
 use crate::state::{BASKET, CONFIG, POSITIONS, get_target_position, REDEMPTION_OPT_IN};
 
 const MAX_LIMIT: u32 = 31;
 
-/// Returns Position information
-pub fn query_position(
+/// Returns Positions in a Basket
+pub fn query_basket_positions(
     deps: Deps,
     env: Env,
-    position_id: Uint128,
-    user: Addr,
-) -> StdResult<PositionResponse> {
-    let basket = BASKET.load(deps.storage)?;
-
-    let (_i, position) = match get_target_position(deps.storage, user.clone(), position_id){
-        Ok(position) => position,
-        Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
-    };
-    
-    let config = CONFIG.load(deps.storage)?;
-
-    let (borrow, max, _value, _prices, ratios) = get_avg_LTV(
-        deps.storage,
-        env.clone(),
-        deps.querier,
-        config.clone(),
-        Some(basket.clone()),
-        position.clone().collateral_assets,
-        false,
-        false,
-    )?;
-    
-    Ok(PositionResponse {
-        position_id: position.position_id,
-        collateral_assets: position.clone().collateral_assets,
-        cAsset_ratios: ratios,
-        credit_amount: position.credit_amount,
-        basket_id: basket.basket_id,
-        avg_borrow_LTV: borrow,
-        avg_max_LTV: max,
-    })
-
-}
-
-/// Returns Positions for a given user
-pub fn query_user_positions(
-    deps: Deps,
-    env: Env,
-    user: Addr,
+    start_after: Option<String>,
     limit: Option<u32>,
-) -> StdResult<Vec<PositionResponse>> {
-    let limit = limit.unwrap_or(MAX_LIMIT) as usize;
-    let config = CONFIG.load(deps.storage)?;
-    let mut error: Option<StdError> = None;
-    
-    let positions: Vec<Position> = match POSITIONS.load(deps.storage,user.clone()){
-        Err(_) => return Err(StdError::GenericErr{msg: String::from("No User Positions")}),
-        Ok(positions) => positions,
-    };
-    
+    // Single position
+    user_info: Option<UserInfo>,
+    // Single user
+    user: Option<String>,
+) -> StdResult<Vec<BasketPositionsResponse>> {
     let basket = BASKET.load(deps.storage)?;
-    let mut user_positions: Vec<PositionResponse> = vec![];
-    
-    for position in positions.into_iter().take(limit) {
+    let config = CONFIG.load(deps.storage)?;
+    /////Check single position and single user first/////
+    /// User, default limit is 10 anyway
+    if let Some(user) = user {
         
-        let (borrow, max, _value, _prices, ratios) = match get_avg_LTV(
+        let mut error: Option<StdError> = None;
+        let user = deps.api.addr_validate(&user)?;
+
+        let positions: Vec<Position> = match POSITIONS.load(deps.storage,user.clone()){
+            Err(_) => return Err(StdError::GenericErr{msg: String::from("No User Positions")}),
+            Ok(positions) => positions,
+        };
+        
+        let mut user_positions: Vec<PositionResponse> = vec![];
+        
+        for position in positions.into_iter() {
+            
+            let (borrow, max, _value, _prices, ratios) = match get_avg_LTV(
+                deps.storage,
+                env.clone(),
+                deps.querier,
+                config.clone(),
+                Some(basket.clone()),
+                position.clone().collateral_assets,
+                false,
+                false
+            ) {
+                Ok((borrow, max, value, prices, ratios)) => (borrow, max, value, prices, ratios),
+                Err(err) => {
+                    error = Some(err);
+                    (Decimal::zero(), Decimal::zero(), Decimal::zero(), vec![], vec![])
+                }
+            };
+
+            let cAsset_ratios = ratios;
+
+            if error.is_none() {
+                user_positions.push(PositionResponse {
+                    position_id: position.position_id,
+                    collateral_assets: position.collateral_assets,
+                    cAsset_ratios,
+                    credit_amount: position.credit_amount,
+                    avg_borrow_LTV: borrow,
+                    avg_max_LTV: max,
+                })
+            }
+        };
+
+        if let Some(error) = error{
+            return Err(error)
+        }
+
+        return Ok(vec![BasketPositionsResponse {
+            user: user.to_string(),
+            positions: user_positions,
+        }])
+    } else if let Some(user_info) = user_info {
+        let user = deps.api.addr_validate(&user_info.position_owner)?;
+
+        let (_i, position) = match get_target_position(deps.storage, user.clone(), user_info.position_id){
+            Ok(position) => position,
+            Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+        };
+            
+        let (borrow, max, _value, _prices, ratios) = get_avg_LTV(
             deps.storage,
             env.clone(),
             deps.querier,
@@ -96,44 +111,25 @@ pub fn query_user_positions(
             Some(basket.clone()),
             position.clone().collateral_assets,
             false,
-            false
-        ) {
-            Ok((borrow, max, value, prices, ratios)) => (borrow, max, value, prices, ratios),
-            Err(err) => {
-                error = Some(err);
-                (Decimal::zero(), Decimal::zero(), Decimal::zero(), vec![], vec![])
-            }
-        };
+            false,
+        )?;
 
-        let cAsset_ratios = ratios;
 
-        if error.is_none() {
-            user_positions.push(PositionResponse {
+        return Ok(vec![BasketPositionsResponse {
+            user: user.to_string(),
+            positions: vec![PositionResponse {
                 position_id: position.position_id,
-                collateral_assets: position.collateral_assets,
-                cAsset_ratios,
+                collateral_assets: position.clone().collateral_assets,
+                cAsset_ratios: ratios,
                 credit_amount: position.credit_amount,
-                basket_id: basket.clone().basket_id,
                 avg_borrow_LTV: borrow,
                 avg_max_LTV: max,
-            })
-        }
-    };
-
-    if let Some(error) = error{
-        return Err(error)
+            }],
+        }])
     }
 
-    Ok(user_positions)
-    
-}
+    //Basket Positions
 
-/// Returns Positions in a Basket
-pub fn query_basket_positions(
-    deps: Deps,
-    start_after: Option<String>,
-    limit: Option<u32>,
-) -> StdResult<Vec<BasketPositionsResponse>> {
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
 
     let start = if let Some(start) = start_after {
@@ -150,7 +146,19 @@ pub fn query_basket_positions(
             let (k, v) = item?;
             Ok(BasketPositionsResponse {
                 user: k.to_string(),
-                positions: v,
+                positions: v
+                    .into_iter()
+                    .map(|pos| {
+                        PositionResponse { 
+                            position_id: pos.position_id,
+                            collateral_assets: pos.collateral_assets, 
+                            cAsset_ratios: vec![], 
+                            credit_amount: pos.credit_amount, 
+                            avg_borrow_LTV: Decimal::zero(), 
+                            avg_max_LTV: Decimal::zero(),
+                        }
+                    })
+                    .collect(),
             })
         })
         .collect()
@@ -175,142 +183,6 @@ pub fn query_basket_debt_caps(deps: Deps, env: Env) -> StdResult<Vec<DebtCap>> {
     }
 
     Ok( res )
-}
-
-/// Returns Position info with bad debt in the Basket
-pub fn query_bad_debt(deps: Deps) -> StdResult<BadDebtResponse> {
-    let mut res = BadDebtResponse {
-        has_bad_debt: vec![],
-    };
-
-    let _iter: (_) = POSITIONS
-        .range(deps.storage, None, None, Order::Ascending)
-        .map(|item| {
-            let (addr, positions) = item.unwrap();
-
-            for position in positions {
-                //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
-                //This is allowed bc any calls here will be after a liquidation where the SP would've sold all it could to cover debts
-                let empty = check_for_empty_position(position.collateral_assets);
-
-                //If there are no assets and outstanding debt
-                if empty && !position.credit_amount.is_zero() {
-                    res.has_bad_debt.push((
-                        PositionUserInfo {
-                            position_id: Some(position.position_id),
-                            position_owner: Some(addr.to_string()),
-                        },
-                        position.credit_amount,
-                    ))
-                }
-            }
-        });
-
-    Ok(res)
-}
-
-/// Returns Position's insolvency status
-/// The idea is that the response can be handled by acting on the fee. So if the fee is 0, then the position is solvent or doesn't exist.
-pub fn query_position_insolvency(
-    deps: Deps,
-    env: Env,
-    position_id: Uint128,
-    position_owner: String,
-) -> StdResult<InsolvencyResponse> {
-    let config: Config = CONFIG.load(deps.storage)?;
-    let valid_owner_addr = deps.api.addr_validate(&position_owner)?;
-    let mut basket: Basket = BASKET.load(deps.storage)?;
-
-    let (_i, mut target_position) = match get_target_position(deps.storage, valid_owner_addr, position_id){
-        Ok(position) => position,
-        //If position doesn't exist, return solvent response
-        Err(_) => return Ok(InsolvencyResponse {
-            insolvent_positions: vec![
-                InsolventPosition {
-                    insolvent: false,
-                    position_info: UserInfo {
-                        position_id,
-                        position_owner,
-                    },
-                    current_LTV: Decimal::zero(),
-                    available_fee: Uint128::zero(),
-                }
-            ],
-        })
-    };
-
-    match accrue(
-        deps.storage,
-        deps.querier,
-        env.clone(),
-        config.clone(),
-        &mut target_position,
-        &mut basket,
-        position_owner.clone(),
-        false,
-        true,
-    ){
-        Ok(_) => {}
-        Err(_) => return Ok(InsolvencyResponse {
-            insolvent_positions: vec![
-                InsolventPosition {
-                    insolvent: false,
-                    position_info: UserInfo {
-                        position_id,
-                        position_owner,
-                    },
-                    current_LTV: Decimal::zero(),
-                    available_fee: Uint128::zero(),
-                }
-            ],
-        })
-    
-    };
-
-    //Query insolvency
-    let (insolvent, current_LTV, available_fee) = match insolvency_check(
-        deps.storage,
-        env,
-        deps.querier,
-        Some(basket.clone()),
-        target_position.collateral_assets,
-        target_position.credit_amount,
-        basket.credit_price,
-        false,
-        config,
-        true,
-    ){
-        Ok(((insolvent, current_LTV, available_fee), _)) => (insolvent, current_LTV, available_fee),
-        Err(_) => {
-            return Ok(InsolvencyResponse {
-                insolvent_positions: vec![
-                    InsolventPosition {
-                        insolvent: false,
-                        position_info: UserInfo {
-                            position_id,
-                            position_owner,
-                        },
-                        current_LTV: Decimal::zero(),
-                        available_fee: Uint128::zero(),
-                    }
-                ],
-            })
-        }
-    };
-
-    Ok(InsolvencyResponse {
-        insolvent_positions: vec![
-            InsolventPosition {
-                insolvent,
-                position_info: UserInfo {
-                    position_id,
-                    position_owner,
-                },
-                current_LTV,
-                available_fee,
-            }
-        ],
-    })
 }
 
 /// Returns cAsset interest rates for the Basket
@@ -556,7 +428,7 @@ pub fn query_price(
     
     //Query Price
     let res = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.oracle_contract.unwrap().to_string(),
+        contract_addr: config.oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
         msg: to_binary(&OracleQueryMsg::Price {
             asset_info,
             twap_timeframe,
@@ -611,7 +483,7 @@ pub fn query_basket_redeemability(
                 //Add to the user's info to the response if in the premium
                 let users_info_in_premium = users_of_premium
                     .into_iter()
-                    .filter(|info: &RedemptionInfo| info.position_owner == valid_address.clone().unwrap())
+                    .filter(|info: &RedemptionInfo| info.position_owner == valid_address.clone().unwrap_or_else(|| Addr::unchecked("")))
                     .collect::<Vec<RedemptionInfo>>();
 
                 if !users_info_in_premium.is_empty(){

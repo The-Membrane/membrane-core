@@ -423,7 +423,7 @@ pub fn accrue(
     //At least 3% of total supply as liquidity
     let liquidity: Uint128 = get_asset_liquidity(
         querier,
-        config.clone().liquidity_contract.unwrap().to_string(),
+        config.clone().liquidity_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
         basket.clone().credit_asset.info
     )?;
     

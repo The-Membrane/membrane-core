@@ -364,9 +364,11 @@ pub fn accrue_user_positions(
 ) -> StdResult<CosmosMsg> {
     let user_positions: Vec<PositionResponse> = querier.query_wasm_smart(
         positions_contract.to_string(),
-        &CDPQueryMsg::GetUserPositions { 
-            user: user.clone(),
-            limit: Some(limit),
+        &CDPQueryMsg::GetBasketPositions {
+            start_after: None,
+            user_info: None,
+            user: Some(user.clone()),
+            limit: None,
         })?;
 
     let user_ids = user_positions.into_iter().map(|position| position.position_id).collect::<Vec<Uint128>>();

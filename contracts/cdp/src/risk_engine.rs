@@ -178,7 +178,7 @@ pub fn get_basket_debt_caps(
     
     let liquidity = get_asset_liquidity(
         querier, 
-        config.clone().liquidity_contract.unwrap().to_string(),
+        config.clone().liquidity_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
         basket.clone().credit_asset.info
     )?;
     
@@ -187,7 +187,7 @@ pub fn get_basket_debt_caps(
 
 
     //Get SP cap space the contract is allowed to use
-    let sp_liquidity = match get_stability_pool_liquidity(querier, config.clone().stability_pool.unwrap().to_string()){
+    let sp_liquidity = match get_stability_pool_liquidity(querier, config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string()){
         Ok(liquidity) => liquidity,
         Err(_) => Uint128::zero()
     };

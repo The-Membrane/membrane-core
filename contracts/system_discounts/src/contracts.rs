@@ -187,9 +187,11 @@ fn get_discount(
     //Get User's outstanding debt
     let user_positions: Vec<PositionResponse> = deps.querier.query::<Vec<PositionResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().positions_contract.to_string(),
-        msg: to_binary(&CDP_QueryMsg::GetUserPositions {
-            user: user.clone(),
-            limit: Some(3),
+        msg: to_binary(&CDP_QueryMsg::GetBasketPositions {
+            start_after: None,
+            user_info: None,
+            user: Some(user.clone()),
+            limit: None,
         })?,
     }))?;
 

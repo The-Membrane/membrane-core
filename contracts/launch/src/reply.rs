@@ -14,7 +14,7 @@ use membrane::governance::{InstantiateMsg as Gov_InstantiateMsg, VOTING_PERIOD_I
 use membrane::stability_pool::InstantiateMsg as SP_InstantiateMsg;
 use membrane::staking::{InstantiateMsg as Staking_InstantiateMsg, ExecuteMsg as StakingExecuteMsg};
 use membrane::vesting::{InstantiateMsg as Vesting_InstantiateMsg, ExecuteMsg as VestingExecuteMsg};
-use membrane::cdp::{InstantiateMsg as CDP_InstantiateMsg, EditBasket, ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, UpdateConfig as CDPUpdateConfig};
+use membrane::cdp::{InstantiateMsg as CDP_InstantiateMsg, EditBasket, ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, UpdateConfig as CDPUpdateConfig, CreateBasket};
 use membrane::oracle::{InstantiateMsg as Oracle_InstantiateMsg, ExecuteMsg as OracleExecuteMsg};
 use membrane::liq_queue::{InstantiateMsg as LQInstantiateMsg, ExecuteMsg as LQExecuteMsg};
 use membrane::liquidity_check::{InstantiateMsg as LCInstantiateMsg, ExecuteMsg as LCExecuteMsg};
@@ -375,6 +375,57 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 contract_addr: addrs.governance.to_string(), 
                 admin: addrs.clone().governance.to_string(),
             }));
+
+            //Set CreaetBasket struct
+            let create_basket = CreateBasket {
+                basket_id: Uint128::one(),
+                collateral_types: vec![cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: config.clone().atom_denom,
+                        },
+                        amount: Uint128::from(0u128),
+                    },
+                    max_borrow_LTV: Decimal::percent(45),
+                    max_LTV: Decimal::percent(60),
+                    pool_info: None,
+                    rate_index: Decimal::one(),
+                },
+                cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: config.clone().osmo_denom,
+                        },
+                        amount: Uint128::from(0u128),
+                    },
+                    max_borrow_LTV: Decimal::percent(45),
+                    max_LTV: Decimal::percent(60),
+                    pool_info: None,
+                    rate_index: Decimal::one(),
+                },                
+                cAsset {
+                    asset: Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: config.clone().usdc_denom,
+                        },
+                        amount: Uint128::from(0u128),
+                    },
+                    max_borrow_LTV: Decimal::percent(90),
+                    max_LTV: Decimal::percent(96),
+                    pool_info: None,
+                    rate_index: Decimal::one(),
+                }],
+                credit_asset: Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: config.clone().credit_denom,
+                    },
+                    amount: Uint128::from(0u128),
+                },
+                credit_price: Decimal::one(),
+                base_interest_rate: Some(Decimal::percent(1)),
+                credit_pool_infos: vec![],
+                liq_queue: None,
+            };
             
             //Instantiate Positions
             let cdp_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
@@ -397,6 +448,7 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     debt_auction: None,
                     liquidity_contract: None,
                     discounts_contract: None,
+                    create_basket,
                 })?, 
                 funds: vec![], 
                 label: String::from("positions"), 
@@ -516,61 +568,61 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 }));
 
             //CreateBasket
-            let msg = CDPExecuteMsg::CreateBasket {
-                basket_id: Uint128::one(),
-                collateral_types: vec![cAsset {
-                    asset: Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: config.clone().atom_denom,
-                        },
-                        amount: Uint128::from(0u128),
-                    },
-                    max_borrow_LTV: Decimal::percent(45),
-                    max_LTV: Decimal::percent(60),
-                    pool_info: None,
-                    rate_index: Decimal::one(),
-                },
-                cAsset {
-                    asset: Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: config.clone().osmo_denom,
-                        },
-                        amount: Uint128::from(0u128),
-                    },
-                    max_borrow_LTV: Decimal::percent(45),
-                    max_LTV: Decimal::percent(60),
-                    pool_info: None,
-                    rate_index: Decimal::one(),
-                },                
-                cAsset {
-                    asset: Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: config.clone().usdc_denom,
-                        },
-                        amount: Uint128::from(0u128),
-                    },
-                    max_borrow_LTV: Decimal::percent(90),
-                    max_LTV: Decimal::percent(96),
-                    pool_info: None,
-                    rate_index: Decimal::one(),
-                }],
-                credit_asset: Asset {
-                    info: AssetInfo::NativeToken {
-                        denom: config.clone().credit_denom,
-                    },
-                    amount: Uint128::from(0u128),
-                },
-                credit_price: Decimal::one(),
-                base_interest_rate: Some(Decimal::percent(1)),
-                credit_pool_infos: vec![],
-                liq_queue: None,
-            };
-            let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-                contract_addr: addrs.clone().positions.to_string(), 
-                msg: to_binary(&msg)?, 
-                funds: vec![], 
-            });
-            msgs.push(msg);
+            // let msg = CDPExecuteMsg::CreateBasket {
+            //     basket_id: Uint128::one(),
+            //     collateral_types: vec![cAsset {
+            //         asset: Asset {
+            //             info: AssetInfo::NativeToken {
+            //                 denom: config.clone().atom_denom,
+            //             },
+            //             amount: Uint128::from(0u128),
+            //         },
+            //         max_borrow_LTV: Decimal::percent(45),
+            //         max_LTV: Decimal::percent(60),
+            //         pool_info: None,
+            //         rate_index: Decimal::one(),
+            //     },
+            //     cAsset {
+            //         asset: Asset {
+            //             info: AssetInfo::NativeToken {
+            //                 denom: config.clone().osmo_denom,
+            //             },
+            //             amount: Uint128::from(0u128),
+            //         },
+            //         max_borrow_LTV: Decimal::percent(45),
+            //         max_LTV: Decimal::percent(60),
+            //         pool_info: None,
+            //         rate_index: Decimal::one(),
+            //     },                
+            //     cAsset {
+            //         asset: Asset {
+            //             info: AssetInfo::NativeToken {
+            //                 denom: config.clone().usdc_denom,
+            //             },
+            //             amount: Uint128::from(0u128),
+            //         },
+            //         max_borrow_LTV: Decimal::percent(90),
+            //         max_LTV: Decimal::percent(96),
+            //         pool_info: None,
+            //         rate_index: Decimal::one(),
+            //     }],
+            //     credit_asset: Asset {
+            //         info: AssetInfo::NativeToken {
+            //             denom: config.clone().credit_denom,
+            //         },
+            //         amount: Uint128::from(0u128),
+            //     },
+            //     credit_price: Decimal::one(),
+            //     base_interest_rate: Some(Decimal::percent(1)),
+            //     credit_pool_infos: vec![],
+            //     liq_queue: None,
+            // };
+            // let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+            //     contract_addr: addrs.clone().positions.to_string(), 
+            //     msg: to_binary(&msg)?, 
+            //     funds: vec![], 
+            // });
+            // msgs.push(msg);
 
             //Instantiate SP
             let sp_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 

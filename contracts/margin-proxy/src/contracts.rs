@@ -74,62 +74,63 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::Deposit { position_id } => {
-            deposit_to_cdp( deps, env, info, position_id )
-        },
-        ExecuteMsg::Loop { 
-            position_id, 
-            num_loops,
-            target_LTV 
-        } => {
-            loop_leverage(deps.storage, deps.querier, env, info.sender, position_id, num_loops, target_LTV)
-        },
-        ExecuteMsg::ClosePosition { position_id, max_spread } => {
-            close_posiion(deps, info, position_id, max_spread)
-        },
-        ExecuteMsg::UpdateConfig {
-            owner,
-            apollo_router_contract,
-            positions_contract,
-            max_slippage,
-        } => update_config(deps, info, owner, apollo_router_contract, positions_contract, max_slippage),
+    //     ExecuteMsg::Deposit { position_id } => {
+    //         deposit_to_cdp( deps, env, info, position_id )
+    //     },
+    //     ExecuteMsg::Loop { 
+    //         position_id, 
+    //         num_loops,
+    //         target_LTV 
+    //     } => {
+    //         loop_leverage(deps.storage, deps.querier, env, info.sender, position_id, num_loops, target_LTV)
+    //     },
+    //     ExecuteMsg::ClosePosition { position_id, max_spread } => {
+    //         Ok(Response::new())
+    //         // close_posiion(deps, info, position_id, max_spread)
+    //     },
+    //     ExecuteMsg::UpdateConfig {
+    //         owner,
+    //         apollo_router_contract,
+    //         positions_contract,
+    //         max_slippage,
+    //     } => update_config(deps, info, owner, apollo_router_contract, positions_contract, max_slippage),
     }
 }
 
 /// Calls ClosePosition on the Positions contract
-fn close_posiion(
-    deps: DepsMut,
-    info: MessageInfo,
-    position_id: Uint128,
-    max_spread: Decimal,
-) -> Result<Response, ContractError>{
-    //Load Config
-    let config: Config = CONFIG.load(deps.storage)?;
+// fn close_posiion(
+//     deps: DepsMut,
+//     info: MessageInfo,
+//     position_id: Uint128,
+//     max_spread: Decimal,
+// ) -> Result<Response, ContractError>{
+//     //Load Config
+//     let config: Config = CONFIG.load(deps.storage)?;
 
-    //Validate Position ownership
-    validate_user_ownership(deps.storage, info.clone().sender, position_id.clone())?;
+//     //Validate Position ownership
+//     validate_user_ownership(deps.storage, info.clone().sender, position_id.clone())?;
 
-    //Create SubMsg, reply_on_success
-    let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-        contract_addr: config.clone().positions_contract.to_string(), 
-        msg: to_binary(&CDP_ExecuteMsg::ClosePosition { 
-            position_id,
-            max_spread: max_spread,
-            send_to: Some(info.clone().sender.to_string())
-        })?, 
-        funds: vec![],
-    });
+//     //Create SubMsg, reply_on_success
+//     let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+//         contract_addr: config.clone().positions_contract.to_string(), 
+//         msg: to_binary(&CDP_ExecuteMsg::ClosePosition { 
+//             position_id,
+//             max_spread: max_spread,
+//             send_to: Some(info.clone().sender.to_string())
+//         })?, 
+//         funds: vec![],
+//     });
 
-    let sub_msg = SubMsg::reply_on_success(msg, CLOSE_POSITION_REPLY_ID);
+//     let sub_msg = SubMsg::reply_on_success(msg, CLOSE_POSITION_REPLY_ID);
 
-    Ok(Response::new()
-        .add_attributes(vec![
-            attr("user", info.clone().sender.to_string()),
-            attr("position_id", position_id.to_string()),
-        ])
-        .add_submessage(sub_msg)
-    )
-}
+//     Ok(Response::new()
+//         .add_attributes(vec![
+//             attr("user", info.clone().sender.to_string()),
+//             attr("position_id", position_id.to_string()),
+//         ])
+//         .add_submessage(sub_msg)
+//     )
+// }
 
 /// Loop position composition at a desired LTV.
 /// Stop loops when num_of_loops is reached or when increase of credit is less than 2.
@@ -144,59 +145,60 @@ fn loop_leverage(
 ) -> Result<Response, ContractError>{
 
     //Load Config
-    let config = CONFIG.load(storage)?;
+    // let config = CONFIG.load(storage)?;
 
-    //Validate Position ownership
-    validate_user_ownership(storage, sender.clone(), position_id.clone())?;
+    // //Validate Position ownership
+    // validate_user_ownership(storage, sender.clone(), position_id.clone())?;
 
-    //Query Collateral Composition so we know what ratios to loop w/
-    let position_response = querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().positions_contract.to_string(), 
-        msg: to_binary(&CDP_QueryMsg::GetPosition {
-            position_id, 
-            position_owner: env.contract.address.to_string(), 
-        })?
-    }))?;
+    // //Query Collateral Composition so we know what ratios to loop w/
+    // let position_response = querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    //     contract_addr: config.clone().positions_contract.to_string(), 
+    //     msg: to_binary(&CDP_QueryMsg::GetPosition {
+    //         position_id, 
+    //         position_owner: env.contract.address.to_string(), 
+    //     })?
+    // }))?;
 
-    //Save Position Info
-    COMPOSITION_CHECK.save(storage, &position_response)?;
+    // //Save Position Info
+    // COMPOSITION_CHECK.save(storage, &position_response)?;
 
-    //Save NUM_OF_LOOPS
-    NUM_OF_LOOPS.save(storage, &num_loops)?;
+    // //Save NUM_OF_LOOPS
+    // NUM_OF_LOOPS.save(storage, &num_loops)?;
 
-    //Save LOOP_PARAMETERS
-    LOOP_PARAMETERS.save(storage, &(sender, target_LTV))?;
+    // //Save LOOP_PARAMETERS
+    // LOOP_PARAMETERS.save(storage, &(sender, target_LTV))?;
 
-    //Increase Debt Msg for position
-    let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-        contract_addr: config.clone().positions_contract.to_string(), 
-        msg: to_binary(&CDP_ExecuteMsg::IncreaseDebt { 
-            position_id: position_id.clone(), 
-            amount: None, 
-            LTV: Some(target_LTV), 
-            mint_to_addr: None 
-        })?, 
-        funds: vec![],
-    });
-    //Reply_always
-    let sub_msg = SubMsg::reply_always(msg, LOOP_REPLY_ID);
+    // //Increase Debt Msg for position
+    // let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+    //     contract_addr: config.clone().positions_contract.to_string(), 
+    //     msg: to_binary(&CDP_ExecuteMsg::IncreaseDebt { 
+    //         position_id: position_id.clone(), 
+    //         amount: None, 
+    //         LTV: Some(target_LTV), 
+    //         mint_to_addr: None 
+    //     })?, 
+    //     funds: vec![],
+    // });
+    // //Reply_always
+    // let sub_msg = SubMsg::reply_always(msg, LOOP_REPLY_ID);
 
-    //Response Builder
-    let mut attrs = vec![
-        attr("method", "looped_leverage"),
-        attr("position_id", position_id)
-    ];
+    // //Response Builder
+    // let mut attrs = vec![
+    //     attr("method", "looped_leverage"),
+    //     attr("position_id", position_id)
+    // ];
 
-    if let Some(num) = num_loops {
-        attrs.push(attr("num_of_loops_left", num.to_string()));
-    } else {
-        attrs.push(attr("target_LTV", target_LTV.to_string()));
-    }
+    // if let Some(num) = num_loops {
+    //     attrs.push(attr("num_of_loops_left", num.to_string()));
+    // } else {
+    //     attrs.push(attr("target_LTV", target_LTV.to_string()));
+    // }
     
-    Ok(Response::new()
-        .add_submessage(sub_msg)
-        .add_attributes(attrs)
-    )
+    // Ok(Response::new()
+    //     .add_submessage(sub_msg)
+    //     .add_attributes(attrs)
+    // )
+    Ok(Response::new())
     
 }
 
@@ -225,86 +227,87 @@ fn deposit_to_cdp(
     position_id: Option<Uint128>,
 ) -> Result<Response, ContractError>{
     //Load Config
-    let config = CONFIG.load( deps.storage )?;
+    // let config = CONFIG.load( deps.storage )?;
 
-    //If there is a position_id, make sure the current user is the owner of that position
-    if let Some(position_id) = position_id {
-        validate_user_ownership(deps.storage, info.clone().sender, position_id.clone())?;        
-    };
+    // //If there is a position_id, make sure the current user is the owner of that position
+    // if let Some(position_id) = position_id {
+    //     validate_user_ownership(deps.storage, info.clone().sender, position_id.clone())?;        
+    // };
 
-    //Errors if any assets are Osmosis LPs
-    if info.clone().funds.into_iter().any(|coin| coin.denom.contains("gamm")){
-        return Err(ContractError::NoLPs {  })
-    }
+    // //Errors if any assets are Osmosis LPs
+    // if info.clone().funds.into_iter().any(|coin| coin.denom.contains("gamm")){
+    //     return Err(ContractError::NoLPs {  })
+    // }
    
-    //Create Reponse objects
-    let sub_msg: SubMsg;
-    let mut attrs: Vec<Attribute> = vec![
-        attr("user", info.clone().sender),
-        attr("deposited_funds", format!("{:?}", info.clone().funds)),
-    ];
+    // //Create Reponse objects
+    // let sub_msg: SubMsg;
+    // let mut attrs: Vec<Attribute> = vec![
+    //     attr("user", info.clone().sender),
+    //     attr("deposited_funds", format!("{:?}", info.clone().funds)),
+    // ];
 
-    //Create Deposit Msg
-    if position_id.is_none(){
+    // //Create Deposit Msg
+    // if position_id.is_none(){
 
-        //Create DepositMsg
-        let deposit_msg = CDP_ExecuteMsg::Deposit {
-            position_owner: None, //Margin Contract
-            position_id: None, //New position
-        };
+    //     //Create DepositMsg
+    //     let deposit_msg = CDP_ExecuteMsg::Deposit {
+    //         position_owner: None, //Margin Contract
+    //         position_id: None, //New position
+    //     };
     
-        let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.clone().positions_contract.to_string(),
-            msg: to_binary(&deposit_msg)?,
-            funds: info.clone().funds,
-        });
+    //     let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: config.clone().positions_contract.to_string(),
+    //         msg: to_binary(&deposit_msg)?,
+    //         funds: info.clone().funds,
+    //     });
 
-        //Create a submsg
-        //Reply on success and query the position ID for this deposit
-        sub_msg = SubMsg::reply_on_success(msg, NEW_DEPOSIT_REPLY_ID);
+    //     //Create a submsg
+    //     //Reply on success and query the position ID for this deposit
+    //     sub_msg = SubMsg::reply_on_success(msg, NEW_DEPOSIT_REPLY_ID);
 
-        //Save User so the contract knows who to save the new position id under
-        NEW_POSITION_INFO.save(deps.storage, &info.clone().sender)?;
+    //     //Save User so the contract knows who to save the new position id under
+    //     NEW_POSITION_INFO.save(deps.storage, &info.clone().sender)?;
 
-    } else {
-        //Adding Position_id to User's list        
-        let unwrapped_id = position_id.unwrap();
+    // } else {
+    //     //Adding Position_id to User's list        
+    //     let unwrapped_id = position_id.unwrap();
 
-        attrs.push( attr("position_id", unwrapped_id.to_string()) );
+    //     attrs.push( attr("position_id", unwrapped_id.to_string()) );
 
 
-        let deposit_msg = CDP_ExecuteMsg::Deposit {
-            position_owner: None, //Margin Contract
-            position_id: position_id.clone(), 
-        };
+    //     let deposit_msg = CDP_ExecuteMsg::Deposit {
+    //         position_owner: None, //Margin Contract
+    //         position_id: position_id.clone(), 
+    //     };
     
-        let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.clone().positions_contract.to_string(),
-            msg: to_binary(&deposit_msg)?,
-            funds: info.clone().funds,
-        });
+    //     let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: config.clone().positions_contract.to_string(),
+    //         msg: to_binary(&deposit_msg)?,
+    //         funds: info.clone().funds,
+    //     });
 
-        //Submsg reply on success
-        sub_msg = SubMsg::reply_on_success(msg, EXISTING_DEPOSIT_REPLY_ID);
+    //     //Submsg reply on success
+    //     sub_msg = SubMsg::reply_on_success(msg, EXISTING_DEPOSIT_REPLY_ID);
 
-        //Confirm that deposits are of the same composition as the position by querying cAsset + ratios now and asserting equality in the reply
-        let position_response = deps.querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.clone().positions_contract.to_string(), 
-            msg: to_binary(&CDP_QueryMsg::GetPosition {
-                position_id: unwrapped_id, 
-                position_owner: env.contract.address.to_string(), 
-            })?
-        }))?;
+    //     //Confirm that deposits are of the same composition as the position by querying cAsset + ratios now and asserting equality in the reply
+    //     let position_response = deps.querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    //         contract_addr: config.clone().positions_contract.to_string(), 
+    //         msg: to_binary(&CDP_QueryMsg::GetPosition {
+    //             position_id: unwrapped_id, 
+    //             position_owner: env.contract.address.to_string(), 
+    //         })?
+    //     }))?;
 
-        //Save Position Info
-        COMPOSITION_CHECK.save(deps.storage, &position_response)?;
-    }
+    //     //Save Position Info
+    //     COMPOSITION_CHECK.save(deps.storage, &position_response)?;
+    // }
     
     
-    Ok( Response::new()
-        .add_submessage(sub_msg)
-        .add_attributes(attrs)
-    )
+    // Ok( Response::new()
+    //     .add_submessage(sub_msg)
+    //     .add_attributes(attrs)
+    // )
+    Ok(Response::new())
 }
 
 
@@ -598,57 +601,58 @@ fn handle_existing_deposit_reply(
     env: Env,
     msg: Reply,
 ) -> StdResult<Response>{
-    match msg.result.into_result() {
-        Ok(_result) => {
-            //Load Config 
-            let config = CONFIG.load(deps.storage)?;
+    // match msg.result.into_result() {
+    //     Ok(_result) => {
+    //         //Load Config 
+    //         let config = CONFIG.load(deps.storage)?;
 
-            //Load Composition Check
-            let previous_composition: PositionResponse = COMPOSITION_CHECK.load(deps.storage)?;
+    //         //Load Composition Check
+    //         let previous_composition: PositionResponse = COMPOSITION_CHECK.load(deps.storage)?;
             
-            //Confirm cAsset_ratios and cAsset makeup hasn't changed    
-            ////Query current Position
-            let position_response = deps.querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.clone().positions_contract.to_string(), 
-                msg: to_binary(&CDP_QueryMsg::GetPosition {
-                    position_id: previous_composition.position_id, 
-                    position_owner: env.contract.address.to_string(), 
-                })?
-            }))?;
+    //         //Confirm cAsset_ratios and cAsset makeup hasn't changed    
+    //         ////Query current Position
+    //         let position_response = deps.querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    //             contract_addr: config.clone().positions_contract.to_string(), 
+    //             msg: to_binary(&CDP_QueryMsg::GetPosition {
+    //                 position_id: previous_composition.position_id, 
+    //                 position_owner: env.contract.address.to_string(), 
+    //             })?
+    //         }))?;
 
-            //Create (AssetInfo, ratio) tuple list
-            let composition = previous_composition.clone().cAsset_ratios
-                .into_iter()
-                .enumerate()
-                .map(|(i, ratio)| (previous_composition.clone().collateral_assets[i].clone().asset.info, ratio) )
-                .collect::<Vec<(AssetInfo, Decimal)>>();
+    //         //Create (AssetInfo, ratio) tuple list
+    //         let composition = previous_composition.clone().cAsset_ratios
+    //             .into_iter()
+    //             .enumerate()
+    //             .map(|(i, ratio)| (previous_composition.clone().collateral_assets[i].clone().asset.info, ratio) )
+    //             .collect::<Vec<(AssetInfo, Decimal)>>();
 
-            //Create lists for both previous and current position asset_infos
-            let previous_assets = previous_composition.clone().collateral_assets
-                .into_iter()
-                .map(|cAsset| cAsset.asset.info )
-                .collect::<Vec<AssetInfo>>();
+    //         //Create lists for both previous and current position asset_infos
+    //         let previous_assets = previous_composition.clone().collateral_assets
+    //             .into_iter()
+    //             .map(|cAsset| cAsset.asset.info )
+    //             .collect::<Vec<AssetInfo>>();
 
-            let current_assets = position_response.clone().collateral_assets
-                .into_iter()
-                .map(|cAsset| cAsset.asset.info )
-                .collect::<Vec<AssetInfo>>();
+    //         let current_assets = position_response.clone().collateral_assets
+    //             .into_iter()
+    //             .map(|cAsset| cAsset.asset.info )
+    //             .collect::<Vec<AssetInfo>>();
 
-            //Assert ratio equality & cAsset equality
-            if previous_composition.cAsset_ratios != position_response.cAsset_ratios 
-               || 
-               previous_assets != current_assets{                
-                return Err(StdError::GenericErr { msg: format!("Can only deposit more of the current position composition: {:?}", composition) })
-            }
+    //         //Assert ratio equality & cAsset equality
+    //         if previous_composition.cAsset_ratios != position_response.cAsset_ratios 
+    //            || 
+    //            previous_assets != current_assets{                
+    //             return Err(StdError::GenericErr { msg: format!("Can only deposit more of the current position composition: {:?}", composition) })
+    //         }
 
-            Ok(Response::new().add_attribute("valid_composition", "true"))
+    //         Ok(Response::new().add_attribute("valid_composition", "true"))
 
-        },
-        Err(string) => {
-            //This is only reply_on_success so this shouldn't be reached
-            Ok(Response::new().add_attribute("error", string))
-        }
-    }
+    //     },
+    //     Err(string) => {
+    //         //This is only reply_on_success so this shouldn't be reached
+    //         Ok(Response::new().add_attribute("error", string))
+    //     }
+    // }
+    Ok(Response::new())
 }
 
 /// Fetch & save new position ID under user's address
@@ -704,9 +708,9 @@ fn handle_new_deposit_reply(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::GetUserPositions { user } => to_binary(&query_user_positions(deps, env, user)?),
-        QueryMsg::GetPositionIDs { limit, start_after } => to_binary(&query_positions(deps, limit, start_after)?),
+        // QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
+        // QueryMsg::GetUserPositions { user } => to_binary(&query_user_positions(deps, env, user)?),
+        // QueryMsg::GetPositionIDs { limit, start_after } => to_binary(&query_positions(deps, limit, start_after)?),
     }
 }
 
@@ -748,30 +752,31 @@ fn query_user_positions(
     user: String,
 ) -> StdResult<Vec<PositionResponse>>{
     //Load Config
-    let config: Config = CONFIG.load(deps.storage)?;
+    // let config: Config = CONFIG.load(deps.storage)?;
 
-    //Validate User
-    let user = deps.api.addr_validate(&user)?;
+    // //Validate User
+    // let user = deps.api.addr_validate(&user)?;
 
-    //Load User positions
-    let user_positions = USERS.load(deps.storage, user)?;
+    // //Load User positions
+    // let user_positions = USERS.load(deps.storage, user)?;
 
-    let mut resp: Vec<PositionResponse> = vec![];
+    // let mut resp: Vec<PositionResponse> = vec![];
 
-    for position in user_positions {
+    // for position in user_positions {
         
-        let position_resp = deps.querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
-            contract_addr: config.clone().positions_contract.to_string(), 
-            msg: to_binary(&CDP_QueryMsg::GetPosition { 
-                position_id: position, 
-                position_owner: env.contract.address.to_string(),
-            })?
-        }))?;
+    //     let position_resp = deps.querier.query::<PositionResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+    //         contract_addr: config.clone().positions_contract.to_string(), 
+    //         msg: to_binary(&CDP_QueryMsg::GetPosition { 
+    //             position_id: position, 
+    //             position_owner: env.contract.address.to_string(),
+    //         })?
+    //     }))?;
 
-        resp.push( position_resp );
-    }
+    //     resp.push( position_resp );
+    // }
 
-    Ok( resp )
+    // Ok( resp )
+    Ok(vec![])
 
 }
 

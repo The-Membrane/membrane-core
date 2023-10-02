@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use std::vec;
 
 use cosmwasm_std::{
@@ -8,10 +7,9 @@ use cosmwasm_std::{
 };
 
 use cw_storage_plus::Item;
-use membrane::helpers::{router_native_to_native, pool_query_and_exit, validate_position_owner, asset_to_coin, withdrawal_msg, get_contract_balances};
+use membrane::helpers::{validate_position_owner, asset_to_coin, withdrawal_msg, get_contract_balances};
 use membrane::cdp::{Config, ExecuteMsg, EditBasket};
 use membrane::oracle::{AssetResponse, PriceResponse};
-use osmo_bindings::PoolStateResponse;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::liquidity_check::ExecuteMsg as LiquidityExecuteMsg;
 use membrane::staking::{ExecuteMsg as Staking_ExecuteMsg, QueryMsg as Staking_QueryMsg, Config as Staking_Config};
@@ -20,14 +18,14 @@ use membrane::osmosis_proxy::{ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQuer
 use membrane::stability_pool::ExecuteMsg as SP_ExecuteMsg;
 use membrane::math::{decimal_division, decimal_multiplication, Uint256, decimal_subtraction};
 use membrane::types::{
-    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, LiquidityInfo, Position,
+    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, LiquidityInfo, Position, PoolStateResponse,
     StoredPrice, SupplyCap, UserInfo, PriceVolLimiter, PoolType, RedemptionInfo, PositionRedemption, PoolInfo, LPAssetInfo
 };
 
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
 use crate::rates::accrue;
 use crate::risk_engine::update_basket_tally;
-use crate::state::{CLOSE_POSITION, ClosePositionPropagation, BASKET, get_target_position, update_position_claims, REDEMPTION_OPT_IN, update_position};
+use crate::state::{BASKET, get_target_position, update_position_claims, REDEMPTION_OPT_IN, update_position};
 use crate::{
     state::{
         WithdrawPropagation, CONFIG, POSITIONS, LIQUIDATION, WITHDRAW,
@@ -406,7 +404,7 @@ pub fn withdraw(
                     //Update Position list
                     POSITIONS.update(deps.storage, valid_position_owner.clone(), |positions: Option<Vec<Position>>| -> Result<Vec<Position>, ContractError>{
 
-                        let mut updating_positions = positions.unwrap();
+                        let mut updating_positions = positions.unwrap_or_else(|| vec![]);
 
                         //If new position isn't empty, update
                         if !check_for_empty_position(target_position.clone().collateral_assets){
@@ -592,7 +590,7 @@ pub fn repay(
     let mut removed = false;
     //Update Position
     POSITIONS.update(storage, valid_owner_addr.clone(), |positions: Option<Vec<Position>>| -> Result<Vec<Position>, ContractError> {
-        let mut updating_positions = positions.unwrap();
+        let mut updating_positions = positions.unwrap_or_else(|| vec![]);
 
         //If new position isn't empty, update
         if !check_for_empty_position(updating_positions[position_index].clone().collateral_assets){
@@ -702,7 +700,7 @@ pub fn liq_repay(
     let mut basket = liquidation_propagation.clone().basket;
 
     //Can only be called by the SP contract
-    if config.stability_pool.is_none() || info.sender != config.clone().stability_pool.unwrap(){
+    if config.stability_pool.is_none() || info.sender != config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")){
         return Err(ContractError::Unauthorized { owner: config.owner.to_string() });
     }
     //This position has collateral & credit_amount updated in the liquidation process...
@@ -824,7 +822,7 @@ pub fn liq_repay(
     };
     //Build the Execute msg w/ the full list of native tokens
     let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.stability_pool.unwrap().to_string(),
+        contract_addr: config.stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
         msg: to_binary(&distribution_msg)?,
         funds: coins,
     });
@@ -951,7 +949,7 @@ pub fn increase_debt(
             //Add credit amount to the position
             //Update Position
             POSITIONS.update(deps.storage, info.clone().sender, |positions: Option<Vec<Position>>| -> Result<Vec<Position>, ContractError> {
-                let mut updating_positions = positions.unwrap();
+                let mut updating_positions = positions.unwrap_or_else(|| vec![]);
                 updating_positions[position_index] = target_position.clone();
 
                 Ok(updating_positions)
@@ -1058,7 +1056,7 @@ pub fn edit_redemption_info(
 
     //////Additions//////
     //Add PositionRedemption objects under the user in the desired premium while skipping duplicates, if redeemable is true or None
-    if (redeemable.is_some() && redeemable.unwrap()) || redeemable.is_none(){
+    if (redeemable.is_some() && redeemable.unwrap_or_else(|| false)) || redeemable.is_none(){
         if let Some(updated_premium) = updated_premium {                
             //Load premium we are adding to 
             match REDEMPTION_OPT_IN.load(deps.storage, updated_premium){
@@ -1125,7 +1123,7 @@ pub fn edit_redemption_info(
                     REDEMPTION_OPT_IN.save(deps.storage, updated_premium, &vec![new_redemption_info])?;
                 },
             };
-        } else if (redeemable.is_some() && redeemable.unwrap()) && updated_premium.is_none(){
+        } else if (redeemable.is_some() && redeemable.unwrap_or_else(|| false)) && updated_premium.is_none(){
             return Err(ContractError::CustomError { val: String::from("Can't set redeemable to true without specifying a premium") })
         }
     } 
@@ -1491,150 +1489,8 @@ pub fn redeem_for_collateral(
         attr("action", "redeem_for_collateral"),
         attr("sender", info.clone().sender),
         attr("redeemed_collateral", format!("{:?}", coins)),
-    ])
-)
-
-}
-
-/// Sell position collateral to fully repay debts.
-/// Max spread is used to ensure the full debt is repaid in lieu of slippage.
-pub fn close_position(
-    deps: DepsMut, 
-    env: Env,
-    info: MessageInfo,
-    position_id: Uint128,
-    max_spread: Decimal,
-    mut send_to: Option<String>,
-) -> Result<Response, ContractError>{
-    //Load Config
-    let config: Config = CONFIG.load(deps.storage)?;
-
-    //Load Basket
-    let basket: Basket = BASKET.load(deps.storage)?;
-
-    //Load target_position, restrict to owner
-    let (_i, target_position) = get_target_position(deps.storage, info.clone().sender, position_id)?;
-
-    //Calc collateral to sell
-    //credit_amount * credit_price * (1 + max_spread)
-    let total_collateral_value_to_sell = {
-            decimal_multiplication(
-                basket.clone().credit_price.get_value(target_position.credit_amount)?, 
-                (max_spread + Decimal::one())
-            )?
-    };
-    
-    //Max_spread is added to the collateral amount to ensure enough credit is purchased
-    //Excess debt token gets sent back to the position_owner during repayment
-
-    //Get cAsset_ratios for the target_position
-    let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, config.clone())?;
-
-    let mut router_messages = vec![];
-    let mut lp_withdraw_messages: Vec<CosmosMsg> = vec![];
-    let mut withdrawn_assets = vec![];
-
-    //Calc collateral_amount_to_sell per asset & create router msg
-    for (i, _collateral_ratio) in cAsset_ratios.clone().into_iter().enumerate(){
-
-        //Calc collateral_amount_to_sell
-        let mut collateral_amount_to_sell = {
-        
-            let collateral_value_to_sell = decimal_multiplication(total_collateral_value_to_sell, cAsset_ratios[i])?;
-            
-            let post_normalized_amount: Uint128 = match cAsset_prices[i].get_amount(collateral_value_to_sell){
-                Ok(amount) => amount,
-                Err(_e) => return Err(ContractError::CustomError { val: format!("Collateral value to sell is too high ({}) to calculate an amount for due to an out of bounds max spread: {}", collateral_value_to_sell, max_spread) })
-            };
-
-            post_normalized_amount
-        };
-        
-        //Collateral to sell can't be more than the position owns
-        if collateral_amount_to_sell > target_position.collateral_assets.clone()[i].asset.amount {
-            collateral_amount_to_sell = target_position.collateral_assets.clone()[i].asset.amount;
-        }
-
-        //Set collateral asset
-        let collateral_asset = target_position.clone().collateral_assets[i].clone().asset;
-
-        //Add collateral_amount to list for propagation
-        withdrawn_assets.push(Asset{
-            amount: collateral_amount_to_sell,
-            ..collateral_asset.clone()
-        });
-
-        //If cAsset is an LP, split into pool assets to sell
-        if let Some(pool_info) = target_position.clone().collateral_assets[i].clone().pool_info{
-
-            let (msg, share_asset_amounts) = pool_query_and_exit(
-                deps.querier, 
-                env.clone(), 
-                config.clone().osmosis_proxy.unwrap().to_string(), 
-                pool_info.pool_id,
-                collateral_amount_to_sell,
-            )?;
-
-            //Push LP Withdrawal Msg
-            //Comment to pass tests
-            lp_withdraw_messages.push(msg);
-            
-            //Create Router SubMsgs for each pool_asset
-            for (i, pool_asset) in pool_info.asset_infos.into_iter().enumerate(){                
-                let router_msg = router_native_to_native(
-                    config.clone().dex_router.unwrap().to_string(), 
-                    pool_asset.clone().info, 
-                    basket.clone().credit_asset.info, 
-                    None,
-                    Uint128::from_str(&share_asset_amounts[i].clone().amount).unwrap().u128(), 
-                )?;
-
-                router_messages.push(router_msg);                
-            }                  
-        } else {        
-            //Create router subMsg to sell, repay in reply on success
-            let router_msg: CosmosMsg = router_native_to_native(
-                config.clone().dex_router.unwrap().to_string(), 
-                collateral_asset.clone().info, 
-                basket.clone().credit_asset.info, 
-                None,                 
-                collateral_amount_to_sell.into(),
-            )?;
-
-            router_messages.push(router_msg);
-        }
-    }
-
-    //Set send_to for WithdrawMsg in Reply
-    if send_to.is_none() {
-        send_to = Some(info.sender.to_string());
-    }
-    
-    //Save CLOSE_POSITION_PROPAGATION
-    CLOSE_POSITION.save(deps.storage, &ClosePositionPropagation {
-        withdrawn_assets,
-        position_info: UserInfo { 
-            position_id, 
-            position_owner: info.sender.to_string(),
-        },
-        send_to,
-    })?;
-
-    //The last router message is updated to a CLOSE_POSITION_REPLY to close the position after all sales and repayments are done.
-    let sub_msg = SubMsg::reply_on_success(router_messages.pop().unwrap(), CLOSE_POSITION_REPLY_ID);    
-    //Transform LP Withdraw Msgs into SubMsgs so they run first
-    let lp_withdraw_messages = lp_withdraw_messages.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
-    //Transform Router Msgs into SubMsgs so they run after LP Withdrawals
-    let router_messages = router_messages.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
-
-    Ok(Response::new()
-        .add_submessages(lp_withdraw_messages)
-        .add_submessages(router_messages)
-        .add_submessage(sub_msg)
-        .add_attributes(vec![
-        attr("position_id", position_id),
-        attr("user", info.sender),
-    ])) //If the sale incurred slippage and couldn't repay through the debt minimum, the subsequent withdraw msg will error and revert state 
+        ])
+    )
 }
 
 /// Create the contract's Basket.
@@ -1668,7 +1524,7 @@ pub fn create_basket(
 
     let mut new_liq_queue: Option<Addr> = None;
     if liq_queue.is_some() {
-        new_liq_queue = Some(deps.api.addr_validate(&liq_queue.clone().unwrap())?);
+        new_liq_queue = Some(deps.api.addr_validate(&liq_queue.clone().unwrap_or_else(|| String::from("")))?);
     }
 
     //Minimum viable cAsset parameters
@@ -1697,7 +1553,7 @@ pub fn create_basket(
                 //Query Asset Oracle
                 deps.querier
                     .query::<Vec<AssetResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
-                        contract_addr: config.clone().oracle_contract.unwrap().to_string(),
+                        contract_addr: config.clone().oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                         msg: to_binary(&OracleQueryMsg::Assets {
                             asset_infos: vec![asset.clone().asset.info],
                         })?,
@@ -1726,7 +1582,7 @@ pub fn create_basket(
                 //Since we are aiming for lowest possible fee
 
                 msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: new_liq_queue.clone().unwrap().to_string(),
+                    contract_addr: new_liq_queue.clone().unwrap_or_else(|| Addr::unchecked("")).to_string(),
                     msg: to_binary(&LQ_ExecuteMsg::AddQueue {
                         bid_for: asset.clone().asset.info,
                         max_premium,
@@ -1911,7 +1767,7 @@ pub fn edit_basket(
             //Query share asset amount
             let pool_state = match deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
                 WasmQuery::Smart {
-                    contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+                    contract_addr: config.clone().osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                     msg: match to_binary(&OsmoQueryMsg::PoolState {
                         id: pool_info.pool_id,
                     }) {
@@ -1965,7 +1821,7 @@ pub fn edit_basket(
 
             //Add share_token to the oracle
             msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.clone().oracle_contract.unwrap().to_string(),
+                contract_addr: config.clone().oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                 msg: to_binary(&OracleExecuteMsg::AddAsset { 
                     asset_info: new_cAsset.clone().asset.info,
                     oracle_info: AssetOracleInfo { 
@@ -2002,7 +1858,7 @@ pub fn edit_basket(
                 //Query Asset Oracle
                 deps.querier
                     .query::<Vec<AssetResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
-                        contract_addr: config.clone().oracle_contract.unwrap().to_string(),
+                        contract_addr: config.clone().oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                         msg: to_binary(&OracleQueryMsg::Assets {
                             asset_infos: vec![new_cAsset.clone().asset.info],
                         })?,
@@ -2028,7 +1884,7 @@ pub fn edit_basket(
             };
 
             msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: basket.clone().liq_queue.unwrap().into_string(),
+                contract_addr: basket.clone().liq_queue.unwrap_or_else(|| Addr::unchecked("")).into_string(),
                 msg: to_binary(&LQ_ExecuteMsg::AddQueue {
                     bid_for: new_cAsset.clone().asset.info,
                     max_premium,
@@ -2394,7 +2250,7 @@ pub fn credit_mint_msg(
         AssetInfo::NativeToken { denom } => {
             if config.osmosis_proxy.is_some() {
                 let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: config.osmosis_proxy.unwrap().to_string(),
+                    contract_addr: config.osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                     msg: to_binary(&OsmoExecuteMsg::MintTokens {
                         denom,
                         amount: credit_asset.amount,
@@ -2472,7 +2328,7 @@ pub fn credit_burn_rev_msg(
             //Create DepositFee Msg
             if !revenue_amount.is_zero() && config.staking_contract.is_some(){
                 let rev_message = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: config.staking_contract.unwrap().to_string(),
+                    contract_addr: config.staking_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                     msg: to_binary(&Staking_ExecuteMsg::DepositFee { })?,
                     funds: vec![ asset_to_coin(Asset {
                         amount: revenue_amount,

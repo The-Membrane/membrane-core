@@ -1,7 +1,7 @@
 [workspace]
 members = ["contracts/*", "packages/*"]
 
-exclude = ["my_scripts", "artifacts"]
+exclude = ["my_scripts", "artifacts", "contracts/cdp/src/testing/*"]
 
 
 [profile.release]
@@ -10,7 +10,7 @@ debug = false
 debug-assertions = false
 incremental = false
 lto = true
-opt-level = 3
+opt-level = 's'
 overflow-checks = true
 panic = 'abort'
 rpath = false

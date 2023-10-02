@@ -12,6 +12,18 @@ use crate::ContractError;
 use crate::risk_engine::update_basket_tally;
 
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct ContractVersion {
+    /// contract is the crate name of the implementing contract, eg. `crate:cw20-base`
+    /// we will use other prefixes for other languages, and their standard global namespacing
+    pub contract: String,
+    /// version is any string that this implementation knows. It may be simple counter "1", "2".
+    /// or semantic version on release tags "v0.7.0", or some custom feature flag list.
+    /// the only code that needs to understand the version parsing is code that knows how to
+    /// migrate from the given contract (and is tied to it's implementation somehow)
+    pub version: String,
+}
+
 //This propogates liquidation info && state to reduce gas
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct LiquidationPropagation {
@@ -38,12 +50,7 @@ pub struct WithdrawPropagation {
     pub position_info: UserInfo,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct ClosePositionPropagation {
-    pub withdrawn_assets: Vec<Asset>,
-    pub position_info: UserInfo,
-    pub send_to: Option<String>,
-}
+pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const BASKET: Item<Basket> = Item::new("basket"); 
@@ -59,7 +66,6 @@ pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
 //Reply State Propagations
 pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");
 pub const LIQUIDATION: Item<LiquidationPropagation> = Item::new("repay_propagation");
-pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");
 
 
 //Helper functions

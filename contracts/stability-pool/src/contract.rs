@@ -989,16 +989,6 @@ fn repay(
             
             //Update pool
             ASSET.save(deps.storage, &new_pool)?;
-            
-            //Add Accrue Msg before Repayment to accrue discounted rates
-            //Create Position accrual msgs to lock in user discounts before withdrawing
-            let accrual_msg = accrue_user_positions(
-                deps.querier, 
-                config.positions_contract.to_string(),
-                user_info.clone().position_owner, 
-                32,
-            )?;
-            msgs.push(accrual_msg);
 
             /////This is where the function differs from withdraw()
             //Add Positions RepayMsg

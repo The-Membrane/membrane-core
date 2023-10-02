@@ -1,6 +1,7 @@
 use membrane::oracle::PriceResponse;
 
-use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResult, StdError, cw_serde};
+use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResult, StdError};
+use cosmwasm_schema::cw_serde;
 use cw_storage_plus::{Item, Map};
 
 use membrane::types::{Asset, Basket, Position, RedemptionInfo, UserInfo, AssetInfo, cAsset};

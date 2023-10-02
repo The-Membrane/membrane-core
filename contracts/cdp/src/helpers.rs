@@ -1,4 +1,5 @@
-use cosmwasm_std::{to_binary, Addr, Coin, CosmosMsg, StdResult, WasmMsg, cw_serde};
+use cosmwasm_std::{to_binary, Addr, Coin, CosmosMsg, StdResult, WasmMsg};
+use cosmwasm_schema::cw_serde;
 
 use membrane::cdp::ExecuteMsg;
 

@@ -821,6 +821,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
                 credit_pool_infos: None,
+                take_revenue: None,
             });
             let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: addrs.clone().positions.to_string(), 
@@ -857,6 +858,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
                 credit_pool_infos: None,
+                take_revenue: None,
             });
             let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: addrs.clone().positions.to_string(), 
@@ -1298,6 +1300,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
                 credit_pool_infos: None,
+                take_revenue: None,
             });
             let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: addrs.clone().positions.to_string(), 
@@ -1519,6 +1522,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
+                take_revenue: None,
             });
             let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: addrs.clone().positions.to_string(), 

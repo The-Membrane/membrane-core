@@ -2010,99 +2010,99 @@ pub fn edit_basket(
 }
 
 /// Mint Basket's pending revenue to the specified address
-pub fn mint_revenue(
-    deps: DepsMut,
-    info: MessageInfo,
-    env: Env,
-    send_to: Option<String>,
-    repay_for: Option<UserInfo>,
-    amount: Option<Uint128>,
-) -> Result<Response, ContractError> {
+// pub fn mint_revenue(
+//     deps: DepsMut,
+//     info: MessageInfo,
+//     env: Env,
+//     send_to: Option<String>,
+//     repay_for: Option<UserInfo>,
+//     amount: Option<Uint128>,
+// ) -> Result<Response, ContractError> {
     
-    //Can't send_to and repay_for at the same time
-    if send_to.is_some() && repay_for.is_some() {
-        return Err(ContractError::CustomError {
-            val: String::from("Can't send_to and repay_for at the same time"),
-        });
-    }
-    //There must be at least 1 destination address
-    if send_to.is_none() && repay_for.is_none(){
-        return Err(ContractError::CustomError {
-            val: String::from("Destination address is required"),
-        });
-    }
+//     //Can't send_to and repay_for at the same time
+//     if send_to.is_some() && repay_for.is_some() {
+//         return Err(ContractError::CustomError {
+//             val: String::from("Can't send_to and repay_for at the same time"),
+//         });
+//     }
+//     //There must be at least 1 destination address
+//     if send_to.is_none() && repay_for.is_none(){
+//         return Err(ContractError::CustomError {
+//             val: String::from("Destination address is required"),
+//         });
+//     }
 
-    let config = CONFIG.load(deps.storage)?;
-    let mut basket = BASKET.load(deps.storage)?;
+//     let config = CONFIG.load(deps.storage)?;
+//     let mut basket = BASKET.load(deps.storage)?;
 
-    if info.sender != config.owner { return Err(ContractError::Unauthorized { owner: config.owner.to_string() }) }
+//     if info.sender != config.owner { return Err(ContractError::Unauthorized { owner: config.owner.to_string() }) }
 
-    if basket.pending_revenue.is_zero() {
-        return Err(ContractError::CustomError {
-            val: String::from("No revenue to mint"),
-        });
-    }
+//     if basket.pending_revenue.is_zero() {
+//         return Err(ContractError::CustomError {
+//             val: String::from("No revenue to mint"),
+//         });
+//     }
 
-    //Set amount
-    let amount = amount.unwrap_or(basket.pending_revenue);
+//     //Set amount
+//     let amount = amount.unwrap_or(basket.pending_revenue);
 
-    //Subtract amount from pending revenue
-    basket.pending_revenue = match basket.pending_revenue.checked_sub(amount) {
-        Ok(new_balance) => new_balance,
-        Err(err) => {
-            return Err(ContractError::CustomError {
-                val: err.to_string(),
-            })
-        }
-    }; //Save basket
-    BASKET.save(deps.storage, &basket)?;
+//     //Subtract amount from pending revenue
+//     basket.pending_revenue = match basket.pending_revenue.checked_sub(amount) {
+//         Ok(new_balance) => new_balance,
+//         Err(err) => {
+//             return Err(ContractError::CustomError {
+//                 val: err.to_string(),
+//             })
+//         }
+//     }; //Save basket
+//     BASKET.save(deps.storage, &basket)?;
 
-    let mut message: Vec<CosmosMsg> = vec![];
-    let mut repay_attr = String::from("None");
+//     let mut message: Vec<CosmosMsg> = vec![];
+//     let mut repay_attr = String::from("None");
 
-    //If send to is_some
-    if let Some(send_to) = send_to.clone() {
-        message.push(credit_mint_msg(
-            config,
-            Asset {
-                amount,
-                ..basket.credit_asset
-            }, 
-            deps.api.addr_validate(&send_to)?
-        )?);
-    } else if let Some(repay_for) = repay_for {
-        repay_attr = repay_for.to_string();
+//     //If send to is_some
+//     if let Some(send_to) = send_to.clone() {
+//         message.push(credit_mint_msg(
+//             config,
+//             Asset {
+//                 amount,
+//                 ..basket.credit_asset
+//             }, 
+//             deps.api.addr_validate(&send_to)?
+//         )?);
+//     } else if let Some(repay_for) = repay_for {
+//         repay_attr = repay_for.to_string();
 
-        //Need to mint credit to the contract
-        message.push(credit_mint_msg(
-            config,
-            Asset {
-                amount,
-                ..basket.credit_asset.clone()
-            },
-            env.clone().contract.address,
-        )?);
+//         //Need to mint credit to the contract
+//         message.push(credit_mint_msg(
+//             config,
+//             Asset {
+//                 amount,
+//                 ..basket.credit_asset.clone()
+//             },
+//             env.clone().contract.address,
+//         )?);
 
-        //and then send it for repayment
-        let msg = ExecuteMsg::Repay {
-            position_id: repay_for.clone().position_id,
-            position_owner: Some(repay_for.position_owner),
-            send_excess_to: Some(env.contract.address.to_string()),
-        };
+//         //and then send it for repayment
+//         let msg = ExecuteMsg::Repay {
+//             position_id: repay_for.clone().position_id,
+//             position_owner: Some(repay_for.position_owner),
+//             send_excess_to: Some(env.contract.address.to_string()),
+//         };
 
-        message.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: env.contract.address.to_string(),
-            msg: to_binary(&msg)?,
-            funds: vec![coin(amount.u128(), basket.credit_asset.info.to_string())],
-        }));
-    } 
+//         message.push(CosmosMsg::Wasm(WasmMsg::Execute {
+//             contract_addr: env.contract.address.to_string(),
+//             msg: to_binary(&msg)?,
+//             funds: vec![coin(amount.u128(), basket.credit_asset.info.to_string())],
+//         }));
+//     } 
 
-    Ok(Response::new().add_messages(message).add_attributes(vec![
-        attr("amount", amount.to_string()),
-        attr("repay_for", repay_attr),
-        attr("send_to", send_to.unwrap_or_else(|| String::from("None"))),
-    ]))
-}
+//     Ok(Response::new().add_messages(message).add_attributes(vec![
+//         attr("amount", amount.to_string()),
+//         attr("repay_for", repay_attr),
+//         attr("send_to", send_to.unwrap_or_else(|| String::from("None"))),
+//     ]))
+// }
 
 /// Calculate desired amount of credit to borrow to reach target LTV
 fn get_amount_from_LTV(

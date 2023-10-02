@@ -126,15 +126,6 @@ pub enum ExecuteMsg {
         /// Positon ID to accrue interest for
         position_ids: Vec<Uint128>
     },
-    /// Mint Basket pending revenue
-    MintRevenue {
-        /// Send minted tokens to this address, defaults to sender
-        send_to: Option<String>, 
-        /// Repay for a position w/ the revenue
-        repay_for: Option<UserInfo>, 
-        /// Amount of revenue to mint
-        amount: Option<Uint128>,
-    },
     /// Edit the contract's Basket
     EditBasket(EditBasket),
     /// Edit a cAsset in the contract's Basket
@@ -405,6 +396,8 @@ pub struct EditBasket {
     pub frozen: Option<bool>,
     /// Toggle Basket revenue to stakers
     pub rev_to_stakers: Option<bool>,
+    /// Take revenue, used as a way to distribute revenue
+    pub take_revenue: Option<Uint128>,
 }
 
 impl EditBasket {    
@@ -467,7 +460,15 @@ impl EditBasket {
         if let Some(error_margin) = self.cpc_margin_of_error {
             basket.cpc_margin_of_error = error_margin;
         }
+        if let Some(take_revenue) = self.take_revenue {
+            basket.pending_revenue = match basket.pending_revenue.checked_sub(take_revenue){
+                Ok(val) => val,
+                Err(_) => Uint128::zero(),
+            };
+        }
         basket.oracle_set = oracle_set;
+
+        
 
         Ok(())
     }

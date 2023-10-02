@@ -21,7 +21,7 @@ use crate::risk_engine::assert_basket_assets;
 use crate::positions::{
     deposit,
     edit_basket, increase_debt,
-    liq_repay, mint_revenue, repay, redeem_for_collateral, edit_redemption_info,
+    liq_repay, repay, redeem_for_collateral, edit_redemption_info,
     withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, ROUTER_REPLY_ID, 
     LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID, create_basket,
     //close_position
@@ -281,11 +281,11 @@ pub fn execute(
             position_id,
             position_owner,
         ),
-        ExecuteMsg::MintRevenue {
-            send_to,
-            repay_for,
-            amount,
-        } => mint_revenue(deps, info, env, send_to, repay_for, amount),
+        // ExecuteMsg::MintRevenue {
+        //     send_to,
+        //     repay_for,
+        //     amount,
+        // } => mint_revenue(deps, info, env, send_to, repay_for, amount),
         ExecuteMsg::Callback(msg) => {
             if info.sender == env.contract.address {
                 callback_handler(deps, env, msg)
@@ -486,45 +486,13 @@ fn check_and_fulfill_bad_debt(
         //If the basket has revenue, mint and repay the bad debt
         if !basket.pending_revenue.is_zero() {
             if bad_debt_amount >= basket.pending_revenue {
-                //If bad_debt is greater or equal, mint all revenue to repay
-                //and send the rest to the auction
-                let mint_msg = ExecuteMsg::MintRevenue {
-                    send_to: None,
-                    repay_for: Some(UserInfo {
-                        position_id,
-                        position_owner: position_owner.to_string(),
-                    }),
-                    amount: None,
-                };
-
-                messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: env.contract.address.to_string(),
-                    msg: to_binary(&mint_msg)?,
-                    funds: vec![],
-                }));
 
                 //Update bad_debt
                 bad_debt_amount -= basket.pending_revenue;
 
                 //Update basket revenue
                 basket.pending_revenue = Uint128::zero();
-            } else {
-                //If less than revenue, repay the debt and no auction
-                let mint_msg = ExecuteMsg::MintRevenue {
-                    send_to: None,
-                    repay_for: Some(UserInfo {
-                        position_id,
-                        position_owner: position_owner.to_string(),
-                    }),
-                    amount: Some(bad_debt_amount),
-                };
-
-                messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: env.contract.address.to_string(),
-                    msg: to_binary(&mint_msg)?,
-                    funds: vec![],
-                }));
-                
+            } else {                
                 //Update basket revenue
                 basket.pending_revenue -= bad_debt_amount;
 

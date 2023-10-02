@@ -1,10 +1,8 @@
 use cosmwasm_std::{Addr, Decimal, Uint128, StdResult, Api, StdError};
 use cosmwasm_schema::cw_serde;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    cAsset, Asset, AssetInfo, InsolventPosition, Position, PositionUserInfo,
+    cAsset, Asset, AssetInfo, InsolventPosition,
     SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType, Basket, equal, PremiumInfo,
 };
 
@@ -153,8 +151,7 @@ pub enum ExecuteMsg {
 
 /// Note: Since CallbackMsg are always sent by the contract itself, we assume all types are already
 /// validated and don't do additional checks. E.g. user addresses are Addr instead of String
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum CallbackMsg {
     /// Bad debt check post liquidation
     BadDebtCheck {

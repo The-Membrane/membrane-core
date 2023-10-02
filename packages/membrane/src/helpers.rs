@@ -7,7 +7,7 @@ use crate::apollo_router::ExecuteMsg as RouterExecuteMsg;
 use crate::oracle::PriceResponse;
 use crate::discount_vault::Config as DV_Config;
 use crate::staking::Totals;
-use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Basket, StakeDeposit}; 
+use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Basket}; 
 use crate::osmosis_proxy::{QueryMsg as OsmoQueryMsg, OwnerResponse};
 use crate::liquidity_check::{QueryMsg as LiquidityQueryMsg, LiquidityResponse};
 use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, PositionResponse};

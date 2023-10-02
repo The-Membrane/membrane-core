@@ -1,13 +1,11 @@
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-
-use cosmwasm_std::{to_binary, Addr, Coin, CosmosMsg, StdResult, WasmMsg};
+use cosmwasm_std::{to_binary, Addr, Coin, CosmosMsg, StdResult, WasmMsg, cw_serde};
 
 use membrane::cdp::ExecuteMsg;
 
 /// CDPContract is a wrapper around Addr that provides a lot of helpers
 /// for working with this.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+
+#[cw_serde]
 pub struct CDPContract(pub Addr);
 
 impl CDPContract {
@@ -27,7 +25,7 @@ impl CDPContract {
 
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[cw_serde]
 pub struct LQContract(pub Addr);
 
 impl LQContract {

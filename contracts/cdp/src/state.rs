@@ -1,8 +1,6 @@
 use membrane::oracle::PriceResponse;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResult, StdError};
+use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResult, StdError, cw_serde};
 use cw_storage_plus::{Item, Map};
 
 use membrane::types::{Asset, Basket, Position, RedemptionInfo, UserInfo, AssetInfo, cAsset};
@@ -12,7 +10,7 @@ use crate::ContractError;
 use crate::risk_engine::update_basket_tally;
 
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[cw_serde]
 pub struct ContractVersion {
     /// contract is the crate name of the implementing contract, eg. `crate:cw20-base`
     /// we will use other prefixes for other languages, and their standard global namespacing
@@ -25,7 +23,7 @@ pub struct ContractVersion {
 }
 
 //This propogates liquidation info && state to reduce gas
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[cw_serde]
 pub struct LiquidationPropagation {
     pub per_asset_repayment: Vec<Decimal>,
     pub liq_queue_leftovers: Decimal, //List of repayments
@@ -42,14 +40,14 @@ pub struct LiquidationPropagation {
     pub config: Config,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[cw_serde]
 pub struct WithdrawPropagation {
     pub positions_prev_collateral: Vec<Asset>, //Amount of collateral in the position before the withdrawal
     pub withdraw_amounts: Vec<Uint128>,
     pub contracts_prev_collateral_amount: Vec<Uint128>,
     pub position_info: UserInfo,
 }
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[cw_serde]
 pub struct ClosePositionPropagation {
     pub withdrawn_assets: Vec<Asset>,
     pub position_info: UserInfo,
@@ -121,7 +119,7 @@ pub fn update_position_claims(
                 Ok(new_positions)
             } else {
                 Err(StdError::GenericErr {
-                    msg: "Invalid position owner".to_string(),
+                    msg: String::from("Invalid position owner"),
                 })
             }
         },
@@ -210,7 +208,7 @@ pub fn update_position(
                 },
                 None => {
                     Err(StdError::GenericErr {
-                        msg: "Invalid position owner".to_string(),
+                        msg: String::from("Invalid position owner"),
                     })
                 }
             }

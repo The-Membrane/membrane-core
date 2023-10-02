@@ -187,6 +187,7 @@ dependencies = [
  "cw-storage-plus 0.13.4",
  "membrane",
  "osmosis-std 0.15.3",
+ "serde",
  "thiserror",
  "wasm",
 ]

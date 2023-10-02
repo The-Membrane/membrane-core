@@ -510,7 +510,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 .events
                 .into_iter()
                 .find(|e| e.attributes.iter().any(|attr| attr.key == "repay_amount"))
-                .ok_or_else(|| StdError::GenericErr {  msg: "unable to find liq-queue event".to_string()})?;
+                .ok_or_else(|| StdError::GenericErr {  msg: String::from("unable to find liq-queue event")})?;
 
             let repay = &liq_event
                 .attributes
@@ -547,7 +547,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 .unwrap()
                 .value;
 
-            let token_info: AssetInfo = if asset_info.eq(&"token".to_string()) {
+            let token_info: AssetInfo = if asset_info.eq(&String::from("token")) {
                 AssetInfo::Token {
                     address: deps.api.addr_validate(token)?,
                 }
@@ -577,7 +577,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                     //Update credit amount based on liquidation's total repaid amount
                     prop.target_position.credit_amount -= repay_amount;
                 } else {
-                    return Err(StdError::GenericErr { msg: "LQ_leftovers is 0 before finishing LQ liquidations".to_string() })
+                    return Err(StdError::GenericErr { msg: String::from("LQ_leftovers is 0 before finishing LQ liquidations") })
                 }
                 
                 //Update position claims in prop.target_position

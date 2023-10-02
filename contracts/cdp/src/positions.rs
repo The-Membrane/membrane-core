@@ -1538,8 +1538,7 @@ pub fn create_basket(
                 >= Decimal::from_ratio(Uint128::new(100u128), Uint128::new(1u128))
         {
             return Err(ContractError::CustomError {
-                val: "Max borrow LTV can't be greater or equal to max_LTV nor equal to 100"
-                    .to_string(),
+                val: String::from("Max borrow LTV can't be greater or equal to max_LTV nor equal to 100"),
             });
         }
 
@@ -1642,7 +1641,7 @@ pub fn create_basket(
     //Denom check
     if let AssetInfo::Token { address :_} = credit_asset.info {
         return Err(ContractError::CustomError {
-            val: "Basket credit must be a native token denom".to_string(),
+            val: String::from("Basket credit must be a native token denom"),
         });
     }
 
@@ -2285,7 +2284,7 @@ pub fn credit_mint_msg(
     match credit_asset.clone().info {
         AssetInfo::Token { address: _ } => {
             Err(StdError::GenericErr {
-                msg: "Credit has to be a native token".to_string(),
+                msg: String::from("Credit has to be a native token"),
             })
         }
         AssetInfo::NativeToken { denom } => {
@@ -2302,7 +2301,7 @@ pub fn credit_mint_msg(
                 Ok(message)
             } else {
                 Err(StdError::GenericErr {
-                    msg: "No proxy contract setup".to_string(),
+                    msg: String::from("No proxy contract setup"),
                 })
             }
         }
@@ -2381,9 +2380,9 @@ pub fn credit_burn_rev_msg(
 
             Ok(messages)
         } else {
-            Err(StdError::GenericErr { msg: "No proxy contract setup".to_string()})
+            Err(StdError::GenericErr { msg: String::from("No proxy contract setup")})
         }
-    } else { Err(StdError::GenericErr { msg: "Cw20 assets aren't allowed".to_string() }) }
+    } else { Err(StdError::GenericErr { msg: String::from("Cw20 assets aren't allowed") }) }
 }
 
 /// Stores the price of an asset

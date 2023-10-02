@@ -245,7 +245,7 @@ fn get_repay_quantities(
         //No need to repay more than the debt
         x if x > target_position.credit_amount =>
         {
-            return Err(ContractError::FaultyCalc { msg: "Repay amount is greater than total debt".to_string() })
+            return Err(ContractError::FaultyCalc { msg: String::from("Repay amount is greater than total debt") })
         }
         x => x,
     };
@@ -407,7 +407,7 @@ fn per_asset_fulfillments(
         
         //Create msgs to caller as well as to liq_queue if.is_some()
         match cAsset.clone().asset.info {
-            AssetInfo::Token { address: _ } => { return Err(StdError::GenericErr { msg: "Cw20 assets aren't allowed".to_string() }) },
+            AssetInfo::Token { address: _ } => { return Err(StdError::GenericErr { msg: String::from("Cw20 assets aren't allowed") }) },
             AssetInfo::NativeToken { denom: _ } => {
                 let asset = Asset {
                     amount: caller_fee_in_collateral_amount,

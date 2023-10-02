@@ -346,7 +346,7 @@ impl UpdateConfig {
         if let Some(liq_fee) = self.liq_fee {
             //Enforce 0-100% range
             if liq_fee > Decimal::percent(100) || liq_fee < Decimal::zero() {
-                return Err(StdError::GenericErr{ msg: "Liquidation fee must be between 0-100%".to_string() });
+                return Err(StdError::GenericErr{ msg: String::from("Liquidation fee must be between 0-100%") });
             }
             config.liq_fee = liq_fee;
         }
@@ -359,7 +359,7 @@ impl UpdateConfig {
         if let Some(oracle_time_limit) = self.oracle_time_limit {
             //Assert oracle time limit is max the collateral_twap_timeframe
             if oracle_time_limit > config.collateral_twap_timeframe * 60 {
-                return Err(StdError::GenericErr{ msg: "Oracle time limit ceiling is the collateral twap timeframe".to_string() });
+                return Err(StdError::GenericErr{ msg: String::from("Oracle time limit ceiling is the collateral twap timeframe")});
             }
             config.oracle_time_limit = oracle_time_limit;
         }
@@ -372,14 +372,14 @@ impl UpdateConfig {
         if let Some(cpc_multiplier) = self.cpc_multiplier {
             //Enforce 0-1k%
             if cpc_multiplier > Decimal::percent(10_00) || cpc_multiplier < Decimal::zero() {
-                return Err(StdError::GenericErr{ msg: "CPC multiplier must be between 0-1000%".to_string() });
+                return Err(StdError::GenericErr{ msg: String::from("CPC multiplier must be between 0-1000%") });
             }
             config.cpc_multiplier = cpc_multiplier;
         }
         if let Some(rate_slope_multiplier) = self.rate_slope_multiplier {
             //Enforce 0-1k%
             if rate_slope_multiplier > Decimal::percent(10_00) || rate_slope_multiplier < Decimal::zero() {
-                return Err(StdError::GenericErr{ msg: "Rate slope multiplier must be between 0-10000%".to_string() });
+                return Err(StdError::GenericErr{ msg: String::from("Rate slope multiplier must be between 0-10000%") });
             }            
             config.rate_slope_multiplier = rate_slope_multiplier;
         }

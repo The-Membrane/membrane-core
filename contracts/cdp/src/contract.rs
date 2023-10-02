@@ -98,8 +98,8 @@ pub fn instantiate(
 
     //Set contract version
     CONTRACT.save(deps.storage, &ContractVersion {
-        contract: CONTRACT_NAME.to_string(),
-        version: CONTRACT_VERSION.to_string(),
+        contract: String::from(CONTRACT_NAME),
+        version: String::from(CONTRACT_VERSION),
     })?;
 
     //Create basket
@@ -504,7 +504,7 @@ fn check_and_fulfill_bad_debt(
             }));
         } else {
             return Err(ContractError::CustomError {
-                val: "Debt Auction contract not added to config".to_string(),
+                val: String::from("Debt Auction contract not added to config"),
             });
         }
 

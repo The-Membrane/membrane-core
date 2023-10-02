@@ -1072,7 +1072,7 @@ pub fn edit_redemption_info(
                                 //Get target_position
                                 let target_position = match get_target_position(deps.storage, info.sender.clone(), id){
                                     Ok((_, pos)) => pos,
-                                    Err(_e) => return Err(ContractError::CustomError { val: format!("User does not own position id: {}", id) })
+                                    Err(_e) => return Err(ContractError::CustomError { val: String::from("User does not own this position id") })
                                 };
 
                                 user_positions.position_infos.push(PositionRedemption {
@@ -1168,7 +1168,7 @@ pub fn edit_redemption_info(
                             //Get target_position
                             let target_position = match get_target_position(deps.storage, info.sender.clone(), id){
                                 Ok((_, pos)) => pos,
-                                Err(_e) => return Err(ContractError::CustomError { val: format!("User does not own position id: {}", id) })
+                                Err(_e) => return Err(ContractError::CustomError { val: String::from("User does not own this position id") })
                             };
 
                             user_positions.position_infos[position_index].remaining_loan_repayment = max_loan_repayment * target_position.credit_amount;
@@ -1200,7 +1200,7 @@ pub fn edit_redemption_info(
                             if restricted_assets.iter().all(|asset| collateral.contains(asset)) {
                                 user_positions.position_infos[position_index].restricted_collateral_assets = restricted_assets.clone();
                             } else {
-                                return Err(ContractError::CustomError { val: format!("Invalid restricted asset, only collateral assets are viable to restrict") })
+                                return Err(ContractError::CustomError { val: String::from("Invalid restricted asset, only the position's collateral assets are viable to restrict") })
                             }
                         }
 
@@ -1243,7 +1243,7 @@ fn create_redemption_info(
         //Get target_position
         let target_position = match get_target_position(storage, position_owner.clone(), id){
             Ok((_, pos)) => pos,
-            Err(_e) => return Err(StdError::GenericErr { msg: format!("User does not own position id: {}", id) })
+            Err(_e) => return Err(StdError::GenericErr { msg: String::from("User does not own this position id") })
         };
 
         //Add PositionRedemption to list
@@ -1278,7 +1278,7 @@ pub fn redeem_for_collateral(
     
     //Validate asset 
     if info.clone().funds.len() != 1 || info.clone().funds[0].denom != basket.credit_asset.info.to_string(){
-        return Err(ContractError::CustomError { val: format!("Must send only the debt token: {}", basket.credit_asset.info) })
+        return Err(ContractError::CustomError { val: String::from("Must send only the Basket's debt token") })
     } else {
         credit_amount = Decimal::from_ratio(Uint128::from(info.clone().funds[0].amount), Uint128::one());
     }
@@ -1427,7 +1427,7 @@ pub fn redeem_for_collateral(
     }
 
     if credit_amount == initial_credit_amount {
-        return Err(ContractError::CustomError { val: format!("No collateral to redeem with a max premium of: {}", max_collateral_premium) })
+        return Err(ContractError::CustomError { val: String::from("No collateral to redeem with at this max premium") })
     }
 
     //Convert collateral_sends to coins
@@ -1756,10 +1756,7 @@ pub fn edit_basket(
             .find(|cAsset| cAsset.asset.info.equal(&new_cAsset.asset.info))
         {
             return Err(ContractError::CustomError {
-                val: format!(
-                    "Attempting to add duplicate asset: {}",
-                    new_cAsset.asset.info
-                ),
+                val: String::from("Attempting to add duplicate asset"),
             });
         }
 
@@ -1809,10 +1806,7 @@ pub fn edit_basket(
                     })
                 }){
                     return Err(ContractError::CustomError {
-                        val: format!(
-                            "Need to add all pool assets before adding the LP. Errored on {}",
-                            asset.denom
-                        ),
+                        val: String::from("Need to add all pool assets before adding the LP"),
                     });
                 }
             }
@@ -2058,7 +2052,7 @@ pub fn close_position(
 
             let post_normalized_amount: Uint128 = match cAsset_prices[i].get_amount(collateral_value_to_sell){
                 Ok(amount) => amount,
-                Err(_e) => return Err(ContractError::CustomError { val: format!("Collateral value to sell is too high ({}) to calculate an amount for due to an out of bounds max spread: {}", collateral_value_to_sell, max_spread) })
+                Err(_e) => return Err(ContractError::CustomError { val: String::from("Collateral value to sell is too high to calculate an amount for due to the max spread creating an out of bounds error") })
             };
 
             post_normalized_amount

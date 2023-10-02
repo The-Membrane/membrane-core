@@ -216,20 +216,20 @@ pub fn execute(
                 restricted_collateral_assets
             )
         },
-        ExecuteMsg::ClosePosition { 
-            position_id, 
-            max_spread, 
-            send_to 
-        } => {
-            close_position(
-                deps, 
-                env, 
-                info, 
-                position_id, 
-                max_spread, 
-                send_to
-            )
-        },
+        // ExecuteMsg::ClosePosition { 
+        //     position_id, 
+        //     max_spread, 
+        //     send_to 
+        // } => {
+        //     close_position(
+        //         deps, 
+        //         env, 
+        //         info, 
+        //         position_id, 
+        //         max_spread, 
+        //         send_to
+        //     )
+        // },
         ExecuteMsg::LiqRepay {} => {
             if !info.funds.is_empty() {
                 let credit_asset = Asset {
@@ -565,9 +565,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetCollateralInterest { } => {
             to_binary(&query_collateral_rates(deps, env)?)
         },
-        // QueryMsg::GetPositionInsolvency { position_id, position_owner } => {
-        //     to_binary(&query_position_insolvency(deps, env, position_id, position_owner)?)
-        // }
+        QueryMsg::GetPositionInsolvency { position_id, position_owner } => {
+            to_binary(&query_position_insolvency(deps, env, position_id, position_owner)?)
+        }
     }
 }
 

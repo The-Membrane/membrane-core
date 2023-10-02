@@ -1,14 +1,15 @@
+use std::str::FromStr;
 use std::vec;
 
 use cosmwasm_std::{
-    attr, coin, to_binary, Addr, Api, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo,
+    attr, to_binary, Addr, Api, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo,
     QuerierWrapper, QueryRequest, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg,
     WasmQuery,
 };
 
 use cw_storage_plus::Item;
-use membrane::helpers::{validate_position_owner, asset_to_coin, withdrawal_msg, get_contract_balances};
-use membrane::cdp::{Config, ExecuteMsg, EditBasket};
+use membrane::helpers::{validate_position_owner, asset_to_coin, withdrawal_msg, get_contract_balances, pool_query_and_exit, router_native_to_native};
+use membrane::cdp::{Config, EditBasket};
 use membrane::oracle::{AssetResponse, PriceResponse};
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::liquidity_check::ExecuteMsg as LiquidityExecuteMsg;
@@ -25,7 +26,7 @@ use membrane::types::{
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
 use crate::rates::accrue;
 use crate::risk_engine::update_basket_tally;
-use crate::state::{BASKET, get_target_position, update_position_claims, REDEMPTION_OPT_IN, update_position};
+use crate::state::{BASKET, get_target_position, update_position_claims, REDEMPTION_OPT_IN, update_position, ClosePositionPropagation, CLOSE_POSITION};
 use crate::{
     state::{
         WithdrawPropagation, CONFIG, POSITIONS, LIQUIDATION, WITHDRAW,
@@ -2009,100 +2010,146 @@ pub fn edit_basket(
     Ok(Response::new().add_attributes(attrs).add_messages(msgs))
 }
 
-/// Mint Basket's pending revenue to the specified address
-// pub fn mint_revenue(
-//     deps: DepsMut,
-//     info: MessageInfo,
-//     env: Env,
-//     send_to: Option<String>,
-//     repay_for: Option<UserInfo>,
-//     amount: Option<Uint128>,
-// ) -> Result<Response, ContractError> {
-    
-//     //Can't send_to and repay_for at the same time
-//     if send_to.is_some() && repay_for.is_some() {
-//         return Err(ContractError::CustomError {
-//             val: String::from("Can't send_to and repay_for at the same time"),
-//         });
-//     }
-//     //There must be at least 1 destination address
-//     if send_to.is_none() && repay_for.is_none(){
-//         return Err(ContractError::CustomError {
-//             val: String::from("Destination address is required"),
-//         });
-//     }
+/// Sell position collateral to fully repay debts.
+/// Max spread is used to ensure the full debt is repaid in lieu of slippage.
+pub fn close_position(
+    deps: DepsMut, 
+    env: Env,
+    info: MessageInfo,
+    position_id: Uint128,
+    max_spread: Decimal,
+    mut send_to: Option<String>,
+) -> Result<Response, ContractError>{
+    //Load Config
+    let config: Config = CONFIG.load(deps.storage)?;
 
-//     let config = CONFIG.load(deps.storage)?;
-//     let mut basket = BASKET.load(deps.storage)?;
+    //Load Basket
+    let basket: Basket = BASKET.load(deps.storage)?;
 
-//     if info.sender != config.owner { return Err(ContractError::Unauthorized { owner: config.owner.to_string() }) }
+    //Load target_position, restrict to owner
+    let (_i, target_position) = get_target_position(deps.storage, info.clone().sender, position_id)?;
 
-//     if basket.pending_revenue.is_zero() {
-//         return Err(ContractError::CustomError {
-//             val: String::from("No revenue to mint"),
-//         });
-//     }
+    //Calc collateral to sell
+    //credit_amount * credit_price * (1 + max_spread)
+    let total_collateral_value_to_sell = {
+            decimal_multiplication(
+                basket.clone().credit_price.get_value(target_position.credit_amount)?, 
+                (max_spread + Decimal::one())
+            )?
+    };
 
-//     //Set amount
-//     let amount = amount.unwrap_or(basket.pending_revenue);
+    //Max_spread is added to the collateral amount to ensure enough credit is purchased
+    //Excess debt token gets sent back to the position_owner during repayment
 
-//     //Subtract amount from pending revenue
-//     basket.pending_revenue = match basket.pending_revenue.checked_sub(amount) {
-//         Ok(new_balance) => new_balance,
-//         Err(err) => {
-//             return Err(ContractError::CustomError {
-//                 val: err.to_string(),
-//             })
-//         }
-//     }; //Save basket
-//     BASKET.save(deps.storage, &basket)?;
+    //Get cAsset_ratios for the target_position
+    let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, config.clone())?;
 
-//     let mut message: Vec<CosmosMsg> = vec![];
-//     let mut repay_attr = String::from("None");
+    let mut router_messages = vec![];
+    let mut lp_withdraw_messages: Vec<CosmosMsg> = vec![];
+    let mut withdrawn_assets = vec![];
 
-//     //If send to is_some
-//     if let Some(send_to) = send_to.clone() {
-//         message.push(credit_mint_msg(
-//             config,
-//             Asset {
-//                 amount,
-//                 ..basket.credit_asset
-//             }, 
-//             deps.api.addr_validate(&send_to)?
-//         )?);
-//     } else if let Some(repay_for) = repay_for {
-//         repay_attr = repay_for.to_string();
+    //Calc collateral_amount_to_sell per asset & create router msg
+    for (i, _collateral_ratio) in cAsset_ratios.clone().into_iter().enumerate(){
 
-//         //Need to mint credit to the contract
-//         message.push(credit_mint_msg(
-//             config,
-//             Asset {
-//                 amount,
-//                 ..basket.credit_asset.clone()
-//             },
-//             env.clone().contract.address,
-//         )?);
+        //Calc collateral_amount_to_sell
+        let mut collateral_amount_to_sell = {
 
-//         //and then send it for repayment
-//         let msg = ExecuteMsg::Repay {
-//             position_id: repay_for.clone().position_id,
-//             position_owner: Some(repay_for.position_owner),
-//             send_excess_to: Some(env.contract.address.to_string()),
-//         };
+            let collateral_value_to_sell = decimal_multiplication(total_collateral_value_to_sell, cAsset_ratios[i])?;
 
-//         message.push(CosmosMsg::Wasm(WasmMsg::Execute {
-//             contract_addr: env.contract.address.to_string(),
-//             msg: to_binary(&msg)?,
-//             funds: vec![coin(amount.u128(), basket.credit_asset.info.to_string())],
-//         }));
-//     } 
+            let post_normalized_amount: Uint128 = match cAsset_prices[i].get_amount(collateral_value_to_sell){
+                Ok(amount) => amount,
+                Err(_e) => return Err(ContractError::CustomError { val: format!("Collateral value to sell is too high ({}) to calculate an amount for due to an out of bounds max spread: {}", collateral_value_to_sell, max_spread) })
+            };
 
-//     Ok(Response::new().add_messages(message).add_attributes(vec![
-//         attr("amount", amount.to_string()),
-//         attr("repay_for", repay_attr),
-//         attr("send_to", send_to.unwrap_or_else(|| String::from("None"))),
-//     ]))
-// }
+            post_normalized_amount
+        };
+
+        //Collateral to sell can't be more than the position owns
+        if collateral_amount_to_sell > target_position.collateral_assets.clone()[i].asset.amount {
+            collateral_amount_to_sell = target_position.collateral_assets.clone()[i].asset.amount;
+        }
+
+        //Set collateral asset
+        let collateral_asset = target_position.clone().collateral_assets[i].clone().asset;
+
+        //Add collateral_amount to list for propagation
+        withdrawn_assets.push(Asset{
+            amount: collateral_amount_to_sell,
+            ..collateral_asset.clone()
+        });
+
+        //If cAsset is an LP, split into pool assets to sell
+        if let Some(pool_info) = target_position.clone().collateral_assets[i].clone().pool_info{
+
+            let (msg, share_asset_amounts) = pool_query_and_exit(
+                deps.querier, 
+                env.clone(), 
+                config.clone().osmosis_proxy.unwrap().to_string(), 
+                pool_info.pool_id,
+                collateral_amount_to_sell,
+            )?;
+
+            //Push LP Withdrawal Msg
+            //Comment to pass tests
+            lp_withdraw_messages.push(msg);
+
+            //Create Router SubMsgs for each pool_asset
+            for (i, pool_asset) in pool_info.asset_infos.into_iter().enumerate(){                
+                let router_msg = router_native_to_native(
+                    config.clone().dex_router.unwrap().to_string(), 
+                    pool_asset.clone().info, 
+                    basket.clone().credit_asset.info, 
+                    None,
+                    Uint128::from_str(&share_asset_amounts[i].clone().amount).unwrap().u128(), 
+                )?;
+
+                router_messages.push(router_msg);                
+            }                  
+        } else {        
+            //Create router subMsg to sell, repay in reply on success
+            let router_msg: CosmosMsg = router_native_to_native(
+                config.clone().dex_router.unwrap().to_string(), 
+                collateral_asset.clone().info, 
+                basket.clone().credit_asset.info, 
+                None,                 
+                collateral_amount_to_sell.into(),
+            )?;
+
+            router_messages.push(router_msg);
+        }
+    }
+
+    //Set send_to for WithdrawMsg in Reply
+    if send_to.is_none() {
+        send_to = Some(info.sender.to_string());
+    }
+
+    //Save CLOSE_POSITION_PROPAGATION
+    CLOSE_POSITION.save(deps.storage, &ClosePositionPropagation {
+        withdrawn_assets,
+        position_info: UserInfo { 
+            position_id, 
+            position_owner: info.sender.to_string(),
+        },
+        send_to,
+    })?;
+
+    //The last router message is updated to a CLOSE_POSITION_REPLY to close the position after all sales and repayments are done.
+    let sub_msg = SubMsg::reply_on_success(router_messages.pop().unwrap(), CLOSE_POSITION_REPLY_ID);    
+    //Transform LP Withdraw Msgs into SubMsgs so they run first
+    let lp_withdraw_messages = lp_withdraw_messages.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
+    //Transform Router Msgs into SubMsgs so they run after LP Withdrawals
+    let router_messages = router_messages.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
+
+    Ok(Response::new()
+        .add_submessages(lp_withdraw_messages)
+        .add_submessages(router_messages)
+        .add_submessage(sub_msg)
+        .add_attributes(vec![
+        attr("position_id", position_id),
+        attr("user", info.sender),
+    ])) //If the sale incurred slippage and couldn't repay through the debt minimum, the subsequent withdraw msg will error and revert state 
+}
 
 /// Calculate desired amount of credit to borrow to reach target LTV
 fn get_amount_from_LTV(

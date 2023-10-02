@@ -10,17 +10,17 @@ use cw_storage_plus::Bound;
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::cdp::{
     Config, CollateralInterestResponse,
-    InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse,
+    InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse, InsolvencyResponse,
 };
 
 use membrane::types::{
     cAsset, AssetInfo, Basket, Position,
-    UserInfo, DebtCap, RedemptionInfo, PremiumInfo
+    UserInfo, DebtCap, RedemptionInfo, PremiumInfo, InsolventPosition
 };
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 
-use crate::rates::get_interest_rates;
+use crate::rates::{get_interest_rates, accrue};
 use crate::risk_engine::get_basket_debt_caps;
 use crate::positions::read_price;
 use crate::state::{BASKET, CONFIG, POSITIONS, get_target_position, REDEMPTION_OPT_IN};
@@ -521,6 +521,110 @@ pub fn query_basket_redeemability(
             premium_infos: res,
         }
     )
+}
+
+/// Returns Position's insolvency status
+/// The idea is that the response can be handled by acting on the fee. So if the fee is 0, then the position is solvent or doesn't exist.
+pub fn query_position_insolvency(
+    deps: Deps,
+    env: Env,
+    position_id: Uint128,
+    position_owner: String,
+) -> StdResult<InsolvencyResponse> {
+    let config: Config = CONFIG.load(deps.storage)?;
+    let valid_owner_addr = deps.api.addr_validate(&position_owner)?;
+    let mut basket: Basket = BASKET.load(deps.storage)?;
+
+    let (_i, mut target_position) = match get_target_position(deps.storage, valid_owner_addr, position_id){
+        Ok(position) => position,
+        //If position doesn't exist, return solvent response
+        Err(_) => return Ok(InsolvencyResponse {
+            insolvent_positions: vec![
+                InsolventPosition {
+                    insolvent: false,
+                    position_info: UserInfo {
+                        position_id,
+                        position_owner,
+                    },
+                    current_LTV: Decimal::zero(),
+                    available_fee: Uint128::zero(),
+                }
+            ],
+        })
+    };
+
+    match accrue(
+        deps.storage,
+        deps.querier,
+        env.clone(),
+        config.clone(),
+        &mut target_position,
+        &mut basket,
+        position_owner.clone(),
+        false,
+        true,
+    ){
+        Ok(_) => {}
+        Err(_) => return Ok(InsolvencyResponse {
+            insolvent_positions: vec![
+                InsolventPosition {
+                    insolvent: false,
+                    position_info: UserInfo {
+                        position_id,
+                        position_owner,
+                    },
+                    current_LTV: Decimal::zero(),
+                    available_fee: Uint128::zero(),
+                }
+            ],
+        })
+
+    };
+
+    //Query insolvency
+    let (insolvent, current_LTV, available_fee) = match insolvency_check(
+        deps.storage,
+        env,
+        deps.querier,
+        Some(basket.clone()),
+        target_position.collateral_assets,
+        target_position.credit_amount,
+        basket.credit_price,
+        false,
+        config,
+        true,
+    ){
+        Ok(((insolvent, current_LTV, available_fee), _)) => (insolvent, current_LTV, available_fee),
+        Err(_) => {
+            return Ok(InsolvencyResponse {
+                insolvent_positions: vec![
+                    InsolventPosition {
+                        insolvent: false,
+                        position_info: UserInfo {
+                            position_id,
+                            position_owner,
+                        },
+                        current_LTV: Decimal::zero(),
+                        available_fee: Uint128::zero(),
+                    }
+                ],
+            })
+        }
+    };
+
+    Ok(InsolvencyResponse {
+        insolvent_positions: vec![
+            InsolventPosition {
+                insolvent,
+                position_info: UserInfo {
+                    position_id,
+                    position_owner,
+                },
+                current_LTV,
+                available_fee,
+            }
+        ],
+    })
 }
 
 

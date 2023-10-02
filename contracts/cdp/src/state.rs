@@ -49,7 +49,12 @@ pub struct WithdrawPropagation {
     pub contracts_prev_collateral_amount: Vec<Uint128>,
     pub position_info: UserInfo,
 }
-
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct ClosePositionPropagation {
+    pub withdrawn_assets: Vec<Asset>,
+    pub position_info: UserInfo,
+    pub send_to: Option<String>,
+}
 pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 
 pub const CONFIG: Item<Config> = Item::new("config");
@@ -66,7 +71,7 @@ pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
 //Reply State Propagations
 pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");
 pub const LIQUIDATION: Item<LiquidationPropagation> = Item::new("repay_propagation");
-
+pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");
 
 //Helper functions
 /// Update asset claims a Position has

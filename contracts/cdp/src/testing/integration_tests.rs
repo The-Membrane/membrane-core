@@ -1800,32 +1800,8 @@ mod tests {
 
         //Instantiate CDP contract
         let cdp_id = app.store_code(cdp_contract());
-
-        let msg = InstantiateMsg {
-            owner: Some(ADMIN.to_string()),
-            liq_fee: Decimal::percent(1),
-            stability_pool: Some(sp_contract_addr.to_string()),
-            dex_router: Some(router_contract_addr.to_string()),
-            staking_contract: Some(staking_contract_addr.to_string()),
-            oracle_contract: Some(oracle_contract_addr.to_string()),
-            osmosis_proxy: Some(osmosis_proxy_contract_addr.to_string()),
-            debt_auction: Some(auction_contract_addr.to_string()),
-            liquidity_contract: Some(liquidity_contract_addr.to_string()),
-            discounts_contract: Some(discounts_contract_addr.to_string()),
-            oracle_time_limit: 60u64,
-            debt_minimum: Uint128::new(2000u128),
-            collateral_twap_timeframe: 60u64,
-            credit_twap_timeframe: 480u64,
-            rate_slope_multiplier: Decimal::from_str("0.618").unwrap(),
-            base_debt_cap_multiplier: Uint128::new(21u128),
-        };
-        let cdp_contract_addr = app
-            .instantiate_contract(cdp_id, Addr::unchecked(ADMIN), &msg, &[], "test", None)
-            .unwrap();
-
-        let cdp_contract = CDPContract(cdp_contract_addr);
         
-        let msg = ExecuteMsg::CreateBasket {
+        let create_basket = CreateBasket {
             basket_id: Uint128::one(),
             collateral_types: vec![cAsset {
                 asset: Asset {
@@ -1850,8 +1826,31 @@ mod tests {
             credit_pool_infos: vec![],
             liq_queue: None,
         };
-        let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-        app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+        let msg = InstantiateMsg {
+            owner: Some(ADMIN.to_string()),
+            liq_fee: Decimal::percent(1),
+            stability_pool: Some(sp_contract_addr.to_string()),
+            dex_router: Some(router_contract_addr.to_string()),
+            staking_contract: Some(staking_contract_addr.to_string()),
+            oracle_contract: Some(oracle_contract_addr.to_string()),
+            osmosis_proxy: Some(osmosis_proxy_contract_addr.to_string()),
+            debt_auction: Some(auction_contract_addr.to_string()),
+            liquidity_contract: Some(liquidity_contract_addr.to_string()),
+            discounts_contract: Some(discounts_contract_addr.to_string()),
+            oracle_time_limit: 60u64,
+            debt_minimum: Uint128::new(2000u128),
+            collateral_twap_timeframe: 60u64,
+            credit_twap_timeframe: 480u64,
+            rate_slope_multiplier: Decimal::from_str("0.618").unwrap(),
+            base_debt_cap_multiplier: Uint128::new(21u128),
+            create_basket,
+        };
+        let cdp_contract_addr = app
+            .instantiate_contract(cdp_id, Addr::unchecked(ADMIN), &msg, &[], "test", None)
+            .unwrap();
+
+        let cdp_contract = CDPContract(cdp_contract_addr);
 
         let msg = ExecuteMsg::EditBasket(EditBasket {
             added_cAsset: None,
@@ -1869,6 +1868,7 @@ mod tests {
             rev_to_stakers: None,
             multi_asset_supply_caps: None,
             credit_pool_infos: None,
+            take_revenue: None,
         });
         let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
         app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8669,6 +8669,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                take_revenue: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8697,6 +8698,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                take_revenue: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8786,6 +8788,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                take_revenue: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();

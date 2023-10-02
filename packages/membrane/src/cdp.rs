@@ -126,6 +126,15 @@ pub enum ExecuteMsg {
         /// Positon ID to accrue interest for
         position_ids: Vec<Uint128>
     },
+    /// Close a Position by selling collateral and repaying debt
+    ClosePosition {
+        /// Position ID to close
+        position_id: Uint128,
+        /// Max spread for the sale of collateral
+        max_spread: Decimal,
+        /// Send excess assets to this address if not the Position owner
+        send_to: Option<String>,
+    },
     /// Edit the contract's Basket
     EditBasket(EditBasket),
     /// Edit a cAsset in the contract's Basket
@@ -189,6 +198,13 @@ pub enum QueryMsg {
     GetCreditRate { },
     /// Returns Basket collateral interest rates
     GetCollateralInterest { },
+    /// Returns insolvency status of a Position
+    GetPositionInsolvency {
+        /// Position ID to query
+        position_id: Uint128,
+        /// Position owner to query
+        position_owner: String,
+    },
     // Used internally to test state propagation
     // Propagation {},
 }
@@ -520,4 +536,9 @@ pub struct CollateralInterestResponse {
 pub struct RedeemabilityResponse {
     /// State for each premium 
     pub premium_infos: Vec<PremiumInfo>,
+}
+#[cw_serde]
+pub struct InsolvencyResponse {
+    /// List of insolvent Positions
+    pub insolvent_positions: Vec<InsolventPosition>,
 }

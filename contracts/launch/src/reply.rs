@@ -1208,7 +1208,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                         owner: addrs.clone().governance, 
                         total_minted: Uint128::zero(),
                         stability_pool_ratio: None,
-                        non_token_contract_auth: true, //Governance has full control over the system but no need to mint CDT
+                        non_token_contract_auth: true, //Governance has full control over the system & mints CDT for revenue distributions
                         is_position_contract: false,
                     },
                     Owner {

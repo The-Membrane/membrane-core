@@ -376,6 +376,76 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 admin: addrs.clone().governance.to_string(),
             }));
 
+            let mut sub_msgs = vec![];             
+            //Add Collateral Oracles
+            /// ATOM
+            let msg = 
+                CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: addrs.clone().oracle.to_string(), 
+                    msg: to_binary(&OracleExecuteMsg::AddAsset { 
+                        asset_info: AssetInfo::NativeToken { denom: config.clone().atom_denom }, 
+                        oracle_info: AssetOracleInfo { 
+                            basket_id: Uint128::one(), 
+                            pools_for_osmo_twap: vec![
+                                //ATOM/OSMO
+                                TWAPPoolInfo { 
+                                    pool_id: config.clone().atomosmo_pool_id, 
+                                    base_asset_denom: config.clone().atom_denom.to_string(), 
+                                    quote_asset_denom: config.clone().osmo_denom.to_string(),  
+                                }
+                            ],
+                            is_usd_par: false,
+                            lp_pool_info: None,
+                            decimals: 6,
+                            pyth_price_feed_id: Some(String::from("b00b60f88b03a6a625a8d1c048c3f66653edf217439983d037e7222c4e612819")),
+                        },
+                    })?, 
+                    funds: vec![],
+                });
+            sub_msgs.push(SubMsg::new(msg));
+            /// OSMO
+            let msg =
+                CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: addrs.clone().oracle.to_string(), 
+                    msg: to_binary(&OracleExecuteMsg::AddAsset { 
+                        asset_info: AssetInfo::NativeToken { denom: config.clone().osmo_denom }, 
+                        oracle_info: AssetOracleInfo { 
+                            basket_id: Uint128::one(), 
+                            pools_for_osmo_twap: vec![],
+                            is_usd_par: false,
+                            lp_pool_info: None,
+                            decimals: 6,
+                            pyth_price_feed_id: Some(String::from("5867f5683c757393a0670ef0f701490950fe93fdb006d181c8265a831ac0c5c6")),
+                        },
+                    })?, 
+                    funds: vec![],
+                });
+            sub_msgs.push(SubMsg::new(msg));
+            /// axlUSDC
+            let msg = 
+                CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: addrs.clone().oracle.to_string(), 
+                    msg: to_binary(&OracleExecuteMsg::AddAsset { 
+                        asset_info: AssetInfo::NativeToken { denom: config.clone().usdc_denom }, 
+                        oracle_info: AssetOracleInfo { 
+                            basket_id: Uint128::one(), 
+                            pools_for_osmo_twap: vec![
+                                TWAPPoolInfo { 
+                                    pool_id: config.clone().osmousdc_pool_id,
+                                    base_asset_denom: config.clone().usdc_denom.to_string(), 
+                                    quote_asset_denom: config.clone().osmo_denom.to_string(),  
+                                }
+                            ],
+                            is_usd_par: true,
+                            lp_pool_info: None,
+                            decimals: 6,
+                            pyth_price_feed_id: None, //We don't set a pyth price feed for axlUSDC bc its a non-IBC bridged asset
+                        },
+                    })?, 
+                    funds: vec![],
+                });
+            sub_msgs.push(SubMsg::new(msg));
+
             //Set CreaetBasket struct
             let create_basket = CreateBasket {
                 basket_id: Uint128::one(),
@@ -453,12 +523,13 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                 funds: vec![], 
                 label: String::from("positions"), 
             });
-            let sub_msg = SubMsg::reply_on_success(cdp_instantiation, POSITIONS_REPLY_ID);     
+            let sub_msg = SubMsg::reply_on_success(cdp_instantiation, POSITIONS_REPLY_ID);
+            sub_msgs.push(sub_msg);
             
             
             Ok(Response::new()
+                .add_submessages(sub_msgs)
                 .add_messages(msgs)
-                .add_submessage(sub_msg)
             )
         },
         Err(err) => return Err(StdError::GenericErr { msg: err }),
@@ -497,75 +568,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
             //Save CDP address
             let mut addrs = ADDRESSES.load(deps.storage)?;
             addrs.positions = valid_address.clone();
-            ADDRESSES.save(deps.storage, &addrs)?;
-
-            let mut msgs = vec![];
-            
-            //Add Collateral Oracles
-            /// ATOM
-            msgs.push(
-                CosmosMsg::Wasm(WasmMsg::Execute { 
-                    contract_addr: addrs.clone().oracle.to_string(), 
-                    msg: to_binary(&OracleExecuteMsg::AddAsset { 
-                        asset_info: AssetInfo::NativeToken { denom: config.clone().atom_denom }, 
-                        oracle_info: AssetOracleInfo { 
-                            basket_id: Uint128::one(), 
-                            pools_for_osmo_twap: vec![
-                                //ATOM/OSMO
-                                TWAPPoolInfo { 
-                                    pool_id: config.clone().atomosmo_pool_id, 
-                                    base_asset_denom: config.clone().atom_denom.to_string(), 
-                                    quote_asset_denom: config.clone().osmo_denom.to_string(),  
-                                }
-                            ],
-                            is_usd_par: false,
-                            lp_pool_info: None,
-                            decimals: 6,
-                            pyth_price_feed_id: Some(String::from("b00b60f88b03a6a625a8d1c048c3f66653edf217439983d037e7222c4e612819")),
-                        },
-                    })?, 
-                    funds: vec![],
-                }));
-            /// OSMO
-            msgs.push(
-                CosmosMsg::Wasm(WasmMsg::Execute { 
-                    contract_addr: addrs.clone().oracle.to_string(), 
-                    msg: to_binary(&OracleExecuteMsg::AddAsset { 
-                        asset_info: AssetInfo::NativeToken { denom: config.clone().osmo_denom }, 
-                        oracle_info: AssetOracleInfo { 
-                            basket_id: Uint128::one(), 
-                            pools_for_osmo_twap: vec![],
-                            is_usd_par: false,
-                            lp_pool_info: None,
-                            decimals: 6,
-                            pyth_price_feed_id: Some(String::from("5867f5683c757393a0670ef0f701490950fe93fdb006d181c8265a831ac0c5c6")),
-                        },
-                    })?, 
-                    funds: vec![],
-                }));
-            /// axlUSDC
-            msgs.push(
-                CosmosMsg::Wasm(WasmMsg::Execute { 
-                    contract_addr: addrs.clone().oracle.to_string(), 
-                    msg: to_binary(&OracleExecuteMsg::AddAsset { 
-                        asset_info: AssetInfo::NativeToken { denom: config.clone().usdc_denom }, 
-                        oracle_info: AssetOracleInfo { 
-                            basket_id: Uint128::one(), 
-                            pools_for_osmo_twap: vec![
-                                TWAPPoolInfo { 
-                                    pool_id: config.clone().osmousdc_pool_id,
-                                    base_asset_denom: config.clone().usdc_denom.to_string(), 
-                                    quote_asset_denom: config.clone().osmo_denom.to_string(),  
-                                }
-                            ],
-                            is_usd_par: true,
-                            lp_pool_info: None,
-                            decimals: 6,
-                            pyth_price_feed_id: None, //We don't set a pyth price feed for axlUSDC bc its a non-IBC bridged asset
-                        },
-                    })?, 
-                    funds: vec![],
-                }));
+            ADDRESSES.save(deps.storage, &addrs)?;         
 
             //CreateBasket
             // let msg = CDPExecuteMsg::CreateBasket {
@@ -648,7 +651,7 @@ pub fn handle_cdp_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
             });
             let sub_msg = SubMsg::reply_on_success(sp_instantiation, STABILITY_POOL_REPLY_ID);    
 
-            Ok(Response::new().add_messages(msgs).add_submessage(sub_msg))
+            Ok(Response::new().add_submessage(sub_msg))
         },
         Err(err) => return Err(StdError::GenericErr { msg: err }),
     }    

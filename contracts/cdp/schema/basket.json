@@ -13,6 +13,7 @@
     "credit_price",
     "current_position_id",
     "frozen",
+    "lastest_collateral_rates",
     "multi_asset_supply_caps",
     "negative_rates",
     "oracle_set",
@@ -77,7 +78,7 @@
       "description": "Credit redemption price, not market price",
       "allOf": [
         {
-          "$ref": "#/definitions/Decimal"
+          "$ref": "#/definitions/PriceResponse"
         }
       ]
     },
@@ -92,6 +93,13 @@
     "frozen": {
       "description": "Freeze withdrawals and debt increases to provide time to fix vulnerabilities",
       "type": "boolean"
+    },
+    "lastest_collateral_rates": {
+      "description": "Lastest Collateral Rates",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Rate"
+      }
     },
     "liq_queue": {
       "description": "Liquidation queue contract address",
@@ -300,6 +308,84 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "PriceInfo": {
+      "type": "object",
+      "required": [
+        "price",
+        "source"
+      ],
+      "properties": {
+        "price": {
+          "description": "Price",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            }
+          ]
+        },
+        "source": {
+          "description": "Source of price, Chain name, Oracle Address or static",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PriceResponse": {
+      "type": "object",
+      "required": [
+        "decimals",
+        "price",
+        "prices"
+      ],
+      "properties": {
+        "decimals": {
+          "description": "Asset decimals",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "price": {
+          "description": "Median price",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            }
+          ]
+        },
+        "prices": {
+          "description": "List of PriceInfo from different sources",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PriceInfo"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Rate": {
+      "type": "object",
+      "required": [
+        "last_time_updated",
+        "rate"
+      ],
+      "properties": {
+        "last_time_updated": {
+          "description": "Time of rate in seconds",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "rate": {
+          "description": "Rate",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            }
+          ]
         }
       },
       "additionalProperties": false

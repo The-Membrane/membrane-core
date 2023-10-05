@@ -147,3 +147,6 @@ pub struct UpdateConfig {
     /// Axelar USDC denom
     pub usdc_denom: Option<String>,
 }
+
+#[cw_serde]
+pub struct MigrateMsg {}

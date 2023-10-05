@@ -6,7 +6,6 @@
   "required": [
     "avg_borrow_LTV",
     "avg_max_LTV",
-    "basket_id",
     "cAsset_ratios",
     "collateral_assets",
     "credit_amount",
@@ -26,14 +25,6 @@
       "allOf": [
         {
           "$ref": "#/definitions/Decimal"
-        }
-      ]
-    },
-    "basket_id": {
-      "description": "Basket ID",
-      "allOf": [
-        {
-          "$ref": "#/definitions/Uint128"
         }
       ]
     },

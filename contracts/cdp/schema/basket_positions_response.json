@@ -11,7 +11,7 @@
       "description": "List of Positions",
       "type": "array",
       "items": {
-        "$ref": "#/definitions/Position"
+        "$ref": "#/definitions/PositionResponse"
       }
     },
     "user": {
@@ -160,23 +160,50 @@
       },
       "additionalProperties": false
     },
-    "Position": {
+    "PositionResponse": {
+      "description": "Response for GetUserPositions",
       "type": "object",
       "required": [
+        "avg_borrow_LTV",
+        "avg_max_LTV",
+        "cAsset_ratios",
         "collateral_assets",
         "credit_amount",
         "position_id"
       ],
       "properties": {
+        "avg_borrow_LTV": {
+          "description": "Average borrow LTV of collateral assets",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            }
+          ]
+        },
+        "avg_max_LTV": {
+          "description": "Average max LTV of collateral assets",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            }
+          ]
+        },
+        "cAsset_ratios": {
+          "description": "Collateral asset ratios Allows front ends to get ratios using the same oracles. Useful for users who want to deposit or withdraw at the current ratio.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Decimal"
+          }
+        },
         "collateral_assets": {
-          "description": "Collateral assets",
+          "description": "Position collateral assets",
           "type": "array",
           "items": {
             "$ref": "#/definitions/cAsset"
           }
         },
         "credit_amount": {
-          "description": "Loan size",
+          "description": "Position outstanding debt",
           "allOf": [
             {
               "$ref": "#/definitions/Uint128"

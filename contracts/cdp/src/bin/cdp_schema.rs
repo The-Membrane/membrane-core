@@ -2,7 +2,7 @@ use std::{fs::create_dir_all, env::current_dir};
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use membrane::cdp::{InstantiateMsg, ExecuteMsg, QueryMsg, Config, PositionResponse, RedeemabilityResponse, BasketPositionsResponse, BadDebtResponse, InsolvencyResponse, InterestResponse, CollateralInterestResponse};
+use membrane::cdp::{InstantiateMsg, ExecuteMsg, QueryMsg, Config, PositionResponse, RedeemabilityResponse, BasketPositionsResponse, InterestResponse, CollateralInterestResponse};
 use membrane::types::{Basket, DebtCap};
 fn main() {
     let mut out_dir = current_dir().unwrap();
@@ -16,8 +16,6 @@ fn main() {
     export_schema(&schema_for!(Config), &out_dir);
     export_schema(&schema_for!(PositionResponse), &out_dir);
     export_schema(&schema_for!(BasketPositionsResponse), &out_dir);
-    export_schema(&schema_for!(BadDebtResponse), &out_dir);
-    export_schema(&schema_for!(InsolvencyResponse), &out_dir);
     export_schema(&schema_for!(InterestResponse), &out_dir);
     export_schema(&schema_for!(CollateralInterestResponse), &out_dir);
     export_schema(&schema_for!(RedeemabilityResponse), &out_dir);

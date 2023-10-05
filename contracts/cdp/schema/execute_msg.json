@@ -323,49 +323,6 @@
       "additionalProperties": false
     },
     {
-      "description": "Close a Position by selling collateral and repaying debt",
-      "type": "object",
-      "required": [
-        "close_position"
-      ],
-      "properties": {
-        "close_position": {
-          "type": "object",
-          "required": [
-            "max_spread",
-            "position_id"
-          ],
-          "properties": {
-            "max_spread": {
-              "description": "Max spread for the sale of collateral",
-              "allOf": [
-                {
-                  "$ref": "#/definitions/Decimal"
-                }
-              ]
-            },
-            "position_id": {
-              "description": "Position ID to close",
-              "allOf": [
-                {
-                  "$ref": "#/definitions/Uint128"
-                }
-              ]
-            },
-            "send_to": {
-              "description": "Send excess assets to this address if not the Position owner",
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          },
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
-    },
-    {
       "description": "Accrue interest for a Position",
       "type": "object",
       "required": [
@@ -387,130 +344,6 @@
             },
             "position_owner": {
               "description": "Positon owner to accrue interest for, defaults to sender",
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          },
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
-    },
-    {
-      "description": "Mint Basket pending revenue",
-      "type": "object",
-      "required": [
-        "mint_revenue"
-      ],
-      "properties": {
-        "mint_revenue": {
-          "type": "object",
-          "properties": {
-            "amount": {
-              "description": "Amount of revenue to mint",
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Uint128"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "repay_for": {
-              "description": "Repay for a position w/ the revenue",
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/UserInfo"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "send_to": {
-              "description": "Send minted tokens to this address, defaults to sender",
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          },
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
-    },
-    {
-      "description": "Create the contract's Basket",
-      "type": "object",
-      "required": [
-        "create_basket"
-      ],
-      "properties": {
-        "create_basket": {
-          "type": "object",
-          "required": [
-            "basket_id",
-            "collateral_types",
-            "credit_asset",
-            "credit_pool_infos",
-            "credit_price"
-          ],
-          "properties": {
-            "base_interest_rate": {
-              "description": "Base collateral interest rate. Used to calculate the interest rate for each collateral type.",
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Decimal"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "basket_id": {
-              "description": "Basket ID",
-              "allOf": [
-                {
-                  "$ref": "#/definitions/Uint128"
-                }
-              ]
-            },
-            "collateral_types": {
-              "description": "Collateral asset types. Note: Also used to tally asset amounts for ease of calculation of Basket ratios",
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/cAsset"
-              }
-            },
-            "credit_asset": {
-              "description": "Creates native denom for credit_asset",
-              "allOf": [
-                {
-                  "$ref": "#/definitions/Asset"
-                }
-              ]
-            },
-            "credit_pool_infos": {
-              "description": "To measure liquidity for the credit asset",
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/PoolType"
-              }
-            },
-            "credit_price": {
-              "description": "Credit redemption price",
-              "allOf": [
-                {
-                  "$ref": "#/definitions/Decimal"
-                }
-              ]
-            },
-            "liq_queue": {
-              "description": "Liquidation queue for collateral assets",
               "type": [
                 "string",
                 "null"
@@ -709,7 +542,8 @@
                     }
                   ]
                 }
-              }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false
@@ -823,6 +657,17 @@
           "type": [
             "boolean",
             "null"
+          ]
+        },
+        "take_revenue": {
+          "description": "Take revenue, used as a way to distribute revenue",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Uint128"
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       },
@@ -1198,28 +1043,6 @@
             "string",
             "null"
           ]
-        }
-      },
-      "additionalProperties": false
-    },
-    "UserInfo": {
-      "type": "object",
-      "required": [
-        "position_id",
-        "position_owner"
-      ],
-      "properties": {
-        "position_id": {
-          "description": "Position ID",
-          "allOf": [
-            {
-              "$ref": "#/definitions/Uint128"
-            }
-          ]
-        },
-        "position_owner": {
-          "description": "Position owner",
-          "type": "string"
         }
       },
       "additionalProperties": false

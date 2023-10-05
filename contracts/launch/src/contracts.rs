@@ -7,7 +7,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 
 use membrane::helpers::{withdrawal_msg, get_contract_balances};
-use membrane::launch::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
+use membrane::launch::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, MigrateMsg};
 use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OPExecuteMsg;
@@ -870,7 +870,8 @@ pub fn end_of_launch(
     )
 }
 
-
-
-
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    Ok(Response::default())
+}
 

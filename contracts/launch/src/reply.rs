@@ -1554,28 +1554,28 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
             msgs.push(msg);
 
             // Add MBRN-OSMO LP to oracle for MBRN pricing
-            msgs.push(
-                CosmosMsg::Wasm(WasmMsg::Execute { 
-                    contract_addr: addrs.clone().oracle.to_string(), 
-                    msg: to_binary(&OracleExecuteMsg::AddAsset { 
-                        asset_info: AssetInfo::NativeToken { denom: config.clone().mbrn_denom }, 
-                        oracle_info: AssetOracleInfo { 
-                            basket_id: Uint128::one(), 
-                            pools_for_osmo_twap: vec![
-                                TWAPPoolInfo { 
-                                    pool_id: MBRN_POOL.load(deps.storage)?,
-                                    base_asset_denom: config.clone().mbrn_denom.to_string(),  
-                                    quote_asset_denom: config.clone().osmo_denom.to_string(), 
-                                }
-                            ],
-                            is_usd_par: false,
-                            lp_pool_info: None,
-                            decimals: 6,       
-                            pyth_price_feed_id: None,                     
-                        },
-                    })?, 
-                    funds: vec![],
-                }));
+            // msgs.push(
+            //     CosmosMsg::Wasm(WasmMsg::Execute { 
+            //         contract_addr: addrs.clone().oracle.to_string(), 
+            //         msg: to_binary(&OracleExecuteMsg::AddAsset { 
+            //             asset_info: AssetInfo::NativeToken { denom: config.clone().mbrn_denom }, 
+            //             oracle_info: AssetOracleInfo { 
+            //                 basket_id: Uint128::one(), 
+            //                 pools_for_osmo_twap: vec![
+            //                     TWAPPoolInfo { 
+            //                         pool_id: MBRN_POOL.load(deps.storage)?,
+            //                         base_asset_denom: config.clone().mbrn_denom.to_string(),  
+            //                         quote_asset_denom: config.clone().osmo_denom.to_string(), 
+            //                     }
+            //                 ],
+            //                 is_usd_par: false,
+            //                 lp_pool_info: None,
+            //                 decimals: 6,       
+            //                 pyth_price_feed_id: None,                     
+            //             },
+            //         })?, 
+            //         funds: vec![],
+            //     }));
             // Set oracle ownership to governance & add USD Par TWAP pool
             msgs.push(
                 CosmosMsg::Wasm(WasmMsg::Execute { 

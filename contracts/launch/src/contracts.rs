@@ -798,7 +798,7 @@ pub fn end_of_launch(
         }),
         pool_assets: vec![
             PoolAsset { 
-                token: Some(Coin { denom: config.clone().mbrn_denom, amount: config.clone().mbrn_launch_amount.to_string() }), 
+                token: Some(Coin { denom: config.clone().mbrn_denom, amount: "1000000000000".to_string() }), 
                 weight: String::from("50") 
             },
             PoolAsset { 
@@ -834,11 +834,11 @@ pub fn end_of_launch(
         }),
         pool_assets: vec![
             PoolAsset { 
-                token: Some(Coin { denom: config.clone().credit_denom, amount: "1_000_000".to_string() }), 
+                token: Some(Coin { denom: config.clone().credit_denom, amount: "1000000".to_string() }), 
                 weight: String::from("50") 
             },
             PoolAsset { 
-                token: Some(Coin { denom: config.clone().osmo_denom, amount: "1_000_000".to_string() }), 
+                token: Some(Coin { denom: config.clone().osmo_denom, amount: "1000000".to_string() }), 
                 weight: String::from("50") 
             }
         ],

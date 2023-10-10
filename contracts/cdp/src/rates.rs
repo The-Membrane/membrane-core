@@ -363,11 +363,11 @@ fn get_credit_rate_of_change(
         Ok(ratios) => ratios,
         Err(err) => {
             return Err(StdError::GenericErr {
-                msg: String::from("Error at line 366")
+                msg: format!("Error at line 366: {}", err)
             })
         }
     };
-
+    
     match update_rate_indices(storage, querier, env, basket, negative_rate, credit_price_rate, for_query){
         Ok(_ok) => {},
         Err(err) => {
@@ -560,7 +560,7 @@ pub fn accrue(
         Ok(rate) => rate,
         Err(err) => {
             return Err(StdError::GenericErr {
-                msg: String::from("Error at line 563")
+                msg: format!("Error at line 563: {}", err)
             })
         }
     };

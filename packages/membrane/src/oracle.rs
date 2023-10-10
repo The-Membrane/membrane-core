@@ -120,15 +120,10 @@ impl PriceResponse {
         //Normalize Asset amounts to fiat decimal amounts (1_000_000 = 1)
         let exponent_difference = self.decimals;
 
-        let decimal_asset_amount = {
-            if exponent_difference == 18 {
-                //Price takes into account the asset's decimals if its an LP
-                Decimal::from_ratio(amount, Uint128::new(1))
-            } else {                
-                Decimal::from_ratio(amount, Uint128::new(10u64.pow(exponent_difference as u32) as u128))
-            }
+        let decimal_asset_amount = {             
+            Decimal::from_ratio(amount, Uint128::new(10u64.pow(exponent_difference as u32) as u128))
         };
-
+        
         decimal_multiplication(self.price, decimal_asset_amount)
     }
 
@@ -137,9 +132,9 @@ impl PriceResponse {
         let exponent_difference = self.decimals;
 
         //This is "scaled" if its an LP share token due to how price is calculated
-        if exponent_difference == 18 {         
-            return Ok(decimal_division(value, self.price)?.to_uint_floor())
-        }
+        // if exponent_difference == 18 {         
+        //     return Ok(decimal_division(value, self.price)?.to_uint_floor())
+        // }
         let pre_scaled_amount = decimal_division(value, self.price)?;
 
         //Post scaled amount where we add the asset's decimals (1 = 1_000_000)
@@ -172,14 +167,8 @@ impl PriceResponse256 {
         let exponent_difference = self.decimals;
 
         let decimal_asset_amount = {
-            if exponent_difference == 18 {
-                //Price takes into account the asset's decimals if its an LP
-                Decimal256::from_ratio(amount, Uint256::one())
-            } else {                
-                Decimal256::from_ratio(amount, Uint256::from(10u64.pow(exponent_difference as u32) as u128))
-            }
+            Decimal256::from_ratio(amount, Uint256::from(10u64.pow(exponent_difference as u32) as u128))
         };
-
         self.price * decimal_asset_amount
     }
 
@@ -188,9 +177,9 @@ impl PriceResponse256 {
         let exponent_difference = self.decimals;
 
         //This is "scaled" if its an LP share token due to how price is calculated
-        if exponent_difference == 18 {         
-            return (value / self.price ) * Uint256::one()
-        }
+        // if exponent_difference == 18 {         
+        //     return (value / self.price ) * Uint256::one()
+        // }
         let pre_scaled_amount = value / self.price;
 
         //Post scaled amount where we add the asset's decimals (1 = 1_000_000)

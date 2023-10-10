@@ -409,6 +409,8 @@ pub fn get_lp_price(
         .map(|asset| asset.info)
         .collect::<Vec<AssetInfo>>();
 
+    let mut asset_values = vec![];
+
     //Get asset prices
     let (asset_prices, oracle_sources) = {
         let res = get_asset_prices(
@@ -435,51 +437,56 @@ pub fn get_lp_price(
     };
 
     //Calculate share value
-    let LP_value = {
-        //Query share asset amount
-        let share_asset_amounts = querier
-            .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.osmosis_proxy_contract.unwrap().to_string(),
-                msg: to_binary(&OP_QueryMsg::PoolState {
-                    id: pool_info.pool_id,
-                })?,
-            }))?
-            .shares_value(1_000_000_000_000_000_000u128); //1_000_000_000_000_000_000 = 1 pool share token
+    //Query share asset amount
+    let share_asset_amounts = querier
+        .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.osmosis_proxy_contract.unwrap().to_string(),
+            msg: to_binary(&OP_QueryMsg::PoolState {
+                id: pool_info.pool_id,
+            })?,
+        }))?
+        .shares_value(1_000_000_000_000_000_000u128); //1_000_000_000_000_000_000 = 1 pool share token
 
-        //Calculate value of Assets in 1 share token
-        let mut value = Decimal::zero();
-        for (i, price) in asset_prices.into_iter().enumerate() {
-            //Assert we are pulling asset amount from the correct asset
-            let asset_share =
-                match share_asset_amounts.clone().into_iter().find(|coin| {
-                    AssetInfo::NativeToken {
-                        denom: coin.denom.clone(),
-                    } == pool_info.clone().asset_infos[i].info
-                }) {
-                    Some(coin) => coin,
-                    None => {
-                        return Err(StdError::GenericErr {
-                            msg: format!(
-                                "Invalid asset denom: {}",
-                                pool_info.clone().asset_infos[i].info
-                            ),
-                        })
-                    }
-                };
+    //Calculate value of Assets in 1 share token
+    let mut value = Decimal::zero();
+    for (i, price) in asset_prices.into_iter().enumerate() {
+        //Assert we are pulling asset amount from the correct asset
+        let asset_share =
+            match share_asset_amounts.clone().into_iter().find(|coin| {
+                AssetInfo::NativeToken {
+                    denom: coin.denom.clone(),
+                } == pool_info.clone().asset_infos[i].info
+            }) {
+                Some(coin) => coin,
+                None => {
+                    return Err(StdError::GenericErr {
+                        msg: format!(
+                            "Invalid asset denom: {}",
+                            pool_info.clone().asset_infos[i].info
+                        ),
+                    })
+                }
+            };
 
-            //Price * # of assets in 1 LP share token
-            value += price.get_value(Uint128::from_str(&asset_share.amount)?)?;
-        }
-
-        value
-    };
+        //Price * # of assets in 1 LP share token
+        asset_values.push(price.get_value(Uint128::from_str(&asset_share.amount)?)?);
+    }
 
     //Calculate LP price
     let LP_price = {
-        let share_amount =
-            Decimal::from_ratio(Uint128::new(1_000_000_000_000_000_000u128), Uint128::new(1u128));//18 decimals for LP share tokens
-        
-        decimal_division(LP_value, share_amount)?
+        //Find the ratio of each asset in the LP
+        let asset_ratios = asset_values
+            .clone()
+            .into_iter()
+            .map(|value| value / asset_values.clone().into_iter().sum::<Decimal>())
+            .collect::<Vec<Decimal>>();
+
+        //Find the LP price by multiplying each asset's price by its ratio
+        asset_prices
+            .into_iter()
+            .zip(asset_ratios)
+            .map(|(price, ratio)| price.price * ratio)
+            .sum::<Decimal>()
     };
 
     Ok(PriceResponse { 

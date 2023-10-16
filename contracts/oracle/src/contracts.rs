@@ -10,10 +10,10 @@ use pyth_sdk_cw::{PriceFeedResponse, query_price_feed, PriceIdentifier, PriceFee
 
 use osmosis_std::types::osmosis::twap::v1beta1 as TWAP;
 
-use membrane::math::{decimal_division, decimal_multiplication};
+use membrane::math::{decimal_division, decimal_multiplication, Decimal256};
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::osmosis_proxy::{QueryMsg as OP_QueryMsg, Config as OP_Config};
-use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg};
+use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg, PriceResponse256};
 use membrane::types::{AssetInfo, AssetOracleInfo, PriceInfo, Basket, TWAPPoolInfo, PoolInfo, Owner, PoolStateResponse};
 
 use crate::error::ContractError;
@@ -402,7 +402,7 @@ pub fn get_lp_price(
     twap_timeframe: u64, //in minutes
     oracle_time_limit: u64, //in seconds
     basket_id_field: Option<Uint128>,
-) -> StdResult<PriceResponse>{
+) -> StdResult<PriceResponse256>{
     //Turn pool info into asset info
     let asset_infos: Vec<AssetInfo> = pool_info.clone().asset_infos
         .into_iter()
@@ -448,7 +448,6 @@ pub fn get_lp_price(
         .shares_value(1_000_000_000_000_000_000u128); //1_000_000_000_000_000_000 = 1 pool share token
 
     //Calculate value of Assets in 1 share token
-    let mut value = Decimal::zero();
     for (i, price) in asset_prices.into_iter().enumerate() {
         //Assert we are pulling asset amount from the correct asset
         let asset_share =
@@ -472,24 +471,19 @@ pub fn get_lp_price(
         asset_values.push(price.get_value(Uint128::from_str(&asset_share.amount)?)?);
     }
 
-    //Calculate LP price
+    //Calculate LP price as the value of 1 share token
     let LP_price = {
-        //Find the ratio of each asset in the LP
-        let asset_ratios = asset_values
+        let value: Decimal = asset_values
             .clone()
             .into_iter()
-            .map(|value| value / asset_values.clone().into_iter().sum::<Decimal>())
-            .collect::<Vec<Decimal>>();
+            .sum();
 
-        //Find the LP price by multiplying each asset's price by its ratio
-        asset_prices
-            .into_iter()
-            .zip(asset_ratios)
-            .map(|(price, ratio)| price.price * ratio)
-            .sum::<Decimal>()
+        let big_value = Decimal256::from(value);
+
+        big_value / Decimal256::from_str(&"1_000_000_000_000_000_000")?
     };
 
-    Ok(PriceResponse { 
+    Ok(PriceResponse256 { 
         prices: oracle_sources,
         price: LP_price,
         decimals: 18u64,
@@ -811,7 +805,7 @@ fn get_asset_prices(
     twap_timeframe: u64, //in minutes
     oracle_time_limit: u64, //in seconds
     basket_id_field: Option<Uint128>,
-) -> StdResult<Vec<PriceResponse>> {
+) -> StdResult<Vec<PriceResponse256>> {
 
     //Enforce Vec max size
     if asset_infos.len() > 50 {

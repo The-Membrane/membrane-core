@@ -560,6 +560,13 @@ fn claim() {
         }
     );
 
+    //Claim near the end of the lock time of 2nd deposit: Error bc ur leaving below the minimum stake left to unlock & stake
+    let msg = ExecuteMsg::Claim {  };
+    let info = mock_info("user1", &[]);
+    env.block.time = env.block.time.plus_seconds(6 * SECONDS_PER_DAY + 86000);
+    let err = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+    assert_eq!(err.to_string(), "Custom Error val: If you leave less than 1 MBRN still unlocking, it'll get stuck due to the minimum stake amount".to_string());
+
     //Claim after lock time of 2nd deposit: Rest of Mint
     let msg = ExecuteMsg::Claim {  };
     let info = mock_info("user1", &[]);

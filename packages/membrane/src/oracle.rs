@@ -147,6 +147,7 @@ impl PriceResponse {
     pub fn to_decimal256(&self) -> StdResult<PriceResponse256>{
         let price = Decimal256::from_str(&self.price.to_string())?;
         Ok(PriceResponse256 {
+            prices: self.clone().prices,
             price,
             decimals: self.decimals,
         })
@@ -155,6 +156,8 @@ impl PriceResponse {
 
 #[cw_serde]
 pub struct PriceResponse256 {
+    /// List of PriceInfo from different sources
+    pub prices: Vec<PriceInfo>,
     /// Median price
     pub price: Decimal256,
     /// Asset decimals

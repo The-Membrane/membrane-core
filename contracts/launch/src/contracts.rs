@@ -56,7 +56,7 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
 
     //Need 20 OSMO for CreateDenom Msgs
-    if deps.querier.query_balance(env.clone().contract.address, "uosmo")?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
+    // if deps.querier.query_balance(env.clone().contract.address, "uosmo")?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
@@ -362,7 +362,7 @@ fn withdraw(
 }
 
 /// Claim unlocked MBRN rewards
-fn claim (    
+fn claim(    
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
@@ -423,6 +423,12 @@ fn claim (
             Decimal::from_ratio(locked_user.total_tickets, Uint128::one()))?;
 
         let unlocked_incentives = ratio_of_unlock * incentives;
+
+        //Calc locked incentives
+        let locked_incentives = incentives.checked_sub(unlocked_incentives).unwrap_or_else(|_| Uint128::zero());
+        if locked_incentives < Uint128::new(1_000_000) && locked_incentives > Uint128::zero() {
+            return Err(ContractError::CustomError { val: String::from("If you leave less than 1 MBRN still unlocking, it'll get stuck due to the minimum stake amount") })
+        }
 
         //Calc amount available to mint
         amount_to_mint = match unlocked_incentives.checked_sub(locked_user.incentives_withdrawn){

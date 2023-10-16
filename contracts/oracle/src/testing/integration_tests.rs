@@ -219,12 +219,21 @@ mod tests {
         use std::str::FromStr;
 
         use super::*;
-        use membrane::oracle::{Config, AssetResponse};
-        use membrane::math::{decimal_division, decimal_multiplication};
+        use membrane::oracle::{Config, AssetResponse, PriceResponse256};
+        use membrane::math::{decimal_division, decimal_multiplication, Decimal256, Uint256};
         use pyth_sdk_cw::PriceIdentifier;
 
         #[test]
         fn add_edit() {
+            panic!("{:?}", PriceResponse {
+                prices: vec![PriceInfo {
+                    price: Decimal::one(),
+                    source: String::from("osmosis"),
+                }],
+                price: Decimal::from_ratio(Uint128::one(), Uint128::from(1u128)),
+                decimals: 18,
+            }.get_value(340_280_000_000_000_000_000_000u128.into()));
+
             let (mut app, oracle_contract, cdp_contract) = proper_instantiate();
 
             //Unauthorized AddAsset

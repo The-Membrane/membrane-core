@@ -10,7 +10,7 @@ use pyth_sdk_cw::{PriceFeedResponse, query_price_feed, PriceIdentifier, PriceFee
 
 use osmosis_std::types::osmosis::twap::v1beta1 as TWAP;
 
-use membrane::math::{decimal_division, decimal_multiplication, Decimal256};
+use membrane::math::{decimal_division, decimal_multiplication, Decimal256, Uint256};
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::osmosis_proxy::{QueryMsg as OP_QueryMsg, Config as OP_Config};
 use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg, PriceResponse256};
@@ -402,14 +402,14 @@ pub fn get_lp_price(
     twap_timeframe: u64, //in minutes
     oracle_time_limit: u64, //in seconds
     basket_id_field: Option<Uint128>,
-) -> StdResult<PriceResponse256>{
+) -> StdResult<PriceResponse>{
     //Turn pool info into asset info
     let asset_infos: Vec<AssetInfo> = pool_info.clone().asset_infos
         .into_iter()
         .map(|asset| asset.info)
         .collect::<Vec<AssetInfo>>();
 
-    let mut asset_values = vec![];
+    let mut asset_values: Vec<Decimal> = vec![];
 
     //Get asset prices
     let (asset_prices, oracle_sources) = {
@@ -473,17 +473,13 @@ pub fn get_lp_price(
 
     //Calculate LP price as the value of 1 share token
     let LP_price = {
-        let value: Decimal = asset_values
+        asset_values
             .clone()
             .into_iter()
-            .sum();
-
-        let big_value = Decimal256::from(value);
-
-        big_value / Decimal256::from_str(&"1_000_000_000_000_000_000")?
+            .sum::<Decimal>()
     };
 
-    Ok(PriceResponse256 { 
+    Ok(PriceResponse { 
         prices: oracle_sources,
         price: LP_price,
         decimals: 18u64,
@@ -805,7 +801,7 @@ fn get_asset_prices(
     twap_timeframe: u64, //in minutes
     oracle_time_limit: u64, //in seconds
     basket_id_field: Option<Uint128>,
-) -> StdResult<Vec<PriceResponse256>> {
+) -> StdResult<Vec<PriceResponse>> {
 
     //Enforce Vec max size
     if asset_infos.len() > 50 {

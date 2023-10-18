@@ -232,7 +232,7 @@ mod tests {
                 }],
                 price: Decimal::from_ratio(Uint128::one(), Uint128::from(1u128)),
                 decimals: 18,
-            }.get_value(340_280_000_000_000_000_000_000u128.into()));
+            }.get_value(340_280_000_000_000_000_000_000_000_001u128.into()));
 
             let (mut app, oracle_contract, cdp_contract) = proper_instantiate();
 

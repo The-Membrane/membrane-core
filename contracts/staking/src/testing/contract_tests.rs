@@ -949,10 +949,26 @@ fn unstake() {
             staker: Addr::unchecked("sender88")        
         });
     
-    env.block.time = env.block.time.plus_seconds(86400 * 4); //4 days
+    env.block.time = env.block.time.plus_seconds(86400 * 2); //2 days
+       
+        
+    //Unstake again to assert that the initial unstake time isn't reset & it unstakes a whole new 5M
+    /// - consecutive unstakes don't reset the unstake period (done)
+    let msg = ExecuteMsg::Unstake { mbrn_amount: Some(Uint128::new(5000001)) };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+    
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
 
-    //Successful Unstake w/ withdrawals after unstaking period
-    let msg = ExecuteMsg::Unstake { mbrn_amount: None };
+    let resp: StakerResponse = from_binary(&res).unwrap();
+    assert_eq!(resp.deposit_list[0].unstake_start_time.unwrap() < resp.deposit_list[1].unstake_start_time.unwrap() && resp.deposit_list[0].unstake_start_time.unwrap() < resp.deposit_list[2].unstake_start_time.unwrap(), true);
+
+    
+    env.block.time = env.block.time.plus_seconds(86400 * 2); //2 days
+
+    //Successful Unstake w/ withdrawals after unstaking period of the first unstake
+    /// - Withdrawing less than what has been unstaked doesn't add MBRN 
+    let msg = ExecuteMsg::Unstake { mbrn_amount: Some(Uint128::new(5000000)) };
     let info = mock_info("sender88", &[]);
     let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     assert_eq!(
@@ -960,7 +976,7 @@ fn unstake() {
         vec![
             attr("method", "unstake"),
             attr("staker", String::from("sender88")),
-            attr("unstake_amount", String::from("5000001")),
+            attr("unstake_amount", String::from("5000000")),
         ]
     );
     //Bc its a normal staker, they should have accrued interest as well
@@ -971,31 +987,24 @@ fn unstake() {
                 contract_addr: String::from("osmosis_proxy"), 
                 msg: to_binary(&OsmoExecuteMsg::MintTokens { 
                     denom: String::from("mbrn_denom"), 
-                    amount: Uint128::new(10998), 
+                    amount: Uint128::new(5503), 
                     mint_to_address: String::from("cosmos2contract")
                 }).unwrap(), 
                 funds: vec![]
             })), 
             SubMsg::reply_on_success(CosmosMsg::Bank(BankMsg::Send {
                 to_address: String::from("sender88"),
-                amount: coins(5_000_001, "mbrn_denom"),
+                amount: coins(5_000_000, "mbrn_denom"),
             }), 1)
         ]
     );
     let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
 
     let resp: StakerResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.total_staked, Uint128::new(5035667));
-    assert_eq!(resp.deposit_list[3], 
-        StakeDeposit {
-            amount: Uint128::new(10998),
-            stake_time: 1572920619,
-            unstake_start_time: None,
-            staker: Addr::unchecked("sender88")        
-        });
+    assert_eq!(resp.total_staked, Uint128::new(5035678));
 
     //Query and Assert Delegations were updated by the unstake
-    //We aren't undelegating the full 5M bc a portion of it is coming from the accrued interest
+    //We aren't undelegating the full 5M bc a portion of it is coming from the accrued interest (i.e. 10M -5M + interest)
     let res = query(deps.as_ref(), mock_env(),
         QueryMsg::Delegations {
             user: None,
@@ -1011,7 +1020,7 @@ fn unstake() {
             delegated_to: vec![
                 Delegation {
                     delegate: Addr::unchecked("unstaking_barrier"),
-                    amount: Uint128::new(5024669u128),
+                    amount: Uint128::new(5030175u128),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: 1572920619,
@@ -1026,7 +1035,7 @@ fn unstake() {
             delegated: vec![
                 Delegation {
                     delegate: Addr::unchecked("sender88"),
-                    amount: Uint128::new(5024669u128),
+                    amount: Uint128::new(5030175u128),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: 1572920619,
@@ -1042,7 +1051,7 @@ fn unstake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_vested, Uint128::new(5_035_667));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(5_035_678));
     assert_eq!(resp.vested_total, Uint128::new(11_000000));
 }
 

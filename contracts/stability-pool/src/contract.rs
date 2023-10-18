@@ -505,16 +505,26 @@ fn withdrawal_from_state(
 
                             //Update existing deposit state
                             deposit_item.amount = withdrawal_amount;
-                            deposit_item.unstake_time = Some(env.block.time.seconds());
+                            //Only set stake time if it hasn't been set yet
+                            //Only 0 withdrawal_amount if this is a new unstaking
+                            if deposit_item.unstake_time.is_none() {
+                                deposit_item.unstake_time = Some(env.block.time.seconds());
 
-                            //Set withdrawal_amount to 0
-                            withdrawal_amount = Decimal::zero();
+                                //Set withdrawal_amount to 0
+                                withdrawal_amount = Decimal::zero();
+                            }
+
 
                         } else if withdrawal_amount != Decimal::zero() {
                             //Set unstaking time
-                            deposit_item.unstake_time = Some(env.block.time.seconds());
-                            //Subtract from withdrawal_amount 
-                            withdrawal_amount -= deposit_item.amount;
+                            //Only set stake time if it hasn't been set yet
+                            //Only subtract from withdrawal_amount if this is a new unstaking
+                            if deposit_item.unstake_time.is_none() {
+                                deposit_item.unstake_time = Some(env.block.time.seconds());
+                                
+                                //Subtract from withdrawal_amount 
+                                withdrawal_amount -= deposit_item.amount;
+                            }
                         }                        
                     }
                 } else {
@@ -563,7 +573,7 @@ fn withdrawal_from_state(
                     
                     withdrawal_amount = Decimal::zero();
 
-                } else if withdrawal_amount != Decimal::zero() && deposit_item.amount <= withdrawal_amount {
+                } else if withdrawal_amount != Decimal::zero() && deposit_item.amount <= withdrawal_amount && (skip_unstaking || withdrawable) {
                     //If deposit.amount less than withdrawal_amount, subtract it from the withdrawal amount
                     withdrawal_amount -= deposit_item.amount;  
                     

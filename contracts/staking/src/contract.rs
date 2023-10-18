@@ -439,7 +439,7 @@ pub fn unstake(
     let config = CONFIG.load(deps.storage)?;
 
     //Restrict unstaking
-    can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
+    // can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
 
     //Get total Stake
     let total_stake = {
@@ -487,13 +487,13 @@ pub fn unstake(
     //Also update delegations
     if !withdrawable_amount.is_zero() {
         //Create Position accrual msgs to lock in user discounts before withdrawing
-        let accrual_msg = accrue_user_positions(
-            deps.querier, 
-            config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-            info.sender.clone().to_string(), 
-            32,
-        )?;
-        sub_msgs.push(SubMsg::new(accrual_msg));
+        // let accrual_msg = accrue_user_positions(
+        //     deps.querier, 
+        //     config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+        //     info.sender.clone().to_string(), 
+        //     32,
+        // )?;
+        // sub_msgs.push(SubMsg::new(accrual_msg));
 
         //Push to native claims list
         native_claims.push(asset_to_coin(Asset {
@@ -1598,7 +1598,7 @@ fn withdraw_from_state(
                 }
             }
 
-            //Subtract from each deposit until there is none left to withdraw
+            //Subtract from each deposit until there is none left to withdraw or begin to unstake
             if withdrawal_amount != Uint128::zero() && deposit.amount > withdrawal_amount {
 
                 //If withdrawable...
@@ -1607,10 +1607,12 @@ fn withdraw_from_state(
                 //Add withdrawal_amount to withdrawable_amount
                 if this_deposit_is_withdrawable {
                     new_deposit_total = deposit.amount - withdrawal_amount;
-                    withdrawable_amount += deposit.amount;
+                    withdrawable_amount += withdrawal_amount;
                     deposit.amount = Uint128::zero();
 
                     this_deposit_is_withdrawable = false;
+                    //Zero withdrawal_amount since the deposit total fulfills the withdrawal
+                    withdrawal_amount = Uint128::zero();
                 } else {
                     
                     //Since we claimed rewards
@@ -1628,29 +1630,39 @@ fn withdraw_from_state(
                     //Set new deposit amount
                     deposit.amount = withdrawal_amount;                       
 
-                    //Set the unstaking_start_time and stake_time to now
-                    deposit.unstake_start_time = Some(env.block.time.seconds());
-                }
-
-                //Zero withdrawal_amount since the deposit total fulfills the withdrawal
-                withdrawal_amount = Uint128::zero();
+                    //Set the unstaking_start_time 
+                    if deposit.unstake_start_time.is_none() {
+                        deposit.unstake_start_time = Some(env.block.time.seconds());
+                        //Zero withdrawal_amount since the deposit total fulfills the withdrawal
+                        //Only true if this is a new unstake
+                        withdrawal_amount = Uint128::zero();
+                    }
+                }                
 
             } else if withdrawal_amount != Uint128::zero() && deposit.amount <= withdrawal_amount {
-
-                //Since it's less than the Deposit amount, substract it from the withdrawal amount
-                withdrawal_amount -= deposit.amount;
-
+                
                 //If withdrawable...
                 //Add deposit amount to withdrawable_amount
                 //Set current deposit to 0
                 if this_deposit_is_withdrawable {
+                    //Since the Deposit amount is less or equal, substract it from the withdrawal amount
+                    withdrawal_amount -= deposit.amount;
+
                     withdrawable_amount += deposit.amount;
                     deposit.amount = Uint128::zero();
 
                     this_deposit_is_withdrawable = false;
                 } else {
-                    //Else, Set the unstaking_start_time and stake_time to now
-                    deposit.unstake_start_time = Some(env.block.time.seconds());
+                    //if stake time is some but can't be withdrawn (i.e. made it within this conditional but skips the next)
+                    // we don't count that towards the withdrawal_amount tally.
+
+                    //Else, Set the unstaking_start_time 
+                    if deposit.unstake_start_time.is_none() {
+                        deposit.unstake_start_time = Some(env.block.time.seconds());
+
+                        //Since the Deposit amount is less or equal, substract it from the withdrawal amount
+                        withdrawal_amount -= deposit.amount;
+                    }
                     //Since we claimed rewards
                     deposit.stake_time = env.block.time.seconds();
                 }
@@ -1799,8 +1811,15 @@ fn get_user_claimables(
         //Calc total deposits used to reward
         let total_rewarding_stake: Uint128 = deposits.clone()
             .into_iter()
+            .filter(|deposit| deposit.unstake_start_time.is_none())
             .map(|deposit| deposit.amount)
             .sum();
+
+        //Return the unstaking deposits as they don't get any claims
+        let mut returning_deposits: Vec<StakeDeposit> = deposits.clone()
+            .into_iter()
+            .filter(|deposit| deposit.unstake_start_time.is_some())
+            .collect::<Vec<StakeDeposit>>();
 
         //Get claimables per deposit
         for deposit in deposits {
@@ -1820,14 +1839,18 @@ fn get_user_claimables(
             )?;
         }
 
-        //Save new condensed deposit for user
-        STAKED.save(storage, user.clone(), &vec![
+        //Add condensed deposit to returning_deposits
+        returning_deposits.push(
             StakeDeposit {
                 staker: user.clone(),
                 amount: total_rewarding_stake,
                 stake_time: env.block.time.seconds(),
                 unstake_start_time: None,
-        }])?;
+            }
+        );
+
+        //Save new condensed deposit for user
+        STAKED.save(storage, user.clone(), &returning_deposits)?;
 
         //Find and save claimables for the user's delegates
         if !delegated_to.is_empty(){

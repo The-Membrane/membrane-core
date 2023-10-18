@@ -1042,21 +1042,22 @@ mod tests {
                 chain_id: app.block_info().chain_id,
             });
             
-            ////Claiming during an unstaking period resets the unstaking period////
-            // let claim_msg = ExecuteMsg::ClaimRewards {
-            //     send_to: None,
-            //     restake: true,
-            // };
-            // let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
-            // app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap(); 
+            //Claiming during an unstaking period doesn't reset the unstaking period
+            let claim_msg = ExecuteMsg::ClaimRewards {
+                send_to: None,
+                restake: true,
+            };
+            let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap(); 
 
-            //Send the contract 10958 MBRN to get past the claim reply check
-            app.send_tokens(Addr::unchecked("coin_God"), staking_contract.addr(), &[coin(10958, "mbrn_denom")]).unwrap();
+            //Send the contract 21916 MBRN from interest to get past the claim reply check
+            app.send_tokens(Addr::unchecked("coin_God"), staking_contract.addr(), &[coin(21916, "mbrn_denom")]).unwrap();
 
 
             //Successful Unstake all w/ withdrawal
-            //Would error if staking totals isn't updated when creating
-            // a position for the accrued_interest
+            //Would error if:
+            //- staking totals isn't updated when creating a position for the accrued_interest
+            //- unstaking time was reset
             let msg = ExecuteMsg::Unstake {
                 mbrn_amount: None
             };
@@ -1077,7 +1078,7 @@ mod tests {
                     &QueryMsg::TotalStaked {},
                 )
                 .unwrap();
-            assert_eq!(resp.total_not_including_vested, Uint128::new(10958));//This is from accrual during the unstaking period
+            assert_eq!(resp.total_not_including_vested, Uint128::new(21916));//This is from accrual during the unstaking period
             assert_eq!(resp.vested_total, Uint128::new(0));
 
         }

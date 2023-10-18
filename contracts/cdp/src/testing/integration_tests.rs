@@ -1945,8 +1945,7 @@ mod tests {
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Assert user positions
-            
+            //Assert user positions            
             let query_msg = QueryMsg::GetBasketPositions {
                 start_after: None, 
                 limit: None,
@@ -1954,14 +1953,14 @@ mod tests {
                 user_info: None,
             };
 
-            let res: BasketPositionsResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
                 
             ////Assert collaterals, then length
             assert_eq!(
-                res.positions[0].collateral_assets,
+                res[0].positions[0].collateral_assets,
                 vec![
                     cAsset {
                         asset: Asset {
@@ -1978,7 +1977,7 @@ mod tests {
                 ]
             );
             assert_eq!(
-                res.positions[1].collateral_assets,
+                res[0].positions[1].collateral_assets,
                 vec![
                     cAsset {
                         asset: Asset {
@@ -1995,7 +1994,7 @@ mod tests {
                 ]
             );
             assert_eq!(
-                res.positions.len().to_string(),
+                res[0].positions.len().to_string(),
                 String::from("2") 
             );               
 
@@ -2040,13 +2039,13 @@ mod tests {
                 user_info: None,
             };
 
-            let res: Vec<PositionResponse> = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             ////Assert collaterals
             assert_eq!(
-                res[0].collateral_assets[0].asset,
+                res[0].positions[0].collateral_assets[0].asset,
                     Asset {
                         info: AssetInfo::NativeToken {
                             denom: "debit".to_string(),
@@ -2055,7 +2054,7 @@ mod tests {
                         }
             );
             assert_eq!(
-                res[1].collateral_assets[0].asset,
+                res[0].positions[1].collateral_assets[0].asset,
                     Asset {
                         info: AssetInfo::NativeToken {
                             denom: "debit".to_string(),
@@ -2108,17 +2107,17 @@ mod tests {
                 user_info: None,
             };
 
-            let res: Vec<PositionResponse> = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             ////Assert credit_amount
             assert_eq!(
-                res[0].credit_amount,
+                res[0].positions[0].credit_amount,
                 Uint128::from(10_000_000_000u128)
             );
             assert_eq!(
-                res[1].credit_amount,
+                res[1].positions[0].credit_amount,
                 Uint128::from(20_000_000_000u128)
             );
 
@@ -2149,26 +2148,26 @@ mod tests {
                 user_info: None,
             };
 
-            let res: Vec<PositionResponse> = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             ////Assert credit_amount
             ///Note: Position_id order flips
             assert_eq!(
-                res[1].position_id,
+                res[0].positions[1].position_id,
                 Uint128::new(2)
             );
             assert_eq!(
-                res[1].credit_amount,
+                res[0].positions[1].credit_amount,
                 Uint128::from(20_000_000_000u128)
             );
             assert_eq!(
-                res[0].position_id,
+                res[0].positions[0].position_id,
                 Uint128::new(1)
             );
             assert_eq!(
-                res[0].credit_amount,
+                res[0].positions[0].credit_amount,
                 Uint128::zero()
             );
         }
@@ -2548,11 +2547,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new(50000_000_000));
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new(50000_000_000));
 
             //Query Basket Debt Caps
             let query_msg = QueryMsg::GetBasketDebtCaps { };
@@ -2600,11 +2599,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::zero());
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::zero());
 
             //Fully withdraw from position
             let withdrawal_msg = ExecuteMsg::Withdraw {
@@ -2896,12 +2895,12 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             ///5714_284571 interest
-            assert_eq!(res.credit_amount, Uint128::new(5714_285714));
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new(5714_285714));
 
             //Insolvent withdrawal error
             ////This should be solvent if there wasn't accrued interest
@@ -2945,11 +2944,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new(5732_944979));
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new(5732_944979));
 
             //Query Rates
             let query_msg = QueryMsg::GetCollateralInterest { };
@@ -3306,13 +3305,13 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             //Rate was at 0 so nothing accrued to the index
-            assert_eq!(res.collateral_assets[0].rate_index.to_string(), String::from("1"));
-            assert_eq!(res.credit_amount, Uint128::new(40000_000000));
+            assert_eq!(res[0].positions[0].collateral_assets[0].rate_index.to_string(), String::from("1"));
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new(40000_000000));
 
           
             //Successful Increase for Position 2
@@ -3348,12 +3347,12 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].rate_index.to_string(), String::from("1.022857600009143039"));
-            assert_eq!(res.credit_amount, Uint128::new(100000_000000));
+            assert_eq!(res[0].positions[0].collateral_assets[0].rate_index.to_string(), String::from("1.022857600009143039"));
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new(100000_000000));
 
             //Accrue Position 1 to update rates since query doesn't accrue anymore
             let msg = ExecuteMsg::Accrue { position_owner: None, position_ids: vec![Uint128::one()] };
@@ -3376,12 +3375,12 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].rate_index.to_string(), String::from("1.022857600009143039"));
-            assert_eq!(res.credit_amount, Uint128::new(40914_304000));
+            assert_eq!(res[0].positions[0].collateral_assets[0].rate_index.to_string(), String::from("1.022857600009143039"));
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new(40914_304000));
 
 
             //Check rates to confirm its at ~8%
@@ -3654,11 +3653,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new((100570_428571)) );
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new((100570_428571)) );
         }
 
         #[test]
@@ -3789,11 +3788,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new((1922_775510)) );
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new((1922_775510)) );
 
             //Insolvent withdrawal at that brings position to previous debt minimum
             ////This wouldn't be insolvent if there wasn't an increased repayment price
@@ -3977,11 +3976,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new(50001_000000));
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new(50001_000000));
 
             //Query Redemption Rate/Repayment Interest
             let resp: InterestResponse = app
@@ -4596,11 +4595,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::zero());
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::zero());
         }
 
         #[test]
@@ -4736,12 +4735,12 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98313888889));
-            assert_eq!(res.collateral_assets[1].asset.amount, Uint128::new(98313888889));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98313888889));
+            assert_eq!(res[0].positions[0].collateral_assets[1].asset.amount, Uint128::new(98313888889));
 
             //Assert sell wall wasn't sent assets
             assert_eq!(
@@ -4863,11 +4862,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97311_111112));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(97311_111112));
 
             //Assert sell wall was sent assets
             //The user's SP repayment failed
@@ -4995,11 +4994,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97085_833334));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(97085_833334));
 
             //Assert sell wall wasn't sent assets
             assert_eq!(
@@ -5118,11 +5117,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97311_111112));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(97311_111112));
 
             //Assert sell wall was sent all Assets
             assert_eq!(
@@ -5380,11 +5379,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97405_616667055555557));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(97405_616667055555557));
             //2777 credit liquidated at $1
             //lp_denom is worth $2
             //Assert sell wall wasn't sent assets
@@ -5621,11 +5620,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98291_666667055555557));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98291_666667055555557));
 
             //Assert sell wall was sent assets
             assert_eq!(
@@ -5867,11 +5866,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98345_694444444444446));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98345_694444444444446));
 
             //Assert sell wall wasn't sent assets
             assert_eq!(
@@ -6109,11 +6108,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98180_555555944444446));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98180_555555944444446));
 
             //Assert sell wall was sent assets all Assets
             //For $2777 worth of liquidations
@@ -6247,12 +6246,12 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             assert_eq!(
-                res.collateral_assets[0].asset.amount,
+                res[0].positions[0].collateral_assets[0].asset.amount,
                 Uint128::new(97_288_888_888_893)
             );
 
@@ -6408,11 +6407,11 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98741_210001));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98741_210001));
 
             //Assert sell wall wasn't sent assets
             assert_eq!(
@@ -7124,13 +7123,13 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             //Assert LTVs
-            assert_eq!(res.avg_borrow_LTV.to_string(), String::from("0.55"));//increased LTV due to supply ratio
-            assert_eq!(res.avg_max_LTV.to_string(), String::from("0.65"));
+            assert_eq!(res[0].positions[0].avg_borrow_LTV.to_string(), String::from("0.55"));//increased LTV due to supply ratio
+            assert_eq!(res[0].positions[0].avg_max_LTV.to_string(), String::from("0.65"));
         }
 
         #[test]
@@ -7242,13 +7241,13 @@ mod tests {
                     }
                 ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             //Assert LTVs
-            assert_eq!(res.avg_borrow_LTV.to_string(), String::from("0.55")); //increased LTV due to supply ratio
-            assert_eq!(res.avg_max_LTV.to_string(), String::from("0.65"));
+            assert_eq!(res[0].positions[0].avg_borrow_LTV.to_string(), String::from("0.55")); //increased LTV due to supply ratio
+            assert_eq!(res[0].positions[0].avg_max_LTV.to_string(), String::from("0.65"));
         }
 
         #[test]
@@ -8044,12 +8043,12 @@ mod tests {
                 user: Some( String::from("sender88")),
                 user_info: None,
             };
-            let resp: Vec<PositionResponse> = app
+            let resp: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &msg.clone())
                 .unwrap();
             assert_eq!(
-                resp[0],
+                resp[0].positions[0],
                 PositionResponse { 
                     position_id: Uint128::new(1), 
                     collateral_assets: vec![
@@ -9665,7 +9664,7 @@ mod tests {
             );
 
             //Assert Positions were updated
-            let position: PositionResponse = app
+            let position: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetBasketPositions {
                     start_after: None, 
@@ -9679,10 +9678,10 @@ mod tests {
                     ),
                 })
                 .unwrap();
-            assert_eq!(position.collateral_assets[0].asset.amount, Uint128::new(95_500_000000));
-            assert_eq!(position.credit_amount, Uint128::new(45000_000000));
+            assert_eq!(position[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(95_500_000000));
+            assert_eq!(position[0].positions[0].credit_amount, Uint128::new(45000_000000));
 
-            let position_2: PositionResponse = app
+            let position_2: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetBasketPositions {
                     start_after: None, 
@@ -9696,8 +9695,8 @@ mod tests {
                     ),
                 })
                 .unwrap();
-            assert_eq!(position_2.collateral_assets[0].asset.amount, Uint128::new(92_000_000000));
-            assert_eq!(position_2.credit_amount, Uint128::new(40000_000000));
+            assert_eq!(position_2[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(92_000_000000));
+            assert_eq!(position_2[0].positions[0].credit_amount, Uint128::new(40000_000000));
         }
 
         //Redemption test with multiple collateral in the position (debit & LP bc they r priced differently)
@@ -9988,7 +9987,7 @@ mod tests {
             );
 
             //Assert Positions were updated
-            let position: PositionResponse = app
+            let position: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetBasketPositions {
                     start_after: None, 
@@ -10002,9 +10001,9 @@ mod tests {
                     ),
                 })
                 .unwrap();
-            assert_eq!(position.collateral_assets[0].asset.amount, Uint128::new(98500_000001));
-            assert_eq!(position.collateral_assets[1].asset.amount, Uint128::new(98500_000000000000002));
-            assert_eq!(position.credit_amount, Uint128::new(45000_000000));  
+            assert_eq!(position[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98500_000001));
+            assert_eq!(position[0].positions[0].collateral_assets[1].asset.amount, Uint128::new(98500_000000000000002));
+            assert_eq!(position[0].positions[0].credit_amount, Uint128::new(45000_000000));  
 
             //Assert remaining loan repayment is 0'd
             let query_msg = QueryMsg::GetBasketRedeemability { 
@@ -10058,7 +10057,7 @@ mod tests {
             );
 
             //Assert Positions were updated
-            let position: PositionResponse = app
+            let position: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetBasketPositions {
                     start_after: None, 
@@ -10072,9 +10071,9 @@ mod tests {
                     ),
                 })
                 .unwrap();
-            assert_eq!(position.collateral_assets[0].asset.amount, Uint128::new(94900_000001));
-            assert_eq!(position.collateral_assets[1].asset.amount, Uint128::new(98_500_000_000_000_000_002));
-            assert_eq!(position.credit_amount, Uint128::new(41000_000000));  
+            assert_eq!(position[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(94900_000001));
+            assert_eq!(position[0].positions[0].collateral_assets[1].asset.amount, Uint128::new(98_500_000_000_000_000_002));
+            assert_eq!(position[0].positions[0].credit_amount, Uint128::new(41000_000000));  
 
             //Assert Pos #1 remaining loan repayment is updated from a partial full
             //while Pos #2 is still 5k bc all assets were restricted

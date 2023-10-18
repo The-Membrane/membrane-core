@@ -389,7 +389,12 @@ pub fn withdraw(
             asset_pool.clone(),
             skip_unstaking,
         )?;
-
+        
+        if withdrawable > total_user_deposits.to_uint_floor() || withdrawable > amount+config.minimum_deposit_amount {
+            return Err(ContractError::CustomError {
+                val: String::from("Invalid withdrawable amount"),
+            });
+        }
         //Update pool
         ASSET.save(deps.storage, &new_pool)?;
 
@@ -593,6 +598,10 @@ fn withdrawal_from_state(
         .into_iter()
         .filter(|deposit| deposit.amount != Decimal::zero())
         .collect::<Vec<Deposit>>();
+
+    if withdrawal_amount != Decimal::zero() {
+        return Err(ContractError::InvalidWithdrawal {});
+    }
 
     //Sets returning_deposit to the back of the line, if some
     if let Some(deposit) = returning_deposit {
@@ -944,7 +953,7 @@ fn repay(
     env: Env,
     info: MessageInfo,
     user_info: UserInfo,
-    repayment: Asset,
+    mut repayment: Asset,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -986,7 +995,7 @@ fn repay(
             return Err(ContractError::InvalidWithdrawal {});
         } else {
             //Go thru each deposit and withdraw request from state
-            let (_withdrawable, new_pool) = withdrawal_from_state(
+            let (withdrawable, new_pool) = withdrawal_from_state(
                 deps.storage,
                 deps.querier,
                 env,
@@ -996,6 +1005,10 @@ fn repay(
                 asset_pool,
                 true,
             )?;
+            //If withdrawable is less than repayment amount, set repayment amount to withdrawable to assert state is safe
+            if withdrawable < repayment.amount {
+                repayment.amount = withdrawable;
+            }
             
             //Update pool
             ASSET.save(deps.storage, &new_pool)?;

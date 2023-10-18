@@ -10,7 +10,7 @@ use crate::staking::Totals;
 use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Basket}; 
 use crate::osmosis_proxy::{QueryMsg as OsmoQueryMsg, OwnerResponse};
 use crate::liquidity_check::{QueryMsg as LiquidityQueryMsg, LiquidityResponse};
-use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, PositionResponse};
+use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, PositionResponse, BasketPositionsResponse};
 
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
@@ -362,7 +362,7 @@ pub fn accrue_user_positions(
     user: String,
     limit: u32,
 ) -> StdResult<CosmosMsg> {
-    let user_positions: Vec<PositionResponse> = querier.query_wasm_smart(
+    let user_positions: Vec<BasketPositionsResponse> = querier.query_wasm_smart(
         positions_contract.to_string(),
         &CDPQueryMsg::GetBasketPositions {
             start_after: None,
@@ -371,7 +371,7 @@ pub fn accrue_user_positions(
             limit: None,
         })?;
 
-    let user_ids = user_positions.into_iter().map(|position| position.position_id).collect::<Vec<Uint128>>();
+    let user_ids = user_positions[0].clone().positions.into_iter().map(|position| position.position_id).collect::<Vec<Uint128>>();
 
     let accrual_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: positions_contract.to_string(),

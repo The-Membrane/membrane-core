@@ -389,8 +389,20 @@ pub fn withdraw(
             asset_pool.clone(),
             skip_unstaking,
         )?;
+
+        let user_deposits: Vec<Deposit> = new_pool.clone().deposits
+            .into_iter()
+            .filter(|deposit| deposit.user == info.sender)
+            .collect::<Vec<Deposit>>();
+
+        let new_total_user_deposits: Decimal = user_deposits
+            .iter()
+            .map(|user_deposit| user_deposit.amount)
+            .collect::<Vec<Decimal>>()
+            .into_iter()
+            .sum();
         
-        if withdrawable > total_user_deposits.to_uint_floor() || withdrawable > amount+config.minimum_deposit_amount {
+        if withdrawable > total_user_deposits.to_uint_floor() || withdrawable > amount+config.minimum_deposit_amount || withdrawable + new_total_user_deposits.to_uint_floor() != total_user_deposits.to_uint_floor() {
             return Err(ContractError::CustomError {
                 val: String::from("Invalid withdrawable amount"),
             });

@@ -890,13 +890,23 @@ fn unstake() {
         ]
     );
 
+    //Assert Total stake was updated during unstaking
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::TotalStaked {}).unwrap();
+
+    let resp: TotalStakedResponse = from_binary(&res).unwrap();
+
+    assert_eq!(resp.total_not_including_vested, Uint128::new(0));
+    assert_eq!(resp.vested_total, Uint128::new(11_000000));
+
+
     //Skip 3 days
     let mut env = mock_env();
     env.block.time = env.block.time.plus_seconds(259200); //3 days
 
     //Successful Restake to reset the deposits
+    //Restake more than Unstaked doesn't Error but doesn't overrestake
     let msg = ExecuteMsg::Restake {
-        mbrn_amount: Uint128::new(10_000_000u128),
+        mbrn_amount: Uint128::new(11_000_000u128),
     };
     let info = mock_info("sender88", &[]);
     let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
@@ -907,21 +917,21 @@ fn unstake() {
             attr("restake_amount", String::from("10000000")),
         ]
     );
+    //Assert Total stake was updated during restaking
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::TotalStaked {}).unwrap();
+
+    let resp: TotalStakedResponse = from_binary(&res).unwrap();
+
+    assert_eq!(resp.total_not_including_vested, Uint128::new(10_000_000));
+    assert_eq!(resp.vested_total, Uint128::new(11_000000));
 
     //Query and Assert UserStake
-    //The restake should have staked 3 days of rewards as well (8219)
+    //The restake gets no staking rewards bc it was unstaking
     let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
 
     let resp: StakerResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.total_staked, Uint128::new(10008219));
-    assert_eq!(resp.deposit_list[1], 
-        StakeDeposit {
-            amount: Uint128::new(8219),
-            stake_time: 1572056619,
-            unstake_start_time: None,
-            staker: Addr::unchecked("sender88")        
-        });
-        
+    assert_eq!(resp.total_staked, Uint128::new(10000000));
+
     env.block.time = env.block.time.plus_seconds(259200 *2); //6 days
 
     //Successful partial unstake w/o withdrawals to assert Restake
@@ -936,14 +946,14 @@ fn unstake() {
             attr("unstake_amount", String::from("0")),
         ]
     );//Query and Assert totals
-    //The restake should have staked 6 days of rewards as well (16451)
+    //The unstake claims the accrued interest & stakes it. 6 days of rewards (16438)
     let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
 
     let resp: StakerResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.total_staked, Uint128::new(10024670));
-    assert_eq!(resp.deposit_list[3], 
+    assert_eq!(resp.total_staked, Uint128::new(10016438));
+    assert_eq!(resp.deposit_list[2], 
         StakeDeposit {
-            amount: Uint128::new(16451),
+            amount: Uint128::new(16438),
             stake_time: 1572575019,
             unstake_start_time: None,
             staker: Addr::unchecked("sender88")        
@@ -979,7 +989,7 @@ fn unstake() {
             attr("unstake_amount", String::from("5000000")),
         ]
     );
-    //Bc its a normal staker, they should have accrued interest as well
+    //Bc its a normal staker, they should have accrued interest as well, tho only from currently staked deposits
     assert_eq!(
         res.messages,
         vec![
@@ -987,7 +997,7 @@ fn unstake() {
                 contract_addr: String::from("osmosis_proxy"), 
                 msg: to_binary(&OsmoExecuteMsg::MintTokens { 
                     denom: String::from("mbrn_denom"), 
-                    amount: Uint128::new(5503), 
+                    amount: Uint128::new(10), 
                     mint_to_address: String::from("cosmos2contract")
                 }).unwrap(), 
                 funds: vec![]
@@ -1001,9 +1011,9 @@ fn unstake() {
     let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
 
     let resp: StakerResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.total_staked, Uint128::new(5035678));
+    assert_eq!(resp.total_staked, Uint128::new(5019196));
 
-    //Query and Assert Delegations were updated by the unstake
+    //Query and Assert Delegations were updated by the unstake withdrawal
     //We aren't undelegating the full 5M bc a portion of it is coming from the accrued interest (i.e. 10M -5M + interest)
     let res = query(deps.as_ref(), mock_env(),
         QueryMsg::Delegations {
@@ -1020,7 +1030,7 @@ fn unstake() {
             delegated_to: vec![
                 Delegation {
                     delegate: Addr::unchecked("unstaking_barrier"),
-                    amount: Uint128::new(5030175u128),
+                    amount: Uint128::new(5019186u128),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: 1572920619,
@@ -1035,7 +1045,7 @@ fn unstake() {
             delegated: vec![
                 Delegation {
                     delegate: Addr::unchecked("sender88"),
-                    amount: Uint128::new(5030175u128),
+                    amount: Uint128::new(5019186u128),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: 1572920619,
@@ -1051,7 +1061,7 @@ fn unstake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_vested, Uint128::new(5_035_678));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(19_194));
     assert_eq!(resp.vested_total, Uint128::new(11_000000));
 }
 

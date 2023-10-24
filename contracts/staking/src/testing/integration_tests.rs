@@ -82,7 +82,7 @@ mod tests {
                     } => {
                         if (amount != Uint128::new(8_219) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1")) 
                         && (amount != Uint128::new(8219) || denom != String::from("mbrn_denom") || mint_to_address != String::from("contract4")) 
-                        && (amount != Uint128::new(10958) || denom != String::from("mbrn_denom") || mint_to_address != String::from("contract4")) 
+                        && (amount != Uint128::new(1095) || denom != String::from("mbrn_denom") || mint_to_address != String::from("contract4"))
                         && (amount != Uint128::new(8) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
                         && (amount != Uint128::new(78082) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
                         && (amount != Uint128::new(156164) || denom != String::from("mbrn_denom") || mint_to_address != String::from("user_1"))
@@ -1024,7 +1024,7 @@ mod tests {
 
             //Successful Unstake all, no withdrawal
             let msg = ExecuteMsg::Unstake {
-                mbrn_amount: Some(Uint128::new(10_000_000u128))
+                mbrn_amount: Some(Uint128::new(9_000_000u128))
             };
             let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
@@ -1051,7 +1051,7 @@ mod tests {
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap(); 
 
             //Send the contract 21916 MBRN from interest to get past the claim reply check
-            app.send_tokens(Addr::unchecked("coin_God"), staking_contract.addr(), &[coin(21916, "mbrn_denom")]).unwrap();
+            app.send_tokens(Addr::unchecked("coin_God"), staking_contract.addr(), &[coin(1095, "mbrn_denom")]).unwrap();
 
 
             //Successful Unstake all w/ withdrawal
@@ -1059,7 +1059,7 @@ mod tests {
             //- staking totals isn't updated when creating a position for the accrued_interest
             //- unstaking time was reset
             let msg = ExecuteMsg::Unstake {
-                mbrn_amount: None
+                mbrn_amount: Some(Uint128::new(9_000_000u128))
             };
             let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
@@ -1067,7 +1067,7 @@ mod tests {
             //Assert withdrawal 
             assert_eq!(
                 app.wrap().query_all_balances(Addr::unchecked("user_1")).unwrap(),
-                vec![coin(10000000, "mbrn_denom")]
+                vec![coin(9000000, "mbrn_denom")]
             );
 
             //Query and Assert totals
@@ -1078,7 +1078,7 @@ mod tests {
                     &QueryMsg::TotalStaked {},
                 )
                 .unwrap();
-            assert_eq!(resp.total_not_including_vested, Uint128::new(21916));//This is from accrual during the unstaking period
+            assert_eq!(resp.total_not_including_vested, Uint128::new(1_001_095));//This is from accrual for the remaining staked deposit
             assert_eq!(resp.vested_total, Uint128::new(0));
 
         }

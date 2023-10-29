@@ -608,7 +608,10 @@ pub fn repay(
     let burn_and_rev_msgs = credit_burn_rev_msg(
         config.clone(),
         env.clone(),
-        credit_asset.clone(),
+        Asset {
+            amount: credit_asset.clone().amount - excess_repayment,
+            ..credit_asset.clone()
+        },
         &mut basket,
     )?;
     messages.extend(burn_and_rev_msgs);

@@ -121,7 +121,7 @@ pub fn execute(
         ExecuteMsg::EndProposal { proposal_id } => end_proposal(deps, env, proposal_id),
         ExecuteMsg::ExecuteProposal { proposal_id } => execute_proposal(deps, env, proposal_id),
         ExecuteMsg::CheckMessages { messages } => check_messages(env, messages),
-        ExecuteMsg::CheckMessagesPassed {} => Err(ContractError::MessagesCheckPassed {}),
+        ExecuteMsg::CheckMessagesPassed {} => passed_messages(deps, env),
         ExecuteMsg::RemoveCompletedProposal { proposal_id } => {
             remove_completed_proposal(deps, env, proposal_id)
         }
@@ -197,6 +197,9 @@ pub fn submit_proposal(
         recipient.clone(),
         false, //No quadratic for proposal submissions
     )?;
+    if voting_power.is_zero() {
+        return Err(ContractError::NoVotingPower {});
+    }
     
     // Update the proposal count
     let count = PROPOSAL_COUNT.update(deps.storage, |c| -> StdResult<_> {
@@ -219,36 +222,8 @@ pub fn submit_proposal(
         }
     };    
 
-    let mut voting_power_list: Vec<(Addr, Uint128)> = vec![];
-
-    for staker in deps
-        .querier
-        .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.staking_contract_addr.to_string(),
-            msg: to_binary(&StakingQueryMsg::Staked {
-                limit: None,
-                start_after: None,
-                end_before: Some(env.block.time.seconds()),
-                unstaking: false,
-            })?,
-        }))?
-            .stakers {
-                let vp = calc_voting_power(
-                    deps.storage,
-                    deps.querier,
-                    Some(staked_mbrn.clone()),
-                    Some(non_vested_total),
-                    staker.staker.to_string(), 
-                    env.block.time.seconds(), 
-                    false, 
-                    recipient.clone(), 
-                    config.quadratic_voting,
-                )?;
-
-                voting_power_list.push((staker.staker, vp));
-            }
     let mut proposal = Proposal {
-        voting_power: voting_power_list,
+        voting_power: vec![], //unused but not removed to prevent breaking changes
         proposal_id: count,
         submitter: submitter.unwrap_or_else(|| info.sender.clone()),
         status: ProposalStatus::Active,
@@ -303,6 +278,8 @@ pub fn submit_proposal(
 }
 
 /// Cast a vote on an active proposal.
+/// 
+/// Warning: There is a chance that changing voting to non-quadratic with a large number of voting tokens could cause an overflow.
 pub fn cast_vote(
     deps: DepsMut,
     env: Env,
@@ -327,9 +304,11 @@ pub fn cast_vote(
             Err(err) => return Err(ContractError::Std(err)),
         }
     };
-    //Only vesting can use the recipient parameter
+    //Only vesting can use the recipient/vesting parameter
+    let mut vesting = true;
     if info.sender != config.vesting_contract_addr {
         recipient = None;
+        vesting = false;
     }
 
     //Init recipient    
@@ -350,29 +329,18 @@ pub fn cast_vote(
         return Err(ContractError::VotingPeriodEnded {});
     }
 
-    //Get voting power from Proposal struct
-    let mut voting_power: Uint128 = Uint128::zero();  
-    for vp in proposal.clone().voting_power.into_iter() {
-        
-        if recipient.is_some(){
-            voting_power = calc_voting_power(
-                deps.storage, 
-                deps.querier,
-                None,
-                None,
-                info.sender.to_string(), 
-                proposal.start_time,
-                true, 
-                recipient.clone(), 
-                config.quadratic_voting,
-            )?;
-            break;
-        } else if vp.0 == info.sender {
-            voting_power = vp.1;
-            break;
-        }
-    }    
-
+    //Calc voting power
+    let voting_power: Uint128 = calc_voting_power(
+        deps.storage, 
+        deps.querier,
+        None,
+        None,
+        info.sender.to_string(), 
+        proposal.start_time,
+        vesting, 
+        recipient.clone(), 
+        config.quadratic_voting,
+    )?;
     if voting_power.is_zero() {
         return Err(ContractError::NoVotingPower {});
     }
@@ -425,7 +393,22 @@ pub fn cast_vote(
             proposal.removal_voters.push(info.sender.clone());
         }
         ProposalVoteOption::Align => {
-            proposal.aligned_power = proposal.aligned_power.checked_add(voting_power)?;
+            /////Calc voting power
+            let voting_power: Uint128 = calc_voting_power(
+                deps.storage, 
+                deps.querier,
+                None,
+                None,
+                info.sender.to_string(), 
+                proposal.start_time,
+                vesting, 
+                recipient.clone(), 
+                false, //No quadratic for proposal alignment
+                )?;
+
+            //Adding voting power to proposal
+            proposal.aligned_power = proposal.aligned_power.checked_add(voting_power)?;            
+            //Add voter to aligned voters
             proposal.aligned_voters.push(info.sender.clone());
 
             //If alignment is reached, move to active proposal state
@@ -440,7 +423,7 @@ pub fn cast_vote(
     };
 
     //Save proposal
-    if !saved {        
+    if !saved {
         if !pending {
             PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;
         } else {
@@ -491,6 +474,12 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
     let mut removal_threshold: Decimal = Decimal::zero();
 
     if !total_voting_power.is_zero() {
+        //Aligned power must be subject to the config's quadratic voting setting 
+        //or reaching quorum becomes trival when quadratic voting is enabled
+        if config.quadratic_voting {
+            proposal.aligned_power = Decimal::from_ratio(proposal.aligned_power, Uint128::one()).sqrt().to_uint_floor();
+        }
+        //Calc proposal quorum
         proposal_quorum = Decimal::from_ratio(total_votes+proposal.aligned_power, total_voting_power);
         //If aligned_power isn't added, proposals made by large holders can potentially never reach quorum
     }
@@ -601,6 +590,56 @@ pub fn check_messages(
     Ok(Response::new()
         .add_attribute("action", "check_messages")
         .add_messages(messages))
+}
+
+///Errors to prevent checked messages from being executed
+/// Tests staking queries necessary for proposal execution
+pub fn passed_messages(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    //Assert minimum total stake from staking contract
+    match query_staking_totals(deps.querier, config.staking_contract_addr.to_string()){
+        Ok(totals) => totals.stakers,
+        Err(_) => {
+            //On error do regular query for totals
+            let res: TotalStakedResponse = deps.querier.query_wasm_smart(
+                config.clone().staking_contract_addr,
+                &StakingQueryMsg::TotalStaked {  },
+            )?;
+            res.total_not_including_vested
+        },
+    };
+
+    //Query stake from before Proposal's start_time
+    deps.querier
+        .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.staking_contract_addr.to_string(),
+            msg: to_binary(&StakingQueryMsg::Staked {
+                limit: None,
+                start_after: None,
+                end_before: Some(env.block.time.seconds()),
+                unstaking: false,
+            })?,
+        }))?
+        .stakers;
+
+    //Query delegations
+    deps.querier.query::<DelegationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.staking_contract_addr.to_string(),
+        msg: to_binary(&StakingQueryMsg::Delegations {
+            limit: Some(1),
+            start_after: None,
+            user: None,
+        })?,
+    }))?;
+
+    //Query a vesting recipient
+    deps.querier.query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: config.vesting_contract_addr.to_string(),
+                msg: to_binary(&VestingQueryMsg::Allocation { recipient: String::from("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n") })?,
+            }))?;
+
+    return Err(ContractError::MessagesCheckPassed {})
 }
 
 /// Remove completed Proposals
@@ -762,23 +801,19 @@ pub fn calc_total_voting_power_at(
     if staked_mbrn == vec![] {
         total = Uint128::zero()
     } else {
-        total = staked_mbrn
-            .into_iter()
-            .map(|stake| {
-                // Take square root of total stake if quadratic voting is enabled
-                if quadratic_voting {
-                    let stake_total = Decimal::from_ratio(stake.amount, Uint128::one()).sqrt().to_uint_floor();
-                    
-                    stake_total
-                } else {
-                    stake.amount
-                }
-                
-                
-            })
-            .collect::<Vec<Uint128>>()
-            .into_iter()
-            .sum();
+        //Set staked non-vested total
+        let non_vested_total: Uint128 = match query_staking_totals(deps.querier, config.staking_contract_addr.to_string()){
+            Ok(totals) => totals.stakers,
+            Err(_) => {
+                //On error do regular query for totals
+                let res: TotalStakedResponse = deps.querier.query_wasm_smart(
+                    config.clone().staking_contract_addr,
+                    &StakingQueryMsg::TotalStaked {  },
+                )?;
+                res.total_not_including_vested
+            },
+        };
+        total = non_vested_total;
 
         //Get Vesting Recipients
         let recipients = deps
@@ -791,15 +826,16 @@ pub fn calc_total_voting_power_at(
         //Add voting power of each vesting recipient
         for recipient in recipients.recipients {
             if let Some(allocation) = recipient.allocation {
-                total += (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
+                let allocation = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
+                // Vested voting power can't be more than 19% of total voting power pre-quadratic 
+                total += min(allocation, non_vested_total * Decimal::percent(19));
             }            
-        }
-        
+        }        
     }
         
     // Take square root of total stake if quadratic voting is enabled
     if quadratic_voting {
-        total = Uint128::from(total);
+        total = Decimal::from_ratio(total, Uint128::one()).sqrt().to_uint_floor();
     }    
 
     Ok(total)
@@ -884,7 +920,7 @@ pub fn calc_voting_power(
             }))?;
             
         total = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
-        // Vested voting power can't be more than 19% of total voting power pre-quadratic 
+        // Vested voting power can't be more than 19% of total voting power pre-quadratic
         total = min(total, non_vested_total.unwrap() * Decimal::percent(19));
     } else {
         total = Uint128::zero();
@@ -919,9 +955,9 @@ pub fn calc_voting_power(
     
     
     // Take square root of total stake if quadratic voting is enabled
-    if quadratic_voting {
+    if quadratic_voting {        
         total = Decimal::from_ratio(total, Uint128::one()).sqrt().to_uint_floor();
-    }    
+    }
     
     Ok(total)
 }

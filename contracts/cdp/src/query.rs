@@ -376,7 +376,6 @@ pub fn get_cAsset_ratios(
         config,
         false
     )?;
-    panic!();
     
     let total_value: Decimal = cAsset_values.iter().sum();
 
@@ -543,7 +542,7 @@ pub fn get_asset_values(
     //Getting proportions for position collateral to calculate avg LTV
     //Using the index in the for loop to parse through the assets Vec and collateral_assets Vec
     //, as they are now aligned due to the collateral check w/ the Config's data
-    let mut cAsset_values: Vec<Decimal256> = vec![];
+    let mut cAsset_values: Vec<Decimal> = vec![];
     let mut cAsset_prices: Vec<PriceResponse> = vec![];
 
     if config.oracle_contract.is_some() {
@@ -558,16 +557,15 @@ pub fn get_asset_values(
                 cAsset.clone().asset.info,
                 is_deposit_function,
             )?;
-            let cAsset_value = price_res.to_decimal256()?.get_value(Uint256::from(cAsset.asset.amount));
+            let cAsset_value = price_res.get_value(cAsset.asset.amount)?;
             
             cAsset_prices.push(price_res);
             cAsset_values.push(cAsset_value);
         
         }
     }
-    panic!("{:?}", cAsset_values);
-    Ok((vec![], vec![]))
-    // Ok((cAsset_values, cAsset_prices))
+    
+    Ok((cAsset_values, cAsset_prices))
 }
 
 /// Calculates the average LTV of a position.

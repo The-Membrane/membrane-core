@@ -862,9 +862,14 @@ mod tests {
                     }
                     Osmo_MockExecuteMsg::BurnTokens {
                         denom: _,
-                        amount: _,
+                        amount,
                         burn_from_address: _,
-                    } => Ok(Response::new()),
+                    } => {
+                        // if amount == Uint128::new(50000_000_000u128) {
+                        //     panic!();
+                        // }
+                        Ok(Response::new())                    
+                    },
                     Osmo_MockExecuteMsg::CreateDenom {
                         subdenom: _,
                         max_supply,

@@ -125,14 +125,20 @@ mod tests {
                                 unstake_start_time: None,
                             },
                             StakeDeposit {
-                                staker: Addr::unchecked("big_body"),
-                                amount: Uint128::new(99999999999999999999u128),
+                                staker: Addr::unchecked(ADMIN),
+                                amount: Uint128::new(60_000_000u128),
                                 stake_time: 1u64,
                                 unstake_start_time: None,
                             },
                             StakeDeposit {
-                                staker: Addr::unchecked(ADMIN),
-                                amount: Uint128::new(60_000_000u128),
+                                staker: Addr::unchecked("alignment"),
+                                amount: Uint128::new(980_000_000u128),
+                                stake_time: 1u64,
+                                unstake_start_time: None,
+                            },                            
+                            StakeDeposit {
+                                staker: Addr::unchecked("alignment2.0"),
+                                amount: Uint128::new(980_000_000_000u128),
                                 stake_time: 1u64,
                                 unstake_start_time: None,
                             },
@@ -205,7 +211,7 @@ mod tests {
                         vesting_rev_multiplier: Decimal::zero(),
                     })?),
                     Staking_MockQueryMsg::TotalStaked {  } => Ok(to_binary(&TotalStakedResponse {
-                        total_not_including_vested: Uint128::new(5_000_000_000_001u128),
+                        total_not_including_vested: Uint128::new(1000000_000000u128),
                         vested_total: Uint128::zero(),   
                     })?),
                 }
@@ -242,7 +248,7 @@ mod tests {
                 match msg {
                     Vesting_MockQueryMsg::Allocation { recipient } => {
                         Ok(to_binary(&AllocationResponse {
-                            amount: Uint128::new(1000000000_000000),
+                            amount: Uint128::new(3333_000000),
                             amount_withdrawn: Uint128::zero(),
                             start_time_of_allocation: 0,
                             vesting_period: VestingPeriod {
@@ -256,7 +262,7 @@ mod tests {
                             recipients: vec![
                                 RecipientResponse {
                                     allocation: Some(Allocation {
-                                        amount: Uint128::new(1000000000_000000),
+                                        amount: Uint128::new(3333_000000),
                                         amount_withdrawn: Uint128::zero(),
                                         start_time_of_allocation: 0,
                                         vesting_period: VestingPeriod {
@@ -728,6 +734,14 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            //Align to pass Quorum
+            let msg = ExecuteMsg::CastVote {
+                proposal_id: 1u64,
+                vote: ProposalVoteOption::Align,
+                recipient: None,
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("alignment2.0"), cosmos_msg).unwrap();
 
             //Assertations
             let proposal: Proposal = app
@@ -1107,6 +1121,14 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            //Align to pass Quorum
+            let msg = ExecuteMsg::CastVote {
+                proposal_id: 1u64,
+                vote: ProposalVoteOption::Align,
+                recipient: None,
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("alignment2.0"), cosmos_msg).unwrap();
 
             //Assertations
             let proposal: Proposal = app
@@ -1242,6 +1264,14 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            //Align to pass Quorum
+            let msg = ExecuteMsg::CastVote {
+                proposal_id: 2u64,
+                vote: ProposalVoteOption::Align,
+                recipient: None,
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("alignment2.0"), cosmos_msg).unwrap();
 
             //Assertations
             let proposal: Proposal = app
@@ -1362,15 +1392,6 @@ mod tests {
             assert_eq!(proposals.proposal_list.len(), 1);
 
             ////Cast Votes to align
-            // let msg = ExecuteMsg::CastVote {
-            //     proposal_id: 1u64,
-            //     vote: ProposalVoteOption::Align,
-            //     recipient: Some(String::from("recipient")),
-            // };
-            // let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
-            // app
-            //     .execute(bv_contract_addr.clone(), cosmos_msg)
-            //     .unwrap();
             let msg = ExecuteMsg::CastVote {
                 proposal_id: 1u64,
                 vote: ProposalVoteOption::Align,
@@ -1378,7 +1399,7 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg.clone(), vec![]).unwrap();
             app
-                .execute(Addr::unchecked("big_body"), cosmos_msg)
+                .execute(Addr::unchecked("alignment"), cosmos_msg)
                 .unwrap();
 
             //Assert that its now Active
@@ -1389,6 +1410,8 @@ mod tests {
                     &QueryMsg::Proposal { proposal_id: 1 },
                 )
                 .unwrap();
+            //Assert voting power used non-quadratic
+            assert_eq!(proposal.aligned_power, Uint128::new(1060_000_000));
 
             //Submit Proposal
             let msg = ExecuteMsg::SubmitProposal {
@@ -1517,6 +1540,14 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            //Align to pass Quorum
+            let msg = ExecuteMsg::CastVote {
+                proposal_id: 1u64,
+                vote: ProposalVoteOption::Align,
+                recipient: None,
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("alignment2.0"), cosmos_msg).unwrap();
 
             // Skip voting period
             app.update_block(|bi| {

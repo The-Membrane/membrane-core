@@ -675,9 +675,9 @@ pub fn passed_messages(deps: DepsMut, env: Env) -> Result<Response, ContractErro
 
     //Query a vesting recipient
     deps.querier.query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.vesting_contract_addr.to_string(),
-                msg: to_binary(&VestingQueryMsg::Allocation { recipient: String::from("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n") })?,
-            }))?;
+        contract_addr: config.vesting_contract_addr.to_string(),
+        msg: to_binary(&VestingQueryMsg::Allocation { recipient: String::from("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n") })?,
+    }))?;
 
     return Err(ContractError::MessagesCheckPassed {})
 }
@@ -840,20 +840,35 @@ pub fn calc_total_voting_power_at(
     //Calc total voting power
     if staked_mbrn == vec![] {
         total = Uint128::zero()
-    } else {
+    } else {    
+        //Get total from staked_mbrn
+        total = staked_mbrn
+                .into_iter()
+                .map(|stake| {
+                    if config.quadratic_voting {
+                        Decimal::from_ratio(stake.amount, Uint128::one()).sqrt().to_uint_floor()
+                    } else {
+                        stake.amount
+                    }
+                })
+                .collect::<Vec<Uint128>>()
+                .into_iter()
+                .sum();
+        
         //Set staked non-vested total
         let non_vested_total: Uint128 = match query_staking_totals(deps.querier, config.staking_contract_addr.to_string()){
             Ok(totals) => totals.stakers,
             Err(_) => {
                 //On error do regular query for totals
-                let res: TotalStakedResponse = deps.querier.query_wasm_smart(
+                match deps.querier.query_wasm_smart::<TotalStakedResponse>(
                     config.clone().staking_contract_addr,
                     &StakingQueryMsg::TotalStaked {  },
-                )?;
-                res.total_not_including_vested
+                ){
+                    Ok(totals) => totals.total_not_including_vested,
+                    Err(_) => Uint128::zero()
+                }                
             },
-        };
-        total = non_vested_total;
+        };    
 
         //Get Vesting Recipients
         let recipients = deps
@@ -868,15 +883,18 @@ pub fn calc_total_voting_power_at(
             if let Some(allocation) = recipient.allocation {
                 let allocation = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
                 // Vested voting power can't be more than 19% of total voting power pre-quadratic 
-                total += min(allocation, non_vested_total * Decimal::percent(19));
+                let mut vp = min(allocation, non_vested_total * Decimal::percent(19));
+
+                // Take square root of total stake if quadratic voting is enabled
+                if quadratic_voting {
+                    vp = Decimal::from_ratio(vp, Uint128::one()).sqrt().to_uint_floor();
+                }
+
+                total += vp;
             }            
         }        
     }
         
-    // Take square root of total stake if quadratic voting is enabled
-    if quadratic_voting {
-        total = Decimal::from_ratio(total, Uint128::one()).sqrt().to_uint_floor();
-    }    
 
     Ok(total)
 }

@@ -141,7 +141,7 @@ pub fn submit_proposal(
     description: String,
     link: Option<String>,
     messages: Option<Vec<ProposalMessage>>,
-    mut recipient: Option<String>,
+    recipient: Option<String>,
     mut expedited: bool,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
@@ -164,14 +164,13 @@ pub fn submit_proposal(
     }
 
     //If sender is vesting Contract, toggle
-    let mut vesting: bool = false;
-    if info.sender != config.vesting_contract_addr {
-        //Only Vesting contract can submit expedited proposals
-        expedited = false;
-        recipient = None;
-    } else {
-        vesting = true;
-    }
+    // let mut vesting: bool = false;
+    // if info.sender != config.vesting_contract_addr {
+    //     //Only Vesting contract can submit expedited proposals
+    //     expedited = false;
+    // } else {
+    //     vesting = true;
+    // }
 
     //Query stake from before Proposal's start_time
     let staked_mbrn = deps.querier
@@ -205,7 +204,7 @@ pub fn submit_proposal(
         Some(delegations.clone()),
         info.sender.to_string(),
         env.block.time.seconds(),
-        vesting,
+        &mut expedited,
         recipient.clone(),
         false, //No quadratic for proposal submissions
     )?;
@@ -249,7 +248,7 @@ pub fn submit_proposal(
             Some(delegations.clone()),
             staker.staker.to_string(), 
             env.block.time.seconds(), 
-            false, 
+            &mut false, 
             None, //There will be a new calculation when voting if this is a vesting recipient
             config.quadratic_voting,
         )?;
@@ -338,10 +337,6 @@ pub fn cast_vote(
             Err(err) => return Err(ContractError::Std(err)),
         }
     };
-    //Only vesting can use the recipient/vesting parameter
-    if info.sender != config.vesting_contract_addr {
-        recipient = None;
-    }
 
     //Init recipient    
     let mut recipient_addr: Addr = Addr::unchecked("");
@@ -374,7 +369,7 @@ pub fn cast_vote(
                 None,
                 info.sender.to_string(), 
                 proposal.start_time,
-                true, 
+                &mut false, 
                 recipient.clone(), 
                 config.quadratic_voting,
             )?;
@@ -908,7 +903,7 @@ pub fn calc_voting_power(
     mut delegations: Option<Vec<DelegationResponse>>,
     sender: String,
     start_time: u64,
-    vesting: bool,
+    expedited: &mut bool,
     recipient: Option<String>,
     quadratic_voting: bool,
 ) -> StdResult<Uint128> {
@@ -947,7 +942,9 @@ pub fn calc_voting_power(
     }
     let mut total: Uint128;
     //If calculating vesting voting power, we take from recipient's allocation
-    if !vesting {
+    if recipient.is_none() {
+        //Only vesting recipients can submit expedited proposals
+        *expedited = false;
         //Calc total voting power
         if staked_mbrn.clone().unwrap() == vec![] {
             total = Uint128::zero()
@@ -966,23 +963,32 @@ pub fn calc_voting_power(
                 .sum();
         }
     } else if recipient.is_some() {
-        //info.sender must equal the vesting contract
-        if sender != config.vesting_contract_addr.to_string(){
-            return Err(cosmwasm_std::StdError::GenericErr { msg: String::from("Recipient can only be used by the vesting contract") });
+        let recipient = recipient.clone().unwrap();
+        //info.sender must equal the recipient contract
+        if sender != recipient {
+            return Err(cosmwasm_std::StdError::GenericErr { msg: String::from("You are not the Recipient that was passed") });
         }
-        let recipient = recipient.unwrap();
 
-        let allocation = querier
+        match querier
             .query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.vesting_contract_addr.to_string(),
                 msg: to_binary(&VestingQueryMsg::Allocation { recipient })?,
-            }))?;
+            })){
+                Ok(allocation) => {  
+                    total = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;            
+                    // Vested voting power can't be more than 19% of total voting power pre-quadratic
+                    total = min(total, non_vested_total.unwrap() * Decimal::percent(19));
+                },
+                Err(_) => {  
+                    //Only vesting recipients can submit expedited proposals
+                    *expedited = false;
+                    total = Uint128::zero();
+                }
+            };
             
-        total = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
-        // Vested voting power can't be more than 19% of total voting power pre-quadratic
-        total = min(total, non_vested_total.unwrap() * Decimal::percent(19));
     } else {
         total = Uint128::zero();
+        *expedited = false;
     }
 
     // Query delegations if necessary
@@ -1052,7 +1058,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 None,
                 user.to_string(),
                 proposal.start_time,
-                vesting,
+                &mut false,
                 None,
                 CONFIG.load(deps.storage)?.quadratic_voting,
             )?)

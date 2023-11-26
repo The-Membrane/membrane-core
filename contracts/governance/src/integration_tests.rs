@@ -409,7 +409,7 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
-                .execute(bv_contract_addr.clone(), cosmos_msg)
+                .execute(Addr::unchecked("recipient"), cosmos_msg)
                 .unwrap_err();
             assert_eq!(err.root_cause().to_string(), String::from("Proposal not active!"));
             //Align
@@ -420,7 +420,7 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app
-                .execute(bv_contract_addr.clone(), cosmos_msg)
+                .execute(Addr::unchecked("recipient"), cosmos_msg)
                 .unwrap();
             // Fail bc they aligned with the proposal            
             let msg = ExecuteMsg::CastVote {
@@ -430,7 +430,7 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
-                .execute(bv_contract_addr.clone(), cosmos_msg)
+                .execute(Addr::unchecked("recipient"), cosmos_msg)
                 .unwrap_err();
             assert_eq!(err.root_cause().to_string(), String::from("Unauthorized"));
 
@@ -444,7 +444,7 @@ mod tests {
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
-            app.execute(bv_contract_addr, cosmos_msg).unwrap();
+            app.execute(Addr::unchecked("recipient"), cosmos_msg).unwrap();
 
             //Successful submission
             let msg = ExecuteMsg::SubmitProposal {
@@ -473,7 +473,7 @@ mod tests {
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
-            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            let err = app.execute(Addr::unchecked("recipient"), cosmos_msg).unwrap_err();
             assert_eq!(
                 err.root_cause().to_string(),
                 String::from("Generic error: Title too short!")
@@ -490,7 +490,7 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
-                .execute(Addr::unchecked(bv_contract_addr.clone()), cosmos_msg)
+                .execute(Addr::unchecked(Addr::unchecked("recipient")), cosmos_msg)
                 .unwrap_err();
             assert_eq!(
                 err.root_cause().to_string(),
@@ -508,7 +508,7 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
-                .execute(Addr::unchecked(bv_contract_addr.clone()), cosmos_msg)
+                .execute(Addr::unchecked(Addr::unchecked("recipient")), cosmos_msg)
                 .unwrap_err();
             assert_eq!(
                 err.root_cause().to_string(),
@@ -526,7 +526,7 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
-                .execute(Addr::unchecked(bv_contract_addr.clone()), cosmos_msg)
+                .execute(Addr::unchecked(Addr::unchecked("recipient")), cosmos_msg)
                 .unwrap_err();
             assert_eq!(
                 err.root_cause().to_string(),
@@ -544,7 +544,7 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
-                .execute(Addr::unchecked(bv_contract_addr.clone()), cosmos_msg)
+                .execute(Addr::unchecked(Addr::unchecked("recipient")), cosmos_msg)
                 .unwrap_err();
             assert_eq!(
                 err.root_cause().to_string(),
@@ -562,7 +562,7 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
-                .execute(Addr::unchecked(bv_contract_addr.clone()), cosmos_msg)
+                .execute(Addr::unchecked(Addr::unchecked("recipient")), cosmos_msg)
                 .unwrap_err();
             assert_eq!(
                 err.root_cause().to_string(),
@@ -580,7 +580,7 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
-                .execute(Addr::unchecked(bv_contract_addr.clone()), cosmos_msg)
+                .execute(Addr::unchecked(Addr::unchecked("recipient")), cosmos_msg)
                 .unwrap_err();
             assert_eq!(
                 err.root_cause().to_string(),
@@ -600,7 +600,7 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
-                .execute(Addr::unchecked(bv_contract_addr.clone()), cosmos_msg)
+                .execute(Addr::unchecked(Addr::unchecked("recipient")), cosmos_msg)
                 .unwrap_err();
             assert_eq!(
                 err.root_cause().to_string(),
@@ -626,7 +626,7 @@ mod tests {
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
-            app.execute(bv_contract_addr, cosmos_msg).unwrap();
+            app.execute(Addr::unchecked("recipient"), cosmos_msg).unwrap();
 
             let proposal: Proposal = app
                 .wrap()
@@ -703,7 +703,7 @@ mod tests {
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
-            app.execute(bv_contract_addr.clone(), cosmos_msg).unwrap();
+            app.execute(Addr::unchecked("recipient"), cosmos_msg).unwrap();
 
             ////Cast Votes
             // Fail bc they are proposal.submitter
@@ -714,7 +714,7 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app
-                .execute(bv_contract_addr, cosmos_msg)
+                .execute(Addr::unchecked("recipient"), cosmos_msg)
                 .unwrap_err();
             assert_eq!(err.root_cause().to_string(), String::from("Unauthorized"));
 
@@ -1102,7 +1102,7 @@ mod tests {
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
-            app.execute(bv_contract_addr.clone(), cosmos_msg).unwrap();
+            app.execute(Addr::unchecked("recipient"), cosmos_msg).unwrap();
 
             ////Cast Votes
             //For
@@ -1245,7 +1245,7 @@ mod tests {
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
-            app.execute(bv_contract_addr.clone(), cosmos_msg).unwrap();
+            app.execute(Addr::unchecked("recipient"), cosmos_msg).unwrap();
 
             ////Cast Votes
             //Remove
@@ -1522,7 +1522,7 @@ mod tests {
                 expedited: false,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
-            app.execute(bv_contract_addr, cosmos_msg).unwrap();
+            app.execute(Addr::unchecked("recipient"), cosmos_msg).unwrap();
 
             //For
             let msg = ExecuteMsg::CastVote {

@@ -319,7 +319,7 @@ pub fn cast_vote(
     info: MessageInfo,
     proposal_id: u64,
     vote_option: ProposalVoteOption,
-    mut recipient: Option<String>,
+    recipient: Option<String>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -1050,6 +1050,12 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
             let user = deps.api.addr_validate(&user)?;
 
+            let recipient = if vesting {
+                Some(user.to_string())
+            } else {
+                None
+            };
+
             to_binary(&calc_voting_power(
                 deps.storage,
                 deps.querier,
@@ -1059,7 +1065,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 user.to_string(),
                 proposal.start_time,
                 &mut false,
-                None,
+                recipient,
                 CONFIG.load(deps.storage)?.quadratic_voting,
             )?)
         }

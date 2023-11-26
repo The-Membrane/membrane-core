@@ -68,6 +68,11 @@ pub enum ExecuteMsg {
     Launch {},
     /// Update Config
     UpdateConfig(UpdateConfig),
+    /// Update Contract Configs to a new Governance contract
+    UpdateContractConfigs {
+        /// New Governance contract address
+        new_governance_contract: String,
+    },
 }
 
 #[cw_serde]

@@ -33,7 +33,7 @@ use osmosis_std::types::osmosis::lockup::QueryCondition;
 //Governance constants
 const PROPOSAL_VOTING_PERIOD: u64 = *VOTING_PERIOD_INTERVAL.start();
 const PROPOSAL_EFFECTIVE_DELAY: u64 = 1; //1 day
-const PROPOSAL_EXPIRATION_PERIOD: u64 = 33600; //14 days
+const PROPOSAL_EXPIRATION_PERIOD: u64 = *VOTING_PERIOD_INTERVAL.end(); //14 days
 const PROPOSAL_REQUIRED_STAKE: u128 = *STAKE_INTERVAL.start();
 const PROPOSAL_REQUIRED_QUORUM: &str = "0.33";
 const PROPOSAL_REQUIRED_THRESHOLD: &str = "0.66";

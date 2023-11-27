@@ -6,7 +6,7 @@ use std::ops::RangeInclusive;
 use self::helpers::is_safe_link;
 
 //Osmosis Constants
-pub const BLOCKS_PER_DAY: u64 = 2400; //6 sec blocks
+pub const BLOCKS_PER_DAY: u64 = 14400; //6 sec blocks
 
 pub const MINIMUM_PROPOSAL_REQUIRED_THRESHOLD_PERCENTAGE: u64 = 51;
 pub const MAX_PROPOSAL_REQUIRED_THRESHOLD_PERCENTAGE: u64 = 100;

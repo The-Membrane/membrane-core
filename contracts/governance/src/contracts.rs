@@ -22,6 +22,7 @@ use membrane::staking::{
     Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse, DelegationResponse,
 };
 
+use core::panic;
 use std::cmp::min;
 use std::str::FromStr;
 
@@ -235,6 +236,7 @@ pub fn submit_proposal(
 
     let mut voting_power_list: Vec<(Addr, Uint128)> = vec![];
 
+    //Add stakers to voting power list
     for staker in staked_mbrn.clone() {
         //Skip duplicates
         if voting_power_list.iter().any(|(addr, _)| addr == &staker.staker) {
@@ -254,6 +256,28 @@ pub fn submit_proposal(
         )?;
 
         voting_power_list.push((staker.staker, vp));
+    }
+    //Add delegates to voting power list
+    //bc we skip duplicates, this is only for delegates who don't stake
+    for delegation in delegations.clone() {
+        //Skip duplicates
+        if voting_power_list.iter().any(|(addr, _)| addr == &delegation.user) {
+            continue;
+        }
+        let vp = calc_voting_power(
+            deps.storage,
+            deps.querier,
+            Some(staked_mbrn.clone()),
+            Some(non_vested_total),
+            Some(delegations.clone()),
+            delegation.user.to_string(), 
+            env.block.time.seconds(), 
+            &mut false, 
+            None, //There will be a new calculation when voting if this is a vesting recipient
+            config.quadratic_voting,
+        )?;
+
+        voting_power_list.push((delegation.user, vp));
     }
     let mut proposal = Proposal {
         voting_power: voting_power_list,
@@ -1007,10 +1031,10 @@ pub fn calc_voting_power(
         Some(delegation_info) => {
             //Get total delegated to user from before proposal start time
             let total_delegated_to_user: Uint128 = delegation_info.delegation_info.clone().delegated
-            .into_iter()
-            .filter(|delegation| delegation.time_of_delegation <= start_time && delegation.voting_power_delegation)
-            .map(|dele| dele.amount)
-            .sum();
+                .into_iter()
+                .filter(|delegation| delegation.time_of_delegation <= start_time && delegation.voting_power_delegation)
+                .map(|dele| dele.amount)
+                .sum();
 
             //Get total delegated away from user from before proposal start time
             let total_delegated_from_user: Uint128 = delegation_info.delegation_info.clone().delegated_to

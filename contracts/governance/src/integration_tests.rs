@@ -165,7 +165,7 @@ mod tests {
                                     fluidity: false,
                                     voting_power_delegation: false,
                                     time_of_delegation: 0,
-                                },                          
+                                },                         
                                 Delegation { 
                                     delegate: Addr::unchecked(USER), 
                                     amount: Uint128::new(100000000464),
@@ -190,6 +190,22 @@ mod tests {
                                     time_of_delegation: 999999999999,
                                 }
                             ],
+                            commission: Decimal::zero(),
+                        },
+                    },
+                    DelegationResponse {
+                        user: Addr::unchecked("who"),
+                        delegation_info: DelegationInfo {
+                            delegated: vec![
+                                Delegation { 
+                                    delegate: Addr::unchecked(USER), 
+                                    amount: Uint128::new(110000000),
+                                    fluidity: false,
+                                    voting_power_delegation: true,
+                                    time_of_delegation: 0,
+                                },
+                            ],
+                            delegated_to: vec![],
                             commission: Decimal::zero(),
                         },
                     }])?),
@@ -642,7 +658,7 @@ mod tests {
             assert_eq!(proposal.for_power, Uint128::zero());
             assert_eq!(proposal.against_power, Uint128::zero());
             assert_eq!(proposal.start_block, 12_345);
-            assert_eq!(proposal.end_block, 12_345 + (7 * 2400)); //Executables have a minimum 7 day voting period
+            assert_eq!(proposal.end_block, 12_345 + (7 * 14400)); //Executables have a minimum 7 day voting period
             assert_eq!(proposal.title, String::from("Test title!"));
             assert_eq!(proposal.description, String::from("Test description!"));
             assert_eq!(
@@ -734,6 +750,15 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            //Against
+            //Testing that delegates without stake can vote
+            let msg = ExecuteMsg::CastVote {
+                proposal_id: 1u64,
+                vote: ProposalVoteOption::Align,
+                recipient: None,
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("who"), cosmos_msg).unwrap();
             //Align to pass Quorum
             let msg = ExecuteMsg::CastVote {
                 proposal_id: 1u64,

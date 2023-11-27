@@ -1069,4 +1069,3 @@ pub fn end_of_launch(
 pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     Ok(Response::default())
 }
-

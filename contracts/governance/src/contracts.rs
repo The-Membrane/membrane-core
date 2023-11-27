@@ -16,7 +16,7 @@ use membrane::governance::helpers::validate_links;
 use membrane::governance::{
     Config, ExecuteMsg, InstantiateMsg, Proposal, ProposalListResponse, ProposalMessage,
     ProposalResponse, ProposalStatus, ProposalVoteOption, ProposalVotesResponse, QueryMsg,
-    UpdateConfig, BLOCKS_PER_DAY
+    UpdateConfig, BLOCKS_PER_DAY, MigrateMsg
 };
 use membrane::staking::{
     Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse, DelegationResponse,

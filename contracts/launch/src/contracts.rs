@@ -651,120 +651,120 @@ fn update_contract_configs(
     let mut msgs: Vec<CosmosMsg> = vec![];
 
     //Update Vesting
-    msgs.push(
-        CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: addresses.vesting.to_string(),
-            msg: to_binary(&VestingExecuteMsg::UpdateConfig {
-                owner: Some(gov_contract.clone()),
-                osmosis_proxy: None,
-                staking_contract: None,
-                mbrn_denom: None,
-                additional_allocation: None,                
-            })?,
-            funds: vec![],
-        })
-    );
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.vesting.to_string(),
+    //         msg: to_binary(&VestingExecuteMsg::UpdateConfig {
+    //             owner: Some(gov_contract.clone()),
+    //             osmosis_proxy: None,
+    //             staking_contract: None,
+    //             mbrn_denom: None,
+    //             additional_allocation: None,                
+    //         })?,
+    //         funds: vec![],
+    //     })
+    // );
     //Update CDP
-    msgs.push(
-        CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: addresses.positions.to_string(),
-            msg: to_binary(&CDPExecuteMsg::UpdateConfig(CDPUpdateConfig {
-                owner: Some(gov_contract.clone()),
-                stability_pool: None,
-                debt_auction: None,
-                staking_contract: None,
-                rate_slope_multiplier: None,
-                debt_minimum: None,
-                dex_router: None,
-                discounts_contract: None,
-                base_debt_cap_multiplier: None,
-                oracle_contract: None,
-                oracle_time_limit: None,
-                osmosis_proxy: None,
-                liq_fee: None,
-                liquidity_contract: None,
-                collateral_twap_timeframe: None,
-                cpc_multiplier: None,
-                credit_twap_timeframe: None,
-            }))?,
-            funds: vec![],
-        })
-    );
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.positions.to_string(),
+    //         msg: to_binary(&CDPExecuteMsg::UpdateConfig(CDPUpdateConfig {
+    //             owner: Some(gov_contract.clone()),
+    //             stability_pool: None,
+    //             debt_auction: None,
+    //             staking_contract: None,
+    //             rate_slope_multiplier: None,
+    //             debt_minimum: None,
+    //             dex_router: None,
+    //             discounts_contract: None,
+    //             base_debt_cap_multiplier: None,
+    //             oracle_contract: None,
+    //             oracle_time_limit: None,
+    //             osmosis_proxy: None,
+    //             liq_fee: None,
+    //             liquidity_contract: None,
+    //             collateral_twap_timeframe: None,
+    //             cpc_multiplier: None,
+    //             credit_twap_timeframe: None,
+    //         }))?,
+    //         funds: vec![],
+    //     })
+    // );
     //Update Auction
-    msgs.push(
-        CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: addresses.mbrn_auction.to_string(),
-            msg: to_binary(&DAExecuteMsg::UpdateConfig(AuctionUpdateConfig {
-                owner: Some(gov_contract.clone()),
-                governance_contract: Some(gov_contract.clone()),
-                staking_contract: None,
-                oracle_contract: None,
-                osmosis_proxy: None,
-                positions_contract: None,
-                mbrn_denom: None,
-                cdt_denom: None,
-                desired_asset: None,
-                twap_timeframe: None,
-                initial_discount: None,
-                discount_increase_timeframe: None,
-                discount_increase: None,
-                send_to_stakers: None,
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.mbrn_auction.to_string(),
+    //         msg: to_binary(&DAExecuteMsg::UpdateConfig(AuctionUpdateConfig {
+    //             owner: Some(gov_contract.clone()),
+    //             governance_contract: Some(gov_contract.clone()),
+    //             staking_contract: None,
+    //             oracle_contract: None,
+    //             osmosis_proxy: None,
+    //             positions_contract: None,
+    //             mbrn_denom: None,
+    //             cdt_denom: None,
+    //             desired_asset: None,
+    //             twap_timeframe: None,
+    //             initial_discount: None,
+    //             discount_increase_timeframe: None,
+    //             discount_increase: None,
+    //             send_to_stakers: None,
 
-            }))?,
-            funds: vec![],
-        })
-    );
+    //         }))?,
+    //         funds: vec![],
+    //     })
+    // );
     //Update Discount Vault
-    msgs.push(
-        CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: addresses.discount_vault.to_string(),
-            msg: to_binary(&DiscountVaultExecuteMsg::ChangeOwner { owner: gov_contract.clone() })?,
-            funds: vec![],
-        })
-    );
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.discount_vault.to_string(),
+    //         msg: to_binary(&DiscountVaultExecuteMsg::ChangeOwner { owner: gov_contract.clone() })?,
+    //         funds: vec![],
+    //     })
+    // );
     //Update Liquidation Queue
-    msgs.push(
-        CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: addresses.liq_queue.to_string(),
-            msg: to_binary(&LQExecuteMsg::UpdateConfig { 
-                owner: Some(gov_contract.clone()),
-                positions_contract:  None,
-                osmosis_proxy_contract:  None,
-                waiting_period:  None, 
-                minimum_bid:  None, 
-                maximum_waiting_bids: None
-            })?,
-            funds: vec![],
-        })
-    );
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.liq_queue.to_string(),
+    //         msg: to_binary(&LQExecuteMsg::UpdateConfig { 
+    //             owner: Some(gov_contract.clone()),
+    //             positions_contract:  None,
+    //             osmosis_proxy_contract:  None,
+    //             waiting_period:  None, 
+    //             minimum_bid:  None, 
+    //             maximum_waiting_bids: None
+    //         })?,
+    //         funds: vec![],
+    //     })
+    // );
     //Update Liquidity Check
-    msgs.push(
-        CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: addresses.liquidity_check.to_string(),
-            msg: to_binary(&LCExecuteMsg::UpdateConfig { 
-                owner: Some(gov_contract.clone()),
-                positions_contract:  None,
-                osmosis_proxy:  None,
-                stableswap_multiplier:  None,
-            })?,
-            funds: vec![],
-        })
-    );
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.liquidity_check.to_string(),
+    //         msg: to_binary(&LCExecuteMsg::UpdateConfig { 
+    //             owner: Some(gov_contract.clone()),
+    //             positions_contract:  None,
+    //             osmosis_proxy:  None,
+    //             stableswap_multiplier:  None,
+    //         })?,
+    //         funds: vec![],
+    //     })
+    // );
     //Update Oracle
-    msgs.push(
-        CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: addresses.oracle.to_string(),
-            msg: to_binary(&OracleExecuteMsg::UpdateConfig { 
-                owner: Some(gov_contract.clone()),
-                positions_contract:  None,
-                osmosis_proxy_contract: None,
-                osmo_usd_pyth_feed_id: None,
-                pyth_osmosis_address: None,
-                pools_for_usd_par_twap: None,
-            })?,
-            funds: vec![],
-        })
-    );
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.oracle.to_string(),
+    //         msg: to_binary(&OracleExecuteMsg::UpdateConfig { 
+    //             owner: Some(gov_contract.clone()),
+    //             positions_contract:  None,
+    //             osmosis_proxy_contract: None,
+    //             osmo_usd_pyth_feed_id: None,
+    //             pyth_osmosis_address: None,
+    //             pools_for_usd_par_twap: None,
+    //         })?,
+    //         funds: vec![],
+    //     })
+    // );
     //Update Osmosis Proxy 
     msgs.push(
         CosmosMsg::Wasm(WasmMsg::Execute {
@@ -780,7 +780,7 @@ fn update_contract_configs(
                     }
                 ]),
                 positions_contract:  None,
-                add_owner: None,
+                add_owner: Some(true),
                 liquidity_multiplier: None,
                 debt_auction: None,
                 liquidity_contract: None,
@@ -790,26 +790,26 @@ fn update_contract_configs(
         })
     );
     //Update Staking
-    msgs.push(
-        CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: addresses.staking.to_string(),
-            msg: to_binary(&StakingExecuteMsg::UpdateConfig { 
-                owner: Some(gov_contract.clone()),
-                governance_contract: Some(gov_contract.clone()),
-                positions_contract:  None,
-                auction_contract: None,
-                vesting_contract: None,
-                osmosis_proxy: None,
-                mbrn_denom: None,
-                incentive_schedule: None,
-                unstaking_period: None,
-                max_commission_rate: None,
-                keep_raw_cdt: None,
-                vesting_rev_multiplier: None,
-            })?,
-            funds: vec![],
-        })
-    );
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.staking.to_string(),
+    //         msg: to_binary(&StakingExecuteMsg::UpdateConfig { 
+    //             owner: Some(gov_contract.clone()),
+    //             governance_contract: Some(gov_contract.clone()),
+    //             positions_contract:  None,
+    //             auction_contract: None,
+    //             vesting_contract: None,
+    //             osmosis_proxy: None,
+    //             mbrn_denom: None,
+    //             incentive_schedule: None,
+    //             unstaking_period: None,
+    //             max_commission_rate: None,
+    //             keep_raw_cdt: None,
+    //             vesting_rev_multiplier: None,
+    //         })?,
+    //         funds: vec![],
+    //     })
+    // );
 
     
     Ok(Response::new().add_messages(msgs))

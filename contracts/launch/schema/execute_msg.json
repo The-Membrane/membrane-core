@@ -144,6 +144,29 @@
         }
       },
       "additionalProperties": false
+    },
+    {
+      "description": "Update Contract Configs to a new Governance contract",
+      "type": "object",
+      "required": [
+        "update_contract_configs"
+      ],
+      "properties": {
+        "update_contract_configs": {
+          "type": "object",
+          "required": [
+            "new_governance_contract"
+          ],
+          "properties": {
+            "new_governance_contract": {
+              "description": "New Governance contract address",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
   ],
   "definitions": {

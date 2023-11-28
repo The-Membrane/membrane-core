@@ -906,6 +906,20 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(voting_power_5, Uint128::new(989950));
+            
+            //Query voting power
+            let voting_power_6: Uint128 = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::UserVotingPower { 
+                        user: String::from("who"), 
+                        proposal_id: 1, 
+                        vesting: false, 
+                    },
+                )
+                .unwrap();
+            assert_eq!(voting_power_5, Uint128::new(989950));
 
             //Query total voting power
             let total_voting_power: Uint128 = app
@@ -917,7 +931,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(total_voting_power + Uint128::new(494), voting_power_1 + voting_power_2 + voting_power_3 + voting_power_4 + voting_power_5); //494 is a descrepancy likely from delegations
+            assert_eq!(total_voting_power + Uint128::new(1), voting_power_1 + voting_power_2 + voting_power_3 + voting_power_4 + voting_power_5 + voting_power_6); //1 is a descrepancy from rounding differences
 
             //Assert that delegated voting power is equal to the sum of the delegations
             let delegate_vp: Uint128 = app
@@ -1209,6 +1223,14 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("alignment2.0"), cosmos_msg).unwrap();
+            //Align to pass Quorum
+            let msg = ExecuteMsg::CastVote {
+                proposal_id: 1u64,
+                vote: ProposalVoteOption::Align,
+                recipient: None,
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("who"), cosmos_msg).unwrap();
 
             //Assertations
             let proposal: Proposal = app
@@ -1352,6 +1374,14 @@ mod tests {
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("alignment2.0"), cosmos_msg).unwrap();
+            //Align to pass Quorum
+            let msg = ExecuteMsg::CastVote {
+                proposal_id: 2u64,
+                vote: ProposalVoteOption::Align,
+                recipient: None,
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("who"), cosmos_msg).unwrap();
 
             //Assertations
             let proposal: Proposal = app

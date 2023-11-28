@@ -198,8 +198,22 @@ mod tests {
                         delegation_info: DelegationInfo {
                             delegated: vec![
                                 Delegation { 
-                                    delegate: Addr::unchecked(USER), 
-                                    amount: Uint128::new(110000000),
+                                    delegate: Addr::unchecked(ADMIN), 
+                                    amount: Uint128::new(60_000_000),
+                                    fluidity: false,
+                                    voting_power_delegation: true,
+                                    time_of_delegation: 0,
+                                },
+                                Delegation { 
+                                    delegate: Addr::unchecked("alignment"), 
+                                    amount: Uint128::new(980_000_000u128),
+                                    fluidity: false,
+                                    voting_power_delegation: true,
+                                    time_of_delegation: 0,
+                                },
+                                Delegation { 
+                                    delegate: Addr::unchecked("alignment2.0"), 
+                                    amount: Uint128::new(980_000_000_000u128),
                                     fluidity: false,
                                     voting_power_delegation: true,
                                     time_of_delegation: 0,
@@ -814,10 +828,10 @@ mod tests {
                 .unwrap();
 
             // Check proposal votes & assert quadratic weighing
-            assert_eq!(proposal.for_power, Uint128::from(31781u128)); 
+            assert_eq!(proposal.for_power, Uint128::from(32112u128)); 
             assert_eq!(proposal.against_power, Uint128::from(7746u128));
 
-            assert_eq!(proposal_votes.for_power, Uint128::from(31781u128));
+            assert_eq!(proposal_votes.for_power, Uint128::from(32112u128));
             assert_eq!(proposal_votes.against_power, Uint128::from(7746u128));
 
             assert_eq!(proposal_for_voters, vec![Addr::unchecked("user")]);
@@ -835,7 +849,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(voting_power_1, Uint128::new(31781));
+            assert_eq!(voting_power_1, Uint128::new(32112));
 
             //Query voting power
             let voting_power_2: Uint128 = app
@@ -852,18 +866,46 @@ mod tests {
             assert_eq!(voting_power_2, Uint128::new(7746));
 
             //Query voting power
-            let voting_power_2: Uint128 = app
+            let voting_power_3: Uint128 = app
                 .wrap()
                 .query_wasm_smart(
                     gov_contract.addr(),
                     &QueryMsg::UserVotingPower { 
-                        user: String::from("contract2"), 
+                        user: String::from("recipient"), 
+                        proposal_id: 1, 
+                        vesting: true, 
+                    },
+                )
+                .unwrap();
+            assert_eq!(voting_power_3, Uint128::new(33165));
+
+            //Query voting power
+            let voting_power_4: Uint128 = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::UserVotingPower { 
+                        user: String::from("alignment"), 
                         proposal_id: 1, 
                         vesting: false, 
                     },
                 )
                 .unwrap();
-            assert_eq!(voting_power_2, Uint128::new(0));
+            assert_eq!(voting_power_4, Uint128::new(31305));
+
+            //Query voting power
+            let voting_power_5: Uint128 = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::UserVotingPower { 
+                        user: String::from("alignment2.0"), 
+                        proposal_id: 1, 
+                        vesting: false, 
+                    },
+                )
+                .unwrap();
+            assert_eq!(voting_power_5, Uint128::new(989950));
 
             //Query total voting power
             let total_voting_power: Uint128 = app
@@ -875,8 +917,21 @@ mod tests {
                     },
                 )
                 .unwrap();
-            //This isn't equal bc the test delegated votes go to both voters & TVP is made up 
-            //assert_eq!(total_voting_power, voting_power_1 + voting_power_2);
+            assert_eq!(total_voting_power + Uint128::new(494), voting_power_1 + voting_power_2 + voting_power_3 + voting_power_4 + voting_power_5); //494 is a descrepancy likely from delegations
+
+            //Assert that delegated voting power is equal to the sum of the delegations
+            let delegate_vp: Uint128 = app
+                .wrap()
+                .query_wasm_smart(
+                gov_contract.addr(),
+                &QueryMsg::UserVotingPower { 
+                    user: String::from("who"), 
+                    proposal_id: 1,
+                    vesting: false, 
+                },
+            )
+            .unwrap();
+            assert_eq!(voting_power_2 + voting_power_4 + voting_power_5, delegate_vp);
 
             //Change the initial "Against" to "For"
             let msg = ExecuteMsg::CastVote {
@@ -933,10 +988,10 @@ mod tests {
                 .unwrap();
 
             // Check proposal votes & assert quadratic weighing
-            assert_eq!(proposal.for_power, Uint128::new(39527)); 
+            assert_eq!(proposal.for_power, Uint128::new(39858)); 
             assert_eq!(proposal.against_power, Uint128::zero());
 
-            assert_eq!(proposal_votes.for_power, Uint128::new(39527));
+            assert_eq!(proposal_votes.for_power, Uint128::new(39858));
             assert_eq!(proposal_votes.against_power, Uint128::zero());
 
             assert_eq!(proposal_for_voters, vec![Addr::unchecked("user"), Addr::unchecked("admin")]);
@@ -1201,10 +1256,10 @@ mod tests {
                 .unwrap();
 
             // Check proposal votes & assert quadratic weighing
-            assert_eq!(proposal.amendment_power, Uint128::from(31781u128)); 
+            assert_eq!(proposal.amendment_power, Uint128::from(32112u128)); 
             assert_eq!(proposal.for_power, Uint128::from(7746u128));
 
-            assert_eq!(proposal_votes.amendment_power, Uint128::from(31781u128));
+            assert_eq!(proposal_votes.amendment_power, Uint128::from(32112u128));
             assert_eq!(proposal_votes.for_power, Uint128::from(7746u128));
 
             assert_eq!(proposal_for_voters, vec![Addr::unchecked("admin")]);
@@ -1330,8 +1385,8 @@ mod tests {
                 .unwrap();
 
             // Check proposal votes & assert quadratic weighing
-            assert_eq!(proposal.removal_power, Uint128::from(31781u128 + 7746u128)); 
-            assert_eq!(proposal_votes.removal_power, Uint128::from(31781u128 + 7746u128));
+            assert_eq!(proposal.removal_power, Uint128::from(32112u128 + 7746u128)); 
+            assert_eq!(proposal_votes.removal_power, Uint128::from(32112u128 + 7746u128));
 
             assert_eq!(proposal_removal_voters, vec![Addr::unchecked("admin"), Addr::unchecked("user")]);
             

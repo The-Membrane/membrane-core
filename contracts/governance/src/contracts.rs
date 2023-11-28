@@ -22,7 +22,6 @@ use membrane::staking::{
     Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse, DelegationResponse,
 };
 
-use core::panic;
 use std::cmp::min;
 use std::str::FromStr;
 
@@ -1026,31 +1025,48 @@ pub fn calc_voting_power(
             })?,
         }))?);
     }
+    
+    // Take square root of total stake if quadratic voting is enabled
+    //prior to adding delegated stake
+    if quadratic_voting {        
+        total = Decimal::from_ratio(total, Uint128::one()).sqrt().to_uint_ceil();
+    }
+    
     //Get user's delegation info
+    //We transform the vp wrt the config's quadratic voting setting individually for each delegation.
+    //This ensures the benefits of delegations: better voting power participation, easier quorum, voluntarily abstracted governance for users.
+    //Otherwise delegates would get exponentially less voting power than what was delegated to them which makes quorum harder to reach with delegations vs w/o.
     match delegations.unwrap().into_iter().find(|delegation| delegation.user.to_string() == sender){
         Some(delegation_info) => {
             //Get total delegated to user from before proposal start time
             let total_delegated_to_user: Uint128 = delegation_info.delegation_info.clone().delegated
                 .into_iter()
                 .filter(|delegation| delegation.time_of_delegation <= start_time && delegation.voting_power_delegation)
-                .map(|dele| dele.amount)
+                .map(|dele| {
+                    if quadratic_voting {
+                        Decimal::from_ratio(dele.amount, Uint128::one()).sqrt().to_uint_ceil()
+                    } else {
+                        dele.amount
+                    }
+                })
                 .sum();
 
             //Get total delegated away from user from before proposal start time
             let total_delegated_from_user: Uint128 = delegation_info.delegation_info.clone().delegated_to
                 .into_iter()
                 .filter(|delegation| delegation.time_of_delegation <= start_time && delegation.voting_power_delegation)
-                .map(|dele| dele.amount)
+                .map(|dele| {
+                    if quadratic_voting {
+                        Decimal::from_ratio(dele.amount, Uint128::one()).sqrt().to_uint_ceil()
+                    } else {
+                        dele.amount
+                    }
+                })
                 .sum();
             //Add delegated to user and subtract delegated from user
             total += total_delegated_to_user - total_delegated_from_user;
         },
         None => {}
-    }
-    
-    // Take square root of total stake if quadratic voting is enabled
-    if quadratic_voting {        
-        total = Decimal::from_ratio(total, Uint128::one()).sqrt().to_uint_ceil();
     }
     
     Ok(total)

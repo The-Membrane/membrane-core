@@ -1520,8 +1520,8 @@ mod tests {
                     &QueryMsg::Proposal { proposal_id: 1 },
                 )
                 .unwrap();
-            //Assert voting power used non-quadratic
-            assert_eq!(proposal.aligned_power, Uint128::new(1040_003025));
+            //Assert voting power used non-quadratic before the threshold
+            assert_eq!(proposal.aligned_power, Uint128::new(1000006324));
 
             //Submit Proposal
             let msg = ExecuteMsg::SubmitProposal {

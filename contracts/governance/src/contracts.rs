@@ -22,6 +22,7 @@ use membrane::staking::{
     Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse, DelegationResponse,
 };
 
+use core::panic;
 use std::cmp::min;
 use std::str::FromStr;
 
@@ -299,6 +300,17 @@ pub fn submit_proposal(
     };
 
     proposal.validate(config.whitelisted_links)?;
+
+    if proposal.aligned_power >= config.proposal_required_stake && config.quadratic_voting {
+        //Calc difference
+        let mut difference = proposal.aligned_power.checked_sub(config.proposal_required_stake)?;
+        //Square root it
+        difference = Decimal::from_ratio(difference, Uint128::one()).sqrt().to_uint_floor();
+        //Set aligned power to threshold
+        proposal.aligned_power = config.proposal_required_stake;
+        //Add difference to proposal
+        proposal.aligned_power = proposal.aligned_power.checked_add(difference)?;
+    }
     
     //If proposal has insufficient alignment, send to pending
     if proposal.aligned_power < config.proposal_required_stake {
@@ -445,23 +457,45 @@ pub fn cast_vote(
             proposal.removal_voters.push(info.sender.clone());
         }
         ProposalVoteOption::Align => {
-            //Remove quadratic voting for alignment
-            if config.quadratic_voting {
+            //Remove quadratic voting for alignment if not reached yet
+            if config.quadratic_voting && proposal.aligned_power < config.proposal_required_stake {
                 //Square it                
                 voting_power = 
                 decimal_multiplication(
                     Decimal::from_ratio(voting_power, Uint128::one()), 
                     Decimal::from_ratio(voting_power, Uint128::one())
-                )?.to_uint_ceil();
+                )?.to_uint_ceil();                
+
+                //Adding voting power to proposal
+                proposal.aligned_power = proposal.aligned_power.checked_add(voting_power)?;            
+                //Add voter to aligned voters
+                proposal.aligned_voters.push(info.sender.clone());
+
+                //If this addition pushes the proposal over the threshold, square root & add the difference.
+                ///
+                //Aligned power must be subject to the config's quadratic voting setting past the threshold
+                //or reaching quorum becomes trival when quadratic voting is enabled
+                if proposal.aligned_power >= config.proposal_required_stake {
+                    //Calc difference
+                    let mut difference = proposal.aligned_power.checked_sub(config.proposal_required_stake)?;
+                    //Square root it
+                    difference = Decimal::from_ratio(difference, Uint128::one()).sqrt().to_uint_floor();
+                    //Set aligned power to threshold
+                    proposal.aligned_power = config.proposal_required_stake;
+                    //Add difference to proposal
+                    proposal.aligned_power = proposal.aligned_power.checked_add(difference)?;
+                }
+            } else 
+            //If quadratic voting is disabled or the threshold has been reached, add voting power to proposal
+            {
+                //Adding voting power to proposal
+                proposal.aligned_power = proposal.aligned_power.checked_add(voting_power)?;            
+                //Add voter to aligned voters
+                proposal.aligned_voters.push(info.sender.clone());
             }
-
-            //Adding voting power to proposal
-            proposal.aligned_power = proposal.aligned_power.checked_add(voting_power)?;            
-            //Add voter to aligned voters
-            proposal.aligned_voters.push(info.sender.clone());
-
             //If alignment is reached, move to active proposal state
             if proposal.aligned_power >= config.proposal_required_stake {
+
                 saved = true;
                 //Remove from pending proposals
                 PENDING_PROPOSALS.remove(deps.storage, proposal_id.to_string());
@@ -523,10 +557,11 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
     let mut removal_threshold: Decimal = Decimal::zero();
 
     if !total_voting_power.is_zero() {
-        //Aligned power must be subject to the config's quadratic voting setting 
-        //or reaching quorum becomes trival when quadratic voting is enabled
         if config.quadratic_voting {
-            proposal.aligned_power = Decimal::from_ratio(proposal.aligned_power, Uint128::one()).sqrt().to_uint_floor();
+            //Subtract the non-quadradic voting power from the alignment threshold
+            proposal.aligned_power = proposal.aligned_power.checked_sub(config.proposal_required_stake)?;
+            //Square root the alignment threshold & add to aligned power
+            proposal.aligned_power += Decimal::from_ratio(config.proposal_required_stake, Uint128::one()).sqrt().to_uint_floor();
         }
         //Calc proposal quorum
         proposal_quorum = Decimal::from_ratio(total_votes+proposal.aligned_power, total_voting_power);
@@ -874,7 +909,7 @@ pub fn calc_total_voting_power_at(
 
             total += vp;
         }            
-    }    
+    }
         
 
     Ok(total)

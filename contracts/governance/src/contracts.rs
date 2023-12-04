@@ -183,7 +183,7 @@ pub fn submit_proposal(
         msg: to_binary(&StakingQueryMsg::Delegations {
             limit: None,
             start_after: None,
-            user: None,
+            user: Some(info.clone().sender.to_string()),
         })?,
     }))?;
 
@@ -471,7 +471,7 @@ pub fn cast_vote(
                 //Add voter to aligned voters
                 proposal.aligned_voters.push(info.sender.clone());
 
-                //If this addition pushes the proposal over the threshold, square root & add the difference.
+                //If this addition pushes the proposal over the threshold, square root the difference & add to aligned_power.
                 ///
                 //Aligned power must be subject to the config's quadratic voting setting past the threshold
                 //or reaching quorum becomes trival when quadratic voting is enabled
@@ -1062,7 +1062,8 @@ pub fn calc_voting_power(
                 })
                 .sum();
             //Add delegated to user and subtract delegated from user
-            total += total_delegated_to_user - total_delegated_from_user;
+            total += total_delegated_to_user;
+            total -= total_delegated_from_user;
         },
         None => {}
     }

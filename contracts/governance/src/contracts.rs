@@ -427,7 +427,7 @@ pub fn cast_vote(
         proposal.removal_power = proposal.removal_power.checked_sub(voting_power)?;
     } else if let Some((vote, _)) = proposal.aligned_voters.clone().into_iter().enumerate().find(|(_, voter)| voter == &info.sender) {
         proposal.aligned_voters.remove(vote);
-        proposal.aligned_voters = proposal.aligned_power.checked_sub(voting_power)?;
+        proposal.aligned_power = proposal.aligned_power.checked_sub(voting_power)?;
     }
 
     match vote_option {

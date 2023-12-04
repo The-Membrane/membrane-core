@@ -178,14 +178,17 @@ pub fn submit_proposal(
         .stakers;
     
     //Query delegations
-    let delegations: Vec<DelegationResponse> = deps.querier.query::<Vec<DelegationResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
+    let delegations: Vec<DelegationResponse> = match deps.querier.query::<Vec<DelegationResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.staking_contract_addr.to_string(),
         msg: to_binary(&StakingQueryMsg::Delegations {
             limit: None,
             start_after: None,
             user: Some(info.clone().sender.to_string()),
         })?,
-    }))?;
+    })){
+        Ok(delegations) => delegations,
+        Err(_) => vec![], //If no delegations, set to empty vec
+    };
 
     //Validate voting power
     let voting_power = calc_voting_power(
@@ -1017,14 +1020,17 @@ pub fn calc_voting_power(
 
     // Query delegations if necessary
     if delegations.is_none(){
-        delegations = Some(querier.query::<Vec<DelegationResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
+        delegations = match querier.query::<Vec<DelegationResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.staking_contract_addr.to_string(),
             msg: to_binary(&StakingQueryMsg::Delegations {
                 limit: None,
                 start_after: None,
-                user: Some(sender.clone()),
+                user: Some(sender.clone().to_string()),
             })?,
-        }))?);
+        })){
+            Ok(delegations) => Some(delegations),
+            Err(_) => Some(vec![]), //If no delegations, set to empty vec
+        };
     }
     
     // Take square root of total stake if quadratic voting is enabled

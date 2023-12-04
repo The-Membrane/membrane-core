@@ -1072,7 +1072,10 @@ pub fn calc_voting_power(
                 .sum();
             //Add delegated to user and subtract delegated from user
             total += total_delegated_to_user;
-            total -= total_delegated_from_user;
+            total = match total.checked_sub(total_delegated_from_user){
+                Ok(total) => total,
+                Err(_) => Uint128::zero(),
+            };
         },
         None => {}
     }

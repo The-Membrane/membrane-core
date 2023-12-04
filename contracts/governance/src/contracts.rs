@@ -368,12 +368,12 @@ pub fn cast_vote(
     let mut recipient_addr: Addr = Addr::unchecked("");
 
     //Can't vote on your own proposal
-    if proposal.submitter == info.sender || proposal.aligned_voters.contains(&info.sender) {
+    if proposal.submitter == info.sender {
         return Err(ContractError::Unauthorized {});
     } else if let Some(recipient) = recipient.clone() {
         recipient_addr = deps.api.addr_validate(&recipient)?;
 
-        if proposal.submitter == recipient || proposal.aligned_voters.contains(&recipient_addr) {
+        if proposal.submitter == recipient {
             return Err(ContractError::Unauthorized {});
         }
     }
@@ -425,32 +425,35 @@ pub fn cast_vote(
     } else if let Some((vote, _)) = proposal.removal_voters.clone().into_iter().enumerate().find(|(_, voter)| voter == &info.sender) {
         proposal.removal_voters.remove(vote);
         proposal.removal_power = proposal.removal_power.checked_sub(voting_power)?;
+    } else if let Some((vote, _)) = proposal.aligned_voters.clone().into_iter().enumerate().find(|(_, voter)| voter == &info.sender) {
+        proposal.aligned_voters.remove(vote);
+        proposal.aligned_voters = proposal.aligned_power.checked_sub(voting_power)?;
     }
 
     match vote_option {
         ProposalVoteOption::For => {
-            if proposal.aligned_power < config.proposal_required_stake {
+            if pending {
                 return Err(ContractError::ProposalNotActive {});
             }
             proposal.for_power = proposal.for_power.checked_add(voting_power)?;
             proposal.for_voters.push(info.sender.clone());
         }
         ProposalVoteOption::Against => {
-            if proposal.aligned_power < config.proposal_required_stake {
+            if pending {
                 return Err(ContractError::ProposalNotActive {});
             }
             proposal.against_power = proposal.against_power.checked_add(voting_power)?;
             proposal.against_voters.push(info.sender.clone());
         }
         ProposalVoteOption::Amend => {
-            if proposal.aligned_power < config.proposal_required_stake {
+            if pending {
                 return Err(ContractError::ProposalNotActive {});
             }
             proposal.amendment_power = proposal.amendment_power.checked_add(voting_power)?;
             proposal.amendment_voters.push(info.sender.clone());
         }
         ProposalVoteOption::Remove => {
-            if proposal.aligned_power < config.proposal_required_stake {
+            if pending {
                 return Err(ContractError::ProposalNotActive {});
             }
             proposal.removal_power = proposal.removal_power.checked_add(voting_power)?;

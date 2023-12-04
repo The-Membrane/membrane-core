@@ -183,7 +183,7 @@ pub fn submit_proposal(
         msg: to_binary(&StakingQueryMsg::Delegations {
             limit: None,
             start_after: None,
-            user: Some(info.clone().sender.to_string()),
+            user: None,
         })?,
     })){
         Ok(delegations) => delegations,

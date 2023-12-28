@@ -1086,7 +1086,7 @@ pub fn calc_voting_power(
 }
 
 /// Create Osmosis Incentive Gauge.
-/// Uses osmosis-std to make it easier for contracts to execute osmosis messages.
+/// Uses osmosis-std to make it easier for Governance to execute osmosis messages.
 fn create_gauge(
     info: MessageInfo,
     env: Env,

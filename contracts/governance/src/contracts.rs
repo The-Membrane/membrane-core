@@ -5,6 +5,7 @@ use cosmwasm_std::{
     attr, entry_point, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
     MessageInfo, Order, QueryRequest, Response, StdResult, Uint128, Uint64, WasmMsg, WasmQuery, Storage, QuerierWrapper,
 };
+use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
 use cw2::set_contract_version;
 use cw_storage_plus::Bound;
 
@@ -128,6 +129,7 @@ pub fn execute(
             remove_completed_proposal(deps, env, proposal_id)
         }
         ExecuteMsg::UpdateConfig(config) => update_config(deps, env, info, config),
+        ExecuteMsg::CreateOsmosisGauge { gauge_msg } => create_gauge(info, env, gauge_msg),
     }
 }
 
@@ -1081,6 +1083,21 @@ pub fn calc_voting_power(
     }
     
     Ok(total)
+}
+
+/// Create Osmosis Incentive Gauge.
+/// Uses osmosis-std to make it easier for contracts to execute osmosis messages.
+fn create_gauge(
+    info: MessageInfo,
+    env: Env,
+    gauge_msg: MsgCreateGauge,
+) -> Result<Response, ContractError>{
+
+    // Only the Governance contract is allowed to utilize its assets (through a successful proposal)
+    if info.sender != env.contract.address {
+        return Err(ContractError::Unauthorized {});
+    }
+    Ok(Response::new().add_message(gauge_msg))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

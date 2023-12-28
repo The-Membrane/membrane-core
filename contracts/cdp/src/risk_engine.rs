@@ -83,7 +83,7 @@ pub fn update_basket_tally(
     
         //Assert new ratios aren't above Collateral Supply Caps. If so, error.
         for (i, ratio) in new_basket_ratios.clone().into_iter().enumerate() {
-            if basket.collateral_supply_caps != vec![] && ratio > basket.collateral_supply_caps[i].supply_cap_ratio && add_to_cAsset{
+            if basket.collateral_supply_caps != vec![] && ratio > basket.collateral_supply_caps[i].supply_cap_ratio && add_to_cAsset {
                 
                 return Err(ContractError::CustomError {
                     val: format!(
@@ -105,14 +105,14 @@ pub fn update_basket_tally(
 
                 
                 //Find & add ratio for each asset
-                for asset in multi_asset_cap.clone().assets{
+                for asset in multi_asset_cap.clone().assets {
                     if let Some((i, _cap)) = basket.clone().collateral_supply_caps.into_iter().enumerate().find(|(_i, cap)| cap.asset_info.equal(&asset)){
                         total_ratio += new_basket_ratios[i];
                     }
                 }
 
                 //Error if over cap
-                if total_ratio > multi_asset_cap.supply_cap_ratio {
+                if total_ratio > multi_asset_cap.supply_cap_ratio && add_to_cAsset {
                     return Err(ContractError::CustomError {
                         val: format!(
                             "Multi-Asset supply cap ratio for {:?} is over the limit ({} > {})",

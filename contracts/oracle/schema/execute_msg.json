@@ -245,6 +245,13 @@
           "items": {
             "$ref": "#/definitions/TWAPPoolInfo"
           }
+        },
+        "pyth_price_feed_id": {
+          "description": "Pyth price feed ID",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "additionalProperties": false

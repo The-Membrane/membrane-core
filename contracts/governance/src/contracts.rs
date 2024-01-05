@@ -171,7 +171,7 @@ pub fn submit_proposal(
         .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.staking_contract_addr.to_string(),
             msg: to_binary(&StakingQueryMsg::Staked {
-                limit: None,
+                limit: Some(1024),
                 start_after: None,
                 end_before: Some(env.block.time.seconds()),
                 unstaking: false,
@@ -183,7 +183,7 @@ pub fn submit_proposal(
     let delegations: Vec<DelegationResponse> = match deps.querier.query::<Vec<DelegationResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.staking_contract_addr.to_string(),
         msg: to_binary(&StakingQueryMsg::Delegations {
-            limit: Some(256),
+            limit: Some(1024),
             start_after: None,
             user: None,
         })?,

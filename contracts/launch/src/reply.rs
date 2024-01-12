@@ -101,6 +101,7 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
                     owner: None,
                     positions_contract: None,
                     osmosis_proxy_contract: None,
+                    oracle_contract: None,
                 })?, 
                 funds: vec![], 
                 label: String::from("oracle"), 

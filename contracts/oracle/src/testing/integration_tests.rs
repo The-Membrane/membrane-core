@@ -226,16 +226,8 @@ mod tests {
 
         #[test]
         fn add_edit() {
-            panic!("{:?}", PriceResponse {
-                prices: vec![PriceInfo {
-                    price: Decimal::one(),
-                    source: String::from("osmosis"),
-                }],
-                price: Decimal::from_ratio(Uint128::one(), Uint128::from(1u128)),
-                decimals: 18,
-            }.get_value(340_280_000_000_000_000_000_000_000_001u128.into()));
 
-            let (mut app, oracle_contract, cdp_contract) = proper_instantiate();
+            let (mut app, oracleContract, cdp_contract) = proper_instantiate();
 
             //Unauthorized AddAsset
             let msg = ExecuteMsg::AddAsset {
@@ -255,7 +247,7 @@ mod tests {
                     pyth_price_feed_id: None,
                 },
             };
-            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
             //Successful AddAsset for Basket 1
@@ -276,7 +268,7 @@ mod tests {
                     pyth_price_feed_id: None,
                 },
             };
-            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Successful AddAsset for Basket 2
@@ -297,8 +289,53 @@ mod tests {
                     pyth_price_feed_id: None,
                 },
             };
-            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            
+            //Instantiate a new Oracle contract to test asset copy
+            //Instantiate Oracle contract
+            let oracle_id = app.store_code(oracle_contract());
+
+            let msg = InstantiateMsg {
+                owner: None,
+                positions_contract: None,
+                osmosis_proxy_contract: None,
+                oracle_contract: Some(oracleContract.addr().to_string()),
+            };
+
+            let oracle_contract_addr = app
+                .instantiate_contract(oracle_id, Addr::unchecked(ADMIN), &msg, &[], "test", None)
+                .unwrap();
+
+            let oracle_contract_2 = OracleContract(oracle_contract_addr);
+
+            //Query Assets
+            let assets: Vec<AssetResponse> = app
+                .wrap()
+                .query_wasm_smart(
+                    oracle_contract_2.addr(),
+                    &QueryMsg::Assets {
+                        asset_infos: vec![
+                            AssetInfo::NativeToken {
+                                denom: String::from("credit_fulldenom"),
+                            },                            
+                            AssetInfo::NativeToken {
+                                denom: String::from("removable"),
+                            }
+                        ],
+                    },
+                )
+                .unwrap();
+            //Query Config
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    oracle_contract_2.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            panic!("{:?} === {:?}", assets, config);
 
 
             //Successful EditAsset
@@ -320,14 +357,14 @@ mod tests {
                 }),
                 remove: false,
             };
-            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
             app.execute(cdp_contract.clone(), cosmos_msg).unwrap();
 
             //Assert Asset was edited
             let asset: Vec<AssetResponse> = app
                 .wrap()
                 .query_wasm_smart(
-                    oracle_contract.addr(),
+                    oracleContract.addr(),
                     &QueryMsg::Assets {
                         asset_infos: vec![AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
@@ -355,7 +392,7 @@ mod tests {
                     pyth_price_feed_id: None,
                 },
             };
-            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
            
 
@@ -367,13 +404,13 @@ mod tests {
                 oracle_info: None,
                 remove: true,
             };
-            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
             app.execute(cdp_contract, cosmos_msg).unwrap();
 
             //Assert Asset was removed
             app.wrap()
                 .query_wasm_smart::<Vec<AssetResponse>>(
-                    oracle_contract.addr(),
+                    oracleContract.addr(),
                     &QueryMsg::Assets {
                         asset_infos: vec![AssetInfo::NativeToken {
                             denom: String::from("removable"),
@@ -539,12 +576,19 @@ mod tests {
         fn scaling_test() {
             // let amount = Decimal::from_ratio(Uint128::new(999_187_931_653_491_861_157), Uint128::new(1));
             // let price = decimal_multiplication(Decimal::from_str("0.000000000000001954").unwrap(), amount).unwrap();
-
             
-            let quote_price;
+            // panic!("{:?}", PriceResponse {
+            //     prices: vec![PriceInfo {
+            //         price: Decimal::one(),
+            //         source: String::from("osmosis"),
+            //     }],
+            //     price: Decimal::from_ratio(Uint128::one(), Uint128::from(1u128)),
+            //     decimals: 18,
+            // }.get_value(340_280_000_000_000_000_000_000_000_001u128.into()));
+            
             let price = 123;
             let price_response = PriceResponse {
-                price_infos: vec![],
+                prices: vec![],
                 price: Decimal::from_str(&price.to_string()).unwrap(),
                 decimals: 18,
             };

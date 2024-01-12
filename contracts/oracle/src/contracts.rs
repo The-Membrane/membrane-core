@@ -13,7 +13,7 @@ use osmosis_std::types::osmosis::twap::v1beta1 as TWAP;
 use membrane::math::{decimal_division, decimal_multiplication, Decimal256, Uint256};
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::osmosis_proxy::{QueryMsg as OP_QueryMsg, Config as OP_Config};
-use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg, PriceResponse256};
+use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg, PriceResponse256, self};
 use membrane::types::{AssetInfo, AssetOracleInfo, PriceInfo, Basket, TWAPPoolInfo, PoolInfo, Owner, PoolStateResponse};
 
 use crate::error::ContractError;
@@ -69,10 +69,7 @@ pub fn instantiate(
     //Copy oracle info from another oracle contract
     if let Some(oracle_contract) = msg.oracle_contract {
         let oracle_config: Config = deps.querier.query_wasm_smart(deps.api.addr_validate(&oracle_contract)?, &QueryMsg::Config {  })?;
-        config.osmosis_proxy_contract = oracle_config.osmosis_proxy_contract;
-        config.pyth_osmosis_address = oracle_config.pyth_osmosis_address;
-        config.osmo_usd_pyth_feed_id = oracle_config.osmo_usd_pyth_feed_id;
-        config.pools_for_usd_par_twap = oracle_config.pools_for_usd_par_twap;
+        config = oracle_config.clone();
 
         //Query all assets from oracle contract
         let assets: Vec<AssetResponse> = deps.querier.query_wasm_smart(deps.api.addr_validate(&oracle_contract)?, &QueryMsg::Assets { asset_infos: vec![
@@ -279,8 +276,8 @@ fn add_asset(
 
             
             //Test the new price source
-            let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id));
-            attrs.push(attr("price", format!("{:?}", price)));
+            // let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id));
+            // attrs.push(attr("price", format!("{:?}", price)));
         }
         Ok(oracles) => {
             //Save oracle to asset, no duplicates
@@ -305,8 +302,8 @@ fn add_asset(
 
                 
                 //Test the new price source
-                let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id));
-                attrs.push(attr("price", format!("{:?}", price)));
+                // let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id));
+                // attrs.push(attr("price", format!("{:?}", price)));
             } else {
                 return Err(ContractError::DuplicateOracle { basket_id: oracle_info.basket_id.to_string()});
             }

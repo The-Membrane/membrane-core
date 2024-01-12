@@ -66,6 +66,46 @@ pub fn instantiate(
     if let Some(osmosis_proxy) = msg.osmosis_proxy_contract {
         config.osmosis_proxy_contract = Some(deps.api.addr_validate(&osmosis_proxy)?);
     }
+    //Copy oracle info from another oracle contract
+    if let Some(oracle_contract) = msg.oracle_contract {
+        let oracle_config: Config = deps.querier.query_wasm_smart(deps.api.addr_validate(&oracle_contract)?, &QueryMsg::Config {  })?;
+        config.osmosis_proxy_contract = oracle_config.osmosis_proxy_contract;
+        config.pyth_osmosis_address = oracle_config.pyth_osmosis_address;
+        config.osmo_usd_pyth_feed_id = oracle_config.osmo_usd_pyth_feed_id;
+        config.pools_for_usd_par_twap = oracle_config.pools_for_usd_par_twap;
+
+        //Query all assets from oracle contract
+        let assets: Vec<AssetResponse> = deps.querier.query_wasm_smart(deps.api.addr_validate(&oracle_contract)?, &QueryMsg::Assets { asset_infos: vec![
+            //ATOM
+            AssetInfo::NativeToken { denom: "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2".to_string() },
+            //OSMO
+            AssetInfo::NativeToken { denom: "uosmo".to_string() },
+            //CDT
+            AssetInfo::NativeToken { denom: "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt".to_string() },
+            //CDT LP
+            AssetInfo::NativeToken { denom: "gamm/pool/1226".to_string() },
+            //axlUSDC
+            AssetInfo::NativeToken { denom: "ibc/D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858".to_string() },
+            //ATOM OSMO LP
+            AssetInfo::NativeToken { denom: "gamm/pool/1".to_string() },
+            //OSMO axlUSDC LP
+            AssetInfo::NativeToken { denom: "gamm/pool/678".to_string() },
+            //USDC
+            AssetInfo::NativeToken { denom: "ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4".to_string() },
+            //stATOM
+            AssetInfo::NativeToken { denom: "ibc/C140AFD542AE77BD7DCC83F13FDD8C5E5BB8C4929785E6EC2F4C636F98F17901".to_string() },
+            //stOSMO
+            AssetInfo::NativeToken { denom: "ibc/D176154B0C63D1F9C6DCFB4F70349EBF2E2B5A87A05902F57A6AE92B863E9AEC".to_string() },
+            //TIA
+            AssetInfo::NativeToken { denom: "ibc/D79E7D83AB399BFFF93433E54FAA480C191248FC556924A2A8351AE2638B3877".to_string() },
+            //USDT
+            AssetInfo::NativeToken { denom: "ibc/4ABBEF4C8926DDDB320AE5188CFD63267ABBCEFC0583E4AE05D6E5AA2401DDAB".to_string() },
+        ] })?;
+        //Save all queried assets
+        for asset in assets {
+            ASSETS.save(deps.storage, asset.asset_info.to_string(), &asset.oracle_info)?;
+        }
+    }
 
     CONFIG.save(deps.storage, &config)?;
 

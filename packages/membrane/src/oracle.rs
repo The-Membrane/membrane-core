@@ -15,6 +15,8 @@ pub struct InstantiateMsg {
     pub positions_contract: Option<String>,
     /// Osmosis Proxy contract address
     pub osmosis_proxy_contract: Option<String>,
+    /// Oracle contract address, used to copy oracle info
+    pub oracle_contract: Option<String>,
 }
 
 #[cw_serde]

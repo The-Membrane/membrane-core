@@ -201,6 +201,7 @@ mod tests {
             owner: None,
             positions_contract: Some(cdp_contract_addr.to_string()),
             osmosis_proxy_contract: Some(osmosis_proxy_contract_addr.to_string()),
+            oracle_contract: None,
         };
 
         let oracle_contract_addr = app
@@ -536,28 +537,34 @@ mod tests {
 
         #[test]
         fn scaling_test() {
-            let amount = Decimal::from_ratio(Uint128::new(187931653491861157), Uint128::new(1));
-            let price = decimal_multiplication(Decimal::from_str("0.000000000000001954").unwrap(), amount).unwrap();
+            // let amount = Decimal::from_ratio(Uint128::new(999_187_931_653_491_861_157), Uint128::new(1));
+            // let price = decimal_multiplication(Decimal::from_str("0.000000000000001954").unwrap(), amount).unwrap();
+
             
             let quote_price;
-            let price = 78574968;
-            let expo: i32 = -6;
-            //Scale price using given exponent
-            match expo > 0 {
-                true => {
-                    quote_price = decimal_multiplication(
-                        Decimal::from_str(&price.to_string()).unwrap(), 
-                        Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(expo as u32).unwrap()
-                    ).unwrap();
-                },
-                //If the exponent is negative we divide, it should be for most if not all
-                false => {
-                    quote_price = decimal_division(
-                        Decimal::from_str(&price.to_string()).unwrap(), 
-                        Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow((expo*-1) as u32).unwrap()
-                    ).unwrap();
-                }
+            let price = 123;
+            let price_response = PriceResponse {
+                price_infos: vec![],
+                price: Decimal::from_str(&price.to_string()).unwrap(),
+                decimals: 18,
             };
+            panic!("{:?}", price_response.get_value(340_280_000_000_000_000_000_000_000_001u128.into()));
+            //Scale price using given exponent
+            // match expo > 0 {
+            //     true => {
+            //         quote_price = decimal_multiplication(
+            //             Decimal::from_str(&price.to_string()).unwrap(), 
+            //             Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(expo as u32).unwrap()
+            //         ).unwrap();
+            //     },
+            //     //If the exponent is negative we divide, it should be for most if not all
+            //     false => {
+            //         quote_price = decimal_division(
+            //             Decimal::from_str(&price.to_string()).unwrap(), 
+            //             Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow((expo*-1) as u32).unwrap()
+            //         ).unwrap();
+            //     }
+            // };
         }
 
         #[test]

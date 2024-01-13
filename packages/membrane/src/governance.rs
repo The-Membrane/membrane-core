@@ -1,5 +1,5 @@
 use cosmwasm_std::{Addr, CosmosMsg, Decimal, StdError, StdResult, Uint128, Uint64};
-use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
+use osmosis_std::types::osmosis::incentives::{MsgCreateGauge, MsgAddToGauge};
 use cosmwasm_schema::cw_serde;
 use std::fmt::{Display, Formatter, Result};
 use std::ops::RangeInclusive;
@@ -107,6 +107,8 @@ pub enum ExecuteMsg {
     UpdateConfig(UpdateConfig),
     /// Use osmosis-std to create a gauge with assets in this contract
     CreateOsmosisGauge { gauge_msg: MsgCreateGauge },
+    /// Use osmosis-std to add to a gauge, owned by this contract, with assets in this contract
+    AddToOsmosisGauge { gauge_msg: MsgAddToGauge },
 }
 
 /// Thie enum describes all the queries available in the contract.

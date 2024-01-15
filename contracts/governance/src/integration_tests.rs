@@ -385,7 +385,7 @@ mod tests {
             mbrn_staking_contract_addr: staking_contract_addr.to_string(),
             vesting_contract_addr: bv_contract_addr.to_string(),
             vesting_voting_power_multiplier: Decimal::percent(33),
-            proposal_voting_period: PROPOSAL_VOTING_PERIOD,
+            proposal_voting_period: PROPOSAL_VOTING_PERIOD+1,
             expedited_proposal_voting_period: PROPOSAL_VOTING_PERIOD,
             proposal_effective_delay: PROPOSAL_EFFECTIVE_DELAY,
             proposal_expiration_period: PROPOSAL_EXPIRATION_PERIOD,
@@ -1153,6 +1153,83 @@ mod tests {
             assert_eq!(res.proposal_count, Uint64::from(1u32));
 
             
+        }
+
+        #[test]
+        fn expedited_proposal(){
+            let (mut app, gov_contract, bv_contract_addr) = proper_instantiate();
+
+            //Submit Proposal
+            let msg = ExecuteMsg::SubmitProposal {
+                title: "Test title!".to_string(),
+                description: "Test description!".to_string(),
+                link: Some(String::from("https://some.link/linker")),
+                messages: Some(vec![ProposalMessage {
+                    order: Uint64::new(1u64),
+                    msg: cosmwasm_std::CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: gov_contract.addr().to_string(),
+                        msg: to_binary(&ExecuteMsg::UpdateConfig(UpdateConfig {
+                            mbrn_denom: None,
+                            staking_contract: None,
+                            vesting_contract_addr: None,
+                            vesting_voting_power_multiplier: None,
+                            minimum_total_stake: None,
+                            proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
+                            expedited_proposal_voting_period: Some(PROPOSAL_VOTING_PERIOD + 1000),
+                            proposal_effective_delay: None,
+                            proposal_expiration_period: None,
+                            proposal_required_stake: None,
+                            proposal_required_quorum: None,
+                            proposal_required_threshold: None,
+                            whitelist_add: Some(vec![
+                                "https://some1.link/".to_string(),
+                                "https://some2.link/".to_string(),
+                            ]),
+                            whitelist_remove: Some(vec!["https://some.link/".to_string()]),
+                            quadratic_voting: None,
+                        }))
+                        .unwrap(),
+                        funds: vec![],
+                    }),
+                }]),
+                recipient: Some(String::from("recipient")),
+                expedited: true,
+            };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("recipient"), cosmos_msg).unwrap();
+
+            //Query proposal to assert voting period
+            let proposal: Proposal = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::Proposal { proposal_id: 1 },
+                )
+                .unwrap();
+            assert_eq!(proposal.start_block + (14400), proposal.end_block);
+
+            //End Proposal without passing quorum
+            app.update_block(|bi| {
+                bi.height += 14400 + 1;
+                bi.time = bi.time.plus_seconds(6 * (14400 + 1));
+            });
+            let msg = ExecuteMsg::EndProposal { proposal_id: 1u64 };
+            let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Query proposal to assert:
+            //- extended voting period
+            //- Active status
+            let proposal: Proposal = app
+                .wrap()
+                .query_wasm_smart(
+                    gov_contract.addr(),
+                    &QueryMsg::Proposal { proposal_id: 1 },
+                )
+                .unwrap();
+            assert_eq!(proposal.start_block + (14400+1), proposal.end_block);
+            assert_eq!(proposal.status, ProposalStatus::Active);
+
         }
 
         #[test]

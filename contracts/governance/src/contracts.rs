@@ -321,7 +321,7 @@ pub fn submit_proposal(
     //If proposal has insufficient alignment, send to pending
     if proposal.aligned_power < config.proposal_required_stake {
         //Set end block to 1 day from now
-        proposal.end_block = env.block.height + 14400;
+        proposal.end_block = env.block.height + BLOCKS_PER_DAY;
         PENDING_PROPOSALS.save(deps.storage, count.to_string(), &proposal)?;
     } else {
         PROPOSALS.save(deps.storage, count.to_string(), &proposal)?;
@@ -590,22 +590,27 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
     
     let mut removed = false;
     // Determine the proposal result
-    proposal.status = if proposal_quorum >= config.proposal_required_quorum
-        && for_threshold > config.proposal_required_threshold
-    {
-        ProposalStatus::Passed
-    } //Amend check
-    else if proposal_quorum >= config.proposal_required_quorum
-        && amend_threshold > config.proposal_required_threshold {
-        ProposalStatus::AmendmentDesired
-    } // Removal check
-    else if proposal_quorum >= config.proposal_required_quorum
-        && removal_threshold > config.proposal_required_quorum {
-        //Remove from state
-        PROPOSALS.remove(deps.storage, proposal_id.to_string());
-        removed = true;
+    proposal.status = if proposal_quorum >= config.proposal_required_quorum {
+        //For check
+        if for_threshold >= config.proposal_required_threshold {
+            ProposalStatus::Passed
+        } //Amend check
+        else if amend_threshold >= config.proposal_required_threshold {
+            ProposalStatus::AmendmentDesired
+        } // Removal check
+        else if removal_threshold >= config.proposal_required_threshold {            
+            //Remove from state
+            PROPOSALS.remove(deps.storage, proposal_id.to_string());
+            removed = true;
 
-        ProposalStatus::Rejected
+            ProposalStatus::Rejected
+        } else {
+            ProposalStatus::Rejected
+        }
+    } //If didn't hit quorum & is expedited, extend end block the normal voting period
+    else if proposal.end_block - proposal.start_block == config.expedited_proposal_voting_period { 
+        proposal.end_block = proposal.start_block + config.proposal_voting_period;
+        ProposalStatus::Active
     } else {
         ProposalStatus::Rejected
     };

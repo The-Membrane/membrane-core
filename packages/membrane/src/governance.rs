@@ -109,6 +109,8 @@ pub enum ExecuteMsg {
     CreateOsmosisGauge { gauge_msg: MsgCreateGauge },
     /// Use osmosis-std to add to a gauge, owned by this contract, with assets in this contract
     AddToOsmosisGauge { gauge_msg: MsgAddToGauge },
+    //Freeze positions contract
+    FreezePositions { },
 }
 
 /// Thie enum describes all the queries available in the contract.

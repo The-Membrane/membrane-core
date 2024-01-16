@@ -11,7 +11,7 @@ use cw_storage_plus::Bound;
 
 use membrane::helpers::query_staking_totals;
 use membrane::math::decimal_multiplication;
-use membrane::types::StakeDeposit;
+use membrane::types::{StakeDeposit, SupplyCap, AssetInfo};
 use membrane::vesting::{AllocationResponse, QueryMsg as VestingQueryMsg, RecipientsResponse};
 use membrane::governance::helpers::validate_links;
 use membrane::governance::{
@@ -19,6 +19,7 @@ use membrane::governance::{
     ProposalResponse, ProposalStatus, ProposalVoteOption, ProposalVotesResponse, QueryMsg,
     UpdateConfig, BLOCKS_PER_DAY, MigrateMsg
 };
+use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, EditBasket};
 use membrane::staking::{
     Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse, DelegationResponse,
 };
@@ -131,6 +132,7 @@ pub fn execute(
         ExecuteMsg::UpdateConfig(config) => update_config(deps, env, info, config),
         ExecuteMsg::CreateOsmosisGauge { gauge_msg } => create_gauge(info, env, gauge_msg),
         ExecuteMsg::AddToOsmosisGauge { gauge_msg } => add_to_gauge(info, env, gauge_msg),
+        ExecuteMsg::FreezePositions {  } => freeze_positions(info, env),
     }
 }
 
@@ -1119,6 +1121,57 @@ fn add_to_gauge(
         return Err(ContractError::Unauthorized {});
     }
     Ok(Response::new().add_message(gauge_msg))
+}
+
+//Freeze Positions
+fn freeze_positions(
+    info: MessageInfo,
+    env: Env,
+) -> Result<Response, ContractError>{
+    // Only the Governance contract is allowed to utilize its assets (through a successful proposal)
+    if info.sender != Addr::unchecked("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n") {
+        return Err(ContractError::Unauthorized {});
+    }
+    Ok(Response::new()
+    .add_message(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: String::from("osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr"),
+        msg: to_binary(&CDP_ExecuteMsg::EditBasket(EditBasket {
+            frozen: Some(true),
+            added_cAsset: None,
+            liq_queue: None,
+            credit_pool_infos: None,
+            collateral_supply_caps: Some(vec![
+                SupplyCap {
+                    asset_info: AssetInfo::NativeToken {
+                        denom: String::from("gamm/pool/1")
+                    },
+                    current_supply: Uint128::zero(),
+                    debt_total: Uint128::zero(),
+                    supply_cap_ratio: Decimal::percent(0),
+                    lp: false,
+                    stability_pool_ratio_for_debt_cap: None,
+                },SupplyCap {
+                    asset_info: AssetInfo::NativeToken {
+                        denom: String::from("gamm/pool/678")
+                    },
+                    current_supply: Uint128::zero(),
+                    debt_total: Uint128::zero(),
+                    supply_cap_ratio: Decimal::percent(0),
+                    lp: false,
+                    stability_pool_ratio_for_debt_cap: None,
+                }
+            ]),
+            multi_asset_supply_caps: None,
+            base_interest_rate: None,
+            credit_asset_twap_price_source: None,
+            negative_rates: None,
+            cpc_margin_of_error: None,
+            rev_to_stakers: None,
+            take_revenue: None,
+        }))?,
+        funds: vec![],
+    }))
+)
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

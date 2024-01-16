@@ -577,14 +577,14 @@ mod tests {
             // let amount = Decimal::from_ratio(Uint128::new(999_187_931_653_491_861_157), Uint128::new(1));
             // let price = decimal_multiplication(Decimal::from_str("0.000000000000001954").unwrap(), amount).unwrap();
             
-            // panic!("{:?}", PriceResponse {
-            //     prices: vec![PriceInfo {
-            //         price: Decimal::one(),
-            //         source: String::from("osmosis"),
-            //     }],
-            //     price: Decimal::from_ratio(Uint128::one(), Uint128::from(1u128)),
-            //     decimals: 18,
-            // }.get_value(340_280_000_000_000_000_000_000_000_001u128.into()));
+            panic!("{:?}", PriceResponse {
+                prices: vec![PriceInfo {
+                    price: Decimal::from_str("0.33460022928606451").unwrap(),
+                    source: String::from("osmosis"),
+                }],
+                price: Decimal::from_str("0.33460022928606451").unwrap(),
+                decimals: 18,
+            }.get_value(15984828147841759232u128.into()));
             
             let price = 123;
             let price_response = PriceResponse {

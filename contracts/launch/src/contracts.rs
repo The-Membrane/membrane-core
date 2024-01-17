@@ -1067,26 +1067,45 @@ pub fn end_of_launch(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Query Vesting contract for Recipients
+    
     let vesting = ADDRESSES.load(deps.storage)?.vesting;
 
-    let recipients = deps
-            .querier
-            .query::<RecipientsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: vesting.to_string(),
-                msg: to_binary(&VestingQueryMsg::Recipients {  })?,
-            }))?;
+    //Add recipients to vesting contract
+    let pre_launch_community =  vec![
+        "osmo1ssgz49n7a6uc0xvxwmx59t60mgktnk238m5yf0",
+        "osmo1d9ryqp7yfmr92vkk2yal96824pewf2g5wx0h2r",
+        "osmo10k0qxqh39fwk2khv49g0n673kfqwe778f09ffg",
+        "osmo1ks3p0rtxkph9us3rg5z3as2hl4gfq4fua5d0vh",
+        "osmo1xaaxw8xzyxh6cflqd4g2xqmypsa4x8hzl8t4nc",
+        "osmo1dxrfdpxju5jmcqz3lffn5qj4kqvtpuvjdet49z",
+        "osmo1w7tql40ad8m4hzw65ahlcgd72vm4zwfq6uw68j",
+        "osmo1t7f0rmcjxvmdmftsfsy66k2yny9zq703hwa9qg",
+        "osmo1vg5gzyfqfnqz7l6hqh307q9mczjrns266a2q06",
+        "osmo1pgsya6vgfr0rzxuc24wn5t3x9azy6r83mumygz"
+    ];
+    let founder = "osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n";
+
+    //Subtract 99 days from first vesting date.
+    //PLC: 0 cliff 266 linear 
+    //Founder: 631 cliff 365 linear
+
+    // let recipients = deps
+    //         .querier
+    //         .query::<RecipientsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    //             contract_addr: vesting.to_string(),
+    //             msg: to_binary(&VestingQueryMsg::Recipients {  })?,
+    //         }))?;
     
     let mut msgs: Vec<CosmosMsg> = vec![];
     //Loop through Recipients to create removal messages
-    for recipient in recipients.recipients {
-        let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-            contract_addr: vesting.to_string(), 
-            msg: to_binary(&VestingExecuteMsg::RemoveRecipient { recipient: recipient.recipient })?, 
-            funds: vec![], 
-        });
-        msgs.push(msg);
-    }
+    // for recipient in recipients.recipients {
+    //     let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+    //         contract_addr: vesting.to_string(), 
+    //         msg: to_binary(&VestingExecuteMsg::RemoveRecipient { recipient: recipient.recipient })?, 
+    //         funds: vec![], 
+    //     });
+    //     msgs.push(msg);
+    // }
 
     Ok(Response::new().add_messages(msgs))
 }

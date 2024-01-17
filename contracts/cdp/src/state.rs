@@ -54,6 +54,12 @@ pub struct ClosePositionPropagation {
     pub position_info: UserInfo,
     pub send_to: Option<String>,
 }
+#[cw_serde]
+pub struct Timer {
+    pub start_time: u64,
+    pub end_time: u64,
+}
+
 pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 
 pub const CONFIG: Item<Config> = Item::new("config");
@@ -71,6 +77,8 @@ pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
 pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");
 pub const LIQUIDATION: Item<LiquidationPropagation> = Item::new("repay_propagation");
 pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");
+//Freeze Timer
+pub const FREEZE_TIMER: Item<Timer> = Item::new("freeze_timer");
 
 //Helper functions
 /// Update asset claims a Position has

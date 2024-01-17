@@ -17,8 +17,9 @@ use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, Pool
 use crate::error::ContractError; 
 use crate::positions::{BAD_DEBT_REPLY_ID, ROUTER_REPLY_ID, STABILITY_POOL_REPLY_ID, USER_SP_REPAY_REPLY_ID, LIQ_QUEUE_REPLY_ID};
 use crate::query::{insolvency_check, get_cAsset_ratios};
-use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation, get_target_position};
+use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation, get_target_position, FREEZE_TIMER, Timer};
 
+pub const SECONDS_PER_DAY: u64 = 86400;
 
 /// Confirms insolvency and calculates repayment amount,
 /// then sends liquidation messages to the modules if they have funds.
@@ -34,26 +35,42 @@ pub fn liquidate(
     position_owner: String,
 ) -> Result<Response, ContractError> {
     //Check for Osmosis downtime 
-    match DowntimedetectorQuerier::new(&querier)
-        .recovered_since_downtime_of_length(
-            10 * 60 * 8, //8 hours from 6 second blocks
-            Some(Duration {
-                seconds: 60 * 60, //1 hour
-                nanos: 0,
-            })
-    ){
-        Ok(resp) => {            
-            if !resp.succesfully_recovered {
-                return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
-            }
+    // match DowntimedetectorQuerier::new(&querier)
+    //     .recovered_since_downtime_of_length(
+    //         10 * 60 * 8, //8 hours from 6 second blocks
+    //         Some(Duration {
+    //             seconds: 60 * 60, //1 hour
+    //             nanos: 0,
+    //         })
+    // ){
+    //     Ok(resp) => {            
+    //         if !resp.succesfully_recovered {
+    //             return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
+    //         }
+    //     },
+    //     Err(_) => (),
+    // };
+
+    let basket: Basket = BASKET.load(storage)?;
+    //Check if frozen
+    if basket.frozen {
+        return Err(ContractError::Frozen {});
+    }
+
+    //Check contract downtime
+    let freeze_timer = match FREEZE_TIMER.load(storage){
+        Ok(timer) => timer,
+        Err(_) => Timer {
+            start_time: 0,
+            end_time: 0,
         },
-        Err(_) => (),
     };
+    if (env.block.time.seconds() - freeze_timer.end_time) < (SECONDS_PER_DAY/2){ //12 hour grace
+        return Err(ContractError::Std(StdError::GenericErr { msg: format!("You can liquidate in {} seconds, there is a post-freeze grace period", (SECONDS_PER_DAY/2) - (env.block.time.seconds() - freeze_timer.end_time)) }));
+    }
 
     //Load state
     let config: Config = CONFIG.load(storage)?;
-
-    let basket: Basket = BASKET.load(storage)?;
     let valid_position_owner =
         validate_position_owner(api, info.clone(), Some(position_owner.clone()))?;
 

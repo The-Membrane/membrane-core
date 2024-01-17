@@ -11,6 +11,7 @@ use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::helpers::assert_sent_native_token_balance;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, MigrateMsg};
+use membrane::oracle::PriceResponse;
 use membrane::types::{
     cAsset, Asset, AssetInfo, Basket, UserInfo,
 };
@@ -27,12 +28,12 @@ use crate::positions::{
 };
 use crate::query::{
     query_basket_credit_interest, query_basket_debt_caps,
-    query_basket_positions, query_collateral_rates, query_basket_redeemability,
+    query_basket_positions, query_collateral_rates, query_basket_redeemability, query_price,
 };
 use crate::liquidations::liquidate;
 use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_router_repayment_reply};
 use crate::state::{ CONTRACT, ContractVersion,
-    BASKET, CONFIG, get_target_position, update_position, OWNERSHIP_TRANSFER, POSITIONS,
+    BASKET, CONFIG, get_target_position, update_position, OWNERSHIP_TRANSFER, POSITIONS, Timer, FREEZE_TIMER,
 };
 
 // version info for migration info
@@ -233,7 +234,7 @@ pub fn execute(
             max_borrow_LTV,
             max_LTV,
         } => edit_cAsset(deps, info, asset, max_borrow_LTV, max_LTV),
-        ExecuteMsg::EditBasket(edit) => edit_basket(deps, info,edit),
+        ExecuteMsg::EditBasket(edit) => edit_basket(deps, env, info,edit),
         ExecuteMsg::Liquidate {
             position_id,
             position_owner,
@@ -598,9 +599,27 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     basket.credit_asset.amount = actual_total_debt;
     //Set rates last accrued to now for safety
     basket.rates_last_accrued = env.block.time.seconds();
-
     //Save basket
     BASKET.save(deps.storage, &basket)?;
+
+    //Instantiate FreezeTimer
+    let freeze_timer = Timer {
+        start_time: 0,
+        end_time: 0,
+    };
+    FREEZE_TIMER.save(deps.storage, &freeze_timer)?;
+
+    /////Test LP Price
+    //Load config
+    let config: Config = CONFIG.load(deps.storage)?;    
+
+    //Query LP price
+    let lp_price: PriceResponse = query_price(deps.storage, deps.querier, env, config, AssetInfo::NativeToken { denom: String::from("gamm/pool/1") }, false).unwrap_or_else(|_| PriceResponse {
+        price: Decimal::zero(),
+        prices: vec![],
+        decimals: 18,
+    });
+    let lp_value = lp_price.get_value(15984812163013611391u128.into())?;
 
     //Sanity check
     //- Interest rate for gamm went wild due to supply cap overage bc of the pricing mishap
@@ -609,5 +628,5 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     //- basket.credit_asset amount also added accrued debt
     //---- basket.collateral_assets amounts are correct, debt/supply caps will fix once price fixes
     //- rate index also went wild but should'nt accrue high interest again bc the new rate will decrease with the new price/supply caps (but we make sure to skip acrual just incase)
-    Ok(Response::default())
+    Ok(Response::default().add_attribute("lp_value", lp_value.to_string()))
 }

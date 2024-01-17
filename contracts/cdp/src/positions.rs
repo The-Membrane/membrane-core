@@ -26,7 +26,7 @@ use membrane::types::{
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
 use crate::rates::accrue;
 use crate::risk_engine::update_basket_tally;
-use crate::state::{BASKET, get_target_position, update_position_claims, REDEMPTION_OPT_IN, update_position, ClosePositionPropagation, CLOSE_POSITION};
+use crate::state::{BASKET, get_target_position, update_position_claims, REDEMPTION_OPT_IN, update_position, ClosePositionPropagation, CLOSE_POSITION, FREEZE_TIMER, Timer};
 use crate::{
     state::{
         WithdrawPropagation, CONFIG, POSITIONS, LIQUIDATION, WITHDRAW,
@@ -62,6 +62,9 @@ pub fn deposit(
     let config = CONFIG.load(deps.storage)?;
     let valid_owner_addr = validate_position_owner(deps.api, info, position_owner)?;
     let mut basket: Basket = BASKET.load(deps.storage)?;
+    
+    //Check if frozen
+    if basket.frozen { return Err(ContractError::Frozen {  }) }
 
     //Set deposit_amounts to double check state storage 
     let deposit_amounts: Vec<Uint128> = cAssets.clone()
@@ -512,6 +515,9 @@ pub fn repay(
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(storage)?;
     let mut basket: Basket = BASKET.load(storage)?;
+
+    //Check if frozen
+    if basket.frozen { return Err(ContractError::Frozen {  }) }
 
     //Validate position owner 
     let valid_owner_addr = validate_position_owner(api, info.clone(), position_owner)?;
@@ -1695,6 +1701,7 @@ pub fn create_basket(
 /// Validates parameters and updates the basket.
 pub fn edit_basket(
     deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     editable_parameters: EditBasket,
 ) -> Result<Response, ContractError> {
@@ -1996,6 +2003,31 @@ pub fn edit_basket(
                 })?,
                 funds: vec![],
             }));
+        }
+    }
+
+    //If updating frozen, set timer
+    if let Some(frozen) = editable_parameters.clone().frozen {
+        let mut timer = match FREEZE_TIMER.load(deps.storage){
+            Ok(timer) => timer,
+            Err(_err) => Timer {
+                start_time: 0,
+                end_time: 0,
+            },
+        };
+
+        if frozen && !basket.frozen{
+            //If we are freezing, set start timer
+            timer.start_time = env.block.time.seconds();
+            
+            //Save timer
+            FREEZE_TIMER.save(deps.storage, &timer)?;
+        } else  if !frozen && basket.frozen {
+            //If we are unfreezing, set end timer
+            timer.end_time = env.block.time.seconds();
+
+            //Save timer
+            FREEZE_TIMER.save(deps.storage, &timer)?;
         }
     }
 

@@ -2,7 +2,7 @@ use std::cmp::min;
 
 use cosmwasm_std::{
     entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, WasmMsg,
-    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, Addr, coin, attr, Storage, Empty,
+    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, Addr, coin, attr, Storage, Empty, WasmQuery, QueryRequest,
 };
 use cw2::set_contract_version;
 
@@ -13,7 +13,7 @@ use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OPExecuteMsg;
 use membrane::types::{AssetInfo, Asset, UserRatio, Lockdrop, LockedUser, Lock, Owner};
 
-use membrane::vesting::ExecuteMsg as VestingExecuteMsg;
+use membrane::vesting::{QueryMsg as VestingQueryMsg, ExecuteMsg as VestingExecuteMsg, RecipientsResponse};
 use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, UpdateConfig as CDPUpdateConfig};
 use membrane::oracle::ExecuteMsg as OracleExecuteMsg;
 use membrane::liq_queue::ExecuteMsg as LQExecuteMsg;
@@ -1066,6 +1066,27 @@ pub fn end_of_launch(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    Ok(Response::default())
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    //Query Vesting contract for Recipients
+    let vesting = ADDRESSES.load(deps.storage)?.vesting;
+
+    let recipients = deps
+            .querier
+            .query::<RecipientsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: vesting.to_string(),
+                msg: to_binary(&VestingQueryMsg::Recipients {  })?,
+            }))?;
+    
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    //Loop through Recipients to create removal messages
+    for recipient in recipients.recipients {
+        let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+            contract_addr: vesting.to_string(), 
+            msg: to_binary(&VestingExecuteMsg::RemoveRecipient { recipient: recipient.recipient })?, 
+            funds: vec![], 
+        });
+        msgs.push(msg);
+    }
+
+    Ok(Response::new().add_messages(msgs))
 }

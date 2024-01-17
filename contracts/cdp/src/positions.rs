@@ -643,7 +643,7 @@ pub fn repay(
     //Subtract paid debt from Basket
     basket.credit_asset.amount = match basket.credit_asset.amount.checked_sub(credit_asset.amount - excess_repayment){
         Ok(difference) => difference,
-        Err(_err) => return Err(ContractError::CustomError { val: String::from("Repay amount is greater than Basket credit amount in repay") }),
+        Err(_err) => Uint128::zero(),
     };
 
     //Save updated repayment price and debts

@@ -86,6 +86,8 @@ pub fn update_position_claims(
 ) -> StdResult<()> {
     let mut credit_amount: Uint128 = Uint128::zero();
 
+    let mut target_position = None;
+
     POSITIONS.update(
         storage,
         position_owner,
@@ -96,6 +98,8 @@ pub fn update_position_claims(
                     .map(|mut position| {
                         //Find position
                         if position.position_id == position_id {
+                            //Set target_position
+                            target_position = Some(position.clone());
                             //Set credit_amount
                             credit_amount = position.credit_amount;
 
@@ -144,7 +148,7 @@ pub fn update_position_claims(
     }
 
     let mut basket = BASKET.load(storage)?;
-    match update_basket_tally(storage, querier, env, &mut basket, collateral_assets, false, config, false) {
+    match update_basket_tally(storage, querier, env, &mut basket, collateral_assets, target_position.unwrap().collateral_assets, false, config, false) {
         Ok(_res) => {
             BASKET.save(storage, &basket)?;
         }

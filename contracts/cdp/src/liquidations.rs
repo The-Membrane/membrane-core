@@ -145,7 +145,7 @@ pub fn liquidate(
         &mut per_asset_repayment,
         &mut liquidated_assets
     )?;
-
+    
     //Update collateral_assets to reflect the fees
     target_position.collateral_assets = collateral_assets;
     
@@ -536,8 +536,24 @@ fn build_sp_submsgs(
         decimal_subtraction(credit_repay_amount, leftover_repayment)?;
     
     if config.stability_pool.is_some() && !leftover_repayment.is_zero() {
-        let sp_liq_fee = query_stability_pool_fee(querier, config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string())?;
+        let sp_liq_fee = match query_stability_pool_fee(querier, config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string()){
+            Ok(fee) => fee,
+            Err(_) =>
+            //Query the SP regularly
+            {
+                let sp_pool: AssetPool = querier.query_wasm_smart::<AssetPool>(
+                    config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(), 
+                    &SP_QueryMsg::AssetPool {
+                        user: None,
+                        deposit_limit: Some(1),
+                        start_after: None,
+                    }
+                )?;
 
+                sp_pool.liq_premium
+            }
+        };
+        
         //If LTV is 90% and the fees are 10%, the position would pay everything to pay the liquidators.
         //So above that, the liquidators are losing the premium guarantee.
         // !( leftover_position_value >= leftover_repay_value * sp_fee)

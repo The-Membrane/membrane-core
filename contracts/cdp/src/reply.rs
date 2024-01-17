@@ -62,6 +62,7 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
                     env.clone(), 
                     &mut basket, 
                     prop.clone().target_position.collateral_assets,
+                    prop.clone().target_position.collateral_assets,
                     false, 
                     prop.clone().config,
                     true
@@ -73,7 +74,8 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
                     deps.querier, 
                     env.clone(), 
                     &mut basket, 
-                    prop.clone().liquidated_assets, 
+                    prop.clone().liquidated_assets,
+                    prop.clone().target_position.collateral_assets,
                     false, 
                     prop.clone().config,
                     true
@@ -394,7 +396,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
     let mut attrs = vec![attr("method", "handle_liq_queue_reply")];
 
     match msg.result.into_result() {
-        Ok(result) => {
+        Ok(result) => {        
             //1) Parse potential repaid_amount and substract from running total
             //2) Send collateral to the Queue
 
@@ -448,6 +450,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                     denom: token.to_string(),
                 }
             };
+        
             let msg = withdrawal_msg(
                 Asset {
                     info: token_info.clone(),
@@ -459,7 +462,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             //Subtract repaid amount from LQs repay responsibility. If it hits 0 then there were no LQ or User SP fund errors.
             if repay_amount != Uint128::zero() {
                 if !prop.liq_queue_leftovers.is_zero() {
-                    
+                                        
                     prop.liq_queue_leftovers = decimal_subtraction(
                         prop.liq_queue_leftovers,
                         Decimal::from_ratio(repay_amount, Uint128::new(1u128)),
@@ -493,6 +496,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                     }
                 );
             }
+        
 
             //If this is the last asset left to send and the SP wasn't used, update position
             //This is because the SP's liq_repay would update the position's collateral otherwise
@@ -508,6 +512,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                         env.clone(), 
                         &mut basket, 
                         prop.clone().target_position.collateral_assets,
+                        prop.clone().target_position.collateral_assets,
                         false, 
                         prop.clone().config,
                         true
@@ -519,7 +524,8 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                         deps.querier, 
                         env.clone(), 
                         &mut basket, 
-                        prop.clone().liquidated_assets, 
+                        prop.clone().liquidated_assets,
+                        prop.clone().target_position.collateral_assets,
                         false, 
                         prop.clone().config,
                         true
@@ -549,6 +555,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             Ok(Response::new().add_message(msg).add_attributes(attrs))
         }
         Err(string) => {
+        
             //If error, do nothing if the SP was used. The SP reply will handle the sell wall.
             //Else, handle leftovers here
 

@@ -132,7 +132,8 @@ pub fn execute(
         ExecuteMsg::UpdateConfig(config) => update_config(deps, env, info, config),
         ExecuteMsg::CreateOsmosisGauge { gauge_msg } => create_gauge(info, env, gauge_msg),
         ExecuteMsg::AddToOsmosisGauge { gauge_msg } => add_to_gauge(info, env, gauge_msg),
-        ExecuteMsg::FreezePositions {  } => freeze_positions(info, env),
+        ExecuteMsg::FreezePositions { frozen, freeze_these_assets } => freeze_positions(info, env, frozen, freeze_these_assets),
+        ExecuteMsg::MigrateCdp { code_id } => migrate_cdp(info, env, code_id),
     }
 }
 
@@ -739,6 +740,12 @@ pub fn passed_messages(deps: DepsMut, env: Env) -> Result<Response, ContractErro
         msg: to_binary(&VestingQueryMsg::Allocation { recipient: String::from("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n") })?,
     }))?;
 
+    //Query the contracts config to ensure we don't migrate to a code_id that is not a Gov contract
+    deps.querier.query::<Config>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: env.contract.address.to_string(),
+        msg: to_binary(&QueryMsg::Config {})?,
+    }))?;
+
     return Err(ContractError::MessagesCheckPassed {})
 }
 
@@ -1126,52 +1133,93 @@ fn add_to_gauge(
 //Freeze Positions
 fn freeze_positions(
     info: MessageInfo,
-    env: Env,
+    _env: Env,
+    //toggle frozen Basket 
+    frozen: bool,
+    //Set supply caps to 0
+    //We only allow native tokens so we can take Strings here
+    freeze_these_assets: Vec<String>,
 ) -> Result<Response, ContractError>{
-    // Only the Governance contract is allowed to utilize its assets (through a successful proposal)
+    // Only the founder addr is allowed
     if info.sender != Addr::unchecked("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n") {
         return Err(ContractError::Unauthorized {});
     }
-    Ok(Response::new()
-    .add_message(CosmosMsg::Wasm(WasmMsg::Execute {
+
+    //Create Supply cap instance for each "freeze_these_assets" input
+    let supply_caps: Vec<SupplyCap> = freeze_these_assets.into_iter().map(|asset| {
+        SupplyCap {
+            asset_info: AssetInfo::NativeToken {
+                denom: asset
+            },
+            current_supply: Uint128::zero(),
+            debt_total: Uint128::zero(),
+            supply_cap_ratio: Decimal::percent(0),
+            lp: false,
+            stability_pool_ratio_for_debt_cap: None,
+        }
+    }).collect();
+
+    //If not empty, edit 
+    if !supply_caps.is_empty() {
+        Ok(Response::new()
+            .add_message(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: String::from("osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr"),
+                msg: to_binary(&CDP_ExecuteMsg::EditBasket(EditBasket {
+                    frozen: Some(frozen),
+                    added_cAsset: None,
+                    liq_queue: None,
+                    credit_pool_infos: None,
+                    collateral_supply_caps: Some(supply_caps),
+                    multi_asset_supply_caps: None,
+                    base_interest_rate: None,
+                    credit_asset_twap_price_source: None,
+                    negative_rates: None,
+                    cpc_margin_of_error: None,
+                    rev_to_stakers: None,
+                    take_revenue: None,
+                }))?,
+                funds: vec![],
+        })))   
+    } else { //Only set freeze
+        Ok(Response::new()
+            .add_message(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: String::from("osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr"),
+                msg: to_binary(&CDP_ExecuteMsg::EditBasket(EditBasket {
+                    frozen: Some(frozen),
+                    added_cAsset: None,
+                    liq_queue: None,
+                    credit_pool_infos: None,
+                    collateral_supply_caps: None,
+                    multi_asset_supply_caps: None,
+                    base_interest_rate: None,
+                    credit_asset_twap_price_source: None,
+                    negative_rates: None,
+                    cpc_margin_of_error: None,
+                    rev_to_stakers: None,
+                    take_revenue: None,
+                }))?,
+                funds: vec![],
+        })))        
+    }    
+}
+
+//Migrate CDP contract
+fn migrate_cdp(
+    info: MessageInfo,
+    _env: Env,
+    new_code_id: u64,
+) -> Result<Response, ContractError>{
+    // Only the founder addr is allowed
+    if info.sender != Addr::unchecked("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n") {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    //MigrateMsg
+    Ok(Response::new().add_message(CosmosMsg::Wasm(WasmMsg::Migrate { 
         contract_addr: String::from("osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr"),
-        msg: to_binary(&CDP_ExecuteMsg::EditBasket(EditBasket {
-            frozen: Some(true),
-            added_cAsset: None,
-            liq_queue: None,
-            credit_pool_infos: None,
-            collateral_supply_caps: Some(vec![
-                SupplyCap {
-                    asset_info: AssetInfo::NativeToken {
-                        denom: String::from("gamm/pool/1")
-                    },
-                    current_supply: Uint128::zero(),
-                    debt_total: Uint128::zero(),
-                    supply_cap_ratio: Decimal::percent(0),
-                    lp: false,
-                    stability_pool_ratio_for_debt_cap: None,
-                },SupplyCap {
-                    asset_info: AssetInfo::NativeToken {
-                        denom: String::from("gamm/pool/678")
-                    },
-                    current_supply: Uint128::zero(),
-                    debt_total: Uint128::zero(),
-                    supply_cap_ratio: Decimal::percent(0),
-                    lp: false,
-                    stability_pool_ratio_for_debt_cap: None,
-                }
-            ]),
-            multi_asset_supply_caps: None,
-            base_interest_rate: None,
-            credit_asset_twap_price_source: None,
-            negative_rates: None,
-            cpc_margin_of_error: None,
-            rev_to_stakers: None,
-            take_revenue: None,
-        }))?,
-        funds: vec![],
-    }))
-)
+        new_code_id,
+        msg: to_binary(&{})?,
+    })))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

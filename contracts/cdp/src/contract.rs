@@ -10,7 +10,7 @@ use cosmwasm_std::{
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::helpers::assert_sent_native_token_balance;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
-use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
+use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, MigrateMsg};
 use membrane::types::{
     cAsset, Asset, AssetInfo, Basket, UserInfo,
 };
@@ -32,7 +32,7 @@ use crate::query::{
 use crate::liquidations::liquidate;
 use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_router_repayment_reply};
 use crate::state::{ CONTRACT, ContractVersion,
-    BASKET, CONFIG, get_target_position, update_position, OWNERSHIP_TRANSFER,
+    BASKET, CONFIG, get_target_position, update_position, OWNERSHIP_TRANSFER, POSITIONS,
 };
 
 // version info for migration info
@@ -568,4 +568,44 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
     }
 
     Ok(())
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    //Set Position 1's debt to 239_000_000
+    POSITIONS.update(deps.storage, 
+    Addr::unchecked("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n"),
+    |positions| -> StdResult<_> {        
+        let mut positions = positions.unwrap_or_default();
+
+        for position in positions.iter_mut() {
+            if position.position_id == Uint128::new(1) {
+                position.credit_amount = Uint128::new(239_000_000);
+            }
+        }
+
+        Ok(positions)
+    })?;
+
+    //Set pending_revenue to the difference btwn the current credit_asset debt total & the actual debt total
+    let mut basket: Basket = BASKET.load(deps.storage)?;
+    let actual_total_debt = Uint128::new(302700996672u128);
+    basket.pending_revenue = Uint128::new(1559045u128);
+
+    //Set credit_asset amount to the actual debt total
+    basket.credit_asset.amount = actual_total_debt;
+    //Set rates last accrued to now for safety
+    basket.rates_last_accrued = env.block.time.seconds();
+
+    //Save basket
+    BASKET.save(deps.storage, &basket)?;
+
+    //Sanity check
+    //- Interest rate for gamm went wild due to supply cap overage bc of the pricing mishap
+    //- Credit on position 1 increased due to interest rate
+    //- Pending revenue went wild when adding the accrued debt
+    //- basket.credit_asset amount also added accrued debt
+    //---- basket.collateral_assets amounts are correct, debt/supply caps will fix once price fixes
+    //- rate index also went wild but should'nt accrue high interest again bc the new rate will decrease with the new price/supply caps (but we make sure to skip acrual incase)
+    Ok(Response::default())
 }

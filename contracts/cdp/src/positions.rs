@@ -46,7 +46,7 @@ pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 
 //Constants
-const MAX_POSITIONS_AMOUNT: u32 = 10;
+const MAX_POSITIONS_AMOUNT: u32 = 3;
 
 
 /// Deposit collateral to existing position. New or existing collateral.
@@ -145,6 +145,7 @@ pub fn deposit(
                         env.clone(), 
                         &mut basket, 
                         cAssets.clone(),
+                        position.clone().collateral_assets,
                         true,
                         config.clone(),
                         false,
@@ -455,6 +456,7 @@ pub fn withdraw(
             env.clone(),
             &mut basket,
             tally_update_list,
+            target_position.clone().collateral_assets,
             false,
             config.clone(),
             false,
@@ -558,6 +560,7 @@ pub fn repay(
             env.clone(), 
             &mut basket, 
             target_position.collateral_assets.clone(),
+            target_position.clone().collateral_assets,
             false,
             config.clone(),
             false,
@@ -697,7 +700,7 @@ pub fn liq_repay(
     env: Env,
     info: MessageInfo,
     credit_asset: Asset,
-) -> Result<Response, ContractError> {    
+) -> Result<Response, ContractError> {
     //Fetch liquidation info and state propagation
     let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;    
     let config = liquidation_propagation.clone().config;
@@ -795,6 +798,7 @@ pub fn liq_repay(
             env.clone(), 
             &mut basket, 
             target_position.clone().collateral_assets,
+            target_position.clone().collateral_assets,
             false, 
             config.clone(),
             true,
@@ -807,6 +811,7 @@ pub fn liq_repay(
             env.clone(), 
             &mut basket,
             liquidation_propagation.liquidated_assets,
+            target_position.clone().collateral_assets,
             false,
             config.clone(),
             true,
@@ -885,6 +890,7 @@ pub fn increase_debt(
             env.clone(), 
             &mut basket, 
             target_position.collateral_assets.clone(),
+            target_position.clone().collateral_assets,
             true,
             config.clone(),
             false,

@@ -413,16 +413,21 @@ pub fn query_price(
 
     //Try to use a stored price
     let stored_price_res = read_price(storage, &asset_info);
+    //Set the old_price if the stored price is within the oracle_time_limit
+    let mut old_price: Option<PriceResponse> = None;
+    if let Ok(ref stored_price) = stored_price_res {
+        let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
+
+        if time_elapsed <= config.oracle_time_limit {
+            old_price = Some(stored_price.clone().price)
+        }
+    }
     
     //If depositing, always query a new price to ensure removed assets aren't deposited
     if !is_deposit_function {
-        //Use the stored price if within the oracle_time_limit
-        if let Ok(ref stored_price) = stored_price_res {
-            let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
-
-            if time_elapsed <= config.oracle_time_limit {
-                return Ok(stored_price.clone().price)
-            }
+        //Use the stored price if it was within the oracle_time_limit
+        if let Some(old_price) = old_price {
+            return Ok(old_price)            
         }
     }
     
@@ -437,6 +442,15 @@ pub fn query_price(
         })?,
     })) {
         Ok(res) => {
+            if let Some(old_price) = old_price {
+                //If the new price is 20% higher or lower than the old price, use the old price
+                if res.price >= old_price.price * Decimal::percent(120)
+                    || res.price <= old_price.price * Decimal::percent(80)
+                {
+                    return Ok(old_price);
+                }
+            }
+            //Store the new price
             res
         }
         Err(err) => {

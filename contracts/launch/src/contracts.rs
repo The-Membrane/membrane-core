@@ -11,7 +11,7 @@ use membrane::launch::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfi
 use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OPExecuteMsg;
-use membrane::types::{AssetInfo, Asset, UserRatio, Lockdrop, LockedUser, Lock, Owner};
+use membrane::types::{AssetInfo, Asset, UserRatio, Lockdrop, LockedUser, Lock, Owner, VestingPeriod};
 
 use membrane::vesting::{QueryMsg as VestingQueryMsg, ExecuteMsg as VestingExecuteMsg, RecipientsResponse};
 use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, UpdateConfig as CDPUpdateConfig};
@@ -1084,28 +1084,64 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
         "osmo1pgsya6vgfr0rzxuc24wn5t3x9azy6r83mumygz"
     ];
     let founder = "osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n";
+    
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    //Loop through pre_launch_community to create add_recipient messages
+    for recipient in pre_launch_community.clone() {
+        let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+            contract_addr: vesting.to_string(), 
+            msg: to_binary(&VestingExecuteMsg::AddRecipient { 
+                recipient: recipient.to_string(),
+            })?, 
+            funds: vec![], 
+        });
+        msgs.push(msg);
+    }
+    //Add founder recipient
+    let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+        contract_addr: vesting.to_string(), 
+        msg: to_binary(&VestingExecuteMsg::AddRecipient { 
+            recipient: founder.to_string(),
+        })?, 
+        funds: vec![], 
+    });
+    msgs.push(msg);
 
+    //////Allocations
     //Subtract 99 days from first vesting date.
     //PLC: 0 cliff 266 linear 
     //Founder: 631 cliff 365 linear
 
-    // let recipients = deps
-    //         .querier
-    //         .query::<RecipientsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-    //             contract_addr: vesting.to_string(),
-    //             msg: to_binary(&VestingQueryMsg::Recipients {  })?,
-    //         }))?;
-    
-    let mut msgs: Vec<CosmosMsg> = vec![];
-    //Loop through Recipients to create removal messages
-    // for recipient in recipients.recipients {
-    //     let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-    //         contract_addr: vesting.to_string(), 
-    //         msg: to_binary(&VestingExecuteMsg::RemoveRecipient { recipient: recipient.recipient })?, 
-    //         funds: vec![], 
-    //     });
-    //     msgs.push(msg);
-    // }
+    //Loop through pre_launch_community to create add_allocation messages
+    for recipient in pre_launch_community {
+        let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+            contract_addr: vesting.to_string(), 
+            msg: to_binary(&VestingExecuteMsg::AddAllocation { 
+                recipient: recipient.to_string(),
+                allocation: Uint128::new(1_000_000_000u128),
+                vesting_period: Some(VestingPeriod {
+                    cliff: 0,
+                    linear: 266,
+                })
+            })?, 
+            funds: vec![], 
+        });
+        msgs.push(msg);
+    }
+    //Set founder allocation
+    let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+        contract_addr: vesting.to_string(), 
+        msg: to_binary(&VestingExecuteMsg::AddAllocation { 
+            recipient: founder.to_string(),
+            allocation: Uint128::new(9_000_000_000_000u128), //9M
+            vesting_period: Some(VestingPeriod {
+                cliff: 631,
+                linear: 365,
+            })
+        })?, 
+        funds: vec![], 
+    });
+    msgs.push(msg);
 
     Ok(Response::new().add_messages(msgs))
 }

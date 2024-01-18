@@ -7853,7 +7853,7 @@ mod tests {
                 String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(1960784313), cap: Uint128(245093186274) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(39215686), cap: Uint128(4901863725) }]")
             );
 
-            //UnSuccessful Withdraw uneffected by caps bc u set debit's cap over 
+            //UnSuccessful Withdraw bc u set debit's cap over without withdrawing any of it
             let msg = ExecuteMsg::Withdraw {
                 position_id: Uint128::new(1u128),
                 assets: vec![Asset {
@@ -7867,6 +7867,26 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap_err();
+
+            //Successful Withdraw bc LP is fully withdrawn & debit is the only remaining asset in the position
+            let msg = ExecuteMsg::Withdraw {
+                position_id: Uint128::new(1u128),
+                assets: vec![Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: "lp_denom".to_string(),
+                    },
+                    amount: Uint128::from(100_000_000_000_000_000_000u128),
+                },Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: "debit".to_string(),
+                    },
+                    amount: Uint128::from(1000u128),
+                }],
+                send_to: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
         }
 
         #[test]

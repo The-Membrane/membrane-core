@@ -86,19 +86,38 @@ pub fn update_basket_tally(
         //Initialize in_position to check if the position has these assets
         let mut in_position = false;
 
-        //Assert new ratios aren't above Collateral Supply Caps. If so, error.
+        //Assert new ratios aren't above Collateral Supply Caps. If so, conditionally error.
         for (i, ratio) in new_basket_ratios.clone().into_iter().enumerate() {
             
             if add_to_cAsset {
                 //Check if the depositing assets are part of this cap
-                if let Some((i, _cAsset)) = collateral_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&basket.collateral_supply_caps[i].asset_info)){
+                if let Some((_i, _cAsset)) = collateral_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&basket.collateral_supply_caps[i].asset_info)){
                     in_position = true;
                 }
             } else {
                 //Check if the position has these assets if ur withdrawing
-                //So if a withdrawal would push an asset over cap, it errors
-                if let Some((i, _cAsset)) = full_positions_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&basket.collateral_supply_caps[i].asset_info)){
+                //So if a withdrawal would push an asset over cap that isn't being withdrawn currently but is in the position, it errors
+                if let Some((_i, _cAsset)) = full_positions_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&basket.collateral_supply_caps[i].asset_info)){
                     in_position = true;
+                }
+                //If the position is withdrawing the asset, set to false.
+                //User Flow: If a user fully withdraws an asset that is over cap BUT....
+                //..doesn't completely pull it under cap, we don't want to block withdrawals
+                if let Some((_i, _withdrawn_cAsset)) = collateral_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&basket.collateral_supply_caps[i].asset_info)){
+                    //Check if its being fully withdrawn from the position or if its the only asset in the position
+                    if let Some((_i, _position_cAsset)) = full_positions_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&basket.collateral_supply_caps[i].asset_info)){
+                        //If the asset is still in the position, it must be the only remaining asset
+                        if full_positions_assets.len() > 1 {
+                            in_position = true;                     
+                        } else {
+                            //You can withdraw the only asset freely
+                            in_position = false;
+                        }
+                    } else {
+                        //This means the asset was fully withdrawn
+                        in_position = false;
+                    }
+                    
                 }
             }
 
@@ -139,6 +158,25 @@ pub fn update_basket_tally(
                         //So if a withdrawal would push an asset over cap, it errors
                         if let Some((_i, _cAsset)) = full_positions_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&asset)){
                             in_position = true;
+                        }
+                        //If the position is withdrawing the asset, set to false.
+                        //User Flow: If a user fully withdraws an asset that is over cap BUT....
+                        //..doesn't completely pull it under cap, we don't want to block withdrawals
+                        if let Some((_i, _withdrawn_cAsset)) = collateral_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&asset)){
+                            //Check if its being fully withdrawn from the position or if its the only asset in the position
+                            if let Some((_i, _position_cAsset)) = full_positions_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&asset)){
+                                //If the asset is still in the position, it must be the only remaining asset
+                                if full_positions_assets.len() > 1 {
+                                    in_position = true;                        
+                                } else {
+                                    //You can withdraw the only asset freely
+                                    in_position = false;
+                                }
+                            } else {
+                                //This means the asset was fully withdrawn
+                                in_position = false;
+                            }
+                            
                         }
                     }
                 }

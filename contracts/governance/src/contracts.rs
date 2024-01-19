@@ -19,7 +19,7 @@ use membrane::governance::{
     ProposalResponse, ProposalStatus, ProposalVoteOption, ProposalVotesResponse, QueryMsg,
     UpdateConfig, BLOCKS_PER_DAY, MigrateMsg
 };
-use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, EditBasket};
+use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, EditBasket, MigrateMsg as CDP_MigrateMsg};
 use membrane::staking::{
     Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse, DelegationResponse,
 };
@@ -1218,7 +1218,7 @@ fn migrate_cdp(
     Ok(Response::new().add_message(CosmosMsg::Wasm(WasmMsg::Migrate { 
         contract_addr: String::from("osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr"),
         new_code_id,
-        msg: to_binary(&{})?,
+        msg: to_binary(&CDP_MigrateMsg {})?,
     })))
 }
 

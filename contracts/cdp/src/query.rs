@@ -40,7 +40,7 @@ pub fn query_basket_positions(
 ) -> StdResult<Vec<BasketPositionsResponse>> {
     let basket = BASKET.load(deps.storage)?;
     let config = CONFIG.load(deps.storage)?;
-    /////Check single position and single user first/////
+    /////Check single user and single position first/////
     /// User, default limit is 10 anyway
     if let Some(user) = user {
         

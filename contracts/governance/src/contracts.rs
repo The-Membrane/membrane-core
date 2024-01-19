@@ -133,7 +133,6 @@ pub fn execute(
         ExecuteMsg::CreateOsmosisGauge { gauge_msg } => create_gauge(info, env, gauge_msg),
         ExecuteMsg::AddToOsmosisGauge { gauge_msg } => add_to_gauge(info, env, gauge_msg),
         ExecuteMsg::FreezePositions { frozen, freeze_these_assets } => freeze_positions(info, env, frozen, freeze_these_assets),
-        ExecuteMsg::MigrateCdp { code_id } => migrate_cdp(info, env, code_id),
     }
 }
 
@@ -1201,25 +1200,6 @@ fn freeze_positions(
                 funds: vec![],
         })))        
     }    
-}
-
-//Migrate CDP contract
-fn migrate_cdp(
-    info: MessageInfo,
-    _env: Env,
-    new_code_id: u64,
-) -> Result<Response, ContractError>{
-    // Only the founder addr is allowed
-    if info.sender != Addr::unchecked("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n") {
-        return Err(ContractError::Unauthorized {});
-    }
-
-    //MigrateMsg
-    Ok(Response::new().add_message(CosmosMsg::Wasm(WasmMsg::Migrate { 
-        contract_addr: String::from("osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr"),
-        new_code_id,
-        msg: to_binary(&CDP_MigrateMsg {})?,
-    })))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

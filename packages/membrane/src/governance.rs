@@ -115,11 +115,7 @@ pub enum ExecuteMsg {
         //Set supply caps to 0
         //We only allow native tokens anyway
         freeze_these_assets: Vec<String>,
-    },
-    // Temp Migrate CDP contract
-    MigrateCdp {
-        code_id: u64,
-    },
+    }
 }
 
 /// Thie enum describes all the queries available in the contract.

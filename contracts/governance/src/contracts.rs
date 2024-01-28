@@ -740,7 +740,7 @@ pub fn check_messages(
                 contract_addr: cdp_contract.clone(),
                 msg: to_binary(&CDP_ExecuteMsg::IncreaseDebt { 
                     position_id, 
-                    amount: Some(cdp_config.debt_minimum), 
+                    amount: Some(cdp_config.debt_minimum * Uint128::new(1_000_000)), 
                     LTV: None, 
                     mint_to_addr: None
                 })?,
@@ -759,7 +759,7 @@ pub fn check_messages(
                     asset_to_coin(
                         Asset {
                             info: basket.credit_asset.info,
-                            amount: cdp_config.debt_minimum,
+                            amount:( cdp_config.debt_minimum * Uint128::new(1_000_000)),
                         }
                     )?
                 ],

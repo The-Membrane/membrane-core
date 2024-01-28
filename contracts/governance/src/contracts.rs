@@ -9,9 +9,9 @@ use osmosis_std::types::osmosis::incentives::{MsgCreateGauge, MsgAddToGauge};
 use cw2::set_contract_version;
 use cw_storage_plus::Bound;
 
-use membrane::helpers::query_staking_totals;
+use membrane::helpers::{query_staking_totals, asset_to_coin, query_basket};
 use membrane::math::decimal_multiplication;
-use membrane::types::{StakeDeposit, SupplyCap, AssetInfo};
+use membrane::types::{StakeDeposit, SupplyCap, AssetInfo, Asset, Basket, BidInput, Queue};
 use membrane::vesting::{AllocationResponse, QueryMsg as VestingQueryMsg, RecipientsResponse};
 use membrane::governance::helpers::validate_links;
 use membrane::governance::{
@@ -19,10 +19,12 @@ use membrane::governance::{
     ProposalResponse, ProposalStatus, ProposalVoteOption, ProposalVotesResponse, QueryMsg,
     UpdateConfig, BLOCKS_PER_DAY, MigrateMsg
 };
-use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, EditBasket, MigrateMsg as CDP_MigrateMsg};
+use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, EditBasket, QueryMsg as CDP_QueryMsg, Config as CDP_Config};
 use membrane::staking::{
-    Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse, DelegationResponse,
+    Config as StakingConfig, DelegationResponse, ExecuteMsg as Staking_ExecuteMsg, QueryMsg as StakingQueryMsg, StakedResponse, StakerResponse, TotalStakedResponse
 };
+use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, Config as LQ_Config};
+use membrane::osmosis_proxy::{ExecuteMsg as OP_ExecuteMsg, QueryMsg as OP_QueryMsg, Config as OP_Config};
 
 use core::panic;
 use std::cmp::min;
@@ -124,7 +126,7 @@ pub fn execute(
         } => cast_vote(deps, env, info, proposal_id, vote, recipient),
         ExecuteMsg::EndProposal { proposal_id } => end_proposal(deps, env, proposal_id),
         ExecuteMsg::ExecuteProposal { proposal_id } => execute_proposal(deps, env, proposal_id),
-        ExecuteMsg::CheckMessages { messages } => check_messages(env, messages),
+        ExecuteMsg::CheckMessages { messages, msg_switch } => check_messages(deps, env, messages, msg_switch),
         ExecuteMsg::CheckMessagesPassed {} => passed_messages(deps, env),
         ExecuteMsg::RemoveCompletedProposal { proposal_id } => {
             remove_completed_proposal(deps, env, proposal_id)
@@ -673,14 +675,234 @@ pub fn execute_proposal(
 /// Returns [`ContractError`] on failure, otherwise returns a [`Response`] with the specified
 /// attributes. The last message will always fail to prevent committing into blockchain.
 pub fn check_messages(
+    deps: DepsMut,
     env: Env,
     mut messages: Vec<ProposalMessage>,
+    // Additional contract check messages
+    msg_switch: Option<u64>,
 ) -> Result<Response, ContractError> {
 
     messages.sort_by(|a, b| a.order.cmp(&b.order));
 
     let mut messages: Vec<_> = messages.into_iter().map(|message| message.msg).collect();
 
+    //Create additional check messages for system contracts\
+    //Set contracts
+    let cdp_contract = "osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr".to_string();
+    let lq_contract = "osmo1ycmtfa7h0efexjxuaw7yh3h3qayy5lspt9q4n4e3stn06cdcgm8s50zmjl".to_string();
+    let op_contract = "osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd".to_string();
+    //CDP
+    if msg_switch == Some(0) {
+        //Query CDP basket
+        let basket = match query_basket(deps.querier, cdp_contract.clone()){
+            Ok(basket) => basket,
+            Err(_) => 
+                deps.querier.query_wasm_smart::<Basket>(
+                cdp_contract.clone(),
+                &CDP_QueryMsg::GetBasket {}
+                )?,
+            };    
+        //Check if the contract has uosmo && deposit it all if it does
+        let uosmo_balance = match deps.querier.query_balance(env.clone().contract.address, "uosmo"){
+            Ok(balance) => balance.amount,
+            Err(_) => Uint128::zero(),
+        };
+        if !uosmo_balance.is_zero() {
+            //Get the next position id
+            let position_id = basket.current_position_id;
+            //Deposit all uosmo
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: cdp_contract.clone(),
+                msg: to_binary(&CDP_ExecuteMsg::Deposit {
+                    position_id: None,
+                    position_owner: None,
+                })?,
+                funds: vec![
+                    asset_to_coin(
+                        Asset {
+                            info: AssetInfo::NativeToken {
+                                denom: String::from("uosmo"),
+                            },
+                            amount: uosmo_balance,
+                        }
+                    )?
+                ],
+            }));
+            //Query CDP Config
+            let cdp_config = deps.querier.query_wasm_smart::<CDP_Config>(
+                cdp_contract.clone(),
+                &CDP_QueryMsg::Config {}
+            )?;
+
+
+            //Mint minimum CDT, this may error if there isn't enough OSMO in the contract
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: cdp_contract.clone(),
+                msg: to_binary(&CDP_ExecuteMsg::IncreaseDebt { 
+                    position_id, 
+                    amount: Some(cdp_config.debt_minimum), 
+                    LTV: None, 
+                    mint_to_addr: None
+                })?,
+                funds: vec![],
+            }));
+
+            //Repay CDT
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: cdp_contract.clone(),
+                msg: to_binary(&CDP_ExecuteMsg::Repay { 
+                    position_id, 
+                    position_owner: None, 
+                    send_excess_to: None
+                })?,
+                funds: vec![
+                    asset_to_coin(
+                        Asset {
+                            info: basket.credit_asset.info,
+                            amount: cdp_config.debt_minimum,
+                        }
+                    )?
+                ],
+            }));
+
+            //Withdraw all OSMO
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: cdp_contract.clone(),
+                msg: to_binary(&CDP_ExecuteMsg::Withdraw { 
+                    position_id, 
+                    assets: vec![
+                        Asset {
+                            info: AssetInfo::NativeToken {
+                                denom: String::from("uosmo"),
+                            },
+                            amount: uosmo_balance,
+                        }
+                    ],
+                    send_to: None
+                })?,
+                funds: vec![],
+            }));
+        }        
+    }
+    //Staking
+    if msg_switch == Some(1) {
+        let config = CONFIG.load(deps.storage)?;
+        //Set minimum stake
+        let minimum_stake = Uint128::new(1_000_000); //1 MBRN
+
+        //Unstake MBRN if the contract already has stake
+        //Unstake the MBRN (claimable)
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.clone().staking_contract_addr.to_string(),
+            msg: to_binary(&Staking_ExecuteMsg::Unstake { 
+                mbrn_amount: None,
+            })?,
+            funds: vec![],
+        }));
+
+        //Stake minimum MBRN from the unstake
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.clone().staking_contract_addr.to_string(),
+            msg: to_binary(&Staking_ExecuteMsg::Stake { 
+                user: None,
+            })?,
+            funds: vec![
+                asset_to_coin(
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: config.clone().mbrn_denom,
+                        },
+                        amount: minimum_stake,
+                    }
+                )?
+            ],
+        }));
+
+        //Start the unstake for the recently staked MBRN
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.clone().staking_contract_addr.to_string(),
+            msg: to_binary(&Staking_ExecuteMsg::Unstake { 
+                mbrn_amount: None,
+            })?,
+            funds: vec![],
+        }));
+    }
+    //LQ    
+    if msg_switch == Some(2) {
+        //Query CDP basket
+        let basket = match query_basket(deps.querier, cdp_contract.clone()){
+            Ok(basket) => basket,
+            Err(_) => 
+                deps.querier.query_wasm_smart::<Basket>(
+                cdp_contract.clone(),
+                &CDP_QueryMsg::GetBasket {}
+                )?,
+            };    
+        //Check if the contract has cdt
+        let cdt_balance = match deps.querier.query_balance(env.clone().contract.address, basket.clone().credit_asset.info.to_string()){
+            Ok(balance) => balance.amount,
+            Err(_) => Uint128::zero(),
+        };
+        //Query LQ config 
+        let lq_config: LQ_Config = deps.querier.query_wasm_smart::<LQ_Config>(
+            lq_contract.clone(),
+            &LQ_QueryMsg::Config {}
+        )?;
+        //if CDT is less than the minimum, mint minimum CDT
+        if cdt_balance < lq_config.clone().minimum_bid {
+            //Mint minimum CDT from Osmosis Proxy
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: op_contract.clone(),
+                msg: to_binary(&OP_ExecuteMsg::MintTokens { 
+                    denom: basket.clone().credit_asset.info.to_string(), 
+                    amount: lq_config.clone().minimum_bid, 
+                    mint_to_address: env.clone().contract.address.to_string() 
+                })?,
+                funds: vec![],
+            }));
+        }
+
+        //Query Queue to get the bid_id
+        let uosmo_queue: Queue = deps.querier.query_wasm_smart::<Queue>(
+            lq_contract.clone(),
+            &LQ_QueryMsg::Queue { bid_for: AssetInfo::NativeToken { denom: String::from("uosmo") } 
+            }
+        )?;
+        let bid_id = uosmo_queue.current_bid_id;
+
+        //Minimum CDT Bid
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: lq_contract.clone(),
+            msg: to_binary(&LQ_ExecuteMsg::SubmitBid { 
+                bid_input: BidInput {
+                    bid_for: AssetInfo::NativeToken { denom: String::from("uosmo") },
+                    liq_premium: 0u8
+                },
+                bid_owner: None,
+            })?,
+            funds: vec![
+                asset_to_coin(
+                    Asset {
+                        info: basket.credit_asset.info,
+                        amount: lq_config.clone().minimum_bid,
+                    }
+                )?
+            ],
+        }));
+
+        //Retract bid
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: lq_contract.clone(),
+            msg: to_binary(&LQ_ExecuteMsg::RetractBid { 
+                bid_id,
+                bid_for: AssetInfo::NativeToken { denom: String::from("uosmo") },
+                amount: None,
+            })?,
+            funds: vec![],
+        }));        
+    } 
+
+    //Guarantee that the last message will fail
     messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
         msg: to_binary(&ExecuteMsg::CheckMessagesPassed {})?,
@@ -1408,6 +1630,68 @@ pub fn query_proposal_votes(deps: Deps, proposal_id: u64) -> StdResult<ProposalV
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    Ok(Response::default())
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+
+    let config = CONFIG.load(deps.storage)?;
+    let mut messages: Vec<CosmosMsg> = vec![];
+    
+    //Mint minimum MBRN from Osmosis Proxy
+    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: "osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd".to_string(),
+        msg: to_binary(&OP_ExecuteMsg::MintTokens { 
+            denom: config.clone().mbrn_denom, 
+            amount: Uint128::new(2_000_000), //1 MBRN
+            mint_to_address: env.clone().contract.address.to_string() 
+        })?,
+        funds: vec![],
+    }));    
+
+    //Stake minimum MBRN
+    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.clone().staking_contract_addr.to_string(),
+        msg: to_binary(&Staking_ExecuteMsg::Stake { 
+            user: None,
+        })?,
+        funds: vec![
+            asset_to_coin(
+                Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: config.clone().mbrn_denom,
+                    },
+                    amount: Uint128::new(1_000_000), //1 MBRN
+                }
+            )?
+        ],
+    }));
+
+    //Start the unstake for the recently staked MBRN
+    // messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+    //     contract_addr: config.clone().staking_contract_addr.to_string(),
+    //     msg: to_binary(&Staking_ExecuteMsg::Unstake { 
+    //         mbrn_amount: Some(Uint128::new(1_000_000)),
+    //     })?,
+    //     funds: vec![],
+    // }));
+
+    ////TEMPORARY CODE TO TEST NEW CHECK MESSAGES/////
+    /// Set MBRN mint & stake back to 1
+    //Adding a check message of each type to test the new code
+    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: env.contract.address.to_string(),
+        msg: to_binary(&ExecuteMsg::CheckMessages { messages: vec![], msg_switch: Some(0u64)})?,
+        funds: vec![],
+    }));
+    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: env.contract.address.to_string(),
+        msg: to_binary(&ExecuteMsg::CheckMessages { messages: vec![], msg_switch: Some(2u64)})?,
+        funds: vec![],
+    }));
+    //Staking check will error bc it won't stake anything so it goes last
+    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: env.contract.address.to_string(),
+        msg: to_binary(&ExecuteMsg::CheckMessages { messages: vec![], msg_switch: Some(1u64)})?,
+        funds: vec![],
+    }));
+
+    Ok(Response::default().add_messages(messages))
 }

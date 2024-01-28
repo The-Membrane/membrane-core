@@ -934,6 +934,11 @@ fn unstake() {
 
     env.block.time = env.block.time.plus_seconds(259200 *2); //6 days
 
+    //Unstake as a non_staker
+    let msg = ExecuteMsg::Unstake { mbrn_amount: None };
+    let info = mock_info("not_a_staker", &[]);
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+
     //Successful partial unstake w/o withdrawals to assert Restake
     let msg = ExecuteMsg::Unstake { mbrn_amount: Some(Uint128::new(5000001)) };
     let info = mock_info("sender88", &[]);

@@ -88,6 +88,8 @@ pub enum ExecuteMsg {
     CheckMessages {
         /// messages
         messages: Vec<ProposalMessage>,
+        /// Additional contract check messages: 0 - CDP, 1 - Staking, 2 - LQ
+        msg_switch: Option<u64>,
     },
     /// The last endpoint which is executed only if all proposal messages have been passed
     CheckMessagesPassed {},

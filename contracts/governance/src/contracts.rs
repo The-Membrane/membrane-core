@@ -1640,7 +1640,7 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
         contract_addr: "osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd".to_string(),
         msg: to_binary(&OP_ExecuteMsg::MintTokens { 
             denom: config.clone().mbrn_denom, 
-            amount: Uint128::new(2_000_000), //1 MBRN
+            amount: Uint128::new(1_000_000), //1 MBRN
             mint_to_address: env.clone().contract.address.to_string() 
         })?,
         funds: vec![],
@@ -1665,31 +1665,11 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     }));
 
     //Start the unstake for the recently staked MBRN
-    // messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-    //     contract_addr: config.clone().staking_contract_addr.to_string(),
-    //     msg: to_binary(&Staking_ExecuteMsg::Unstake { 
-    //         mbrn_amount: Some(Uint128::new(1_000_000)),
-    //     })?,
-    //     funds: vec![],
-    // }));
-
-    ////TEMPORARY CODE TO TEST NEW CHECK MESSAGES/////
-    /// Set MBRN mint & stake back to 1
-    //Adding a check message of each type to test the new code
     messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: env.contract.address.to_string(),
-        msg: to_binary(&ExecuteMsg::CheckMessages { messages: vec![], msg_switch: Some(0u64)})?,
-        funds: vec![],
-    }));
-    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: env.contract.address.to_string(),
-        msg: to_binary(&ExecuteMsg::CheckMessages { messages: vec![], msg_switch: Some(2u64)})?,
-        funds: vec![],
-    }));
-    //Staking check will error bc it won't stake anything so it goes last
-    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: env.contract.address.to_string(),
-        msg: to_binary(&ExecuteMsg::CheckMessages { messages: vec![], msg_switch: Some(1u64)})?,
+        contract_addr: config.clone().staking_contract_addr.to_string(),
+        msg: to_binary(&Staking_ExecuteMsg::Unstake { 
+            mbrn_amount: Some(Uint128::new(1_000_000)),
+        })?,
         funds: vec![],
     }));
 

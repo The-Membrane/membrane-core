@@ -416,3 +416,8 @@ fn get_sp_value(
     //Return total_value
     Ok( total_user_deposit)
 }
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    Ok(Response::default())
+}

@@ -10,17 +10,17 @@ use cw_storage_plus::Bound;
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::cdp::{
     Config, CollateralInterestResponse,
-    InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse, InsolvencyResponse,
+    InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse,
 };
 
 use membrane::types::{
     cAsset, AssetInfo, Basket, Position,
-    UserInfo, DebtCap, RedemptionInfo, PremiumInfo, InsolventPosition
+    UserInfo, DebtCap, RedemptionInfo, PremiumInfo
 };
-use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction, Uint256, Decimal256};
+use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 
-use crate::rates::{get_interest_rates, accrue};
+use crate::rates::get_interest_rates;
 use crate::risk_engine::get_basket_debt_caps;
 use crate::positions::read_price;
 use crate::state::{BASKET, CONFIG, POSITIONS, get_target_position, REDEMPTION_OPT_IN};
@@ -44,7 +44,6 @@ pub fn query_basket_positions(
     /// User, default limit is 10 anyway
     if let Some(user) = user {
         
-        let mut error: Option<StdError> = None;
         let user = deps.api.addr_validate(&user)?;
 
         let positions: Vec<Position> = match POSITIONS.load(deps.storage,user.clone()){
@@ -55,41 +54,15 @@ pub fn query_basket_positions(
         let mut user_positions: Vec<PositionResponse> = vec![];
         
         for position in positions.into_iter() {
-            
-            let (borrow, max, _value, _prices, ratios) = match get_avg_LTV(
-                deps.storage,
-                env.clone(),
-                deps.querier,
-                config.clone(),
-                Some(basket.clone()),
-                position.clone().collateral_assets,
-                false,
-                false
-            ) {
-                Ok((borrow, max, value, prices, ratios)) => (borrow, max, value, prices, ratios),
-                Err(err) => {
-                    error = Some(err);
-                    (Decimal::zero(), Decimal::zero(), Decimal::zero(), vec![], vec![])
-                }
-            };
-
-            let cAsset_ratios = ratios;
-
-            if error.is_none() {
-                user_positions.push(PositionResponse {
-                    position_id: position.position_id,
-                    collateral_assets: position.collateral_assets,
-                    cAsset_ratios,
-                    credit_amount: position.credit_amount,
-                    avg_borrow_LTV: borrow,
-                    avg_max_LTV: max,
-                })
-            }
+            user_positions.push(PositionResponse {
+                position_id: position.position_id,
+                collateral_assets: position.collateral_assets,
+                cAsset_ratios: vec![],
+                credit_amount: position.credit_amount,
+                avg_borrow_LTV: Decimal::zero(),
+                avg_max_LTV: Decimal::zero(),
+            });
         };
-
-        if let Some(error) = error{
-            return Err(error)
-        }
 
         return Ok(vec![BasketPositionsResponse {
             user: user.to_string(),
@@ -129,7 +102,6 @@ pub fn query_basket_positions(
     }
 
     //Basket Positions
-
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
 
     let start = if let Some(start) = start_after {
@@ -220,6 +192,7 @@ pub fn query_collateral_rates(
             deps.querier,
             vec![credit_asset],
             config,
+            Some(basket.clone()),
             false
         ){
             Ok((_, prices)) => {
@@ -307,6 +280,7 @@ pub fn query_basket_credit_interest(
             deps.querier,
             vec![credit_asset],
             config,
+            Some(basket.clone()),
             false
         ){
             Ok((_, prices)) => {
@@ -367,6 +341,7 @@ pub fn get_cAsset_ratios(
     querier: QuerierWrapper,
     collateral_assets: Vec<cAsset>,
     config: Config,
+    basket: Option<Basket>,
 ) -> StdResult<(Vec<Decimal>, Vec<PriceResponse>)> {
     let (cAsset_values, cAsset_prices) = get_asset_values(
         storage,
@@ -374,6 +349,7 @@ pub fn get_cAsset_ratios(
         querier,
         collateral_assets,
         config,
+        basket.clone(),
         false
     )?;
     
@@ -400,12 +376,20 @@ pub fn query_price(
     env: Env,
     config: Config,
     asset_info: AssetInfo,
+    basket: Option<Basket>,
     is_deposit_function: bool,
 ) -> StdResult<PriceResponse> {
     //Set timeframe
     let mut twap_timeframe: u64 = config.collateral_twap_timeframe;
 
-    let basket = BASKET.load(storage)?;
+    
+    //Load basket
+    let basket = if let Some(basket) = basket {
+        basket
+    } else {
+        BASKET.load(storage)?
+    };
+
     //if AssetInfo is the basket.credit_asset, change twap timeframe
     if asset_info.equal(&basket.credit_asset.info) {
         twap_timeframe = config.credit_twap_timeframe;
@@ -544,6 +528,7 @@ pub fn get_asset_values(
     querier: QuerierWrapper,
     assets: Vec<cAsset>,
     config: Config,
+    basket: Option<Basket>,
     is_deposit_function: bool,
 ) -> StdResult<(Vec<Decimal>, Vec<PriceResponse>)> {
     //Enforce Vec max size
@@ -569,6 +554,7 @@ pub fn get_asset_values(
                 env.clone(),
                 config.clone(),
                 cAsset.clone().asset.info,
+                basket.clone(),
                 is_deposit_function,
             )?;
             let cAsset_value = price_res.get_value(cAsset.asset.amount)?;
@@ -594,16 +580,6 @@ pub fn get_avg_LTV(
     is_deposit_function: bool,
     is_liquidation_function: bool, //Skip softened borrow LTV
 ) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>)> {
-    //Calc total value of collateral
-    let (cAsset_values, cAsset_price_res) = get_asset_values(
-        storage,
-        env.clone(),
-        querier,
-        collateral_assets.clone(),
-        config.clone(),
-        is_deposit_function,
-    )?;
-
     //Load basket
     let basket = if let Some(basket) = basket {
         basket
@@ -611,13 +587,25 @@ pub fn get_avg_LTV(
         BASKET.load(storage)?
     };
 
+    //Calc total value of collateral
+    let (cAsset_values, cAsset_price_res) = get_asset_values(
+        storage,
+        env.clone(),
+        querier,
+        collateral_assets.clone(),
+        config.clone(),
+        Some(basket.clone()),
+        is_deposit_function,
+    )?;
+
     //Get basket cAsset ratios
     let (basket_cAsset_ratios, _) = get_cAsset_ratios(
         storage, 
         env, 
         querier, 
         basket.clone().collateral_types, 
-        config
+        config,
+        Some(basket.clone()),
     )?;
     
     //Calculate avg LTV & return values

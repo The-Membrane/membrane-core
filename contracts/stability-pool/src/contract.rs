@@ -1396,3 +1396,8 @@ pub fn validate_assets(
 
     Ok(valid_assets)
 }
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    Ok(Response::default())
+}

@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::cmp::{min, Ordering};
 
 use cosmwasm_std::{Uint128, Decimal, Storage, QuerierWrapper, Env, StdResult, StdError, DepsMut, MessageInfo, Response, attr, Addr};
 
@@ -165,6 +165,9 @@ pub fn update_rate_indices(
 }
 
 /// Calculate interest rates for each asset in the basket
+///Maximum rate is 100% to avoid overflows due to supply cap/pricing errors
+/// 
+/// Note: Proportional debt caps will never overflow bc the debt total (de/in)creases with the supply ratio, but static caps (SP cap) can
 pub fn get_interest_rates(
     storage: &dyn Storage,
     querier: QuerierWrapper,
@@ -211,7 +214,7 @@ pub fn get_interest_rates(
    
     //Get basket cAsset ratios
     let (basket_ratios, _) =
-        get_cAsset_ratios(storage, env.clone(), querier, basket.clone().collateral_types, config.clone())?;
+        get_cAsset_ratios(storage, env.clone(), querier, basket.clone().collateral_types, config.clone(), Some(basket.clone()))?;
     
 
     for (i, cap) in basket.clone().collateral_supply_caps.iter().enumerate() {
@@ -256,15 +259,15 @@ pub fn get_interest_rates(
                 //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
                 //// rate = 3.6%
                 two_slope_pro_rata_rates.push(
-                    decimal_multiplication(
+                    min(decimal_multiplication(
                         decimal_multiplication(rates[i], debt_proportions[i])?,
                         multiplier,
-                    )?,
+                    )?, Decimal::percent(100_00)),
                 );
             } else {
                 //Slope 1
                 two_slope_pro_rata_rates.push(
-                    decimal_multiplication(rates[i], debt_proportions[i])?,
+                    min(decimal_multiplication(rates[i], debt_proportions[i])?, Decimal::percent(100_00)),
                 );
             }
         } else if supply_proportions[i] > Decimal::one() {
@@ -283,10 +286,10 @@ pub fn get_interest_rates(
             //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
             //// rate = 3.6%
             two_slope_pro_rata_rates.push(
-                decimal_multiplication(
+                min(decimal_multiplication(
                     decimal_multiplication(rates[i], supply_proportions[i])?,
                     multiplier,
-                )?,
+                )?,Decimal::percent(100_00))
             );            
         }
     }
@@ -325,10 +328,10 @@ pub fn get_interest_rates(
             
                         //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
                         //// rate = 3.6%
-                        two_slope_pro_rata_rates[i] = decimal_multiplication(
+                        two_slope_pro_rata_rates[i] = min(decimal_multiplication(
                                 decimal_multiplication(rates[i], multi_cap_proportion)?,
                                 multiplier,
-                            )?;                        
+                            )?, Decimal::percent(100_00));
                     }
                 }
             }
@@ -359,7 +362,7 @@ fn get_credit_rate_of_change(
     credit_price_rate: Decimal,
     for_query: bool,
 ) -> StdResult<(Decimal, Vec<Decimal>)> {
-    let (ratios, _) = match get_cAsset_ratios(storage, env.clone(), querier, position.clone().collateral_assets, config){
+    let (ratios, _) = match get_cAsset_ratios(storage, env.clone(), querier, position.clone().collateral_assets, config, Some(basket.clone())){
         Ok(ratios) => ratios,
         Err(err) => {
             return Err(StdError::GenericErr {
@@ -462,6 +465,7 @@ pub fn accrue(
         querier,
         vec![credit_asset],
         config.clone(),
+        Some(basket.clone()),
         is_deposit_function,
     ){
         Ok(assets) => {

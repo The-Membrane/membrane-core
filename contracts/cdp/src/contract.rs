@@ -151,7 +151,10 @@ pub fn execute(
                 valid_assets,
             )?;
 
-            deposit(deps, env, info, position_owner, position_id, cAssets )
+            //If there is nothing being deposited, error
+            if cAssets == vec![] { return Err(ContractError::CustomError { val: String::from("No deposit assets passed") }) }
+
+            deposit(deps, env, info, position_owner, position_id, cAssets)
         }
         ExecuteMsg::Withdraw {
             position_id,
@@ -573,60 +576,5 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Set Position 1's debt to 239_000_000
-    POSITIONS.update(deps.storage, 
-    Addr::unchecked("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n"),
-    |positions| -> StdResult<_> {        
-        let mut positions = positions.unwrap_or_default();
-
-        for position in positions.iter_mut() {
-            if position.position_id == Uint128::new(1) {
-                position.credit_amount = Uint128::new(239_000_000);
-            }
-        }
-
-        Ok(positions)
-    })?;
-
-    //Set pending_revenue to the difference btwn the credit_asset debt total & the last seen actual debt total
-    let mut basket: Basket = BASKET.load(deps.storage)?;
-    let actual_total_debt = Uint128::new(302700996672u128);
-    basket.pending_revenue = Uint128::new(1559045u128);
-
-    //Set credit_asset amount to the actual debt total
-    //even if this is slightly over or under, it's fine bc the individual position state is intact
-    //&& a subtraction overflow will set the amount to 0
-    basket.credit_asset.amount = actual_total_debt;
-    //Set rates last accrued to now for safety
-    basket.rates_last_accrued = env.block.time.seconds();
-    //Save basket
-    BASKET.save(deps.storage, &basket)?;
-
-    //Instantiate FreezeTimer
-    let freeze_timer = Timer {
-        start_time: 0,
-        end_time: 0,
-    };
-    FREEZE_TIMER.save(deps.storage, &freeze_timer)?;
-
-    /////Test LP Price
-    //Load config
-    let config: Config = CONFIG.load(deps.storage)?;    
-
-    //Query LP price
-    let lp_price: PriceResponse = query_price(deps.storage, deps.querier, env, config, AssetInfo::NativeToken { denom: String::from("gamm/pool/1") }, false).unwrap_or_else(|_| PriceResponse {
-        price: Decimal::zero(),
-        prices: vec![],
-        decimals: 18,
-    });
-    let lp_value = lp_price.get_value(15984812163013611391u128.into())?;
-
-    //Sanity check
-    //- Interest rate for gamm went wild due to supply cap overage bc of the pricing mishap
-    //- Credit on position 1 increased due to interest rate
-    //- Pending revenue went wild when adding the accrued debt
-    //- basket.credit_asset amount also added accrued debt
-    //---- basket.collateral_assets amounts are correct, debt/supply caps will fix once price fixes
-    //- rate index also went wild but should'nt accrue high interest again bc the new rate will decrease with the new price/supply caps (but we make sure to skip acrual just incase)
-    Ok(Response::default().add_attribute("lp_value", lp_value.to_string()))
+    Ok(Response::default())
 }

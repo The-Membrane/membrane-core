@@ -88,3 +88,6 @@ pub struct UserDiscountResponse {
     /// User discount
     pub discount: Decimal,
 }
+
+#[cw_serde]
+pub struct MigrateMsg {}

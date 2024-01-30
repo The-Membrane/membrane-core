@@ -241,3 +241,6 @@ pub struct DelegationResponse {
     /// DelegationInfo
     pub delegation_info: DelegationInfo,
 }
+
+#[cw_serde]
+pub struct MigrateMsg {}

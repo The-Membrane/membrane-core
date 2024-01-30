@@ -14,7 +14,7 @@ use cw_coins::Coins;
 use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg};
 use membrane::oracle::PriceResponse;
 use membrane::stability_pool::{
-    Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig,
+    Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, MigrateMsg
 };
 use membrane::osmosis_proxy::ExecuteMsg as OsmosisProxy_ExecuteMsg;
 use membrane::types::{

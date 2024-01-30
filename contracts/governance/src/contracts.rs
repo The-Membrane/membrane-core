@@ -1631,47 +1631,5 @@ pub fn query_proposal_votes(deps: Deps, proposal_id: u64) -> StdResult<ProposalV
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-
-    let config = CONFIG.load(deps.storage)?;
-    let mut messages: Vec<CosmosMsg> = vec![];
-    
-    //Mint minimum MBRN from Osmosis Proxy
-    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: "osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd".to_string(),
-        msg: to_binary(&OP_ExecuteMsg::MintTokens { 
-            denom: config.clone().mbrn_denom, 
-            amount: Uint128::new(1_000_000), //1 MBRN
-            mint_to_address: env.clone().contract.address.to_string() 
-        })?,
-        funds: vec![],
-    }));    
-
-    //Stake minimum MBRN
-    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.clone().staking_contract_addr.to_string(),
-        msg: to_binary(&Staking_ExecuteMsg::Stake { 
-            user: None,
-        })?,
-        funds: vec![
-            asset_to_coin(
-                Asset {
-                    info: AssetInfo::NativeToken {
-                        denom: config.clone().mbrn_denom,
-                    },
-                    amount: Uint128::new(1_000_000), //1 MBRN
-                }
-            )?
-        ],
-    }));
-
-    //Start the unstake for the recently staked MBRN
-    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.clone().staking_contract_addr.to_string(),
-        msg: to_binary(&Staking_ExecuteMsg::Unstake { 
-            mbrn_amount: Some(Uint128::new(1_000_000)),
-        })?,
-        funds: vec![],
-    }));
-
-    Ok(Response::default().add_messages(messages))
+    Ok(Response::default())
 }

@@ -174,3 +174,6 @@ pub struct UserIncentivesResponse {
     /// User's unclaimed incentives
     pub incentives: Uint128,
 }
+
+#[cw_serde]
+pub struct MigrateMsg {}

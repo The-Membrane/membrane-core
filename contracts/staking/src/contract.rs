@@ -11,7 +11,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 
 use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, ProposalStatus};
-use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, accrue_user_positions, query_basket};
+use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, query_basket};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::staking::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg, Totals};
@@ -504,15 +504,6 @@ pub fn unstake(
     //If user can withdraw, accrue their positions and add to native_claims
     //Also update delegations
     if !withdrawable_amount.is_zero() {
-        //Create Position accrual msgs to lock in user discounts before withdrawing
-        let accrual_msg = accrue_user_positions(
-            deps.querier, 
-            config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-            info.sender.clone().to_string(), 
-            32,
-        )?;
-        sub_msgs.push(SubMsg::new(accrual_msg));
-
         //Push to native claims list
         native_claims.push(asset_to_coin(Asset {
             info: AssetInfo::NativeToken {

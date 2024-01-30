@@ -20,7 +20,7 @@ use membrane::osmosis_proxy::ExecuteMsg as OsmosisProxy_ExecuteMsg;
 use membrane::types::{
     Asset, AssetInfo, AssetPool, Deposit, User, UserInfo, UserRatio, Basket,
 };
-use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest, accrue_user_positions, query_asset_price, query_basket};
+use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest, query_asset_price, query_basket};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
@@ -296,33 +296,33 @@ fn accrue_incentives(
     let mut incentives = accumulate_interest(stake, rate, time_elapsed)?;   
 
     //Get CDT Price
-    let basket: Basket = match query_basket(querier, config.clone().positions_contract.to_string()){
-        Ok(basket) => basket,
-        Err(_) => {
-            querier.query_wasm_smart::<Basket>(
-            config.clone().positions_contract,
-            &CDP_QueryMsg::GetBasket {}
-            )?
-        },
-    };
-    let cdt_price: PriceResponse = basket.credit_price;
+    // let basket: Basket = match query_basket(querier, config.clone().positions_contract.to_string()){
+    //     Ok(basket) => basket,
+    //     Err(_) => {
+    //         querier.query_wasm_smart::<Basket>(
+    //         config.clone().positions_contract,
+    //         &CDP_QueryMsg::GetBasket {}
+    //         )?
+    //     },
+    // };
+    // let cdt_price: PriceResponse = basket.credit_price;
 
     //Get MBRN price
-    let mbrn_price: Decimal = match query_asset_price(
-        querier, 
-        config.clone().oracle_contract.into(), 
-        AssetInfo::NativeToken { denom: config.clone().mbrn_denom },
-        60,
-        None,
-    ){
-        Ok(price) => price,
-        Err(_) => cdt_price.price, //We default to CDT repayment price in the first hour of incentives
-    };
+    // let mbrn_price: Decimal = match query_asset_price(
+    //     querier, 
+    //     config.clone().oracle_contract.into(), 
+    //     AssetInfo::NativeToken { denom: config.clone().mbrn_denom },
+    //     60,
+    //     None,
+    // ){
+    //     Ok(price) => price,
+    //     Err(_) => cdt_price.price, //We default to CDT repayment price in the first hour of incentives
+    // };
 
     //Transmute CDT amount to MBRN incentive amount
-    incentives = decimal_division(
-        cdt_price.get_value(incentives)?
-        , mbrn_price)? * Uint128::one();
+    // incentives = decimal_division(
+    //     cdt_price.get_value(incentives)?
+    //     , mbrn_price)? * Uint128::one();
 
     let mut total_incentives = INCENTIVES.load(storage)?;
 
@@ -412,15 +412,6 @@ pub fn withdraw(
 
         //If there is a withdrawable amount
         if !withdrawable.is_zero() {
-            //Create Position accrual msgs to lock in user discounts before withdrawing
-            let accrual_msg = accrue_user_positions(
-                deps.querier, 
-                config.positions_contract.to_string(),
-                info.sender.clone().to_string(), 
-                32,
-            )?;
-            msgs.push(accrual_msg);
-
             let withdrawable_asset = Asset {
                 amount: withdrawable,
                 ..asset_pool.clone().credit_asset

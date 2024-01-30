@@ -6,16 +6,16 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::helpers::{get_discount_vault_config, query_basket};
+use membrane::helpers::query_basket;
 use osmosis_std::shim::Duration;
 use osmosis_std::types::osmosis::lockup::{LockupQuerier, AccountLockedLongerDurationDenomResponse};
 
-use membrane::math::{decimal_multiplication, decimal_division};
+use membrane::math::decimal_division;
 use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, UserDiscountResponse};
-use membrane::stability_pool::{QueryMsg as SP_QueryMsg, ClaimsResponse};
+use membrane::stability_pool::{QueryMsg as SP_QueryMsg};
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
-use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse, Config as DV_Config};
-use membrane::cdp::{QueryMsg as CDP_QueryMsg, PositionResponse};
+use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse};
+use membrane::cdp::{BasketPositionsResponse, QueryMsg as CDP_QueryMsg};
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
 use membrane::types::{AssetInfo, Basket, Deposit, AssetPool};
 
@@ -185,7 +185,7 @@ fn get_discount(
     let user_value_in_network = get_user_value_in_network(deps.querier, env, config.clone(), user.clone())?;
 
     //Get User's outstanding debt
-    let user_positions: Vec<PositionResponse> = deps.querier.query::<Vec<PositionResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
+    let user_positions: Vec<BasketPositionsResponse> = deps.querier.query::<Vec<BasketPositionsResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().positions_contract.to_string(),
         msg: to_binary(&CDP_QueryMsg::GetBasketPositions {
             start_after: None,
@@ -195,14 +195,15 @@ fn get_discount(
         })?,
     }))?;
 
-    let user_outstanding_debt: Uint128 = user_positions
+    let user_outstanding_debt: Uint128 = user_positions[0].clone().positions
         .into_iter()    
         .map(|position| position.credit_amount)
         .collect::<Vec<Uint128>>()
         .into_iter()
         .sum();
     let user_outstanding_debt = Decimal::from_ratio(user_outstanding_debt, Uint128::one());
-
+    
+    //Calculate discount
     let percent_discount = {
         if user_value_in_network >= user_outstanding_debt {
             Decimal::one()
@@ -226,7 +227,15 @@ fn get_user_value_in_network(
     user: String,
 )-> StdResult<Decimal>{
 
-    let basket: Basket = query_basket(querier, config.positions_contract.to_string())?;
+    let basket: Basket = match query_basket(querier, config.clone().positions_contract.to_string()){
+        Ok(basket) => basket,
+        Err(_) => {
+            querier.query_wasm_smart::<Basket>(
+            config.clone().positions_contract,
+            &CDP_QueryMsg::GetBasket {}
+            )?
+        },
+    };
     let credit_price = basket.clone().credit_price;
 
     let mbrn_price_res = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
@@ -238,7 +247,13 @@ fn get_user_value_in_network(
             basket_id: None,
         })?,
     })){
-        Ok(price_res) => price_res,
+        Ok(price_res) => {
+            if price_res.price > credit_price.price {
+                price_res
+            } else {
+                credit_price.clone()
+            }
+        },
         //Default to CDT price
         Err(_) => credit_price.clone()
     };
@@ -247,17 +262,17 @@ fn get_user_value_in_network(
     let mut total_value = Decimal::zero();
 
     //Handle Discount Vault
-    for vault in config.clone().discount_vault_contract {
-        //Add DV value
-        total_value += get_discounts_vault_value(querier.clone(), vault.clone(), user.clone(), config.clone().minimum_time_in_network)?;
-        //Get denoms to query for gauges
-        let dv_config: DV_Config = get_discount_vault_config(querier, vault.to_string())?;
-        let accepted_lps: Vec<AssetInfo> = dv_config.clone().accepted_LPs.into_iter().map(|lp| lp.share_token).collect();
-        //Add gauge vaule
-        total_value += get_incentive_gauge_value(querier, config.clone(), accepted_lps, user.clone(), config.clone().minimum_time_in_network)?;
-    }
+    // for vault in config.clone().discount_vault_contract {
+    //     //Add DV value
+    //     total_value += get_discounts_vault_value(querier.clone(), vault.clone(), user.clone(), config.clone().minimum_time_in_network)?;
+    //     //Get denoms to query for gauges
+    //     let dv_config: DV_Config = get_discount_vault_config(querier, vault.to_string())?;
+    //     let accepted_lps: Vec<AssetInfo> = dv_config.clone().accepted_LPs.into_iter().map(|lp| lp.share_token).collect();
+    //     //Add gauge vaule
+    //     total_value += get_incentive_gauge_value(querier, config.clone(), accepted_lps, user.clone(), config.clone().minimum_time_in_network)?;
+    // }
 
-    total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone(), mbrn_price_res.price)?;
+    total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone())?;
     total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price_res.clone(), credit_price.clone().price)?;
     
     
@@ -362,34 +377,10 @@ fn get_staked_MBRN_value(
     //Add accrued interest to user_stake
     user_stake += rewards.accrued_interest;
 
-    //Calculate staked value from reward.claimables
-    let mut staked_value = Decimal::zero();
-    
-    for asset in rewards.claimables {
-
-        let mut price_res = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.clone().oracle_contract.to_string(),
-            msg: to_binary(&Oracle_QueryMsg::Price {
-                asset_info: asset.info,
-                twap_timeframe: 60,
-                oracle_time_limit: 600,
-                basket_id: None,
-            })?,
-        }))?;
-
-        if price_res.price < credit_price { price_res.price = credit_price }
-
-        let value = price_res.get_value(asset.amount)?;
-
-        staked_value += value;
-    }
-
     //Add MBRN value to staked_value
     let value = mbrn_price_res.get_value(user_stake)?;
-
-    staked_value += value;
     
-    Ok( staked_value )
+    Ok( value )
 }
 
 /// Return user's total Stability Pool value from credit & MBRN incentives 
@@ -398,14 +389,13 @@ fn get_sp_value(
     config: Config,
     current_block_time: u64,
     user: String,
-    mbrn_price: Decimal,
 ) -> StdResult<Decimal>{
 
     //Query Stability Pool to see if the user has funds
     let user_deposits = querier.query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().stability_pool_contract.to_string(),
         msg: to_binary(&SP_QueryMsg::AssetPool { 
-            user: None, 
+            user: Some(user.clone()), 
             start_after: None,
             deposit_limit: None 
         })?,
@@ -413,7 +403,7 @@ fn get_sp_value(
     .deposits
         .into_iter()
         //Filter for user deposits deposited for a minimum_time_in_network
-        .filter(|deposit| deposit.user.to_string() == user && current_block_time - deposit.deposit_time > (config.clone().minimum_time_in_network * SECONDS_PER_DAY))
+        .filter(|deposit| current_block_time - deposit.deposit_time > (config.clone().minimum_time_in_network * SECONDS_PER_DAY))
         .collect::<Vec<Deposit>>();
 
     let total_user_deposit: Decimal = user_deposits
@@ -423,42 +413,6 @@ fn get_sp_value(
         .into_iter()
         .sum();
 
-    //Query for user accrued incentives
-    let accrued_incentives = querier.query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().stability_pool_contract.to_string(),
-        msg: to_binary(&SP_QueryMsg::UnclaimedIncentives {
-            user: user.clone(),
-        })?,
-    }))?;
-    let incentive_value = decimal_multiplication(mbrn_price, Decimal::from_ratio(accrued_incentives, Uint128::one()))?;
-
-    //Query for user claimable assets
-    let res = querier.query::<ClaimsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().stability_pool_contract.to_string(),
-        msg: to_binary(&SP_QueryMsg::UserClaims {
-            user: user.clone(),
-        })?,
-    }))?;
-
-    let mut claims_value = Decimal::zero();
-    
-    for asset in res.claims {
-
-        let price_res = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.clone().oracle_contract.to_string(),
-            msg: to_binary(&Oracle_QueryMsg::Price {
-                asset_info: AssetInfo::NativeToken { denom: asset.denom },
-                twap_timeframe: 60,
-                oracle_time_limit: 600,
-                basket_id: None,
-            })?,
-        }))?;
-
-        let value = price_res.get_value(asset.amount)?;
-
-        claims_value += value;
-    }
-
     //Return total_value
-    Ok( total_user_deposit + incentive_value + claims_value)
+    Ok( total_user_deposit)
 }

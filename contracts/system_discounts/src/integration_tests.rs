@@ -4,13 +4,13 @@ mod tests {
 
     use crate::helpers::DiscountsContract;
 
-    use membrane::cdp::PositionResponse;
+    use membrane::cdp::{BasketPositionsResponse, PositionResponse};
     use membrane::system_discounts::{ExecuteMsg, InstantiateMsg, QueryMsg};
     use membrane::stability_pool::ClaimsResponse;
     use membrane::staking::{StakerResponse, RewardsResponse, Config as Staking_Config};
     use membrane::oracle::PriceResponse;
     use membrane::discount_vault::UserResponse as Discount_UserResponse;
-    use membrane::types::{Asset, AssetInfo, AssetPool, Basket, Deposit, StakeDistribution};
+    use membrane::types::{Asset, AssetInfo, AssetPool, Basket, Deposit, StakeDistribution, UserInfo};
 
     use cosmwasm_std::{
         to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal, Coin,
@@ -42,12 +42,14 @@ mod tests {
     #[serde(rename_all = "snake_case")]
     pub struct CDP_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum CDP_MockQueryMsg {
-        GetUserPositions {
-            user: String,
+        GetBasketPositions {
+            start_after: Option<String>,
             limit: Option<u32>,
+            user_info: Option<UserInfo>, 
+            user: Option<String>
         },
         GetBasket { },
     }
@@ -60,19 +62,23 @@ mod tests {
             |_, _, _, _: CDP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
             |_, _, msg: CDP_MockQueryMsg| -> StdResult<Binary> { 
                 match msg {
-                    CDP_MockQueryMsg::GetUserPositions { 
+                    CDP_MockQueryMsg::GetBasketPositions { 
+                        start_after,
                         user,
+                        user_info,
                         limit,
                     } => {
-                        Ok(to_binary(&vec![PositionResponse {
-                            position_id: Uint128::new(1),
-                            collateral_assets: vec![],
-                            credit_amount: Uint128::new(500),
-                            cAsset_ratios: vec![],
-                            basket_id: Uint128::new(1),
-                            avg_borrow_LTV: Decimal::zero(),
-                            avg_max_LTV: Decimal::zero(),
-                        }])?)
+                        Ok(to_binary(&vec![BasketPositionsResponse {
+                            user: String::from(""),
+                            positions: vec![
+                                PositionResponse {
+                                position_id: Uint128::new(1),
+                                collateral_assets: vec![ ],
+                                credit_amount: Uint128::new(500),
+                                cAsset_ratios: vec![ ],
+                                avg_borrow_LTV: Decimal::zero(),
+                                avg_max_LTV: Decimal::zero(),
+                        }]}])?)
                     },
                     CDP_MockQueryMsg::GetBasket { } => {
                         Ok(to_binary(&Basket {
@@ -258,7 +264,7 @@ mod tests {
                     SP_MockQueryMsg::AssetDeposits {
                         user: _,
                     } => Ok(to_binary(&vec![Deposit {
-                        user: Addr::unchecked(USER),
+                        user: Addr::unchecked("uzzer"),
                         amount: Decimal::percent(222_00),
                         deposit_time: 0,
                         last_accrued: 0,
@@ -283,7 +289,13 @@ mod tests {
                             amount: Uint128::new(100),
                         },
                         liq_premium: Decimal::percent(10),
-                        deposits: vec![],
+                        deposits: vec![Deposit {
+                            user: Addr::unchecked("uzzer"),
+                            amount: Decimal::percent(222_00),
+                            deposit_time: 0,
+                            last_accrued: 0,
+                            unstake_time: None,
+                        }],
                     })?),
                 }
             },
@@ -481,7 +493,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(discount.discount.to_string(), String::from("0.486"));
+            assert_eq!(discount.discount.to_string(), String::from("0.444000042"));
         }
 
         #[test]

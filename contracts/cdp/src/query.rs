@@ -20,7 +20,7 @@ use membrane::types::{
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 
-use crate::rates::get_interest_rates;
+use crate::rates::{accrue, get_interest_rates};
 use crate::risk_engine::get_basket_debt_caps;
 use crate::positions::read_price;
 use crate::state::{BASKET, CONFIG, POSITIONS, get_target_position, REDEMPTION_OPT_IN};
@@ -75,28 +75,39 @@ pub fn query_basket_positions(
             Ok(position) => position,
             Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
         };
-            
-        let (borrow, max, _value, _prices, ratios) = get_avg_LTV(
-            deps.storage,
-            env.clone(),
-            deps.querier,
-            config.clone(),
-            Some(basket.clone()),
-            position.clone().collateral_assets,
-            false,
-            false,
-        )?;
 
+        accrue(
+            deps.storage, 
+            deps.querier,
+            env.clone(), 
+            config.clone(),
+            &mut position.clone(),
+            &mut basket.clone(), 
+            user.to_string(),
+            false,
+            false
+        )?;
+            
+        // let (borrow, max, _value, _prices, ratios) = get_avg_LTV(
+        //     deps.storage,
+        //     env.clone(),
+        //     deps.querier,
+        //     config.clone(),
+        //     Some(basket.clone()),
+        //     position.clone().collateral_assets,
+        //     false,
+        //     false,
+        // )?;
 
         return Ok(vec![BasketPositionsResponse {
             user: user.to_string(),
             positions: vec![PositionResponse {
                 position_id: position.position_id,
                 collateral_assets: position.clone().collateral_assets,
-                cAsset_ratios: ratios,
+                cAsset_ratios: vec![],
                 credit_amount: position.credit_amount,
-                avg_borrow_LTV: borrow,
-                avg_max_LTV: max,
+                avg_borrow_LTV: Decimal::zero(),
+                avg_max_LTV: Decimal::zero(),
             }],
         }])
     }

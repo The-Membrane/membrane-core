@@ -195,3 +195,6 @@ pub struct AssetResponse {
     /// Asset's list of oracle info
     pub oracle_info: Vec<AssetOracleInfo>,
 }
+
+#[cw_serde]
+pub struct MigrateMsg {}

@@ -2881,6 +2881,38 @@ mod tests {
             app.execute(Addr::unchecked("test"), cosmos_msg)
                 .unwrap_err();
 
+            /////////////Test that repaying in full w/o excess works////////////////////
+
+            //Successful Increase
+            let msg = ExecuteMsg::IncreaseDebt {
+                position_id: Uint128::from(1u128),
+                amount: Some(Uint128::from(50_000_000_000u128)),
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
+
+            //Send credit
+            app.send_tokens(
+                Addr::unchecked("sender"),
+                Addr::unchecked("test"),
+                &[coin(50_000_000_000, "credit_fulldenom")],
+            )
+            .unwrap();
+
+            ///Full Repayment
+            let msg = ExecuteMsg::Repay {
+                position_id: Uint128::from(1u128),
+                position_owner: None,
+                send_excess_to: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(msg, vec![coin(50_000_000_000, "credit_fulldenom")])
+                .unwrap();
+            app.execute(Addr::unchecked("test"), cosmos_msg)
+                .unwrap();
+
             //Successful Increase
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),

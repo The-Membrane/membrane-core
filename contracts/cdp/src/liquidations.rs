@@ -763,6 +763,7 @@ pub fn sell_wall(
         querier,
         collateral_assets.clone(),
         prop.clone().config.clone(),
+        None,
     )?;
 
     //Create Router Msgs for each asset

@@ -80,7 +80,7 @@ pub fn update_basket_tally(
     
     if !from_liquidation {
         let (new_basket_ratios, _) =
-            get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config)?;
+            get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config, Some(basket.clone()))?;
 
         
         //Initialize in_position to check if the position has these assets
@@ -218,6 +218,7 @@ pub fn get_basket_debt_caps(
         querier,
         basket.clone().collateral_types,
         config.clone(),
+        Some(basket.clone())
     )?;
 
     //Split the basket's total debt into each asset's SupplyCap.debt total

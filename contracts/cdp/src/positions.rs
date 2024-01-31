@@ -1347,6 +1347,7 @@ pub fn redeem_for_collateral(
                         deps.querier,
                         target_position.clone().collateral_assets,
                         config.clone(),
+                        Some(basket.clone()),
                     )?;
 
                     //Calc amount of credit that can be redeemed

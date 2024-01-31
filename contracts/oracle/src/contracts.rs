@@ -13,7 +13,7 @@ use osmosis_std::types::osmosis::twap::v1beta1 as TWAP;
 use membrane::math::{decimal_division, decimal_multiplication, Decimal256, Uint256};
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::osmosis_proxy::{QueryMsg as OP_QueryMsg, Config as OP_Config};
-use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg, PriceResponse256, self};
+use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg, MigrateMsg};
 use membrane::types::{AssetInfo, AssetOracleInfo, PriceInfo, Basket, TWAPPoolInfo, PoolInfo, Owner, PoolStateResponse};
 
 use crate::error::ContractError;
@@ -652,7 +652,7 @@ fn get_asset_price(
 
     //Query OSMO price from the TWAP sources
     //This can use multiple pools to calculate our price
-    for pool in oracle_info.pools_for_osmo_twap {
+    for pool in oracle_info.pools_for_osmo_twap.clone() {
 
         let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
             pool.clone().pool_id, 
@@ -698,6 +698,44 @@ fn get_asset_price(
         source: String::from("osmosis"),
         price: asset_price_in_osmo,
     });
+
+    ///If the last Osmosis TWAP isn't ending in OSMO, then find the asset in our oracle to pull from
+    /// Ex: milkTIA ends in TIA, so we find the TIA -> USD price and use that to calculate the milkTIA price
+    if oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom != String::from("uosmo") {
+        match get_asset_price(
+            storage, 
+            querier, 
+            env, 
+            AssetInfo::NativeToken { denom: oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].clone().quote_asset_denom }, 
+            twap_timeframe, 
+            oracle_time_limit, 
+            basket_id_field
+        ){
+            Ok(res) => {
+                //Push OSMO TWAP price
+                oracle_prices.push(PriceInfo {
+                    source: String::from("oracle_contract"),
+                    price: res.price,
+                });
+
+                //Multiply prices to get the desired Quote
+                quote_price = decimal_multiplication(asset_price_in_osmo, res.price)?;
+
+                //Return price
+                return Ok(PriceResponse {
+                    prices: oracle_prices,
+                    price: quote_price,
+                    decimals: oracle_info.decimals,
+                });
+            },
+            Err(_) => {
+                return Err(StdError::GenericErr {
+                    msg: format!("No {} price found", oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom),
+                });
+            }
+        }
+    }
+
 
     //Has USD pricing failed?
     let mut usd_price_failed = false;
@@ -881,4 +919,9 @@ fn get_asset_prices(
     }
 
     Ok(price_responses)
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    Ok(Response::default())
 }

@@ -732,9 +732,9 @@ fn get_asset_price(
                     decimals: oracle_info.decimals,
                 });
             },
-            Err(_) => {
+            Err(err) => {
                 return Err(StdError::GenericErr {
-                    msg: format!("No {} price found", oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom),
+                    msg: err.to_string(),
                 });
             }
         }

@@ -41,7 +41,7 @@ pub fn instantiate(
     let mut config: Config;
     if msg.owner.is_some() {
         config = Config {
-            owner: deps.api.addr_validate(&msg.owner.unwrap())?,
+            owner: deps.api.addr_validate(&msg.clone().owner.unwrap())?,
             positions_contract: None,
             osmosis_proxy_contract: None,            
             pyth_osmosis_address: Some(deps.api.addr_validate(&"osmo1hpdzqku55lmfmptpyj6wdlugqs5etr6teqf7r4yqjjrxjznjhtuqqu5kdh")?), //mainnet: osmo13ge29x4e2s63a8ytz2px8gurtyznmue4a69n5275692v3qn3ks8q7cwck7

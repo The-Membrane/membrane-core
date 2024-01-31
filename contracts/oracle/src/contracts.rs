@@ -711,7 +711,7 @@ fn get_asset_price(
             querier, 
             env, 
             AssetInfo::NativeToken { denom: oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].clone().quote_asset_denom }, 
-            twap_timeframe, 
+            twap_timeframe / 60, 
             oracle_time_limit, 
             basket_id_field
         ){
@@ -734,7 +734,7 @@ fn get_asset_price(
             },
             Err(err) => {
                 return Err(StdError::GenericErr {
-                    msg: err.to_string(),
+                    msg: format!("No {} price found", oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom),
                 });
             }
         }

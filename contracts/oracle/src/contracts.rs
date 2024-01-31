@@ -102,6 +102,10 @@ pub fn instantiate(
         for asset in assets {
             ASSETS.save(deps.storage, asset.asset_info.to_string(), &asset.oracle_info)?;
         }
+
+        if owner.is_some() {
+            config.owner = deps.api.addr_validate(&owner.unwrap())?;
+        }
     }
 
     CONFIG.save(deps.storage, &config)?;

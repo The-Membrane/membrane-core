@@ -103,8 +103,8 @@ pub fn instantiate(
             ASSETS.save(deps.storage, asset.asset_info.to_string(), &asset.oracle_info)?;
         }
 
-        if owner.is_some() {
-            config.owner = deps.api.addr_validate(&owner.unwrap())?;
+        if msg.owner.is_some() {
+            config.owner = deps.api.addr_validate(&msg.owner.unwrap())?;
         }
     }
 

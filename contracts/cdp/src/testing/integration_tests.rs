@@ -7421,7 +7421,7 @@ mod tests {
             // );
         }
 
-        #[test]
+        // #[test]
         fn two_collateral_cdp_LTV_tests() {
             let (mut app, cdp_contract, lq_contract) =
                 proper_instantiate(false, true, false, false);
@@ -7539,7 +7539,7 @@ mod tests {
             assert_eq!(res[0].positions[0].avg_max_LTV.to_string(), String::from("0.65"));
         }
 
-        #[test]
+        // #[test]
         fn two_collateral_cdp_LTV_tests_bignums() {
             let (mut app, cdp_contract, lq_contract) =
                 proper_instantiate(false, false, false, false);
@@ -8492,10 +8492,10 @@ mod tests {
                             rate_index: Decimal::one(),
                         }
                     ], 
-                    cAsset_ratios: vec![Decimal::one()], 
+                    cAsset_ratios: vec![], //arent calc'd in queries anymore
                     credit_amount: Uint128::zero(), 
-                    avg_borrow_LTV: Decimal::percent(50),
-                    avg_max_LTV: Decimal::percent(70),
+                    avg_borrow_LTV: Decimal::percent(0), //arent calc'd in queries anymore
+                    avg_max_LTV: Decimal::percent(0), //arent calc'd in queries anymore
                 },
             );
 

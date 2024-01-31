@@ -705,7 +705,7 @@ fn get_asset_price(
 
     ///If the last Osmosis TWAP isn't ending in OSMO, then find the asset in our oracle to pull from
     /// Ex: milkTIA ends in TIA, so we find the TIA -> USD price and use that to calculate the milkTIA price
-    if oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom != String::from("uosmo") {
+    if oracle_info.pools_for_osmo_twap.len() > 0 && oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom != String::from("uosmo") {
         match get_asset_price(
             storage, 
             querier, 
@@ -732,7 +732,7 @@ fn get_asset_price(
                     decimals: oracle_info.decimals,
                 });
             },
-            Err(err) => {
+            Err(_) => {
                 return Err(StdError::GenericErr {
                     msg: format!("No {} price found", oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom),
                 });

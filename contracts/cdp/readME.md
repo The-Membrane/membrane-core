@@ -4,8 +4,6 @@ The Positions contract is used to create multi-collateral backed positions to ta
 
 ---
 
-WARNING: Having more than 3-4 separate Positions will make it impossible to unstake in Staking & withdraw in the Stability Pool/Discount Vault, due to the gas cost of the accrual messages.
-
 ## ExecuteMsg
 - Functions deposit, repay & increase_debt assert state is saved correctly at the end of the function
 - A frozen basket only halts withdraw & increase_debt

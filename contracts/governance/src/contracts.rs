@@ -11,7 +11,7 @@ use cw_storage_plus::Bound;
 
 use membrane::helpers::{query_staking_totals, asset_to_coin, query_basket};
 use membrane::math::decimal_multiplication;
-use membrane::types::{StakeDeposit, SupplyCap, AssetInfo, Asset, Basket, BidInput, Queue};
+use membrane::types::{StakeDeposit, SupplyCap, AssetInfo, Asset, Basket, BidInput};
 use membrane::vesting::{AllocationResponse, QueryMsg as VestingQueryMsg, RecipientsResponse};
 use membrane::governance::helpers::validate_links;
 use membrane::governance::{
@@ -21,9 +21,9 @@ use membrane::governance::{
 };
 use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, EditBasket, QueryMsg as CDP_QueryMsg, Config as CDP_Config};
 use membrane::staking::{
-    Config as StakingConfig, DelegationResponse, ExecuteMsg as Staking_ExecuteMsg, QueryMsg as StakingQueryMsg, StakedResponse, StakerResponse, TotalStakedResponse
+    Config as StakingConfig, DelegationResponse, ExecuteMsg as Staking_ExecuteMsg, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse
 };
-use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, Config as LQ_Config};
+use membrane::liq_queue::{Config as LQ_Config, ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, QueueResponse};
 use membrane::osmosis_proxy::{ExecuteMsg as OP_ExecuteMsg, QueryMsg as OP_QueryMsg, Config as OP_Config};
 
 use core::panic;
@@ -863,7 +863,7 @@ pub fn check_messages(
         }
 
         //Query Queue to get the bid_id
-        let uosmo_queue: Queue = deps.querier.query_wasm_smart::<Queue>(
+        let uosmo_queue: QueueResponse = deps.querier.query_wasm_smart::<QueueResponse>(
             lq_contract.clone(),
             &LQ_QueryMsg::Queue { bid_for: AssetInfo::NativeToken { denom: String::from("uosmo") } 
             }

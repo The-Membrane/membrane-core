@@ -997,7 +997,7 @@ pub fn remove_completed_proposal(
     if aligned {
         
         if env.block.time.seconds()
-        > (proposal.end_block + config.proposal_effective_delay + config.proposal_expiration_period) * 6
+        > (proposal.end_block + ((config.proposal_effective_delay + config.proposal_expiration_period) * 6))
         {
             proposal.status = ProposalStatus::Expired;
         }
@@ -1013,7 +1013,7 @@ pub fn remove_completed_proposal(
         PENDING_PROPOSALS.remove(deps.storage, proposal_id.to_string());    
     }
     //If proposal is expired or rejected, remove
-    else if proposal.status == ProposalStatus::Expired || proposal.status == ProposalStatus::Rejected{
+    else if proposal.status == ProposalStatus::Expired || proposal.status == ProposalStatus::Rejected {
         PROPOSALS.remove(deps.storage, proposal_id.to_string());
     }  else {
         return Err(ContractError::CantRemove {});

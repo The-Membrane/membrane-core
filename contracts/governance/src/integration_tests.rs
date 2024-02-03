@@ -672,7 +672,7 @@ mod tests {
             assert_eq!(proposal.for_power, Uint128::zero());
             assert_eq!(proposal.against_power, Uint128::zero());
             assert_eq!(proposal.start_block, 12_345);
-            assert_eq!(proposal.end_block, 12_345 + (7 * 14400)); //Executables have a minimum 7 day voting period
+            assert_eq!(proposal.end_block, proposal.start_time + (6 * (7 * 14400))); //Executables have a minimum 7 day voting period
             assert_eq!(proposal.title, String::from("Test title!"));
             assert_eq!(proposal.description, String::from("Test description!"));
             assert_eq!(
@@ -1014,7 +1014,7 @@ mod tests {
             // Skip voting period
             app.update_block(|bi| {
                 bi.height += 7 * PROPOSAL_VOTING_PERIOD + 1;
-                bi.time = bi.time.plus_seconds(6 * (PROPOSAL_VOTING_PERIOD + 1));
+                bi.time = bi.time.plus_seconds(6 * (7* PROPOSAL_VOTING_PERIOD + 1));
             });
 
             //Error bc voting period has passed
@@ -1126,7 +1126,7 @@ mod tests {
 
             app.update_block(|bi| {
                 bi.height += PROPOSAL_EXPIRATION_PERIOD + 1;
-                bi.time = bi.time.plus_seconds(6 * (PROPOSAL_EXPIRATION_PERIOD + 1));
+                bi.time = bi.time.plus_seconds(6 * (PROPOSAL_EXPIRATION_PERIOD + 2));
             });
             // Remove expired proposal
             app.execute_contract(
@@ -1206,7 +1206,7 @@ mod tests {
                     &QueryMsg::Proposal { proposal_id: 1 },
                 )
                 .unwrap();
-            assert_eq!(proposal.start_block + (14400), proposal.end_block);
+            assert_eq!(proposal.start_time + (14400*6), proposal.end_block);
 
             //End Proposal without passing quorum
             app.update_block(|bi| {
@@ -1227,7 +1227,7 @@ mod tests {
                     &QueryMsg::Proposal { proposal_id: 1 },
                 )
                 .unwrap();
-            assert_eq!(proposal.start_block + (14400+1), proposal.end_block);
+            assert_eq!(proposal.start_time + ((14400+1) * 6), proposal.end_block);
             assert_eq!(proposal.status, ProposalStatus::Active);
 
         }
@@ -1368,7 +1368,7 @@ mod tests {
             // Skip voting period
             app.update_block(|bi| {
                 bi.height += 7 * PROPOSAL_VOTING_PERIOD + 1;
-                bi.time = bi.time.plus_seconds(6 * (PROPOSAL_VOTING_PERIOD + 1));
+                bi.time = bi.time.plus_seconds(6 * (7* PROPOSAL_VOTING_PERIOD + 1));
             });
 
             //Successful End: AmendmentDesired
@@ -1500,7 +1500,7 @@ mod tests {
             // Skip voting period
             app.update_block(|bi| {
                 bi.height += 7 * PROPOSAL_VOTING_PERIOD + 1;
-                bi.time = bi.time.plus_seconds(6 * (PROPOSAL_VOTING_PERIOD + 1));
+                bi.time = bi.time.plus_seconds(6 * (7* PROPOSAL_VOTING_PERIOD + 1));
             });
 
             //Successful End: Removed
@@ -1645,7 +1645,7 @@ mod tests {
                 bi.height += 14401;
                 bi.time = bi
                     .time
-                    .plus_seconds(14401);
+                    .plus_seconds(14401*6);
             });
 
             app.execute_contract(
@@ -1739,7 +1739,7 @@ mod tests {
             // Skip voting period
             app.update_block(|bi| {
                 bi.height += 7 * PROPOSAL_VOTING_PERIOD + 1;
-                bi.time = bi.time.plus_seconds(6 * (PROPOSAL_VOTING_PERIOD + 1));
+                bi.time = bi.time.plus_seconds(6 * (7 * PROPOSAL_VOTING_PERIOD + 1));
             });
 
             //Successful End
@@ -1830,6 +1830,7 @@ mod tests {
                         funds: vec![],
                     }),
                 }],
+                msg_switch: None,
             };
             let cosmos_msg = gov_contract.call(msg, vec![]).unwrap();
             let err = app

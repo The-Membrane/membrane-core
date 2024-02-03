@@ -428,9 +428,9 @@ pub fn query_price(
     
     //Query Price
     let res = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+        contract_addr: config.clone().oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
         msg: to_binary(&OracleQueryMsg::Price {
-            asset_info,
+            asset_info: asset_info.clone(),
             twap_timeframe,
             oracle_time_limit: config.oracle_time_limit,
             basket_id: None,
@@ -438,11 +438,29 @@ pub fn query_price(
     })) {
         Ok(res) => {
             if let Some(old_price) = old_price {
-                //If the new price is 20% higher or lower than the old price, use the old price
+                //If the new price is 20% higher or lower than the old price, check the price at double the twap timeframe
                 if res.price >= old_price.price * Decimal::percent(120)
                     || res.price <= old_price.price * Decimal::percent(80)
                 {
-                    return Ok(old_price);
+                    //Requery at double the twap timeframe
+                    let second_res = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                        contract_addr: config.oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+                        msg: to_binary(&OracleQueryMsg::Price {
+                            asset_info,
+                            twap_timeframe: twap_timeframe * 2,
+                            oracle_time_limit: config.oracle_time_limit,
+                            basket_id: None,
+                        })?,
+                    }))?;
+
+                    //If this price is ALSO 20% higher or lower than the old price, use the new price
+                    if second_res.price >= old_price.price * Decimal::percent(120)
+                        || second_res.price <= old_price.price * Decimal::percent(80)
+                    {
+                        return Ok(res);
+                    } else {
+                        return Ok(old_price);                        
+                    }
                 }
             }
             //Store the new price

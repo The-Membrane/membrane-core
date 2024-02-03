@@ -226,12 +226,13 @@ pub fn submit_proposal(
 
     //Set end_block 
     let end_block: u64 = {
+        //Config is all in blocks, the 'times 6' converts it to 6 seconds per block
         if expedited {
-            env.block.height + config.expedited_proposal_voting_period
+            env.block.time.seconds() + (config.expedited_proposal_voting_period * 6) 
         } else if messages.is_some() && config.proposal_voting_period <  (7 * BLOCKS_PER_DAY){ //Proposals with executables have to be at least 7 days
-            env.block.height + (7 * BLOCKS_PER_DAY)
+            env.block.time.seconds() + (7 * BLOCKS_PER_DAY * 6)
         } else {
-            env.block.height + config.proposal_voting_period
+            env.block.time.seconds() + (config.proposal_voting_period * 6) 
         }
     };
 
@@ -298,11 +299,11 @@ pub fn submit_proposal(
         start_block: env.block.height,
         start_time: env.block.time.seconds(),
         end_block,
-        delayed_end_block: end_block
-            + config.proposal_effective_delay,
+        delayed_end_block: end_block //*6 is bc the config is in 6 sec block times but the end_block is now in seconds
+            + (config.proposal_effective_delay * 6),
         expiration_block: end_block
-            + config.proposal_effective_delay
-            + config.proposal_expiration_period,
+            + (config.proposal_effective_delay * 6)
+            + (config.proposal_expiration_period * 6),
         title,
         description,
         link,
@@ -325,7 +326,7 @@ pub fn submit_proposal(
     //If proposal has insufficient alignment, send to pending
     if proposal.aligned_power < config.proposal_required_stake {
         //Set end block to 1 day from now
-        proposal.end_block = env.block.height + BLOCKS_PER_DAY;
+        proposal.end_block = env.block.time.seconds() + (BLOCKS_PER_DAY * 6); //6 seconds per block
         PENDING_PROPOSALS.save(deps.storage, count.to_string(), &proposal)?;
     } else {
         PROPOSALS.save(deps.storage, count.to_string(), &proposal)?;
@@ -340,7 +341,7 @@ pub fn submit_proposal(
         ),
         attr("proposal_id", count),
         attr(
-            "proposal_end_height",
+            "proposal_end_time",
             (proposal.end_block).to_string(),
         ),
     ]))
@@ -388,7 +389,8 @@ pub fn cast_vote(
         }
     }
 
-    if env.block.height > proposal.end_block {
+    //Checking as if end_block is in seconds
+    if env.block.time.seconds() > proposal.end_block {
         return Err(ContractError::VotingPeriodEnded {});
     }
 
@@ -543,8 +545,9 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
     if proposal.status != ProposalStatus::Active {
         return Err(ContractError::ProposalNotActive {});
     }
-
-    if env.block.height <= proposal.end_block {
+    
+    //Checking as if end_block is in seconds
+    if env.block.time.seconds() <= proposal.end_block {
         return Err(ContractError::VotingPeriodNotEnded {});
     }
 
@@ -612,8 +615,8 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
             ProposalStatus::Rejected
         }
     } //If didn't hit quorum & is expedited, extend end block the normal voting period
-    else if proposal.end_block - proposal.start_block == config.expedited_proposal_voting_period { 
-        proposal.end_block = proposal.start_block + config.proposal_voting_period;
+    else if proposal.end_block - proposal.start_time == (config.expedited_proposal_voting_period * 6) { //6 seconds per block
+        proposal.end_block = proposal.start_time + (config.proposal_voting_period * 6); //6 seconds per block
         ProposalStatus::Active
     } else {
         ProposalStatus::Rejected
@@ -645,11 +648,11 @@ pub fn execute_proposal(
         return Err(ContractError::ProposalNotPassed {});
     }
 
-    if env.block.height < proposal.delayed_end_block {
+    if env.block.time.seconds() < proposal.delayed_end_block { //Checking as if end_block is in seconds
         return Err(ContractError::ProposalDelayNotEnded {});
     }
 
-    if env.block.height > proposal.expiration_block {
+    if env.block.time.seconds() > proposal.expiration_block { //Checking as if block is in seconds
         return Err(ContractError::ExecuteProposalExpired {});
     }
 
@@ -993,14 +996,14 @@ pub fn remove_completed_proposal(
 
     if aligned {
         
-        if env.block.height
-        > (proposal.end_block + config.proposal_effective_delay + config.proposal_expiration_period)
+        if env.block.time.seconds()
+        > (proposal.end_block + config.proposal_effective_delay + config.proposal_expiration_period) * 6
         {
             proposal.status = ProposalStatus::Expired;
         }
     } //If pending, expiration starts at end_block
     else {
-        if env.block.height > proposal.end_block {
+        if env.block.time.seconds() > proposal.end_block {
             proposal.status = ProposalStatus::Expired;
         }
     }

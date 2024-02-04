@@ -2,7 +2,7 @@ use cosmwasm_std::{Deps, StdResult, Uint128, Env, Addr, Decimal, StdError};
 use cw_storage_plus::Bound;
 use membrane::math::decimal_multiplication;
 use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, RewardsResponse, StakedResponse, DelegationResponse};
-use membrane::types::{FeeEvent, StakeDeposit, DelegationInfo, Asset};
+use membrane::types::{Asset, Delegation, DelegationInfo, FeeEvent, StakeDeposit};
 
 use crate::contract::{get_deposit_claimables, get_total_vesting};
 use crate::state::{STAKING_TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING, DELEGATIONS, VESTING_STAKE_TIME, DELEGATE_CLAIMS};
@@ -178,7 +178,6 @@ pub fn query_staked(
             let stakers_in_loop = stakers_in_loop.clone()
                 .into_iter()
                 .filter(|deposit| deposit.stake_time > start_after && deposit.stake_time < end_before)
-                .take(limit as usize)
                 .collect::<Vec<StakeDeposit>>();
 
             stakers.extend(stakers_in_loop);
@@ -192,6 +191,12 @@ pub fn query_staked(
             .filter(|deposit| deposit.unstake_start_time.is_none())
             .collect::<Vec<StakeDeposit>>();
     }
+
+    //Take limit
+    stakers = stakers
+        .into_iter()
+        .take(limit as usize)
+        .collect::<Vec<StakeDeposit>>();
 
     Ok(StakedResponse { stakers })
 }
@@ -228,19 +233,34 @@ pub fn query_totals(deps: Deps) -> StdResult<TotalStakedResponse> {
 /// Returns DelegationInfo
 pub fn query_delegations(
     deps: Deps,
+    env: Env,
     limit: Option<u32>,
     start_after: Option<String>,
+    end_before: Option<u64>,
     user: Option<String>,
 ) -> StdResult<Vec<DelegationResponse>> {
     let limit = limit.unwrap_or(DEFAULT_LIMIT);
     let start = start_after.map(|user| Bound::ExclusiveRaw(user.into_bytes()));
+    let end_before = end_before.unwrap_or_else(|| env.block.time.seconds() + 1u64);
 
     if let Some(user) = user {
         let user = deps.api.addr_validate(&user)?;
-        let delegation = match DELEGATIONS.load(deps.storage, user.clone()){
+        let mut delegation = match DELEGATIONS.load(deps.storage, user.clone()){
             Ok(delegation) => delegation,
             Err(_) => return Err(StdError::GenericErr { msg: "No delegation info found for user".to_string() }),
         };
+        
+        //Filter out delegations that don't end before the end_before time
+        delegation.delegated = delegation.delegated
+            .clone()
+            .into_iter()
+            .filter(|delegation| delegation.time_of_delegation < end_before)
+            .collect::<Vec<Delegation>>();
+        delegation.delegated_to = delegation.delegated_to
+            .clone()
+            .into_iter()
+            .filter(|delegation| delegation.time_of_delegation < end_before)
+            .collect::<Vec<Delegation>>();
 
         return Ok(vec![DelegationResponse {
             user,
@@ -252,7 +272,19 @@ pub fn query_delegations(
         .range(deps.storage, start, None, cosmwasm_std::Order::Ascending)
         .take(limit as usize)
         .map(|item| {
-            let (user, delegation) = item?;
+            let (user, mut delegation) = item?;
+
+            //Filter out delegations that don't end before the end_before time
+            delegation.delegated = delegation.delegated
+                .clone()
+                .into_iter()
+                .filter(|delegation| delegation.time_of_delegation < end_before)
+                .collect::<Vec<Delegation>>();
+            delegation.delegated_to = delegation.delegated_to
+                .clone()
+                .into_iter()
+                .filter(|delegation| delegation.time_of_delegation < end_before)
+                .collect::<Vec<Delegation>>();
 
             Ok(DelegationResponse {
                 user,

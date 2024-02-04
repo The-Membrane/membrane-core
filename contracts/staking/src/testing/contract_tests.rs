@@ -342,12 +342,28 @@ fn delegate() {
     let info = mock_info("sender88", &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
+    //Query and Assert Delegations end_before works
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::Delegations {
+            user: None,
+            limit: None,
+            start_after: None,
+            end_before: Some(mock_env().block.time.seconds()),
+        },
+    ).unwrap();
+    let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
+    assert_eq!(resp[0].delegation_info.delegated.len(), 0);
+    assert_eq!(resp[0].delegation_info.delegated_to.len(), 0);
+    assert_eq!(resp[1].delegation_info.delegated_to.len(), 0);
+    assert_eq!(resp[1].delegation_info.delegated.len(), 0);
+
     //Query and Assert Delegations
     let res = query(deps.as_ref(), mock_env(),
         QueryMsg::Delegations {
             user: None,
             limit: None,
             start_after: None,
+            end_before: None,
         },
     ).unwrap();
     let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
@@ -441,6 +457,7 @@ fn delegate() {
             user: None,
             limit: None,
             start_after: None,
+            end_before: None,
         },
     ).unwrap();
     let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
@@ -496,6 +513,7 @@ fn delegate() {
             user: None,
             limit: None,
             start_after: None,
+            end_before: None,
         },
     ).unwrap();
     let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
@@ -627,6 +645,7 @@ fn fluid_delegations() {
             user: None,
             limit: None,
             start_after: None,
+            end_before: None,
         },
     ).unwrap();
     let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
@@ -705,6 +724,7 @@ fn fluid_delegations() {
             user: None,
             limit: None,
             start_after: None,
+            end_before: None,
         },
     ).unwrap();
     let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
@@ -1025,6 +1045,7 @@ fn unstake() {
             user: None,
             limit: None,
             start_after: None,
+            end_before: None,
         },
     ).unwrap();
     let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();

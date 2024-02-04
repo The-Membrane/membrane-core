@@ -2303,8 +2303,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             end_before,
             unstaking,
         )?),
-        QueryMsg::Delegations { limit, start_after, user } => {
-            to_binary(&query_delegations(deps, limit, start_after, user)?)
+        QueryMsg::Delegations { limit, start_after, end_before, user } => {
+            to_binary(&query_delegations(deps, env, limit, start_after, end_before, user)?)
         }
         QueryMsg::FeeEvents { limit, start_after } => {
             to_binary(&query_fee_events(deps, limit, start_after)?)

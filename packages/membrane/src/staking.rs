@@ -143,6 +143,8 @@ pub enum QueryMsg {
         limit: Option<u32>,
         /// Start after governator address
         start_after: Option<String>,
+        /// End before timestamp in seconds
+        end_before: Option<u64>,
         /// Query a specific user
         user: Option<String>,
     },

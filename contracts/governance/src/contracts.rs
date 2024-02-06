@@ -11,7 +11,7 @@ use cw_storage_plus::Bound;
 
 use membrane::helpers::{query_staking_totals, asset_to_coin, query_basket};
 use membrane::math::decimal_multiplication;
-use membrane::types::{StakeDeposit, SupplyCap, AssetInfo, Asset, Basket, BidInput};
+use membrane::types::{SupplyCap, AssetInfo, Asset, Basket, BidInput};
 use membrane::vesting::{AllocationResponse, QueryMsg as VestingQueryMsg, RecipientsResponse};
 use membrane::governance::helpers::validate_links;
 use membrane::governance::{
@@ -21,10 +21,10 @@ use membrane::governance::{
 };
 use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, EditBasket, QueryMsg as CDP_QueryMsg, Config as CDP_Config};
 use membrane::staking::{
-    Config as StakingConfig, DelegationResponse, ExecuteMsg as Staking_ExecuteMsg, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse
+    Config as StakingConfig, DelegationResponse, ExecuteMsg as Staking_ExecuteMsg, QueryMsg as StakingQueryMsg, StakedResponse, StakerResponse, TotalStakedResponse
 };
 use membrane::liq_queue::{Config as LQ_Config, ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, QueueResponse};
-use membrane::osmosis_proxy::{ExecuteMsg as OP_ExecuteMsg, QueryMsg as OP_QueryMsg, Config as OP_Config};
+use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 
 use core::panic;
 use std::cmp::min;
@@ -42,6 +42,9 @@ const DEFAULT_LIMIT: u32 = 10;
 const MAX_LIMIT: u32 = 30;
 const DEFAULT_VOTERS_LIMIT: u32 = 100;
 const MAX_VOTERS_LIMIT: u32 = 250;
+
+//External query limit
+const STAKE_QUERY_LIMIT: u32 = 1024;
 
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -169,41 +172,13 @@ pub fn submit_proposal(
     
     if non_vested_total < config.minimum_total_stake {
         return Err(ContractError::InsufficientTotalStake { minimum: config.minimum_total_stake.into() });
-    }
-
-    //Query stake from before Proposal's start_time
-    let staked_mbrn = deps.querier
-        .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.staking_contract_addr.to_string(),
-            msg: to_binary(&StakingQueryMsg::Staked {
-                limit: Some(1024),
-                start_after: None,
-                end_before: Some(env.block.time.seconds()),
-                unstaking: false,
-            })?,
-        }))?
-        .stakers;
-    
-    //Query delegations
-    let delegations: Vec<DelegationResponse> = match deps.querier.query::<Vec<DelegationResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.staking_contract_addr.to_string(),
-        msg: to_binary(&StakingQueryMsg::Delegations {
-            limit: Some(1024),
-            start_after: None,
-            user: None,
-        })?,
-    })){
-        Ok(delegations) => delegations,
-        Err(_) => vec![], //If no delegations, set to empty vec
-    };
-
+    }   
+   
     //Validate voting power
     let voting_power = calc_voting_power(
         deps.storage,
         deps.querier,
-        Some(staked_mbrn.clone()),
         Some(non_vested_total),
-        Some(delegations.clone()),
         info.sender.to_string(),
         env.block.time.seconds(),
         &mut expedited,
@@ -236,53 +211,8 @@ pub fn submit_proposal(
         }
     };
 
-    let mut voting_power_list: Vec<(Addr, Uint128)> = vec![];
-
-    //Add stakers to voting power list
-    for staker in staked_mbrn.clone() {
-        //Skip duplicates
-        if voting_power_list.iter().any(|(addr, _)| addr == &staker.staker) {
-            continue;
-        }
-        let vp = calc_voting_power(
-            deps.storage,
-            deps.querier,
-            Some(staked_mbrn.clone()),
-            Some(non_vested_total),
-            Some(delegations.clone()),
-            staker.staker.to_string(), 
-            env.block.time.seconds(), 
-            &mut false, 
-            None, //There will be a new calculation when voting if this is a vesting recipient
-            config.quadratic_voting,
-        )?;
-
-        voting_power_list.push((staker.staker, vp));
-    }
-    //Add delegates to voting power list
-    //bc we skip duplicates, this is only for delegates who don't stake
-    for delegation in delegations.clone() {
-        //Skip duplicates
-        if voting_power_list.iter().any(|(addr, _)| addr == &delegation.user) {
-            continue;
-        }
-        let vp = calc_voting_power(
-            deps.storage,
-            deps.querier,
-            Some(staked_mbrn.clone()),
-            Some(non_vested_total),
-            Some(delegations.clone()),
-            delegation.user.to_string(), 
-            env.block.time.seconds(), 
-            &mut false, 
-            None, //There will be a new calculation when voting if this is a vesting recipient
-            config.quadratic_voting,
-        )?;
-
-        voting_power_list.push((delegation.user, vp));
-    }
     let mut proposal = Proposal {
-        voting_power: voting_power_list,
+        voting_power: vec![],
         proposal_id: count,
         submitter: submitter.unwrap_or_else(|| info.sender.clone()),
         status: ProposalStatus::Active,
@@ -375,14 +305,12 @@ pub fn cast_vote(
         }
     };
 
-    //Init recipient    
-    let mut recipient_addr: Addr = Addr::unchecked("");
-
     //Can't vote on your own proposal
     if proposal.submitter == info.sender {
         return Err(ContractError::Unauthorized {});
     } else if let Some(recipient) = recipient.clone() {
-        recipient_addr = deps.api.addr_validate(&recipient)?;
+        //validate recipient
+        deps.api.addr_validate(&recipient)?;
 
         if proposal.submitter == recipient {
             return Err(ContractError::Unauthorized {});
@@ -395,28 +323,16 @@ pub fn cast_vote(
     }
 
     //Get voting power from Proposal struct
-    let mut voting_power: Uint128 = Uint128::zero();  
-    for vp in proposal.clone().voting_power.into_iter() {
-        
-        if recipient.is_some(){
-            voting_power = calc_voting_power(
-                deps.storage, 
-                deps.querier,
-                None,
-                None,
-                None,
-                info.sender.to_string(), 
-                proposal.start_time,
-                &mut false, 
-                recipient.clone(), 
-                config.quadratic_voting,
-            )?;
-            break;
-        } else if vp.0 == info.sender {
-            voting_power = vp.1;
-            break;
-        }
-    }   
+    let mut voting_power: Uint128 = calc_voting_power(
+        deps.storage, 
+        deps.querier,
+        None,
+        info.sender.to_string(), 
+        proposal.start_time,
+        &mut false, 
+        recipient.clone(), 
+        config.quadratic_voting,
+    )?;
     if voting_power.is_zero() {
         return Err(ContractError::NoVotingPower {});
     }
@@ -564,7 +480,7 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
         calc_total_voting_power_at(
             deps.as_ref(), 
             config.quadratic_voting,
-            proposal.clone().voting_power
+            proposal.start_time,
         )?;
 
     let mut proposal_quorum: Decimal = Decimal::zero();
@@ -614,13 +530,23 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
         } else {
             ProposalStatus::Rejected
         }
-    } //If didn't hit quorum & is expedited, extend end block the normal voting period
+    } //If didn't hit quorum & is expedited, extend end block to the normal voting period
     else if proposal.end_block - proposal.start_time == (config.expedited_proposal_voting_period * 6) { //6 seconds per block
         proposal.end_block = proposal.start_time + (config.proposal_voting_period * 6); //6 seconds per block
+        
+        //Reverse actions from line 492
+        if config.quadratic_voting {
+            //ADd the non-quadradic voting power from the alignment threshold
+            proposal.aligned_power = proposal.aligned_power.checked_add(config.proposal_required_stake)?;
+            //Square root the alignment threshold & subtract from aligned power
+            proposal.aligned_power -= Decimal::from_ratio(config.proposal_required_stake, Uint128::one()).sqrt().to_uint_floor();
+        }
+        
         ProposalStatus::Active
     } else {
         ProposalStatus::Rejected
     };
+
 
     //Update proposal if still in state
     if !removed {
@@ -937,26 +863,22 @@ pub fn passed_messages(deps: DepsMut, env: Env) -> Result<Response, ContractErro
 
     //Query stake from before Proposal's start_time
     deps.querier
+        .query::<StakerResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.staking_contract_addr.to_string(),
+            msg: to_binary(&StakingQueryMsg::UserStake { staker: env.contract.address.to_string() })?,
+        }))?;
+    
+    deps.querier
         .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.staking_contract_addr.to_string(),
             msg: to_binary(&StakingQueryMsg::Staked {
-                limit: None,
+                limit: Some(STAKE_QUERY_LIMIT),
                 start_after: None,
                 end_before: Some(env.block.time.seconds()),
                 unstaking: false,
             })?,
         }))?
         .stakers;
-
-    //Query delegations
-    deps.querier.query::<Vec<DelegationResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.staking_contract_addr.to_string(),
-        msg: to_binary(&StakingQueryMsg::Delegations {
-            limit: Some(1),
-            start_after: None,
-            user: None,
-        })?,
-    }))?;
 
     //Query a vesting recipient
     deps.querier.query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
@@ -968,6 +890,17 @@ pub fn passed_messages(deps: DepsMut, env: Env) -> Result<Response, ContractErro
     deps.querier.query::<Config>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: env.contract.address.to_string(),
         msg: to_binary(&QueryMsg::Config {})?,
+    }))?;
+
+    //Query delegations, this is last incase this addr ever runs out of delegations & that causes the error
+    deps.querier.query::<Vec<DelegationResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.staking_contract_addr.to_string(),
+        msg: to_binary(&StakingQueryMsg::Delegations {
+            limit: Some(1),
+            start_after: None,
+            end_before: None,
+            user: Some("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w".to_string()),
+        })?,
     }))?;
 
     return Err(ContractError::MessagesCheckPassed {})
@@ -1107,16 +1040,52 @@ pub fn update_config(
 pub fn calc_total_voting_power_at(
     deps: Deps,
     quadratic_voting: bool,
-    voting_power_list: Vec<(Addr, Uint128)>,
+    proposal_start_time: u64,
 ) -> StdResult<Uint128> {
     let config = CONFIG.load(deps.storage)?;
     //Initialize total voting power
     let mut total: Uint128 = Uint128::zero();
 
-    //Use voting power list for staked MBRN & delegate vp
-    for vp in voting_power_list.clone().into_iter() {
-        total += vp.1;
+    //Query stake from before Proposal's start_time
+    let mut staked_mbrn = match deps.querier
+        .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.staking_contract_addr.to_string(),
+            msg: to_binary(&StakingQueryMsg::Staked {
+                limit: Some(STAKE_QUERY_LIMIT),
+                start_after: None,
+                end_before: Some(proposal_start_time),
+                unstaking: false,
+            })?,
+        })){
+            Ok(staked) => staked.stakers,
+            Err(_) => vec![],
+        };
+        
+    //This will provide the lowest total voting power if quadratic voting is enabled
+    //bc the stake can be split into delegations which are individually square rooted
+    for staker in staked_mbrn.clone() {
+        let mut staker_total = Uint128::zero();
+
+        for (i, stake) in staked_mbrn.clone().into_iter().enumerate(){
+            if stake.staker == staker.staker {
+                //Remove to shorten subsequent iterations
+                staked_mbrn.remove(i);
+
+                if stake.stake_time < proposal_start_time && stake.unstake_start_time.is_none() {
+                    staker_total += stake.amount;
+                }
+            }
+        };
+
+        //Transform w/ quadratics if enabled
+        if quadratic_voting {
+            staker_total = Decimal::from_ratio(staker_total, Uint128::one()).sqrt().to_uint_ceil();
+        }
+        //Add to total
+        total += staker_total;
+
     }
+
 
     /////Get vested vp/////   
     //Set staked non-vested total
@@ -1157,8 +1126,7 @@ pub fn calc_total_voting_power_at(
             total += vp;
         }            
     }
-        
-
+    
     Ok(total)
 }
 
@@ -1166,9 +1134,7 @@ pub fn calc_total_voting_power_at(
 pub fn calc_voting_power(
     storage: &dyn Storage,
     querier: QuerierWrapper,
-    mut staked_mbrn: Option<Vec<StakeDeposit>>,
     mut non_vested_total: Option<Uint128>,
-    mut delegations: Option<Vec<DelegationResponse>>,
     sender: String,
     start_time: u64,
     expedited: &mut bool,
@@ -1191,45 +1157,29 @@ pub fn calc_voting_power(
 
         non_vested_total = Some(new_non_vested_total);
     }
+      
+    //Query stake from before Proposal's start_time
+    let mut total: Uint128 = match querier
+    .query::<StakerResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.staking_contract_addr.to_string(),
+        msg: to_binary(&StakingQueryMsg::UserStake { staker: sender.clone() })?,
+    })){
+        Ok(stake) => {
+            //Filter out unstaking stake & stake after proposal start time
+            let voting_stake = stake.clone().deposit_list.into_iter().filter(|stake| {
+                stake.stake_time < start_time && stake.unstake_start_time.is_none()
+            }).map(|stake| stake.amount).sum();
 
-    if staked_mbrn.is_none(){        
-        //Query stake from before Proposal's start_time
-        let new_staked_mbrn = querier
-        .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.staking_contract_addr.to_string(),
-            msg: to_binary(&StakingQueryMsg::Staked {
-                limit: None,
-                start_after: None,
-                end_before: Some(start_time),
-                unstaking: false,
-            })?,
-        }))?
-        .stakers;    
-
-        staked_mbrn = Some(new_staked_mbrn);
-    }
-    let mut total: Uint128;
+            voting_stake
+        },
+        Err(_) => Uint128::zero(),
+    };
+    
     //If calculating vesting voting power, we take from recipient's allocation
     if recipient.is_none() {
         //Only vesting recipients can submit expedited proposals
         *expedited = false;
-        //Calc total voting power
-        if staked_mbrn.clone().unwrap() == vec![] {
-            total = Uint128::zero()
-        } else {
-            total = staked_mbrn.unwrap()
-                .into_iter()
-                .map(|stake| {
-                    if stake.staker.to_string() == sender {
-                        stake.amount
-                    } else {
-                        Uint128::zero()
-                    }
-                })
-                .collect::<Vec<Uint128>>()
-                .into_iter()
-                .sum();
-        }
+
     } else if recipient.is_some() {
         let recipient = recipient.clone().unwrap();
         //info.sender must equal the recipient contract
@@ -1257,34 +1207,33 @@ pub fn calc_voting_power(
     } else {
         total = Uint128::zero();
         *expedited = false;
-    }
-
-    // Query delegations if necessary
-    if delegations.is_none(){
-        delegations = match querier.query::<Vec<DelegationResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.staking_contract_addr.to_string(),
-            msg: to_binary(&StakingQueryMsg::Delegations {
-                limit: None,
-                start_after: None,
-                user: Some(sender.clone().to_string()),
-            })?,
-        })){
-            Ok(delegations) => Some(delegations),
-            Err(_) => Some(vec![]), //If no delegations, set to empty vec
-        };
-    }
+    }    
     
     // Take square root of total stake if quadratic voting is enabled
     //prior to adding delegated stake
     if quadratic_voting {        
         total = Decimal::from_ratio(total, Uint128::one()).sqrt().to_uint_ceil();
     }
+
+    // Query delegations 
+    let delegations: Vec<DelegationResponse> = match querier.query::<Vec<DelegationResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.staking_contract_addr.to_string(),
+        msg: to_binary(&StakingQueryMsg::Delegations {
+            limit: None,
+            start_after: None,
+            end_before: Some(start_time),
+            user: Some(sender.clone().to_string()),
+        })?,
+    })){
+        Ok(delegations) => delegations,
+        Err(_) => vec![], //If no delegations, set to empty vec
+    };
     
     //Get user's delegation info
     //We transform the vp wrt the config's quadratic voting setting individually for each delegation.
     //This ensures the benefits of delegations: better voting power participation, easier quorum, voluntarily abstracted governance for users.
     //Otherwise delegates would get exponentially less voting power than what was delegated to them which makes quorum harder to reach with delegations vs w/o.
-    match delegations.unwrap().into_iter().find(|delegation| delegation.user.to_string() == sender){
+    match delegations.into_iter().find(|delegation| delegation.user.to_string() == sender){
         Some(delegation_info) => {
             //Get total delegated to user from before proposal start time
             let total_delegated_to_user: Uint128 = delegation_info.delegation_info.clone().delegated
@@ -1455,8 +1404,6 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 deps.storage,
                 deps.querier,
                 None,
-                None,
-                None,
                 user.to_string(),
                 proposal.start_time,
                 &mut false,
@@ -1469,7 +1416,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_binary(&calc_total_voting_power_at(
                 deps, 
                 CONFIG.load(deps.storage)?.quadratic_voting,
-                proposal.voting_power
+                proposal.start_time
             )?)
         }
         QueryMsg::ProposalVoters {

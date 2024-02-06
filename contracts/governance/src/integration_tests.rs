@@ -10,7 +10,7 @@ mod tests {
         ExecuteMsg, InstantiateMsg, QueryMsg, STAKE_INTERVAL, VOTING_PERIOD_INTERVAL,
     };
     use membrane::staking::{
-        Config as StakingConfig, StakedResponse, TotalStakedResponse, DelegationResponse
+        Config as StakingConfig, DelegationResponse, StakedResponse, StakerResponse, TotalStakedResponse
     };
     use membrane::types::{StakeDeposit, VestingPeriod, StakeDistribution, DelegationInfo, Delegation, Allocation};
 
@@ -86,6 +86,7 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum Staking_MockQueryMsg {
+        UserStake { staker: String },
         Staked {
             limit: Option<u64>,
             start_after: Option<u64>,
@@ -111,6 +112,80 @@ mod tests {
             },
             |_, _, msg: Staking_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
+                    Staking_MockQueryMsg::UserStake { staker } => 
+                    {
+                        if staker == "user" {
+                            Ok(to_binary(&
+                                StakerResponse {                                    
+                                    staker: String::from(USER),
+                                    total_staked: Uint128::new(1_000_000_002u128),
+                                    deposit_list: vec![
+                                        StakeDeposit {
+                                            staker: Addr::unchecked(USER),
+                                            amount: Uint128::new(1_000_000_002u128),
+                                            stake_time: 1u64,
+                                            unstake_start_time: None,
+                                        },
+                                    ],
+                                })?)
+                        } else if staker == "admin"{
+                            Ok(to_binary(&
+                                StakerResponse {                                    
+                                    staker: String::from(ADMIN),
+                                    total_staked: Uint128::new(60_000_000u128),
+                                    deposit_list: vec![
+                                        StakeDeposit {
+                                            staker: Addr::unchecked(ADMIN),
+                                            amount: Uint128::new(60_000_000u128),
+                                            stake_time: 1u64,
+                                            unstake_start_time: None,
+                                        },
+                                    ],
+                                })?)
+                        } else if staker == "alignment"{
+                            Ok(to_binary(&
+                                StakerResponse {                                    
+                                    staker: String::from("alignment"),
+                                    total_staked: Uint128::new(980_000_000u128),
+                                    deposit_list: vec![
+                                        StakeDeposit {
+                                            staker: Addr::unchecked("alignment"),
+                                            amount: Uint128::new(980_000_000u128),
+                                            stake_time: 1u64,
+                                            unstake_start_time: None,
+                                        },
+                                    ],
+                                })?)
+                        } else if staker == "alignment2.0"{
+                            Ok(to_binary(&
+                                StakerResponse {                                    
+                                    staker: String::from("alignment2.0"),
+                                    total_staked: Uint128::new(980_000_000_000u128),
+                                    deposit_list: vec![
+                                        StakeDeposit {
+                                            staker: Addr::unchecked("alignment2.0"),
+                                            amount: Uint128::new(980_000_000_000u128),
+                                            stake_time: 1u64,
+                                            unstake_start_time: None,
+                                        },
+                                    ],
+                                })?)
+                        } else {
+                            Ok(to_binary(&
+                                StakerResponse {                                    
+                                    staker: String::from("none"),
+                                    total_staked: Uint128::new(0u128),
+                                    deposit_list: vec![
+                                        StakeDeposit {
+                                            staker: Addr::unchecked("none"),
+                                            amount: Uint128::new(0u128),
+                                            stake_time: 1u64,
+                                            unstake_start_time: None,
+                                        },
+                                    ],
+                                })?)
+                        }
+                    },
                     Staking_MockQueryMsg::Staked {
                         limit,
                         start_after,
@@ -222,7 +297,56 @@ mod tests {
                             delegated_to: vec![],
                             commission: Decimal::zero(),
                         },
-                    }])?),
+                    },
+                    // DelegationResponse {
+                    //     user: Addr::unchecked(ADMIN),
+                    //     delegation_info: DelegationInfo {
+                    //         delegated_to: vec![
+                    //             Delegation { 
+                    //                 delegate: Addr::unchecked("who"), 
+                    //                 amount: Uint128::new(60_000_000),
+                    //                 fluidity: false,
+                    //                 voting_power_delegation: true,
+                    //                 time_of_delegation: 0,
+                    //             }
+                    //         ],
+                    //         delegated: vec![],
+                    //         commission: Decimal::zero(),
+                    //     },
+                    // },
+                    // DelegationResponse {
+                    //     user: Addr::unchecked("alignment"),
+                    //     delegation_info: DelegationInfo {
+                    //         delegated_to: vec![
+                    //             Delegation { 
+                    //                 delegate: Addr::unchecked("who"), 
+                    //                 amount: Uint128::new(980_000_000u128),
+                    //                 fluidity: false,
+                    //                 voting_power_delegation: true,
+                    //                 time_of_delegation: 0,
+                    //             }
+                    //         ],
+                    //         delegated: vec![],
+                    //         commission: Decimal::zero(),
+                    //     },
+                    // },
+                    // DelegationResponse {
+                    //     user: Addr::unchecked("alignment2.0"),
+                    //     delegation_info: DelegationInfo {
+                    //         delegated_to: vec![
+                    //             Delegation { 
+                    //                 delegate: Addr::unchecked("who"), 
+                    //                 amount: Uint128::new(980_000_000_000u128),
+                    //                 fluidity: false,
+                    //                 voting_power_delegation: true,
+                    //                 time_of_delegation: 0,
+                    //             }
+                    //         ],
+                    //         delegated: vec![],
+                    //         commission: Decimal::zero(),
+                    //     },
+                    // }
+                    ])?),
                     Staking_MockQueryMsg::Config {} => Ok(to_binary(&StakingConfig {
                         owner: Addr::unchecked(""),
                         positions_contract: Some(Addr::unchecked("")),
@@ -931,7 +1055,11 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(total_voting_power + Uint128::new(1), voting_power_1 + voting_power_2 + voting_power_3 + voting_power_4 + voting_power_5 + voting_power_6); //1 is a descrepancy from rounding differences
+            //vp 2,4,5 are delegated to 6 so we aren't adding them. 
+            //the only reason they still have VP is so we can vote with them in the tests
+            assert_eq!(total_voting_power + Uint128::new(1) + Uint128::new(489), voting_power_1 + voting_power_3 + voting_power_6); 
+            //1 is a descrepancy from rounding differences
+            //489 is from USER delegating to itself
 
             //Assert that delegated voting power is equal to the sum of the delegations
             let delegate_vp: Uint128 = app
@@ -1207,6 +1335,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(proposal.start_time + (14400*6), proposal.end_block);
+            let aligned_power_pre = proposal.aligned_power;
 
             //End Proposal without passing quorum
             app.update_block(|bi| {
@@ -1220,6 +1349,7 @@ mod tests {
             //Query proposal to assert:
             //- extended voting period
             //- Active status
+            //- Equal aligned power
             let proposal: Proposal = app
                 .wrap()
                 .query_wasm_smart(
@@ -1229,6 +1359,7 @@ mod tests {
                 .unwrap();
             assert_eq!(proposal.start_time + ((14400+1) * 6), proposal.end_block);
             assert_eq!(proposal.status, ProposalStatus::Active);
+            assert_eq!(proposal.aligned_power, aligned_power_pre);
 
         }
 

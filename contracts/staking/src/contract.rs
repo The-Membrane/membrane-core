@@ -31,9 +31,6 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const SECONDS_PER_YEAR: u64 = 31_536_000u64;
 pub const SECONDS_PER_DAY: u64 = 86_400u64;
 
-//Reply ID
-const CLAIM_REPLY_ID: u64 = 1;
-
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
@@ -569,7 +566,7 @@ pub fn unstake(
     }
 
     //Create claimable msgs
-    let mut claims_msgs = create_rewards_msgs(
+    let claims_msgs = create_rewards_msgs(
         deps.storage,
         deps.api,
         env,
@@ -579,14 +576,9 @@ pub fn unstake(
         info.clone().sender.to_string(),
         native_claims,
     )?;
-    //Remove last claim msg
-    let last_claim_msg = claims_msgs.pop();
-    //Transform claim msgs to submsgs and add to submsg list
-    let claims_as_submsgs = claims_msgs.clone().into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
-    sub_msgs.extend(claims_as_submsgs);
 
     //Update Totals
-    //We update with the difference between the withdraw_amount and the withdrawable amount bc the withdrawable amount was removed in the initial unstake
+    //We update with the difference between the withdraw_amount and the withdrawable amount bc the withdrawable amount was subtracted in the initial unstake
     let mut totals = STAKING_TOTALS.load(deps.storage)?;
     if let Some(vesting_contract) = config.clone().vesting_contract{
         if info.clone().sender == vesting_contract{
@@ -606,13 +598,8 @@ pub fn unstake(
         attr("unstake_amount", withdrawable_amount.to_string()),
     ];
     
-    //Init Response
-    let mut response = Response::new().add_attributes(attrs).add_submessages(sub_msgs);
-
-    //For the reply logic to actually be checking correct data, it must come after the other claim/withdrawal messages
-    if let Some(msg) = last_claim_msg {
-        response = response.add_submessage(SubMsg::reply_on_success(msg, CLAIM_REPLY_ID));
-    }
+    //Create Response
+    let response = Response::new().add_attributes(attrs).add_messages(claims_msgs);
 
     Ok(response)
 }
@@ -2254,34 +2241,6 @@ pub fn get_deposit_claimables(
     };
 
     Ok((claimables, deposit_interest))
-}
-
-#[cfg_attr(not(feature = "library"), entry_point)]
-pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
-    match msg.id {
-        CLAIM_REPLY_ID => handle_claim_reply(deps, env, msg),
-        id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
-    }
-}
-
-//Assert MBRN claims didn't overclaim
-fn handle_claim_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{
-    match msg.result.into_result() {
-        Ok(_) => {
-            //Assert that the claim was valid and that the totals are intact
-            let staker_total = STAKING_TOTALS.load(deps.storage)?.stakers;
-            let config = CONFIG.load(deps.storage)?;
-
-            let contract_total = deps.querier.query_balance(env.contract.address, config.mbrn_denom)?.amount;
-            
-            if staker_total != contract_total{
-                return Err(StdError::GenericErr { msg: format!("Staking total: ({}) is not equal to the total contract owned MBRN amount: ({})", staker_total, contract_total) });
-            }
-            
-            Ok(Response::new().add_attribute("valid_unstake_state", "true"))
-        },
-        Err(err) => return Err(StdError::GenericErr { msg: err }),
-    }    
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

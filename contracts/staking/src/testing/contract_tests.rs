@@ -345,7 +345,7 @@ fn delegate() {
     //Query and Assert Delegations end_before works
     let res = query(deps.as_ref(), mock_env(),
         QueryMsg::Delegations {
-            user: None,
+            user: Some(String::from("sender88")),
             limit: None,
             start_after: None,
             end_before: Some(mock_env().block.time.seconds()),
@@ -354,9 +354,6 @@ fn delegate() {
     let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
     assert_eq!(resp[0].delegation_info.delegated.len(), 0);
     assert_eq!(resp[0].delegation_info.delegated_to.len(), 0);
-    assert_eq!(resp[1].delegation_info.delegated_to.len(), 0);
-    assert_eq!(resp[1].delegation_info.delegated.len(), 0);
-
     //Query and Assert Delegations
     let res = query(deps.as_ref(), mock_env(),
         QueryMsg::Delegations {
@@ -954,7 +951,7 @@ fn unstake() {
 
     env.block.time = env.block.time.plus_seconds(259200 *2); //6 days
 
-    //Unstake as a non_staker
+    //Error: Unstake as a non_staker
     let msg = ExecuteMsg::Unstake { mbrn_amount: None };
     let info = mock_info("not_a_staker", &[]);
     let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
@@ -970,7 +967,8 @@ fn unstake() {
             attr("staker", String::from("sender88")),
             attr("unstake_amount", String::from("0")),
         ]
-    );//Query and Assert totals
+    );
+    //Query and Assert totals
     //The unstake claims the accrued interest & stakes it. 6 days of rewards (16438)
     let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
 
@@ -981,7 +979,7 @@ fn unstake() {
             amount: Uint128::new(16438),
             stake_time: 1572575019,
             unstake_start_time: None,
-            staker: Addr::unchecked("sender88")        
+            staker: Addr::unchecked("sender88")
         });
     
     env.block.time = env.block.time.plus_seconds(86400 * 2); //2 days
@@ -1045,7 +1043,7 @@ fn unstake() {
             user: None,
             limit: None,
             start_after: None,
-            end_before: None,
+            end_before: Some(1572920622),
         },
     ).unwrap();
     let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();

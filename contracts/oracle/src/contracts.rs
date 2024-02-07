@@ -672,7 +672,7 @@ fn get_asset_price(
         asset_price_in_osmo_steps.push(Decimal::from_str(&res.geometric_twap)?);
     }
 
-    //Multiply prices to denomiate in OSMO
+    //Multiply prices to denominate in OSMO
     let asset_price_in_osmo = {
         let mut final_price = Decimal::one();
         //If no prices were queried, return error unless its OSMO
@@ -692,7 +692,11 @@ fn get_asset_price(
             } 
         }
         
-
+        //Transform price by moving its decimal point by the difference in decimals from 6 (OSMO's decimals)
+        //WARNING: This may not work if multiple assets in the path are different decimal places
+        if oracle_info.decimals > 6 {
+            final_price = decimal_multiplication(final_price, Decimal::from_ratio(Uint128::new(10).checked_pow(oracle_info.decimals as u32 - 6)?, Uint128::one()))?;
+        }
         final_price
     };
     //Results in slight error: (https://medium.com/reflexer-labs/analysis-of-the-rai-twap-oracle-20a01af2e49d)

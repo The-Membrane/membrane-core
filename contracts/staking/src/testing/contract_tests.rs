@@ -1025,10 +1025,10 @@ fn unstake() {
                 }).unwrap(), 
                 funds: vec![]
             })), 
-            SubMsg::reply_on_success(CosmosMsg::Bank(BankMsg::Send {
+            SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
                 to_address: String::from("sender88"),
                 amount: coins(5_000_000, "mbrn_denom"),
-            }), 1)
+            }))
         ]
     );
     let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();

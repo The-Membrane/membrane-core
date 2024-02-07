@@ -1056,9 +1056,6 @@ mod tests {
             let cosmos_msg = staking_contract.call(claim_msg, vec![]).unwrap();
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap(); 
 
-            //Send the contract 21916 MBRN from interest to get past the claim reply check
-            app.send_tokens(Addr::unchecked("coin_God"), staking_contract.addr(), &[coin(1095, "mbrn_denom")]).unwrap();
-
 
             //Successful Unstake all w/ withdrawal
             //Would error if:
@@ -1084,7 +1081,7 @@ mod tests {
                     &QueryMsg::TotalStaked {},
                 )
                 .unwrap();
-            assert_eq!(resp.total_not_including_vested, Uint128::new(1_001_095));//This is from accrual for the remaining staked deposit
+            assert_eq!(resp.total_not_including_vested, Uint128::new(1_012_065));//This is from accrual for the remaining staked deposit + initial accrual before the restake
             assert_eq!(resp.vested_total, Uint128::new(0));
 
         }

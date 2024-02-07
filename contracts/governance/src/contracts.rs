@@ -1065,17 +1065,23 @@ pub fn calc_total_voting_power_at(
     //bc the stake can be split into delegations which are individually square rooted
     for staker in staked_mbrn.clone() {
         let mut staker_total = Uint128::zero();
+        let mut remove_list = vec![];
 
         for (i, stake) in staked_mbrn.clone().into_iter().enumerate(){
             if stake.staker == staker.staker {
                 //Remove to shorten subsequent iterations
-                staked_mbrn.remove(i);
+                remove_list.push(i);
 
                 if stake.stake_time < proposal_start_time && stake.unstake_start_time.is_none() {
                     staker_total += stake.amount;
                 }
             }
         };
+
+        //Remove staker from list
+        for i in remove_list {
+            staked_mbrn.remove(i);
+        }
 
         //Transform w/ quadratics if enabled
         if quadratic_voting {

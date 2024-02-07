@@ -1282,7 +1282,7 @@ mod tests {
 
             
         }
-
+        
         #[test]
         fn expedited_proposal(){
             let (mut app, gov_contract, bv_contract_addr) = proper_instantiate();

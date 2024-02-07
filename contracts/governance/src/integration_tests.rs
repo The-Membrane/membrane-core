@@ -122,10 +122,16 @@ mod tests {
                                     deposit_list: vec![
                                         StakeDeposit {
                                             staker: Addr::unchecked(USER),
-                                            amount: Uint128::new(1_000_000_002u128),
+                                            amount: Uint128::new(1_000_000_000u128),
                                             stake_time: 1u64,
                                             unstake_start_time: None,
                                         },
+                                        // StakeDeposit {
+                                        //     staker: Addr::unchecked(USER),
+                                        //     amount: Uint128::new(2u128),
+                                        //     stake_time: 1u64,
+                                        //     unstake_start_time: None,
+                                        // }
                                     ],
                                 })?)
                         } else if staker == "admin"{
@@ -195,7 +201,13 @@ mod tests {
                         stakers: vec![
                             StakeDeposit {
                                 staker: Addr::unchecked(USER),
-                                amount: Uint128::new(1_000_000_002u128),
+                                amount: Uint128::new(1_000_000_000u128),
+                                stake_time: 1u64,
+                                unstake_start_time: None,
+                            },
+                            StakeDeposit {
+                                staker: Addr::unchecked(USER),
+                                amount: Uint128::new(2u128),
                                 stake_time: 1u64,
                                 unstake_start_time: None,
                             },

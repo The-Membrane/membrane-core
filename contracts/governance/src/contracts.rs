@@ -477,11 +477,15 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
     let total_votes = for_votes + against_votes + amend_votes + removal_votes;
 
     let total_voting_power =
-        calc_total_voting_power_at(
+        match calc_total_voting_power_at(
             deps.as_ref(), 
             config.quadratic_voting,
             proposal.start_time,
-        )?;
+        ){
+            Ok(voting_power) => voting_power,
+            Err(_) => Uint128::one(), //if cast_vote works but this doesn't, assume 1 so we can still end the proposal
+        
+        };
 
     let mut proposal_quorum: Decimal = Decimal::zero();
     let mut for_threshold: Decimal = Decimal::zero();
@@ -1077,12 +1081,12 @@ pub fn calc_total_voting_power_at(
                 }
             }
         };
-
+        //Reverse remove_list so we don't break the index ordering
+        remove_list.reverse();
         //Remove staker from list
         for i in remove_list {
             staked_mbrn.remove(i);
         }
-
         //Transform w/ quadratics if enabled
         if quadratic_voting {
             staker_total = Decimal::from_ratio(staker_total, Uint128::one()).sqrt().to_uint_ceil();

@@ -826,6 +826,24 @@ mod tests {
                     }),
                 }])
             );
+
+            //Remove the proposal not the submitter
+            app.execute_contract(
+                Addr::unchecked("not_the_submitter"),
+                gov_contract.addr(),
+                &ExecuteMsg::RemoveCompletedProposal { proposal_id: 1 },
+                &[],
+            )
+            .unwrap_err();
+
+            //Remove the proposal as the submitter
+            app.execute_contract(
+                Addr::unchecked("recipient"),
+                gov_contract.addr(),
+                &ExecuteMsg::RemoveCompletedProposal { proposal_id: 1 },
+                &[],
+            )
+            .unwrap();
         }
 
         #[test]

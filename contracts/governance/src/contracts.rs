@@ -130,9 +130,9 @@ pub fn execute(
         ExecuteMsg::EndProposal { proposal_id } => end_proposal(deps, env, proposal_id),
         ExecuteMsg::ExecuteProposal { proposal_id } => execute_proposal(deps, env, proposal_id),
         ExecuteMsg::CheckMessages { messages, msg_switch } => check_messages(deps, env, messages, msg_switch),
-        ExecuteMsg::CheckMessagesPassed {} => passed_messages(deps, env),
+        ExecuteMsg::CheckMessagesPassed { error } => passed_messages(deps, env, error),
         ExecuteMsg::RemoveCompletedProposal { proposal_id } => {
-            remove_completed_proposal(deps, env, proposal_id)
+            remove_completed_proposal(deps, env, info, proposal_id)
         }
         ExecuteMsg::UpdateConfig(config) => update_config(deps, env, info, config),
         ExecuteMsg::CreateOsmosisGauge { gauge_msg } => create_gauge(info, env, gauge_msg),
@@ -590,13 +590,20 @@ pub fn execute_proposal(
 
     PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;
 
-    let messages = match proposal.messages {
+    let mut messages = match proposal.messages {
         Some(mut messages) => {
             messages.sort_by(|a, b| a.order.cmp(&b.order));
             messages.into_iter().map(|message| message.msg).collect()
         }
         None => vec![],
     };
+    
+    //Use this msg to test proposability before committing to the chain
+    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: env.contract.address.to_string(),
+        msg: to_binary(&ExecuteMsg::CheckMessagesPassed { error: false })?,
+        funds: vec![],
+    }));
 
     Ok(Response::new()
         .add_attribute("action", "execute_proposal")
@@ -838,7 +845,7 @@ pub fn check_messages(
     //Guarantee that the last message will fail
     messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
-        msg: to_binary(&ExecuteMsg::CheckMessagesPassed {})?,
+        msg: to_binary(&ExecuteMsg::CheckMessagesPassed { error: true })?,
         funds: vec![],
     }));
 
@@ -849,7 +856,7 @@ pub fn check_messages(
 
 ///Errors to prevent checked messages from being executed
 /// Tests staking queries necessary for proposal execution
-pub fn passed_messages(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
+pub fn passed_messages(deps: DepsMut, env: Env, error: bool) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
     //Assert minimum total stake from staking contract
@@ -907,13 +914,18 @@ pub fn passed_messages(deps: DepsMut, env: Env) -> Result<Response, ContractErro
         })?,
     }))?;
 
-    return Err(ContractError::MessagesCheckPassed {})
+    if error {
+        return Err(ContractError::MessagesCheckPassed {})
+    } else {
+        return Ok(Response::new())
+    }
 }
 
 /// Remove completed Proposals
 pub fn remove_completed_proposal(
     deps: DepsMut,
     env: Env,
+    info: MessageInfo,
     proposal_id: u64,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
@@ -952,7 +964,9 @@ pub fn remove_completed_proposal(
     //If proposal is expired or rejected, remove
     else if proposal.status == ProposalStatus::Expired || proposal.status == ProposalStatus::Rejected {
         PROPOSALS.remove(deps.storage, proposal_id.to_string());
-    }  else {
+    } else if info.sender == proposal.submitter {
+        PROPOSALS.remove(deps.storage, proposal_id.to_string());
+    } else {
         return Err(ContractError::CantRemove {});
     }
     

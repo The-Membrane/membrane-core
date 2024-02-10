@@ -92,7 +92,7 @@ pub enum ExecuteMsg {
         msg_switch: Option<u64>,
     },
     /// The last endpoint which is executed only if all proposal messages have been passed
-    CheckMessagesPassed {},
+    CheckMessagesPassed { error: bool },
     /// Execute a successful proposal
     ExecuteProposal {
         /// Proposal identifier

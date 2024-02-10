@@ -601,7 +601,7 @@ pub fn execute_proposal(
     //Use this msg to test proposability before committing to the chain
     messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
-        msg: to_binary(&ExecuteMsg::CheckMessagesPassed { error: false })?,
+        msg: to_binary(&ExecuteMsg::CheckMessagesPassed { error: Some(false) })?,
         funds: vec![],
     }));
 
@@ -845,7 +845,7 @@ pub fn check_messages(
     //Guarantee that the last message will fail
     messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
-        msg: to_binary(&ExecuteMsg::CheckMessagesPassed { error: true })?,
+        msg: to_binary(&ExecuteMsg::CheckMessagesPassed { error: Some(true) })?,
         funds: vec![],
     }));
 
@@ -856,7 +856,7 @@ pub fn check_messages(
 
 ///Errors to prevent checked messages from being executed
 /// Tests staking queries necessary for proposal execution
-pub fn passed_messages(deps: DepsMut, env: Env, error: bool) -> Result<Response, ContractError> {
+pub fn passed_messages(deps: DepsMut, env: Env, error: Option<bool>) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
     //Assert minimum total stake from staking contract
@@ -914,7 +914,7 @@ pub fn passed_messages(deps: DepsMut, env: Env, error: bool) -> Result<Response,
         })?,
     }))?;
 
-    if error {
+    if let Some(true) = error {
         return Err(ContractError::MessagesCheckPassed {})
     } else {
         return Ok(Response::new())

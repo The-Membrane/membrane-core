@@ -840,7 +840,7 @@ pub fn check_messages(
             })?,
             funds: vec![],
         }));        
-    } 
+    }
 
     //Guarantee that the last message will fail
     messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
@@ -915,7 +915,7 @@ pub fn passed_messages(deps: DepsMut, env: Env, error: Option<bool>) -> Result<R
     }))?;
 
     if let Some(true) = error {
-        return Err(ContractError::MessagesCheckPassed {})
+        return Ok(Response::new().add_message(CosmosMsg::Wasm(WasmMsg::ClearAdmin { contract_addr: env.contract.address.to_string() })))
     } else {
         return Ok(Response::new())
     }

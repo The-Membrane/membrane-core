@@ -228,6 +228,7 @@ impl fmt::Display for StakeDeposit {
     }
 }
 
+#[cw_serde]
 pub struct OldStakeDeposit {
     /// Staker address
     pub staker: Addr,

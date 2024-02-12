@@ -199,7 +199,7 @@ pub struct StakerResponse {
     /// Total MBRN staked
     pub total_staked: Uint128,
     /// Deposit list 
-    pub deposit_list: Vec<StakeDeposit>,
+    pub deposit_list: Vec<OldStakeDeposit>,
 }
 
 #[cw_serde]
@@ -213,7 +213,7 @@ pub struct RewardsResponse {
 #[cw_serde]
 pub struct StakedResponse {
     /// List of StakeDeposits
-    pub stakers: Vec<StakeDeposit>,
+    pub stakers: Vec<OldStakeDeposit>,
 }
 
 #[cw_serde]

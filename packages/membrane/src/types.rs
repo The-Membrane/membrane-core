@@ -228,6 +228,17 @@ impl fmt::Display for StakeDeposit {
     }
 }
 
+pub struct OldStakeDeposit {
+    /// Staker address
+    pub staker: Addr,
+    /// Amount of stake
+    pub amount: Uint128,
+    /// Time of stake in seconds
+    pub stake_time: u64,
+    /// Time of unstake in seconds
+    pub unstake_start_time: Option<u64>,
+}
+
 #[cw_serde]
 pub struct Delegation {
     /// Delegate address

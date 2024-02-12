@@ -33,6 +33,17 @@ pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse>
         .into_iter()
         .sum();
 
+    //Convert staker_deposits to OldStakeDeposit so Governance can parse it
+    let staker_deposits: Vec<membrane::staking::OldStakeDeposit> = staker_deposits
+        .into_iter()
+        .map(|deposit| membrane::staking::OldStakeDeposit {
+            staker: deposit.staker.to_string(),
+            amount: deposit.amount,
+            stake_time: deposit.stake_time,
+            unstake_start_time: deposit.unstake_start_time,
+        })
+        .collect();
+
     Ok(StakerResponse {
         staker: valid_addr.to_string(),
         total_staked: total_staker_deposits,
@@ -198,6 +209,18 @@ pub fn query_staked(
         .into_iter()
         .take(limit as usize)
         .collect::<Vec<StakeDeposit>>();
+
+    
+    //Convert stakers to OldStakeDeposit so Governance can parse it
+    let stakers: Vec<membrane::staking::OldStakeDeposit> = stakers
+        .into_iter()
+        .map(|deposit| membrane::staking::OldStakeDeposit {
+            staker: deposit.staker.to_string(),
+            amount: deposit.amount,
+            stake_time: deposit.stake_time,
+            unstake_start_time: deposit.unstake_start_time,
+        })
+        .collect();
 
     Ok(StakedResponse { stakers })
 }

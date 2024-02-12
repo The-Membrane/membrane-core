@@ -1,7 +1,7 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Uint128, Addr, Decimal};
 
-use crate::types::{Asset, FeeEvent, StakeDeposit, StakeDistribution, DelegationInfo};
+use crate::types::{Asset, FeeEvent, OldStakeDeposit, StakeDistribution, DelegationInfo};
 
 #[cw_serde]
 pub struct InstantiateMsg {

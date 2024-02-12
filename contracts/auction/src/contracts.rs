@@ -5,7 +5,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::auction::{ExecuteMsg, InstantiateMsg, QueryMsg, Config, UpdateConfig};
+use membrane::auction::{ExecuteMsg, InstantiateMsg, QueryMsg, Config, UpdateConfig, MigrateMsg};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
@@ -830,4 +830,9 @@ fn get_ongoing_fee_auctions(
 
         Ok(resp)
     }
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    Ok(Response::default())
 }

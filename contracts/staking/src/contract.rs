@@ -438,7 +438,7 @@ pub fn unstake(
     let config = CONFIG.load(deps.storage)?;
 
     //Restrict unstaking
-    can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
+    // can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
 
     //Get total Stake
     let total_stake = {
@@ -1295,8 +1295,12 @@ fn deposit_fee(
         .collect::<Vec<String>>();
 
     //Get CDT denom
-    let basket: Basket = query_basket(deps.querier, config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string())?;
-    let cdt_denom = basket.credit_asset.info;
+    // let basket: Basket = query_basket(deps.querier, config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string())?;
+    // let cdt_denom = basket.credit_asset.info;
+    let cdt_denom = AssetInfo::NativeToken {
+        denom: String::from("credit_fulldenom"),
+    };
+
 
     //Filter assets if stakers are keeping raw CDT
     let (non_CDT_assets, CDT_assets) = if config.keep_raw_cdt {

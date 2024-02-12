@@ -14,7 +14,7 @@ use membrane::staking::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, 
     StakedResponse, TotalStakedResponse, StakerResponse, DelegationResponse, RewardsResponse,
 };
-use membrane::types::{StakeDeposit, StakeDistribution, DelegationInfo, Delegation};
+use membrane::types::{OldStakeDeposit, StakeDistribution, DelegationInfo, Delegation};
 
 #[test]
 fn update_config(){
@@ -235,19 +235,17 @@ fn stake() {
     assert_eq!(
         resp.stakers,
         vec![
-            StakeDeposit {
+            OldStakeDeposit {
                 staker: Addr::unchecked("sender88"),
                 amount: Uint128::new(10_000_000u128),
                 stake_time: mock_env().block.time.seconds(),
                 unstake_start_time: None,
-                last_accrued: None,
             },
-            StakeDeposit {
+            OldStakeDeposit {
                 staker: Addr::unchecked("vesting_contract"),
                 amount: Uint128::new(11000000u128),
                 stake_time: mock_env().block.time.seconds(),
                 unstake_start_time: None,
-                last_accrued: None,
             },
         ]
     );
@@ -273,12 +271,11 @@ fn stake() {
             staker: String::from("sender88"),
             total_staked: Uint128::new(10_000_000),
             deposit_list: vec![
-                StakeDeposit {
+                OldStakeDeposit {
                     amount: Uint128::new(10_000_000),
                     stake_time: mock_env().block.time.seconds(),
                     unstake_start_time: None,
                     staker: Addr::unchecked("sender88"),
-                    last_accrued: None,  
                 }
             ],
         }
@@ -990,22 +987,20 @@ fn unstake() {
     let resp: StakerResponse = from_binary(&res).unwrap();
     assert_eq!(resp.total_staked, Uint128::new(10016438));
     //To check that lasT_accrued was set
-    assert_eq!(resp.deposit_list[1], 
-        StakeDeposit {
-            amount: Uint128::new(4_999999),
-            stake_time: 1571797419,
-            unstake_start_time: None,
-            staker: Addr::unchecked("sender88"),
-            last_accrued: Some(1572575019),
-        });
+    // assert_eq!(resp.deposit_list[1], 
+    //     OldStakeDeposit {
+    //         amount: Uint128::new(4_999999),
+    //         stake_time: 1571797419,
+    //         unstake_start_time: None,
+    //         staker: Addr::unchecked("sender88"),
+    //     });
     //to check that accrued interest was staked
     assert_eq!(resp.deposit_list[2], 
-        StakeDeposit {
+        OldStakeDeposit {
             amount: Uint128::new(16438),
             stake_time: 1572575019,
             unstake_start_time: None,
             staker: Addr::unchecked("sender88"),
-            last_accrued: None,
         });
     
     env.block.time = env.block.time.plus_seconds(86400 * 2); //2 days

@@ -116,6 +116,7 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
             amount: total,
             stake_time: VESTING_STAKE_TIME.load(deps.storage)?,
             unstake_start_time: None,
+            last_accrued: None,
         };
 
         let (claims, _) = get_deposit_claimables(

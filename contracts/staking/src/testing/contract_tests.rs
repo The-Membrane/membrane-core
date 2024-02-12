@@ -240,12 +240,14 @@ fn stake() {
                 amount: Uint128::new(10_000_000u128),
                 stake_time: mock_env().block.time.seconds(),
                 unstake_start_time: None,
+                last_accrued: None,
             },
             StakeDeposit {
                 staker: Addr::unchecked("vesting_contract"),
                 amount: Uint128::new(11000000u128),
                 stake_time: mock_env().block.time.seconds(),
                 unstake_start_time: None,
+                last_accrued: None,
             },
         ]
     );
@@ -275,7 +277,8 @@ fn stake() {
                     amount: Uint128::new(10_000_000),
                     stake_time: mock_env().block.time.seconds(),
                     unstake_start_time: None,
-                    staker: Addr::unchecked("sender88")        
+                    staker: Addr::unchecked("sender88"),
+                    last_accrued: None,  
                 }
             ],
         }
@@ -376,6 +379,7 @@ fn delegate() {
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
+                    last_accrued: None,
                 }
             ],
             commission: Decimal::zero(),
@@ -391,6 +395,7 @@ fn delegate() {
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
+                    last_accrued: None,
                 }
             ],
             delegated_to: vec![],
@@ -470,6 +475,7 @@ fn delegate() {
                     fluidity: true,
                     voting_power_delegation: false,
                     time_of_delegation: mock_env().block.time.seconds(),
+                    last_accrued: Some(mock_env().block.time.seconds()),
                 }
             ],
             commission: Decimal::percent(10),
@@ -485,6 +491,7 @@ fn delegate() {
                     fluidity: true,
                     voting_power_delegation: false,
                     time_of_delegation: mock_env().block.time.seconds(),
+                    last_accrued: Some(mock_env().block.time.seconds()),
                 }
             ],
             delegated_to: vec![],
@@ -657,6 +664,7 @@ fn fluid_delegations() {
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
+                    last_accrued: None,
                 }
             ],
             delegated_to: vec![],
@@ -674,6 +682,7 @@ fn fluid_delegations() {
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
+                    last_accrued: None,
                 },
                 Delegation {
                     delegate: Addr::unchecked("governator_too_addr"),
@@ -681,6 +690,7 @@ fn fluid_delegations() {
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
+                    last_accrued: None,
                 }
             ],
             commission: Decimal::zero(),
@@ -696,6 +706,7 @@ fn fluid_delegations() {
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
+                    last_accrued: None,
                 }
             ],
             delegated_to: vec![],
@@ -736,6 +747,7 @@ fn fluid_delegations() {
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
+                    last_accrued: None,
                 }
             ],
             delegated_to: vec![],
@@ -753,6 +765,7 @@ fn fluid_delegations() {
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
+                    last_accrued: None,
                 },
                 Delegation {
                     delegate: Addr::unchecked("governator_too_addr"),
@@ -760,6 +773,7 @@ fn fluid_delegations() {
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
+                    last_accrued: None,
                 }
             ],
             commission: Decimal::zero(),
@@ -775,6 +789,7 @@ fn fluid_delegations() {
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
+                    last_accrued: None,
                 }
             ],
             delegated_to: vec![],
@@ -892,7 +907,7 @@ fn unstake() {
     );
 
     //Successful Unstake w/o withdrawals
-    //Unstake more than Staked doesn't Error but doesn't overstkae
+    //Unstake more than Staked doesn't Error but doesn't over-unstake
     let msg = ExecuteMsg::Unstake {
         mbrn_amount: Some(Uint128::new(11_000_000u128)),
     };
@@ -974,12 +989,23 @@ fn unstake() {
 
     let resp: StakerResponse = from_binary(&res).unwrap();
     assert_eq!(resp.total_staked, Uint128::new(10016438));
+    //To check that lasT_accrued was set
+    assert_eq!(resp.deposit_list[1], 
+        StakeDeposit {
+            amount: Uint128::new(4_999999),
+            stake_time: 1571797419,
+            unstake_start_time: None,
+            staker: Addr::unchecked("sender88"),
+            last_accrued: Some(1572575019),
+        });
+    //to check that accrued interest was staked
     assert_eq!(resp.deposit_list[2], 
         StakeDeposit {
             amount: Uint128::new(16438),
             stake_time: 1572575019,
             unstake_start_time: None,
-            staker: Addr::unchecked("sender88")
+            staker: Addr::unchecked("sender88"),
+            last_accrued: None,
         });
     
     env.block.time = env.block.time.plus_seconds(86400 * 2); //2 days
@@ -1057,7 +1083,8 @@ fn unstake() {
                     amount: Uint128::new(5019186u128),
                     fluidity: false,
                     voting_power_delegation: true,
-                    time_of_delegation: 1572920619,
+                    time_of_delegation: 1571797419,
+                    last_accrued: Some(1572920619),
                 }
             ],
             commission: Decimal::zero(),
@@ -1072,7 +1099,8 @@ fn unstake() {
                     amount: Uint128::new(5019186u128),
                     fluidity: false,
                     voting_power_delegation: true,
-                    time_of_delegation: 1572920619,
+                    time_of_delegation: 1571797419,
+                    last_accrued: Some(1572920619),
                 }
             ],
             delegated_to: vec![],

@@ -125,6 +125,7 @@ mod tests {
                                             amount: Uint128::new(1_000_000_000u128),
                                             stake_time: 1u64,
                                             unstake_start_time: None,
+                                            last_accrued: None,
                                         },
                                         // StakeDeposit {
                                         //     staker: Addr::unchecked(USER),
@@ -145,6 +146,7 @@ mod tests {
                                             amount: Uint128::new(60_000_000u128),
                                             stake_time: 1u64,
                                             unstake_start_time: None,
+                                            last_accrued: None,
                                         },
                                     ],
                                 })?)
@@ -159,6 +161,7 @@ mod tests {
                                             amount: Uint128::new(980_000_000u128),
                                             stake_time: 1u64,
                                             unstake_start_time: None,
+                                            last_accrued: None,
                                         },
                                     ],
                                 })?)
@@ -173,6 +176,7 @@ mod tests {
                                             amount: Uint128::new(980_000_000_000u128),
                                             stake_time: 1u64,
                                             unstake_start_time: None,
+                                            last_accrued: None,
                                         },
                                     ],
                                 })?)
@@ -187,6 +191,7 @@ mod tests {
                                             amount: Uint128::new(0u128),
                                             stake_time: 1u64,
                                             unstake_start_time: None,
+                                            last_accrued: None,
                                         },
                                     ],
                                 })?)
@@ -204,30 +209,35 @@ mod tests {
                                 amount: Uint128::new(1_000_000_000u128),
                                 stake_time: 1u64,
                                 unstake_start_time: None,
+                                last_accrued: None,
                             },
                             StakeDeposit {
                                 staker: Addr::unchecked(USER),
                                 amount: Uint128::new(2u128),
                                 stake_time: 1u64,
                                 unstake_start_time: None,
+                                last_accrued: None,
                             },
                             StakeDeposit {
                                 staker: Addr::unchecked(ADMIN),
                                 amount: Uint128::new(60_000_000u128),
                                 stake_time: 1u64,
                                 unstake_start_time: None,
+                                last_accrued: None,
                             },
                             StakeDeposit {
                                 staker: Addr::unchecked("alignment"),
                                 amount: Uint128::new(980_000_000u128),
                                 stake_time: 1u64,
                                 unstake_start_time: None,
+                                last_accrued: None,
                             },                            
                             StakeDeposit {
                                 staker: Addr::unchecked("alignment2.0"),
                                 amount: Uint128::new(980_000_000_000u128),
                                 stake_time: 1u64,
                                 unstake_start_time: None,
+                                last_accrued: None,
                             },
                         ],
                     })?),
@@ -245,6 +255,7 @@ mod tests {
                                     fluidity: false,
                                     voting_power_delegation: true,
                                     time_of_delegation: 0,
+                                    last_accrued: None,
                                 },
                                 Delegation { 
                                     delegate: Addr::unchecked(USER), 
@@ -252,6 +263,7 @@ mod tests {
                                     fluidity: false,
                                     voting_power_delegation: false,
                                     time_of_delegation: 0,
+                                    last_accrued: None,
                                 },                         
                                 Delegation { 
                                     delegate: Addr::unchecked(USER), 
@@ -259,6 +271,7 @@ mod tests {
                                     fluidity: false, 
                                     voting_power_delegation: true,
                                     time_of_delegation: 999999999999,
+                                    last_accrued: None,
                                 }
                             ],
                             delegated_to: vec![
@@ -268,6 +281,7 @@ mod tests {
                                     fluidity: false, 
                                     voting_power_delegation: true,
                                     time_of_delegation: 0,
+                                    last_accrued: None,
                                 },                                
                                 Delegation { 
                                     delegate: Addr::unchecked(USER), 
@@ -275,6 +289,7 @@ mod tests {
                                     fluidity: false, 
                                     voting_power_delegation: true,
                                     time_of_delegation: 999999999999,
+                                    last_accrued: None,
                                 }
                             ],
                             commission: Decimal::zero(),
@@ -290,6 +305,7 @@ mod tests {
                                     fluidity: false,
                                     voting_power_delegation: true,
                                     time_of_delegation: 0,
+                                    last_accrued: None,
                                 },
                                 Delegation { 
                                     delegate: Addr::unchecked("alignment"), 
@@ -297,6 +313,7 @@ mod tests {
                                     fluidity: false,
                                     voting_power_delegation: true,
                                     time_of_delegation: 0,
+                                    last_accrued: None,
                                 },
                                 Delegation { 
                                     delegate: Addr::unchecked("alignment2.0"), 
@@ -304,6 +321,7 @@ mod tests {
                                     fluidity: false,
                                     voting_power_delegation: true,
                                     time_of_delegation: 0,
+                                    last_accrued: None,
                                 },
                             ],
                             delegated_to: vec![],

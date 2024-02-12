@@ -218,6 +218,8 @@ pub struct StakeDeposit {
     pub stake_time: u64,
     /// Time of unstake in seconds
     pub unstake_start_time: Option<u64>,
+    /// last_accrued time in seconds
+    pub last_accrued: Option<u64>,
 }
 
 impl fmt::Display for StakeDeposit {
@@ -239,6 +241,8 @@ pub struct Delegation {
     pub voting_power_delegation: bool,
     /// Time of delegation in seconds
     pub time_of_delegation: u64,
+    /// last_accrued time in seconds
+    pub last_accrued: Option<u64>,
 }
 
 #[cw_serde]

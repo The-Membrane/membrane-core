@@ -981,9 +981,15 @@ mod tests {
 
         }
 
+        /// Do we have unstake tests here or in contract_tests that test multiple unstaking deposits?
         #[test]
         fn unstaking(){
             let (mut app, staking_contract, auction_contract) = proper_instantiate();
+
+            //Stake MBRN as user
+            let msg = ExecuteMsg::Stake { user: None };
+            let cosmos_msg = staking_contract.call(msg, vec![coin(1_000_000, "mbrn_denom")]).unwrap();
+            app.execute(Addr::unchecked("coin_God"), cosmos_msg).unwrap();
             
             //Stake MBRN as user
             let msg = ExecuteMsg::Stake { user: None };
@@ -998,7 +1004,7 @@ mod tests {
                     &QueryMsg::TotalStaked {},
                 )
                 .unwrap();
-            assert_eq!(resp.total_not_including_vested, Uint128::new(10_000_000));
+            assert_eq!(resp.total_not_including_vested, Uint128::new(11_000_000));
             assert_eq!(resp.vested_total, Uint128::new(0));
 
             //Not a staker Error
@@ -1030,7 +1036,19 @@ mod tests {
 
             //Successful Unstake Some, no withdrawal
             let msg = ExecuteMsg::Unstake {
-                mbrn_amount: Some(Uint128::new(9_000_000u128))
+                mbrn_amount: Some(Uint128::new(4_500_000u128))
+            };
+            let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
+            //Error: Unstake Some that is more than current staked or unstakable amount
+            let msg = ExecuteMsg::Unstake {
+                mbrn_amount: Some(Uint128::new(6_500_000u128))
+            };
+            let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap_err();
+            //Successful Unstake Some, no withdrawal
+            let msg = ExecuteMsg::Unstake {
+                mbrn_amount: Some(Uint128::new(4_500_000u128))
             };
             let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
@@ -1062,7 +1080,7 @@ mod tests {
             //- staking totals isn't updated when creating a position for the accrued_interest
             //- unstaking time was reset
             let msg = ExecuteMsg::Unstake {
-                mbrn_amount: Some(Uint128::new(9_000_000u128))
+                mbrn_amount: Some(Uint128::new(11_000_000u128))
             };
             let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("user_1"), cosmos_msg).unwrap();
@@ -1081,7 +1099,7 @@ mod tests {
                     &QueryMsg::TotalStaked {},
                 )
                 .unwrap();
-            assert_eq!(resp.total_not_including_vested, Uint128::new(1_012_065));//This is from accrual for the remaining staked deposit + initial accrual before the restake
+            assert_eq!(resp.total_not_including_vested, Uint128::new(1_000_000));//This is from coin_God
             assert_eq!(resp.vested_total, Uint128::new(0));
 
         }

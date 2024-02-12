@@ -2,7 +2,7 @@ use cosmwasm_std::{Deps, StdResult, Uint128, Env, Addr, Decimal, StdError};
 use cw_storage_plus::Bound;
 use membrane::math::decimal_multiplication;
 use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, RewardsResponse, StakedResponse, DelegationResponse};
-use membrane::types::{Asset, Delegation, DelegationInfo, FeeEvent, StakeDeposit};
+use membrane::types::{Asset, Delegation, DelegationInfo, FeeEvent, OldDelegation, OldDelegationInfo, StakeDeposit};
 
 use crate::contract::{get_deposit_claimables, get_total_vesting};
 use crate::state::{STAKING_TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING, DELEGATIONS, VESTING_STAKE_TIME, DELEGATE_CLAIMS};
@@ -286,6 +286,33 @@ pub fn query_delegations(
             .filter(|delegation| delegation.time_of_delegation < end_before)
             .collect::<Vec<Delegation>>();
 
+        //Convert delegation to OldDelegationInfo so Governance (and other unupgraded contracts) can parse it
+        let delegated = delegation.delegated.clone()
+            .into_iter()
+            .map(|delegation| OldDelegation {
+                delegate: delegation.delegate,
+                amount: delegation.amount,
+                time_of_delegation: delegation.time_of_delegation,
+                fluidity: delegation.fluidity,
+                voting_power_delegation: delegation.voting_power_delegation,                
+            })
+            .collect::<Vec<OldDelegation>>();
+        let delegated_to = delegation.delegated_to.clone()
+            .into_iter()
+            .map(|delegation| OldDelegation {
+                delegate: delegation.delegate,
+                amount: delegation.amount,
+                time_of_delegation: delegation.time_of_delegation,
+                fluidity: delegation.fluidity,
+                voting_power_delegation: delegation.voting_power_delegation,                
+            })
+            .collect::<Vec<OldDelegation>>();
+        let delegation: OldDelegationInfo = OldDelegationInfo {
+            delegated,
+            delegated_to,
+            commission: delegation.commission,
+        };
+
         return Ok(vec![DelegationResponse {
             user,
             delegation_info: delegation,
@@ -309,6 +336,33 @@ pub fn query_delegations(
                 .into_iter()
                 .filter(|delegation| delegation.time_of_delegation < end_before)
                 .collect::<Vec<Delegation>>();
+
+            //Convert delegation to OldDelegationInfo so Governance (and other unupgraded contracts) can parse it
+        let delegated = delegation.delegated.clone()
+            .into_iter()
+            .map(|delegation| OldDelegation {
+                delegate: delegation.delegate,
+                amount: delegation.amount,
+                time_of_delegation: delegation.time_of_delegation,
+                fluidity: delegation.fluidity,
+                voting_power_delegation: delegation.voting_power_delegation,                
+            })
+            .collect::<Vec<OldDelegation>>();
+        let delegated_to = delegation.delegated_to.clone()
+            .into_iter()
+            .map(|delegation| OldDelegation {
+                delegate: delegation.delegate,
+                amount: delegation.amount,
+                time_of_delegation: delegation.time_of_delegation,
+                fluidity: delegation.fluidity,
+                voting_power_delegation: delegation.voting_power_delegation,                
+            })
+            .collect::<Vec<OldDelegation>>();
+        let delegation = OldDelegationInfo {
+            delegated,
+            delegated_to,
+            commission: delegation.commission,
+        };
 
             Ok(DelegationResponse {
                 user,

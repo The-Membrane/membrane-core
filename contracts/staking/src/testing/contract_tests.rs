@@ -14,7 +14,7 @@ use membrane::staking::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, 
     StakedResponse, TotalStakedResponse, StakerResponse, DelegationResponse, RewardsResponse,
 };
-use membrane::types::{OldStakeDeposit, StakeDistribution, DelegationInfo, Delegation};
+use membrane::types::{OldStakeDeposit, StakeDistribution, OldDelegationInfo, OldDelegation};
 
 #[test]
 fn update_config(){
@@ -367,16 +367,15 @@ fn delegate() {
     assert_eq!(resp.len(), 2);
     assert_eq!(
         resp[1].delegation_info,
-        DelegationInfo {
+        OldDelegationInfo {
             delegated: vec![],
             delegated_to: vec![
-                Delegation {
+                OldDelegation {
                     delegate: Addr::unchecked("governator_addr"),
                     amount: Uint128::new(10_000_000u128),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
-                    last_accrued: None,
                 }
             ],
             commission: Decimal::zero(),
@@ -384,15 +383,14 @@ fn delegate() {
     );
     assert_eq!(
         resp[0].delegation_info,
-        DelegationInfo {
+        OldDelegationInfo {
             delegated: vec![
-                Delegation {
+                OldDelegation {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(10_000_000u128),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
-                    last_accrued: None,
                 }
             ],
             delegated_to: vec![],
@@ -463,16 +461,15 @@ fn delegate() {
     assert_eq!(resp.len(), 4);
     assert_eq!(
         resp[2].delegation_info,
-        DelegationInfo {
+        OldDelegationInfo {
             delegated: vec![],
             delegated_to: vec![
-                Delegation {
+                OldDelegation {
                     delegate: Addr::unchecked("governator_addr"),
                     amount: Uint128::new(4_000_000u128),
                     fluidity: true,
                     voting_power_delegation: false,
                     time_of_delegation: mock_env().block.time.seconds(),
-                    last_accrued: Some(mock_env().block.time.seconds()),
                 }
             ],
             commission: Decimal::percent(10),
@@ -480,15 +477,14 @@ fn delegate() {
     );
     assert_eq!(
         resp[0].delegation_info,
-        DelegationInfo {
+        OldDelegationInfo {
             delegated: vec![
-                Delegation {
+                OldDelegation {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(4_000_000u128),
                     fluidity: true,
                     voting_power_delegation: false,
                     time_of_delegation: mock_env().block.time.seconds(),
-                    last_accrued: Some(mock_env().block.time.seconds()),
                 }
             ],
             delegated_to: vec![],
@@ -653,15 +649,14 @@ fn fluid_delegations() {
     assert_eq!(resp.len(), 3);
     assert_eq!(
         resp[1].delegation_info,
-        DelegationInfo {
+        OldDelegationInfo {
             delegated: vec![
-                Delegation {
+                OldDelegation {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(4_000_000u128),
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
-                    last_accrued: None,
                 }
             ],
             delegated_to: vec![],
@@ -670,24 +665,22 @@ fn fluid_delegations() {
     );
     assert_eq!(
         resp[2].delegation_info,
-        DelegationInfo {
+        OldDelegationInfo {
             delegated: vec![],
             delegated_to: vec![
-                Delegation {
+                OldDelegation {
                     delegate: Addr::unchecked("governator_addr"),
                     amount: Uint128::new(6_000_000u128),
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
-                    last_accrued: None,
                 },
-                Delegation {
+                OldDelegation {
                     delegate: Addr::unchecked("governator_too_addr"),
                     amount: Uint128::new(4_000_000u128),
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
-                    last_accrued: None,
                 }
             ],
             commission: Decimal::zero(),
@@ -695,15 +688,14 @@ fn fluid_delegations() {
     );
     assert_eq!(
         resp[0].delegation_info,
-        DelegationInfo {
+        OldDelegationInfo {
             delegated: vec![
-                Delegation {
+                OldDelegation {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(6_000_000u128),
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
-                    last_accrued: None,
                 }
             ],
             delegated_to: vec![],
@@ -736,15 +728,14 @@ fn fluid_delegations() {
     assert_eq!(resp.len(), 3);
     assert_eq!(
         resp[1].delegation_info,
-        DelegationInfo {
+        OldDelegationInfo {
             delegated: vec![
-                Delegation {
+                OldDelegation {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(4_000_000u128),
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
-                    last_accrued: None,
                 }
             ],
             delegated_to: vec![],
@@ -753,24 +744,22 @@ fn fluid_delegations() {
     );
     assert_eq!(
         resp[2].delegation_info,
-        DelegationInfo {
+        OldDelegationInfo {
             delegated: vec![],
             delegated_to: vec![
-                Delegation {
+                OldDelegation {
                     delegate: Addr::unchecked("governator_addr"),
                     amount: Uint128::new(6_000_000u128),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
-                    last_accrued: None,
                 },
-                Delegation {
+                OldDelegation {
                     delegate: Addr::unchecked("governator_too_addr"),
                     amount: Uint128::new(4_000_000u128),
                     fluidity: true,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
-                    last_accrued: None,
                 }
             ],
             commission: Decimal::zero(),
@@ -778,15 +767,14 @@ fn fluid_delegations() {
     );
     assert_eq!(
         resp[0].delegation_info,
-        DelegationInfo {
+        OldDelegationInfo {
             delegated: vec![
-                Delegation {
+                OldDelegation {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(6_000_000u128),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: mock_env().block.time.seconds(),
-                    last_accrued: None,
                 }
             ],
             delegated_to: vec![],
@@ -1070,16 +1058,15 @@ fn unstake() {
     let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
     assert_eq!(
         resp[0].delegation_info,
-        DelegationInfo {
+        OldDelegationInfo {
             delegated: vec![],
             delegated_to: vec![
-                Delegation {
+                OldDelegation {
                     delegate: Addr::unchecked("unstaking_barrier"),
                     amount: Uint128::new(5019186u128),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: 1571797419,
-                    last_accrued: Some(1572920619),
                 }
             ],
             commission: Decimal::zero(),
@@ -1087,15 +1074,14 @@ fn unstake() {
     );
     assert_eq!(
         resp[1].delegation_info,
-        DelegationInfo {
+        OldDelegationInfo {
             delegated: vec![
-                Delegation {
+                OldDelegation {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(5019186u128),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: 1571797419,
-                    last_accrued: Some(1572920619),
                 }
             ],
             delegated_to: vec![],

@@ -258,11 +258,35 @@ pub struct Delegation {
 }
 
 #[cw_serde]
+pub struct OldDelegation {
+    /// Delegate address
+    pub delegate: Addr,
+    /// Amount of stake
+    pub amount: Uint128,
+    /// Fluidity toggle
+    /// true: delegation can be redelegated by the delegate
+    pub fluidity: bool,
+    /// Delegate voting power as well as commission
+    pub voting_power_delegation: bool,
+    /// Time of delegation in seconds
+    pub time_of_delegation: u64,
+}
+
+#[cw_serde]
 pub struct DelegationInfo {    
     /// Delegated stake
     pub delegated: Vec<Delegation>,
     /// Stake delagated to staker
     pub delegated_to: Vec<Delegation>,
+    /// Commission %
+    pub commission: Decimal,
+}
+#[cw_serde]
+pub struct OldDelegationInfo {    
+    /// Delegated stake
+    pub delegated: Vec<OldDelegation>,
+    /// Stake delagated to staker
+    pub delegated_to: Vec<OldDelegation>,
     /// Commission %
     pub commission: Decimal,
 }

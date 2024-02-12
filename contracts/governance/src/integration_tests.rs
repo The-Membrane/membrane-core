@@ -12,7 +12,7 @@ mod tests {
     use membrane::staking::{
         Config as StakingConfig, DelegationResponse, StakedResponse, StakerResponse, TotalStakedResponse
     };
-    use membrane::types::{StakeDeposit, VestingPeriod, StakeDistribution, DelegationInfo, Delegation, Allocation};
+    use membrane::types::{OldStakeDeposit, VestingPeriod, StakeDistribution, DelegationInfo, Delegation, Allocation};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
@@ -120,14 +120,14 @@ mod tests {
                                     staker: String::from(USER),
                                     total_staked: Uint128::new(1_000_000_002u128),
                                     deposit_list: vec![
-                                        StakeDeposit {
+                                        OldStakeDeposit {
                                             staker: Addr::unchecked(USER),
                                             amount: Uint128::new(1_000_000_000u128),
                                             stake_time: 1u64,
                                             unstake_start_time: None,
                                             last_accrued: None,
                                         },
-                                        // StakeDeposit {
+                                        // OldStakeDeposit {
                                         //     staker: Addr::unchecked(USER),
                                         //     amount: Uint128::new(2u128),
                                         //     stake_time: 1u64,
@@ -141,7 +141,7 @@ mod tests {
                                     staker: String::from(ADMIN),
                                     total_staked: Uint128::new(60_000_000u128),
                                     deposit_list: vec![
-                                        StakeDeposit {
+                                        OldStakeDeposit {
                                             staker: Addr::unchecked(ADMIN),
                                             amount: Uint128::new(60_000_000u128),
                                             stake_time: 1u64,
@@ -156,7 +156,7 @@ mod tests {
                                     staker: String::from("alignment"),
                                     total_staked: Uint128::new(980_000_000u128),
                                     deposit_list: vec![
-                                        StakeDeposit {
+                                        OldStakeDeposit {
                                             staker: Addr::unchecked("alignment"),
                                             amount: Uint128::new(980_000_000u128),
                                             stake_time: 1u64,
@@ -171,7 +171,7 @@ mod tests {
                                     staker: String::from("alignment2.0"),
                                     total_staked: Uint128::new(980_000_000_000u128),
                                     deposit_list: vec![
-                                        StakeDeposit {
+                                        OldStakeDeposit {
                                             staker: Addr::unchecked("alignment2.0"),
                                             amount: Uint128::new(980_000_000_000u128),
                                             stake_time: 1u64,
@@ -186,7 +186,7 @@ mod tests {
                                     staker: String::from("none"),
                                     total_staked: Uint128::new(0u128),
                                     deposit_list: vec![
-                                        StakeDeposit {
+                                        OldStakeDeposit {
                                             staker: Addr::unchecked("none"),
                                             amount: Uint128::new(0u128),
                                             stake_time: 1u64,
@@ -204,35 +204,35 @@ mod tests {
                         unstaking,
                     } => Ok(to_binary(&StakedResponse {
                         stakers: vec![
-                            StakeDeposit {
+                            OldStakeDeposit {
                                 staker: Addr::unchecked(USER),
                                 amount: Uint128::new(1_000_000_000u128),
                                 stake_time: 1u64,
                                 unstake_start_time: None,
                                 last_accrued: None,
                             },
-                            StakeDeposit {
+                            OldStakeDeposit {
                                 staker: Addr::unchecked(USER),
                                 amount: Uint128::new(2u128),
                                 stake_time: 1u64,
                                 unstake_start_time: None,
                                 last_accrued: None,
                             },
-                            StakeDeposit {
+                            OldStakeDeposit {
                                 staker: Addr::unchecked(ADMIN),
                                 amount: Uint128::new(60_000_000u128),
                                 stake_time: 1u64,
                                 unstake_start_time: None,
                                 last_accrued: None,
                             },
-                            StakeDeposit {
+                            OldStakeDeposit {
                                 staker: Addr::unchecked("alignment"),
                                 amount: Uint128::new(980_000_000u128),
                                 stake_time: 1u64,
                                 unstake_start_time: None,
                                 last_accrued: None,
                             },                            
-                            StakeDeposit {
+                            OldStakeDeposit {
                                 staker: Addr::unchecked("alignment2.0"),
                                 amount: Uint128::new(980_000_000_000u128),
                                 stake_time: 1u64,

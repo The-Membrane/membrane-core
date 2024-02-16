@@ -1589,7 +1589,6 @@ fn withdraw_from_state(
     let deposits = STAKED.load(storage, staker.clone())?;
 
     let error: Option<StdError> = None;
-    let mut this_deposit_is_withdrawable = false;
     let mut returning_deposits: Vec<StakeDeposit> = vec![];
 
 

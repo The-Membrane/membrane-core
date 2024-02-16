@@ -16,6 +16,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+
   artifacts:
     runs-on: ubuntu-latest
     steps:

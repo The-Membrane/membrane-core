@@ -974,14 +974,6 @@ fn unstake() {
 
     let resp: StakerResponse = from_binary(&res).unwrap();
     assert_eq!(resp.total_staked, Uint128::new(10016438));
-    //To check that lasT_accrued was set
-    // assert_eq!(resp.deposit_list[1], 
-    //     OldStakeDeposit {
-    //         amount: Uint128::new(4_999999),
-    //         stake_time: 1571797419,
-    //         unstake_start_time: None,
-    //         staker: Addr::unchecked("sender88"),
-    //     });
     //to check that accrued interest was staked
     assert_eq!(resp.deposit_list[2], 
         OldStakeDeposit {
@@ -1018,7 +1010,7 @@ fn unstake() {
         vec![
             attr("method", "unstake"),
             attr("staker", String::from("sender88")),
-            attr("unstake_amount", String::from("5000000")),
+            attr("unstake_amount", String::from("5000001")), //You get whatever is withdrawable when you unstake
         ]
     );
     //Bc its a normal staker, they should have accrued interest as well, tho only from currently staked deposits
@@ -1036,14 +1028,14 @@ fn unstake() {
             })), 
             SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
                 to_address: String::from("sender88"),
-                amount: coins(5_000_000, "mbrn_denom"),
+                amount: coins(5_000_001, "mbrn_denom"),
             }))
         ]
     );
     let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
 
     let resp: StakerResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.total_staked, Uint128::new(5019196));
+    assert_eq!(resp.total_staked, Uint128::new(5019195));
 
     //Query and Assert Delegations were updated by the unstake withdrawal
     //We aren't undelegating the full 5M bc a portion of it is coming from the accrued interest (i.e. 10M -5M + interest)
@@ -1063,7 +1055,7 @@ fn unstake() {
             delegated_to: vec![
                 OldDelegation {
                     delegate: Addr::unchecked("unstaking_barrier"),
-                    amount: Uint128::new(5019186u128),
+                    amount: Uint128::new(5019185),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: 1571797419,
@@ -1078,7 +1070,7 @@ fn unstake() {
             delegated: vec![
                 OldDelegation {
                     delegate: Addr::unchecked("sender88"),
-                    amount: Uint128::new(5019186u128),
+                    amount: Uint128::new(5019185),
                     fluidity: false,
                     voting_power_delegation: true,
                     time_of_delegation: 1571797419,
@@ -1098,6 +1090,112 @@ fn unstake() {
     assert_eq!(resp.vested_total, Uint128::new(11_000000));
 }
 
+
+#[test]
+fn unstake_v2() {
+    let mut deps = mock_dependencies();
+
+    let msg = InstantiateMsg {
+        owner: Some("owner0000".to_string()),
+        positions_contract: Some("positions_contract".to_string()),
+        auction_contract: Some("auction_contract".to_string()),
+        vesting_contract: Some("vesting_contract".to_string()),
+        governance_contract: Some("gov_contract".to_string()),
+        osmosis_proxy: Some("osmosis_proxy".to_string()),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
+        mbrn_denom: String::from("mbrn_denom"),
+        unstaking_period: None,
+    };
+
+    //Instantiating contract
+    let info = mock_info("sender88", &[]);
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Successful Stake
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("sender88", &[coin(2_000_000, "mbrn_denom")]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("sender88", &[coin(2_000_000, "mbrn_denom")]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("sender88", &[coin(2_000_000, "mbrn_denom")]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("sender88", &[coin(2_000_000, "mbrn_denom")]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("sender88", &[coin(2_000_000, "mbrn_denom")]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    //Fake interest
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("sender88", &[coin(1_000_000, "mbrn_denom")]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Delegate most of staked MBRN: success
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("unstaking_barrier")), 
+        mbrn_amount: Some(Uint128::new(9_900_000)),
+        delegate: Some(true), 
+        fluid: Some(true), 
+        voting_power_delegation: Some(true), 
+        commission: None,
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Successful Unstake w/o withdrawals
+    let msg = ExecuteMsg::Unstake {
+        mbrn_amount: Some(Uint128::new(1_000_000)),
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg.clone()).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg.clone()).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg.clone()).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg.clone()).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg.clone()).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg.clone()).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg.clone()).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg.clone()).unwrap();
+    let res = execute(deps.as_mut(), mock_env(), info.clone(), msg.clone()).unwrap();
+    // assert_eq!(
+    //     res.attributes,
+    //     vec![
+    //         attr("method", "unstake"),
+    //         attr("staker", String::from("sender88")),
+    //         attr("unstake_amount", String::from("0")),
+    //     ]
+    // );
+
+    //Skip 3 days
+    let mut env = mock_env();
+    env.block.time = env.block.time.plus_seconds(259200); //3 days
+
+
+    //Query and Assert UserStake
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
+
+    let resp: StakerResponse = from_binary(&res).unwrap();
+    // panic!("{:?}", resp);
+
+    env.block.time = env.block.time.plus_seconds(259200 *2); //6 days
+    //1 unstake
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
+
+    //Successful unstake
+    let msg = ExecuteMsg::Unstake { mbrn_amount: Some(Uint128::new(9_000_000)) };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+
+    ///This above not erroring is the success case/////
+
+    //Query and Assert totals
+    //The unstake claims the accrued interest & stakes it. 6 days of rewards (16438)
+    let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
+
+    let resp: StakerResponse = from_binary(&res).unwrap();
+        
+}
 
 // #[test]
 // fn claim_rewards() {

@@ -438,7 +438,7 @@ pub fn unstake(
     let config = CONFIG.load(deps.storage)?;
 
     //Restrict unstaking
-    can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
+    // can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
 
     //Get total Stake
     let total_stake = {
@@ -460,7 +460,7 @@ pub fn unstake(
     };
 
     //Enforce valid withdraw amount
-    let withdraw_amount = mbrn_withdraw_amount.unwrap_or(total_stake).min(total_stake);
+    let mut withdraw_amount = mbrn_withdraw_amount.unwrap_or(total_stake).min(total_stake);
 
     //info.sender is user
     let (claimables, accrued_interest, withdrawable_amount) = withdraw_from_state(
@@ -489,8 +489,9 @@ pub fn unstake(
 
         total_staker_deposits
     };
-    //if withdrawable_amount is greater than total stake or withdraw amount, error
-    if withdrawable_amount > total_stake || withdrawable_amount > withdraw_amount || withdrawable_amount + new_total_staked != total_stake {
+    //if withdrawable_amount is greater than total stake or there is a stake discrepancy, error
+    if withdrawable_amount > total_stake || withdrawable_amount + new_total_staked != total_stake {
+        panic!("{}, {}, {}", withdrawable_amount, total_stake, new_total_staked);
         return Err(ContractError::CustomError {
             val: format!("Invalid withdrawable amount: {}", withdrawable_amount),
         });
@@ -499,8 +500,7 @@ pub fn unstake(
     //Initialize variables
     let mut native_claims = vec![];
 
-    //If user can withdraw, accrue their positions and add to native_claims
-    //Also update delegations
+    //If user can withdraw, add to native_claims & update delegations
     if !withdrawable_amount.is_zero() {
         //Push to native claims list
         native_claims.push(asset_to_coin(Asset {
@@ -579,16 +579,22 @@ pub fn unstake(
     )?;
 
     //Update Totals
-    //We update with the difference between the withdraw_amount and the withdrawable amount bc the withdrawable amount was subtracted in the initial unstake
+    //We update with the difference between the withdraw_amount and the withdrawable amount bc whatever isn't withdrawable was newly unstaked
     let mut totals = STAKING_TOTALS.load(deps.storage)?;
+    //Set withdraw_amount to newly unstaked amount
+    if withdrawable_amount > withdraw_amount {
+        withdraw_amount = Uint128::zero();
+    } else {
+        withdraw_amount -= withdrawable_amount;
+    }
     if let Some(vesting_contract) = config.clone().vesting_contract{
         if info.clone().sender == vesting_contract{
-            totals.vesting_contract -= withdraw_amount - withdrawable_amount;
+            totals.vesting_contract -= withdraw_amount;
         } else {
-            totals.stakers -= withdraw_amount - withdrawable_amount;
+            totals.stakers -= withdraw_amount;
         }
     } else {
-        totals.stakers -= withdraw_amount - withdrawable_amount;
+        totals.stakers -= withdraw_amount;
     }
     STAKING_TOTALS.save(deps.storage, &totals)?;
 
@@ -1582,53 +1588,50 @@ fn withdraw_from_state(
     let config = CONFIG.load(storage)?;
     let deposits = STAKED.load(storage, staker.clone())?;
 
-    let mut new_deposit_total = Uint128::zero();
-    let mut withdrawable_amount = Uint128::zero();
-
     let error: Option<StdError> = None;
     let mut this_deposit_is_withdrawable = false;
-    let mut returning_deposit: Option<StakeDeposit> = None;
+    let mut returning_deposits: Vec<StakeDeposit> = vec![];
 
+
+    //Sort deposits with unstake_start_time to the front
+    let withdrawable_deposits: Vec<StakeDeposit> = deposits
+        .clone()
+        .into_iter()
+        .filter(|deposit| deposit.unstake_start_time.is_some() && env.block.time.seconds() - deposit.unstake_start_time.unwrap() >= config.unstaking_period * SECONDS_PER_DAY)
+        .collect::<Vec<StakeDeposit>>();
+    let total_withdrawable = withdrawable_deposits.clone()
+        .into_iter()
+        .map(|deposit| deposit.amount)
+        .collect::<Vec<Uint128>>()
+        .into_iter()
+        .sum::<Uint128>();
+    //If there is still leftover withdrawal_amount, begin to unstake staked deposits
+    if total_withdrawable < withdrawal_amount {
+        withdrawal_amount -= total_withdrawable;
+    } else {
+        withdrawal_amount = Uint128::zero();
+    }
+    //Only look at deposits that are not unstaking
+    let staked_deposits: Vec<StakeDeposit> = deposits
+        .clone()
+        .into_iter()
+        .filter(|deposit| deposit.unstake_start_time.is_none())
+        .collect::<Vec<StakeDeposit>>();
 
     //Iterate through deposits
-    let mut new_deposits: Vec<StakeDeposit> = deposits
+    let mut new_deposits: Vec<StakeDeposit> = staked_deposits.clone()
         .into_iter()
         .map(|mut deposit| {
             
-            //If the deposit has started unstaking
-            if let Some(deposit_unstake_start) = deposit.unstake_start_time {
-                //If the unstake period has been fulfilled
-                if env.block.time.seconds() - deposit_unstake_start
-                    >= config.unstaking_period * SECONDS_PER_DAY
-                {
-                    this_deposit_is_withdrawable = true;
-                }
-            }
-
             //Subtract from each deposit until there is none left to withdraw or begin to unstake
             if withdrawal_amount != Uint128::zero() && deposit.amount > withdrawal_amount {
 
-                //If withdrawable...
-                //Set partial deposit total
-                //Set current deposit to 0
-                //Add withdrawal_amount to withdrawable_amount
-                if this_deposit_is_withdrawable {
-                    new_deposit_total = deposit.amount - withdrawal_amount;
-                    withdrawable_amount += withdrawal_amount;
-                    deposit.amount = Uint128::zero();
-
-                    this_deposit_is_withdrawable = false;
-                    //Zero withdrawal_amount since the deposit total fulfills the withdrawal
-                    withdrawal_amount = Uint128::zero();
-                } else {
-                    
+               {
                     //Since we claimed rewards
                     deposit.last_accrued = Some(env.block.time.seconds());                    
                     
-                    //Set unstaking time for the amount getting withdrawn
                     //Create a StakeDeposit object for the amount not getting unstaked
-                    //Set new deposit
-                    returning_deposit = Some(StakeDeposit {
+                    returning_deposits.push(StakeDeposit {
                         amount: deposit.amount - withdrawal_amount,
                         unstake_start_time: None,
                         ..deposit.clone()
@@ -1648,18 +1651,7 @@ fn withdraw_from_state(
 
             } else if withdrawal_amount != Uint128::zero() && deposit.amount <= withdrawal_amount {
                 
-                //If withdrawable...
-                //Add deposit amount to withdrawable_amount
-                //Set current deposit to 0
-                if this_deposit_is_withdrawable {
-                    //Since the Deposit amount is less or equal, substract it from the withdrawal amount
-                    withdrawal_amount -= deposit.amount;
-
-                    withdrawable_amount += deposit.amount;
-                    deposit.amount = Uint128::zero();
-
-                    this_deposit_is_withdrawable = false;
-                } else {
+                {
                     //if stake time is some but can't be withdrawn (i.e. made it within this conditional but skips the next)
                     // we don't count that towards the withdrawal_amount tally.
 
@@ -1685,7 +1677,7 @@ fn withdraw_from_state(
     if withdrawal_amount != Uint128::zero() {
         return Err(StdError::GenericErr {
             msg: format!(
-                "Attempting to withdraw {} MBRN over ( {} )'s total deposit",
+                "Attempting to withdraw {} MBRN over ( {} )'s total currently staked amount",
                 withdrawal_amount, staker
             ),
         });
@@ -1694,30 +1686,16 @@ fn withdraw_from_state(
     if error.is_some() {
         return Err(error.unwrap());
     }
-
-    //Push returning_deposit if Some
-    //This can be done outside the loop bc it can only happen once
-    if let Some(deposit) = returning_deposit {
-        new_deposits.push(deposit);
-    }
-    
-    //Get earliest stake time from staked deposits
-    let earliest_stake_time = new_deposits.clone()
+    //Add any returning_deposits
+    new_deposits.extend(returning_deposits);
+    //Filter for deposits that are unstaking but not yet withdrawable
+    let mut unstaking_deposits: Vec<StakeDeposit> = deposits
+        .clone()
         .into_iter()
-        .map(|deposit| deposit.stake_time)
-        .min()
-        .unwrap_or_else(|| env.block.time.seconds());
-
-    //We set any edited deposit to zero and push any partial withdrawals back to the list here
-    if !new_deposit_total.is_zero() {
-        new_deposits.push(StakeDeposit {
-            staker: staker.clone(),
-            amount: new_deposit_total,
-            stake_time: earliest_stake_time,
-            unstake_start_time: None,
-            last_accrued: Some(env.block.time.seconds()),
-        });
-    }
+        .filter(|deposit| deposit.unstake_start_time.is_some() && env.block.time.seconds() - deposit.unstake_start_time.unwrap() < config.unstaking_period * SECONDS_PER_DAY)
+        .collect::<Vec<StakeDeposit>>();
+    //Aggregate deposits
+    unstaking_deposits.extend(new_deposits.clone());
 
     //Before we save, claim rewards for the staker
     let (claimables, accrued_interest) = get_user_claimables(
@@ -1727,9 +1705,9 @@ fn withdraw_from_state(
     )?;
 
     //Save new deposit stack
-    STAKED.save(storage, staker.clone(), &new_deposits)?;
+    STAKED.save(storage, staker.clone(), &unstaking_deposits)?;
 
-    Ok((claimables, accrued_interest, withdrawable_amount))
+    Ok((claimables, accrued_interest, total_withdrawable))
 }
 
 

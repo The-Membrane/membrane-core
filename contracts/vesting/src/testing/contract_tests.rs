@@ -176,7 +176,20 @@ mod tests {
         //AddAllocation from the latest recipient to divvy their allocation
         let allocation_msg = ExecuteMsg::AddAllocation {
             recipient: String::from("sub_recipient"),
-            allocation: Uint128::new(500_000_000_000u128),
+            allocation: Uint128::new(400_000_000_000u128),
+            vesting_period: None,
+        };
+        let _res = execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("recipient0000", &[]),
+            allocation_msg,
+        )
+        .unwrap();
+        //Do it again to a now existing Recipient
+        let allocation_msg = ExecuteMsg::AddAllocation {
+            recipient: String::from("sub_recipient"),
+            allocation: Uint128::new(100_000_000_000u128),
             vesting_period: None,
         };
         let _res = execute(

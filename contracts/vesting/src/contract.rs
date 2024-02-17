@@ -698,16 +698,31 @@ fn add_allocation(
                         .iter()
                         .any(|recipient| recipient.recipient == valid_recipient)
                     {
-                        return Err(ContractError::CustomError {
-                            val: String::from("Duplicate Recipient"),
+                        //Add allocation to existing Recipient
+                        recipients = recipients
+                            .into_iter()
+                            .map(|mut stored_recipient| {
+                                if stored_recipient.recipient == valid_recipient {
+                                    if let Some(allocation) = stored_recipient.allocation {
+                                        stored_recipient.allocation = Some(Allocation {
+                                            amount: allocation.amount + new_allocation.clone().unwrap().amount,
+                                            amount_withdrawn:  allocation.amount_withdrawn,
+                                            start_time_of_allocation:  allocation.start_time_of_allocation,
+                                            vesting_period: allocation.vesting_period,
+                                        });
+                                    }
+                                }
+                                stored_recipient
+                            })
+                            .collect::<Vec<Recipient>>();
+                    } else {
+                        recipients.push(Recipient {
+                            recipient: valid_recipient,
+                            allocation: new_allocation,
+                            claimables: vec![],
                         });
-                    }
 
-                    recipients.push(Recipient {
-                        recipient: valid_recipient,
-                        allocation: new_allocation,
-                        claimables: vec![],
-                    });
+                    }
 
                     Ok(recipients)
                 },

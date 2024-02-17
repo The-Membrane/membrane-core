@@ -6,7 +6,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::vesting::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
+use membrane::vesting::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, MigrateMsg};
 use membrane::governance::{ExecuteMsg as GovExecuteMsg, ProposalMessage, ProposalVoteOption};
 use membrane::math::decimal_division;
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
@@ -832,4 +832,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Recipients {} => to_binary(&query_recipients(deps)?),
         QueryMsg::Recipient { recipient } => to_binary(&query_recipient(deps, recipient)?),
     }
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    Ok(Response::default())
 }

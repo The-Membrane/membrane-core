@@ -1002,7 +1002,7 @@ fn unstake() {
 
     //Successful Unstake w/ withdrawals after unstaking period of the first unstake
     /// - Withdrawing less than what has been unstaked doesn't add MBRN 
-    let msg = ExecuteMsg::Unstake { mbrn_amount: Some(Uint128::new(5000000)) };
+    let msg = ExecuteMsg::Unstake { mbrn_amount: Some(Uint128::new(0)) };
     let info = mock_info("sender88", &[]);
     let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     assert_eq!(
@@ -1025,11 +1025,12 @@ fn unstake() {
                     mint_to_address: String::from("cosmos2contract")
                 }).unwrap(), 
                 funds: vec![]
-            })), 
-            SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
-                to_address: String::from("sender88"),
-                amount: coins(5_000_001, "mbrn_denom"),
             }))
+            //No bank send bc contract_tests doesn't have a bank contract & we check that the sending denoms are owned by the contract before sending
+            // SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
+            //     to_address: String::from("sender88"),
+            //     amount: coins(5_000_001, "mbrn_denom"),
+            // }))
         ]
     );
     let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();

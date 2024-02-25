@@ -438,7 +438,7 @@ pub fn unstake(
     let config = CONFIG.load(deps.storage)?;
 
     //Restrict unstaking
-    can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
+    // can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
 
     //Get total Stake
     let total_stake = {

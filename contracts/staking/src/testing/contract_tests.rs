@@ -849,7 +849,30 @@ fn unstake() {
             attr("amount", String::from("10000000")),
         ]
     );
+    //Successful Stake
+    let msg = ExecuteMsg::Stake { user: None };
+    let info = mock_info("first_delegate", &[coin(1_000_000, "mbrn_denom")]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    assert_eq!(
+        res.attributes,
+        vec![
+            attr("method", "stake"),
+            attr("staker", String::from("first_delegate")),
+            attr("amount", String::from("1000000")),
+        ]
+    );
 
+    //Delegate all staked MBRN: success
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("unstaking_barrier")), 
+        mbrn_amount: None,
+        delegate: Some(true), 
+        fluid: None, 
+        voting_power_delegation: None, 
+        commission: None,
+    };
+    let info = mock_info("first_delegate", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     //Delegate all staked MBRN: success
     let msg = ExecuteMsg::UpdateDelegations { 
         governator_addr: Some(String::from("unstaking_barrier")), 
@@ -879,7 +902,7 @@ fn unstake() {
     let res = query(deps.as_ref(), mock_env(), QueryMsg::TotalStaked {}).unwrap();
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.total_not_including_vested, Uint128::new(10000000));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(11000000));
     assert_eq!(resp.vested_total, Uint128::new(11000000));
 
     //Not a staker Error
@@ -912,7 +935,7 @@ fn unstake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_vested, Uint128::new(0));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(1_000_000));
     assert_eq!(resp.vested_total, Uint128::new(11_000000));
 
 
@@ -939,7 +962,7 @@ fn unstake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_vested, Uint128::new(10_000_000));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(11_000_000));
     assert_eq!(resp.vested_total, Uint128::new(11_000000));
 
     //Query and Assert UserStake
@@ -1050,7 +1073,7 @@ fn unstake() {
     ).unwrap();
     let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
     assert_eq!(
-        resp[0].delegation_info,
+        resp[1].delegation_info,
         OldDelegationInfo {
             delegated: vec![],
             delegated_to: vec![
@@ -1066,9 +1089,16 @@ fn unstake() {
         }        
     );
     assert_eq!(
-        resp[1].delegation_info,
+        resp[2].delegation_info,
         OldDelegationInfo {
             delegated: vec![
+                OldDelegation {
+                    delegate: Addr::unchecked("first_delegate"),
+                    amount: Uint128::new(1000000),
+                    fluidity: false,
+                    voting_power_delegation: true,
+                    time_of_delegation: 1571797419,
+                },
                 OldDelegation {
                     delegate: Addr::unchecked("sender88"),
                     amount: Uint128::new(5019185),
@@ -1087,7 +1117,7 @@ fn unstake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_vested, Uint128::new(19_194));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(1_019_194));
     assert_eq!(resp.vested_total, Uint128::new(11_000000));
 }
 

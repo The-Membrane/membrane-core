@@ -535,7 +535,7 @@ pub fn unstake(
                 for (i, delegation) in staker_delegation_info.clone().delegated_to.into_iter().enumerate() {
                     
                     //If undelegate amount is greater than the current delegation, undelegate the whole delegation & update undelegate amount
-                    if undelegate_amount >= delegation.amount {
+                    if undelegate_amount >= delegation.amount && !undelegate_amount.is_zero() {
                         undelegate_amount -= delegation.amount;
                         
                         //Remove staker delegation
@@ -550,7 +550,7 @@ pub fn unstake(
                             }
                         }
                         DELEGATIONS.save(deps.storage, delegation.delegate.clone(), &delegate_delegation_info)?;
-                    } else if staker_delegation_info.delegated_to[i].amount > undelegate_amount{
+                    } else if staker_delegation_info.delegated_to[i].amount > undelegate_amount && !undelegate_amount.is_zero(){
                         //If undelegate amount is less than the current delegation, undelegate the undelegate amount & break
                         staker_delegation_info.delegated_to[i].amount -= undelegate_amount;
 
@@ -558,7 +558,14 @@ pub fn unstake(
                         let mut delegate_delegation_info = DELEGATIONS.load(deps.storage, delegation.delegate.clone())?;
                         for (i, delegate_delegation) in delegate_delegation_info.clone().delegated.into_iter().enumerate() {
                             if delegate_delegation.delegate == info.sender.clone() {
-                                delegate_delegation_info.delegated[i].amount -= undelegate_amount;
+                                delegate_delegation_info.delegated[i].amount = match delegate_delegation_info.delegated[i].amount.checked_sub(undelegate_amount){
+                                    Ok(diff) => diff,
+                                    Err(_) => {
+                                        undelegate_amount -= delegate_delegation_info.delegated[i].amount;
+                                        
+                                        Uint128::zero()
+                                    },
+                                };
                                 break;
                             }
                         }
@@ -2330,10 +2337,6 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Load staking & delegations to test that the added field is there & doesn't error
-    let _ = STAKED.load(deps.storage, Addr::unchecked("osmo13v9vq233efnquyzqmfzgy6676e0s7ncgahrz0a"))?;
-    let _ = DELEGATIONS.load(deps.storage, Addr::unchecked("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w"))?;
-
     Ok(Response::default())
 }
 

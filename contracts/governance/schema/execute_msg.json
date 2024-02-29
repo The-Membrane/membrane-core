@@ -138,6 +138,15 @@
               "items": {
                 "$ref": "#/definitions/ProposalMessage"
               }
+            },
+            "msg_switch": {
+              "description": "Additional contract check messages: 0 - CDP, 1 - Staking, 2 - LQ",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
             }
           },
           "additionalProperties": false
@@ -154,6 +163,14 @@
       "properties": {
         "check_messages_passed": {
           "type": "object",
+          "properties": {
+            "error": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
           "additionalProperties": false
         }
       },
@@ -237,6 +254,56 @@
           "properties": {
             "gauge_msg": {
               "$ref": "#/definitions/MsgCreateGauge"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Use osmosis-std to add to a gauge, owned by this contract, with assets in this contract",
+      "type": "object",
+      "required": [
+        "add_to_osmosis_gauge"
+      ],
+      "properties": {
+        "add_to_osmosis_gauge": {
+          "type": "object",
+          "required": [
+            "gauge_msg"
+          ],
+          "properties": {
+            "gauge_msg": {
+              "$ref": "#/definitions/MsgAddToGauge"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "freeze_positions"
+      ],
+      "properties": {
+        "freeze_positions": {
+          "type": "object",
+          "required": [
+            "freeze_these_assets",
+            "frozen"
+          ],
+          "properties": {
+            "freeze_these_assets": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "frozen": {
+              "type": "boolean"
             }
           },
           "additionalProperties": false
@@ -714,6 +781,34 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0.0
+        }
+      }
+    },
+    "MsgAddToGauge": {
+      "description": "MsgAddToGauge adds coins to a previously created gauge",
+      "type": "object",
+      "required": [
+        "gauge_id",
+        "owner",
+        "rewards"
+      ],
+      "properties": {
+        "gauge_id": {
+          "description": "gauge_id is the ID of gauge that rewards are getting added to",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "owner": {
+          "description": "owner is the gauge owner's address",
+          "type": "string"
+        },
+        "rewards": {
+          "description": "rewards are the coin(s) to add to gauge",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Coin2"
+          }
         }
       }
     },

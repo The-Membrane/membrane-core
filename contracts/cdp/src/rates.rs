@@ -10,7 +10,7 @@ use membrane::helpers::get_asset_liquidity;
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 
 use crate::ContractError;
-use crate::query::{get_asset_values, get_cAsset_ratios};
+use crate::query::{get_asset_values, get_cAsset_ratios, VOLATILITY_LIST_LIMIT};
 use crate::risk_engine::get_basket_debt_caps;
 use crate::state::{get_target_position, update_position, BASKET, CONFIG, VOLATILITY};
 
@@ -121,7 +121,6 @@ pub fn update_rate_indices(
             //If the collateral interest rate is less than the redemption rate, set to 0. 
             //Avoids negative interest rates but not redemption rates.
             if rate < credit_price_rate {
-                // if !rate.is_zero(){panic!("{}, {}", rate, credit_price_rate)};
                 rate = Decimal::zero();
             } else {
                 rate = match decimal_subtraction(rate, credit_price_rate){
@@ -356,19 +355,22 @@ pub fn transform_caps_based_on_volatility(
         .map(|cap| {        
             //Load volatility store
             if let Ok(vol_store) = VOLATILITY.load(storage, cap.asset_info.to_string()){
-                //Transform supply cap based on asset volatility
-                let new_supply_cap = match decimal_multiplication(
-                    cap.supply_cap_ratio,
-                    vol_store.index,
-                ){
-                    Ok(new_supply_cap) => new_supply_cap,
-                    Err(_err) => cap.supply_cap_ratio
-                };
-                if vol_store.volatility_list.len() > 13 { panic!("{:?} --- {} --- {}", vol_store, new_supply_cap, cap.supply_cap_ratio) }
-                Ok(SupplyCap {
-                    supply_cap_ratio: new_supply_cap,
-                    ..cap                
-                })
+                if vol_store.volatility_list.len() == VOLATILITY_LIST_LIMIT as usize {
+                    //Transform supply cap based on asset volatility
+                    let new_supply_cap = match decimal_multiplication(
+                        cap.supply_cap_ratio,
+                        vol_store.index,
+                    ){
+                        Ok(new_supply_cap) => new_supply_cap,
+                        Err(_err) => cap.supply_cap_ratio
+                    };
+                    Ok(SupplyCap {
+                        supply_cap_ratio: new_supply_cap,
+                        ..cap                
+                    })
+                } else {
+                    Ok( cap )
+                }
             } else {
                 //Unreachable in prod
                 Ok( cap )
@@ -561,7 +563,6 @@ pub fn accrue(
                 Uint128::from(SECONDS_PER_YEAR),
             ))?;
             
-            // if !applied_rate.is_zero(){panic!("{}", applied_rate)};
             //If a positive rate we add 1,
             //If a negative rate we subtract the applied_rate from 1
             if negative_rate {

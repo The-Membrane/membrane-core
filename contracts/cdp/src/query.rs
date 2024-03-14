@@ -23,7 +23,7 @@ use crate::risk_engine::get_basket_debt_caps;
 use crate::state::{get_target_position, CollateralVolatility, BASKET, CONFIG, POSITIONS, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY};
 
 const MAX_LIMIT: u32 = 31;
-const VOLATILITY_LIST_LIMIT: u32 = 48;
+pub const VOLATILITY_LIST_LIMIT: u32 = 48;
 
 /// Returns Positions in a Basket
 pub fn query_basket_positions(

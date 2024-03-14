@@ -5,13 +5,13 @@ use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Ui
 use membrane::types::{AssetInfo, Asset, Basket, cAsset};
 use membrane::stability_pool::ExecuteMsg as SP_ExecuteMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
-use membrane::cdp::{Config, ExecuteMsg};
+use membrane::cdp::Config;
 use membrane::math::decimal_subtraction;
-use membrane::helpers::{withdrawal_msg, get_contract_balances, asset_to_coin};
+use membrane::helpers::{withdrawal_msg, get_contract_balances};
 
 use crate::positions::STABILITY_POOL_REPLY_ID;
 use crate::risk_engine::update_basket_tally;
-use crate::state::{LiquidationPropagation, LIQUIDATION, ClosePositionPropagation, CLOSE_POSITION, WITHDRAW, CONFIG, BASKET, get_target_position, update_position_claims, update_position};
+use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, BASKET, get_target_position, update_position};
 use crate::liquidations::sell_wall;
 
 /// Only necessary after the last of successful router swaps, uses the returned asset to repay the position's debt

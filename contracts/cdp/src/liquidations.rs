@@ -65,7 +65,7 @@ pub fn liquidate(
             end_time: 0,
         },
     };
-    if (env.block.time.seconds() - freeze_timer.end_time) < (SECONDS_PER_DAY/2){ //12 hour grace
+    if (env.block.time.seconds().checked_sub(freeze_timer.end_time).unwrap_or_else(|| SECONDS_PER_DAY/2)) < (SECONDS_PER_DAY/2){ //12 hour grace
         return Err(ContractError::Std(StdError::GenericErr { msg: format!("You can liquidate in {} seconds, there is a post-freeze grace period", (SECONDS_PER_DAY/2) - (env.block.time.seconds() - freeze_timer.end_time)) }));
     }
 
@@ -94,7 +94,6 @@ pub fn liquidate(
         basket.clone().credit_price,
         false,
         config.clone(),
-        true,
     )?;
     
     if !insolvent {
@@ -248,7 +247,9 @@ fn get_repay_quantities(
     if repay_value < decimal_debt_minimum {
         //If setting the repay value to the minimum leaves at least the minimum in the position...
         //..then partially liquidate
-        if loan_value - decimal_debt_minimum >= decimal_debt_minimum {
+        if loan_value < decimal_debt_minimum {
+            repay_value = loan_value;
+        } else if  loan_value - decimal_debt_minimum >= decimal_debt_minimum {            
             repay_value = decimal_debt_minimum;
         } else {
             //Else liquidate it all

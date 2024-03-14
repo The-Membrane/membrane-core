@@ -1,17 +1,18 @@
 use std::cmp::{min, Ordering};
+use std::str::FromStr;
 
-use cosmwasm_std::{Uint128, Decimal, Storage, QuerierWrapper, Env, StdResult, StdError, DepsMut, MessageInfo, Response, attr, Addr};
+use cosmwasm_std::{attr, Addr, Api, Decimal, DepsMut, Env, MessageInfo, Order, QuerierWrapper, Response, StdError, StdResult, Storage, Uint128};
 
 use membrane::cdp::Config;
 use membrane::system_discounts::QueryMsg as DiscountQueryMsg;
-use membrane::types::{Basket, cAsset, Position, Rate};
+use membrane::types::{cAsset, Basket, Position, Rate, SupplyCap};
 use membrane::helpers::get_asset_liquidity;
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 
 use crate::ContractError;
 use crate::query::{get_asset_values, get_cAsset_ratios};
 use crate::risk_engine::get_basket_debt_caps;
-use crate::state::{CONFIG, BASKET, get_target_position, update_position};
+use crate::state::{get_target_position, update_position, BASKET, CONFIG, VOLATILITY};
 
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
@@ -19,20 +20,22 @@ const MINIMUM_LIQUIDITY: Uint128 = Uint128::new(2_000_000_000_000u128);
 
 /// Accrue interest for a list of Positions
 pub fn external_accrue_call(
-    deps: DepsMut, 
+    storage: &mut dyn Storage,
+    api: &dyn Api,
+    querier: QuerierWrapper,
     info: MessageInfo,
     env: Env,
     position_owner: Option<String>,
     position_ids: Vec<Uint128>,
 ) -> Result<Response, ContractError>{
-    let mut basket = BASKET.load(deps.storage)?;
-    let config = CONFIG.load(deps.storage)?;
+    let mut basket = BASKET.load(storage)?;
+    let config = CONFIG.load(storage)?;
 
     //Validate position owner
     let valid_position_owner: Addr;
     if let Some(position_owner) = position_owner {
         //Sent addr
-        valid_position_owner = deps.api.addr_validate(&position_owner)?  
+        valid_position_owner = api.addr_validate(&position_owner)?  
     } else { 
         //Msg sender
         valid_position_owner = info.clone().sender 
@@ -44,7 +47,7 @@ pub fn external_accrue_call(
     //Accrue interest for each position
     for position_id in position_ids.clone() {
         let mut position = get_target_position(
-            deps.storage,
+            storage,
             valid_position_owner.clone(),
             position_id,
         )?.1;
@@ -52,23 +55,22 @@ pub fn external_accrue_call(
         let prev_loan = position.clone().credit_amount;
         
         accrue(
-            deps.storage, 
-            deps.querier, 
+            storage, 
+            querier, 
             env.clone(),             
             config.clone(),
             &mut position,
             &mut basket, 
             info.sender.to_string(),
             false,
-            false,
         )?;
 
         accrued_interest += position.clone().credit_amount - prev_loan;
 
-        update_position(deps.storage, valid_position_owner.clone(), position)?;
+        update_position(storage, valid_position_owner.clone(), position)?;
     }
     //Save updated Basket
-    BASKET.save(deps.storage, &basket)?;
+    BASKET.save(storage, &basket)?;
 
     Ok(Response::new()
         .add_attributes(vec![
@@ -90,18 +92,19 @@ pub fn accumulate_interest_dec(decimal: Decimal, rate: Decimal, time_elapsed: u6
 
 // Calculate Basket interests and then accumulate interest to all basket cAsset rate indices
 pub fn update_rate_indices(
-    storage: &dyn Storage,
+    storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env, 
     basket: &mut Basket,
+    supply_caps: &mut Vec<SupplyCap>,
     negative_rate: bool,
     credit_price_rate: Decimal,
-    for_query: bool,
+    cdt_liquidity: Option<Uint128>,
 ) -> StdResult<()>{
     //Get basket rates
-    let mut interest_rates = match get_interest_rates(storage, querier, env.clone(), basket, for_query){
+    let mut interest_rates = match get_interest_rates(storage, querier, env.clone(), basket, supply_caps, cdt_liquidity){
         Ok(rates) => rates,
-        Err(err) => {
+        Err(_err) => {
             return Err(StdError::GenericErr {
                 msg: String::from("Error at line 106")
             })
@@ -118,6 +121,7 @@ pub fn update_rate_indices(
             //If the collateral interest rate is less than the redemption rate, set to 0. 
             //Avoids negative interest rates but not redemption rates.
             if rate < credit_price_rate {
+                // if !rate.is_zero(){panic!("{}, {}", rate, credit_price_rate)};
                 rate = Decimal::zero();
             } else {
                 rate = match decimal_subtraction(rate, credit_price_rate){
@@ -128,7 +132,6 @@ pub fn update_rate_indices(
                     },
                 };
             }            
-            
         } else {
             rate += credit_price_rate;
         }
@@ -143,6 +146,15 @@ pub fn update_rate_indices(
     if let Some(err) = error {
         return Err(err);
     }
+    
+    //Update latest rates in the Basket
+    let latest_rates = interest_rates.clone()
+        .into_iter()
+        .map(|rate| Rate {
+            rate,
+            last_time_updated: env.clone().block.time.seconds(),
+        }).collect::<Vec<Rate>>();
+    basket.lastest_collateral_rates = latest_rates;
 
     //Calc time_elapsed
     let time_elapsed = env.block.time.seconds() - basket.clone().rates_last_accrued;
@@ -169,20 +181,13 @@ pub fn update_rate_indices(
 /// 
 /// Note: Proportional debt caps will never overflow bc the debt total (de/in)creases with the supply ratio, but static caps (SP cap) can
 pub fn get_interest_rates(
-    storage: &dyn Storage,
+    storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     basket: &mut Basket,
-    for_query: bool,
+    supply_caps: &mut Vec<SupplyCap>,
+    cdt_liquidity: Option<Uint128>,
 ) -> StdResult<Vec<Decimal>> {
-    //If for a query, take Basket saved latest rates
-    if for_query {
-        let rates = basket.clone().lastest_collateral_rates
-            .into_iter().map(|rate| rate.rate)
-            .collect::<Vec<Decimal>>();
-        return Ok(rates);
-    }
-
     let config = CONFIG.load(storage)?;
 
     let mut rates = vec![];
@@ -190,7 +195,7 @@ pub fn get_interest_rates(
     for asset in basket.clone().collateral_types {
         //Base_Rate * max collateral_ratio
         //ex: 2% * 110% = 2.2%
-        //Higher rates for riskier assets
+        //Higher rates for more volatili assets
 
         //base * (1/max_LTV)
         rates.push(decimal_multiplication(
@@ -203,9 +208,9 @@ pub fn get_interest_rates(
     let mut debt_proportions = vec![];
     let mut supply_proportions = vec![];
     
-    let debt_caps = match get_basket_debt_caps(storage, querier, env.clone(), basket) {
+    let debt_caps = match get_basket_debt_caps(storage, querier, env.clone(), basket, supply_caps, cdt_liquidity) {
         Ok(caps) => caps,
-        Err(err) => {
+        Err(_err) => {
             return Err(StdError::GenericErr {
                 msg: String::from("Error at line 207")
             })            
@@ -216,8 +221,7 @@ pub fn get_interest_rates(
     let (basket_ratios, _) =
         get_cAsset_ratios(storage, env.clone(), querier, basket.clone().collateral_types, config.clone(), Some(basket.clone()))?;
     
-
-    for (i, cap) in basket.clone().collateral_supply_caps.iter().enumerate() {
+    for (i, cap) in supply_caps.iter().enumerate() {
         //Caps set to 0 can be used to push out unwanted assets by spiking rates
         if cap.supply_cap_ratio.is_zero() {
             debt_proportions.push(Decimal::percent(100));
@@ -294,7 +298,7 @@ pub fn get_interest_rates(
         }
     }
 
-    //Calculate supply cap overages 
+    //Calculate multi-supply cap overages 
     if basket.multi_asset_supply_caps != vec![]{
         for multi_asset_cap in basket.clone().multi_asset_supply_caps {
             //Initialize total_ratio
@@ -310,8 +314,8 @@ pub fn get_interest_rates(
             //Calc interest rate
             let multi_cap_proportion = decimal_division(total_ratio, multi_asset_cap.supply_cap_ratio)?;
 
-            for asset in multi_asset_cap.clone().assets{
-                if let Some((i, _cap)) = basket.clone().collateral_supply_caps.into_iter().enumerate().find(|(_i, cap)| cap.asset_info.equal(&asset)){
+            for asset in multi_asset_cap.clone().assets {
+                if let Some((i, _cap)) = basket.clone().collateral_supply_caps.clone().into_iter().enumerate().find(|(_i, cap)| cap.asset_info.equal(&asset)){
                     //Substitute if proportion of multi_asset_cap is greater than 1 and both debt/supply proportions
                     if multi_cap_proportion > Decimal::one() && multi_cap_proportion > supply_proportions[i] && multi_cap_proportion > debt_proportions[i]{
                         //Slope 2            
@@ -337,22 +341,46 @@ pub fn get_interest_rates(
             }
         }
     }
-    //Update latest rates in the Basket
-    let latest_rates = two_slope_pro_rata_rates.clone()
-        .into_iter()
-        .map(|rate| Rate {
-            rate,
-            last_time_updated: env.clone().block.time.seconds(),
-        }).collect::<Vec<Rate>>();
-    basket.lastest_collateral_rates = latest_rates;
-
         
     Ok(two_slope_pro_rata_rates)
+}
+//Used for accrual & update_basket_tally()
+//This doesn't alter multi-asset caps
+pub fn transform_caps_based_on_volatility(
+    storage: &mut dyn Storage,
+    basket: Basket,
+) -> StdResult<Vec<SupplyCap>> {
+
+    //Loop through basket supply caps and transform based on asset volatility
+    let vol_caps: Vec<SupplyCap> = basket.clone().collateral_supply_caps.into_iter()
+        .map(|cap| {        
+            //Load volatility store
+            if let Ok(vol_store) = VOLATILITY.load(storage, cap.asset_info.to_string()){
+                //Transform supply cap based on asset volatility
+                let new_supply_cap = match decimal_multiplication(
+                    cap.supply_cap_ratio,
+                    vol_store.index,
+                ){
+                    Ok(new_supply_cap) => new_supply_cap,
+                    Err(_err) => cap.supply_cap_ratio
+                };
+                if vol_store.volatility_list.len() > 13 { panic!("{:?} --- {} --- {}", vol_store, new_supply_cap, cap.supply_cap_ratio) }
+                Ok(SupplyCap {
+                    supply_cap_ratio: new_supply_cap,
+                    ..cap                
+                })
+            } else {
+                //Unreachable in prod
+                Ok( cap )
+            }
+        }).collect::<StdResult<Vec<SupplyCap>>>()?;
+
+    Ok(vol_caps)
 }
 
 /// Calculates the % change to accrue to the Position's debt
 fn get_credit_rate_of_change(
-    storage: &dyn Storage,
+    storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     config: Config,
@@ -360,7 +388,7 @@ fn get_credit_rate_of_change(
     position: &mut Position,
     negative_rate: bool,
     credit_price_rate: Decimal,
-    for_query: bool,
+    cdt_liquidity: Option<Uint128>,
 ) -> StdResult<(Decimal, Vec<Decimal>)> {
     let (ratios, _) = match get_cAsset_ratios(storage, env.clone(), querier, position.clone().collateral_assets, config, Some(basket.clone())){
         Ok(ratios) => ratios,
@@ -370,10 +398,17 @@ fn get_credit_rate_of_change(
             })
         }
     };
+
+    //Transform supply caps based on asset volatility
+    //This doesn't alter multi-asset caps
+    let mut supply_caps = match transform_caps_based_on_volatility(storage, basket.clone()){
+        Ok(supply_caps) => supply_caps,
+        Err(_err) => basket.clone().collateral_supply_caps
+    };
     
-    match update_rate_indices(storage, querier, env, basket, negative_rate, credit_price_rate, for_query){
+    match update_rate_indices(storage, querier, env, basket, &mut supply_caps, negative_rate, credit_price_rate, cdt_liquidity){
         Ok(_ok) => {},
-        Err(err) => {
+        Err(_err) => {
             return Err(StdError::GenericErr {
                 msg: String::from("Error at line 375")
             })
@@ -402,8 +437,9 @@ fn get_credit_rate_of_change(
 }
 
 /// Accrue interest to the repayment price & Position debt amount
+/// Set, use and save new Volatility trackers
 pub fn accrue(
-    storage: &dyn Storage,
+    storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     config: Config,
@@ -411,7 +447,6 @@ pub fn accrue(
     basket: &mut Basket,
     user: String,
     is_deposit_function: bool,
-    for_query: bool, //necessary to reduce gas costs
 ) -> StdResult<Vec<Decimal>> {
     /////Accrue Interest to the Repayment Price///
     //Calc Time-elapsed and update last_Accrued
@@ -486,6 +521,7 @@ pub fn accrue(
         }
     };
 
+    //Repayment accrual
     if !skip_accrual {
         basket.credit_last_accrued = env.block.time.seconds();
 
@@ -516,7 +552,6 @@ pub fn accrue(
 
         //Don't accrue repayment interest if price is within the margin of error
         if price_difference > basket.clone().cpc_margin_of_error {
-
             //Multiply price_difference by the cpc_multiplier
             credit_price_rate = decimal_multiplication(price_difference, config.cpc_multiplier)?;
 
@@ -525,7 +560,8 @@ pub fn accrue(
                 Uint128::from(time_elapsed),
                 Uint128::from(SECONDS_PER_YEAR),
             ))?;
-
+            
+            // if !applied_rate.is_zero(){panic!("{}", applied_rate)};
             //If a positive rate we add 1,
             //If a negative rate we subtract the applied_rate from 1
             if negative_rate {
@@ -559,7 +595,7 @@ pub fn accrue(
         position,
         negative_rate,
         credit_price_rate,
-        for_query,
+        Some(liquidity),
     ){
         Ok(rate) => rate,
         Err(err) => {

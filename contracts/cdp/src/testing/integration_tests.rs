@@ -4482,7 +4482,7 @@ mod tests {
 
             //Assert interest rates decreased from the negative redemption rate
             //Base rate is 285714285
-            //Accrued rate is 274052477
+            //Accrued rate is 0 bc the credit price rate (0.02) is larger than the actual rate (0.000000000285714285)
             let query_msg = QueryMsg::GetCollateralInterest { };
             app.set_block(BlockInfo {
                 height: app.block_info().height,
@@ -4495,7 +4495,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.rates[0].to_string(),
-                String::from("0.000000000274052477")
+                String::from("0")
             );            
         }
 

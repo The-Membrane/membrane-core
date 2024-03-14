@@ -4,7 +4,7 @@ use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResu
 use cosmwasm_schema::cw_serde;
 use cw_storage_plus::{Item, Map};
 
-use membrane::types::{Asset, Basket, Position, RedemptionInfo, UserInfo, AssetInfo, cAsset};
+use membrane::types::{cAsset, Asset, AssetInfo, Basket, Position, RedemptionInfo, StoredPrice, UserInfo};
 use membrane::cdp::Config;
 
 use crate::ContractError;
@@ -59,12 +59,20 @@ pub struct Timer {
     pub start_time: u64,
     pub end_time: u64,
 }
+#[cw_serde]
+pub struct CollateralVolatility {
+    pub index: Decimal,
+    pub volatility_list: Vec<Decimal>,
+}
 
 pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const BASKET: Item<Basket> = Item::new("basket"); 
 pub const POSITIONS: Map<Addr, Vec<Position>> = Map::new("positions"); //owner, list of positions
+//Volatility Tracker
+pub const VOLATILITY: Map<String, CollateralVolatility> = Map::new("volatility");
+pub const STORED_PRICES: Map<String, StoredPrice> = Map::new("stored_prices");
 
 /// CDT redemption premium, opt-in mechanism.
 /// This is the premium that the user will pay to redeem their debt token.

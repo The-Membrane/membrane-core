@@ -6,8 +6,9 @@ use membrane::types::{Basket, Asset, cAsset, SupplyCap, AssetPool};
 use membrane::helpers::{get_asset_liquidity, get_owner_liquidity_multiplier, get_stability_pool_liquidity};
 use membrane::math::decimal_multiplication; 
 
+use crate::rates::transform_caps_based_on_volatility;
 use crate::state::{CONFIG, BASKET};
-use crate::query::get_cAsset_ratios;
+use crate::query::{get_cAsset_ratios, get_cAsset_ratios_imut};
 use crate::error::ContractError;
 
 /// Asserts that the assets provided are valid collateral assets in the basket
@@ -74,9 +75,15 @@ pub fn update_basket_tally(
             //Update
             basket.collateral_supply_caps[index] = cap.clone();
             basket.collateral_types[index].asset.amount = cap.current_supply;
-        }
-    
+        }    
     }
+
+    //Transform supply caps based on asset volatility
+    //This doesn't alter multi-asset caps
+    let supply_caps = match transform_caps_based_on_volatility(storage, basket.clone()){
+        Ok(supply_caps) => supply_caps,
+        Err(_err) => basket.clone().collateral_supply_caps
+    };
     
     if !from_liquidation {
         let (new_basket_ratios, _) =
@@ -91,21 +98,21 @@ pub fn update_basket_tally(
             
             if add_to_cAsset {
                 //Check if the depositing assets are part of this cap
-                if let Some((_i, _cAsset)) = collateral_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&basket.collateral_supply_caps[i].asset_info)){
+                if let Some((_i, _cAsset)) = collateral_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&supply_caps[i].asset_info)){
                     in_position = true;
                 }
             } else {
                 //Check if the position has these assets if ur withdrawing
                 //So if a withdrawal would push an asset over cap that isn't being withdrawn currently but is in the position, it errors
-                if let Some((_i, _cAsset)) = full_positions_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&basket.collateral_supply_caps[i].asset_info)){
+                if let Some((_i, _cAsset)) = full_positions_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&supply_caps[i].asset_info)){
                     in_position = true;
                 }
                 //If the position is withdrawing the asset, set to false.
                 //User Flow: If a user fully withdraws an asset that is over cap BUT....
                 //..doesn't completely pull it under cap, we don't want to block withdrawals
-                if let Some((_i, _withdrawn_cAsset)) = collateral_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&basket.collateral_supply_caps[i].asset_info)){
+                if let Some((_i, _withdrawn_cAsset)) = collateral_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&supply_caps[i].asset_info)){
                     //Check if its being fully withdrawn from the position or if its the only asset in the position
-                    if let Some((_i, _position_cAsset)) = full_positions_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&basket.collateral_supply_caps[i].asset_info)){
+                    if let Some((_i, _position_cAsset)) = full_positions_assets.clone().into_iter().enumerate().find(|(_i, cAsset)| cAsset.asset.info.equal(&supply_caps[i].asset_info)){
                         //If the asset is still in the position, it must be the only remaining asset
                         if full_positions_assets.len() > 1 {
                             in_position = true;                     
@@ -121,7 +128,7 @@ pub fn update_basket_tally(
                 }
             }
 
-            if basket.collateral_supply_caps != vec![] && ratio > basket.collateral_supply_caps[i].supply_cap_ratio && in_position {
+            if basket.collateral_supply_caps != vec![] && ratio > supply_caps[i].supply_cap_ratio && in_position {
                 
                 return Err(ContractError::CustomError {
                     val: format!(
@@ -208,11 +215,13 @@ pub fn get_basket_debt_caps(
     env: Env,
     //These are Basket specific fields
     basket: &mut Basket,
+    supply_caps: &mut Vec<SupplyCap>,
+    cdt_liquidity: Option<Uint128>,
 ) -> StdResult<Vec<Uint128>> {    
     let config: Config = CONFIG.load(storage)?;
     
     //Get the Basket's asset ratios
-    let (cAsset_ratios, _) = get_cAsset_ratios(
+    let (cAsset_ratios, _) = get_cAsset_ratios_imut(
         storage,
         env.clone(),
         querier,
@@ -227,7 +236,12 @@ pub fn get_basket_debt_caps(
             .into_iter()
             .map(|mut cap| {
                 if cap.asset_info.equal(&cAsset.asset.info) {
+                    //Added to basket caps
                     cap.debt_total = decimal_multiplication(cAsset_ratios[i], Decimal::from_ratio(basket.credit_asset.amount, Uint128::one())).unwrap_or(Decimal::zero()).to_uint_floor();
+                    //Added to volatility based supply_cap
+                    if supply_caps.len() > 0 {
+                        supply_caps[i].debt_total = cap.debt_total;
+                    }
                 }
 
                 cap
@@ -242,15 +256,18 @@ pub fn get_basket_debt_caps(
         config.clone().osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string()
     ){
         Ok(params) => params,
-        Err(err) => return Err(StdError::GenericErr { msg: String::from("Error at line 174")})
+        Err(_err) => return Err(StdError::GenericErr { msg: String::from("Error at line 174")})
     };
     
-    let liquidity = get_asset_liquidity(
+    //Get CDT liquidity
+    let mut liquidity = cdt_liquidity.unwrap_or_else(|| Uint128::zero());
+    if liquidity.is_zero() {
+        liquidity = get_asset_liquidity(
         querier, 
         config.clone().liquidity_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
         basket.clone().credit_asset.info
-    )?;
-    
+        )?;
+    }
     //Get the base debt cap
     let mut debt_cap = decimal_multiplication(Decimal::from_ratio(liquidity, Uint128::one()), owner_params.0)? * Uint128::one();
 

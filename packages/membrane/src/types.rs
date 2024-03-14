@@ -364,16 +364,6 @@ pub struct StoredPrice {
     pub price: PriceResponse,
     /// Time of price in seconds
     pub last_time_updated: u64,
-    /// Previous price to measure volatility
-    pub price_vol_limiter: PriceVolLimiter,
-}
-
-#[cw_serde]
-pub struct PriceVolLimiter {
-    /// Price
-    pub price: Decimal,
-    /// Time of price in seconds
-    pub last_time_updated: u64,
 }
 
 #[cw_serde]

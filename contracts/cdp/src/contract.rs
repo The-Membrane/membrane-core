@@ -31,7 +31,7 @@ use crate::query::{
 };
 use crate::liquidations::liquidate;
 use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_router_repayment_reply};
-use crate::state::{ get_target_position, update_position, CollateralVolatility, ContractVersion, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER, VOLATILITY
+use crate::state::{ get_target_position, update_position, CollateralVolatility, ContractVersion, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER, STORED_PRICES, VOLATILITY
 };
 
 // version info for migration info
@@ -592,7 +592,7 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     //Panic to see the volaility indices
     let mut list = vec![];
     for asset in basket.collateral_types.clone() {
-        list.push(VOLATILITY.load(deps.storage, asset.asset.info.to_string())?);
+        list.push(STORED_PRICES.load(deps.storage, asset.asset.info.to_string())?);
     }
     panic!("{:?}", list);
     Ok(Response::default())

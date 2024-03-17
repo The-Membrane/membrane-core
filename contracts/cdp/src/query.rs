@@ -292,16 +292,31 @@ pub fn get_cAsset_ratios(
                 //Find the current average volatility
                 let mut avg_volatility: Decimal = volatility_store.volatility_list.iter().sum();
                 avg_volatility = decimal_division(avg_volatility, Decimal::from_str(&volatility_store.volatility_list.len().to_string())?)?;
-                //Update index by the % change in volatility from the average
-                //i.e. if the new volatility is higher than the average, the index will decrease.
-                //If the new volatility is lower than the average, the index will increase.
-                volatility_store.index = decimal_multiplication(volatility_store.index, decimal_division(avg_volatility, new_volatility)?)?;
+
+                //To account for the size of the volatility, we change the index based on the value of the Volatility instead of the % change in the volatility
+                //i.e. if the new volatility is higher than the average, the index will decrease by the new_volatility proportional growth %.
+                //If the new volatility is lower than the average, the index will increase by the avg_volatility's %.
+                ////The idea is that if volatility has decreased from some average, that's the size/value of the risk that has been decreased
+                /// & if the volatility has increased from some average, the change in Vol is the new size/value of the risk
+                let change_in_index = match avg_volatility >= new_volatility {
+                    true => {
+                        //Increase index by the avg volatility
+                        Decimal::one() + avg_volatility
+                    },
+                    false => {
+                        //Decrease index by the strength of the new volatility
+                        //Since there is no lower bound & we can't have index hitting 0, we use the % change to decrease
+                        decimal_division(avg_volatility, new_volatility)?
+                    }                
+                };
+                volatility_store.index = decimal_multiplication(volatility_store.index, change_in_index)?;
                 //Index can't go above 1
                 volatility_store.index = Decimal::one().min(volatility_store.index);
+                println!("len: {} index: {}, delta: {} ----- avg: {}, new: {}", volatility_store.volatility_list.len(), volatility_store.index, change_in_index, avg_volatility, new_volatility);
                 //Save the new volatility store
                 VOLATILITY.save(storage, cAsset.asset.info.to_string(), &volatility_store)?;
                 
-                //This index will be used to lower the Basket's supply caps on rate calculations
+                //This index will be used to lower the Basket's supply caps on rate calculations & supply tallies
             }
         } 
         //Save new Stored price & skip volatility calcs

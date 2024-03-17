@@ -2029,6 +2029,47 @@ pub fn edit_basket(
             FREEZE_TIMER.save(deps.storage, &timer)?;
         }
     }
+    //Reset the Volatility Index for any edited supply caps
+    if let Some(caps) = editable_parameters.clone().collateral_supply_caps {
+        for cap in caps {
+            VOLATILITY.update(deps.storage, cap.asset_info.to_string(), |mut vol| -> StdResult<CollateralVolatility> {
+                match vol {
+                    Some(mut vol) => {
+                        vol.index = Decimal::one();
+                        Ok(vol)
+                    },
+                    None => {
+                        let mut vol = CollateralVolatility {
+                            index: Decimal::one(),
+                            volatility_list: vec![],
+                        };
+                        Ok(vol)
+                    }
+                }
+            })?;
+        }
+    }
+    if let Some(caps) = editable_parameters.clone().multi_asset_supply_caps {
+        for cap in caps {
+            for asset in cap.assets {
+                VOLATILITY.update(deps.storage, asset.to_string(), |mut vol| -> StdResult<CollateralVolatility> {
+                    match vol {
+                        Some(mut vol) => {
+                            vol.index = Decimal::one();
+                            Ok(vol)
+                        },
+                        None => {
+                            let mut vol = CollateralVolatility {
+                                index: Decimal::one(),
+                                volatility_list: vec![],
+                            };
+                            Ok(vol)
+                        }
+                    }
+                })?;
+            }
+        }
+    }
 
     //Update Basket
     BASKET.update(deps.storage, |mut basket| -> Result<Basket, ContractError> {

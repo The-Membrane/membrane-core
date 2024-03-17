@@ -355,8 +355,10 @@ pub fn transform_caps_based_on_volatility(
         .map(|cap| {        
             //Load volatility store
             if let Ok(vol_store) = VOLATILITY.load(storage, cap.asset_info.to_string()){
+                
                 if vol_store.volatility_list.len() == VOLATILITY_LIST_LIMIT as usize {
-                    //Transform supply cap based on asset volatility
+                    // println!("{:?}---{}", vol_store, "hey");
+                    //Transform supply ap based on asset volatility
                     let new_supply_cap = match decimal_multiplication(
                         cap.supply_cap_ratio,
                         vol_store.index,

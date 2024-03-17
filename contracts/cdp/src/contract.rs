@@ -589,11 +589,5 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
         funds: vec![],
     } , env.clone(), Some(String::from("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n")), vec![Uint128::one()])?;
 
-    //Panic to see the volaility indices
-    let mut list = vec![];
-    for asset in basket.collateral_types.clone() {
-        list.push(STORED_PRICES.load(deps.storage, asset.asset.info.to_string())?);
-    }
-    panic!("{:?}", list);
     Ok(Response::default())
 }

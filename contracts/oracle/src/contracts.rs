@@ -416,7 +416,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
                     basket_id,
                     None,
                     None,
-                    )?)
+                    )?.0)
             }
         },
         QueryMsg::Prices {

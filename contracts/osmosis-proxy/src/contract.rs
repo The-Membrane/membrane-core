@@ -411,20 +411,7 @@ pub fn mint_tokens(
         //If minting the CDP asset
         if denom == basket.clone().credit_asset.info.to_string() {   
             //If there is a mint limit
-            if let Some(_liquidity_multiplier) = config.liquidity_multiplier {
-
-                //Get Owner's liquidity multipler
-                let mut liquidity_multiplier = Decimal::zero();
-                if let Some(oracle) = config.clone().oracle_contract {
-                    liquidity_multiplier = get_owner_liquidity_multiplier(
-                        deps.querier,
-                        config.clone().liquidity_multiplier.unwrap_or_else(|| Decimal::one()),
-                        config.clone().owners,
-                        owner.clone().owner,
-                        oracle, 
-                        positions_contract
-                    )?;
-                }
+            if let Some(liquidity_multiplier) = config.liquidity_multiplier {
 
                 //Get liquidity 
                 let debt_token_liquidity = get_asset_liquidity(
@@ -432,7 +419,7 @@ pub fn mint_tokens(
                     config.clone().liquidity_contract.unwrap().to_string(), 
                     basket.clone().credit_asset.info)?;
                 
-                //Calculate Owner's cap 
+                //Calculate cap 
                 let cap = decimal_multiplication(liquidity_multiplier,  Decimal::from_ratio(debt_token_liquidity, Uint128::one()))?
                 * Uint128::one();
 
@@ -521,68 +508,68 @@ fn create_gauge(
 }
 
 /// Query's Position Basket collateral supplyCaps and finds the owner's ratio of the total supply
-fn get_owner_liquidity_multiplier(
-    querier: QuerierWrapper,
-    liquidity_multiplier: Decimal,
-    owners: Vec<Owner>,
-    owner: Addr,
-    oracle_contract: Addr,
-    positions_contract: Addr,
-) -> Result<Decimal, TokenFactoryError> {
+// fn get_owner_liquidity_multiplier(
+//     querier: QuerierWrapper,
+//     liquidity_multiplier: Decimal,
+//     owners: Vec<Owner>,
+//     owner: Addr,
+//     oracle_contract: Addr,
+//     positions_contract: Addr,
+// ) -> Result<Decimal, TokenFactoryError> {
 
-    //Initialize variables
-    let mut owner_totals: Vec<(Addr, Decimal)> = vec![];
+//     //Initialize variables
+//     let mut owner_totals: Vec<(Addr, Decimal)> = vec![];
 
-    //Get twap_timeframe
-    let cdp_config: CDPConfig = querier.query_wasm_smart(positions_contract, &CDPQueryMsg::Config {  })?;
-    let twap_timeframe = cdp_config.collateral_twap_timeframe;
+//     //Get twap_timeframe
+//     let cdp_config: CDPConfig = querier.query_wasm_smart(positions_contract, &CDPQueryMsg::Config {  })?;
+//     let twap_timeframe = cdp_config.collateral_twap_timeframe;
 
-    //Get per owner collateral total value
-    for owner in owners {
-        //Must have GetBasket query
-        if owner.is_position_contract {
-            let basket: Basket = querier.query_wasm_smart(owner.clone().owner, &CDPQueryMsg::GetBasket {  })?;
-            let mut total = Decimal::zero();
+//     //Get per owner collateral total value
+//     for owner in owners {
+//         //Must have GetBasket query
+//         if owner.is_position_contract {
+//             let basket: Basket = querier.query_wasm_smart(owner.clone().owner, &CDPQueryMsg::GetBasket {  })?;
+//             let mut total = Decimal::zero();
 
-            //Parse thru assets and value them
-            for asset in basket.collateral_supply_caps {
+//             //Parse thru assets and value them
+//             for asset in basket.collateral_supply_caps {
 
-                //Get Price
-                let asset_price: PriceResponse = querier.query_wasm_smart(oracle_contract.clone(), &OracleQueryMsg::Price { 
-                    asset_info: asset.asset_info.clone(),
-                    twap_timeframe: twap_timeframe.clone(),
-                    oracle_time_limit: cdp_config.oracle_time_limit,
-                    basket_id: None,
-                })?;
+//                 //Get Price
+//                 let asset_price: PriceResponse = querier.query_wasm_smart(oracle_contract.clone(), &OracleQueryMsg::Price { 
+//                     asset_info: asset.asset_info.clone(),
+//                     twap_timeframe: twap_timeframe.clone(),
+//                     oracle_time_limit: cdp_config.oracle_time_limit,
+//                     basket_id: None,
+//                 })?;
 
-                //Get Value
-                let asset_value = asset_price.get_value(asset.current_supply)?;
+//                 //Get Value
+//                 let asset_value = asset_price.get_value(asset.current_supply)?;
 
-                //Add to total
-                total += asset_value;
-            }
+//                 //Add to total
+//                 total += asset_value;
+//             }
 
-            owner_totals.push((owner.owner, total));
-        }
-    }
+//             owner_totals.push((owner.owner, total));
+//         }
+//     }
 
-    //Get total collateral value
-    let mut total_collateral_value = Decimal::zero();
-    for owner in owner_totals.clone() {
-        total_collateral_value += owner.1;
-    }
+//     //Get total collateral value
+//     let mut total_collateral_value = Decimal::zero();
+//     for owner in owner_totals.clone() {
+//         total_collateral_value += owner.1;
+//     }
 
-    //Get owner's ratio of total collateral value
-    let mut owner_ratio = Decimal::zero();
-    for listed_owner in owner_totals {
-        if listed_owner.0 == owner && total_collateral_value > Decimal::zero(){
-            owner_ratio = decimal_division(listed_owner.1, total_collateral_value)?;
-        }
-    }
+//     //Get owner's ratio of total collateral value
+//     let mut owner_ratio = Decimal::zero();
+//     for listed_owner in owner_totals {
+//         if listed_owner.0 == owner && total_collateral_value > Decimal::zero(){
+//             owner_ratio = decimal_division(listed_owner.1, total_collateral_value)?;
+//         }
+//     }
     
-    //Return owner's liquidity multiplier
-    Ok(decimal_multiplication(owner_ratio, liquidity_multiplier)?)
-}
+//     //Return owner's liquidity multiplier
+//     Ok(decimal_multiplication(owner_ratio, liquidity_multiplier)?)
+// }
 
 /// Burns tokens 
 pub fn burn_tokens(
@@ -691,25 +678,27 @@ fn get_contract_owner(deps: Deps, owner: String) -> StdResult<OwnerResponse> {
     let config = CONFIG.load(deps.storage)?;
     if let Some(owner) = config.clone().owners.into_iter().find(|stored_owner| stored_owner .owner == owner) {
 
-        let liquidity_multiplier: Decimal = if config.oracle_contract.is_some() && config.positions_contract.is_some(){
-            match get_owner_liquidity_multiplier(
-                deps.querier, 
-                config.clone().liquidity_multiplier.unwrap_or_else(|| Decimal::one()),
-                config.clone().owners, 
-                owner.clone().owner, 
-                config.oracle_contract.unwrap(), 
-                config.positions_contract.unwrap()
-            ){
-                Ok(liquidity_multiplier) => liquidity_multiplier,
-                Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
-            }
-        } else {
-            Decimal::zero()
-        };
+        // If we end up with multiple positions contracts, we'll need to 
+
+        // let liquidity_multiplier: Decimal = if config.oracle_contract.is_some() && config.positions_contract.is_some(){
+        //     match get_owner_liquidity_multiplier(
+        //         deps.querier, 
+        //         config.clone().liquidity_multiplier.unwrap_or_else(|| Decimal::one()),
+        //         config.clone().owners, 
+        //         owner.clone().owner, 
+        //         config.oracle_contract.unwrap(), 
+        //         config.positions_contract.unwrap()
+        //     ){
+        //         Ok(liquidity_multiplier) => liquidity_multiplier,
+        //         Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+        //     }
+        // } else {
+        //     Decimal::zero()
+        // };
 
         Ok(OwnerResponse {
             owner, 
-            liquidity_multiplier
+            liquidity_multiplier: config.liquidity_multiplier.unwrap_or_else(|| Decimal::one()),
         })
     } else {
         Err(StdError::generic_err("Owner not found"))

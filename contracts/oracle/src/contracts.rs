@@ -975,7 +975,12 @@ fn get_asset_prices(
                 )?);
             },
             None => {
-                //If asset is not an LP, get the asset price
+                //If asset is not an LP && the price isn't in the list of propogated prices, get the asset price
+                if let Some(price) = price_propagations.clone().into_iter().find(|price| price.0 == asset.to_string()) {
+                    price_responses.push(price.1);
+                    continue;
+                }
+                //Query price if not found
                 let (price, quote_price) = get_asset_price(
                     storage,
                     querier.clone(),

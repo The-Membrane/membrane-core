@@ -1236,11 +1236,10 @@ mod tests {
 
      #[cw_serde]    
     pub enum Oracle_MockQueryMsg {
-        Price {
-            asset_info: AssetInfo,
+        Prices {
+            asset_infos: Vec<AssetInfo>,
             twap_timeframe: u64,
             oracle_time_limit: u64,
-            basket_id: Option<Uint128>,
         },
         Assets {
             asset_infos: Vec<AssetInfo>,
@@ -1267,57 +1266,35 @@ mod tests {
             },
             |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Oracle_MockQueryMsg::Price {
-                        asset_info,
+                    Oracle_MockQueryMsg::Prices {
+                        asset_infos,
                         twap_timeframe,
                         oracle_time_limit,
-                        basket_id,
                     } => {
-                        if basket_id.is_some() {
-                            if basket_id.unwrap() == Uint128::new(2u128) {
-                                Ok(to_binary(&PriceResponse {
-                                    prices: vec![],
-                                    price: Decimal::percent(500),
-                                    decimals: 6,
-                                })?)
-                            } else if asset_info.to_string() == String::from("credit_fulldenom") {
-                                Ok(to_binary(&PriceResponse {
+                        let mut prices = vec![];
+                        for asset_info in asset_infos.iter() {
+                            if asset_info.to_string() == String::from("credit_fulldenom") {
+                                prices.push(PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(98),
                                     decimals: 6,
-                                })?)
+                                });
                             } else if asset_info.to_string() == String::from("lp_denom") {
-                                Ok(to_binary(&PriceResponse {
+                                prices.push(PriceResponse {
                                     prices: vec![],
                                     price: Decimal::from_ratio(2u128, 1u128),
                                     decimals: 18,
-                                })?)
+                                });
                             } else {
-                                Ok(to_binary(&PriceResponse {
+                                prices.push(PriceResponse {
                                     prices: vec![],
                                     price: Decimal::one(),
                                     decimals: 6,
-                                })?)
+                                });
                             }
-                        } else if asset_info.to_string() == String::from("credit_fulldenom") { 
-                            Ok(to_binary(&PriceResponse {
-                                prices: vec![],
-                                price: Decimal::percent(98),
-                                decimals: 6,
-                            })?)
-                        } else if asset_info.to_string() == String::from("lp_denom") {
-                            Ok(to_binary(&PriceResponse {
-                                prices: vec![],
-                                price: Decimal::from_ratio(2u128, 1u128),
-                                decimals: 18,
-                            })?)
-                        } else {
-                            Ok(to_binary(&PriceResponse {
-                                prices: vec![],
-                                price: Decimal::one(),
-                                decimals: 6,
-                            })?)
                         }
+                        
+                        Ok(to_binary(&prices)?)                        
                     }
                     Oracle_MockQueryMsg::Assets { asset_infos } => Ok(to_binary(&vec![
                         AssetResponse {
@@ -1381,59 +1358,36 @@ mod tests {
             },
             |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Oracle_MockQueryMsg::Price {
-                        asset_info,
+                    Oracle_MockQueryMsg::Prices {
+                        asset_infos,
                         twap_timeframe,
                         oracle_time_limit,
-                        basket_id,
                     } => {
                         
-                        //Everything is $1 unless basket#2 which is $5 collateral and $1.02 credit
-                        if basket_id.is_some() {
-                            if basket_id.unwrap() == Uint128::new(2u128) {
-                                Ok(to_binary(&PriceResponse {
-                                    prices: vec![],
-                                    price: Decimal::percent(500),
-                                    decimals: 6,
-                                })?)
-                            } else if asset_info.to_string() == String::from("credit_fulldenom") {
-                                Ok(to_binary(&PriceResponse {
+                        let mut prices = vec![];
+                        for asset_info in asset_infos.iter() {
+                            if asset_info.to_string() == String::from("credit_fulldenom") {
+                                prices.push(PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(102),
                                     decimals: 6,
-                                })?)
+                                });
                             } else if asset_info.to_string() == String::from("lp_denom") {
-                                Ok(to_binary(&PriceResponse {
+                                prices.push(PriceResponse {
                                     prices: vec![],
                                     price: Decimal::from_ratio(2u128, 1u128),
                                     decimals: 18,
-                                })?)
+                                });
                             } else {
-                                Ok(to_binary(&PriceResponse {
+                                prices.push(PriceResponse {
                                     prices: vec![],
                                     price: Decimal::one(),
                                     decimals: 6,
-                                })?)
+                                });
                             }
-                        } else if asset_info.to_string() == String::from("credit_fulldenom") {
-                            Ok(to_binary(&PriceResponse {
-                                prices: vec![],
-                                price: Decimal::percent(102),
-                                decimals: 6,
-                            })?)
-                        } else if asset_info.to_string() == String::from("lp_denom") {
-                            Ok(to_binary(&PriceResponse {
-                                prices: vec![],
-                                price: Decimal::from_ratio(2u128, 1u128),
-                                decimals: 18,
-                            })?)
-                        } else {
-                            Ok(to_binary(&PriceResponse {
-                                prices: vec![],
-                                price: Decimal::one(),
-                                decimals: 6,
-                            })?)
                         }
+                        
+                        Ok(to_binary(&prices)?)
                     }
                     Oracle_MockQueryMsg::Assets { asset_infos } => Ok(to_binary(&vec![
                         AssetResponse {

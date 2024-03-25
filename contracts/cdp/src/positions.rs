@@ -1504,189 +1504,189 @@ pub fn redeem_for_collateral(
 
 /// Create the contract's Basket.
 /// Validates params.
-// pub fn create_basket(
-//     deps: DepsMut,
-//     info: MessageInfo,
-//     env: Env,
-//     basket_id: Uint128,
-//     collateral_types: Vec<cAsset>,
-//     credit_asset: Asset,
-//     credit_price: Decimal,
-//     base_interest_rate: Option<Decimal>,
-//     credit_pool_infos: Vec<PoolType>,
-//     liq_queue: Option<String>,
-// ) -> Result<Response, ContractError> {
-//     let config: Config = CONFIG.load(deps.storage)?;
+pub fn create_basket(
+    deps: DepsMut,
+    info: MessageInfo,
+    env: Env,
+    basket_id: Uint128,
+    collateral_types: Vec<cAsset>,
+    credit_asset: Asset,
+    credit_price: Decimal,
+    base_interest_rate: Option<Decimal>,
+    credit_pool_infos: Vec<PoolType>,
+    liq_queue: Option<String>,
+) -> Result<Response, ContractError> {
+    let config: Config = CONFIG.load(deps.storage)?;
 
-//     //Only contract owner can create new baskets. This will likely be governance.
-//     if info.sender != config.owner {
-//         return Err(ContractError::NotContractOwner {});
-//     }
-//     //One basket per contract
-//     if let Ok(_basket) = BASKET.load(deps.storage){
-//         return Err(ContractError::CustomError { val: String::from("Only one basket per contract") })
-//     }
+    //Only contract owner can create new baskets. This will likely be governance.
+    if info.sender != config.owner {
+        return Err(ContractError::NotContractOwner {});
+    }
+    //One basket per contract
+    if let Ok(_basket) = BASKET.load(deps.storage){
+        return Err(ContractError::CustomError { val: String::from("Only one basket per contract") })
+    }
 
-//     let mut new_assets = collateral_types.clone();
-//     let mut collateral_supply_caps = vec![];
-//     let mut msgs: Vec<CosmosMsg> = vec![];
+    let mut new_assets = collateral_types.clone();
+    let mut collateral_supply_caps = vec![];
+    let mut msgs: Vec<CosmosMsg> = vec![];
 
-//     let mut new_liq_queue: Option<Addr> = None;
-//     if liq_queue.is_some() {
-//         new_liq_queue = Some(deps.api.addr_validate(&liq_queue.clone().unwrap_or_else(|| String::from("")))?);
-//     }
+    let mut new_liq_queue: Option<Addr> = None;
+    if liq_queue.is_some() {
+        new_liq_queue = Some(deps.api.addr_validate(&liq_queue.clone().unwrap_or_else(|| String::from("")))?);
+    }
 
-//     //Minimum viable cAsset parameters
-//     for (i, asset) in collateral_types.iter().enumerate() {
-//         new_assets[i].asset.amount = Uint128::zero();
-//         new_assets[i].rate_index = Decimal::one();
+    //Minimum viable cAsset parameters
+    for (i, asset) in collateral_types.iter().enumerate() {
+        new_assets[i].asset.amount = Uint128::zero();
+        new_assets[i].rate_index = Decimal::one();
 
-//         if asset.max_borrow_LTV >= asset.max_LTV
-//             && asset.max_borrow_LTV
-//                 >= Decimal::from_ratio(Uint128::new(100u128), Uint128::new(1u128))
-//         {
-//             return Err(ContractError::CustomError {
-//                 val: String::from("Max borrow LTV can't be greater or equal to max_LTV nor equal to 100"),
-//             });
-//         }
+        if asset.max_borrow_LTV >= asset.max_LTV
+            && asset.max_borrow_LTV
+                >= Decimal::from_ratio(Uint128::new(100u128), Uint128::new(1u128))
+        {
+            return Err(ContractError::CustomError {
+                val: String::from("Max borrow LTV can't be greater or equal to max_LTV nor equal to 100"),
+            });
+        }
 
-//         //No LPs initially. Their pool asset's need to already be added as collateral so they can't come first.
-//         if asset.pool_info.is_some() {
-//             return Err(ContractError::CustomError {
-//                 val: String::from("Can't add an LP when creating a basket"),
-//             });
-//         } else {
-//             //Asserting the Collateral Asset has an oracle
-//             if config.clone().oracle_contract.is_some() {
-//                 //Query Asset Oracle
-//                 deps.querier
-//                     .query::<Vec<AssetResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
-//                         contract_addr: config.clone().oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-//                         msg: to_binary(&OracleQueryMsg::Assets {
-//                             asset_infos: vec![asset.clone().asset.info],
-//                         })?,
-//                     }))?;
+        //No LPs initially. Their pool asset's need to already be added as collateral so they can't come first.
+        if asset.pool_info.is_some() {
+            return Err(ContractError::CustomError {
+                val: String::from("Can't add an LP when creating a basket"),
+            });
+        } else {
+            //Asserting the Collateral Asset has an oracle
+            if config.clone().oracle_contract.is_some() {
+                //Query Asset Oracle
+                deps.querier
+                    .query::<Vec<AssetResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
+                        contract_addr: config.clone().oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+                        msg: to_binary(&OracleQueryMsg::Assets {
+                            asset_infos: vec![asset.clone().asset.info],
+                        })?,
+                    }))?;
 
-//                 //If it errors it means the oracle doesn't exist
-//             } else {
-//                 return Err(ContractError::CustomError {
-//                     val: String::from("Need to setup oracle contract before adding assets"),
-//                 });
-//             }
+                //If it errors it means the oracle doesn't exist
+            } else {
+                return Err(ContractError::CustomError {
+                    val: String::from("Need to setup oracle contract before adding assets"),
+                });
+            }
 
-//             //Create Liquidation Queue for basket assets
-//             if new_liq_queue.clone().is_some() {
-//                 //Gets Liquidation Queue max premium.
-//                 //The premium has to be at most 5% less than the difference between max_LTV and 100%
-//                 //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
-//                 let max_premium = match Uint128::new(95u128).checked_sub( asset.max_LTV * Uint128::new(100u128) ){
-//                     Ok( diff ) => diff,
-//                     //A default to 10 assuming that will be the highest sp_liq_fee
-//                     Err( _err ) => Uint128::new(10u128),
-//                 };
-//                 //We rather the LQ liquidate than the SP if possible so its max_premium will be at most the sp_liq fee...
-//                 //..if the first subtraction fails.
-//                 //If it failed, allowing the LQ premium to be more than the SP fee means less efficient liquidations..
-//                 //Since we are aiming for lowest possible fee
+            //Create Liquidation Queue for basket assets
+            if new_liq_queue.clone().is_some() {
+                //Gets Liquidation Queue max premium.
+                //The premium has to be at most 5% less than the difference between max_LTV and 100%
+                //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
+                let max_premium = match Uint128::new(95u128).checked_sub( asset.max_LTV * Uint128::new(100u128) ){
+                    Ok( diff ) => diff,
+                    //A default to 10 assuming that will be the highest sp_liq_fee
+                    Err( _err ) => Uint128::new(10u128),
+                };
+                //We rather the LQ liquidate than the SP if possible so its max_premium will be at most the sp_liq fee...
+                //..if the first subtraction fails.
+                //If it failed, allowing the LQ premium to be more than the SP fee means less efficient liquidations..
+                //Since we are aiming for lowest possible fee
 
-//                 msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-//                     contract_addr: new_liq_queue.clone().unwrap_or_else(|| Addr::unchecked("")).to_string(),
-//                     msg: to_binary(&LQ_ExecuteMsg::AddQueue {
-//                         bid_for: asset.clone().asset.info,
-//                         max_premium,
-//                         //Bid total before bids go to the waiting queue. 
-//                         // The cumulative threshold of frequented slots should be larger than the largest single liquidation amount to prevent waiting bids from causing InsufficientBids errors.
-//                         bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
-//                     })?,
-//                     funds: vec![],
-//                 }));
-//             }
-//         }
+                msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: new_liq_queue.clone().unwrap_or_else(|| Addr::unchecked("")).to_string(),
+                    msg: to_binary(&LQ_ExecuteMsg::AddQueue {
+                        bid_for: asset.clone().asset.info,
+                        max_premium,
+                        //Bid total before bids go to the waiting queue. 
+                        // The cumulative threshold of frequented slots should be larger than the largest single liquidation amount to prevent waiting bids from causing InsufficientBids errors.
+                        bid_threshold: Uint256::from(1_000_000_000_000u128), //1 million
+                    })?,
+                    funds: vec![],
+                }));
+            }
+        }
 
-//         let mut lp = false;
-//         if asset.pool_info.is_some() {
-//             lp = true;
-//         }
-//         //Push the cAsset's asset info
-//         collateral_supply_caps.push(SupplyCap {
-//             asset_info: asset.clone().asset.info,
-//             current_supply: Uint128::zero(),
-//             supply_cap_ratio: Decimal::zero(),
-//             debt_total: Uint128::zero(),
-//             lp,
-//             stability_pool_ratio_for_debt_cap: None,
-//         });
-//     }
+        let mut lp = false;
+        if asset.pool_info.is_some() {
+            lp = true;
+        }
+        //Push the cAsset's asset info
+        collateral_supply_caps.push(SupplyCap {
+            asset_info: asset.clone().asset.info,
+            current_supply: Uint128::zero(),
+            supply_cap_ratio: Decimal::zero(),
+            debt_total: Uint128::zero(),
+            lp,
+            stability_pool_ratio_for_debt_cap: None,
+        });
+    }
 
-//     //Set Basket fields
-//     let base_interest_rate = base_interest_rate.unwrap_or(Decimal::zero());
+    //Set Basket fields
+    let base_interest_rate = base_interest_rate.unwrap_or(Decimal::zero());
 
-//     let new_basket: Basket = Basket {
-//         basket_id,
-//         current_position_id: Uint128::from(1u128),
-//         collateral_types: new_assets,
-//         collateral_supply_caps,
-//         lastest_collateral_rates: vec![], //This will be set in the accrue function
-//         multi_asset_supply_caps: vec![],
-//         credit_asset: credit_asset.clone(),
-//         credit_price: PriceResponse {
-//             price: credit_price,
-//             prices: vec![],
-//             decimals: 6,
-//         },
-//         base_interest_rate,
-//         pending_revenue: Uint128::zero(),
-//         credit_last_accrued: env.block.time.seconds(),
-//         rates_last_accrued: env.block.time.seconds(),
-//         liq_queue: new_liq_queue,
-//         negative_rates: true,
-//         cpc_margin_of_error: Decimal::one(),
-//         oracle_set: false,
-//         frozen: false,
-//         rev_to_stakers: true,
-//     };
+    let new_basket: Basket = Basket {
+        basket_id,
+        current_position_id: Uint128::from(1u128),
+        collateral_types: new_assets,
+        collateral_supply_caps,
+        lastest_collateral_rates: vec![], //This will be set in the accrue function
+        multi_asset_supply_caps: vec![],
+        credit_asset: credit_asset.clone(),
+        credit_price: PriceResponse {
+            price: credit_price,
+            prices: vec![],
+            decimals: 6,
+        },
+        base_interest_rate,
+        pending_revenue: Uint128::zero(),
+        credit_last_accrued: env.block.time.seconds(),
+        rates_last_accrued: env.block.time.seconds(),
+        liq_queue: new_liq_queue,
+        negative_rates: true,
+        cpc_margin_of_error: Decimal::one(),
+        oracle_set: false,
+        frozen: false,
+        rev_to_stakers: true,
+    };
 
-//     //Denom check
-//     if let AssetInfo::Token { address :_} = credit_asset.info {
-//         return Err(ContractError::CustomError {
-//             val: String::from("Basket credit must be a native token denom"),
-//         });
-//     }
+    //Denom check
+    if let AssetInfo::Token { address :_} = credit_asset.info {
+        return Err(ContractError::CustomError {
+            val: String::from("Basket credit must be a native token denom"),
+        });
+    }
 
-//     //Add asset to liquidity check contract
-//     //Liquidity AddAsset Msg
-//     if let Some(liquidity_contract) = config.liquidity_contract {
-//         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-//             contract_addr: liquidity_contract.to_string(),
-//             msg: to_binary(&LiquidityExecuteMsg::AddAsset {
-//                 asset: LiquidityInfo {
-//                     asset: new_basket.clone().credit_asset.info,
-//                     pool_infos: credit_pool_infos,
-//                 },
-//             })?,
-//             funds: vec![],
-//         }));
-//     }
+    //Add asset to liquidity check contract
+    //Liquidity AddAsset Msg
+    if let Some(liquidity_contract) = config.liquidity_contract {
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: liquidity_contract.to_string(),
+            msg: to_binary(&LiquidityExecuteMsg::AddAsset {
+                asset: LiquidityInfo {
+                    asset: new_basket.clone().credit_asset.info,
+                    pool_infos: credit_pool_infos,
+                },
+            })?,
+            funds: vec![],
+        }));
+    }
 
-//     //Save Basket
-//     BASKET.save( deps.storage, &new_basket )?;
+    //Save Basket
+    BASKET.save( deps.storage, &new_basket )?;
 
-//     //Response Building
-//     let response = Response::new();
+    //Response Building
+    let response = Response::new();
 
-//     Ok(response
-//         .add_attributes(vec![
-//             attr("method", "create_basket"),
-//             attr("basket_id", basket_id),
-//             attr("credit_asset", credit_asset.to_string()),
-//             attr("credit_price", credit_price.to_string()),
-//             attr(
-//                 "liq_queue",
-//                 liq_queue.unwrap_or_else(|| String::from("None")),
-//             ),
-//         ])
-//         .add_messages(msgs))
-// }
+    Ok(response
+        .add_attributes(vec![
+            attr("method", "create_basket"),
+            attr("basket_id", basket_id),
+            attr("credit_asset", credit_asset.to_string()),
+            attr("credit_price", credit_price.to_string()),
+            attr(
+                "liq_queue",
+                liq_queue.unwrap_or_else(|| String::from("None")),
+            ),
+        ])
+        .add_messages(msgs))
+}
 
 /// Edit the contract's Basket.
 /// Can't edit basket id, current_position_id or credit_asset.

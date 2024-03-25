@@ -380,17 +380,17 @@ pub fn get_cAsset_ratios_imut(
     Ok((cAsset_ratios, cAsset_prices))
 }
 
-/// Function queries the price of an asset from the oracle.
+/// Function queries the price of assets from the oracle.
 /// If the query is within the oracle_time_limit, it will use the stored price.
-pub fn query_price(
+pub fn query_prices(
     storage: &dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     config: Config,
-    asset_info: AssetInfo,
+    asset_infos: Vec<AssetInfo>, //Pass a single asset_info for Credit market price queries
     basket: Option<Basket>,
     is_deposit_function: bool,
-) -> StdResult<PriceResponse> {
+) -> StdResult<Vec<PriceResponse>> {
     //Set timeframe
     let mut twap_timeframe: u64 = config.collateral_twap_timeframe;
     
@@ -402,51 +402,74 @@ pub fn query_price(
     };
 
     //if AssetInfo is the basket.credit_asset, change twap timeframe
-    if asset_info.equal(&basket.credit_asset.info) {
+    if asset_infos[0].equal(&basket.credit_asset.info) {
         twap_timeframe = config.credit_twap_timeframe;
     }   
 
-    //Try to use a stored price
-    let stored_price_res = STORED_PRICES.load(storage, asset_info.to_string()); 
-    //Set the old_price if the stored price is within the oracle_time_limit
-    let mut old_price: Option<PriceResponse> = None;
-    if let Ok(ref stored_price) = stored_price_res {
-        let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
+    //Price list
+    let mut prices: Vec<(String, PriceResponse)> = vec![];
+    let mut bulk_asset_query = asset_infos.clone();
+    for asset_info in asset_infos.clone() {
+        //Try to use a stored price
+        let stored_price_res = STORED_PRICES.load(storage, asset_info.to_string()); 
+        //Set the old_price if the stored price is within the oracle_time_limit
+        let mut old_price: Option<PriceResponse> = None;
+        if let Ok(ref stored_price) = stored_price_res {
+            let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
 
-        if time_elapsed <= config.oracle_time_limit {
-            old_price = Some(stored_price.clone().price)
+            if time_elapsed <= config.oracle_time_limit {
+                old_price = Some(stored_price.clone().price)
+            }
         }
+        
+        //If depositing, always query a new price to ensure removed assets aren't deposited
+        if !is_deposit_function {
+            //Use the stored price if it was within the oracle_time_limit
+            if let Some(old_price) = old_price {
+                prices.push((asset_info.to_string(), old_price));
+
+                //Remove the asset from the bulk_asset_query list
+                bulk_asset_query.retain(|asset| !asset.equal(&asset_info));
+            }
+            
+        }
+
     }
     
-    //If depositing, always query a new price to ensure removed assets aren't deposited
-    if !is_deposit_function {
-        //Use the stored price if it was within the oracle_time_limit
-        if let Some(old_price) = old_price {
-            return Ok(old_price)            
-        }
+    //Query the remaining Prices
+    if bulk_asset_query.len() != 0 {
+        match querier.query::<Vec<PriceResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.clone().oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+            msg: to_binary(&OracleQueryMsg::Prices {
+                asset_infos: bulk_asset_query.clone(),
+                twap_timeframe,
+                oracle_time_limit: config.oracle_time_limit,
+            })?,
+        })) {
+            Ok(res) => {
+                //Add new prices
+                for (i, price) in res.iter().enumerate() {
+                    prices.push((bulk_asset_query[i].to_string(), price.clone()));
+                }
+            }
+            Err(err) => {
+                //if the oracle is down, error
+                return Err(err)
+            }
+        };
     }
     
-    //Query Price
-    let res = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-        msg: to_binary(&OracleQueryMsg::Price {
-            asset_info: asset_info.clone(),
-            twap_timeframe,
-            oracle_time_limit: config.oracle_time_limit,
-            basket_id: None,
-        })?,
-    })) {
-        Ok(res) => {
-            //Store the new price
-            res
+    //Sort prices based on the asset_info order
+    let mut sorted_prices: Vec<PriceResponse> = vec![];
+    for asset_info in asset_infos {
+        for (i, (asset, price)) in prices.clone().into_iter().enumerate() {
+            if asset == asset_info.to_string() {
+                sorted_prices.push(price);
+                prices.remove(i);
+            }
         }
-        Err(err) => {
-            //if the oracle is down, error
-            return Err(err)
-        }
-    };
-
-    Ok(res)
+    }
+    Ok(sorted_prices)
 }
 
 /// Get Basket Redeemability
@@ -577,22 +600,24 @@ pub fn get_asset_values(
     let mut cAsset_values: Vec<Decimal> = vec![];
     let mut cAsset_prices: Vec<PriceResponse> = vec![];
 
-    if config.oracle_contract.is_some() {
-        for (_i, cAsset) in assets.iter().enumerate() {
-            //Query prices
-            //The oracle handles LP pricing
-            let price_res = query_price(
-                storage,
-                querier,
-                env.clone(),
-                config.clone(),
-                cAsset.clone().asset.info,
-                basket.clone(),
-                is_deposit_function,
-            )?;
-            let cAsset_value = price_res.get_value(cAsset.asset.amount)?;
-            
-            cAsset_prices.push(price_res);
+    if config.oracle_contract.is_some() && assets.len() > 0 {
+        //Set asset_infos
+        let asset_infos: Vec<AssetInfo> = assets.iter().map(|asset| asset.asset.info.clone()).collect();
+
+        //Query prices
+        cAsset_prices = query_prices(
+            storage,
+            querier.clone(),
+            env.clone(),
+            config.clone(),
+            asset_infos,
+            basket.clone(),
+            is_deposit_function,
+        )?;
+        
+        //Calculate cAsset values
+        for (i, cAsset) in assets.iter().enumerate() {
+            let cAsset_value = cAsset_prices[i].get_value(cAsset.asset.amount)?;
             cAsset_values.push(cAsset_value);
         
         }

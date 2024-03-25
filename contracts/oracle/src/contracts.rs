@@ -10,7 +10,7 @@ use pyth_sdk_cw::{PriceFeedResponse, query_price_feed, PriceIdentifier, PriceFee
 
 use osmosis_std::types::osmosis::twap::v1beta1 as TWAP;
 
-use membrane::math::{decimal_division, decimal_multiplication, Decimal256, Uint256};
+use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::osmosis_proxy::{QueryMsg as OP_QueryMsg, Config as OP_Config};
 use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg, MigrateMsg};
@@ -228,7 +228,7 @@ fn edit_asset(
         attrs.push(attr("new_oracle_info", oracle_info.to_string()));
 
         //Test the new price source
-        let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id));
+        let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id), None, None);
         attrs.push(attr("price", format!("{:?}", price)));
     }
         
@@ -403,6 +403,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
                     twap_timeframe,
                     oracle_time_limit,
                     basket_id,
+                    None,
+                    None,
                 )?),
                 None => to_binary(&get_asset_price(
                     deps.storage,
@@ -412,6 +414,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
                     twap_timeframe,
                     oracle_time_limit,
                     basket_id,
+                    None,
+                    None,
                     )?)
             }
         },
@@ -426,6 +430,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             asset_infos,
             twap_timeframe,
             oracle_time_limit,
+            None,
+            None,
             None,
         )?),
         QueryMsg::Assets { asset_infos } => to_binary(&get_assets(deps, asset_infos)?),
@@ -443,6 +449,9 @@ pub fn get_lp_price(
     twap_timeframe: u64, //in minutes
     oracle_time_limit: u64, //in seconds
     basket_id_field: Option<Uint128>,
+    //For Multi-Asset queries or recursive queries
+    queried_asset_prices: Option<Vec<(String, PriceResponse)>>, //Asset & Price
+    osmo_quote_price: Option<Decimal>, 
 ) -> StdResult<PriceResponse>{
     //Turn pool info into asset info
     let asset_infos: Vec<AssetInfo> = pool_info.clone().asset_infos
@@ -462,6 +471,8 @@ pub fn get_lp_price(
             twap_timeframe,
             oracle_time_limit,
             basket_id_field,
+            queried_asset_prices,
+            osmo_quote_price,
         )?;
 
         let mut price_infos = vec![];
@@ -551,7 +562,10 @@ fn get_asset_price(
     twap_timeframe: u64, //in minutes
     oracle_time_limit: u64, //in seconds
     basket_id_field: Option<Uint128>,
-) -> StdResult<PriceResponse> {
+    //For Multi-Asset queries or recursive queries
+    queried_asset_prices: Option<Vec<(String, PriceResponse)>>, //Asset & Price
+    osmo_quote_price: Option<Decimal>, 
+) -> StdResult<(PriceResponse, Option<Decimal>)> { //Return Asset Price & Quote Price (OSMO/USD)
     //Load state
     let config: Config = CONFIG.load(storage)?;
     let asset_oracle_info = ASSETS.load(storage, asset_info.to_string())?;
@@ -586,7 +600,7 @@ fn get_asset_price(
 
     //Use Pyth USD-quoted price feeds first if available
     if let Some(pyth_osmosis_address) = config.clone().pyth_osmosis_address {
-        if let Some(feed_id) = oracle_info.pyth_price_feed_id {
+        if let Some(feed_id) = oracle_info.clone().pyth_price_feed_id {
             //Query USD price from Pyth
             let price_feed_response: PriceFeedResponse = match query_price_feed(
                 &querier, 
@@ -644,11 +658,11 @@ fn get_asset_price(
 
             //Return Pyth only price if it was queried successfully
             if !pyth_feed_errored {
-                return Ok(PriceResponse {
+                return Ok((PriceResponse {
                     prices: oracle_prices,
                     price: pyth_price,
                     decimals: oracle_info.decimals,
-                });
+                }, None));
             }
         }
     }
@@ -710,155 +724,194 @@ fn get_asset_price(
     ///If the last Osmosis TWAP isn't ending in OSMO, then find the asset in our oracle to pull from
     /// Ex: milkTIA ends in TIA, so we find the TIA -> USD price and use that to calculate the milkTIA price
     if oracle_info.pools_for_osmo_twap.len() > 0 && oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom != String::from("uosmo") {
-        match get_asset_price(
-            storage, 
-            querier, 
-            env, 
-            AssetInfo::NativeToken { denom: oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].clone().quote_asset_denom }, 
-            twap_timeframe / 60, 
-            oracle_time_limit, 
-            basket_id_field
-        ){
-            Ok(res) => {
-                //Push OSMO TWAP price
-                oracle_prices.push(PriceInfo {
-                    source: String::from("oracle_contract"),
-                    price: res.price,
-                });
+        if let Some(prices) = queried_asset_prices.clone() {
+            //Find the asset in the queried prices
+            let asset_price = prices.clone().into_iter().find(|price| price.0 == oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom.clone());
+            match asset_price {
+                Some(price) => {
+                    //Get price source
+                    let mut source = String::from("");
+                    
+                    for price in price.1.prices.iter(){
+                        source += &price.source;
+                        source += ", ";
+                    }
+                    //Push OSMO TWAP price
+                    oracle_prices.push(PriceInfo {
+                        source,
+                        price: price.1.price,
+                    });                    
 
-                //Multiply prices to get the desired Quote
-                quote_price = decimal_multiplication(asset_price_in_osmo, res.price)?;
+                    //Return price
+                    return Ok((PriceResponse {
+                        prices: oracle_prices,
+                        //Multiply prices to get the desired Quote
+                        price: decimal_multiplication(asset_price_in_osmo, price.1.price)?,
+                        decimals: oracle_info.decimals,
+                    }, osmo_quote_price));
+                },
+                None => {
+                    //If None, we attempt to query the price
+                    match get_asset_price(
+                        storage, 
+                        querier, 
+                        env, 
+                        AssetInfo::NativeToken { denom: oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].clone().quote_asset_denom }, 
+                        twap_timeframe / 60, 
+                        oracle_time_limit, 
+                        basket_id_field,
+                        queried_asset_prices,
+                        osmo_quote_price,
+                    ){
+                        Ok((res, quote)) => {
+                            //Get price source
+                            let mut source = String::from("");                            
+                            for price in res.prices.iter(){
+                                source += &price.source;
+                                source += ", ";
+                            }
+                            //Push OSMO TWAP price
+                            oracle_prices.push(PriceInfo {
+                                source,
+                                price: res.price,
+                            });
 
-                //Return price
-                return Ok(PriceResponse {
-                    prices: oracle_prices,
-                    price: quote_price,
-                    decimals: oracle_info.decimals,
-                });
-            },
-            Err(_) => {
-                return Err(StdError::GenericErr {
-                    msg: format!("No {} price found", oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom),
-                });
-            }
-        }
-    }
-
-
-    //Has USD pricing failed?
-    let mut usd_price_failed = false;
-
-    //If we have an OSMO -> USD price feed, we will use that to calculate the peg price
-    if config.pyth_osmosis_address.is_some() {
-        
-        //Query OSMO -> USD price from Pyth
-        // If fail, skip to USD-par pricing
-        let price_feed_response: PriceFeedResponse = match query_price_feed(
-            &querier, 
-            config.pyth_osmosis_address.unwrap(),
-            config.osmo_usd_pyth_feed_id
-        ){
-                Ok(res) => res,
-                Err(_) => {
-                    usd_price_failed = true;
-                    PriceFeedResponse {
-                        price_feed: PriceFeed::default(),
+                            //Return price
+                            return Ok((PriceResponse {
+                                prices: oracle_prices,
+                                //Multiply prices to get the desired Quote
+                                price: decimal_multiplication(asset_price_in_osmo, res.price)?,
+                                decimals: oracle_info.decimals,
+                            }, quote));
+                        },
+                        Err(_) => {
+                            return Err(StdError::GenericErr {
+                                msg: format!("No {} price found", oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom),
+                            });
+                        }
                     }
                 }
-            };
-        
-        //Query unscaled price
-        let price_feed = price_feed_response.price_feed;
-        let price = price_feed
-            .get_ema_price_no_older_than(env.block.time.seconds() as i64, oracle_time_limit);
-
-        //If price was queried && within the time limit, scale it & use it
-        //If not, skip to USD-par pricing
-        match price {
-            Some(price) => {
-                if !usd_price_failed {
-                    //Scale price using given exponent
-                    match price.expo > 0 {
-                        true => {
-                            quote_price = decimal_multiplication(
-                                Decimal::from_str(&price.price.to_string())?, 
-                                Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(price.expo as u32)?
-                            )?;
-                        },
-                        //If the exponent is negative we divide, it should be for most if not all
-                        false => {
-                            quote_price = decimal_division(
-                                Decimal::from_str(&price.price.to_string())?, 
-                                Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow((price.expo*-1) as u32)?
-                            )?;
-                        }
-                    };                   
-                    
-
-                    //Push Pyth OSMO USD price
-                    oracle_prices.push(PriceInfo {
-                        source: String::from("pyth"),
-                        price: quote_price,
-                    });
-                }
-            },
-            None => {
-                usd_price_failed = true;
             }
         }
-
-    } else {
-        usd_price_failed = true;
     }
 
-    //If we don't have an OSMO -> USD price feed or it has failed, we will calculate the peg price using USD-par prices
-    if usd_price_failed {
-        if !config.pools_for_usd_par_twap.is_empty() {
-            //Query OSMO -> USD-par prices from the TWAP sources
-            for pool in config.pools_for_usd_par_twap {
+    if osmo_quote_price.is_none() {
+        //Has USD pricing failed?
+        let mut usd_price_failed = false;
 
-                let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
-                    pool.clone().pool_id, 
-                    pool.clone().base_asset_denom, 
-                    pool.clone().quote_asset_denom, 
-                    Some(osmosis_std::shim::Timestamp {
-                        seconds:  start_time as i64,
-                        nanos: 0,
-                    }),
-                )?;
-
-                //Push TWAP
-                usd_par_prices.push(Decimal::from_str(&res.geometric_twap)?);
-            }
+        //If we have an OSMO -> USD price feed, we will use that to calculate the peg price
+        if config.pyth_osmosis_address.is_some() {
             
-            //Sort & Medianize OSMO -> USD-par prices
-            //Sort prices
-            usd_par_prices.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+            //Query OSMO -> USD price from Pyth
+            // If fail, skip to USD-par pricing
+            let price_feed_response: PriceFeedResponse = match query_price_feed(
+                &querier, 
+                config.pyth_osmosis_address.unwrap(),
+                config.osmo_usd_pyth_feed_id
+            ){
+                    Ok(res) => res,
+                    Err(_) => {
+                        usd_price_failed = true;
+                        PriceFeedResponse {
+                            price_feed: PriceFeed::default(),
+                        }
+                    }
+                };
+            
+            //Query unscaled price
+            let price_feed = price_feed_response.price_feed;
+            let price = price_feed
+                .get_ema_price_no_older_than(env.block.time.seconds() as i64, oracle_time_limit);
 
-            //Get Median price and set it as the quote price
-            quote_price = if usd_par_prices.len() % 2 == 0 {
-                let median_index = usd_par_prices.len() / 2;
+            //If price was queried && within the time limit, scale it & use it
+            //If not, skip to USD-par pricing
+            match price {
+                Some(price) => {
+                    if !usd_price_failed {
+                        //Scale price using given exponent
+                        match price.expo > 0 {
+                            true => {
+                                quote_price = decimal_multiplication(
+                                    Decimal::from_str(&price.price.to_string())?, 
+                                    Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(price.expo as u32)?
+                                )?;
+                            },
+                            //If the exponent is negative we divide, it should be for most if not all
+                            false => {
+                                quote_price = decimal_division(
+                                    Decimal::from_str(&price.price.to_string())?, 
+                                    Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow((price.expo*-1) as u32)?
+                                )?;
+                            }
+                        };                   
+                        
 
-                //Add the two middle usd_par_prices and divide by 2
-                decimal_division(usd_par_prices[median_index] + usd_par_prices[median_index-1], Decimal::percent(2_00)).unwrap()
-                
-            } else if usd_par_prices.len() != 1 {
-                let median_index = usd_par_prices.len() / 2;
-                usd_par_prices[median_index]
-            } else {
-                usd_par_prices[0]
-            };
+                        //Push Pyth OSMO USD price
+                        oracle_prices.push(PriceInfo {
+                            source: String::from("pyth"),
+                            price: quote_price,
+                        });
+                    }
+                },
+                None => {
+                    usd_price_failed = true;
+                }
+            }
 
-            //Push Osmosis OSMO USD-par price
-            oracle_prices.push(PriceInfo {
-                source: String::from("osmosis"),
-                price: quote_price,
-            });
         } else {
-            return Err(StdError::GenericErr { msg: String::from("No USD-par price feeds") })
+            usd_price_failed = true;
         }
-    } 
 
+        //If we don't have an OSMO -> USD price feed or it has failed, we will calculate the peg price using USD-par prices
+        if usd_price_failed {
+            if !config.pools_for_usd_par_twap.is_empty() {
+                //Query OSMO -> USD-par prices from the TWAP sources
+                for pool in config.pools_for_usd_par_twap {
+
+                    let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
+                        pool.clone().pool_id, 
+                        pool.clone().base_asset_denom, 
+                        pool.clone().quote_asset_denom, 
+                        Some(osmosis_std::shim::Timestamp {
+                            seconds:  start_time as i64,
+                            nanos: 0,
+                        }),
+                    )?;
+
+                    //Push TWAP
+                    usd_par_prices.push(Decimal::from_str(&res.geometric_twap)?);
+                }
+                
+                //Sort & Medianize OSMO -> USD-par prices
+                //Sort prices
+                usd_par_prices.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+
+                //Get Median price and set it as the quote price
+                quote_price = if usd_par_prices.len() % 2 == 0 {
+                    let median_index = usd_par_prices.len() / 2;
+
+                    //Add the two middle usd_par_prices and divide by 2
+                    decimal_division(usd_par_prices[median_index] + usd_par_prices[median_index-1], Decimal::percent(2_00)).unwrap()
+                    
+                } else if usd_par_prices.len() != 1 {
+                    let median_index = usd_par_prices.len() / 2;
+                    usd_par_prices[median_index]
+                } else {
+                    usd_par_prices[0]
+                };
+
+                //Push Osmosis OSMO USD-par price
+                oracle_prices.push(PriceInfo {
+                    source: String::from("osmosis"),
+                    price: quote_price,
+                });
+            } else {
+                return Err(StdError::GenericErr { msg: String::from("No USD-par price feeds") })
+            }
+        }
+    } else {
+        quote_price = osmo_quote_price.unwrap();
+    }
     //quote_price is either OSMO -> USD or OSMO -> USD-par, prio to USD
     //Find asset price using asset_price_in_osmo * quote price
     let mut asset_price = decimal_multiplication(asset_price_in_osmo, quote_price)?;
@@ -868,11 +921,11 @@ fn get_asset_price(
         asset_price = STATIC_USD_PRICE;
     }
 
-    Ok(PriceResponse {
+    Ok((PriceResponse {
         prices: oracle_prices,
         price: asset_price,
         decimals: oracle_info.decimals,
-    })
+    }, Some(quote_price)))
 }
 
 /// Return list of asset price info as list of PriceResponse
@@ -884,6 +937,9 @@ fn get_asset_prices(
     twap_timeframe: u64, //in minutes
     oracle_time_limit: u64, //in seconds
     basket_id_field: Option<Uint128>,
+    //For Multi-Asset queries or recursive queries
+    queried_asset_prices: Option<Vec<(String, PriceResponse)>>, //Asset & Price
+    mut osmo_quote_price: Option<Decimal>, 
 ) -> StdResult<Vec<PriceResponse>> {
 
     //Enforce Vec max size
@@ -894,6 +950,11 @@ fn get_asset_prices(
     }
 
     let mut price_responses = vec![];
+    let mut price_propagations: Vec<(String, PriceResponse)> = if let Some(prices) = queried_asset_prices.clone() {
+        prices
+    } else {
+        vec![]
+    };
 
     for asset in asset_infos {
         //Switch based on if asset is an LP 
@@ -909,19 +970,26 @@ fn get_asset_prices(
                     twap_timeframe,
                     oracle_time_limit,
                     basket_id_field,
+                    Some(price_propagations.clone()), //LPs will never be queried first during Basket queries so we don't need to save their prices
+                    osmo_quote_price,
                 )?);
             },
             None => {
                 //If asset is not an LP, get the asset price
-                price_responses.push(get_asset_price(
+                let (price, quote_price) = get_asset_price(
                     storage,
                     querier.clone(),
                     env.clone(),
-                    asset,
+                    asset.clone(),
                     twap_timeframe,
                     oracle_time_limit,
                     basket_id_field,
-                )?);
+                    Some(price_propagations.clone()),
+                    osmo_quote_price,
+                )?;
+                price_propagations.push((asset.to_string(), price.clone()));
+                osmo_quote_price = quote_price;
+                price_responses.push(price);
             }
         }
     }

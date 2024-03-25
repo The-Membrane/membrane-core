@@ -162,3 +162,6 @@ pub struct ContractDenomsResponse {
     /// List of denoms owned by the contract
     pub denoms: Vec<String>,
 }
+
+#[cw_serde]
+pub struct MigrateMsg {}

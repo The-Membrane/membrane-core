@@ -18,7 +18,7 @@ use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
 use crate::error::TokenFactoryError;
 use crate::state::{TokenInfo, CONFIG, TOKENS, PENDING, PendingTokenInfo};
 use membrane::osmosis_proxy::{
-    Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, TokenInfoResponse, OwnerResponse, ContractDenomsResponse,
+    Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, MigrateMsg, TokenInfoResponse, OwnerResponse, ContractDenomsResponse,
 };
 use membrane::cdp::{QueryMsg as CDPQueryMsg, Config as CDPConfig};
 use membrane::oracle::{QueryMsg as OracleQueryMsg, PriceResponse};
@@ -641,23 +641,7 @@ fn get_contract_owner(deps: Deps, owner: String) -> StdResult<OwnerResponse> {
     let config = CONFIG.load(deps.storage)?;
     if let Some(owner) = config.clone().owners.into_iter().find(|stored_owner| stored_owner .owner == owner) {
 
-        // If we end up with multiple positions contracts, we'll need to 
-
-        // let liquidity_multiplier: Decimal = if config.oracle_contract.is_some() && config.positions_contract.is_some(){
-        //     match get_owner_liquidity_multiplier(
-        //         deps.querier, 
-        //         config.clone().liquidity_multiplier.unwrap_or_else(|| Decimal::one()),
-        //         config.clone().owners, 
-        //         owner.clone().owner, 
-        //         config.oracle_contract.unwrap(), 
-        //         config.positions_contract.unwrap()
-        //     ){
-        //         Ok(liquidity_multiplier) => liquidity_multiplier,
-        //         Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
-        //     }
-        // } else {
-        //     Decimal::zero()
-        // };
+        // If we end up with multiple positions contracts, we'll need to query OP's total minted in the Positions contracts instead of only using the Basket's total minted
 
         Ok(OwnerResponse {
             owner, 
@@ -801,4 +785,9 @@ fn handle_create_denom_reply(
         Err(err) => return Err(StdError::GenericErr { msg: err }),
     }
     Ok(Response::new())
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    Ok(Response::default())
 }

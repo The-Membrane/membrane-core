@@ -377,10 +377,10 @@ pub fn mint_tokens(
     amount: Uint128,
     mint_to_address: String,
 ) -> Result<Response, TokenFactoryError> {
-    let mut config = CONFIG.load(deps.storage)?;
+    let config = CONFIG.load(deps.storage)?;
 
     //Assert Authority
-    let (authorized, owner_index) = validate_authority(config.clone(), info.clone());
+    let (authorized, _) = validate_authority(config.clone(), info.clone());
     if !authorized {
         return Err(TokenFactoryError::Unauthorized {});
     }    
@@ -400,45 +400,8 @@ pub fn mint_tokens(
         if info.sender == debt_auction {
             mint_allowed = true;
         }
-    };
-
-    if let Some(positions_contract) = config.clone().positions_contract { 
-        //Set owner
-        let mut owner = config.clone().owners[owner_index].clone();
-        //Get CDP denom
-        let basket: Basket = deps.querier.query_wasm_smart(positions_contract.clone(), &CDPQueryMsg::GetBasket {  })?;
-
-        //If minting the CDP asset
-        if denom == basket.clone().credit_asset.info.to_string() {   
-            //If there is a mint limit
-            if let Some(liquidity_multiplier) = config.liquidity_multiplier {
-
-                //Get liquidity 
-                let debt_token_liquidity = get_asset_liquidity(
-                    deps.querier, 
-                    config.clone().liquidity_contract.unwrap().to_string(), 
-                    basket.clone().credit_asset.info)?;
-                
-                //Calculate cap 
-                let cap = decimal_multiplication(liquidity_multiplier,  Decimal::from_ratio(debt_token_liquidity, Uint128::one()))?
-                * Uint128::one();
-
-                //Assert mints are below the owner's LM * liquidity 
-                //Or if the owner is the positions contract; (Position contract has interest rate incentives to reduce debt)
-                if owner.total_minted + amount <= cap || owner.is_position_contract {
-                    //Update total_minted
-                    owner.total_minted += amount;
-                } else { return Err(TokenFactoryError::MintCapped {  }) }
-            } else {
-                owner.total_minted += amount;
-            }
-        }
-        //Save Owner
-        config.owners[owner_index] = owner;
-        CONFIG.save(deps.storage, &config)?;
-    }
-   
-
+    }; 
+    
     //Update Token Supply
     TOKENS.update(
         deps.storage,

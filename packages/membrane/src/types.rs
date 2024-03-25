@@ -679,7 +679,7 @@ pub struct DebtTokenAsset {
 pub struct Owner {
     /// Owner address
     pub owner: Addr,
-    /// Total CDT minted
+    /// Total CDT minted (Unused)
     pub total_minted: Uint128,
     /// Stability pool ratio allocated to CDT mint caps
     pub stability_pool_ratio: Option<Decimal>,

@@ -209,9 +209,9 @@ pub fn get_interest_rates(
     
     let debt_caps = match get_basket_debt_caps(storage, querier, env.clone(), basket, supply_caps, cdt_liquidity) {
         Ok(caps) => caps,
-        Err(_err) => {
+        Err(err) => {
             return Err(StdError::GenericErr {
-                msg: String::from("Error at line 207")
+                msg: format!("Error at line 214: {}", err)
             })            
         }
     };

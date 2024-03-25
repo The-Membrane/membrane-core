@@ -256,7 +256,7 @@ pub fn get_basket_debt_caps(
         config.clone().osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string()
     ){
         Ok(params) => params,
-        Err(_err) => return Err(StdError::GenericErr { msg: String::from("Error at line 174")})
+        Err(err) => return Err(StdError::GenericErr { msg: format!("Error at line 259: {}", err)})
     };
     
     //Get CDT liquidity

@@ -26,12 +26,11 @@ use crate::positions::{
     LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID, //create_basket,
 };
 use crate::query::{
-    query_basket_credit_interest, query_basket_debt_caps,
-    query_basket_positions, query_collateral_rates, query_basket_redeemability,
+    query_basket_credit_interest, query_basket_debt_caps, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint
 };
 use crate::liquidations::liquidate;
 use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_router_repayment_reply};
-use crate::state::{ get_target_position, update_position, CollateralVolatility, ContractVersion, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER, STORED_PRICES, VOLATILITY
+use crate::state::{ get_target_position, update_position, ContractVersion, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER
 };
 
 // version info for migration info
@@ -551,6 +550,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetCollateralInterest { } => {
             to_binary(&query_collateral_rates(deps)?)
         },
+        QueryMsg::SimulateMint { position_info, LTV } => {
+            to_binary(&simulate_LTV_mint(deps, env, position_info, LTV)?)
+        }
     }
 }
 
@@ -574,20 +576,5 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Initialize VOLATILITY state for each basket cAsset
-    let basket: Basket = BASKET.load(deps.storage)?;
-    for asset in basket.collateral_types.clone() {
-        VOLATILITY.save(deps.storage, asset.asset.info.to_string(), &CollateralVolatility {
-            index: Decimal::one(),
-            volatility_list: vec![]
-        })?;
-    }
-    
-    //Call accrue to set the first StoredPrices
-    external_accrue_call(deps.storage, deps.api, deps.querier,  MessageInfo {
-        sender: Addr::unchecked("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n"),
-        funds: vec![],
-    } , env.clone(), Some(String::from("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n")), vec![Uint128::one()])?;
-
     Ok(Response::default())
 }

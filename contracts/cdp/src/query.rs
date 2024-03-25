@@ -19,6 +19,7 @@ use membrane::types::{
 };
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
+use crate::positions::get_amount_from_LTV;
 use crate::risk_engine::get_basket_debt_caps;
 use crate::state::{get_target_position, CollateralVolatility, BASKET, CONFIG, POSITIONS, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY};
 
@@ -523,6 +524,36 @@ pub fn query_basket_redeemability(
     )
 }
 
+pub fn simulate_LTV_mint(
+    deps: Deps,
+    env: Env,
+    user_info: UserInfo,
+    LTV: Decimal,
+) -> StdResult<Uint128> {
+    let (_, target_position) = match get_target_position(
+        deps.storage,
+        deps.api.addr_validate(&user_info.position_owner)?, 
+        user_info.position_id){
+            Ok(position) => position,
+            Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+        };
+
+    let amount = match  get_amount_from_LTV(
+        deps.storage,
+        deps.querier, 
+        env.clone(), 
+        CONFIG.load(deps.storage)?,
+        target_position,
+        BASKET.load(deps.storage)?,
+        LTV
+    ){
+        Ok(amount) => amount,
+        Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+    };
+
+    Ok( amount )
+}
+
 /// Calculate cAsset values & returns a tuple of (cAsset_values, cAsset_prices)
 pub fn get_asset_values(
     storage: &dyn Storage,
@@ -573,7 +604,7 @@ pub fn get_asset_values(
 /// Calculates the average LTV of a position.
 /// Returns avg_borrow_LTV, avg_max_LTV, total_value and cAsset_prices.
 pub fn get_avg_LTV(
-    storage: &mut dyn Storage,
+    storage: &dyn Storage,
     env: Env,
     querier: QuerierWrapper,
     config: Config,

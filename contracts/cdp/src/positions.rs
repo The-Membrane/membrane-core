@@ -2086,8 +2086,8 @@ pub fn edit_basket(
 
 
 /// Calculate desired amount of credit to borrow to reach target LTV
-fn get_amount_from_LTV(
-    storage: &mut dyn Storage,
+pub fn get_amount_from_LTV(
+    storage: &dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     config: Config,

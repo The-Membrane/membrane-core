@@ -8446,6 +8446,23 @@ mod tests {
                 .execute(Addr::unchecked("sender88"), cosmos_msg)
                 .unwrap();
 
+            //Simulate LTV mint Query
+            let msg = QueryMsg::SimulateMint { 
+                position_info: UserInfo {
+                    position_id: Uint128::one(),
+                    position_owner: String::from("sender88"),
+                }, 
+                LTV: Decimal::percent(50), 
+            };
+            let resp: Uint128 = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &msg.clone())
+                .unwrap();
+            assert_eq!(
+                resp,
+                Uint128::new(5),
+            );
+
             //Query BasketPositions
             let msg = QueryMsg::GetBasketPositions {
                 start_after: Some(String::from("sender88")),

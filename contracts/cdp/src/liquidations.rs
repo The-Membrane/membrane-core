@@ -65,8 +65,8 @@ pub fn liquidate(
             end_time: 0,
         },
     };
-    if (env.block.time.seconds().checked_sub(freeze_timer.end_time).unwrap_or_else(|| SECONDS_PER_DAY/2)) < (SECONDS_PER_DAY/2){ //12 hour grace
-        return Err(ContractError::Std(StdError::GenericErr { msg: format!("You can liquidate in {} seconds, there is a post-freeze grace period", (SECONDS_PER_DAY/2) - (env.block.time.seconds() - freeze_timer.end_time)) }));
+    if (env.block.time.seconds().checked_sub(freeze_timer.end_time).unwrap_or_else(|| SECONDS_PER_DAY/6)) < (SECONDS_PER_DAY/6){ //4 hour grace
+        return Err(ContractError::Std(StdError::GenericErr { msg: format!("You can liquidate in {} seconds, there is a post-freeze grace period", (SECONDS_PER_DAY/6) - (env.block.time.seconds() - freeze_timer.end_time)) }));
     }
 
     //Load state

@@ -104,9 +104,9 @@ pub fn update_rate_indices(
     //Get basket rates
     let mut interest_rates = match get_interest_rates(storage, querier, env.clone(), basket, supply_caps, cdt_liquidity){
         Ok(rates) => rates,
-        Err(_err) => {
+        Err(err) => {
             return Err(StdError::GenericErr {
-                msg: String::from("Error at line 106")
+                msg: format!("Error at line 109: {}", err)
             })
         }
     };
@@ -397,7 +397,7 @@ fn get_credit_rate_of_change(
         Ok(ratios) => ratios,
         Err(err) => {
             return Err(StdError::GenericErr {
-                msg: format!("Error at line 366: {}", err)
+                msg: format!("Error at line 400: {}", err)
             })
         }
     };
@@ -411,9 +411,9 @@ fn get_credit_rate_of_change(
     
     match update_rate_indices(storage, querier, env, basket, &mut supply_caps, negative_rate, credit_price_rate, cdt_liquidity){
         Ok(_ok) => {},
-        Err(_err) => {
+        Err(err) => {
             return Err(StdError::GenericErr {
-                msg: String::from("Error at line 375")
+                msg: format!("Error at line 416: {}", err)
             })
         }
     };
@@ -602,7 +602,7 @@ pub fn accrue(
         Ok(rate) => rate,
         Err(err) => {
             return Err(StdError::GenericErr {
-                msg: format!("Error at line 563: {}", err)
+                msg: format!("Error at line 605: {}", err)
             })
         }
     };

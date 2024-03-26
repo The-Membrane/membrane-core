@@ -3,7 +3,7 @@ use std::cmp::min;
 use std::env;
 
 
-use cosmwasm_std::{entry_point, Coin, SubMsg, Reply};
+use cosmwasm_std::{entry_point, Coin};
 use cosmwasm_std::{
     attr, coin, to_binary, Addr, Api, BankMsg, Binary, CosmosMsg, Decimal, Deps,
     DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg, QueryRequest, WasmQuery, QuerierWrapper,
@@ -16,12 +16,12 @@ use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::staking::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg, Totals, MigrateMsg};
 use membrane::vesting::{QueryMsg as Vesting_QueryMsg, RecipientsResponse};
-use membrane::types::{Asset, AssetInfo, FeeEvent, LiqAsset, StakeDeposit, StakeDistributionLog, StakeDistribution, Basket, Delegation, DelegationInfo};
+use membrane::types::{Asset, AssetInfo, Basket, Delegate, Delegation, DelegationInfo, FeeEvent, LiqAsset, StakeDeposit, StakeDistribution, StakeDistributionLog};
 use membrane::math::{decimal_division, decimal_multiplication};
 
 use crate::error::ContractError;
-use crate::query::{query_user_stake, query_user_rewards, query_staked, query_fee_events, query_totals, query_delegations};
-use crate::state::{CONFIG, FEE_EVENTS, STAKED, STAKING_TOTALS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, DELEGATIONS, DELEGATE_CLAIMS, VESTING_STAKE_TIME, VESTING_REV_MULTIPLIER};
+use crate::query::{query_declared_delegates, query_delegations, query_fee_events, query_staked, query_totals, query_user_rewards, query_user_stake};
+use crate::state::{CONFIG, DELEGATE_CLAIMS, DELEGATE_INFO, DELEGATIONS, FEE_EVENTS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, STAKED, STAKING_TOTALS, VESTING_REV_MULTIPLIER, VESTING_STAKE_TIME};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:staking";
@@ -118,6 +118,8 @@ pub fn instantiate(
         start_time: env.block.time.seconds(),
     })?;
 
+    //Initialize Delegate state
+    DELEGATE_INFO.save(deps.storage, &vec![])?;
     
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -196,6 +198,13 @@ pub fn execute(
             governator_addr,
             mbrn_amount,
         ),
+        ExecuteMsg::DeclareDelegate { delegate_info, remove } => delegate_declarations(
+            deps,
+            info,
+            env,
+            delegate_info,
+            remove,
+        ),
         ExecuteMsg::Restake { mbrn_amount } => restake(deps, env, info, mbrn_amount),
         ExecuteMsg::ClaimRewards {
             send_to,
@@ -230,6 +239,62 @@ pub fn execute(
         },
         ExecuteMsg::TrimFeeEvents {  } => trim_fee_events(deps.storage, info),
     }
+}
+
+/// Update delegate declarations
+fn delegate_declarations(
+    deps: DepsMut,
+    info: MessageInfo,
+    _env: Env,
+    delegate_info: Delegate,
+    remove: bool
+) -> Result<Response, ContractError> {
+
+    //Validate Delegate address
+    deps.api.addr_validate(&delegate_info.delegate.to_string())?;
+    
+    //Sender must be the delegate
+    if info.sender != delegate_info.delegate {
+        return Err(ContractError::CustomError {
+            val: String::from("Sender must be the delegate"),
+        });
+    }
+
+    if remove {
+        //Remove delegate from DELEGATE_INFO
+        DELEGATE_INFO.update(deps.storage, |mut delegate_infos| -> StdResult<_> {
+            delegate_infos.retain(|delegate| delegate.delegate != info.sender);
+            Ok(delegate_infos)
+        })?;
+    } else {
+        //Update delegate declarations
+        DELEGATE_INFO.update(deps.storage, |mut delegate_infos| -> StdResult<_> {
+            if let Some ((index, mut delegate)) = delegate_infos.clone().into_iter().enumerate().find(|(_, delegate)| delegate.delegate == info.sender) {
+                //Update any fields that are not None
+                if let Some (discord_username) = delegate_info.clone().discord_username {
+                    delegate.discord_username = Some(discord_username);
+                }
+                if let Some (twitter_username) = delegate_info.clone().twitter_username {
+                    delegate.twitter_username = Some(twitter_username);
+                }
+                if let Some (url) = delegate_info.clone().url {
+                    delegate.url = Some(url);
+                }
+                //Save updated delegate
+                delegate_infos[index] = delegate;
+            } else {
+                //If delegate doesn't exist in the DELEGATE_INFO, add it
+                delegate_infos.push(delegate_info.clone());
+            }
+            Ok(delegate_infos)
+        })?;
+    }
+
+    Ok(Response::new()
+        .add_attribute("method", "delegate_declarations")
+        .add_attribute("delegate", format!("{:?}", delegate_info))
+    )
+
 }
 
 /// Update contract configuration
@@ -1546,7 +1611,7 @@ fn create_rewards_msgs(
 }
 
 /// Get deposit claims and add to list of claims/total interest
-fn add_deposit_claimables(
+pub fn add_deposit_claimables(
     storage: &mut dyn Storage,
     config: Config,
     incentive_schedule: StakeDistributionLog,
@@ -2327,6 +2392,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Delegations { limit, start_after, end_before, user } => {
             to_binary(&query_delegations(deps, env, limit, start_after, end_before, user)?)
         }
+        QueryMsg::DeclaredDelegates { limit, start_after, end_before, user } => {
+            to_binary(&query_declared_delegates(deps, env, limit, start_after, end_before, user)?)
+        }
         QueryMsg::FeeEvents { limit, start_after } => {
             to_binary(&query_fee_events(deps, limit, start_after)?)
         }
@@ -2336,7 +2404,10 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    //Initialize Delegate state
+    DELEGATE_INFO.save(deps.storage, &vec![])?;
+
     Ok(Response::default())
 }
 

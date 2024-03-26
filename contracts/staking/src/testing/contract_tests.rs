@@ -1,4 +1,5 @@
 use core::panic;
+use std::ops::Add;
 
 use crate::ContractError;
 use crate::contract::{execute, instantiate, query};
@@ -14,7 +15,7 @@ use membrane::staking::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, 
     StakedResponse, TotalStakedResponse, StakerResponse, DelegationResponse, RewardsResponse,
 };
-use membrane::types::{OldStakeDeposit, StakeDistribution, OldDelegationInfo, OldDelegation};
+use membrane::types::{Delegate, OldDelegation, OldDelegationInfo, OldStakeDeposit, StakeDistribution};
 
 #[test]
 fn update_config(){
@@ -1121,7 +1122,6 @@ fn unstake() {
     assert_eq!(resp.vested_total, Uint128::new(11_000000));
 }
 
-
 #[test]
 fn unstake_v2() {
     let mut deps = mock_dependencies();
@@ -1175,7 +1175,7 @@ fn unstake_v2() {
     let info = mock_info("sender88", &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-    //Successful Unstake w/o withdrawals
+    //Successful Unstake w/o withdrawals: 9M
     let msg = ExecuteMsg::Unstake {
         mbrn_amount: Some(Uint128::new(1_000_000)),
     };
@@ -1198,22 +1198,42 @@ fn unstake_v2() {
     //     ]
     // );
 
+    //Query claimables
+    let res = query(deps.as_ref(), mock_env(),
+    QueryMsg::UserRewards { user: String::from("sender88") },
+    ).unwrap();
+    let resp: RewardsResponse = from_binary(&res).unwrap();
+    assert_eq!(resp.accrued_interest, Uint128::new(0u128));
+
     //Skip 3 days
     let mut env = mock_env();
     env.block.time = env.block.time.plus_seconds(259200); //3 days
 
+    //Query claimables
+    let res = query(deps.as_ref(), env.clone(),
+        QueryMsg::UserRewards { user: String::from("sender88") },
+    ).unwrap();
+    let resp: RewardsResponse = from_binary(&res).unwrap();
+    assert_eq!(resp.accrued_interest, Uint128::new(1643u128));
 
     //Query and Assert UserStake
     let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
 
     let resp: StakerResponse = from_binary(&res).unwrap();
-    // panic!("{:?}", resp);
+    assert_eq!(resp.total_staked, Uint128::new(11000000));
 
     env.block.time = env.block.time.plus_seconds(259200 *2); //6 days
-    //1 unstake
+    //1M unstake
     let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
 
-    //Successful unstake
+    //Query claimables: Claims include the 1M unstaked bc it was unstaked afterwards
+    let res = query(deps.as_ref(), env.clone(),
+        QueryMsg::UserRewards { user: String::from("sender88") },
+    ).unwrap();
+    let resp: RewardsResponse = from_binary(&res).unwrap();
+    assert_eq!(resp.accrued_interest, Uint128::new(4931u128));
+
+    //Successful unstake w/ withdrawals
     let msg = ExecuteMsg::Unstake { mbrn_amount: Some(Uint128::new(9_000_000)) };
     let info = mock_info("sender88", &[]);
     let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
@@ -1221,13 +1241,237 @@ fn unstake_v2() {
     ///This above not erroring is the success case/////
 
     //Query and Assert totals
-    //The unstake claims the accrued interest & stakes it. 6 days of rewards (16438)
+    //The unstake claims the accrued interest & stakes it. 9 days of rewards (4931) from the 2M staked deposits
     let res = query(deps.as_ref(), mock_env(), QueryMsg::UserStake { staker: String::from("sender88") }).unwrap();
 
     let resp: StakerResponse = from_binary(&res).unwrap();
-        
+    assert_eq!(resp.total_staked, Uint128::new(2009862));        
 }
 
+#[test]
+fn declare_delegates() {
+    let mut deps = mock_dependencies();
+
+    let msg = InstantiateMsg {
+        owner: Some("owner0000".to_string()),
+        positions_contract: Some("positions_contract".to_string()),
+        auction_contract: Some("auction_contract".to_string()),
+        vesting_contract: Some("vesting_contract".to_string()),
+        governance_contract: Some("gov_contract".to_string()),
+        osmosis_proxy: Some("osmosis_proxy".to_string()),
+        incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
+        mbrn_denom: String::from("mbrn_denom"),
+        unstaking_period: None,
+    };
+
+    //Instantiating contract
+    let info = mock_info("sender88", &[]);
+    let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Update declarations: Fail to declare self
+    let msg = ExecuteMsg::DeclareDelegate { 
+        delegate_info: Delegate {
+            delegate: Addr::unchecked("dis_not_me"),
+            discord_username: None,
+            twitter_username: None,
+            url: None,
+        }, 
+        remove: false
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+
+    //Update declarations: Initial
+    let msg = ExecuteMsg::DeclareDelegate { 
+        delegate_info: Delegate {
+            delegate: Addr::unchecked("sender88"),
+            discord_username: Some(String::from("big man")),
+            twitter_username: None,
+            url: None,
+        }, 
+        remove: false
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query delegates
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::DeclaredDelegates {
+            user: None,
+            limit: None,
+            start_after: None,
+            end_before: None,
+        },
+    ).unwrap();
+    let resp: Vec<Delegate> = from_binary(&res).unwrap();
+    assert_eq!(resp, vec![
+        Delegate {
+            delegate: Addr::unchecked("sender88"),
+            discord_username: Some(String::from("big man")),
+            twitter_username: None,
+            url: None,
+        }
+    ]);
+
+    //Update declarations: discord username doesn't set to None
+    let msg = ExecuteMsg::DeclareDelegate { 
+        delegate_info: Delegate {
+            delegate: Addr::unchecked("sender88"),
+            discord_username: None,
+            twitter_username: Some(String::from("new user")),
+            url: Some(String::from("some url")),
+        }, 
+        remove: false
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query delegates
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::DeclaredDelegates {
+            user: None,
+            limit: None,
+            start_after: None,
+            end_before: None,
+        },
+    ).unwrap();
+    let resp: Vec<Delegate> = from_binary(&res).unwrap();
+    assert_eq!(resp, vec![
+        Delegate {
+            delegate: Addr::unchecked("sender88"),
+            discord_username: Some(String::from("big man")),
+            twitter_username: Some(String::from("new user")),
+            url: Some(String::from("some url")),
+        }
+    ]);
+    
+    //Update declarations: Remove error bc user isn't the delegate
+    let msg = ExecuteMsg::DeclareDelegate { 
+        delegate_info: Delegate {
+            delegate: Addr::unchecked("not_me"),
+            discord_username: None,
+            twitter_username: None,
+            url: None,
+        }, 
+        remove: true
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+    
+    //Update declarations: Remove
+    let msg = ExecuteMsg::DeclareDelegate { 
+        delegate_info: Delegate {
+            delegate: Addr::unchecked("sender88"),
+            discord_username: None,
+            twitter_username: None,
+            url: None,
+        }, 
+        remove: true
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    //Query delegates: Removed 
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::DeclaredDelegates {
+            user: None,
+            limit: None,
+            start_after: None,
+            end_before: None,
+        },
+    ).unwrap();
+    let resp: Vec<Delegate> = from_binary(&res).unwrap();
+    assert_eq!(resp, vec![]);
+
+    //Update declarations: Initial
+    let msg = ExecuteMsg::DeclareDelegate { 
+        delegate_info: Delegate {
+            delegate: Addr::unchecked("sender88"),
+            discord_username: None,
+            twitter_username: None,
+            url: None,
+        }, 
+        remove: false
+    };
+    let info = mock_info("sender88", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    //Update declarations: Initial
+    let msg = ExecuteMsg::DeclareDelegate { 
+        delegate_info: Delegate {
+            delegate: Addr::unchecked("sender22"),
+            discord_username: None,
+            twitter_username: None,
+            url: None,
+        }, 
+        remove: false
+    };
+    let info = mock_info("sender22", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    //Update declarations: Initial
+    let msg = ExecuteMsg::DeclareDelegate { 
+        delegate_info: Delegate {
+            delegate: Addr::unchecked("sender33"),
+            discord_username: None,
+            twitter_username: None,
+            url: None,
+        }, 
+        remove: false
+    };
+    let info = mock_info("sender33", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    //Update declarations: Initial
+    let msg = ExecuteMsg::DeclareDelegate { 
+        delegate_info: Delegate {
+            delegate: Addr::unchecked("sender44"),
+            discord_username: None,
+            twitter_username: None,
+            url: None,
+        }, 
+        remove: false
+    };
+    let info = mock_info("sender44", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+    
+    //Query delegates: Start after sender 88, end before sender 44, limit 1
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::DeclaredDelegates {
+            user: None,
+            limit: Some(1),
+            start_after: Some(String::from("sender88")),
+            end_before: Some(String::from("sender44")),
+        },
+    ).unwrap();
+    let resp: Vec<Delegate> = from_binary(&res).unwrap();
+    assert_eq!(resp, vec![
+        Delegate {
+            delegate: Addr::unchecked("sender22"),
+            discord_username: None,
+            twitter_username: None,
+            url: None,
+        }
+    ]);
+
+    //Query delegates: User
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::DeclaredDelegates {
+            user: Some(String::from("sender33")),
+            limit: None,
+            start_after: None,
+            end_before: None,
+        },
+    ).unwrap();
+    let resp: Vec<Delegate> = from_binary(&res).unwrap();
+    assert_eq!(resp, vec![
+        Delegate {
+            delegate: Addr::unchecked("sender33"),
+            discord_username: None,
+            twitter_username: None,
+            url: None,
+        }
+    ]);
+
+}
 // #[test]
 // fn claim_rewards() {
 //     let mut deps = mock_dependencies();

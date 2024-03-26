@@ -1,7 +1,7 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Uint128, Addr, Decimal};
 
-use crate::types::{Asset, FeeEvent, OldStakeDeposit, StakeDistribution, OldDelegationInfo};
+use crate::types::{Asset, FeeEvent, OldStakeDeposit, StakeDistribution, OldDelegationInfo, Delegate};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -105,6 +105,13 @@ pub enum ExecuteMsg {
         /// If None, act on total delegatible MBRN
         mbrn_amount: Option<Uint128>,
     },
+    /// Declare as Delegate
+    DeclareDelegate {
+        /// Delegate Info
+        delegate_info: Delegate,
+        /// Remove or not remove
+        remove: bool,
+    },
     /// Position's contract deposits protocol revenue
     DepositFee {},
     /// Clear FeeEvent state object
@@ -145,6 +152,17 @@ pub enum QueryMsg {
         start_after: Option<String>,
         /// End before timestamp in seconds
         end_before: Option<u64>,
+        /// Query a specific user
+        user: Option<String>,
+    },
+    /// Returns list of declared Delegates (NOT a list of delegates that have delegations)
+    DeclaredDelegates {
+        /// User limit
+        limit: Option<u32>,
+        /// Start after governator address
+        start_after: Option<String>,
+        /// End before governator address
+        end_before: Option<String>,
         /// Query a specific user
         user: Option<String>,
     },

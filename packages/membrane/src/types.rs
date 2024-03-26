@@ -292,6 +292,18 @@ pub struct OldDelegationInfo {
 }
 
 #[cw_serde]
+pub struct Delegate {
+    /// Delegate address
+    pub delegate: Addr,
+    /// Discord username
+    pub discord_username: Option<String>,
+    /// Twitter username
+    pub twitter_username: Option<String>,
+    /// Some URL
+    pub url: Option<String>,
+}
+
+#[cw_serde]
 pub struct FeeEvent {
     /// Time of event in seconds
     pub time_of_event: u64,

@@ -2,10 +2,10 @@ use cosmwasm_std::{Deps, StdResult, Uint128, Env, Addr, Decimal, StdError};
 use cw_storage_plus::Bound;
 use membrane::math::decimal_multiplication;
 use membrane::staking::{TotalStakedResponse, FeeEventsResponse, StakerResponse, RewardsResponse, StakedResponse, DelegationResponse};
-use membrane::types::{Asset, Delegation, DelegationInfo, FeeEvent, OldDelegation, OldDelegationInfo, StakeDeposit};
+use membrane::types::{Asset, Delegate, Delegation, DelegationInfo, FeeEvent, OldDelegation, OldDelegationInfo, StakeDeposit};
 
 use crate::contract::{get_deposit_claimables, get_total_vesting};
-use crate::state::{STAKING_TOTALS, FEE_EVENTS, STAKED, CONFIG, INCENTIVE_SCHEDULING, DELEGATIONS, VESTING_STAKE_TIME, DELEGATE_CLAIMS};
+use crate::state::{CONFIG, DELEGATE_CLAIMS, DELEGATE_INFO, DELEGATIONS, FEE_EVENTS, INCENTIVE_SCHEDULING, STAKED, STAKING_TOTALS, VESTING_STAKE_TIME};
 
 const DEFAULT_LIMIT: u32 = 32u32;
 
@@ -74,15 +74,29 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
     };
 
     //Get claimables for each deposit
-    if user_deposits != vec![] {    
-        let total_rewarding_stake: Uint128 = user_deposits.clone()
+    if user_deposits != vec![] {  
+        let mut claimables: Vec<Asset> = vec![];
+        let mut accrued_interest = Uint128::zero();
+
+        //Filter out the unstaking deposits
+        let deposits = user_deposits
+            .into_iter()
+            .filter(|deposit| deposit.unstake_start_time.is_none())
+            .collect::<Vec<StakeDeposit>>();
+        //Get earliest stake time from staked deposits
+        let earliest_stake_time = deposits.clone()
+            .into_iter()
+            .map(|deposit| deposit.stake_time)
+            .min()
+            .unwrap_or_else(|| env.block.time.seconds());
+        
+        //Calc total deposits used to reward
+        let total_rewarding_stake: Uint128 = deposits.clone()
             .into_iter()
             .map(|deposit| deposit.amount)
             .sum();
 
-        let mut claimables = vec![];
-        let mut accrued_interest = Uint128::zero();
-        for deposit in user_deposits {
+        for deposit in deposits {
             let (claims, incentives) = get_deposit_claimables(
                 deps.storage, 
                 config.clone(), 
@@ -370,4 +384,49 @@ pub fn query_delegations(
             })
         })
         .collect()
+}
+
+
+/// Returns Vec<Delegate>
+pub fn query_declared_delegates(
+    deps: Deps,
+    _env: Env,
+    limit: Option<u32>,
+    start_after: Option<String>,
+    end_before: Option<String>,
+    user: Option<String>,
+) -> StdResult<Vec<Delegate>> {
+    let limit = limit.unwrap_or(DEFAULT_LIMIT);
+    
+    let mut delegate_infos = match DELEGATE_INFO.load(deps.storage){
+        Ok(delegate_infos) => delegate_infos,
+        Err(_) => return Err(StdError::GenericErr { msg: "No list of declared delegates".to_string() }),
+    };
+
+    if let Some(user) = user {
+        let user = deps.api.addr_validate(&user)?;
+        return Ok(delegate_infos.into_iter().filter(|delegate_info| delegate_info.delegate == user).collect())
+    }
+
+    //If start_after is set, find the index of the delegate
+    let start_index = match start_after {
+        Some(start_after) => {
+            let start_after = deps.api.addr_validate(&start_after)?;
+            delegate_infos.iter().position(|delegate_info| delegate_info.delegate == start_after).unwrap_or_else(|| delegate_infos.len()) + 1
+        },
+        None => 0,
+    };
+    // if end_before is set, find the index of the delegate
+    let end_index = match end_before {
+        Some(end_before) => {
+            let end_before = deps.api.addr_validate(&end_before)?;
+            delegate_infos.iter().position(|delegate_info| delegate_info.delegate == end_before).unwrap_or_else(|| delegate_infos.len())
+        },
+        None => delegate_infos.len(),
+    };
+
+    //Take the slice of the delegate_infos
+    delegate_infos = delegate_infos[start_index..end_index].to_vec();
+
+    Ok(delegate_infos.into_iter().take(limit as usize).collect())
 }

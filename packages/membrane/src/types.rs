@@ -295,6 +295,8 @@ pub struct OldDelegationInfo {
 pub struct Delegate {
     /// Delegate address
     pub delegate: Addr,
+    /// Alias
+    pub alias: Option<String>,
     /// Discord username
     pub discord_username: Option<String>,
     /// Twitter username

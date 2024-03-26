@@ -1272,6 +1272,7 @@ fn declare_delegates() {
     let msg = ExecuteMsg::DeclareDelegate { 
         delegate_info: Delegate {
             delegate: Addr::unchecked("dis_not_me"),
+            alias: None,
             discord_username: None,
             twitter_username: None,
             url: None,
@@ -1285,6 +1286,7 @@ fn declare_delegates() {
     let msg = ExecuteMsg::DeclareDelegate { 
         delegate_info: Delegate {
             delegate: Addr::unchecked("sender88"),
+            alias: None,
             discord_username: Some(String::from("big man")),
             twitter_username: None,
             url: None,
@@ -1307,6 +1309,7 @@ fn declare_delegates() {
     assert_eq!(resp, vec![
         Delegate {
             delegate: Addr::unchecked("sender88"),
+            alias: None,
             discord_username: Some(String::from("big man")),
             twitter_username: None,
             url: None,
@@ -1317,6 +1320,7 @@ fn declare_delegates() {
     let msg = ExecuteMsg::DeclareDelegate { 
         delegate_info: Delegate {
             delegate: Addr::unchecked("sender88"),
+            alias: Some(String::from("alias")),
             discord_username: None,
             twitter_username: Some(String::from("new user")),
             url: Some(String::from("some url")),
@@ -1339,6 +1343,7 @@ fn declare_delegates() {
     assert_eq!(resp, vec![
         Delegate {
             delegate: Addr::unchecked("sender88"),
+            alias: Some(String::from("alias")),
             discord_username: Some(String::from("big man")),
             twitter_username: Some(String::from("new user")),
             url: Some(String::from("some url")),
@@ -1349,6 +1354,7 @@ fn declare_delegates() {
     let msg = ExecuteMsg::DeclareDelegate { 
         delegate_info: Delegate {
             delegate: Addr::unchecked("not_me"),
+            alias: None,
             discord_username: None,
             twitter_username: None,
             url: None,
@@ -1362,6 +1368,7 @@ fn declare_delegates() {
     let msg = ExecuteMsg::DeclareDelegate { 
         delegate_info: Delegate {
             delegate: Addr::unchecked("sender88"),
+            alias: None,
             discord_username: None,
             twitter_username: None,
             url: None,
@@ -1387,6 +1394,7 @@ fn declare_delegates() {
     let msg = ExecuteMsg::DeclareDelegate { 
         delegate_info: Delegate {
             delegate: Addr::unchecked("sender88"),
+            alias: None,
             discord_username: None,
             twitter_username: None,
             url: None,
@@ -1399,6 +1407,7 @@ fn declare_delegates() {
     let msg = ExecuteMsg::DeclareDelegate { 
         delegate_info: Delegate {
             delegate: Addr::unchecked("sender22"),
+            alias: None,
             discord_username: None,
             twitter_username: None,
             url: None,
@@ -1411,6 +1420,7 @@ fn declare_delegates() {
     let msg = ExecuteMsg::DeclareDelegate { 
         delegate_info: Delegate {
             delegate: Addr::unchecked("sender33"),
+            alias: None,
             discord_username: None,
             twitter_username: None,
             url: None,
@@ -1423,6 +1433,7 @@ fn declare_delegates() {
     let msg = ExecuteMsg::DeclareDelegate { 
         delegate_info: Delegate {
             delegate: Addr::unchecked("sender44"),
+            alias: None,
             discord_username: None,
             twitter_username: None,
             url: None,
@@ -1446,6 +1457,7 @@ fn declare_delegates() {
     assert_eq!(resp, vec![
         Delegate {
             delegate: Addr::unchecked("sender22"),
+            alias: None,
             discord_username: None,
             twitter_username: None,
             url: None,
@@ -1465,6 +1477,7 @@ fn declare_delegates() {
     assert_eq!(resp, vec![
         Delegate {
             delegate: Addr::unchecked("sender33"),
+            alias: None,
             discord_username: None,
             twitter_username: None,
             url: None,

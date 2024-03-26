@@ -280,6 +280,9 @@ fn delegate_declarations(
                 if let Some (url) = delegate_info.clone().url {
                     delegate.url = Some(url);
                 }
+                if let Some (alias) = delegate_info.clone().alias {
+                    delegate.alias = Some(alias);
+                }
                 //Save updated delegate
                 delegate_infos[index] = delegate;
             } else {

@@ -466,11 +466,6 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 },
                 basket.liq_queue.clone().unwrap(),
             )?;
-
-            panic!("{:?}, {:?}", msg, Asset {
-                info: token_info.clone(),
-                amount: send_amount,
-            });
             
             //Subtract repaid amount from LQs repay responsibility. If it hits 0 then there were no LQ or User SP fund errors.
             if repay_amount != Uint128::zero() {

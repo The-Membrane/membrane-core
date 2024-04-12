@@ -471,12 +471,13 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             if repay_amount != Uint128::zero() {
                 if !prop.liq_queue_leftovers.is_zero() {
                                         
+                    //leftovers: 26_115943 < repay: 29_140809
                     prop.liq_queue_leftovers = match decimal_subtraction(
                         prop.liq_queue_leftovers,
                         Decimal::from_ratio(repay_amount, Uint128::new(1u128)),
                     ){
                         Ok(difference) => difference,
-                        Err(_err) => return Err(StdError::GenericErr { msg: format!("leftovers: {} < repay: {}", prop.liq_queue_leftovers, repay_amount) }),                    
+                        Err(_err) => return Err(StdError::GenericErr { msg: format!("leftovers: {} < repay: {}----prop: {:?}", prop.liq_queue_leftovers, repay_amount, prop) }),                    
                     };
                     //SP reply handles LQ_leftovers
 

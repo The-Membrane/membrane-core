@@ -18,6 +18,7 @@ use crate::liquidations::sell_wall;
 pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.result.into_result() {
         Ok(_result) => {
+            panic!("Handled router success");
             //Load state
             let mut prop = LIQUIDATION.load(deps.storage)?;
             let mut basket: Basket = prop.clone().basket;
@@ -279,6 +280,8 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;
             let mut submessages = vec![];
 
+            panic!("Handled SP success");
+
             //Success w/ leftovers: Sell Wall combined leftovers
             //Success w/o leftovers: Send LQ leftovers to the SP
             //Error: Sell Wall combined leftovers
@@ -354,6 +357,7 @@ pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
 
             let repay_amount = liquidation_propagation.liq_queue_leftovers + liquidation_propagation.stability_pool;
 
+            panic!("Handled SP error: {}", repay_amount);
             if repay_amount <= Decimal::one() {
                 return Ok(Response::new())
             }
@@ -560,6 +564,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             Ok(Response::new().add_message(msg).add_attributes(attrs))
         }
         Err(string) => {
+            panic!("handled LQ error");
         
             //If error, do nothing if the SP was used. The SP reply will handle the sell wall.
             //Else, handle leftovers here

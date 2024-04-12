@@ -477,6 +477,10 @@ fn per_asset_fulfillments(
             let queue_asset_amount_paid: Uint128 =
                 collateral_repay_amount  - leftover;
 
+            if cAsset.clone().asset.info.to_string() == "uosmo" {
+                panic!("repaid: {}, current_leftover_pre_this asset: {}", &res.total_debt_repaid, leftover_repayment);
+            }
+
             //Don't send a message if the amount is 0
             if queue_asset_amount_paid.is_zero() {
                 continue;

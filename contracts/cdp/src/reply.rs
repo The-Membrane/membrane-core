@@ -471,10 +471,13 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             if repay_amount != Uint128::zero() {
                 if !prop.liq_queue_leftovers.is_zero() {
                                         
-                    prop.liq_queue_leftovers = decimal_subtraction(
+                    prop.liq_queue_leftovers = match decimal_subtraction(
                         prop.liq_queue_leftovers,
                         Decimal::from_ratio(repay_amount, Uint128::new(1u128)),
-                    )?;
+                    ){
+                        Ok(difference) => difference,
+                        Err(_err) => return Err(StdError::GenericErr { msg: format!("leftovers: {} < repay: {}", prop.liq_queue_leftovers, repay_amount) }),                    
+                    };
                     //SP reply handles LQ_leftovers
 
                     //Update credit amount based on liquidation's total repaid amount

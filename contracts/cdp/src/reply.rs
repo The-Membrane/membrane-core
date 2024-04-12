@@ -119,7 +119,7 @@ pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
             let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
 
             //If SP wasn't called, meaning User's SP funds can't be handled there, sell wall the leftovers
-            if prop.stability_pool == Decimal::zero() {                
+            if prop.stability_pool == Decimal::zero() {
                 repay_amount = prop.clone().user_repay_amount;
 
                 //Sell wall asset's repayment amount
@@ -458,6 +458,11 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 },
                 basket.liq_queue.clone().unwrap(),
             )?;
+
+            panic!("{:?}, {:?}", msg, Asset {
+                info: token_info.clone(),
+                amount: send_amount,
+            });
             
             //Subtract repaid amount from LQs repay responsibility. If it hits 0 then there were no LQ or User SP fund errors.
             if repay_amount != Uint128::zero() {

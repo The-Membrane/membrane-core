@@ -97,6 +97,8 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
         },
         
         Err(err) => {
+            
+            panic!("Handled router error");
             //Its reply on success only
             Ok(Response::new().add_attribute("error", err))
         }
@@ -109,10 +111,12 @@ pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
 pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.result.into_result() {
         Ok(_result) => {
+            panic!("Handled user repay success");
             //Its reply on error only
             Ok(Response::new())
         }        
         Err(string) => {
+            panic!("Handled user repay error");
             //If error, do nothing if the SP was used
             //The SP reply will handle the sell wall
             let mut submessages: Vec<SubMsg> = vec![];

@@ -577,7 +577,7 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     //Liquidate a position using the hard coded LTVs
-    let msg = ExecuteMsg::Liquidate { position_id: Uint128::one(), position_owner: String::from("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n") };
+    let msg = ExecuteMsg::Liquidate { position_id: Uint128::new(269), position_owner: String::from("osmo12uk22nzee0hgahzttujcdce78ax627as04tcas") };
     let msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
         msg: to_binary(&msg)?,

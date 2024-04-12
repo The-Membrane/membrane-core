@@ -95,8 +95,6 @@ pub fn liquidate(
         false,
         config.clone(),
     )?;
-    let insolvent = true;
-    let current_LTV = Decimal::percent(90);
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -198,7 +196,7 @@ pub fn liquidate(
         funds: vec![],
     });
     //The logic for this will be handled in the callback
-    //Replying on Error is just so an Auction error doesn't cancel transaction
+    //Replying on Error is so any error doesn't cancel the full transaction
     //Don't care about the success case so didnt reply_always
     let call_back = SubMsg::reply_on_error(msg, BAD_DEBT_REPLY_ID);
     

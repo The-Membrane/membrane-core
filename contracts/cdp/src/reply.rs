@@ -271,6 +271,7 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
 
 /// Send the liquidation queue its collateral reward.
 /// Send leftovers to the SP.
+/// Note: We send collateral here bc the LQ queries have returned less debt than the executed msg before so we want to give the LQ exactly what its expecting.
 #[allow(unused_variables)]
 pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<Response> {
     let mut attrs = vec![attr("method", "handle_liq_queue_reply")];

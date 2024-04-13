@@ -730,11 +730,10 @@ mod tests {
 
      #[cw_serde]    
     pub enum Oracle_MockQueryMsg {
-        Price {
-            asset_info: AssetInfo,
+        Prices {
+            asset_infos: Vec<AssetInfo>,
             twap_timeframe: u64,
             oracle_time_limit: u64,
-            basket_id: Option<Uint128>,
         },
         Assets {
             asset_infos: Vec<AssetInfo>,
@@ -761,17 +760,21 @@ mod tests {
             },
             |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Oracle_MockQueryMsg::Price {
-                        asset_info,
+                    Oracle_MockQueryMsg::Prices {
+                        asset_infos,
                         twap_timeframe,
                         oracle_time_limit,
-                        basket_id,
-                    } => {                        
-                        Ok(to_binary(&PriceResponse {
-                            prices: vec![],
-                            price: Decimal::one(),
-                            decimals: 6,
-                        })?)
+                    } => {
+                        let mut prices = vec![];
+                        for _ in 0..asset_infos.len() {
+                                prices.push(PriceResponse {
+                                    prices: vec![],
+                                    price: Decimal::one(),
+                                    decimals: 6,
+                                });
+                            }
+                                                
+                        Ok(to_binary(&prices)?)                        
                     }
                     Oracle_MockQueryMsg::Assets { asset_infos } => Ok(to_binary(&vec![
                         AssetResponse {
@@ -834,18 +837,21 @@ mod tests {
             },
             |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Oracle_MockQueryMsg::Price {
-                        asset_info,
+                    Oracle_MockQueryMsg::Prices {
+                        asset_infos,
                         twap_timeframe,
                         oracle_time_limit,
-                        basket_id,
                     } => {
-                        // panic!
-                        Ok(to_binary(&PriceResponse {
-                            prices: vec![],
-                            price: Decimal::percent(200),
-                            decimals: 6,
-                        })?)
+                        let mut prices = vec![];
+                        for _ in 0..asset_infos.len() {
+                                prices.push(PriceResponse {
+                                    prices: vec![],
+                                    price: Decimal::percent(200),
+                                    decimals: 6,
+                                });
+                            }
+                                                
+                        Ok(to_binary(&prices)?)     
                     }
                     Oracle_MockQueryMsg::Assets { asset_infos } => Ok(to_binary(&vec![
                         AssetResponse {
@@ -908,17 +914,22 @@ mod tests {
             },
             |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Oracle_MockQueryMsg::Price {
-                        asset_info,
+                    Oracle_MockQueryMsg::Prices {
+                        asset_infos,
                         twap_timeframe,
                         oracle_time_limit,
-                        basket_id,
-                    } => {                        
-                        Ok(to_binary(&PriceResponse {
-                            prices: vec![],
-                            price: Decimal::percent(150),
-                            decimals: 6,
-                        })?)
+                    } => {
+                        let mut prices = vec![];
+                        for _ in 0..asset_infos.len() {
+                                prices.push(PriceResponse {
+                                    prices: vec![],
+                                    price: Decimal::percent(150),
+                                    decimals: 6,
+                                });
+                            }
+                           
+                                                
+                        Ok(to_binary(&prices)?)     
                     }
                     Oracle_MockQueryMsg::Assets { asset_infos } => Ok(to_binary(&vec![
                         AssetResponse {
@@ -981,17 +992,22 @@ mod tests {
             },
             |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Oracle_MockQueryMsg::Price {
-                        asset_info,
+                    Oracle_MockQueryMsg::Prices {
+                        asset_infos,
                         twap_timeframe,
                         oracle_time_limit,
-                        basket_id,
-                    } => {                        
-                        Ok(to_binary(&PriceResponse {
-                            prices: vec![],
-                            price: Decimal::percent(300),
-                            decimals: 6,
-                        })?)
+                    } => {
+                        let mut prices = vec![];
+                        for _ in 0..asset_infos.len() {
+                                prices.push(PriceResponse {
+                                    prices: vec![],
+                                    price: Decimal::percent(300),
+                                    decimals: 6,
+                                });
+                            }
+                           
+                                                
+                        Ok(to_binary(&prices)?)     
                     }
                     Oracle_MockQueryMsg::Assets { asset_infos } => Ok(to_binary(&vec![
                         AssetResponse {
@@ -1054,17 +1070,21 @@ mod tests {
             },
             |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Oracle_MockQueryMsg::Price {
-                        asset_info,
+                    Oracle_MockQueryMsg::Prices {
+                        asset_infos,
                         twap_timeframe,
                         oracle_time_limit,
-                        basket_id,
-                    } => {                        
-                        Ok(to_binary(&PriceResponse {
-                            prices: vec![],
-                            price: Decimal::percent(500),
-                            decimals: 6,
-                        })?)
+                    } => {
+                        let mut prices = vec![];
+                        for _ in 0..asset_infos.len() {
+                                prices.push(PriceResponse {
+                                    prices: vec![],
+                                    price: Decimal::percent(500),
+                                    decimals: 6,
+                                });
+                            }
+                                                
+                        Ok(to_binary(&prices)?)     
                     }
                     Oracle_MockQueryMsg::Assets { asset_infos } => Ok(to_binary(&vec![
                         AssetResponse {
@@ -1127,17 +1147,22 @@ mod tests {
             },
             |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Oracle_MockQueryMsg::Price {
-                        asset_info,
+                    Oracle_MockQueryMsg::Prices {
+                        asset_infos,
                         twap_timeframe,
                         oracle_time_limit,
-                        basket_id,
-                    } => {                        
-                        Ok(to_binary(&PriceResponse {
-                            prices: vec![],
-                            price: Decimal::percent(520),
-                            decimals: 6,
-                        })?)
+                    } => {
+                        let mut prices = vec![];
+                        for _ in 0..asset_infos.len() {
+                            prices.push(PriceResponse {
+                                prices: vec![],
+                                price: Decimal::percent(520),
+                                decimals: 6,
+                            });
+                        }
+                        
+                                                
+                        Ok(to_binary(&prices)?)     
                     }
                     Oracle_MockQueryMsg::Assets { asset_infos } => Ok(to_binary(&vec![
                         AssetResponse {
@@ -5951,7 +5976,7 @@ mod tests {
                 .unwrap();
 
             //Check that the index is reset to 1 on debt cap updates
-            panic!();
+            // This panic is to show any printlns panic!();
         }
     }
 }

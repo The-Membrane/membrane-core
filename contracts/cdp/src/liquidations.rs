@@ -35,21 +35,21 @@ pub fn liquidate(
     position_owner: String,
 ) -> Result<Response, ContractError> {
     //Check for Osmosis downtime 
-    // match DowntimedetectorQuerier::new(&querier)
-    //     .recovered_since_downtime_of_length(
-    //         10 * 60 * 8, //8 hours from 6 second blocks
-    //         Some(Duration {
-    //             seconds: 60 * 60 * 1, //1 hour
-    //             nanos: 0,
-    //         })
-    // ){
-    //     Ok(resp) => {            
-    //         if !resp.succesfully_recovered {
-    //             return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
-    //         }
-    //     },
-    //     Err(_) => (),
-    // };
+    match DowntimedetectorQuerier::new(&querier)
+        .recovered_since_downtime_of_length(
+            10 * 60 * 8, //8 hours from 6 second blocks
+            Some(Duration {
+                seconds: 60 * 60 * 1, //1 hour
+                nanos: 0,
+            })
+    ){
+        Ok(resp) => {            
+            if !resp.succesfully_recovered {
+                return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
+            }
+        },
+        Err(_) => (),
+    };
 
     let basket: Basket = BASKET.load(storage)?;
     //Check if frozen
@@ -486,7 +486,7 @@ fn per_asset_fulfillments(
             per_asset_repayment.push(Decimal::from_ratio(repay_amount_per_asset, Uint128::one()));
             
             let res: LQ_LiquidatibleResponse =
-                querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+                match querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
                     contract_addr: basket.clone().liq_queue.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                     msg: to_binary(&LQ_QueryMsg::CheckLiquidatible {
                         bid_for: cAsset.clone().asset.info,
@@ -497,7 +497,13 @@ fn per_asset_fulfillments(
                         credit_info: basket.clone().credit_asset.info,
                         credit_price: basket.clone().credit_price,
                     })?,
-                }))?;
+                })){
+                    Ok(res) => res,
+                    //If this errors we go to the next asset.
+                    //If they all error, the SP will get an initial call instead of waiting for the reply.
+                    Err(_) => continue, 
+                
+                };
                 
             //Calculate how much collateral we are sending to the liq_queue to liquidate
             let leftover: Uint128 = Uint128::from_str(&res.leftover_collateral)?;

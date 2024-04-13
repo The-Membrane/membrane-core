@@ -23,7 +23,7 @@ use crate::positions::{
     edit_basket, increase_debt,
     liq_repay, repay, redeem_for_collateral, edit_redemption_info,
     withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, 
-    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, create_basket,
+    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, //create_basket,
 };
 use crate::query::{
     query_basket_credit_interest, query_basket_debt_caps, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint
@@ -574,14 +574,5 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Liquidate a position using the hard coded LTVs
-    let msg = ExecuteMsg::Liquidate { position_id: Uint128::new(285), position_owner: String::from("osmo1zr2snkpn68j4gt75d285u36fwkphhvt5nnnzqv") };
-    let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: env.contract.address.to_string(),
-        msg: to_binary(&msg)?,
-        funds: vec![],
-    });
-
-
-    Ok(Response::default().add_message(msg))
+    Ok(Response::default())
 }

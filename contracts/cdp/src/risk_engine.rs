@@ -135,7 +135,7 @@ pub fn update_basket_tally(
                         "Supply cap ratio for {} is over the limit ({} > {})",
                         basket.collateral_supply_caps[i].asset_info,
                         ratio,
-                        basket.collateral_supply_caps[i].supply_cap_ratio
+                        supply_caps[i].supply_cap_ratio
                     ),
                 });            
             }

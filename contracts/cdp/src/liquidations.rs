@@ -234,8 +234,8 @@ pub fn liquidate(
     
     Ok(res
         .add_submessages(submessages) //LQ & SP msgs
-        .add_submessage(call_back)
-        // .add_messages(caller_fee_messages)
+        // .add_submessage(call_back)
+        .add_messages(caller_fee_messages)
         .add_message(protocol_fee_msg)
         .add_attributes(vec![
             attr("method", "liquidate"),

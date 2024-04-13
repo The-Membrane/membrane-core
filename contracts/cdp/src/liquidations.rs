@@ -216,7 +216,7 @@ pub fn liquidate(
     }
 
     //Create the Bad debt callback message to be added as the last SubMsg
-    let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+    let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
         msg: to_binary(&ExecuteMsg::Callback(CallbackMsg::BadDebtCheck {
             position_id,

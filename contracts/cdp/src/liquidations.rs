@@ -209,6 +209,8 @@ pub fn liquidate(
             basket,
             config,
         };
+        //Save
+        LIQUIDATION.save(storage, &liquidation_propagation)?;
     }
 
     //Create the Bad debt callback message to be added as the last SubMsg

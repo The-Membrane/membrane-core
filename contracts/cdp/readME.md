@@ -103,9 +103,9 @@ In liquidations.rs for sell wall usage & liquidation LTV
 - line 37-51, downtime detector
 - Create a Static LTV of 90 & insolvent variable after line 97
 
-In reply.rs for sell wall usage & Router Errors
+<!-- In reply.rs for sell wall usage & Router Errors
 - Comment 135, 301, 385, 587
-- Comment 33-35 & 94 for Router successful sale asset calc & burn msg send
+- Comment 33-35 & 94 for Router successful sale asset calc & burn msg send -->
 
 In positions
 - Uncomment create_basket fn at 1507 

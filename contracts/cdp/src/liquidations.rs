@@ -35,21 +35,21 @@ pub fn liquidate(
     position_owner: String,
 ) -> Result<Response, ContractError> {
     //Check for Osmosis downtime 
-    match DowntimedetectorQuerier::new(&querier)
-        .recovered_since_downtime_of_length(
-            10 * 60 * 8, //8 hours from 6 second blocks
-            Some(Duration {
-                seconds: 60 * 60 * 8, //8 hours
-                nanos: 0,
-            })
-    ){
-        Ok(resp) => {            
-            if !resp.succesfully_recovered {
-                return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
-            }
-        },
-        Err(_) => (),
-    };
+    // match DowntimedetectorQuerier::new(&querier)
+    //     .recovered_since_downtime_of_length(
+    //         10 * 60 * 8, //8 hours from 6 second blocks
+    //         Some(Duration {
+    //             seconds: 60 * 60 * 1, //1 hour
+    //             nanos: 0,
+    //         })
+    // ){
+    //     Ok(resp) => {            
+    //         if !resp.succesfully_recovered {
+    //             return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
+    //         }
+    //     },
+    //     Err(_) => (),
+    // };
 
     let basket: Basket = BASKET.load(storage)?;
     //Check if frozen
@@ -65,8 +65,8 @@ pub fn liquidate(
             end_time: 0,
         },
     };
-    if (env.block.time.seconds().checked_sub(freeze_timer.end_time).unwrap_or_else(|| SECONDS_PER_DAY/6)) < (SECONDS_PER_DAY/6){ //4 hour grace
-        return Err(ContractError::Std(StdError::GenericErr { msg: format!("You can liquidate in {} seconds, there is a post-freeze grace period", (SECONDS_PER_DAY/6) - (env.block.time.seconds() - freeze_timer.end_time)) }));
+    if (env.block.time.seconds().checked_sub(freeze_timer.end_time).unwrap_or_else(|| SECONDS_PER_DAY/24)) < (SECONDS_PER_DAY/24){ //1 hour grace
+        return Err(ContractError::Std(StdError::GenericErr { msg: format!("You can liquidate in {} seconds, there is a post-freeze grace period", (SECONDS_PER_DAY/24) - (env.block.time.seconds() - freeze_timer.end_time)) }));
     }
 
     //Load state
@@ -234,9 +234,9 @@ pub fn liquidate(
     
     Ok(res
         .add_submessages(submessages) //LQ & SP msgs
-        .add_submessage(call_back)
+        // .add_submessage(call_back)
         .add_messages(caller_fee_messages)
-        // .add_message(protocol_fee_msg)
+        .add_message(protocol_fee_msg)
         .add_attributes(vec![
             attr("method", "liquidate"),
             attr(
@@ -660,7 +660,7 @@ pub fn build_sp_submsgs(
 
         submessages.push(sub_msg);
 
-        //Because these are reply always, we can NOT make state changes that we wouldn't allow no matter the tx result, as our altereed state will NOT revert.
+        //Replying on erros means we can NOT make state changes that we wouldn't allow no matter the tx result, as our altereed state will NOT revert.
         //Errors also won't revert the whole transaction
         //( https://github.com/CosmWasm/cosmwasm/blob/main/SEMANTICS.md#submessages )
 

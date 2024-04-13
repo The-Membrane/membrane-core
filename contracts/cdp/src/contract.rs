@@ -22,14 +22,14 @@ use crate::positions::{
     deposit,
     edit_basket, increase_debt,
     liq_repay, repay, redeem_for_collateral, edit_redemption_info,
-    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, ROUTER_REPLY_ID, 
-    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID, //create_basket,
+    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, 
+    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, //create_basket,
 };
 use crate::query::{
     query_basket_credit_interest, query_basket_debt_caps, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint
 };
 use crate::liquidations::liquidate;
-use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_router_repayment_reply};
+use crate::reply::{handle_liq_queue_reply, handle_withdraw_reply, handle_user_sp_repay_reply};
 use crate::state::{ get_target_position, update_position, ContractVersion, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER
 };
 
@@ -511,10 +511,8 @@ fn check_and_fulfill_bad_debt(
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         LIQ_QUEUE_REPLY_ID => handle_liq_queue_reply(deps, msg, env),
-        STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, env, msg),
         USER_SP_REPAY_REPLY_ID => handle_user_sp_repay_reply(deps, env, msg),
         WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
-        ROUTER_REPLY_ID => handle_router_repayment_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }

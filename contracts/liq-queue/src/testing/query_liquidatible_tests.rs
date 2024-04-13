@@ -650,10 +650,10 @@ fn partial_two_slot_w_fees_bignums() {
         },
         collateral_price: PriceResponse {
             prices: vec![],
-            price: Decimal::one(),
+            price: Decimal::percent(200),
             decimals: 6u64,
         },
-        collateral_amount: Uint256::from(2_222_222_222_u128),
+        collateral_amount: Uint256::from(1_111_111_111u128),
         credit_info: AssetInfo::NativeToken {
             denom: "cdt".to_string(),
         },
@@ -665,7 +665,7 @@ fn partial_two_slot_w_fees_bignums() {
     };
     let res = query(deps.as_ref(), mock_env(), msg).unwrap();
     let resp: LiquidatibleResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.leftover_collateral, String::from("111111111"));
+    assert_eq!(resp.leftover_collateral, String::from("55555556"));
     assert_eq!(resp.total_debt_repaid, String::from("2000000000"));
 
     let liq_msg = ExecuteMsg::Liquidate {
@@ -676,14 +676,15 @@ fn partial_two_slot_w_fees_bignums() {
         },
         collateral_price: PriceResponse {
             prices: vec![],
-            price: Decimal::one(),
+            price: Decimal::percent(200),
             decimals: 6u64,
         },
-        collateral_amount: Uint256::from(2_111_111_111_u128),
+        collateral_amount: Uint256::from(1_111_111_111u128),
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
     };
     let info = mock_info("positions_contract", &[]);
-    execute(deps.as_mut(), env, info, liq_msg).unwrap();
+    let res = execute(deps.as_mut(), env, info, liq_msg).unwrap();
+    // panic!("Should have failed, got: {:?}", res);
 }

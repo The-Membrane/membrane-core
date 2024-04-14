@@ -284,8 +284,15 @@ pub fn get_cAsset_ratios(
                 };
                 //Get new volatility %
                 let new_volatility = decimal_division(cAsset_prices[i].price.abs_diff(stored_price.price.price), stored_price.price.price)?;
+                //Get speed of price change by dividing by the time elapsed
+                let time_elapsed = env.block.time.seconds() - stored_price.last_time_updated;
+                let speed_of_volatility = match decimal_division(new_volatility, Decimal::from_str(&time_elapsed.to_string())?){
+                    Ok(speed) => speed,
+                    //In case the time elapsed is so large it errors
+                    Err(_) => Decimal::zero(),
+                };
                 //Add new volatility to the list
-                volatility_store.volatility_list.push(new_volatility);
+                volatility_store.volatility_list.push(speed_of_volatility);
                 //If the list is at the limit, remove the first element
                 if volatility_store.volatility_list.len() > VOLATILITY_LIST_LIMIT as usize {
                     volatility_store.volatility_list.remove(0);
@@ -294,26 +301,16 @@ pub fn get_cAsset_ratios(
                 let mut avg_volatility: Decimal = volatility_store.volatility_list.iter().sum();
                 avg_volatility = decimal_division(avg_volatility, Decimal::from_str(&volatility_store.volatility_list.len().to_string())?)?;
 
-                //To account for the size of the volatility, we change the index based on the value of the Volatility instead of the % change in the volatility
-                //i.e. if the new volatility is higher than the average, the index will decrease by the new_volatility proportional growth %.
-                //If the new volatility is lower than the average, the index will increase by the avg_volatility's %.
-                ////The idea is that if volatility has decreased from some average, that's the size/value of the risk that has been decreased
-                /// & if the volatility has increased from some average, the change in Vol is the new size/value of the risk
-                let change_in_index = match avg_volatility >= new_volatility {
-                    true => {
-                        //Increase index by the avg volatility
-                        Decimal::one() + avg_volatility
-                    },
-                    false => {
-                        //Decrease index by the strength of the new volatility
-                        //Since there is no lower bound & we can't have index hitting 0, we use the % change to decrease
-                        decimal_division(avg_volatility, new_volatility)?
-                    }                
-                };
+                //With volatility btwn any time points standardized to the same units (vol/time)
+                // we can now calculate the change in index based on the % difference btwn the avg volatility & the newest speed of volatility
+                let change_in_index = decimal_division(avg_volatility, speed_of_volatility)?;
+
+                //Index can't hit 0
                 volatility_store.index = decimal_multiplication(volatility_store.index, change_in_index)?;
                 //Index can't go above 1
                 volatility_store.index = Decimal::one().min(volatility_store.index);
                 
+                println!("Avg: {:?} --- New: {:?}-- Index: {}", avg_volatility, speed_of_volatility, volatility_store.index);
                 //Save the new volatility store
                 VOLATILITY.save(storage, cAsset.asset.info.to_string(), &volatility_store)?;
                 

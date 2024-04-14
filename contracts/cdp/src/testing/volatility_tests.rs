@@ -1563,7 +1563,7 @@ mod tests {
                 amount: Uint128::from(0u128),
             },
             credit_price: Decimal::percent(100),
-            base_interest_rate: None,
+            base_interest_rate: Some(Decimal::percent(100)),
             credit_pool_infos: vec![],
             liq_queue: Some(lq_contract_addr.to_string()),
         };
@@ -1668,9 +1668,11 @@ mod tests {
 
     mod cdp {
 
+        use crate::contract::query;
+
         use super::*;
-        use cosmwasm_std::BlockInfo;
-        use membrane::cdp::ExecuteMsg;
+        use cosmwasm_std::{testing::mock_env, BlockInfo};
+        use membrane::{cdp::ExecuteMsg, types::Basket};
 
         #[test]
         fn volatility_tests() {
@@ -1746,7 +1748,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -1824,7 +1826,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -1902,7 +1904,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -1980,7 +1982,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -2058,7 +2060,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -2136,7 +2138,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -2214,7 +2216,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -2292,7 +2294,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -2370,7 +2372,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -2448,7 +2450,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -2526,7 +2528,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -2604,7 +2606,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -2721,7 +2723,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -2799,7 +2801,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -2877,7 +2879,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -2955,7 +2957,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -3033,7 +3035,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -3111,7 +3113,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -3221,7 +3223,7 @@ mod tests {
                 position_ids: vec![Uint128::new(1u128)],
                 position_owner: Some("bigger_bank".to_string()),
             };      
-            //Swap Oracle price to $5
+            //Swap Oracle price to $2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
                 owner: None,
                 stability_pool: None,
@@ -3259,7 +3261,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -3337,7 +3339,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -3415,7 +3417,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -3493,7 +3495,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -3571,7 +3573,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -3649,7 +3651,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -3727,7 +3729,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -3805,7 +3807,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -3883,7 +3885,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -3961,7 +3963,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -4039,7 +4041,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -4117,7 +4119,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -4195,7 +4197,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -4273,7 +4275,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -4351,7 +4353,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -4429,7 +4431,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -4507,7 +4509,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -4585,7 +4587,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -4663,7 +4665,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -4741,7 +4743,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -4819,7 +4821,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -4898,7 +4900,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -4976,7 +4978,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -5054,7 +5056,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -5132,7 +5134,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -5210,7 +5212,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -5288,7 +5290,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -5366,7 +5368,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -5444,7 +5446,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -5522,7 +5524,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -5600,7 +5602,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -5678,7 +5680,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -5756,7 +5758,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -5834,7 +5836,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Giggle btwn 5 & 5.2 to lower vol and increase index
+            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
             /// 
             //Swap Oracle price to $5.2
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
@@ -5874,6 +5876,13 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
+            //Query basket to check interest rates
+            let msg = QueryMsg::GetBasket {  };
+            let resp: Basket = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &msg.clone())
+                .unwrap();
+            panic!("{:?}", resp.lastest_collateral_rates);
 
             //Edit Basket Supply Caps
             let msg = ExecuteMsg::EditBasket(EditBasket {
@@ -5976,7 +5985,7 @@ mod tests {
                 .unwrap();
 
             //Check that the index is reset to 1 on debt cap updates
-            // This panic is to show any printlns panic!();
+            // This panic is to show any printlns: panic!();
         }
     }
 }

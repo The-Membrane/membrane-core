@@ -194,7 +194,7 @@ pub fn get_interest_rates(
     for asset in basket.clone().collateral_types {
         //Base_Rate * max collateral_ratio
         //ex: 2% * 110% = 2.2%
-        //Higher rates for more volatili assets
+        //Higher rates for more volatile assets
 
         //base * (1/max_LTV)
         rates.push(decimal_multiplication(
@@ -365,6 +365,7 @@ pub fn transform_caps_based_on_volatility(
                         Ok(new_supply_cap) => new_supply_cap,
                         Err(_err) => cap.supply_cap_ratio
                     };
+                    // println!("New Supply Cap: {:?} --- Current Index: {:?}", new_supply_cap, vol_store.index);
                     Ok(SupplyCap {
                         supply_cap_ratio: new_supply_cap,
                         ..cap                

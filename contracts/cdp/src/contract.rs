@@ -582,12 +582,6 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
             volatility_list: vec![]
         })?;
     }
-
-    //Panic to see the volaility indices
-    let mut list = vec![];
-    for asset in basket.collateral_types.clone() {
-        list.push(VOLATILITY.load(deps.storage, asset.asset.info.to_string())?);
-    }
-    panic!("{:?}", list);
+    
     Ok(Response::default())
 }

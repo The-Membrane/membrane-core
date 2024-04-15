@@ -575,13 +575,29 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     //Reset all volatility indices
-    let basket: Basket = BASKET.load(deps.storage)?;
-    for asset in basket.collateral_types.clone() {
-        VOLATILITY.save(deps.storage, asset.asset.info.to_string(), &CollateralVolatility {
-            index: Decimal::one(),
-            volatility_list: vec![]
-        })?;
+    let mut basket: Basket = BASKET.load(deps.storage)?;
+    for (i, cap) in basket.collateral_supply_caps.clone().into_iter().enumerate() {
+        //OSMO - ATOM - TIA - axlUSDC - USDT - USDC - 
+        if cap.asset_info.to_string() == "uosmo" 
+        || cap.asset_info.to_string() == "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2" 
+        || cap.asset_info.to_string() == "ibc/D79E7D83AB399BFFF93433E54FAA480C191248FC556924A2A8351AE2638B3877"
+        || cap.asset_info.to_string() == "ibc/D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858"
+        || cap.asset_info.to_string() == "ibc/4ABBEF4C8926DDDB320AE5188CFD63267ABBCEFC0583E4AE05D6E5AA2401DDAB"
+        || cap.asset_info.to_string() == "ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4"{
+            basket.collateral_supply_caps[i].supply_cap_ratio = Decimal::percent(100);
+        }
+        //stOSMO - stATOM - stTIA - milkTIA
+        if cap.asset_info.to_string() == "ibc/D176154B0C63D1F9C6DCFB4F70349EBF2E2B5A87A05902F57A6AE92B863E9AEC" 
+        || cap.asset_info.to_string() == "ibc/C140AFD542AE77BD7DCC83F13FDD8C5E5BB8C4929785E6EC2F4C636F98F17901"
+        || cap.asset_info.to_string() == "ibc/698350B8A61D575025F3ED13E9AC9C0F45C89DEFE92F76D5838F1D3C1A7FF7C9"
+        || cap.asset_info.to_string() == "factory/osmo1f5vfcph2dvfeqcqkhetwv75fda69z7e5c2dldm3kvgj23crkv6wqcn47a0/umilkTIA"{
+            basket.collateral_supply_caps[i].supply_cap_ratio = Decimal::percent(66);
+        }
     }
+    BASKET.save(deps.storage, &basket)?;
+
+    //Panic to test
+    panic!("{:?}", basket.collateral_supply_caps);
     
     Ok(Response::default())
 }

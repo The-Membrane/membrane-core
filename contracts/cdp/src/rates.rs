@@ -265,12 +265,12 @@ pub fn get_interest_rates(
                     min(decimal_multiplication(
                         decimal_multiplication(rates[i], debt_proportions[i])?,
                         multiplier,
-                    )?, Decimal::percent(100_00)),
+                    )?, Decimal::one()),
                 );
             } else {
                 //Slope 1
                 two_slope_pro_rata_rates.push(
-                    min(decimal_multiplication(rates[i], debt_proportions[i])?, Decimal::percent(100_00)),
+                    min(decimal_multiplication(rates[i], debt_proportions[i])?, Decimal::one()),
                 );
             }
         } else if supply_proportions[i] > Decimal::one() {
@@ -292,7 +292,7 @@ pub fn get_interest_rates(
                 min(decimal_multiplication(
                     decimal_multiplication(rates[i], supply_proportions[i])?,
                     multiplier,
-                )?,Decimal::percent(100_00))
+                )?,Decimal::one())
             );            
         }
     }
@@ -334,7 +334,7 @@ pub fn get_interest_rates(
                         two_slope_pro_rata_rates[i] = min(decimal_multiplication(
                                 decimal_multiplication(rates[i], multi_cap_proportion)?,
                                 multiplier,
-                            )?, Decimal::percent(100_00));
+                            )?, Decimal::one());
                     }
                 }
             }

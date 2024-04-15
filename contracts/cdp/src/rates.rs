@@ -430,7 +430,13 @@ fn get_credit_rate_of_change(
             .find(|basket_asset| basket_asset.asset.info.equal(&cAsset.asset.info)){
             ////Add proportionally the change in index
             // cAsset_ratio * change in index     
-            avg_change_in_index += decimal_multiplication(ratios[i], decimal_division(basket_asset.rate_index, cAsset.rate_index)?)?;
+            avg_change_in_index += match decimal_multiplication(ratios[i], decimal_division(basket_asset.rate_index, cAsset.rate_index)?){
+                Ok(avg_change_in_index) => avg_change_in_index,
+                Err(err) => {
+                    panic!("{}, {}, {}", ratios[i], basket_asset.rate_index, cAsset.rate_index);
+                }
+            
+            };
             
             /////Update cAsset rate_index
             position.collateral_assets[i].rate_index = basket_asset.rate_index;        

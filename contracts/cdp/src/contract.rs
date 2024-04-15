@@ -14,6 +14,7 @@ use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, U
 use membrane::types::{
     cAsset, Asset, AssetInfo, Basket, UserInfo,
 };
+use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 
 use crate::error::ContractError;
 use crate::rates::external_accrue_call;
@@ -23,7 +24,7 @@ use crate::positions::{
     edit_basket, increase_debt,
     liq_repay, repay, redeem_for_collateral, edit_redemption_info,
     withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, 
-    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, //create_basket,
+    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, create_basket,
 };
 use crate::query::{
     query_basket_credit_interest, query_basket_debt_caps, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint
@@ -100,18 +101,18 @@ pub fn instantiate(
     })?;
 
     //Create basket
-    // create_basket(
-    //     deps, 
-    //     info, 
-    //     env.clone(), 
-    //     msg.create_basket.basket_id, 
-    //     msg.create_basket.collateral_types, 
-    //     msg.create_basket.credit_asset, 
-    //     msg.create_basket.credit_price, 
-    //     msg.create_basket.base_interest_rate, 
-    //     msg.create_basket.credit_pool_infos, 
-    //     msg.create_basket.liq_queue
-    // )?;
+    create_basket(
+        deps, 
+        info, 
+        env.clone(), 
+        msg.create_basket.basket_id, 
+        msg.create_basket.collateral_types, 
+        msg.create_basket.credit_asset, 
+        msg.create_basket.credit_price, 
+        msg.create_basket.base_interest_rate, 
+        msg.create_basket.credit_pool_infos, 
+        msg.create_basket.liq_queue
+    )?;
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -574,27 +575,58 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Reset all volatility indices
+    //Load
     let mut basket: Basket = BASKET.load(deps.storage)?;
-    for (i, cap) in basket.collateral_supply_caps.clone().into_iter().enumerate() {
-        //OSMO - ATOM - TIA - axlUSDC - USDT - USDC - 
-        if cap.asset_info.to_string() == "uosmo" 
-        || cap.asset_info.to_string() == "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2" 
-        || cap.asset_info.to_string() == "ibc/D79E7D83AB399BFFF93433E54FAA480C191248FC556924A2A8351AE2638B3877"
-        || cap.asset_info.to_string() == "ibc/D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858"
-        || cap.asset_info.to_string() == "ibc/4ABBEF4C8926DDDB320AE5188CFD63267ABBCEFC0583E4AE05D6E5AA2401DDAB"
-        || cap.asset_info.to_string() == "ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4"{
-            basket.collateral_supply_caps[i].supply_cap_ratio = Decimal::percent(100);
-        }
-        //stOSMO - stATOM - stTIA - milkTIA
-        if cap.asset_info.to_string() == "ibc/D176154B0C63D1F9C6DCFB4F70349EBF2E2B5A87A05902F57A6AE92B863E9AEC" 
-        || cap.asset_info.to_string() == "ibc/C140AFD542AE77BD7DCC83F13FDD8C5E5BB8C4929785E6EC2F4C636F98F17901"
-        || cap.asset_info.to_string() == "ibc/698350B8A61D575025F3ED13E9AC9C0F45C89DEFE92F76D5838F1D3C1A7FF7C9"
-        || cap.asset_info.to_string() == "factory/osmo1f5vfcph2dvfeqcqkhetwv75fda69z7e5c2dldm3kvgj23crkv6wqcn47a0/umilkTIA"{
-            basket.collateral_supply_caps[i].supply_cap_ratio = Decimal::percent(66);
-        }
-    }
+    let config: Config = CONFIG.load(deps.storage)?;
+    let mut msgs = vec![];
+
+    //Split pending revenue to 3 wallets
+    //osmo1wjjg0mvsfgnskjj7qq28uaxqwq5h38q68enshj: 65%
+    let wallet1_rev = Decimal::percent(65) * basket.pending_revenue;
+    //osmo127u97q2ue337qzq9waarxv842qm8v0n0tmqra2: 24%
+    let wallet2_rev = Decimal::percent(24) * basket.pending_revenue;
+    //osmo1h0tkzpmrwt7lpcyd6r580r9vep3aa7m0j2fdns: 11%
+    let wallet3_rev = Decimal::percent(11) * basket.pending_revenue;
+
+    //Create messages
+    //Mint to wallet 1
+    let mint_rev_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+        msg: to_binary(&OP_ExecuteMsg::MintTokens {
+            amount: wallet1_rev,
+            denom: basket.clone().credit_asset.info.to_string(),
+            mint_to_address: String::from("osmo1wjjg0mvsfgnskjj7qq28uaxqwq5h38q68enshj")
+        })?,
+        funds: vec![],
+    });
+    msgs.push(mint_rev_msg);
+    //Mint to wallet 2
+    let mint_rev_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+        msg: to_binary(&OP_ExecuteMsg::MintTokens {
+            amount: wallet2_rev,
+            denom: basket.clone().credit_asset.info.to_string(),
+            mint_to_address: String::from("osmo127u97q2ue337qzq9waarxv842qm8v0n0tmqra2")
+        })?,
+        funds: vec![],
+    });
+    msgs.push(mint_rev_msg);
+    //Mint to wallet 3
+    let mint_rev_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.osmosis_proxy.unwrap().to_string(),
+        msg: to_binary(&OP_ExecuteMsg::MintTokens {
+            amount: wallet3_rev,
+            denom: basket.clone().credit_asset.info.to_string(),
+            mint_to_address: String::from("osmo1h0tkzpmrwt7lpcyd6r580r9vep3aa7m0j2fdns")
+        })?,
+        funds: vec![],
+    });
+    msgs.push(mint_rev_msg);
+
+    //Set pending revenue to 0
+    basket.pending_revenue = Uint128::zero();
+    //Save
     BASKET.save(deps.storage, &basket)?;
     
-    Ok(Response::default())
+    Ok(Response::default().add_messages(msgs))
 }

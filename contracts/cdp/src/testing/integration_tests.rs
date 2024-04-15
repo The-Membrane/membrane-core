@@ -4676,6 +4676,56 @@ mod tests {
                 res.rates[3].to_string(),
                 String::from("0.079201584031680633")
             );
+
+            //Set LP denom supply cap super low to spike rate
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: Some(vec![
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "lp_denom".to_string(),
+                        },
+                        current_supply: Uint128::from(198_000_000_000u128),
+                        debt_total: Uint128::from(198_000_000_000u128),
+                        supply_cap_ratio: Decimal::from_str("0.001").unwrap(),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
+                ]),
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            
+            //Accrue position since query will use old rates if not
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+
+            //Check lp_Denom rate is at the top of Slope 1 due to debt at the desired_debt_util (79% out of 80%)
+            let query_msg = QueryMsg::GetCollateralInterest { };
+            let res: CollateralInterestResponse = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(
+                res.rates[3].to_string(),
+                String::from("1")
+            );
         }
 
         #[test]

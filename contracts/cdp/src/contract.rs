@@ -595,9 +595,6 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
         }
     }
     BASKET.save(deps.storage, &basket)?;
-
-    //Panic to test
-    panic!("{:?}", basket.collateral_supply_caps);
     
     Ok(Response::default())
 }

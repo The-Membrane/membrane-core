@@ -13,98 +13,7 @@ use crate::risk_engine::update_basket_tally;
 use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, BASKET, get_target_position, update_position};
 use crate::liquidations::build_sp_submsgs;
 
-/// Only necessary after the last of successful router swaps, uses the returned asset to repay the position's debt
-// pub fn handle_router_repayment_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
-//     match msg.result.into_result() {
-//         Ok(_result) => {
-//             //Load state
-//             let mut prop = LIQUIDATION.load(deps.storage)?;
-//             let mut basket: Basket = prop.clone().basket;
-            
-//             //Query contract balance of the basket credit_asset
-//             let credit_asset_balance = get_contract_balances(
-//                 deps.querier, 
-//                 env.clone(), 
-//                 vec![basket.credit_asset.info.clone()]
-//             )?[0];
-
-//             //Skip if balance is 0
-//             if credit_asset_balance.is_zero() {
-//                 return Err(StdError::GenericErr { msg: String::from("Router sale success returned 0") });
-//             }
-
-//             //Create burn_msg with queried funds
-//             //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted
-//             let burn_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
-//                 contract_addr: prop.clone().config.osmosis_proxy.unwrap().to_string(), 
-//                 msg: to_binary(
-//                     &OP_ExecuteMsg::BurnTokens { 
-//                         denom: basket.credit_asset.info.clone().to_string(), 
-//                         amount: credit_asset_balance.clone(), 
-//                         burn_from_address: env.contract.address.to_string(),
-//                     }
-//                 )?, 
-//                 funds: vec![]
-//             });
-            
-//             //Update position w/ new credit amount
-//             prop.target_position.credit_amount -= credit_asset_balance.clone();
-//             update_position(deps.storage, prop.clone().position_owner, prop.clone().target_position)?;
-
-            
-//             //////Update Basket and save
-//             if prop.clone().target_position.credit_amount.is_zero(){                
-//                 //Remove position's assets from Supply caps 
-//                 update_basket_tally(
-//                     deps.storage, 
-//                     deps.querier, 
-//                     env.clone(), 
-//                     &mut basket, 
-//                     prop.clone().target_position.collateral_assets,
-//                     prop.clone().target_position.collateral_assets,
-//                     false, 
-//                     prop.clone().config,
-//                     true
-//                 ).map_err(|err| StdError::GenericErr { msg: err.to_string() })?;
-//             } else {                    
-//                 //Remove liquidated assets from Supply caps 
-//                 update_basket_tally(
-//                     deps.storage, 
-//                     deps.querier, 
-//                     env.clone(), 
-//                     &mut basket, 
-//                     prop.clone().liquidated_assets,
-//                     prop.clone().target_position.collateral_assets,
-//                     false, 
-//                     prop.clone().config,
-//                     true
-//                 ).map_err(|err| StdError::GenericErr { msg: err.to_string() })?;
-//             }
-
-//             //Subtract repaid debt from Basket
-//             basket.credit_asset.amount = match basket.credit_asset.amount.checked_sub(credit_asset_balance){
-//                 Ok(difference) => difference,
-//                 Err(_err) => return Err(StdError::GenericErr { msg: String::from("Repay amount is greater than Basket credit amount from the router") }),
-//             };
-//             BASKET.save(deps.storage, &basket)?;
-//             ////
-
-//             Ok(Response::new()
-//             .add_message(burn_msg)
-//             .add_attribute("amount_repaid", credit_asset_balance))
-//         },
-        
-//         Err(err) => {
-            
-//             panic!("Handled router error");
-//             //Its reply on success only
-//             Ok(Response::new().add_attribute("error", err))
-//         }
-//     }    
-// }
-
-/// On error of an user's Stability Pool repayment, leave leftover handling to the SP reply unless SP wasn't called.
-/// If so, sell wall the leftover.
+/// On error of a user's Stability Pool repayment, leave leftover to the SP within the LQ reply.
 #[allow(unused_variables)]
 pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.result.into_result() {
@@ -119,6 +28,7 @@ pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
 
             let leftover = prop.clone().user_repay_amount;
             prop.liq_queue_leftovers += leftover;
+            prop.user_repay_amount = Decimal::zero();
 
             LIQUIDATION.save(deps.storage, &prop)?;
 
@@ -128,6 +38,78 @@ pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
         }
     }
 }
+
+/// On error of a Stability Pool liquidation, update the user's position to keep state intact.
+/// Otherwise, the position is updated on a success in the liq_repay msg.
+/// Successful LQ msgs don't update the position state unless the SP isn't being used to repay due to there being none leftover to handle.
+#[allow(unused_variables)]
+pub fn handle_sp_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => {
+            //Its reply on error only
+            Ok(Response::new())
+        }        
+        Err(string) => {
+            //Load the state
+            let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
+            let mut basket = prop.clone().basket;
+            let config: Config = prop.clone().config;
+
+            /////If nothing has been repaid, error so the position can't be farmed for fees/////
+            /// SP fails when repaying 0
+            /// If user_repay fails, it gets set to 0
+            /// If LQ isn't used or fails, the total_repaid is stagnant.
+            if prop.clone().total_repaid.is_zero() && prop.clone().user_repay_amount.is_zero(){
+                return Err(StdError::GenericErr { msg: String::from("Stability pool failed, user didn't repay from Stability pool or it failed & LQ wasn't used, no repayments made") });
+            }
+
+            //Update supply caps
+            if prop.clone().target_position.credit_amount.is_zero(){                
+                //Remove position's assets from Supply caps 
+                match update_basket_tally(
+                    deps.storage, 
+                    deps.querier, 
+                    env.clone(), 
+                    &mut basket, 
+                    prop.clone().target_position.clone().collateral_assets,
+                    prop.clone().target_position.clone().collateral_assets,
+                    false, 
+                    config.clone(),
+                    true,
+                ){
+                    Ok(_) => {},
+                    Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+                };
+            } else {
+                //Remove liquidated assets from Supply caps
+                match update_basket_tally(
+                    deps.storage, 
+                    deps.querier, 
+                    env.clone(), 
+                    &mut basket,
+                    prop.clone().liquidated_assets,
+                    prop.clone().target_position.clone().collateral_assets,
+                    false,
+                    config.clone(),
+                    true,
+                ){
+                    Ok(_) => {},
+                    Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+                };
+            }            
+            //Update Basket
+            BASKET.save(deps.storage, &basket)?;
+
+            //Update the position w/ the new credit & collateral amount
+            update_position(deps.storage, prop.clone().position_owner, prop.clone().target_position)?;
+
+            Ok(Response::new()
+                .add_attribute("error", string)
+                .add_attribute("new_position", format!("{:?}", prop.target_position)))
+        }
+    }
+}
+
 
 /// Validate withdrawls by asserting that the amount withdrawn is less than or equal to the amount of the asset in the contract.
 /// Assert new cAssets amount was saved correctly.
@@ -296,7 +278,8 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             let repay_amount = Uint128::from_str(repay)?;
 
             let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
-            let basket = prop.clone().basket;
+            let mut basket = prop.clone().basket;
+            let config = prop.clone().config;
 
             //Send successfully liquidated amount
             let amount = &liq_event
@@ -379,39 +362,86 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                         rate_index: Decimal::one(),                        
                     }
                 );
+
+                //Add to total repaid
+                prop.total_repaid += Decimal::from_ratio(repay_amount, Uint128::new(1u128));
             }
         
             let mut sub_msgs = vec![];
             //If this is the last asset left to send and there is still more to liquidate, send the leftovers to the SP
-            if prop.per_asset_repayment.len() == 1 && !prop.liq_queue_leftovers.is_zero(){
+            if prop.per_asset_repayment.len() == 1 {
                 
-                match build_sp_submsgs(
-                    deps.storage, 
-                    deps.querier, 
-                    env, 
-                    prop.clone().config, 
-                    prop.clone().basket, 
-                    prop.clone().position_owner, 
-                    prop.clone().liq_queue_leftovers, 
-                    prop.clone().liq_queue_leftovers,                     
-                    prop.clone().stability_pool, 
-                    &mut sub_msgs, 
-                    prop.clone().per_asset_repayment, 
-                    prop.clone().user_repay_amount, 
-                    prop.clone().target_position, 
-                    prop.clone().liquidated_assets, 
-                    prop.clone().cAsset_ratios, 
-                    prop.clone().cAsset_prices
-                ){
-                    Ok(_) => {},
-                    Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
-                };
+                //If there are leftovers, send them to the SP
+                if !prop.liq_queue_leftovers.is_zero(){
+                    match build_sp_submsgs(
+                        deps.storage, 
+                        deps.querier, 
+                        env, 
+                        prop.clone().config, 
+                        prop.clone().basket, 
+                        prop.clone().position_owner, 
+                        prop.clone().liq_queue_leftovers, 
+                        prop.clone().liq_queue_leftovers,                     
+                        prop.clone().stability_pool, 
+                        &mut sub_msgs, 
+                        prop.clone().per_asset_repayment, 
+                        prop.clone().user_repay_amount, 
+                        prop.clone().target_position, 
+                        prop.clone().liquidated_assets, 
+                        prop.clone().cAsset_ratios, 
+                        prop.clone().cAsset_prices,
+                        prop.clone().caller_fee_value_paid
+                    ){
+                        Ok(_) => {},
+                        Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+                    };
+                } //If we aren't sending to the SP we need to update the positon && basket here
+                else {
+                    //Update supply caps
+                    if prop.clone().target_position.credit_amount.is_zero(){                
+                        //Remove position's assets from Supply caps 
+                        match update_basket_tally(
+                            deps.storage, 
+                            deps.querier, 
+                            env.clone(), 
+                            &mut basket, 
+                            prop.clone().target_position.clone().collateral_assets,
+                            prop.clone().target_position.clone().collateral_assets,
+                            false, 
+                            config.clone(),
+                            true,
+                        ){
+                            Ok(_) => {},
+                            Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+                        };
+                    } else {
+                        //Remove liquidated assets from Supply caps
+                        match update_basket_tally(
+                            deps.storage, 
+                            deps.querier, 
+                            env.clone(), 
+                            &mut basket,
+                            prop.clone().liquidated_assets,
+                            prop.clone().target_position.clone().collateral_assets,
+                            false,
+                            config.clone(),
+                            true,
+                        ){
+                            Ok(_) => {},
+                            Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+                        };
+                    }            
+                    //Update Basket
+                    BASKET.save(deps.storage, &basket)?;
 
+                    //Update position w/ new credit amount
+                    update_position(deps.storage, prop.clone().position_owner, prop.clone().target_position)?;
+                }
                 attrs.extend(vec![
                     attr("sent_to_SP", prop.clone().liq_queue_leftovers.to_string()),
                 ]);
-
             }
+
             //Remove Asset
             prop.per_asset_repayment.remove(0);
             LIQUIDATION.save(deps.storage, &prop)?;

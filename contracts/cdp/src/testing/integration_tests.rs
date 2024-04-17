@@ -504,7 +504,6 @@ mod tests {
                         {
                             // panic!("{}", liq_amount.to_string());
                         }
-
                         Ok(Response::new()
                             .add_attribute("method", "liquidate")
                             .add_attribute("leftover_repayment", "0"))
@@ -645,9 +644,11 @@ mod tests {
         let contract = ContractWrapper::new(
             |_, _, _, msg: SP_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
-                    SP_MockExecuteMsg::Liquidate { liq_amount: _ } => Err(StdError::GenericErr {
+                    SP_MockExecuteMsg::Liquidate { liq_amount } => {
+                                                
+                        Err(StdError::GenericErr {
                         msg: "no siree".to_string(),
-                    }),
+                    })},
                     SP_MockExecuteMsg::Distribute {
                         distribution_assets: _,
                         distribution_asset_ratios: _,
@@ -5112,12 +5113,6 @@ mod tests {
             assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98313888889));
             assert_eq!(res[0].positions[0].collateral_assets[1].asset.amount, Uint128::new(98313888889));
 
-            //Assert sell wall wasn't sent assets
-            assert_eq!(
-                app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-                vec![]
-            );
-
             //Assert fees were sent.
             assert_eq!(
                 app.wrap()
@@ -5213,70 +5208,63 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Call liquidate on CDP contract: SP Errors
+            //Call liquidate on CDP contract: SP Errors so we only update position from LQs work
             let msg = ExecuteMsg::Liquidate {
                 position_id: Uint128::new(1u128),
                 position_owner: USER.to_string(),
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            // let query_msg = QueryMsg::GetBasketPositions {
-            //     start_after: None, 
-            //     limit: None,
-            //     user: None,
-            //     user_info: Some(
-            //         UserInfo {
-            //             position_id: Uint128::new(1),
-            //             position_owner: USER.to_string(),
-            //         }
-            //     ),
-            // };
-            // let res: Vec<BasketPositionsResponse> = app
-            //     .wrap()
-            //     .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-            //     .unwrap();
-            // assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(97311_111112));
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: USER.to_string(),
+                    }
+                ),
+            };
+            let res: Vec<BasketPositionsResponse> = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(97533_333334));
 
-            // //Assert sell wall was sent assets
-            // //The user's SP repayment failed
-            // assert_eq!(
-            //     app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-            //     vec![coin(222_222222, "debit")]
-            // );
+            //Assert fees were sent.
+            assert_eq!(
+                app.wrap()
+                    .query_all_balances(staking_contract.clone())
+                    .unwrap(),
+                vec![coin(22_222222, "debit")]
+            );
+            assert_eq!(
+                app.wrap().query_all_balances(USER).unwrap(),
+                vec![coin(100000_000000, "2nddebit"), coin(444_444444, "debit")]
+            );
 
-            // //Assert fees were sent.
-            // assert_eq!(
-            //     app.wrap()
-            //         .query_all_balances(staking_contract.clone())
-            //         .unwrap(),
-            //     vec![coin(22_222222, "debit")]
-            // );
-            // assert_eq!(
-            //     app.wrap().query_all_balances(USER).unwrap(),
-            //     vec![coin(100000_000000, "2nddebit"), coin(444_444444, "debit")]
-            // );
-
-            // //Assert collateral to be liquidated was sent
-            // assert_eq!(
-            //     app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-            //     vec![coin(2000_000000, "debit")]
-            // );
-            // //Assert SP wasn't sent any due to the Error
-            // assert_eq!(
-            //     app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-            //     vec![coin(2777_777777, "credit_fulldenom")]
-            // );
-            // //Assert asset tally is working
-            // let query_msg = QueryMsg::GetBasket { };
-            // let res: Basket = app
-            //     .wrap()
-            //     .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-            //     .unwrap();
-            // assert_eq!(
-            //     res.collateral_supply_caps[0].current_supply,
-            //     Uint128::new(97311_111112)
-            // );
+            //Assert collateral to be liquidated was sent
+            assert_eq!(
+                app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
+                vec![coin(2000_000000, "debit")]
+            );
+            //Assert SP wasn't sent any due to the Error
+            assert_eq!(
+                app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
+                vec![coin(2777_777777, "credit_fulldenom")]
+            );
+            //Assert asset tally is working
+            let query_msg = QueryMsg::GetBasket { };
+            let res: Basket = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(
+                res.collateral_supply_caps[0].current_supply,
+                Uint128::new(97533_333334)
+            );
 
             //////LQ Errors///
             ///
@@ -5370,12 +5358,6 @@ mod tests {
                 .unwrap();
             assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(97085_833334));
 
-            //Assert sell wall wasn't sent assets
-            assert_eq!(
-                app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-                vec![]
-            );
-
             //Assert fees were sent.
             assert_eq!(
                 app.wrap()
@@ -5467,7 +5449,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Call liquidate on CDP contract: Error
+            //Call liquidate on CDP contract: Both Erroring
             let msg = ExecuteMsg::Liquidate {
                 position_id: Uint128::new(1u128),
                 position_owner: USER.to_string(),
@@ -5964,7 +5946,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
 
-            //Call liquidate on CDP contract: SP Errors cancel the tx
+            //Call liquidate on CDP contract: SP Errors so we only update position from LQs work
             let msg = ExecuteMsg::Liquidate {
                 position_id: Uint128::new(1u128),
                 position_owner: "bigger_bank".to_string(),
@@ -5977,56 +5959,51 @@ mod tests {
                 &vec![coin(111_111111, "base"), coin(111_111111, "quote")],
             )
             .unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            // let query_msg = QueryMsg::GetBasketPositions {
-            //     start_after: None, 
-            //     limit: None,
-            //     user: None,
-            //     user_info: Some(
-            //         UserInfo {
-            //             position_id: Uint128::new(1),
-            //             position_owner: "bigger_bank".to_string(),
-            //         }
-            //     ),
-            // };
-            // let res: Vec<BasketPositionsResponse> = app
-            //     .wrap()
-            //     .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-            //     .unwrap();
-            // assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98180_666667055555555986));
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "bigger_bank".to_string(),
+                    }
+                ),
+            };
+            let res: Vec<BasketPositionsResponse> = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98291_777778055555555986));
 
-            // //Assert sell wall was sent assets
-            // assert_eq!(
-            //     app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-            //     vec![coin(111_111111, "base"), coin(111_111111, "quote")]
-            // );
 
-            // //Assert 1% fee was sent.
-            // //This is 13 instead of 27 bc the share token is the only collateral worth $2 instead of 1.
-            // assert_eq!(
-            //     app.wrap()
-            //         .query_all_balances(staking_contract.clone())
-            //         .unwrap(),
-            //     vec![coin(13_888888888888888875, "lp_denom")]
-            // );
-            // //Assert 30% fee
-            // //Same here, 416 instead of 833 if it were valued at a $1.
-            // assert_eq!(
-            //     app.wrap().query_all_balances(USER).unwrap(),
-            //     vec![coin(100000000000, "2nddebit"), coin(100000000000, "debit"), coin(416_666666666666666250, "lp_denom")]
-            // );
+            //Assert 1% fee was sent.
+            //This is 13 instead of 27 bc the share token is the only collateral worth $2 instead of 1.
+            assert_eq!(
+                app.wrap()
+                    .query_all_balances(staking_contract.clone())
+                    .unwrap(),
+                vec![coin(13_888888888888888875, "lp_denom")]
+            );
+            //Assert 30% fee
+            //Same here, 416 instead of 833 if it were valued at a $1.
+            assert_eq!(
+                app.wrap().query_all_balances(USER).unwrap(),
+                vec![coin(100000000000, "2nddebit"), coin(100000000000, "debit"), coin(416_666666666666666250, "lp_denom")]
+            );
 
-            // //Assert collateral to be liquidated was sent
-            // assert_eq!(
-            //     app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-            //     vec![coin(1277_666666388888888889, "lp_denom")]
-            // );            
-            // //Assert SP wasn't sent any due to the Error
-            // assert_eq!(
-            //     app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-            //     vec![coin(2777_777777, "credit_fulldenom")]
-            // );
+            //Assert collateral to be liquidated was sent
+            assert_eq!(
+                app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
+                vec![coin(1277_666666388888888889, "lp_denom")]
+            );            
+            //Assert SP wasn't sent any due to the Error
+            assert_eq!(
+                app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
+                vec![coin(2777_777777, "credit_fulldenom")]
+            );
 
             //////LQ Errors///
             /// The query erroring will skip all LQ msgs and use the SP.

@@ -23,16 +23,15 @@ use crate::positions::{
     deposit,
     edit_basket, increase_debt,
     liq_repay, repay, redeem_for_collateral, edit_redemption_info,
-    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, 
+    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, SP_REPLY_ID,
     LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, //create_basket,
 };
 use crate::query::{
     query_basket_credit_interest, query_basket_debt_caps, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint
 };
 use crate::liquidations::liquidate;
-use crate::reply::{handle_liq_queue_reply, handle_withdraw_reply, handle_user_sp_repay_reply};
-use crate::state::{ get_target_position, update_position, CollateralVolatility, ContractVersion, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER, VOLATILITY
-};
+use crate::reply::{handle_liq_queue_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_sp_reply};
+use crate::state::{ get_target_position, update_position, ContractVersion, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER };
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cdp";
@@ -101,18 +100,18 @@ pub fn instantiate(
     })?;
 
     //Create basket
-    // create_basket(
-    //     deps, 
-    //     info, 
-    //     env.clone(), 
-    //     msg.create_basket.basket_id, 
-    //     msg.create_basket.collateral_types, 
-    //     msg.create_basket.credit_asset, 
-    //     msg.create_basket.credit_price, 
-    //     msg.create_basket.base_interest_rate, 
-    //     msg.create_basket.credit_pool_infos, 
-    //     msg.create_basket.liq_queue
-    // )?;
+    /* create_basket(
+        deps, 
+        info, 
+        env.clone(), 
+        msg.create_basket.basket_id, 
+        msg.create_basket.collateral_types, 
+        msg.create_basket.credit_asset, 
+        msg.create_basket.credit_price, 
+        msg.create_basket.base_interest_rate, 
+        msg.create_basket.credit_pool_infos, 
+        msg.create_basket.liq_queue
+    )?; */
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -512,6 +511,7 @@ fn check_and_fulfill_bad_debt(
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         LIQ_QUEUE_REPLY_ID => handle_liq_queue_reply(deps, msg, env),
+        SP_REPLY_ID => handle_sp_reply(deps, env, msg),
         USER_SP_REPAY_REPLY_ID => handle_user_sp_repay_reply(deps, env, msg),
         WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
@@ -575,58 +575,36 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Load
-    let mut basket: Basket = BASKET.load(deps.storage)?;
-    let config: Config = CONFIG.load(deps.storage)?;
-    let mut msgs = vec![];
+    //Load user position
+    let mut user_position = get_target_position(deps.storage, Addr::unchecked("osmo12uk22nzee0hgahzttujcdce78ax627as04tcas"), Uint128::new(269))?.1;
 
-    //Split pending revenue to 3 wallets
-    //osmo1wjjg0mvsfgnskjj7qq28uaxqwq5h38q68enshj: 65%
-    let wallet1_rev = Decimal::percent(65) * basket.pending_revenue;
-    //osmo127u97q2ue337qzq9waarxv842qm8v0n0tmqra2: 24%
-    let wallet2_rev = Decimal::percent(24) * basket.pending_revenue;
-    //osmo1h0tkzpmrwt7lpcyd6r580r9vep3aa7m0j2fdns: 11%
-    let wallet3_rev = Decimal::percent(11) * basket.pending_revenue;
+    //Update collateral
+    for (i, asset) in user_position.clone().collateral_assets.into_iter().enumerate() {
+        if asset.asset.info.to_string() == "uosmo" {
+            user_position.collateral_assets[i].asset.amount -= Uint128::new(30732095);
+        } else if asset.asset.info.to_string() == "ibc/D79E7D83AB399BFFF93433E54FAA480C191248FC556924A2A8351AE2638B3877" {
+            user_position.collateral_assets[i].asset.amount -= Uint128::new(371857);
+        }
+        else if asset.asset.info.to_string() == "ibc/D176154B0C63D1F9C6DCFB4F70349EBF2E2B5A87A05902F57A6AE92B863E9AEC" {
+            user_position.collateral_assets[i].asset.amount -= Uint128::new(60613);
+        }
+        else if asset.asset.info.to_string() == "ibc/C140AFD542AE77BD7DCC83F13FDD8C5E5BB8C4929785E6EC2F4C636F98F1790" {
+            user_position.collateral_assets[i].asset.amount -= Uint128::new(140546);
+        }
+    }
 
-    //Create messages
-    //Mint to wallet 1
-    let mint_rev_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-        msg: to_binary(&OP_ExecuteMsg::MintTokens {
-            amount: wallet1_rev,
-            denom: basket.clone().credit_asset.info.to_string(),
-            mint_to_address: String::from("osmo1wjjg0mvsfgnskjj7qq28uaxqwq5h38q68enshj")
-        })?,
-        funds: vec![],
-    });
-    msgs.push(mint_rev_msg);
-    //Mint to wallet 2
-    let mint_rev_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-        msg: to_binary(&OP_ExecuteMsg::MintTokens {
-            amount: wallet2_rev,
-            denom: basket.clone().credit_asset.info.to_string(),
-            mint_to_address: String::from("osmo127u97q2ue337qzq9waarxv842qm8v0n0tmqra2")
-        })?,
-        funds: vec![],
-    });
-    msgs.push(mint_rev_msg);
-    //Mint to wallet 3
-    let mint_rev_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.osmosis_proxy.unwrap().to_string(),
-        msg: to_binary(&OP_ExecuteMsg::MintTokens {
-            amount: wallet3_rev,
-            denom: basket.clone().credit_asset.info.to_string(),
-            mint_to_address: String::from("osmo1h0tkzpmrwt7lpcyd6r580r9vep3aa7m0j2fdns")
-        })?,
-        funds: vec![],
-    });
-    msgs.push(mint_rev_msg);
+    //Update debt
+    user_position.credit_amount -= Uint128::new(25403143);
 
-    //Set pending revenue to 0
-    basket.pending_revenue = Uint128::zero();
-    //Save
-    BASKET.save(deps.storage, &basket)?;
+    //Update the position w/ the new credit & collateral amount
+    update_position(deps.storage, Addr::unchecked("osmo12uk22nzee0hgahzttujcdce78ax627as04tcas"), user_position)?;
+
+
+
+    //Reload user position
+    let mut user_position = get_target_position(deps.storage, Addr::unchecked("osmo12uk22nzee0hgahzttujcdce78ax627as04tcas"), Uint128::new(269))?.1;
+    //Panic to test
+    panic!("New position: {:?}", user_position);
     
-    Ok(Response::default().add_messages(msgs))
+    Ok(Response::default())
 }

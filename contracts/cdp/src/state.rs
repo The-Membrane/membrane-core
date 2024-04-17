@@ -26,9 +26,9 @@ pub struct ContractVersion {
 //This propogates liquidation info && state to reduce gas
 #[cw_serde]
 pub struct LiquidationPropagation {
-    pub per_asset_repayment: Vec<Decimal>,
-    pub liq_queue_leftovers: Decimal, //List of repayments
-    pub stability_pool: Decimal,      //Value of repayment
+    pub per_asset_repayment: Vec<Decimal>,//List of repayments
+    pub liq_queue_leftovers: Decimal, //Live tally of leftover repayment
+    pub stability_pool: Decimal, //SP repayment or leftover_position value
     pub user_repay_amount: Decimal,
     pub positions_contract: Addr,
     pub sp_liq_fee: Decimal,
@@ -36,6 +36,8 @@ pub struct LiquidationPropagation {
     pub cAsset_prices: Vec<PriceResponse>,
     pub target_position: Position,
     pub liquidated_assets: Vec<cAsset>, //List of assets liquidated for supply caps
+    pub caller_fee_value_paid: Decimal,
+    pub total_repaid: Decimal,
     pub position_owner: Addr,
     pub basket: Basket,
     pub config: Config,

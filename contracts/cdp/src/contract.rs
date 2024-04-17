@@ -598,13 +598,6 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
 
     //Update the position w/ the new credit & collateral amount
     update_position(deps.storage, Addr::unchecked("osmo12uk22nzee0hgahzttujcdce78ax627as04tcas"), user_position)?;
-
-
-
-    //Reload user position
-    let mut user_position = get_target_position(deps.storage, Addr::unchecked("osmo12uk22nzee0hgahzttujcdce78ax627as04tcas"), Uint128::new(269))?.1;
-    //Panic to test
-    panic!("New position: {:?}", user_position);
     
     Ok(Response::default())
 }

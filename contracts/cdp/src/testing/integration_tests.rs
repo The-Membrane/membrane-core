@@ -5332,7 +5332,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Call LiqRepay to mimic a successfull SP Liquidate call by both the initial SP and then LQ reply
+            //Call LiqRepay to mimic a successfull SP Liquidate call by the LQ reply
             let msg = ExecuteMsg::LiqRepay {};
 
             let cosmos_msg = cdp_contract

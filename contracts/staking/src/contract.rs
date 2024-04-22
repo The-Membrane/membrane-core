@@ -579,6 +579,8 @@ pub fn unstake(
 
         //Get user's delegation info
         if let Ok(mut staker_delegation_info) = DELEGATIONS.load(deps.storage, info.sender.clone()){
+            //Save indices to remove 
+            let mut remove_indices = vec![];
             //Get user's delegated stake
             let total_delegations: Uint128 = staker_delegation_info.clone()
                 .delegated_to
@@ -607,7 +609,7 @@ pub fn unstake(
                         undelegate_amount -= delegation.amount;
                         
                         //Remove staker delegation
-                        staker_delegation_info.delegated_to.remove(i);
+                        remove_indices.push(i);
 
                         //Remove delegate delegation
                         let mut delegate_delegation_info = DELEGATIONS.load(deps.storage, delegation.delegate.clone())?;
@@ -640,6 +642,10 @@ pub fn unstake(
                         DELEGATIONS.save(deps.storage, delegation.delegate.clone(), &delegate_delegation_info)?;
                         break;
                     }
+                }
+                //Remove indices now that we've iterated through the delegations
+                for i in remove_indices.into_iter(){
+                    staker_delegation_info.delegated_to.remove(i);
                 }
 
                 //Save updated delegation info
@@ -815,11 +821,12 @@ fn update_delegations(
                     return Err(ContractError::CustomError {
                         val: String::from("MBRN amount exceeds delegatible amount"),
                     });
-                } else if mbrn_amount < 1_000_000u128.into(){
-                    return Err(ContractError::CustomError {
-                        val: String::from("MBRN amount must be greater than 1"),
-                    });
-                }
+                } 
+                // else if mbrn_amount < 1_000_000u128.into(){
+                //     return Err(ContractError::CustomError {
+                //         val: String::from("MBRN amount must be greater than 1"),
+                //     });
+                // }
                 //If no delegatible amount, return error
                 if total_delegatible_amount.is_zero() {
                     return Err(ContractError::CustomError {

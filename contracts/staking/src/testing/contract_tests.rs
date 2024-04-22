@@ -852,21 +852,32 @@ fn unstake() {
     );
     //Successful Stake
     let msg = ExecuteMsg::Stake { user: None };
-    let info = mock_info("first_delegate", &[coin(1_000_000, "mbrn_denom")]);
+    let info = mock_info("first_delegate", &[coin(2_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
         vec![
             attr("method", "stake"),
             attr("staker", String::from("first_delegate")),
-            attr("amount", String::from("1000000")),
+            attr("amount", String::from("2000000")),
         ]
     );
 
-    //Delegate all staked MBRN: success
+    //Delegate partial staked MBRN: success
     let msg = ExecuteMsg::UpdateDelegations { 
         governator_addr: Some(String::from("unstaking_barrier")), 
-        mbrn_amount: None,
+        mbrn_amount: Some(Uint128::new(1000000)),
+        delegate: Some(true), 
+        fluid: None, 
+        voting_power_delegation: None, 
+        commission: None,
+    };
+    let info = mock_info("first_delegate", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    //Delegate partial staked MBRN: success
+    let msg = ExecuteMsg::UpdateDelegations { 
+        governator_addr: Some(String::from("second_conditional_test")), 
+        mbrn_amount: Some(Uint128::new(1000000)),
         delegate: Some(true), 
         fluid: None, 
         voting_power_delegation: None, 
@@ -903,7 +914,7 @@ fn unstake() {
     let res = query(deps.as_ref(), mock_env(), QueryMsg::TotalStaked {}).unwrap();
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
-    assert_eq!(resp.total_not_including_vested, Uint128::new(11000000));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(12000000));
     assert_eq!(resp.vested_total, Uint128::new(11000000));
 
     //Not a staker Error
@@ -936,9 +947,15 @@ fn unstake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_vested, Uint128::new(1_000_000));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(2_000_000));
     assert_eq!(resp.vested_total, Uint128::new(11_000000));
 
+    //Separate Staker: Unstake all of the 1st delegation, 1 of the 2nd
+    let msg = ExecuteMsg::Unstake {
+        mbrn_amount: Some(Uint128::new(1_000_001u128)),
+    };
+    let info = mock_info("first_delegate", &[]);
+    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Skip 3 days
     let mut env = mock_env();
@@ -963,7 +980,7 @@ fn unstake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_vested, Uint128::new(11_000_000));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(10_999_999));
     assert_eq!(resp.vested_total, Uint128::new(11_000000));
 
     //Query and Assert UserStake
@@ -1074,7 +1091,7 @@ fn unstake() {
     ).unwrap();
     let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
     assert_eq!(
-        resp[1].delegation_info,
+        resp[2].delegation_info,
         OldDelegationInfo {
             delegated: vec![],
             delegated_to: vec![
@@ -1090,7 +1107,7 @@ fn unstake() {
         }        
     );
     assert_eq!(
-        resp[2].delegation_info,
+        resp[3].delegation_info,
         OldDelegationInfo {
             delegated: vec![
                 OldDelegation {
@@ -1118,8 +1135,39 @@ fn unstake() {
 
     let resp: TotalStakedResponse = from_binary(&res).unwrap();
 
-    assert_eq!(resp.total_not_including_vested, Uint128::new(1_019_194));
+    assert_eq!(resp.total_not_including_vested, Uint128::new(1_019_193));
     assert_eq!(resp.vested_total, Uint128::new(11_000000));
+
+    //Unstake from first_delegate: This is testing that unstakes that hit both conditionals for undelegating work 
+    let msg = ExecuteMsg::Unstake { mbrn_amount: Some(Uint128::new(500001)) };
+    let info = mock_info("first_delegate", &[]);
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+
+    let res = query(deps.as_ref(), mock_env(),
+        QueryMsg::Delegations {
+            user: Some(String::from("first_delegate")),
+            limit: None,
+            start_after: None,
+            end_before: None,
+        },
+    ).unwrap();
+    let resp: Vec<DelegationResponse> = from_binary(&res).unwrap();
+    assert_eq!(
+        resp[0].delegation_info,
+        OldDelegationInfo {
+            delegated: vec![],
+            delegated_to: vec![
+                OldDelegation {
+                    delegate: Addr::unchecked("second_conditional_test"),
+                    amount: Uint128::new(999999),
+                    fluidity: false,
+                    voting_power_delegation: true,
+                    time_of_delegation: 1571797419,
+                }
+            ],
+            commission: Decimal::zero(),
+        }        
+    );
 }
 
 #[test]

@@ -575,29 +575,6 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Load user position
-    let mut user_position = get_target_position(deps.storage, Addr::unchecked("osmo12uk22nzee0hgahzttujcdce78ax627as04tcas"), Uint128::new(269))?.1;
-
-    //Update collateral
-    for (i, asset) in user_position.clone().collateral_assets.into_iter().enumerate() {
-        if asset.asset.info.to_string() == "uosmo" {
-            user_position.collateral_assets[i].asset.amount -= Uint128::new(30732095);
-        } else if asset.asset.info.to_string() == "ibc/D79E7D83AB399BFFF93433E54FAA480C191248FC556924A2A8351AE2638B3877" {
-            user_position.collateral_assets[i].asset.amount -= Uint128::new(371857);
-        }
-        else if asset.asset.info.to_string() == "ibc/D176154B0C63D1F9C6DCFB4F70349EBF2E2B5A87A05902F57A6AE92B863E9AEC" {
-            user_position.collateral_assets[i].asset.amount -= Uint128::new(60613);
-        }
-        else if asset.asset.info.to_string() == "ibc/C140AFD542AE77BD7DCC83F13FDD8C5E5BB8C4929785E6EC2F4C636F98F17901" {
-            user_position.collateral_assets[i].asset.amount -= Uint128::new(140546);
-        }
-    }
-
-    //Update debt
-    user_position.credit_amount -= Uint128::new(25403143);
-
-    //Update the position w/ the new credit & collateral amount
-    update_position(deps.storage, Addr::unchecked("osmo12uk22nzee0hgahzttujcdce78ax627as04tcas"), user_position)?;
     
     Ok(Response::default())
 }

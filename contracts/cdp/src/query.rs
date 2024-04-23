@@ -303,7 +303,15 @@ pub fn get_cAsset_ratios(
 
                 //With volatility btwn any time points standardized to the same units (vol/time)
                 // we can now calculate the change in index based on the % difference btwn the avg volatility & the newest speed of volatility
-                let change_in_index = decimal_division(avg_volatility, speed_of_volatility)?;
+                let mut change_in_index = decimal_division(avg_volatility, speed_of_volatility)?;
+                //If change is < 1, meaning new speed is less than avg
+                //The new change is 1 - new_vol
+                if change_in_index < Decimal::one() {
+                    change_in_index = match Decimal::one().checked_sub(new_volatility){
+                        Ok(diff) => diff,
+                        Err(_) => Decimal::percent(1) //Vol is over 100% we set change to 0.01
+                    };
+                }
 
                 //Index can't hit 0
                 volatility_store.index = decimal_multiplication(volatility_store.index, change_in_index)?;

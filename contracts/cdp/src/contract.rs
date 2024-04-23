@@ -31,7 +31,7 @@ use crate::query::{
 };
 use crate::liquidations::liquidate;
 use crate::reply::{handle_liq_queue_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_sp_reply};
-use crate::state::{ get_target_position, update_position, ContractVersion, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER };
+use crate::state::{ get_target_position, update_position, CollateralVolatility, ContractVersion, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER, VOLATILITY };
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cdp";
@@ -100,18 +100,18 @@ pub fn instantiate(
     })?;
 
     //Create basket
-    /* create_basket(
-        deps, 
-        info, 
-        env.clone(), 
-        msg.create_basket.basket_id, 
-        msg.create_basket.collateral_types, 
-        msg.create_basket.credit_asset, 
-        msg.create_basket.credit_price, 
-        msg.create_basket.base_interest_rate, 
-        msg.create_basket.credit_pool_infos, 
-        msg.create_basket.liq_queue
-    )?; */
+    // create_basket(
+    //     deps, 
+    //     info, 
+    //     env.clone(), 
+    //     msg.create_basket.basket_id, 
+    //     msg.create_basket.collateral_types, 
+    //     msg.create_basket.credit_asset, 
+    //     msg.create_basket.credit_price, 
+    //     msg.create_basket.base_interest_rate, 
+    //     msg.create_basket.credit_pool_infos, 
+    //     msg.create_basket.liq_queue
+    // )?; 
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -575,6 +575,13 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    
+     //Reset all volatility indices
+     let basket: Basket = BASKET.load(deps.storage)?;
+     for asset in basket.collateral_types.clone() {
+         VOLATILITY.save(deps.storage, asset.asset.info.to_string(), &CollateralVolatility {
+             index: Decimal::one(),
+             volatility_list: vec![]
+         })?;
+     }
     Ok(Response::default())
 }

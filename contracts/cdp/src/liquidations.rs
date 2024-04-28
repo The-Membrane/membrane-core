@@ -522,7 +522,7 @@ fn per_asset_fulfillments(
             
             /////Store credit repay amount////
             //Only store if we make it this far in the block.
-            //If we continue beforehand we don't want to save these as it breaks the reply logic.
+            //If we 'continue' beforehand we don't want to save these as it breaks the reply logic.
             per_asset_repayment.push(Decimal::from_ratio(repay_amount_per_asset, Uint128::one()));
 
             //Convert to submsg
@@ -628,7 +628,8 @@ pub fn build_sp_submsgs(
 
         LIQUIDATION.save(storage, &liquidation_propagation)?;
 
-        if !leftover_repayment.is_zero() {
+        //We use 1 as our 0 to account for LQ rounding errors
+        if leftover_repayment > Decimal::one() {
 
             //Stability Pool message builder
             let liq_msg = SP_ExecuteMsg::Liquidate {

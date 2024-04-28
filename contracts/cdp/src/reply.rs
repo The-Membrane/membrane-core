@@ -235,7 +235,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             }
         
             //If this is the last asset left to send and nothing was sent to the SP, update the position here instead of in liq_repay
-            if prop.per_asset_repayment.len() == 1 && prop.stability_pool.is_zero(){
+            if prop.per_asset_repayment.len() == 1 && prop.stability_pool < 1 {
 
                 //Update supply caps
                 if prop.clone().target_position.credit_amount.is_zero(){                

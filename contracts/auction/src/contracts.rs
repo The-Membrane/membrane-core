@@ -5,7 +5,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::auction::{ExecuteMsg, InstantiateMsg, QueryMsg, Config, UpdateConfig};
+use membrane::auction::{ExecuteMsg, InstantiateMsg, QueryMsg, Config, UpdateConfig, MigrateMsg};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
@@ -405,7 +405,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
         let desired_asset_value = desired_res.get_value(coin.amount)?;
                 
         //Get auction asset price
-        let auction_res: PriceResponse = deps.querier.query_wasm_smart(
+        let mut auction_res: PriceResponse = deps.querier.query_wasm_smart(
             config.clone().oracle_contract.to_string(), 
             &OracleQueryMsg::Price {
                     asset_info: AssetInfo::NativeToken {
@@ -438,7 +438,11 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
             FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
 
         } else if desired_asset_value < auction_asset_value {
-            //If the value of the sent desired_Asset is less than the value of the auction asset, set successful_swap_amount
+            /////If the value of the sent desired_Asset is less than the value of the auction asset, set successful_swap_amount
+            //Set auction_price to the discounted price
+            let discounted_auction_price = decimal_multiplication(auction_res.price, discount_ratio)?;
+            auction_res.price = discounted_auction_price;
+
             //Update auction asset amount
             successful_swap_amount = auction_res.get_amount(desired_asset_value)?;
             auction.auction_asset.amount = auction_res.get_amount(auction_asset_value - desired_asset_value)?;
@@ -488,7 +492,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
         }));
 
         //Update or Remove Auction
-        if auction.auction_asset.amount.is_zero() {
+        if auction.auction_asset.amount <= Uint128::one() {
             FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
         } else {
             FEE_AUCTIONS.save(deps.storage, auction_asset.clone().to_string(), &auction)?;
@@ -539,10 +543,11 @@ fn get_discount_ratio(
         current_discount_increase + config.initial_discount
     };
 
+    //Maximum discount of 99%
     let discount_ratio = decimal_subtraction(
         Decimal::one(),
         current_discount,
-    )?;    
+    )?.max(Decimal::percent(1));
     
     Ok(discount_ratio)
 }
@@ -825,4 +830,9 @@ fn get_ongoing_fee_auctions(
 
         Ok(resp)
     }
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    Ok(Response::default())
 }

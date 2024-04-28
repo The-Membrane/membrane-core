@@ -201,6 +201,7 @@ mod tests {
             owner: None,
             positions_contract: Some(cdp_contract_addr.to_string()),
             osmosis_proxy_contract: Some(osmosis_proxy_contract_addr.to_string()),
+            oracle_contract: None,
         };
 
         let oracle_contract_addr = app
@@ -219,13 +220,14 @@ mod tests {
         use std::str::FromStr;
 
         use super::*;
-        use membrane::oracle::{Config, AssetResponse};
-        use membrane::math::{decimal_division, decimal_multiplication};
+        use membrane::oracle::{Config, AssetResponse, PriceResponse256};
+        use membrane::math::{decimal_division, decimal_multiplication, Decimal256, Uint256};
         use pyth_sdk_cw::PriceIdentifier;
 
         #[test]
         fn add_edit() {
-            let (mut app, oracle_contract, cdp_contract) = proper_instantiate();
+
+            let (mut app, oracleContract, cdp_contract) = proper_instantiate();
 
             //Unauthorized AddAsset
             let msg = ExecuteMsg::AddAsset {
@@ -245,7 +247,7 @@ mod tests {
                     pyth_price_feed_id: None,
                 },
             };
-            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
             //Successful AddAsset for Basket 1
@@ -266,7 +268,7 @@ mod tests {
                     pyth_price_feed_id: None,
                 },
             };
-            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Successful AddAsset for Basket 2
@@ -287,8 +289,53 @@ mod tests {
                     pyth_price_feed_id: None,
                 },
             };
-            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            
+            //Instantiate a new Oracle contract to test asset copy
+            //Instantiate Oracle contract
+            let oracle_id = app.store_code(oracle_contract());
+
+            let msg = InstantiateMsg {
+                owner: None,
+                positions_contract: None,
+                osmosis_proxy_contract: None,
+                oracle_contract: Some(oracleContract.addr().to_string()),
+            };
+
+            let oracle_contract_addr = app
+                .instantiate_contract(oracle_id, Addr::unchecked(ADMIN), &msg, &[], "test", None)
+                .unwrap();
+
+            let oracle_contract_2 = OracleContract(oracle_contract_addr);
+
+            //Query Assets
+            let assets: Vec<AssetResponse> = app
+                .wrap()
+                .query_wasm_smart(
+                    oracle_contract_2.addr(),
+                    &QueryMsg::Assets {
+                        asset_infos: vec![
+                            AssetInfo::NativeToken {
+                                denom: String::from("credit_fulldenom"),
+                            },                            
+                            AssetInfo::NativeToken {
+                                denom: String::from("removable"),
+                            }
+                        ],
+                    },
+                )
+                .unwrap();
+            //Query Config
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    oracle_contract_2.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            panic!("{:?} === {:?}", assets, config);
 
 
             //Successful EditAsset
@@ -310,14 +357,14 @@ mod tests {
                 }),
                 remove: false,
             };
-            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
             app.execute(cdp_contract.clone(), cosmos_msg).unwrap();
 
             //Assert Asset was edited
             let asset: Vec<AssetResponse> = app
                 .wrap()
                 .query_wasm_smart(
-                    oracle_contract.addr(),
+                    oracleContract.addr(),
                     &QueryMsg::Assets {
                         asset_infos: vec![AssetInfo::NativeToken {
                             denom: String::from("credit_fulldenom"),
@@ -345,7 +392,7 @@ mod tests {
                     pyth_price_feed_id: None,
                 },
             };
-            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
            
 
@@ -357,13 +404,13 @@ mod tests {
                 oracle_info: None,
                 remove: true,
             };
-            let cosmos_msg = oracle_contract.call(msg, vec![]).unwrap();
+            let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
             app.execute(cdp_contract, cosmos_msg).unwrap();
 
             //Assert Asset was removed
             app.wrap()
                 .query_wasm_smart::<Vec<AssetResponse>>(
-                    oracle_contract.addr(),
+                    oracleContract.addr(),
                     &QueryMsg::Assets {
                         asset_infos: vec![AssetInfo::NativeToken {
                             denom: String::from("removable"),
@@ -527,28 +574,41 @@ mod tests {
 
         #[test]
         fn scaling_test() {
-            let amount = Decimal::from_ratio(Uint128::new(187931653491861157), Uint128::new(1));
-            let price = decimal_multiplication(Decimal::from_str("0.000000000000001954").unwrap(), amount).unwrap();
+            // let amount = Decimal::from_ratio(Uint128::new(999_187_931_653_491_861_157), Uint128::new(1));
+            // let price = decimal_multiplication(Decimal::from_str("0.000000000000001954").unwrap(), amount).unwrap();
             
-            let quote_price;
-            let price = 78574968;
-            let expo: i32 = -6;
-            //Scale price using given exponent
-            match expo > 0 {
-                true => {
-                    quote_price = decimal_multiplication(
-                        Decimal::from_str(&price.to_string()).unwrap(), 
-                        Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(expo as u32).unwrap()
-                    ).unwrap();
-                },
-                //If the exponent is negative we divide, it should be for most if not all
-                false => {
-                    quote_price = decimal_division(
-                        Decimal::from_str(&price.to_string()).unwrap(), 
-                        Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow((expo*-1) as u32).unwrap()
-                    ).unwrap();
-                }
+            panic!("{:?}", PriceResponse {
+                prices: vec![PriceInfo {
+                    price: Decimal::from_str("0.33460022928606451").unwrap(),
+                    source: String::from("osmosis"),
+                }],
+                price: Decimal::from_str("0.33460022928606451").unwrap(),
+                decimals: 18,
+            }.get_value(15984828147841759232u128.into()));
+            
+            let price = 123;
+            let price_response = PriceResponse {
+                prices: vec![],
+                price: Decimal::from_str(&price.to_string()).unwrap(),
+                decimals: 18,
             };
+            panic!("{:?}", price_response.get_value(340_280_000_000_000_000_000_000_000_001u128.into()));
+            //Scale price using given exponent
+            // match expo > 0 {
+            //     true => {
+            //         quote_price = decimal_multiplication(
+            //             Decimal::from_str(&price.to_string()).unwrap(), 
+            //             Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(expo as u32).unwrap()
+            //         ).unwrap();
+            //     },
+            //     //If the exponent is negative we divide, it should be for most if not all
+            //     false => {
+            //         quote_price = decimal_division(
+            //             Decimal::from_str(&price.to_string()).unwrap(), 
+            //             Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow((expo*-1) as u32).unwrap()
+            //         ).unwrap();
+            //     }
+            // };
         }
 
         #[test]

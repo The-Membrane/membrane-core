@@ -10,10 +10,11 @@ use cosmwasm_std::{
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::helpers::assert_sent_native_token_balance;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
-use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig};
+use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, MigrateMsg};
 use membrane::types::{
     cAsset, Asset, AssetInfo, Basket, UserInfo,
 };
+use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 
 use crate::error::ContractError;
 use crate::rates::external_accrue_call;
@@ -22,18 +23,15 @@ use crate::positions::{
     deposit,
     edit_basket, increase_debt,
     liq_repay, repay, redeem_for_collateral, edit_redemption_info,
-    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, ROUTER_REPLY_ID, 
-    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, STABILITY_POOL_REPLY_ID, create_basket,
+    withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID, SP_REPLY_ID,
+    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, //create_basket,
 };
 use crate::query::{
-    query_basket_credit_interest, query_basket_debt_caps,
-    query_basket_positions, query_collateral_rates, query_basket_redeemability,
+    query_basket_credit_interest, query_basket_debt_caps, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint
 };
 use crate::liquidations::liquidate;
-use crate::reply::{handle_liq_queue_reply, handle_stability_pool_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_router_repayment_reply};
-use crate::state::{ CONTRACT, ContractVersion,
-    BASKET, CONFIG, get_target_position, update_position, OWNERSHIP_TRANSFER,
-};
+use crate::reply::{handle_liq_queue_reply, handle_withdraw_reply, handle_user_sp_repay_reply, handle_sp_reply};
+use crate::state::{ get_target_position, update_position, CollateralVolatility, ContractVersion, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER, VOLATILITY };
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cdp";
@@ -102,18 +100,18 @@ pub fn instantiate(
     })?;
 
     //Create basket
-    create_basket(
-        deps, 
-        info, 
-        env.clone(), 
-        msg.create_basket.basket_id, 
-        msg.create_basket.collateral_types, 
-        msg.create_basket.credit_asset, 
-        msg.create_basket.credit_price, 
-        msg.create_basket.base_interest_rate, 
-        msg.create_basket.credit_pool_infos, 
-        msg.create_basket.liq_queue
-    )?;
+    // create_basket(
+    //     deps, 
+    //     info, 
+    //     env.clone(), 
+    //     msg.create_basket.basket_id, 
+    //     msg.create_basket.collateral_types, 
+    //     msg.create_basket.credit_asset, 
+    //     msg.create_basket.credit_price, 
+    //     msg.create_basket.base_interest_rate, 
+    //     msg.create_basket.credit_pool_infos, 
+    //     msg.create_basket.liq_queue
+    // )?; 
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -150,7 +148,10 @@ pub fn execute(
                 valid_assets,
             )?;
 
-            deposit(deps, env, info, position_owner, position_id, cAssets )
+            //If there is nothing being deposited, error
+            if cAssets == vec![] { return Err(ContractError::CustomError { val: String::from("No deposit assets passed") }) }
+
+            deposit(deps, env, info, position_owner, position_id, cAssets)
         }
         ExecuteMsg::Withdraw {
             position_id,
@@ -195,7 +196,7 @@ pub fn execute(
                 send_excess_to,
             )
         },
-        ExecuteMsg::Accrue { position_owner, position_ids } => { external_accrue_call(deps, info, env, position_owner, position_ids) },
+        ExecuteMsg::Accrue { position_owner, position_ids } => { external_accrue_call(deps.storage, deps.api, deps.querier, info, env, position_owner, position_ids) },
         ExecuteMsg::RedeemCollateral { max_collateral_premium } => {
             redeem_for_collateral(
                 deps, 
@@ -233,7 +234,7 @@ pub fn execute(
             max_borrow_LTV,
             max_LTV,
         } => edit_cAsset(deps, info, asset, max_borrow_LTV, max_LTV),
-        ExecuteMsg::EditBasket(edit) => edit_basket(deps, info,edit),
+        ExecuteMsg::EditBasket(edit) => edit_basket(deps, env, info,edit),
         ExecuteMsg::Liquidate {
             position_id,
             position_owner,
@@ -510,10 +511,9 @@ fn check_and_fulfill_bad_debt(
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         LIQ_QUEUE_REPLY_ID => handle_liq_queue_reply(deps, msg, env),
-        STABILITY_POOL_REPLY_ID => handle_stability_pool_reply(deps, env, msg),
+        SP_REPLY_ID => handle_sp_reply(deps, env, msg),
         USER_SP_REPAY_REPLY_ID => handle_user_sp_repay_reply(deps, env, msg),
         WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
-        ROUTER_REPLY_ID => handle_router_repayment_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
@@ -547,8 +547,11 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_binary(&query_basket_credit_interest(deps, env)?)
         }
         QueryMsg::GetCollateralInterest { } => {
-            to_binary(&query_collateral_rates(deps, env)?)
+            to_binary(&query_collateral_rates(deps)?)
         },
+        QueryMsg::SimulateMint { position_info, LTV } => {
+            to_binary(&simulate_LTV_mint(deps, env, position_info, LTV)?)
+        }
     }
 }
 
@@ -568,4 +571,17 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
     }
 
     Ok(())
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+     //Reset all volatility indices
+     let basket: Basket = BASKET.load(deps.storage)?;
+     for asset in basket.collateral_types.clone() {
+         VOLATILITY.save(deps.storage, asset.asset.info.to_string(), &CollateralVolatility {
+             index: Decimal::one(),
+             volatility_list: vec![]
+         })?;
+     }
+    Ok(Response::default())
 }

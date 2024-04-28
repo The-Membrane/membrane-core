@@ -195,6 +195,13 @@ pub enum QueryMsg {
     GetCreditRate { },
     /// Returns Basket collateral interest rates
     GetCollateralInterest { },
+    /// Simulate LTV mint for a Position
+    SimulateMint {
+        /// Position ID to simulate mint for
+        position_info: UserInfo,
+        /// LTV to mint to
+        LTV: Decimal,
+    },
     // Returns insolvency status of a Position
     // GetPositionInsolvency {
     //     /// Position ID to query
@@ -205,6 +212,9 @@ pub enum QueryMsg {
     // Used internally to test state propagation
     // Propagation {},
 }
+
+#[cw_serde]
+pub struct MigrateMsg {}
 
 #[cw_serde]
 pub struct Config {

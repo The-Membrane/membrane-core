@@ -133,3 +133,6 @@ pub struct UpdateConfig {
     /// Toggle sending FeeAuction assets to stakers instead of governance
     pub send_to_stakers: Option<bool>,
 }
+
+#[cw_serde]
+pub struct MigrateMsg {}

@@ -33,7 +33,7 @@ use osmosis_std::types::osmosis::lockup::QueryCondition;
 //Governance constants
 const PROPOSAL_VOTING_PERIOD: u64 = *VOTING_PERIOD_INTERVAL.start();
 const PROPOSAL_EFFECTIVE_DELAY: u64 = 1; //1 day
-const PROPOSAL_EXPIRATION_PERIOD: u64 = 33600; //14 days
+const PROPOSAL_EXPIRATION_PERIOD: u64 = *VOTING_PERIOD_INTERVAL.end(); //14 days
 const PROPOSAL_REQUIRED_STAKE: u128 = *STAKE_INTERVAL.start();
 const PROPOSAL_REQUIRED_QUORUM: &str = "0.33";
 const PROPOSAL_REQUIRED_THRESHOLD: &str = "0.66";
@@ -101,6 +101,7 @@ pub fn handle_op_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Respons
                     owner: None,
                     positions_contract: None,
                     osmosis_proxy_contract: None,
+                    oracle_contract: None,
                 })?, 
                 funds: vec![], 
                 label: String::from("oracle"), 
@@ -1211,7 +1212,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                         owner: addrs.clone().governance, 
                         total_minted: Uint128::zero(),
                         stability_pool_ratio: None,
-                        non_token_contract_auth: true, //Governance has full control over the system & mints CDT for revenue distributions
+                        non_token_contract_auth: true, //Governance has full control over the system & mints CDT for revenue distributions (no it doesn't)
                         is_position_contract: false,
                     },
                     Owner {

@@ -5,22 +5,28 @@ use cosmwasm_std::{
     attr, entry_point, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
     MessageInfo, Order, QueryRequest, Response, StdResult, Uint128, Uint64, WasmMsg, WasmQuery, Storage, QuerierWrapper,
 };
+use osmosis_std::types::osmosis::incentives::{MsgCreateGauge, MsgAddToGauge};
 use cw2::set_contract_version;
 use cw_storage_plus::Bound;
 
-use membrane::helpers::query_staking_totals;
-use membrane::types::StakeDeposit;
+use membrane::helpers::{query_staking_totals, asset_to_coin, query_basket};
+use membrane::math::decimal_multiplication;
+use membrane::types::{SupplyCap, AssetInfo, Asset, Basket, BidInput};
 use membrane::vesting::{AllocationResponse, QueryMsg as VestingQueryMsg, RecipientsResponse};
 use membrane::governance::helpers::validate_links;
 use membrane::governance::{
     Config, ExecuteMsg, InstantiateMsg, Proposal, ProposalListResponse, ProposalMessage,
     ProposalResponse, ProposalStatus, ProposalVoteOption, ProposalVotesResponse, QueryMsg,
-    UpdateConfig, BLOCKS_PER_DAY
+    UpdateConfig, BLOCKS_PER_DAY, MigrateMsg
 };
+use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, EditBasket, QueryMsg as CDP_QueryMsg, Config as CDP_Config};
 use membrane::staking::{
-    Config as StakingConfig, QueryMsg as StakingQueryMsg, StakedResponse, TotalStakedResponse, DelegationResponse,
+    Config as StakingConfig, DelegationResponse, ExecuteMsg as Staking_ExecuteMsg, QueryMsg as StakingQueryMsg, StakedResponse, StakerResponse, TotalStakedResponse
 };
+use membrane::liq_queue::{Config as LQ_Config, ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, QueueResponse};
+use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 
+use core::panic;
 use std::cmp::min;
 use std::str::FromStr;
 
@@ -36,6 +42,9 @@ const DEFAULT_LIMIT: u32 = 10;
 const MAX_LIMIT: u32 = 30;
 const DEFAULT_VOTERS_LIMIT: u32 = 100;
 const MAX_VOTERS_LIMIT: u32 = 250;
+
+//External query limit
+const STAKE_QUERY_LIMIT: u32 = 1024;
 
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -120,12 +129,15 @@ pub fn execute(
         } => cast_vote(deps, env, info, proposal_id, vote, recipient),
         ExecuteMsg::EndProposal { proposal_id } => end_proposal(deps, env, proposal_id),
         ExecuteMsg::ExecuteProposal { proposal_id } => execute_proposal(deps, env, proposal_id),
-        ExecuteMsg::CheckMessages { messages } => check_messages(env, messages),
-        ExecuteMsg::CheckMessagesPassed {} => Err(ContractError::MessagesCheckPassed {}),
+        ExecuteMsg::CheckMessages { messages, msg_switch } => check_messages(deps, env, messages, msg_switch),
+        ExecuteMsg::CheckMessagesPassed { error } => passed_messages(deps, env, error),
         ExecuteMsg::RemoveCompletedProposal { proposal_id } => {
-            remove_completed_proposal(deps, env, proposal_id)
+            remove_completed_proposal(deps, env, info, proposal_id)
         }
         ExecuteMsg::UpdateConfig(config) => update_config(deps, env, info, config),
+        ExecuteMsg::CreateOsmosisGauge { gauge_msg } => create_gauge(info, env, gauge_msg),
+        ExecuteMsg::AddToOsmosisGauge { gauge_msg } => add_to_gauge(info, env, gauge_msg),
+        ExecuteMsg::FreezePositions { frozen, freeze_these_assets } => freeze_positions(info, env, frozen, freeze_these_assets),
     }
 }
 
@@ -140,7 +152,7 @@ pub fn submit_proposal(
     description: String,
     link: Option<String>,
     messages: Option<Vec<ProposalMessage>>,
-    mut recipient: Option<String>,
+    recipient: Option<String>,
     mut expedited: bool,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
@@ -160,43 +172,22 @@ pub fn submit_proposal(
     
     if non_vested_total < config.minimum_total_stake {
         return Err(ContractError::InsufficientTotalStake { minimum: config.minimum_total_stake.into() });
-    }
-
-    //If sender is vesting Contract, toggle
-    let mut vesting: bool = false;
-    if info.sender != config.vesting_contract_addr {
-        //Only Vesting contract can submit expedited proposals
-        expedited = false;
-        recipient = None;
-    } else {
-        vesting = true;
-    }
-
-    //Query stake from before Proposal's start_time
-    let staked_mbrn = deps.querier
-        .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.staking_contract_addr.to_string(),
-            msg: to_binary(&StakingQueryMsg::Staked {
-                limit: None,
-                start_after: None,
-                end_before: Some(env.block.time.seconds()),
-                unstaking: false,
-            })?,
-        }))?
-        .stakers;  
-
+    }   
+   
     //Validate voting power
     let voting_power = calc_voting_power(
         deps.storage,
         deps.querier,
-        Some(staked_mbrn.clone()),
         Some(non_vested_total),
         info.sender.to_string(),
         env.block.time.seconds(),
-        vesting,
+        &mut expedited,
         recipient.clone(),
         false, //No quadratic for proposal submissions
     )?;
+    if voting_power.is_zero() {
+        return Err(ContractError::NoVotingPower {});
+    }
     
     // Update the proposal count
     let count = PROPOSAL_COUNT.update(deps.storage, |c| -> StdResult<_> {
@@ -210,45 +201,18 @@ pub fn submit_proposal(
 
     //Set end_block 
     let end_block: u64 = {
+        //Config is all in blocks, the 'times 6' converts it to 6 seconds per block
         if expedited {
-            env.block.height + config.expedited_proposal_voting_period
+            env.block.time.seconds() + (config.expedited_proposal_voting_period * 6) 
         } else if messages.is_some() && config.proposal_voting_period <  (7 * BLOCKS_PER_DAY){ //Proposals with executables have to be at least 7 days
-            env.block.height + (7 * BLOCKS_PER_DAY)
+            env.block.time.seconds() + (7 * BLOCKS_PER_DAY * 6)
         } else {
-            env.block.height + config.proposal_voting_period
+            env.block.time.seconds() + (config.proposal_voting_period * 6) 
         }
-    };    
+    };
 
-    let mut voting_power_list: Vec<(Addr, Uint128)> = vec![];
-
-    for staker in deps
-        .querier
-        .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.staking_contract_addr.to_string(),
-            msg: to_binary(&StakingQueryMsg::Staked {
-                limit: None,
-                start_after: None,
-                end_before: Some(env.block.time.seconds()),
-                unstaking: false,
-            })?,
-        }))?
-            .stakers {
-                let vp = calc_voting_power(
-                    deps.storage,
-                    deps.querier,
-                    Some(staked_mbrn.clone()),
-                    Some(non_vested_total),
-                    staker.staker.to_string(), 
-                    env.block.time.seconds(), 
-                    false, 
-                    recipient.clone(), 
-                    config.quadratic_voting,
-                )?;
-
-                voting_power_list.push((staker.staker, vp));
-            }
     let mut proposal = Proposal {
-        voting_power: voting_power_list,
+        voting_power: vec![],
         proposal_id: count,
         submitter: submitter.unwrap_or_else(|| info.sender.clone()),
         status: ProposalStatus::Active,
@@ -265,11 +229,11 @@ pub fn submit_proposal(
         start_block: env.block.height,
         start_time: env.block.time.seconds(),
         end_block,
-        delayed_end_block: end_block
-            + config.proposal_effective_delay,
+        delayed_end_block: end_block //*6 is bc the config is in 6 sec block times but the end_block is now in seconds
+            + (config.proposal_effective_delay * 6),
         expiration_block: end_block
-            + config.proposal_effective_delay
-            + config.proposal_expiration_period,
+            + (config.proposal_effective_delay * 6)
+            + (config.proposal_expiration_period * 6),
         title,
         description,
         link,
@@ -277,11 +241,22 @@ pub fn submit_proposal(
     };
 
     proposal.validate(config.whitelisted_links)?;
+
+    if proposal.aligned_power >= config.proposal_required_stake && config.quadratic_voting {
+        //Calc difference
+        let mut difference = proposal.aligned_power.checked_sub(config.proposal_required_stake)?;
+        //Square root it
+        difference = Decimal::from_ratio(difference, Uint128::one()).sqrt().to_uint_floor();
+        //Set aligned power to threshold
+        proposal.aligned_power = config.proposal_required_stake;
+        //Add difference to proposal
+        proposal.aligned_power = proposal.aligned_power.checked_add(difference)?;
+    }
     
     //If proposal has insufficient alignment, send to pending
     if proposal.aligned_power < config.proposal_required_stake {
         //Set end block to 1 day from now
-        proposal.end_block = env.block.height + 14400;
+        proposal.end_block = env.block.time.seconds() + (BLOCKS_PER_DAY * 6); //6 seconds per block
         PENDING_PROPOSALS.save(deps.storage, count.to_string(), &proposal)?;
     } else {
         PROPOSALS.save(deps.storage, count.to_string(), &proposal)?;
@@ -296,20 +271,22 @@ pub fn submit_proposal(
         ),
         attr("proposal_id", count),
         attr(
-            "proposal_end_height",
+            "proposal_end_time",
             (proposal.end_block).to_string(),
         ),
     ]))
 }
 
 /// Cast a vote on an active proposal.
+/// 
+/// Warning: There is a chance that changing voting to non-quadratic with a large number of voting tokens could cause an overflow.
 pub fn cast_vote(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
     proposal_id: u64,
     vote_option: ProposalVoteOption,
-    mut recipient: Option<String>,
+    recipient: Option<String>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -327,52 +304,35 @@ pub fn cast_vote(
             Err(err) => return Err(ContractError::Std(err)),
         }
     };
-    //Only vesting can use the recipient parameter
-    if info.sender != config.vesting_contract_addr {
-        recipient = None;
-    }
-
-    //Init recipient    
-    let mut recipient_addr: Addr = Addr::unchecked("");
 
     //Can't vote on your own proposal
-    if proposal.submitter == info.sender || proposal.aligned_voters.contains(&info.sender) {
+    if proposal.submitter == info.sender {
         return Err(ContractError::Unauthorized {});
     } else if let Some(recipient) = recipient.clone() {
-        recipient_addr = deps.api.addr_validate(&recipient)?;
+        //validate recipient
+        deps.api.addr_validate(&recipient)?;
 
-        if proposal.submitter == recipient || proposal.aligned_voters.contains(&recipient_addr) {
+        if proposal.submitter == recipient {
             return Err(ContractError::Unauthorized {});
         }
     }
 
-    if env.block.height > proposal.end_block {
+    //Checking as if end_block is in seconds
+    if env.block.time.seconds() > proposal.end_block {
         return Err(ContractError::VotingPeriodEnded {});
     }
 
     //Get voting power from Proposal struct
-    let mut voting_power: Uint128 = Uint128::zero();  
-    for vp in proposal.clone().voting_power.into_iter() {
-        
-        if recipient.is_some(){
-            voting_power = calc_voting_power(
-                deps.storage, 
-                deps.querier,
-                None,
-                None,
-                info.sender.to_string(), 
-                proposal.start_time,
-                true, 
-                recipient.clone(), 
-                config.quadratic_voting,
-            )?;
-            break;
-        } else if vp.0 == info.sender {
-            voting_power = vp.1;
-            break;
-        }
-    }    
-
+    let mut voting_power: Uint128 = calc_voting_power(
+        deps.storage, 
+        deps.querier,
+        None,
+        info.sender.to_string(), 
+        proposal.start_time,
+        &mut false, 
+        recipient.clone(), 
+        config.quadratic_voting,
+    )?;
     if voting_power.is_zero() {
         return Err(ContractError::NoVotingPower {});
     }
@@ -393,43 +353,80 @@ pub fn cast_vote(
     } else if let Some((vote, _)) = proposal.removal_voters.clone().into_iter().enumerate().find(|(_, voter)| voter == &info.sender) {
         proposal.removal_voters.remove(vote);
         proposal.removal_power = proposal.removal_power.checked_sub(voting_power)?;
+    } else if let Some((vote, _)) = proposal.aligned_voters.clone().into_iter().enumerate().find(|(_, voter)| voter == &info.sender) {
+        proposal.aligned_voters.remove(vote);
+        proposal.aligned_power = proposal.aligned_power.checked_sub(voting_power)?;
     }
 
     match vote_option {
         ProposalVoteOption::For => {
-            if proposal.aligned_power < config.proposal_required_stake {
+            if pending {
                 return Err(ContractError::ProposalNotActive {});
             }
             proposal.for_power = proposal.for_power.checked_add(voting_power)?;
             proposal.for_voters.push(info.sender.clone());
         }
         ProposalVoteOption::Against => {
-            if proposal.aligned_power < config.proposal_required_stake {
+            if pending {
                 return Err(ContractError::ProposalNotActive {});
             }
             proposal.against_power = proposal.against_power.checked_add(voting_power)?;
             proposal.against_voters.push(info.sender.clone());
         }
         ProposalVoteOption::Amend => {
-            if proposal.aligned_power < config.proposal_required_stake {
+            if pending {
                 return Err(ContractError::ProposalNotActive {});
             }
             proposal.amendment_power = proposal.amendment_power.checked_add(voting_power)?;
             proposal.amendment_voters.push(info.sender.clone());
         }
         ProposalVoteOption::Remove => {
-            if proposal.aligned_power < config.proposal_required_stake {
+            if pending {
                 return Err(ContractError::ProposalNotActive {});
             }
             proposal.removal_power = proposal.removal_power.checked_add(voting_power)?;
             proposal.removal_voters.push(info.sender.clone());
         }
         ProposalVoteOption::Align => {
-            proposal.aligned_power = proposal.aligned_power.checked_add(voting_power)?;
-            proposal.aligned_voters.push(info.sender.clone());
+            //Remove quadratic voting for alignment if not reached yet
+            if config.quadratic_voting && proposal.aligned_power < config.proposal_required_stake {
+                //Square it                
+                voting_power = 
+                decimal_multiplication(
+                    Decimal::from_ratio(voting_power, Uint128::one()), 
+                    Decimal::from_ratio(voting_power, Uint128::one())
+                )?.to_uint_ceil();                
 
+                //Adding voting power to proposal
+                proposal.aligned_power = proposal.aligned_power.checked_add(voting_power)?;            
+                //Add voter to aligned voters
+                proposal.aligned_voters.push(info.sender.clone());
+
+                //If this addition pushes the proposal over the threshold, square root the difference & add to aligned_power.
+                ///
+                //Aligned power must be subject to the config's quadratic voting setting past the threshold
+                //or reaching quorum becomes trival when quadratic voting is enabled
+                if proposal.aligned_power >= config.proposal_required_stake {
+                    //Calc difference
+                    let mut difference = proposal.aligned_power.checked_sub(config.proposal_required_stake)?;
+                    //Square root it
+                    difference = Decimal::from_ratio(difference, Uint128::one()).sqrt().to_uint_floor();
+                    //Set aligned power to threshold
+                    proposal.aligned_power = config.proposal_required_stake;
+                    //Add difference to proposal
+                    proposal.aligned_power = proposal.aligned_power.checked_add(difference)?;
+                }
+            } else 
+            //If quadratic voting is disabled or the threshold has been reached, add voting power to proposal
+            {
+                //Adding voting power to proposal
+                proposal.aligned_power = proposal.aligned_power.checked_add(voting_power)?;            
+                //Add voter to aligned voters
+                proposal.aligned_voters.push(info.sender.clone());
+            }
             //If alignment is reached, move to active proposal state
             if proposal.aligned_power >= config.proposal_required_stake {
+
                 saved = true;
                 //Remove from pending proposals
                 PENDING_PROPOSALS.remove(deps.storage, proposal_id.to_string());
@@ -440,7 +437,7 @@ pub fn cast_vote(
     };
 
     //Save proposal
-    if !saved {        
+    if !saved {
         if !pending {
             PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;
         } else {
@@ -464,8 +461,9 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
     if proposal.status != ProposalStatus::Active {
         return Err(ContractError::ProposalNotActive {});
     }
-
-    if env.block.height <= proposal.end_block {
+    
+    //Checking as if end_block is in seconds
+    if env.block.time.seconds() <= proposal.end_block {
         return Err(ContractError::VotingPeriodNotEnded {});
     }
 
@@ -479,11 +477,15 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
     let total_votes = for_votes + against_votes + amend_votes + removal_votes;
 
     let total_voting_power =
-        calc_total_voting_power_at(
+        match calc_total_voting_power_at(
             deps.as_ref(), 
-            proposal.clone().start_time, 
             config.quadratic_voting,
-        )?;
+            proposal.start_time,
+        ){
+            Ok(voting_power) => voting_power,
+            Err(_) => Uint128::one(), //if cast_vote works but this doesn't, assume 1 so we can still end the proposal
+        
+        };
 
     let mut proposal_quorum: Decimal = Decimal::zero();
     let mut for_threshold: Decimal = Decimal::zero();
@@ -491,6 +493,13 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
     let mut removal_threshold: Decimal = Decimal::zero();
 
     if !total_voting_power.is_zero() {
+        if config.quadratic_voting {
+            //Subtract the non-quadradic voting power from the alignment threshold
+            proposal.aligned_power = proposal.aligned_power.checked_sub(config.proposal_required_stake)?;
+            //Square root the alignment threshold & add to aligned power
+            proposal.aligned_power += Decimal::from_ratio(config.proposal_required_stake, Uint128::one()).sqrt().to_uint_floor();
+        }
+        //Calc proposal quorum
         proposal_quorum = Decimal::from_ratio(total_votes+proposal.aligned_power, total_voting_power);
         //If aligned_power isn't added, proposals made by large holders can potentially never reach quorum
     }
@@ -508,25 +517,40 @@ pub fn end_proposal(deps: DepsMut, env: Env, proposal_id: u64) -> Result<Respons
     
     let mut removed = false;
     // Determine the proposal result
-    proposal.status = if proposal_quorum >= config.proposal_required_quorum
-        && for_threshold > config.proposal_required_threshold
-    {
-        ProposalStatus::Passed
-    } //Amend check
-    else if proposal_quorum >= config.proposal_required_quorum
-        && amend_threshold > config.proposal_required_threshold {
-        ProposalStatus::AmendmentDesired
-    } // Removal check
-    else if proposal_quorum >= config.proposal_required_quorum
-        && removal_threshold > config.proposal_required_quorum {
-        //Remove from state
-        PROPOSALS.remove(deps.storage, proposal_id.to_string());
-        removed = true;
+    proposal.status = if proposal_quorum >= config.proposal_required_quorum {
+        //For check
+        if for_threshold >= config.proposal_required_threshold {
+            ProposalStatus::Passed
+        } //Amend check
+        else if amend_threshold >= config.proposal_required_threshold {
+            ProposalStatus::AmendmentDesired
+        } // Removal check
+        else if removal_threshold >= config.proposal_required_threshold {            
+            //Remove from state
+            PROPOSALS.remove(deps.storage, proposal_id.to_string());
+            removed = true;
 
-        ProposalStatus::Rejected
+            ProposalStatus::Rejected
+        } else {
+            ProposalStatus::Rejected
+        }
+    } //If didn't hit quorum & is expedited, extend end block to the normal voting period
+    else if proposal.end_block - proposal.start_time == (config.expedited_proposal_voting_period * 6) { //6 seconds per block
+        proposal.end_block = proposal.start_time + (config.proposal_voting_period * 6); //6 seconds per block
+        
+        //Reverse actions from line 492
+        if config.quadratic_voting {
+            //ADd the non-quadradic voting power from the alignment threshold
+            proposal.aligned_power = proposal.aligned_power.checked_add(config.proposal_required_stake)?;
+            //Square root the alignment threshold & subtract from aligned power
+            proposal.aligned_power -= Decimal::from_ratio(config.proposal_required_stake, Uint128::one()).sqrt().to_uint_floor();
+        }
+        
+        ProposalStatus::Active
     } else {
         ProposalStatus::Rejected
     };
+
 
     //Update proposal if still in state
     if !removed {
@@ -554,11 +578,11 @@ pub fn execute_proposal(
         return Err(ContractError::ProposalNotPassed {});
     }
 
-    if env.block.height < proposal.delayed_end_block {
+    if env.block.time.seconds() < proposal.delayed_end_block { //Checking as if end_block is in seconds
         return Err(ContractError::ProposalDelayNotEnded {});
     }
 
-    if env.block.height > proposal.expiration_block {
+    if env.block.time.seconds() > proposal.expiration_block { //Checking as if block is in seconds
         return Err(ContractError::ExecuteProposalExpired {});
     }
 
@@ -566,13 +590,20 @@ pub fn execute_proposal(
 
     PROPOSALS.save(deps.storage, proposal_id.to_string(), &proposal)?;
 
-    let messages = match proposal.messages {
+    let mut messages = match proposal.messages {
         Some(mut messages) => {
             messages.sort_by(|a, b| a.order.cmp(&b.order));
             messages.into_iter().map(|message| message.msg).collect()
         }
         None => vec![],
     };
+    
+    //Use this msg to test proposability before committing to the chain
+    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: env.contract.address.to_string(),
+        msg: to_binary(&ExecuteMsg::CheckMessagesPassed { error: Some(false) })?,
+        funds: vec![],
+    }));
 
     Ok(Response::new()
         .add_attribute("action", "execute_proposal")
@@ -584,17 +615,237 @@ pub fn execute_proposal(
 /// Returns [`ContractError`] on failure, otherwise returns a [`Response`] with the specified
 /// attributes. The last message will always fail to prevent committing into blockchain.
 pub fn check_messages(
+    deps: DepsMut,
     env: Env,
     mut messages: Vec<ProposalMessage>,
+    // Additional contract check messages
+    msg_switch: Option<u64>,
 ) -> Result<Response, ContractError> {
 
     messages.sort_by(|a, b| a.order.cmp(&b.order));
 
     let mut messages: Vec<_> = messages.into_iter().map(|message| message.msg).collect();
 
+    //Create additional check messages for system contracts\
+    //Set contracts
+    let cdp_contract = "osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr".to_string();
+    let lq_contract = "osmo1ycmtfa7h0efexjxuaw7yh3h3qayy5lspt9q4n4e3stn06cdcgm8s50zmjl".to_string();
+    let op_contract = "osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd".to_string();
+    //CDP
+    if msg_switch == Some(0) {
+        //Query CDP basket
+        let basket = match query_basket(deps.querier, cdp_contract.clone()){
+            Ok(basket) => basket,
+            Err(_) => 
+                deps.querier.query_wasm_smart::<Basket>(
+                cdp_contract.clone(),
+                &CDP_QueryMsg::GetBasket {}
+                )?,
+            };    
+        //Check if the contract has uosmo && deposit it all if it does
+        let uosmo_balance = match deps.querier.query_balance(env.clone().contract.address, "uosmo"){
+            Ok(balance) => balance.amount,
+            Err(_) => Uint128::zero(),
+        };
+        if !uosmo_balance.is_zero() {
+            //Get the next position id
+            let position_id = basket.current_position_id;
+            //Deposit all uosmo
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: cdp_contract.clone(),
+                msg: to_binary(&CDP_ExecuteMsg::Deposit {
+                    position_id: None,
+                    position_owner: None,
+                })?,
+                funds: vec![
+                    asset_to_coin(
+                        Asset {
+                            info: AssetInfo::NativeToken {
+                                denom: String::from("uosmo"),
+                            },
+                            amount: uosmo_balance,
+                        }
+                    )?
+                ],
+            }));
+            //Query CDP Config
+            let cdp_config = deps.querier.query_wasm_smart::<CDP_Config>(
+                cdp_contract.clone(),
+                &CDP_QueryMsg::Config {}
+            )?;
+
+
+            //Mint minimum CDT, this may error if there isn't enough OSMO in the contract
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: cdp_contract.clone(),
+                msg: to_binary(&CDP_ExecuteMsg::IncreaseDebt { 
+                    position_id, 
+                    amount: Some(cdp_config.debt_minimum * Uint128::new(1_000_000)), 
+                    LTV: None, 
+                    mint_to_addr: None
+                })?,
+                funds: vec![],
+            }));
+
+            //Repay CDT
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: cdp_contract.clone(),
+                msg: to_binary(&CDP_ExecuteMsg::Repay { 
+                    position_id, 
+                    position_owner: None, 
+                    send_excess_to: None
+                })?,
+                funds: vec![
+                    asset_to_coin(
+                        Asset {
+                            info: basket.credit_asset.info,
+                            amount:( cdp_config.debt_minimum * Uint128::new(1_000_000)),
+                        }
+                    )?
+                ],
+            }));
+
+            //Withdraw all OSMO
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: cdp_contract.clone(),
+                msg: to_binary(&CDP_ExecuteMsg::Withdraw { 
+                    position_id, 
+                    assets: vec![
+                        Asset {
+                            info: AssetInfo::NativeToken {
+                                denom: String::from("uosmo"),
+                            },
+                            amount: uosmo_balance,
+                        }
+                    ],
+                    send_to: None
+                })?,
+                funds: vec![],
+            }));
+        }        
+    }
+    //Staking
+    if msg_switch == Some(1) {
+        let config = CONFIG.load(deps.storage)?;
+        //Set minimum stake
+        let minimum_stake = Uint128::new(1_000_000); //1 MBRN
+
+        //Unstake MBRN if the contract already has stake
+        //Unstake the MBRN (claimable)
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.clone().staking_contract_addr.to_string(),
+            msg: to_binary(&Staking_ExecuteMsg::Unstake { 
+                mbrn_amount: None,
+            })?,
+            funds: vec![],
+        }));
+
+        //Stake minimum MBRN from the unstake
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.clone().staking_contract_addr.to_string(),
+            msg: to_binary(&Staking_ExecuteMsg::Stake { 
+                user: None,
+            })?,
+            funds: vec![
+                asset_to_coin(
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: config.clone().mbrn_denom,
+                        },
+                        amount: minimum_stake,
+                    }
+                )?
+            ],
+        }));
+
+        //Start the unstake for the recently staked MBRN
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.clone().staking_contract_addr.to_string(),
+            msg: to_binary(&Staking_ExecuteMsg::Unstake { 
+                mbrn_amount: None,
+            })?,
+            funds: vec![],
+        }));
+    }
+    //LQ    
+    if msg_switch == Some(2) {
+        //Query CDP basket
+        let basket = match query_basket(deps.querier, cdp_contract.clone()){
+            Ok(basket) => basket,
+            Err(_) => 
+                deps.querier.query_wasm_smart::<Basket>(
+                cdp_contract.clone(),
+                &CDP_QueryMsg::GetBasket {}
+                )?,
+            };    
+        //Check if the contract has cdt
+        let cdt_balance = match deps.querier.query_balance(env.clone().contract.address, basket.clone().credit_asset.info.to_string()){
+            Ok(balance) => balance.amount,
+            Err(_) => Uint128::zero(),
+        };
+        //Query LQ config 
+        let lq_config: LQ_Config = deps.querier.query_wasm_smart::<LQ_Config>(
+            lq_contract.clone(),
+            &LQ_QueryMsg::Config {}
+        )?;
+        //if CDT is less than the minimum, mint minimum CDT
+        if cdt_balance < lq_config.clone().minimum_bid {
+            //Mint minimum CDT from Osmosis Proxy
+            messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: op_contract.clone(),
+                msg: to_binary(&OP_ExecuteMsg::MintTokens { 
+                    denom: basket.clone().credit_asset.info.to_string(), 
+                    amount: lq_config.clone().minimum_bid, 
+                    mint_to_address: env.clone().contract.address.to_string() 
+                })?,
+                funds: vec![],
+            }));
+        }
+
+        //Query Queue to get the bid_id
+        let uosmo_queue: QueueResponse = deps.querier.query_wasm_smart::<QueueResponse>(
+            lq_contract.clone(),
+            &LQ_QueryMsg::Queue { bid_for: AssetInfo::NativeToken { denom: String::from("uosmo") } 
+            }
+        )?;
+        let bid_id = uosmo_queue.current_bid_id;
+
+        //Minimum CDT Bid
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: lq_contract.clone(),
+            msg: to_binary(&LQ_ExecuteMsg::SubmitBid { 
+                bid_input: BidInput {
+                    bid_for: AssetInfo::NativeToken { denom: String::from("uosmo") },
+                    liq_premium: 0u8
+                },
+                bid_owner: None,
+            })?,
+            funds: vec![
+                asset_to_coin(
+                    Asset {
+                        info: basket.credit_asset.info,
+                        amount: lq_config.clone().minimum_bid,
+                    }
+                )?
+            ],
+        }));
+
+        //Retract bid
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: lq_contract.clone(),
+            msg: to_binary(&LQ_ExecuteMsg::RetractBid { 
+                bid_id,
+                bid_for: AssetInfo::NativeToken { denom: String::from("uosmo") },
+                amount: None,
+            })?,
+            funds: vec![],
+        }));        
+    }
+
+    //Guarantee that the last message will fail
     messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
-        msg: to_binary(&ExecuteMsg::CheckMessagesPassed {})?,
+        msg: to_binary(&ExecuteMsg::CheckMessagesPassed { error: Some(true) })?,
         funds: vec![],
     }));
 
@@ -603,10 +854,78 @@ pub fn check_messages(
         .add_messages(messages))
 }
 
+///Errors to prevent checked messages from being executed
+/// Tests staking queries necessary for proposal execution
+pub fn passed_messages(deps: DepsMut, env: Env, error: Option<bool>) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    //Assert minimum total stake from staking contract
+    match query_staking_totals(deps.querier, config.staking_contract_addr.to_string()){
+        Ok(totals) => totals.stakers,
+        Err(_) => {
+            //On error do regular query for totals
+            let res: TotalStakedResponse = deps.querier.query_wasm_smart(
+                config.clone().staking_contract_addr,
+                &StakingQueryMsg::TotalStaked {  },
+            )?;
+            res.total_not_including_vested
+        },
+    };
+
+    //Query stake from before Proposal's start_time
+    deps.querier
+        .query::<StakerResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.staking_contract_addr.to_string(),
+            msg: to_binary(&StakingQueryMsg::UserStake { staker: env.contract.address.to_string() })?,
+        }))?;
+    
+    deps.querier
+        .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.staking_contract_addr.to_string(),
+            msg: to_binary(&StakingQueryMsg::Staked {
+                limit: Some(STAKE_QUERY_LIMIT),
+                start_after: None,
+                end_before: Some(env.block.time.seconds()),
+                unstaking: false,
+            })?,
+        }))?
+        .stakers;
+
+    //Query a vesting recipient
+    deps.querier.query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.vesting_contract_addr.to_string(),
+        msg: to_binary(&VestingQueryMsg::Allocation { recipient: String::from("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n") })?,
+    }))?;
+
+    //Query the contracts config to ensure we don't migrate to a code_id that is not a Gov contract
+    deps.querier.query::<Config>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: env.contract.address.to_string(),
+        msg: to_binary(&QueryMsg::Config {})?,
+    }))?;
+
+    //Query delegations, this is last incase this addr ever runs out of delegations & that causes the error
+    deps.querier.query::<Vec<DelegationResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.staking_contract_addr.to_string(),
+        msg: to_binary(&StakingQueryMsg::Delegations {
+            limit: Some(1),
+            start_after: None,
+            end_before: None,
+            user: Some("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w".to_string()),
+        })?,
+    }))?;
+
+    if let Some(true) = error {
+        return Ok(Response::new().add_message(CosmosMsg::Wasm(WasmMsg::ClearAdmin { contract_addr: env.contract.address.to_string() })))
+    } else {
+        return Ok(Response::new())
+    }
+}
+
 /// Remove completed Proposals
 pub fn remove_completed_proposal(
     deps: DepsMut,
     env: Env,
+    info: MessageInfo,
     proposal_id: u64,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
@@ -626,14 +945,14 @@ pub fn remove_completed_proposal(
 
     if aligned {
         
-        if env.block.height
-        > (proposal.end_block + config.proposal_effective_delay + config.proposal_expiration_period)
+        if env.block.time.seconds()
+        > (proposal.end_block + ((config.proposal_effective_delay + config.proposal_expiration_period) * 6))
         {
             proposal.status = ProposalStatus::Expired;
         }
     } //If pending, expiration starts at end_block
     else {
-        if env.block.height > proposal.end_block {
+        if env.block.time.seconds() > proposal.end_block {
             proposal.status = ProposalStatus::Expired;
         }
     }
@@ -643,9 +962,11 @@ pub fn remove_completed_proposal(
         PENDING_PROPOSALS.remove(deps.storage, proposal_id.to_string());    
     }
     //If proposal is expired or rejected, remove
-    else if proposal.status == ProposalStatus::Expired || proposal.status == ProposalStatus::Rejected{
+    else if proposal.status == ProposalStatus::Expired || proposal.status == ProposalStatus::Rejected {
         PROPOSALS.remove(deps.storage, proposal_id.to_string());
-    }  else {
+    } else if info.sender == proposal.submitter {
+        PROPOSALS.remove(deps.storage, proposal_id.to_string());
+    } else {
         return Err(ContractError::CantRemove {});
     }
     
@@ -736,72 +1057,100 @@ pub fn update_config(
 /// Calc total voting power at a specific time
 pub fn calc_total_voting_power_at(
     deps: Deps,
-    start_time: u64,
     quadratic_voting: bool,
+    proposal_start_time: u64,
 ) -> StdResult<Uint128> {
     let config = CONFIG.load(deps.storage)?;
+    //Initialize total voting power
+    let mut total: Uint128 = Uint128::zero();
 
-    //Pulls stake from before Proposal's start_time
-    let staked_mbrn = deps
-        .querier
+    //Query stake from before Proposal's start_time
+    let mut staked_mbrn = match deps.querier
         .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: config.staking_contract_addr.to_string(),
             msg: to_binary(&StakingQueryMsg::Staked {
-                limit: None,
+                limit: Some(STAKE_QUERY_LIMIT),
                 start_after: None,
-                end_before: Some(start_time),
+                end_before: Some(proposal_start_time),
                 unstaking: false,
             })?,
-        }))?
-        .stakers;
+        })){
+            Ok(staked) => staked.stakers,
+            Err(_) => vec![],
+        };
+        
+    //This will provide the lowest total voting power if quadratic voting is enabled
+    //bc the stake can be split into delegations which are individually square rooted
+    for staker in staked_mbrn.clone() {
+        let mut staker_total = Uint128::zero();
+        let mut remove_list = vec![];
 
-    //Initialize total voting power
-    let mut total: Uint128;
+        for (i, stake) in staked_mbrn.clone().into_iter().enumerate(){
+            if stake.staker == staker.staker {
+                //Remove to shorten subsequent iterations
+                remove_list.push(i);
 
-    //Calc total voting power
-    if staked_mbrn == vec![] {
-        total = Uint128::zero()
-    } else {
-        total = staked_mbrn
-            .into_iter()
-            .map(|stake| {
-                // Take square root of total stake if quadratic voting is enabled
-                if quadratic_voting {
-                    let stake_total = Decimal::from_ratio(stake.amount, Uint128::one()).sqrt().to_uint_floor();
-                    
-                    stake_total
-                } else {
-                    stake.amount
+                if stake.stake_time < proposal_start_time && stake.unstake_start_time.is_none() {
+                    staker_total += stake.amount;
                 }
-                
-                
-            })
-            .collect::<Vec<Uint128>>()
-            .into_iter()
-            .sum();
-
-        //Get Vesting Recipients
-        let recipients = deps
-            .querier
-            .query::<RecipientsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.vesting_contract_addr.to_string(),
-                msg: to_binary(&VestingQueryMsg::Recipients {  })?,
-            }))?;
-        
-        //Add voting power of each vesting recipient
-        for recipient in recipients.recipients {
-            if let Some(allocation) = recipient.allocation {
-                total += (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
-            }            
+            }
+        };
+        //Reverse remove_list so we don't break the index ordering
+        remove_list.reverse();
+        //Remove staker from list
+        for i in remove_list {
+            staked_mbrn.remove(i);
         }
-        
-    }
-        
-    // Take square root of total stake if quadratic voting is enabled
-    if quadratic_voting {
-        total = Uint128::from(total);
-    }    
+        //Transform w/ quadratics if enabled
+        if quadratic_voting {
+            staker_total = Decimal::from_ratio(staker_total, Uint128::one()).sqrt().to_uint_ceil();
+        }
+        //Add to total
+        total += staker_total;
 
+    }
+
+
+    /////Get vested vp/////   
+    //Set staked non-vested total
+    let non_vested_total: Uint128 = match query_staking_totals(deps.querier, config.staking_contract_addr.to_string()){
+        Ok(totals) => totals.stakers,
+        Err(_) => {
+            //On error do regular query for totals
+            match deps.querier.query_wasm_smart::<TotalStakedResponse>(
+                config.clone().staking_contract_addr,
+                &StakingQueryMsg::TotalStaked {  },
+            ){
+                Ok(totals) => totals.total_not_including_vested,
+                Err(_) => Uint128::zero()
+            }                
+        },
+    };    
+
+    //Get Vesting Recipients
+    let recipients = deps
+        .querier
+        .query::<RecipientsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.vesting_contract_addr.to_string(),
+            msg: to_binary(&VestingQueryMsg::Recipients {  })?,
+        }))?;
+    
+    //Add voting power of each vesting recipient
+    for recipient in recipients.recipients {
+        if let Some(allocation) = recipient.allocation {
+            let allocation = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
+            // Vested voting power can't be more than 19% of total voting power pre-quadratic 
+            let mut vp = min(allocation, non_vested_total * Decimal::percent(19));
+
+            // Take square root of total stake if quadratic voting is enabled
+            if quadratic_voting {
+                vp = Decimal::from_ratio(vp, Uint128::one()).sqrt().to_uint_floor();
+            }
+
+            total += vp;
+        }            
+    }
+    
     Ok(total)
 }
 
@@ -809,11 +1158,10 @@ pub fn calc_total_voting_power_at(
 pub fn calc_voting_power(
     storage: &dyn Storage,
     querier: QuerierWrapper,
-    mut staked_mbrn: Option<Vec<StakeDeposit>>,
     mut non_vested_total: Option<Uint128>,
     sender: String,
     start_time: u64,
-    vesting: bool,
+    expedited: &mut bool,
     recipient: Option<String>,
     quadratic_voting: bool,
 ) -> StdResult<Uint128> {
@@ -833,97 +1181,223 @@ pub fn calc_voting_power(
 
         non_vested_total = Some(new_non_vested_total);
     }
+      
+    //Query stake from before Proposal's start_time
+    let mut total: Uint128 = match querier
+    .query::<StakerResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.staking_contract_addr.to_string(),
+        msg: to_binary(&StakingQueryMsg::UserStake { staker: sender.clone() })?,
+    })){
+        Ok(stake) => {
+            //Filter out unstaking stake & stake after proposal start time
+            let voting_stake = stake.clone().deposit_list.into_iter().filter(|stake| {
+                stake.stake_time < start_time && stake.unstake_start_time.is_none()
+            }).map(|stake| stake.amount).sum();
 
-    if staked_mbrn.is_none(){        
-        //Query stake from before Proposal's start_time
-        let new_staked_mbrn = querier
-        .query::<StakedResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.staking_contract_addr.to_string(),
-            msg: to_binary(&StakingQueryMsg::Staked {
-                limit: None,
-                start_after: None,
-                end_before: Some(start_time),
-                unstaking: false,
-            })?,
-        }))?
-        .stakers;    
-
-        staked_mbrn = Some(new_staked_mbrn);
-    }
-    let mut total: Uint128;
+            voting_stake
+        },
+        Err(_) => Uint128::zero(),
+    };
+    
     //If calculating vesting voting power, we take from recipient's allocation
-    if !vesting {
-        //Calc total voting power
-        if staked_mbrn.clone().unwrap() == vec![] {
-            total = Uint128::zero()
-        } else {
-            total = staked_mbrn.unwrap()
-                .into_iter()
-                .map(|stake| {
-                    if stake.staker.to_string() == sender {
-                        stake.amount
-                    } else {
-                        Uint128::zero()
-                    }
-                })
-                .collect::<Vec<Uint128>>()
-                .into_iter()
-                .sum();
-        }
-    } else if recipient.is_some() {
-        //info.sender must equal the vesting contract
-        if sender != config.vesting_contract_addr.to_string(){
-            return Err(cosmwasm_std::StdError::GenericErr { msg: String::from("Recipient can only be used by the vesting contract") });
-        }
-        let recipient = recipient.unwrap();
+    if recipient.is_none() {
+        //Only vesting recipients can submit expedited proposals
+        *expedited = false;
 
-        let allocation = querier
+    } else if recipient.is_some() {
+        let recipient = recipient.clone().unwrap();
+        //info.sender must equal the recipient contract
+        if sender != recipient {
+            return Err(cosmwasm_std::StdError::GenericErr { msg: String::from("You are not the Recipient that was passed") });
+        }
+
+        match querier
             .query::<AllocationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.vesting_contract_addr.to_string(),
                 msg: to_binary(&VestingQueryMsg::Allocation { recipient })?,
-            }))?;
+            })){
+                Ok(allocation) => {  
+                    total = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;            
+                    // Vested voting power can't be more than 19% of total voting power pre-quadratic
+                    total = min(total, non_vested_total.unwrap() * Decimal::percent(19));
+                },
+                Err(_) => {  
+                    //Only vesting recipients can submit expedited proposals
+                    *expedited = false;
+                    total = Uint128::zero();
+                }
+            };
             
-        total = (allocation.amount - allocation.amount_withdrawn) * config.vesting_voting_power_multiplier;
-        // Vested voting power can't be more than 19% of total voting power pre-quadratic 
-        total = min(total, non_vested_total.unwrap() * Decimal::percent(19));
     } else {
         total = Uint128::zero();
+        *expedited = false;
+    }    
+    
+    // Take square root of total stake if quadratic voting is enabled
+    //prior to adding delegated stake
+    if quadratic_voting {        
+        total = Decimal::from_ratio(total, Uint128::one()).sqrt().to_uint_ceil();
     }
 
-    // Query delegations
-    if let Ok(delegation_info) = querier
-        .query::<DelegationResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.staking_contract_addr.to_string(),
-            msg: to_binary(&StakingQueryMsg::Delegations {
-                limit: None,
-                start_after: None,
-                user: Some(sender.clone()),
-            })?,
-        })){
+    // Query delegations 
+    let delegations: Vec<DelegationResponse> = match querier.query::<Vec<DelegationResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.staking_contract_addr.to_string(),
+        msg: to_binary(&StakingQueryMsg::Delegations {
+            limit: None,
+            start_after: None,
+            end_before: Some(start_time),
+            user: Some(sender.clone().to_string()),
+        })?,
+    })){
+        Ok(delegations) => delegations,
+        Err(_) => vec![], //If no delegations, set to empty vec
+    };
+    
+    //Get user's delegation info
+    //We transform the vp wrt the config's quadratic voting setting individually for each delegation.
+    //This ensures the benefits of delegations: better voting power participation, easier quorum, voluntarily abstracted governance for users.
+    //Otherwise delegates would get exponentially less voting power than what was delegated to them which makes quorum harder to reach with delegations vs w/o.
+    match delegations.into_iter().find(|delegation| delegation.user.to_string() == sender){
+        Some(delegation_info) => {
             //Get total delegated to user from before proposal start time
             let total_delegated_to_user: Uint128 = delegation_info.delegation_info.clone().delegated
                 .into_iter()
                 .filter(|delegation| delegation.time_of_delegation <= start_time && delegation.voting_power_delegation)
-                .map(|dele| dele.amount)
+                .map(|dele| {
+                    if quadratic_voting {
+                        Decimal::from_ratio(dele.amount, Uint128::one()).sqrt().to_uint_ceil()
+                    } else {
+                        dele.amount
+                    }
+                })
                 .sum();
 
             //Get total delegated away from user from before proposal start time
             let total_delegated_from_user: Uint128 = delegation_info.delegation_info.clone().delegated_to
                 .into_iter()
                 .filter(|delegation| delegation.time_of_delegation <= start_time && delegation.voting_power_delegation)
-                .map(|dele| dele.amount)
+                .map(|dele| {
+                    if quadratic_voting {
+                        Decimal::from_ratio(dele.amount, Uint128::one()).sqrt().to_uint_ceil()
+                    } else {
+                        dele.amount
+                    }
+                })
                 .sum();
             //Add delegated to user and subtract delegated from user
-            total += total_delegated_to_user - total_delegated_from_user;
-        };
-    
-    
-    // Take square root of total stake if quadratic voting is enabled
-    if quadratic_voting {
-        total = Decimal::from_ratio(total, Uint128::one()).sqrt().to_uint_floor();
-    }    
+            total += total_delegated_to_user;
+            total = match total.checked_sub(total_delegated_from_user){
+                Ok(total) => total,
+                Err(_) => Uint128::zero(),
+            };
+        },
+        None => {}
+    }
     
     Ok(total)
+}
+
+/// Create Osmosis Incentive Gauge.
+/// Uses osmosis-std to make it easier for Governance to execute osmosis messages.
+fn create_gauge(
+    info: MessageInfo,
+    env: Env,
+    gauge_msg: MsgCreateGauge,
+) -> Result<Response, ContractError>{
+
+    // Only the Governance contract is allowed to utilize its assets (through a successful proposal)
+    if info.sender != env.contract.address {
+        return Err(ContractError::Unauthorized {});
+    }
+    Ok(Response::new().add_message(gauge_msg))
+}
+
+/// Add to Osmosis Incentive Gauge.
+/// Uses osmosis-std to make it easier for Governance to execute osmosis messages.
+fn add_to_gauge(
+    info: MessageInfo,
+    env: Env,
+    gauge_msg: MsgAddToGauge,
+) -> Result<Response, ContractError>{
+
+    // Only the Governance contract is allowed to utilize its assets (through a successful proposal)
+    if info.sender != env.contract.address {
+        return Err(ContractError::Unauthorized {});
+    }
+    Ok(Response::new().add_message(gauge_msg))
+}
+
+//Freeze Positions
+fn freeze_positions(
+    info: MessageInfo,
+    _env: Env,
+    //toggle frozen Basket 
+    frozen: bool,
+    //Set supply caps to 0
+    //We only allow native tokens so we can take Strings here
+    freeze_these_assets: Vec<String>,
+) -> Result<Response, ContractError>{
+    // Only the founder addr is allowed
+    if info.sender != Addr::unchecked("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n") {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    //Create Supply cap instance for each "freeze_these_assets" input
+    let supply_caps: Vec<SupplyCap> = freeze_these_assets.into_iter().map(|asset| {
+        SupplyCap {
+            asset_info: AssetInfo::NativeToken {
+                denom: asset
+            },
+            current_supply: Uint128::zero(),
+            debt_total: Uint128::zero(),
+            supply_cap_ratio: Decimal::percent(0),
+            lp: false,
+            stability_pool_ratio_for_debt_cap: None,
+        }
+    }).collect();
+
+    //If not empty, edit 
+    if !supply_caps.is_empty() {
+        Ok(Response::new()
+            .add_message(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: String::from("osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr"),
+                msg: to_binary(&CDP_ExecuteMsg::EditBasket(EditBasket {
+                    frozen: Some(frozen),
+                    added_cAsset: None,
+                    liq_queue: None,
+                    credit_pool_infos: None,
+                    collateral_supply_caps: Some(supply_caps),
+                    multi_asset_supply_caps: None,
+                    base_interest_rate: None,
+                    credit_asset_twap_price_source: None,
+                    negative_rates: None,
+                    cpc_margin_of_error: None,
+                    rev_to_stakers: None,
+                    take_revenue: None,
+                }))?,
+                funds: vec![],
+        })))   
+    } else { //Only set freeze
+        Ok(Response::new()
+            .add_message(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: String::from("osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr"),
+                msg: to_binary(&CDP_ExecuteMsg::EditBasket(EditBasket {
+                    frozen: Some(frozen),
+                    added_cAsset: None,
+                    liq_queue: None,
+                    credit_pool_infos: None,
+                    collateral_supply_caps: None,
+                    multi_asset_supply_caps: None,
+                    base_interest_rate: None,
+                    credit_asset_twap_price_source: None,
+                    negative_rates: None,
+                    cpc_margin_of_error: None,
+                    rev_to_stakers: None,
+                    take_revenue: None,
+                }))?,
+                funds: vec![],
+        })))        
+    }    
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -944,15 +1418,20 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
             let user = deps.api.addr_validate(&user)?;
 
+            let recipient = if vesting {
+                Some(user.to_string())
+            } else {
+                None
+            };
+
             to_binary(&calc_voting_power(
                 deps.storage,
                 deps.querier,
                 None,
-                None,
                 user.to_string(),
                 proposal.start_time,
-                vesting,
-                None,
+                &mut false,
+                recipient,
                 CONFIG.load(deps.storage)?.quadratic_voting,
             )?)
         }
@@ -960,8 +1439,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             let proposal = PROPOSALS.load(deps.storage, proposal_id.to_string())?;
             to_binary(&calc_total_voting_power_at(
                 deps, 
-                proposal.start_time,
                 CONFIG.load(deps.storage)?.quadratic_voting,
+                proposal.start_time
             )?)
         }
         QueryMsg::ProposalVoters {
@@ -1122,4 +1601,9 @@ pub fn query_proposal_votes(deps: Deps, proposal_id: u64) -> StdResult<ProposalV
         removal_power: proposal.removal_power,
         aligned_power: proposal.aligned_power,
     })
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    Ok(Response::default())
 }

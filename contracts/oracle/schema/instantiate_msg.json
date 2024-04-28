@@ -3,6 +3,13 @@
   "title": "InstantiateMsg",
   "type": "object",
   "properties": {
+    "oracle_contract": {
+      "description": "Oracle contract address, used to copy oracle info",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "osmosis_proxy_contract": {
       "description": "Osmosis Proxy contract address",
       "type": [

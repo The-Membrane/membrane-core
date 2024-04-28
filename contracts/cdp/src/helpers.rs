@@ -45,4 +45,24 @@ impl LQContract {
     }
 }
 
+#[cw_serde]
+pub struct OracleContract(pub Addr);
+
+impl OracleContract {
+    pub fn addr(&self) -> Addr {
+        self.0.clone()
+    }
+
+    pub fn call<T: Into<ExecuteMsg>>(&self, msg: T) -> StdResult<CosmosMsg> {
+        let msg = to_binary(&msg.into())?;
+        Ok(WasmMsg::Execute {
+            contract_addr: self.addr().into(),
+            msg,
+            funds: vec![],
+        }
+        .into())
+    }
+}
+
+
 

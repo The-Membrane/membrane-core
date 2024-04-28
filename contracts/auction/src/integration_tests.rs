@@ -572,7 +572,12 @@ mod tests {
             assert_eq!(auction[0].auction_start_time, 1571797419);
             assert_eq!(
                 auction[0].auction_asset.amount,
-                Uint128::new(1_000u128)
+                Uint128::new(1063u128)
+            );
+            //Swap cost 93000 OSMO for 98936 fee_asset
+            assert_eq!(
+                app.wrap().query_all_balances(USER).unwrap(),
+                vec![coin(201_000, "credit_fulldenom"), coin(99, "error"), coin(98936, "fee_asset"),  coin(96_000, "mbrn_denom"), coin(103000, "uosmo")]
             );
 
             //Successful Overpay Swap
@@ -581,15 +586,15 @@ mod tests {
                 .call(msg, vec![coin(3_000, "uosmo")])
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
-            //Swap cost 940 MBRN for 1000 fee_asset
+            //Swap cost 999 OSMO for 1063 fee_asset
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(201_000, "credit_fulldenom"), coin(99, "error"), coin(94_000, "fee_asset"),  coin(96_000, "mbrn_denom"), coin(102060, "uosmo")]
+                vec![coin(201_000, "credit_fulldenom"), coin(99, "error"), coin(99_999, "fee_asset"),  coin(96_000, "mbrn_denom"), coin(102001, "uosmo")]
             );
             //Assert Governance got the proceeds
             assert_eq!(
                 app.wrap().query_all_balances("contract0").unwrap(),
-                vec![coin(93940, "uosmo")]
+                vec![coin(93999, "uosmo")]
             );
 
             //Assert Auction is empty

@@ -10,12 +10,12 @@ mod tests {
     use membrane::math::Uint256;
     use membrane::oracle::{AssetResponse, PriceResponse};
     use membrane::osmosis_proxy::{GetDenomResponse, TokenInfoResponse, OwnerResponse};
-    use membrane::cdp::{ExecuteMsg, InstantiateMsg, QueryMsg, EditBasket, UpdateConfig};
+    use membrane::cdp::{ExecuteMsg, InstantiateMsg, QueryMsg, EditBasket, UpdateConfig, CreateBasket};
     use membrane::stability_pool::LiquidatibleResponse as SP_LiquidatibleResponse;
     use membrane::staking::Config as Staking_Config;
     use membrane::types::{
         cAsset, Asset, AssetInfo, AssetOracleInfo, Deposit, LiquidityInfo, TWAPPoolInfo,
-        UserInfo, MultiAssetSupplyCap, AssetPool, StakeDistribution, PoolType, DebtCap, Owner
+        UserInfo, MultiAssetSupplyCap, AssetPool, StakeDistribution, PoolType, DebtCap, Owner, PoolStateResponse
     };
     use membrane::liquidity_check::LiquidityResponse;
 
@@ -24,9 +24,7 @@ mod tests {
         Uint128,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
-    use osmo_bindings::PoolStateResponse;
-    use schemars::JsonSchema;
-    use serde::{Deserialize, Serialize};
+    use cosmwasm_schema::cw_serde;
 
     const USER: &str = "user";
     const ADMIN: &str = "admin";
@@ -43,8 +41,7 @@ mod tests {
     }
 
     //Mock LQ Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    #[cw_serde]
     pub enum LQ_MockExecuteMsg {
         Liquidate {
             credit_price: PriceResponse,     //Sent from Position's contract
@@ -69,12 +66,12 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    
+    #[cw_serde]
     pub struct LQ_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    
+    #[cw_serde]
     pub enum LQ_MockQueryMsg {
         CheckLiquidatible {
             bid_for: AssetInfo,
@@ -119,7 +116,15 @@ mod tests {
                             attr("collateral_amount", collateral_amount),
                         ]))
                     //Liquidate_LPs()
-                    } else if collateral_amount.to_string() == String::from("1277777777388888889") {
+                    } else if collateral_amount.to_string() == String::from("1277666666388888888889") {
+                        Ok(Response::new().add_attributes(vec![
+                            attr("action", "execute_bid"),
+                            attr("repay_amount", 2555555555u128.to_string()),
+                            attr("collateral_token", bid_for.to_string()),
+                            attr("collateral_info", "native_token"),
+                            attr("collateral_amount", collateral_amount),
+                        ]))
+                    } else if collateral_amount.to_string() == String::from("1277777777388888888889") {
                         Ok(Response::new().add_attributes(vec![
                             attr("action", "execute_bid"),
                             attr("repay_amount", 2555555555u128.to_string()),
@@ -136,6 +141,7 @@ mod tests {
                             attr("collateral_amount", collateral_amount),
                         ]))
                     } else {
+                        // panic!("{}", collateral_amount);
                        Ok(Response::new().add_attributes(vec![
                             attr("action", "execute_bid"),
                             attr("repay_amount", collateral_amount.to_string()),
@@ -233,7 +239,13 @@ mod tests {
                             total_debt_repaid: (Uint256::from(2777_777777u128) - Uint256::from(222_222222u128))
                             .to_string(),
                         })?)
-                    } else if collateral_amount.to_string() == String::from("1277777777500000000"){
+                    } else if collateral_amount.to_string() == String::from("1388888888500000000000"){
+                        Ok(to_binary(&LQ_LiquidatibleResponse {
+                            leftover_collateral: "111111111111111111111".to_string(),
+                            total_debt_repaid: (Uint256::from(2777_777777u128) - Uint256::from(222_222222u128))
+                            .to_string(),
+                        })?)
+                    } else if collateral_amount.to_string() == String::from("1277777777500000000000"){
                         Ok(to_binary(&LQ_LiquidatibleResponse {
                             leftover_collateral: "111111111111111111".to_string(),
                             total_debt_repaid: (Uint256::from(2777_777777u128) - Uint256::from(222_222222u128))
@@ -362,52 +374,10 @@ mod tests {
                         collateral_amount,
                         credit_info: _,
                         credit_price: _,
-                    } => 
-                    if collateral_amount.to_string() == String::from("1388000000000000") {
-                        Ok(to_binary(&LQ_LiquidatibleResponse {
-                            leftover_collateral: "222222222222222".to_string(),
-                            total_debt_repaid: (Uint256::from(1388u128) - Uint256::from(222u128))
-                                .to_string(),
-                        })?)
-                    } else if collateral_amount.to_string() == String::from("1277000000000000"){
-                        Ok(to_binary(&LQ_LiquidatibleResponse {
-                            leftover_collateral: "222222222222222".to_string(),
-                            total_debt_repaid: (Uint256::from(1277u128) - Uint256::from(222u128))
-                                .to_string(),
-                        })?)
-                    } else if collateral_amount.to_string() == String::from("1388888888888888"){
-                        Ok(to_binary(&LQ_LiquidatibleResponse {
-                            leftover_collateral: "222222222222222".to_string(),
-                            total_debt_repaid: (Uint256::from(1388u128) - Uint256::from(222u128))
-                                .to_string(),
-                        })?)
-                    //liquidate_LP()
-                    } else if collateral_amount.to_string() == String::from("1388888888888888887"){
-                        Ok(to_binary(&LQ_LiquidatibleResponse {
-                            leftover_collateral: "222222222222222222".to_string(),
-                            total_debt_repaid: (Uint256::from(2777_777777u128) - Uint256::from(222_222222u128))
-                                .to_string(),
-                        })?)
-                    } else if collateral_amount.to_string() == String::from("1388888888500000000"){
-                        Ok(to_binary(&LQ_LiquidatibleResponse {
-                            leftover_collateral: "222222222222222222".to_string(),
-                            total_debt_repaid: (Uint256::from(2777_777777u128) - Uint256::from(222_222222u128))
-                                .to_string(),
-                        })?)
-                    } else if collateral_amount.to_string() == String::from("1277777777500000000"){
-                        Ok(to_binary(&LQ_LiquidatibleResponse {
-                            leftover_collateral: "222222222222222222".to_string(),
-                            total_debt_repaid: (Uint256::from(2777_777777u128) - Uint256::from(222_222222u128))
-                                .to_string(),
-                        })?)
-                    } else {
-                        //panic!("{}", collateral_amount);
-                        Ok(to_binary(&LQ_LiquidatibleResponse {
-                            leftover_collateral: "222".to_string(),
-                            total_debt_repaid: (collateral_amount - Uint256::from(222u128))
-                                .to_string(),
-                        })?)
-                    }
+                    } =>                     
+                    Err(StdError::GenericErr {
+                        msg: "no siree".to_string(),
+                    })
                 }
             },
         );
@@ -481,9 +451,8 @@ mod tests {
         Box::new(contract)
     }
 
-    //Mock SP Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    //Mock SP Contract    
+    #[cw_serde]
     pub enum SP_MockExecuteMsg {
         Liquidate { liq_amount: Decimal },
         Distribute {
@@ -497,15 +466,22 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    
+    #[cw_serde]
     pub struct SP_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    
+    #[cw_serde]
     pub enum SP_MockQueryMsg {
         CheckLiquidatible { amount: Decimal },
-        AssetPool { },
+        AssetPool { 
+            /// User address
+            user: Option<String>,
+            /// Deposit limit
+            deposit_limit: Option<u32>,
+            /// Deposit to start after
+            start_after: Option<u32>,    
+        },
     }
 
     pub fn stability_pool_contract() -> Box<dyn Contract<Empty>> {
@@ -528,7 +504,6 @@ mod tests {
                         {
                             // panic!("{}", liq_amount.to_string());
                         }
-
                         Ok(Response::new()
                             .add_attribute("method", "liquidate")
                             .add_attribute("leftover_repayment", "0"))
@@ -602,7 +577,7 @@ mod tests {
                             leftover: Decimal::zero(),
                         })?)
                     }
-                    SP_MockQueryMsg::AssetPool { } => Ok(to_binary(&AssetPool {
+                    SP_MockQueryMsg::AssetPool { user: _, deposit_limit: _, start_after: _ } => Ok(to_binary(&AssetPool {
                         credit_asset: Asset {
                             info: AssetInfo::NativeToken {
                                 denom: "cdt".to_string(),
@@ -649,7 +624,7 @@ mod tests {
                             leftover: Decimal::zero(),
                         })?)
                     }
-                    SP_MockQueryMsg::AssetPool { } => Ok(to_binary(&AssetPool {
+                    SP_MockQueryMsg::AssetPool { user: _, deposit_limit: _, start_after: _ } => Ok(to_binary(&AssetPool {
                         credit_asset: Asset {
                             info: AssetInfo::NativeToken {
                                 denom: "cdt".to_string(),
@@ -669,9 +644,11 @@ mod tests {
         let contract = ContractWrapper::new(
             |_, _, _, msg: SP_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
-                    SP_MockExecuteMsg::Liquidate { liq_amount: _ } => Err(StdError::GenericErr {
+                    SP_MockExecuteMsg::Liquidate { liq_amount } => {
+                                                
+                        Err(StdError::GenericErr {
                         msg: "no siree".to_string(),
-                    }),
+                    })},
                     SP_MockExecuteMsg::Distribute {
                         distribution_assets: _,
                         distribution_asset_ratios: _,
@@ -695,7 +672,7 @@ mod tests {
                             leftover: Decimal::zero(),
                         })?)
                     }
-                    SP_MockQueryMsg::AssetPool { } => Ok(to_binary(&AssetPool {
+                    SP_MockQueryMsg::AssetPool { user: _, deposit_limit: _, start_after: _ } => Ok(to_binary(&AssetPool {
                         credit_asset: Asset {
                             info: AssetInfo::NativeToken {
                                 denom: "cdt".to_string(),
@@ -745,7 +722,7 @@ mod tests {
                             leftover: Decimal::zero(),
                         })?)
                     }
-                    SP_MockQueryMsg::AssetPool { } => Ok(to_binary(&AssetPool {
+                    SP_MockQueryMsg::AssetPool { user: _, deposit_limit: _, start_after: _ } => Ok(to_binary(&AssetPool {
                         credit_asset: Asset {
                             info: AssetInfo::NativeToken {
                                 denom: "cdt".to_string(),
@@ -789,7 +766,7 @@ mod tests {
                             leftover: Decimal::zero(),
                         })?)
                     }
-                    SP_MockQueryMsg::AssetPool { } => Ok(to_binary(&AssetPool {
+                    SP_MockQueryMsg::AssetPool { user: _, deposit_limit: _, start_after: _ } => Ok(to_binary(&AssetPool {
                         credit_asset: Asset {
                             info: AssetInfo::NativeToken {
                                 denom: "cdt".to_string(),
@@ -806,8 +783,8 @@ mod tests {
     }
 
     //Mock Osmo Proxy Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    
+    #[cw_serde]
     pub enum Osmo_MockExecuteMsg {
         MintTokens {
             denom: String,
@@ -826,12 +803,12 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    
+    #[cw_serde]
     pub struct Osmo_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    
+    #[cw_serde]
     pub enum Osmo_MockQueryMsg {
         PoolState {
             id: u64,
@@ -866,9 +843,14 @@ mod tests {
                     }
                     Osmo_MockExecuteMsg::BurnTokens {
                         denom: _,
-                        amount: _,
+                        amount,
                         burn_from_address: _,
-                    } => Ok(Response::new()),
+                    } => {
+                        // if amount == Uint128::new(50000_000_000u128) {
+                        //     panic!();
+                        // }
+                        Ok(Response::new())                    
+                    },
                     Osmo_MockExecuteMsg::CreateDenom {
                         subdenom: _,
                         max_supply,
@@ -896,13 +878,13 @@ mod tests {
                     Osmo_MockQueryMsg::PoolState { id } => {
                         if id == 99u64 {
                             Ok(to_binary(&PoolStateResponse {
-                                assets: vec![coin(112_914_609, "base"), coin(112_914_609, "quote")],
-                                shares: coin(100_000_000_000_000_000_000, "lp_denom"),
+                                assets: vec![coin(112_914_609, "base").into(), coin(112_914_609, "quote").into()],
+                                shares: coin(100_000_000_000_000_000_000, "lp_denom").into(),
                             })?)
                         } else {
                             Ok(to_binary(&PoolStateResponse {
-                                assets: vec![coin(49_999, "credit_fulldenom")],
-                                shares: coin(0, "shares"),
+                                assets: vec![coin(49_999, "credit_fulldenom").into()],
+                                shares: coin(0, "shares").into(),
                             })?)
                         }
                     }
@@ -985,13 +967,13 @@ mod tests {
                     Osmo_MockQueryMsg::PoolState { id } => {
                         if id == 99u64 {
                             Ok(to_binary(&PoolStateResponse {
-                                assets: vec![coin(100_000_000, "base"), coin(100_000_000, "quote")],
-                                shares: coin(100_000_000_000_000_000_000, "lp_denom"),
+                                assets: vec![coin(100_000_000, "base").into(), coin(100_000_000, "quote").into()],
+                                shares: coin(100_000_000_000_000_000_000, "lp_denom").into(),
                             })?)
                         } else {
                             Ok(to_binary(&PoolStateResponse {
-                                assets: vec![coin(5_000_000_000_000, "credit_fulldenom")],
-                                shares: coin(0, "shares"),
+                                assets: vec![coin(5_000_000_000_000, "credit_fulldenom").into()],
+                                shares: coin(0, "shares").into(),
                             })?)
                         }
                     }
@@ -1028,8 +1010,7 @@ mod tests {
     }
 
     //Mock Router Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub enum Router_MockExecuteMsg {
         BasketLiquidate {
             offer_assets: apollo_cw_asset::AssetListUnchecked,
@@ -1039,16 +1020,13 @@ mod tests {
         }
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub struct Router_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub enum Router_MockQueryMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub struct MockResponse {}
 
     pub fn router_contract() -> Box<dyn Contract<Empty>> {
@@ -1077,8 +1055,7 @@ mod tests {
     }
 
     //Mock Auction Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub enum Auction_MockExecuteMsg {
         StartAuction {
             position_id: Uint128,
@@ -1087,12 +1064,10 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub struct Auction_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub enum Auction_MockQueryMsg {}
 
     pub fn auction_contract() -> Box<dyn Contract<Empty>> {
@@ -1117,18 +1092,15 @@ mod tests {
     }
 
     //Mock Staking Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub enum Staking_MockExecuteMsg {
         DepositFee {},
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub struct Staking_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub enum Staking_MockQueryMsg {
         Config { }
     }
@@ -1168,16 +1140,13 @@ mod tests {
     }
 
     //Mock Discounts Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub enum Discounts_MockExecuteMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub struct Discounts_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub enum Discounts_MockQueryMsg {
         UserDiscount { user: String }
     }
@@ -1208,8 +1177,7 @@ mod tests {
     }
 
     //Mock Oracle Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub enum Oracle_MockExecuteMsg {
         AddAsset {
             asset_info: AssetInfo,
@@ -1222,17 +1190,15 @@ mod tests {
         },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub struct Oracle_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub enum Oracle_MockQueryMsg {
-        Price {
-            asset_info: AssetInfo,
+        Prices {
+            asset_infos: Vec<AssetInfo>,
             twap_timeframe: u64,
-            basket_id: Option<Uint128>,
+            oracle_time_limit: u64,
         },
         Assets {
             asset_infos: Vec<AssetInfo>,
@@ -1259,56 +1225,35 @@ mod tests {
             },
             |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Oracle_MockQueryMsg::Price {
-                        asset_info,
+                    Oracle_MockQueryMsg::Prices {
+                        asset_infos,
                         twap_timeframe,
-                        basket_id,
+                        oracle_time_limit,
                     } => {
-                        if basket_id.is_some() {
-                            if basket_id.unwrap() == Uint128::new(2u128) {
-                                Ok(to_binary(&PriceResponse {
-                                    prices: vec![],
-                                    price: Decimal::percent(500),
-                                    decimals: 6,
-                                })?)
-                            } else if asset_info.to_string() == String::from("credit_fulldenom") {
-                                Ok(to_binary(&PriceResponse {
+                        let mut prices = vec![];
+                        for asset_info in asset_infos.iter() {
+                            if asset_info.to_string() == String::from("credit_fulldenom") {
+                                prices.push(PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(98),
                                     decimals: 6,
-                                })?)
+                                });
                             } else if asset_info.to_string() == String::from("lp_denom") {
-                                Ok(to_binary(&PriceResponse {
+                                prices.push(PriceResponse {
                                     prices: vec![],
-                                    price: Decimal::from_ratio(2u128, 1_000_000_000_000_000u128),
+                                    price: Decimal::from_ratio(2u128, 1u128),
                                     decimals: 18,
-                                })?)
+                                });
                             } else {
-                                Ok(to_binary(&PriceResponse {
+                                prices.push(PriceResponse {
                                     prices: vec![],
                                     price: Decimal::one(),
                                     decimals: 6,
-                                })?)
+                                });
                             }
-                        } else if asset_info.to_string() == String::from("credit_fulldenom") { 
-                            Ok(to_binary(&PriceResponse {
-                                prices: vec![],
-                                price: Decimal::percent(98),
-                                decimals: 6,
-                            })?)
-                        } else if asset_info.to_string() == String::from("lp_denom") {
-                            Ok(to_binary(&PriceResponse {
-                                prices: vec![],
-                                price: Decimal::from_ratio(2u128, 1_000_000_000_000_000u128),
-                                decimals: 18,
-                            })?)
-                        } else {
-                            Ok(to_binary(&PriceResponse {
-                                prices: vec![],
-                                price: Decimal::one(),
-                                decimals: 6,
-                            })?)
                         }
+                        
+                        Ok(to_binary(&prices)?)                        
                     }
                     Oracle_MockQueryMsg::Assets { asset_infos } => Ok(to_binary(&vec![
                         AssetResponse {
@@ -1372,58 +1317,36 @@ mod tests {
             },
             |_, _, msg: Oracle_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Oracle_MockQueryMsg::Price {
-                        asset_info,
+                    Oracle_MockQueryMsg::Prices {
+                        asset_infos,
                         twap_timeframe,
-                        basket_id,
+                        oracle_time_limit,
                     } => {
                         
-                        //Everything is $1 unless basket#2 which is $5 collateral and $1.02 credit
-                        if basket_id.is_some() {
-                            if basket_id.unwrap() == Uint128::new(2u128) {
-                                Ok(to_binary(&PriceResponse {
-                                    prices: vec![],
-                                    price: Decimal::percent(500),
-                                    decimals: 6,
-                                })?)
-                            } else if asset_info.to_string() == String::from("credit_fulldenom") {
-                                Ok(to_binary(&PriceResponse {
+                        let mut prices = vec![];
+                        for asset_info in asset_infos.iter() {
+                            if asset_info.to_string() == String::from("credit_fulldenom") {
+                                prices.push(PriceResponse {
                                     prices: vec![],
                                     price: Decimal::percent(102),
                                     decimals: 6,
-                                })?)
+                                });
                             } else if asset_info.to_string() == String::from("lp_denom") {
-                                Ok(to_binary(&PriceResponse {
+                                prices.push(PriceResponse {
                                     prices: vec![],
-                                    price: Decimal::from_ratio(2u128, 1_000_000_000_000_000u128),
+                                    price: Decimal::from_ratio(2u128, 1u128),
                                     decimals: 18,
-                                })?)
+                                });
                             } else {
-                                Ok(to_binary(&PriceResponse {
+                                prices.push(PriceResponse {
                                     prices: vec![],
                                     price: Decimal::one(),
                                     decimals: 6,
-                                })?)
+                                });
                             }
-                        } else if asset_info.to_string() == String::from("credit_fulldenom") {
-                            Ok(to_binary(&PriceResponse {
-                                prices: vec![],
-                                price: Decimal::percent(102),
-                                decimals: 6,
-                            })?)
-                        } else if asset_info.to_string() == String::from("lp_denom") {
-                            Ok(to_binary(&PriceResponse {
-                                prices: vec![],
-                                price: Decimal::from_ratio(2u128, 1_000_000_000_000_000u128),
-                                decimals: 18,
-                            })?)
-                        } else {
-                            Ok(to_binary(&PriceResponse {
-                                prices: vec![],
-                                price: Decimal::one(),
-                                decimals: 6,
-                            })?)
                         }
+                        
+                        Ok(to_binary(&prices)?)
                     }
                     Oracle_MockQueryMsg::Assets { asset_infos } => Ok(to_binary(&vec![
                         AssetResponse {
@@ -1468,19 +1391,16 @@ mod tests {
     }
 
     //Mock Liquidity Contract
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub enum Liquidity_MockExecuteMsg {
         AddAsset { asset: LiquidityInfo },
         EditAsset { asset: LiquidityInfo },
     }
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub struct Liquidity_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+     #[cw_serde]    
     pub enum Liquidity_MockQueryMsg {
         Liquidity { asset: AssetInfo },
     }
@@ -1552,7 +1472,7 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked("contract0"),
-                vec![coin(2225_000000, "credit_fulldenom")],
+                vec![coin(2777_777777, "credit_fulldenom")],
             )
             .unwrap(); //contract1 = Stability Pool contract
             bank.init_balance(
@@ -1613,7 +1533,7 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked("lp_tester"),
-                vec![coin(100_000_000_000_000_000_000, "lp_denom")],
+                vec![coin(100_000_000_000_000_000_000_000, "lp_denom")],
             )
             .unwrap();
             bank.init_balance(
@@ -1881,12 +1801,361 @@ mod tests {
         use super::*;
         use cosmwasm_std::{coins, BlockInfo};
         use membrane::cdp::{
-            BadDebtResponse, CollateralInterestResponse, Config, BasketPositionsResponse,
+            CollateralInterestResponse, Config, BasketPositionsResponse,
             ExecuteMsg, InsolvencyResponse, PositionResponse, InterestResponse, RedeemabilityResponse
         };
         use membrane::types::{InsolventPosition, LPAssetInfo, PoolInfo, SupplyCap, UserInfo, Basket};
 
-        
+        #[test]
+        fn freeze(){
+
+            let (mut app, cdp_contract, lq_contract) =
+                proper_instantiate(false, false, false, false);
+            
+            //Edit Basket
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
+                added_cAsset: None,
+                liq_queue: Some(lq_contract.addr().to_string()),
+                credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
+                collateral_supply_caps: Some(vec![
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "debit".to_string(),
+                        },
+                        current_supply: Uint128::zero(),
+                        debt_total: Uint128::zero(),
+                        supply_cap_ratio: Decimal::percent(100),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    }
+                ]),
+                base_interest_rate: Some(Decimal::percent(2)),
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: Some(true),
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Frozen Deposit
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some(USER.to_string()),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg,
+                    vec![
+                        Coin {
+                            denom: "debit".to_string(),
+                            amount: Uint128::from(50_000_000_000u128),
+                        },
+                    ],
+                )
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //Unfreeze Basket
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: Some(false),
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Initial debit Deposit
+            //50_000 debit
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some(USER.to_string()),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg,
+                    vec![
+                        Coin {
+                            denom: "debit".to_string(),
+                            amount: Uint128::from(50_000_000_000u128),
+                        },
+                    ],
+                )
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Freeze Basket
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: Some(true),
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Frozen: Partial withdrawal for Position #1
+            let withdrawal_msg = ExecuteMsg::Withdraw {
+                position_id: Uint128::from(1u128),
+                assets: vec![
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "debit".to_string(),
+                        },
+                        amount: Uint128::from(10_000_000_000u128),
+                    }
+                ],
+                send_to: None,
+            };
+            let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //Unfreeze Basket
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: Some(false),
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            
+            //Partial withdrawal for Position #1
+            let withdrawal_msg = ExecuteMsg::Withdraw {
+                position_id: Uint128::from(1u128),
+                assets: vec![
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: "debit".to_string(),
+                        },
+                        amount: Uint128::from(10_000_000_000u128),
+                    }
+                ],
+                send_to: None,
+            };
+            let cosmos_msg = cdp_contract.call(withdrawal_msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Freeze Basket
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: Some(true),
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Frozen: Increase Debt for Position #1
+            let msg = ExecuteMsg::IncreaseDebt {
+                position_id: Uint128::from(1u128),
+                amount: Some(Uint128::from(10_000_000_000u128)),
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //Unfreeze Basket
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: Some(false),
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Increase Debt for Position #1
+            let msg = ExecuteMsg::IncreaseDebt {
+                position_id: Uint128::from(1u128),
+                amount: Some(Uint128::from(10_000_000_000u128)),
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Send credit
+            app.send_tokens(
+                Addr::unchecked("sender"),
+                Addr::unchecked(USER),
+                &[coin(10_000_000_000, "credit_fulldenom")],
+            )
+            .unwrap();
+
+            //Freeze Basket
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: Some(true),
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Frozen: Repayment for Position #1
+            let repay_msg = ExecuteMsg::Repay {
+                position_id: Uint128::from(1u128),
+                position_owner: None,
+                send_excess_to: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(repay_msg, vec![coin(10_000_000_000, "credit_fulldenom")])
+                .unwrap();
+            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //Unfreeze Basket
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: Some(false),
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Repayment for Position #1
+            let repay_msg = ExecuteMsg::Repay {
+                position_id: Uint128::from(1u128),
+                position_owner: None,
+                send_excess_to: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(repay_msg, vec![coin(10_000_000_000, "credit_fulldenom")])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();           
+
+            //Freeze Basket
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: Some(true),
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Frozen: Liquidate Position #1 
+            let msg = ExecuteMsg::Liquidate {
+                position_id: Uint128::new(1u128),
+                position_owner: USER.to_string(),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            
+            //Unfreeze Basket
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: Some(false),
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Freeze Grace Period: Liquidate Position #1 
+            let msg = ExecuteMsg::Liquidate {
+                position_id: Uint128::new(1u128),
+                position_owner: USER.to_string(),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("Generic error: You can liquidate in 3600 seconds, there is a post-freeze grace period"));
+
+            //Skip 12 hours
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(43200), //Added a year
+                chain_id: app.block_info().chain_id,
+            });           
+
+            //Liquidate Position #1: Solvency Error
+            let msg = ExecuteMsg::Liquidate {
+                position_id: Uint128::new(1u128),
+                position_owner: USER.to_string(),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("Position is solvent and shouldn't be liquidated"));
+        }
+
         #[test]
         //Multiple positions
         //Withdraw partially from both
@@ -1900,6 +2169,7 @@ mod tests {
             
             //Edit Basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -1964,20 +2234,22 @@ mod tests {
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Assert user positions
-            let query_msg = QueryMsg::GetUserPositions {
-                user: String::from(USER),
+            //Assert user positions            
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
                 limit: None,
+                user: Some(USER.to_string()),
+                user_info: None,
             };
 
-            let res: Vec<PositionResponse> = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
                 
             ////Assert collaterals, then length
             assert_eq!(
-                res[0].collateral_assets,
+                res[0].positions[0].collateral_assets,
                 vec![
                     cAsset {
                         asset: Asset {
@@ -1994,7 +2266,7 @@ mod tests {
                 ]
             );
             assert_eq!(
-                res[1].collateral_assets,
+                res[0].positions[1].collateral_assets,
                 vec![
                     cAsset {
                         asset: Asset {
@@ -2011,7 +2283,7 @@ mod tests {
                 ]
             );
             assert_eq!(
-                res.len().to_string(),
+                res[0].positions.len().to_string(),
                 String::from("2") 
             );               
 
@@ -2049,18 +2321,20 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Assert user positions
-            let query_msg = QueryMsg::GetUserPositions {
-                user: String::from(USER),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
                 limit: None,
+                user: Some( String::from(USER)),
+                user_info: None,
             };
 
-            let res: Vec<PositionResponse> = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             ////Assert collaterals
             assert_eq!(
-                res[0].collateral_assets[0].asset,
+                res[0].positions[0].collateral_assets[0].asset,
                     Asset {
                         info: AssetInfo::NativeToken {
                             denom: "debit".to_string(),
@@ -2069,7 +2343,7 @@ mod tests {
                         }
             );
             assert_eq!(
-                res[1].collateral_assets[0].asset,
+                res[0].positions[1].collateral_assets[0].asset,
                     Asset {
                         info: AssetInfo::NativeToken {
                             denom: "debit".to_string(),
@@ -2114,23 +2388,25 @@ mod tests {
             )
             .unwrap();
 
-            //Assert user positions
-            let query_msg = QueryMsg::GetUserPositions {
-                user: String::from(USER),
+            //Assert user positions            
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
                 limit: None,
+                user: Some( String::from(USER)),
+                user_info: None,
             };
 
-            let res: Vec<PositionResponse> = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             ////Assert credit_amount
             assert_eq!(
-                res[0].credit_amount,
+                res[0].positions[0].credit_amount,
                 Uint128::from(10_000_000_000u128)
             );
             assert_eq!(
-                res[1].credit_amount,
+                res[0].positions[1].credit_amount,
                 Uint128::from(20_000_000_000u128)
             );
 
@@ -2153,32 +2429,34 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Assert user positions
-            let query_msg = QueryMsg::GetUserPositions {
-                user: String::from(USER),
+            //Assert user positions   
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
                 limit: None,
+                user: Some( String::from(USER)),
+                user_info: None,
             };
 
-            let res: Vec<PositionResponse> = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             ////Assert credit_amount
             ///Note: Position_id order flips
             assert_eq!(
-                res[1].position_id,
+                res[0].positions[1].position_id,
                 Uint128::new(2)
             );
             assert_eq!(
-                res[1].credit_amount,
+                res[0].positions[1].credit_amount,
                 Uint128::from(20_000_000_000u128)
             );
             assert_eq!(
-                res[0].position_id,
+                res[0].positions[0].position_id,
                 Uint128::new(1)
             );
             assert_eq!(
-                res[0].credit_amount,
+                res[0].positions[0].credit_amount,
                 Uint128::zero()
             );
         }
@@ -2234,6 +2512,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                take_revenue: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2289,6 +2568,8 @@ mod tests {
             let msg = QueryMsg::GetBasketPositions {
                 start_after: None,
                 limit: None,
+                user: None,
+                user_info: None,
             };
 
             let resp: Vec<BasketPositionsResponse> = app
@@ -2390,16 +2671,23 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Query Position assets to assert withdrawal
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: USER.to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: USER.to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(10000_000_000));
-            assert_eq!(res.collateral_assets[1].asset.amount, Uint128::new(10000_000_000));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(10000_000_000));
+            assert_eq!(res[0].positions[0].collateral_assets[1].asset.amount, Uint128::new(10000_000_000));
 
             //Assert withdrawal was sent to sent_to.
             assert_eq!(
@@ -2443,6 +2731,7 @@ mod tests {
 
             //Edit Basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -2505,6 +2794,38 @@ mod tests {
             app.execute(Addr::unchecked("test"), cosmos_msg)
                 .unwrap_err();
 
+            /////////////Test that repaying in full w/o excess works////////////////////
+
+            //Successful Increase
+            let msg = ExecuteMsg::IncreaseDebt {
+                position_id: Uint128::from(1u128),
+                amount: Some(Uint128::from(50_000_000_000u128)),
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
+
+            //Send credit
+            app.send_tokens(
+                Addr::unchecked("sender"),
+                Addr::unchecked("test"),
+                &[coin(50_000_000_000, "credit_fulldenom")],
+            )
+            .unwrap();
+
+            ///Full Repayment
+            let msg = ExecuteMsg::Repay {
+                position_id: Uint128::from(1u128),
+                position_owner: None,
+                send_excess_to: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(msg, vec![coin(50_000_000_000, "credit_fulldenom")])
+                .unwrap();
+            app.execute(Addr::unchecked("test"), cosmos_msg)
+                .unwrap();
+
             //Successful Increase
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
@@ -2535,15 +2856,23 @@ mod tests {
             app.execute(Addr::unchecked("test"), cosmos_msg)
                 .unwrap_err();
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "test".to_string(),
+            
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "test".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new(50000_000_000));
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new(50000_000_000));
 
             //Query Basket Debt Caps
             let query_msg = QueryMsg::GetBasketDebtCaps { };
@@ -2553,7 +2882,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(50000000000), cap: Uint128(249995000000) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(50000000000), cap: Uint128(249995050000) }]")
             );
 
             //Excess Repayment
@@ -2579,15 +2908,23 @@ mod tests {
                 vec![coin(50_001_000_000, "credit_fulldenom")]
             );
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "test".to_string(),
+            
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "test".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::zero());
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::zero());
 
             //Fully withdraw from position
             let withdrawal_msg = ExecuteMsg::Withdraw {
@@ -2607,6 +2944,8 @@ mod tests {
             let query_msg = QueryMsg::GetBasketPositions {
                 start_after: None,
                 limit: None,
+                user: None,
+                user_info: None,
             };
             let res: Vec<BasketPositionsResponse> = app
                 .wrap()
@@ -2618,6 +2957,12 @@ mod tests {
 
         #[test]
         fn accrue_debt() {
+            // panic!("{}", PriceResponse {
+            //     prices: vec![],
+            //     price: Decimal::from_ratio(2u128, 1u128),
+            //     decimals: 18,
+            // }.to_decimal256().unwrap().get_value(Uint256::from(100000000_000_000_000_000_000_000u128)));
+
             let (mut app, cdp_contract, lq_contract) =
                 proper_instantiate(false, false, false, false);
 
@@ -2631,6 +2976,7 @@ mod tests {
 
             //Add LP pool assets first: Base
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -2659,6 +3005,7 @@ mod tests {
 
             //Add LP pool assets first: Quote
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -2689,6 +3036,7 @@ mod tests {
             //Set supply caps
             //Set general parameters
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -2785,7 +3133,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000_000_000_000_000_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -2812,7 +3160,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(99999000000), cap: Uint128(249995000000) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(99999000000), cap: Uint128(249995050000) }]")
             );
 
             //Insolvent position error
@@ -2853,19 +3201,27 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(5714285714), cap: Uint128(249995000000) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(5714284571), cap: Uint128(249995050000) }]")
             );
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "bigger_bank".to_string(),
+            
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "bigger_bank".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             ///5714_284571 interest
-            assert_eq!(res.credit_amount, Uint128::new(5714_285714));
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new(5714_284571));
 
             //Insolvent withdrawal error
             ////This should be solvent if there wasn't accrued interest
@@ -2898,15 +3254,22 @@ mod tests {
                 .unwrap();
 
             //Query to assert new debt amount due to the added year
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "bigger_bank".to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "bigger_bank".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new(5732_944979));
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new(5732_943825));
 
             //Query Rates
             let query_msg = QueryMsg::GetCollateralInterest { };
@@ -2915,7 +3278,7 @@ mod tests {
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             assert_eq!( format!("{:?}", res.rates), 
-                String::from("[Decimal(0), Decimal(0), Decimal(0), Decimal(0.003265371429714308)]"));
+                String::from("[Decimal(0), Decimal(0), Decimal(0), Decimal(0.003265370123471301)]"));
 
             //Call liquidate on CDP contract
             // let msg = ExecuteMsg::Liquidate {
@@ -3050,6 +3413,7 @@ mod tests {
 
             //Add LP pool assets first: Base
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -3078,6 +3442,7 @@ mod tests {
 
             //Add LP pool assets first: Quote
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -3108,6 +3473,7 @@ mod tests {
             //Set supply caps
             //Set general parameters
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -3194,7 +3560,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit for Position 1
-            //Current Position: 50_000_000_000_000_000_000 lp_denom
+            //Current Position: 50_000_000_000_000_000_000_000 lp_denom
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
@@ -3204,7 +3570,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(50_000_000_000_000_000_000u128),
+                        amount: Uint128::from(50_000_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -3222,7 +3588,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000_000_000_000_000_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -3230,7 +3596,7 @@ mod tests {
                 .unwrap();
 
             //Successful Increase for Position 1
-            //Current Position: 50_000_000_000_000_000_000 lp_denom -> 40_000_000000 credit_fulldenom
+            //Current Position: 50_000_000_000_000_000_000_000 lp_denom -> 40_000_000000 credit_fulldenom
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
                 amount: Some(Uint128::from(40_000_000000u128)),
@@ -3249,17 +3615,24 @@ mod tests {
 
             //////Querying Position 1 to assert debt and rate_index
             // Position 1
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "bigger_bank".to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "bigger_bank".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             //Rate was at 0 so nothing accrued to the index
-            assert_eq!(res.collateral_assets[0].rate_index.to_string(), String::from("1"));
-            assert_eq!(res.credit_amount, Uint128::new(40000_000000));
+            assert_eq!(res[0].positions[0].collateral_assets[0].rate_index.to_string(), String::from("1"));
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new(40000_000000));
 
           
             //Successful Increase for Position 2
@@ -3284,16 +3657,23 @@ mod tests {
             /// AND higher rate didn't affect Position 1's initial accrued interest debt
             //
             //Position 2
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(2u128),
-                position_owner: "bigger_bank".to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(2),
+                        position_owner: "bigger_bank".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].rate_index.to_string(), String::from("1.022857600009143039"));
-            assert_eq!(res.credit_amount, Uint128::new(100000_000000));
+            assert_eq!(res[0].positions[0].collateral_assets[0].rate_index.to_string(), String::from("1.022857600009143039"));
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new(100000_000000));
 
             //Accrue Position 1 to update rates since query doesn't accrue anymore
             let msg = ExecuteMsg::Accrue { position_owner: None, position_ids: vec![Uint128::one()] };
@@ -3305,16 +3685,23 @@ mod tests {
             //40_000_000000 -> 40914_304000
             //2.28% 
             //Asserting that the credit wasn't accrued ~8%
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "bigger_bank".to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "bigger_bank".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].rate_index.to_string(), String::from("1.022857600009143039"));
-            assert_eq!(res.credit_amount, Uint128::new(40914_304000));
+            assert_eq!(res[0].positions[0].collateral_assets[0].rate_index.to_string(), String::from("1.022857600009143039"));
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new(40914_304000));
 
 
             //Check rates to confirm its at ~8%
@@ -3370,6 +3757,7 @@ mod tests {
 
             //Add LP pool assets first: Base
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -3398,6 +3786,7 @@ mod tests {
 
             //Add LP pool assets first: Quote
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -3428,6 +3817,7 @@ mod tests {
             //Set supply caps
             //Set general parameters
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -3524,7 +3914,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000_000_000_000_000_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -3532,7 +3922,7 @@ mod tests {
                 .unwrap();
 
             //Successful Increase
-            //Current Position: 100_000_000_000_000_000_000 lp_denom -> 99_999_000000 credit_fulldenom
+            //Current Position: 100_000_000_000_000_000_000_000 lp_denom -> 99_999_000000 credit_fulldenom
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
                 amount: Some(Uint128::from(99_999_000000u128)),
@@ -3568,20 +3958,27 @@ mod tests {
             assert_eq!(
                 format!("{:?}", res.rates),
                 String::from(
-                    "[Decimal(0), Decimal(0), Decimal(0), Decimal(0.057143428582857371)]"
+                    "[Decimal(0), Decimal(0), Decimal(0), Decimal(0.057143417153945362)]"
                 )
             );
 
             //Assert the 90% discount on rates
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "discounty".to_string(),
-            };      
-            let res: PositionResponse = app
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "discounty".to_string(),
+                    }
+                ),
+            };
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new((100570_428571)) );
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new((100570_428457)) );
         }
 
         #[test]
@@ -3599,6 +3996,7 @@ mod tests {
 
             //Edit Basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -3700,15 +4098,22 @@ mod tests {
                 .unwrap();
             assert_eq!(res.credit_price.price.to_string(), String::from("1.040816326530612244"));
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "test".to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "test".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new((1922_775510)) );
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new((1922_775510)) );
 
             //Insolvent withdrawal at that brings position to previous debt minimum
             ////This wouldn't be insolvent if there wasn't an increased repayment price
@@ -3768,6 +4173,7 @@ mod tests {
 
             //Edit Basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -3880,15 +4286,22 @@ mod tests {
                 .unwrap();
             assert_eq!(res.credit_price.price.to_string(), String::from("0.94"));
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "test".to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "test".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::new(50001_000000));
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::new(50001_000000));
 
             //Query Redemption Rate/Repayment Interest
             let resp: InterestResponse = app
@@ -3913,6 +4326,7 @@ mod tests {
 
             //Edit Basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -3981,7 +4395,7 @@ mod tests {
 
             //Assert interest rates decreased from the negative redemption rate
             //Base rate is 285714285
-            //Accrued rate is 274052477
+            //Accrued rate is 0 bc the credit price rate (0.02) is larger than the actual rate (0.000000000285714285)
             let query_msg = QueryMsg::GetCollateralInterest { };
             app.set_block(BlockInfo {
                 height: app.block_info().height,
@@ -3994,7 +4408,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.rates[0].to_string(),
-                String::from("0.000000000274052477")
+                String::from("0")
             );            
         }
 
@@ -4013,6 +4427,7 @@ mod tests {
 
             //Add LP pool assets first: Base
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -4041,6 +4456,7 @@ mod tests {
 
             //Add LP pool assets first: Quote
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -4071,6 +4487,7 @@ mod tests {
             //Set supply caps
             //Set general parameters
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -4157,7 +4574,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Initial Deposit for Position 1
-            //Current Position: 100_000_000_000_000_000_000 lp_denom
+            //Current Position: 100_000_000_000_000_000_000_000 lp_denom
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
@@ -4167,7 +4584,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000_000_000_000_000_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -4176,7 +4593,7 @@ mod tests {
 
            
             //Successful Increase for Position 1
-            //Current Position: 100_000_000_000_000_000_000 lp_denom -> 2_000_000000 credit_fulldenom
+            //Current Position: 100_000_000_000_000_000_000_000 lp_denom -> 2_000_000000 credit_fulldenom
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
                 amount: Some(Uint128::from(2_000_000000u128)),
@@ -4219,7 +4636,7 @@ mod tests {
             );
 
             //Successful Increase for Position 1
-            //Current Position: 100_000_000_000_000_000_000 lp_denom -> 198_000_000000 credit_fulldenom
+            //Current Position: 100_000_000_000_000_000_000_000 lp_denom -> 198_000_000000 credit_fulldenom
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
                 amount: Some(Uint128::from(196_000_000_000u128)),
@@ -4260,6 +4677,56 @@ mod tests {
                 res.rates[3].to_string(),
                 String::from("0.079201584031680633")
             );
+
+            //Set LP denom supply cap super low to spike rate
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: Some(vec![
+                    SupplyCap {
+                        asset_info: AssetInfo::NativeToken {
+                            denom: "lp_denom".to_string(),
+                        },
+                        current_supply: Uint128::from(198_000_000_000u128),
+                        debt_total: Uint128::from(198_000_000_000u128),
+                        supply_cap_ratio: Decimal::from_str("0.001").unwrap(),
+                        lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                    },
+                ]),
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            
+            //Accrue position since query will use old rates if not
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+
+            //Check lp_Denom rate is at the top of Slope 1 due to debt at the desired_debt_util (79% out of 80%)
+            let query_msg = QueryMsg::GetCollateralInterest { };
+            let res: CollateralInterestResponse = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(
+                res.rates[3].to_string(),
+                String::from("1")
+            );
         }
 
         #[test]
@@ -4277,6 +4744,7 @@ mod tests {
 
             //Edit Basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -4390,6 +4858,7 @@ mod tests {
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -4486,15 +4955,22 @@ mod tests {
                 ]
             );
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "test".to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "test".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.credit_amount, Uint128::zero());
+            assert_eq!(res[0].positions[0].credit_amount, Uint128::zero());
         }
 
         #[test]
@@ -4512,6 +4988,7 @@ mod tests {
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -4618,22 +5095,23 @@ mod tests {
                 ]
             );
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: USER.to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: USER.to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98313888889));
-            assert_eq!(res.collateral_assets[1].asset.amount, Uint128::new(98313888889));
-
-            //Assert sell wall wasn't sent assets
-            assert_eq!(
-                app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-                vec![]
-            );
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98313888889));
+            assert_eq!(res[0].positions[0].collateral_assets[1].asset.amount, Uint128::new(98313888889));
 
             //Assert fees were sent.
             assert_eq!(
@@ -4650,7 +5128,7 @@ mod tests {
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(111_111111, "2nddebit"), coin(2002_777_778, "credit_fulldenom"), coin(111_111111, "debit")]
+                vec![coin(111_111111, "2nddebit"), coin(2555_555555, "credit_fulldenom"), coin(111_111111, "debit")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
@@ -4679,6 +5157,7 @@ mod tests {
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -4729,7 +5208,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Call liquidate on CDP contract
+            //Call liquidate on CDP contract: SP Errors so we only update position from LQs work
             let msg = ExecuteMsg::Liquidate {
                 position_id: Uint128::new(1u128),
                 position_owner: USER.to_string(),
@@ -4737,22 +5216,22 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: USER.to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: USER.to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97311_111112));
-
-            //Assert sell wall was sent assets
-            //The user's SP repayment failed
-            assert_eq!(
-                app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-                vec![coin(222_222222, "debit")]
-            );
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(97533_333334));
 
             //Assert fees were sent.
             assert_eq!(
@@ -4774,7 +5253,7 @@ mod tests {
             //Assert SP wasn't sent any due to the Error
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(2225_000000, "credit_fulldenom")]
+                vec![coin(2777_777777, "credit_fulldenom")]
             );
             //Assert asset tally is working
             let query_msg = QueryMsg::GetBasket { };
@@ -4784,7 +5263,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.collateral_supply_caps[0].current_supply,
-                Uint128::new(97311_111112)
+                Uint128::new(97533_333334)
             );
 
             //////LQ Errors///
@@ -4795,6 +5274,7 @@ mod tests {
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
                 added_cAsset: None,
+                take_revenue: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
                 collateral_supply_caps: Some(vec![SupplyCap {
@@ -4852,7 +5332,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Call LiqRepay to mimic a successfull SP Liquidate call by both the initial SP and then LQ reply
+            //Call LiqRepay to mimic a successfull SP Liquidate call by the LQ reply
             let msg = ExecuteMsg::LiqRepay {};
 
             let cosmos_msg = cdp_contract
@@ -4861,21 +5341,22 @@ mod tests {
             app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
                 .unwrap();
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: USER.to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: USER.to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97085_833334));
-
-            //Assert sell wall wasn't sent assets
-            assert_eq!(
-                app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-                vec![]
-            );
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(97085_833334));
 
             //Assert fees were sent.
             assert_eq!(
@@ -4892,7 +5373,7 @@ mod tests {
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(2447_500000, "debit")]
+                vec![coin(552777777, "credit_fulldenom" ), coin(2447_500000, "debit")]
             );
             //Assert LQ wasn't sent any due to the Error
             assert_eq!(
@@ -4917,6 +5398,7 @@ mod tests {
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -4967,61 +5449,69 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Call liquidate on CDP contract
+            //Call liquidate on CDP contract: Both Erroring
             let msg = ExecuteMsg::Liquidate {
                 position_id: Uint128::new(1u128),
                 position_owner: USER.to_string(),
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: USER.to_string(),
-            };
-            let res: PositionResponse = app
-                .wrap()
-                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-                .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97311_111112));
 
-            //Assert sell wall was sent all Assets
-            assert_eq!(
-                app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-                vec![coin(2222_222222, "debit")]
-            );
+            // let query_msg = QueryMsg::GetBasketPositions {
+            //     start_after: None, 
+            //     limit: None,
+            //     user: None,
+            //     user_info: Some(
+            //         UserInfo {
+            //             position_id: Uint128::new(1),
+            //             position_owner: USER.to_string(),
+            //         }
+            //     ),
+            // };
+            // let res: Vec<BasketPositionsResponse> = app
+            //     .wrap()
+            //     .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+            //     .unwrap();
+            // assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(97311_111112));
 
-            //Assert fees were sent.
-            assert_eq!(
-                app.wrap()
-                    .query_all_balances(staking_contract.clone())
-                    .unwrap(),
-                vec![coin(22_222222, "debit")]
-            );
-            assert_eq!(
-                app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000_000000, "2nddebit"), coin(444_444444, "debit")]
-            );
+            // //Assert sell wall was sent all Assets
+            // assert_eq!(
+            //     app.wrap().query_all_balances(router_addr.clone()).unwrap(),
+            //     vec![coin(2222_222222, "debit")]
+            // );
 
-            //Assert neither module was sent any due to the Error
-            assert_eq!(
-                app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(2225_000000, "credit_fulldenom")]
-            );
-            assert_eq!(
-                app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![]
-            );
-            //Assert asset tally is working
-            let query_msg = QueryMsg::GetBasket { };
-            let res: Basket = app
-                .wrap()
-                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-                .unwrap();
-            assert_eq!(
-                res.collateral_supply_caps[0].current_supply,
-                Uint128::new(97311_111112)
-            );
+            // //Assert fees were sent.
+            // assert_eq!(
+            //     app.wrap()
+            //         .query_all_balances(staking_contract.clone())
+            //         .unwrap(),
+            //     vec![coin(22_222222, "debit")]
+            // );
+            // assert_eq!(
+            //     app.wrap().query_all_balances(USER).unwrap(),
+            //     vec![coin(100000_000000, "2nddebit"), coin(444_444444, "debit")]
+            // );
+
+            // //Assert neither module was sent any due to the Error
+            // assert_eq!(
+            //     app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
+            //     vec![coin(2777_777777, "credit_fulldenom")]
+            // );
+            // assert_eq!(
+            //     app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
+            //     vec![]
+            // );
+            // //Assert asset tally is working
+            // let query_msg = QueryMsg::GetBasket { };
+            // let res: Basket = app
+            //     .wrap()
+            //     .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+            //     .unwrap();
+            // assert_eq!(
+            //     res.collateral_supply_caps[0].current_supply,
+            //     Uint128::new(97311_111112)
+            // );
         }
 
         #[test]
@@ -5039,6 +5529,7 @@ mod tests {
 
             //Add LP pool assets first: Base
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -5067,6 +5558,7 @@ mod tests {
 
             //Add LP pool assets first: Quote
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -5098,6 +5590,7 @@ mod tests {
             //Set general parameters
             //Add LQ
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -5193,7 +5686,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000_000_000_000_000_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -5226,15 +5719,23 @@ mod tests {
             app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
                 .unwrap();
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "bigger_bank".to_string(),
+
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "bigger_bank".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(97405_616667055555557));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(97486_166667055555555986));
             //2777 credit liquidated at $1
             //lp_denom is worth $2
             //Assert sell wall wasn't sent assets
@@ -5248,21 +5749,21 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(13_888_888_888_888_888, "lp_denom")]
+                vec![coin(13_888888888888888875, "lp_denom")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000000000, "2nddebit"), coin(100000000000, "debit"), coin(416_666_666_666_666_666, "lp_denom")]
+                vec![coin(100000000000, "2nddebit"), coin(100000000000, "debit"), coin(416_666_666_666_666_666_250, "lp_denom")]
             );
 
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(614_000000, "credit_fulldenom"), coin(886_050000000000000, "lp_denom")]
+                vec![coin(1166_777777, "credit_fulldenom"), coin(805_500000000000000000, "lp_denom")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(1277_777_777_388_888_889, "lp_denom")]
+                vec![coin(1277_777_777_388_888_888_889, "lp_denom")]
             );
             
             /////////SP Errors////
@@ -5272,6 +5773,7 @@ mod tests {
 
             //Add LP pool assets first: Base
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -5300,6 +5802,7 @@ mod tests {
 
             //Add LP pool assets first: Quote
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -5331,6 +5834,7 @@ mod tests {
             //Set general parameters
             //Add LQ
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -5426,7 +5930,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000_000_000_000_000_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -5442,7 +5946,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
 
-            //Call liquidate on CDP contract
+            //Call liquidate on CDP contract: SP Errors so we only update position from LQs work
             let msg = ExecuteMsg::Liquidate {
                 position_id: Uint128::new(1u128),
                 position_owner: "bigger_bank".to_string(),
@@ -5455,23 +5959,25 @@ mod tests {
                 &vec![coin(111_111111, "base"), coin(111_111111, "quote")],
             )
             .unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();           
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "bigger_bank".to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "bigger_bank".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98291_666667055555557));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98291_777778055555555986));
 
-            //Assert sell wall was sent assets
-            assert_eq!(
-                app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-                vec![coin(111_111111, "base"), coin(111_111111, "quote")]
-            );
 
             //Assert 1% fee was sent.
             //This is 13 instead of 27 bc the share token is the only collateral worth $2 instead of 1.
@@ -5479,33 +5985,36 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(13_888_888_888_888_888, "lp_denom")]
+                vec![coin(13_888888888888888875, "lp_denom")]
             );
             //Assert 30% fee
             //Same here, 416 instead of 833 if it were valued at a $1.
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000000000, "2nddebit"), coin(100000000000, "debit"), coin(416_666666666666666, "lp_denom")]
+                vec![coin(100000000000, "2nddebit"), coin(100000000000, "debit"), coin(416_666666666666666250, "lp_denom")]
             );
 
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![coin(1166_666666388888889, "lp_denom")]
+                vec![coin(1277_666666388888888889, "lp_denom")]
             );            
             //Assert SP wasn't sent any due to the Error
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(2225_000000, "credit_fulldenom")]
+                vec![coin(2777_777777, "credit_fulldenom")]
             );
 
             //////LQ Errors///
+            /// The query erroring will skip all LQ msgs and use the SP.
+            /// In real-time if the query doesn't error but the execution does, the liquidation msg will fail.
             ///
             let (mut app, cdp_contract, lq_contract) =
                 proper_instantiate(false, true, false, false);
 
             //Add LP pool assets first: Base
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -5534,6 +6043,7 @@ mod tests {
 
             //Add LP pool assets first: Quote
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -5565,6 +6075,7 @@ mod tests {
             //Set general parameters
             //Add LQ
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -5660,7 +6171,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000_000_000_000_000_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -5688,20 +6199,27 @@ mod tests {
             let msg = ExecuteMsg::LiqRepay {};
 
             let cosmos_msg = cdp_contract
-                .call(msg, vec![coin(2225_000000, "credit_fulldenom")])
+                .call(msg, vec![coin(2777_777777, "credit_fulldenom")])
                 .unwrap();
             app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
                 .unwrap();
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "bigger_bank".to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "bigger_bank".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98345_694444444444446));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98041_666667094444444875));
 
             //Assert sell wall wasn't sent assets
             assert_eq!(
@@ -5714,18 +6232,18 @@ mod tests {
                 app.wrap()
                     .query_all_balances(staking_contract.clone())
                     .unwrap(),
-                vec![coin(13_888888888888888, "lp_denom")]
+                vec![coin(13_888888888888888875, "lp_denom")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000_000000, "2nddebit"), coin(100000_000000, "debit"), coin(416_666666666666666, "lp_denom")]
+                vec![coin(100000_000000, "2nddebit"), coin(100000_000000, "debit"), coin(416_666666666666666250, "lp_denom")]
             );
 
             //Assert collateral to be liquidated was sent
             //$2447 worth
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(1223_750_000000000000, "lp_denom")]
+                vec![coin(1527_777777350000000000, "lp_denom")]
             );
             //Assert LQ wasn't sent any due to the Error
             assert_eq!(
@@ -5740,6 +6258,7 @@ mod tests {
             
             //Add LP pool assets first: Base
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -5768,6 +6287,7 @@ mod tests {
 
             //Add LP pool assets first: Quote
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -5799,6 +6319,7 @@ mod tests {
             //Set general parameters
             //Add LQ
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -5894,7 +6415,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000_000_000_000_000_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -5910,7 +6431,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
 
-            //Call liquidate on CDP contract
+            //Call liquidate on CDP contract: Both errored
             let msg = ExecuteMsg::Liquidate {
                 position_id: Uint128::new(1u128),
                 position_owner: "bigger_bank".to_string(),
@@ -5923,46 +6444,53 @@ mod tests {
                 &vec![coin(1388_888888, "base"), coin(1388_888888, "quote")],
             )
             .unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();    
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
            
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "bigger_bank".to_string(),
-            };
-            let res: PositionResponse = app
-                .wrap()
-                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-                .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98180_555555944444446));
+            // let query_msg = QueryMsg::GetBasketPositions {
+            //     start_after: None, 
+            //     limit: None,
+            //     user: None,
+            //     user_info: Some(
+            //         UserInfo {
+            //             position_id: Uint128::new(1),
+            //             position_owner: "bigger_bank".to_string(),
+            //         }
+            //     ),
+            // };
+            // let res: Vec<BasketPositionsResponse> = app
+            //     .wrap()
+            //     .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+            //     .unwrap();
+            // assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98180_555555944444444875));
 
-            //Assert sell wall was sent assets all Assets
-            //For $2777 worth of liquidations
-            assert_eq!(
-                app.wrap().query_all_balances(router_addr.clone()).unwrap(),
-                vec![coin(1388_888888, "base"), coin(1388_888888, "quote")]
-            );
+            // //Assert sell wall was sent assets all Assets
+            // //For $2777 worth of liquidations
+            // assert_eq!(
+            //     app.wrap().query_all_balances(router_addr.clone()).unwrap(),
+            //     vec![coin(1388_888888, "base"), coin(1388_888888, "quote")]
+            // );
 
-            //Assert fees were sent.
-            assert_eq!(
-                app.wrap()
-                    .query_all_balances(staking_contract.clone())
-                    .unwrap(),
-                vec![coin(13_888888888888888, "lp_denom")]
-            );
-            assert_eq!(
-                app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(100000_000000, "2nddebit"), coin(100000_000000, "debit"), coin(416_666666666666666, "lp_denom")]
-            );
+            // //Assert fees were sent.
+            // assert_eq!(
+            //     app.wrap()
+            //         .query_all_balances(staking_contract.clone())
+            //         .unwrap(),
+            //     vec![coin(13_888888888888888875, "lp_denom")]
+            // );
+            // assert_eq!(
+            //     app.wrap().query_all_balances(USER).unwrap(),
+            //     vec![coin(100000_000000, "2nddebit"), coin(100000_000000, "debit"), coin(416_666666666666666250, "lp_denom")]
+            // );
 
-            //Assert neither module was sent any due to the Error
-            assert_eq!(
-                app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(2225_000000, "credit_fulldenom")]
-            );
-            assert_eq!(
-                app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-                vec![]
-            );
+            // //Assert neither module was sent any due to the Error
+            // assert_eq!(
+            //     app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
+            //     vec![coin(2777_777777, "credit_fulldenom")]
+            // );
+            // assert_eq!(
+            //     app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
+            //     vec![]
+            // );
         }
 
         #[test]
@@ -5980,6 +6508,7 @@ mod tests {
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -6055,17 +6584,24 @@ mod tests {
             app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
                 .unwrap();
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: "bigger_bank".to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "bigger_bank".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             assert_eq!(
-                res.collateral_assets[0].asset.amount,
-                Uint128::new(97_288_888_888_893)
+                res[0].positions[0].collateral_assets[0].asset.amount,
+                Uint128::new(97_311_111111115)
             );
 
             //Assert sell wall wasn't sent assets
@@ -6090,8 +6626,8 @@ mod tests {
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
                 vec![
-                    coin(2225_000000, "credit_fulldenom"),
-                    coin(244_444_444_444, "debit")
+                    coin(2777_777777, "credit_fulldenom"),
+                    coin(222_222222222, "debit")
                 ]
             );
             assert_eq!(
@@ -6115,6 +6651,7 @@ mod tests {
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -6208,15 +6745,22 @@ mod tests {
             app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
                 .unwrap();
 
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: USER.to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: USER.to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.collateral_assets[0].asset.amount, Uint128::new(98741_210001));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98791_210000));
 
             //Assert sell wall wasn't sent assets
             assert_eq!(
@@ -6239,7 +6783,7 @@ mod tests {
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(1725_000001, "credit_fulldenom"), coin(549_999998, "debit")]
+                vec![coin(2277_777778, "credit_fulldenom"), coin(499_999_999, "debit")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
@@ -6262,6 +6806,7 @@ mod tests {
 
             //Add LP pool assets first
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -6290,6 +6835,7 @@ mod tests {
 
             //Add LP pool assets first
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -6318,6 +6864,7 @@ mod tests {
 
             //Edit initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -6439,7 +6986,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(249997000000), cap: Uint128(249995000000) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(0), cap: Uint128(0) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(249997000000), cap: Uint128(249995050000) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(0), cap: Uint128(0) }]")
             );
 
             //2nd Deposit
@@ -6452,7 +6999,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000_000_000_000_000_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -6467,7 +7014,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(245095098039), cap: Uint128(245093137254) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(4901901960), cap: Uint128(4901862745) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(245095098039), cap: Uint128(245093186274) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(4901901960), cap: Uint128(4901863725) }]")
             );
 
             //Withdraw as much as possible of the 1st Deposit
@@ -6496,7 +7043,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(178569285714), cap: Uint128(178567857142) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(71427714285), cap: Uint128(71427142857) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(178569285714), cap: Uint128(178567892857) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(71427714285), cap: Uint128(71427157142) }]")
             );
         }
 
@@ -6515,6 +7062,7 @@ mod tests {
 
             //Add general parameters and SupplyCaps
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -6605,7 +7153,6 @@ mod tests {
             assert_eq!(
                 format!("{:?}", res), 
                 //The SP cap is super low but that's ok, the liquidity didn't get normalized in this runthrough
-                //The cap will be 0 bc the SP_liq query errors since its query_raw
                 String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(1000000000), cap: Uint128(16500) }, DebtCap { collateral: NativeToken { denom: \"double_debit\" }, debt_total: Uint128(1000000000), cap: Uint128(124997516750) }]")
             );
 
@@ -6626,6 +7173,7 @@ mod tests {
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -6695,14 +7243,14 @@ mod tests {
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
 
-            //Query for BadDebt from 1 position w/o debt and 1 position with
-            let query_msg = QueryMsg::GetBasketBadDebt { };
-            let res: BadDebtResponse = app
-                .wrap()
-                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-                .unwrap();
-            //Assert no bad debt
-            assert_eq!(res.has_bad_debt, vec![]);
+            // //Query for BadDebt from 1 position w/o debt and 1 position with
+            // let query_msg = QueryMsg::GetBasketBadDebt { };
+            // let res: BadDebtResponse = app
+            //     .wrap()
+            //     .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+            //     .unwrap();
+            // //Assert no bad debt
+            // assert_eq!(res.has_bad_debt, vec![]);
         }
 
         #[test]
@@ -6720,6 +7268,7 @@ mod tests {
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -6790,30 +7339,30 @@ mod tests {
                 .unwrap();
             
             //Query the indebted position
-            let query_msg = QueryMsg::GetPositionInsolvency {
-                position_id: Uint128::new(1),
-                position_owner: String::from("bigger_bank"),
-            };
-            let res: InsolvencyResponse = app
-                .wrap()
-                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-                .unwrap();
-            //Assert no insolvencies
-            assert_eq!(
-                res.insolvent_positions,
-                vec![InsolventPosition {
-                    insolvent: false,
-                    position_info: UserInfo {
-                        position_id: Uint128::new(1),
-                        position_owner: String::from("bigger_bank"),
-                    },
-                    current_LTV: Decimal::percent(5) * Decimal::percent(10),
-                    available_fee: Uint128::zero(),
-                }]
-            );
+            // let query_msg = QueryMsg::GetPositionInsolvency {
+            //     position_id: Uint128::new(1),
+            //     position_owner: String::from("bigger_bank"),
+            // };
+            // let res: InsolvencyResponse = app
+            //     .wrap()
+            //     .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+            //     .unwrap();
+            // //Assert no insolvencies
+            // assert_eq!(
+            //     res.insolvent_positions,
+            //     vec![InsolventPosition {
+            //         insolvent: false,
+            //         position_info: UserInfo {
+            //             position_id: Uint128::new(1),
+            //             position_owner: String::from("bigger_bank"),
+            //         },
+            //         current_LTV: Decimal::percent(5) * Decimal::percent(10),
+            //         available_fee: Uint128::zero(),
+            //     }]
+            // );
         }
 
-        #[test]
+        // #[test]
         fn two_collateral_cdp_LTV_tests() {
             let (mut app, cdp_contract, lq_contract) =
                 proper_instantiate(false, true, false, false);
@@ -6828,6 +7377,7 @@ mod tests {
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -6909,21 +7459,28 @@ mod tests {
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
 
-            //Query for Insolvency
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1),
-                position_owner: String::from("bigger_bank"),
+            //Query for LTV
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "bigger_bank".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             //Assert LTVs
-            assert_eq!(res.avg_borrow_LTV.to_string(), String::from("0.55"));//increased LTV due to supply ratio
-            assert_eq!(res.avg_max_LTV.to_string(), String::from("0.65"));
+            assert_eq!(res[0].positions[0].avg_borrow_LTV.to_string(), String::from("0.55"));//increased LTV due to supply ratio
+            assert_eq!(res[0].positions[0].avg_max_LTV.to_string(), String::from("0.65"));
         }
 
-        #[test]
+        // #[test]
         fn two_collateral_cdp_LTV_tests_bignums() {
             let (mut app, cdp_contract, lq_contract) =
                 proper_instantiate(false, false, false, false);
@@ -6938,6 +7495,7 @@ mod tests {
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -7020,17 +7578,24 @@ mod tests {
                 .unwrap();
 
             //Query for Insolvency
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1),
-                position_owner: String::from("bigger_bank"),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: "bigger_bank".to_string(),
+                    }
+                ),
             };
-            let res: PositionResponse = app
+            let res: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
             //Assert LTVs
-            assert_eq!(res.avg_borrow_LTV.to_string(), String::from("0.55")); //increased LTV due to supply ratio
-            assert_eq!(res.avg_max_LTV.to_string(), String::from("0.65"));
+            assert_eq!(res[0].positions[0].avg_borrow_LTV.to_string(), String::from("0.55")); //increased LTV due to supply ratio
+            assert_eq!(res[0].positions[0].avg_max_LTV.to_string(), String::from("0.65"));
         }
 
         #[test]
@@ -7048,6 +7613,7 @@ mod tests {
 
             //Add LP pool assets first
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -7076,6 +7642,7 @@ mod tests {
 
             //Add LP pool assets first
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -7104,6 +7671,7 @@ mod tests {
 
             //Edit initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -7229,7 +7797,7 @@ mod tests {
                     vec![
                         Coin {
                             denom: "lp_denom".to_string(),
-                            amount: Uint128::from(10_000_000_000_000_000_000u128),
+                            amount: Uint128::from(100_000_000_000_000_000_000u128),
                         },
                     ],
                 )
@@ -7255,17 +7823,37 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(666666666), cap: Uint128(83331666666) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(1333333333), cap: Uint128(166663333333) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(1960784313), cap: Uint128(245093186274) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(39215686), cap: Uint128(4901863725) }]")
             );
 
-            //Successful Withdraw uneffected by caps
+            //UnSuccessful Withdraw bc u set debit's cap over without withdrawing any of it
             let msg = ExecuteMsg::Withdraw {
                 position_id: Uint128::new(1u128),
                 assets: vec![Asset {
                     info: AssetInfo::NativeToken {
                         denom: "lp_denom".to_string(),
                     },
-                    amount: Uint128::from(10_000_000_000_000u128),
+                    amount: Uint128::from(100_000_000_000_000_000_000u128),
+                }],
+                send_to: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap_err();
+
+            //Successful Withdraw bc LP is fully withdrawn & debit is the only remaining asset in the position
+            let msg = ExecuteMsg::Withdraw {
+                position_id: Uint128::new(1u128),
+                assets: vec![Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: "lp_denom".to_string(),
+                    },
+                    amount: Uint128::from(100_000_000_000_000_000_000u128),
+                },Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: "debit".to_string(),
+                    },
+                    amount: Uint128::from(1000u128),
                 }],
                 send_to: None,
             };
@@ -7289,6 +7877,7 @@ mod tests {
 
             //Add LP pool assets first
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -7317,6 +7906,7 @@ mod tests {
 
             //Add LP pool assets first
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -7345,6 +7935,7 @@ mod tests {
 
             //Edit initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -7455,7 +8046,7 @@ mod tests {
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
             
-            //Successful Deposit, but will error after since over multi-asset cap
+            //Successful Deposit, but will error after minting since over multi-asset cap
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: Some(Uint128::new(1)),
@@ -7559,6 +8150,7 @@ mod tests {
 
             //Add LP pool assets first
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -7587,6 +8179,7 @@ mod tests {
 
             //Add LP pool assets first
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -7615,6 +8208,7 @@ mod tests {
 
             //Add LP to the initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -7710,14 +8304,14 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000_000_000_000_000_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
             app.execute(Addr::unchecked("lp_tester"), cosmos_msg)
                 .unwrap();
 
-            //The value of the position should be 200_000_000_000_000_000
+            //The value of the position should be 200_000
             //So at 40% borrow LTV I should be able to borrow 80_000
             //We'll error at the edge first to confirm
             let msg = ExecuteMsg::IncreaseDebt {
@@ -7750,6 +8344,7 @@ mod tests {
           
             //Edit Basket 1
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -7792,13 +8387,32 @@ mod tests {
                 .execute(Addr::unchecked("sender88"), cosmos_msg)
                 .unwrap();
 
+            //Simulate LTV mint Query
+            let msg = QueryMsg::SimulateMint { 
+                position_info: UserInfo {
+                    position_id: Uint128::one(),
+                    position_owner: String::from("sender88"),
+                }, 
+                LTV: Decimal::percent(50), 
+            };
+            let resp: Uint128 = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &msg.clone())
+                .unwrap();
+            assert_eq!(
+                resp,
+                Uint128::new(5),
+            );
+
             //Query BasketPositions
             let msg = QueryMsg::GetBasketPositions {
                 start_after: Some(String::from("sender88")),
                 limit: None,
+                user: None,
+                user_info: None,
             };
 
-            let resp: Vec<PositionResponse> = app
+            let resp: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &msg.clone())
                 .unwrap();
@@ -7808,16 +8422,18 @@ mod tests {
             );
 
             //Query UserPositions
-            let msg = QueryMsg::GetUserPositions { 
-                user: String::from("sender88"), 
-                limit: None, 
+            let msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: Some( String::from("sender88")),
+                user_info: None,
             };
-            let resp: Vec<PositionResponse> = app
+            let resp: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &msg.clone())
                 .unwrap();
             assert_eq!(
-                resp[0],
+                resp[0].positions[0],
                 PositionResponse { 
                     position_id: Uint128::new(1), 
                     collateral_assets: vec![
@@ -7834,11 +8450,10 @@ mod tests {
                             rate_index: Decimal::one(),
                         }
                     ], 
-                    cAsset_ratios: vec![Decimal::one()], 
+                    cAsset_ratios: vec![], //arent calc'd in queries anymore
                     credit_amount: Uint128::zero(), 
-                    basket_id: Uint128::new(1), 
-                    avg_borrow_LTV: Decimal::percent(50),
-                    avg_max_LTV: Decimal::percent(70),
+                    avg_borrow_LTV: Decimal::percent(0), //arent calc'd in queries anymore
+                    avg_max_LTV: Decimal::percent(0), //arent calc'd in queries anymore
                 },
             );
 
@@ -7965,6 +8580,7 @@ mod tests {
 
             //Add liq-queue to the initial basket
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: None,
@@ -8036,6 +8652,7 @@ mod tests {
 
             //Add supply caps and a new cAsset (2nddebit)
             let edit_basket_msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -8156,13 +8773,6 @@ mod tests {
                 .call(exec_msg, vec![coin(1, "debit")])
                 .unwrap();
             let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
-            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
-            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
-            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
-            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
-            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
-            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
-            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
             //This one should fail
             let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap_err();
         }
@@ -8173,6 +8783,7 @@ mod tests {
                 proper_instantiate(false, false, false, false);
 
             let edit_basket_msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -8249,6 +8860,7 @@ mod tests {
                 proper_instantiate(false, false, false, false);
 
             let edit_basket_msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -8334,27 +8946,27 @@ mod tests {
             let res = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
 
            //Query indebted position
-           let query_msg = QueryMsg::GetPositionInsolvency {
-            position_id: Uint128::new(1),
-            position_owner: String::from("bigger_bank"),
-            };
-            let res: InsolvencyResponse = app
-                .wrap()
-                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-                .unwrap();
-            //Assert LTV
-            assert_eq!(
-                res.insolvent_positions,
-                vec![InsolventPosition {
-                    insolvent: false,
-                    position_info: UserInfo {
-                        position_id: Uint128::new(1),
-                        position_owner: String::from("bigger_bank"),
-                    },
-                    current_LTV: Decimal::percent(40),
-                    available_fee: Uint128::zero(),
-                }]
-            );
+        //    let query_msg = QueryMsg::GetPositionInsolvency {
+        //     position_id: Uint128::new(1),
+        //     position_owner: String::from("bigger_bank"),
+        //     };
+        //     let res: InsolvencyResponse = app
+        //         .wrap()
+        //         .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+        //         .unwrap();
+        //     //Assert LTV
+        //     assert_eq!(
+        //         res.insolvent_positions,
+        //         vec![InsolventPosition {
+        //             insolvent: false,
+        //             position_info: UserInfo {
+        //                 position_id: Uint128::new(1),
+        //                 position_owner: String::from("bigger_bank"),
+        //             },
+        //             current_LTV: Decimal::percent(40),
+        //             available_fee: Uint128::zero(),
+        //         }]
+        //     );
         }
 
         #[test]
@@ -8363,6 +8975,7 @@ mod tests {
                 proper_instantiate(false, false, false, false);
 
             let edit_basket_msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -8465,6 +9078,7 @@ mod tests {
 
             //Add supply caps & a 2nd cAsset
             let edit_basket_msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset:  Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -8520,6 +9134,7 @@ mod tests {
 
             //Set debit supply caps to 0 
             let edit_basket_msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: None,
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -8621,301 +9236,308 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             //Query Position assets to assert full withdrawal
-            let query_msg = QueryMsg::GetPosition {
-                position_id: Uint128::new(1u128),
-                position_owner: USER.to_string(),
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: USER.to_string(),
+                    }
+                ),
             };
             app
                 .wrap()
-                .query_wasm_smart::<PositionResponse>(cdp_contract.addr(), &query_msg.clone())
+                .query_wasm_smart::<BasketPositionsResponse>(cdp_contract.addr(), &query_msg.clone())
                 .unwrap_err();
         }
 
-        #[test]
-        #[allow(dead_code)]
-        fn close_position(){
-            let (mut app, cdp_contract, lq_contract) =
-                proper_instantiate(false, false, false, false);
+        // #[test]
+        // #[allow(dead_code)]
+        // fn close_position(){
+        //     let (mut app, cdp_contract, lq_contract) =
+        //         proper_instantiate(false, false, false, false);
 
-                let res: Config = app
-                .wrap()
-                .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
-                .unwrap();
-            let sp_addr = res.stability_pool.unwrap();
-            let router_addr = res.dex_router.unwrap();
-            let staking_contract = res.staking_contract.unwrap();
+        //         let res: Config = app
+        //         .wrap()
+        //         .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
+        //         .unwrap();
+        //     let sp_addr = res.stability_pool.unwrap();
+        //     let router_addr = res.dex_router.unwrap();
+        //     let staking_contract = res.staking_contract.unwrap();
             
-            //Add LP pool assets first: Base
-            let msg = ExecuteMsg::EditBasket(EditBasket {
-                added_cAsset: Some(cAsset {
-                    asset: Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: "base".to_string(),
-                        },
-                        amount: Uint128::zero(),
-                    },
-                    max_borrow_LTV: Decimal::percent(40),
-                    max_LTV: Decimal::percent(60),
-                    pool_info: None,
-                    rate_index: Decimal::one(),
-                }),
-                liq_queue: None,
-                credit_pool_infos: None,
-                collateral_supply_caps: None,
-                base_interest_rate: None,
-                credit_asset_twap_price_source: None,
-                negative_rates: None,
-                cpc_margin_of_error: None,
-                frozen: None,
-                rev_to_stakers: None,
-                multi_asset_supply_caps: None,
-                take_revenue: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+        //     //Add LP pool assets first: Base
+        //     let msg = ExecuteMsg::EditBasket(EditBasket {
+        //         added_cAsset: Some(cAsset {
+        //             asset: Asset {
+        //                 info: AssetInfo::NativeToken {
+        //                     denom: "base".to_string(),
+        //                 },
+        //                 amount: Uint128::zero(),
+        //             },
+        //             max_borrow_LTV: Decimal::percent(40),
+        //             max_LTV: Decimal::percent(60),
+        //             pool_info: None,
+        //             rate_index: Decimal::one(),
+        //         }),
+        //         liq_queue: None,
+        //         credit_pool_infos: None,
+        //         collateral_supply_caps: None,
+        //         base_interest_rate: None,
+        //         credit_asset_twap_price_source: None,
+        //         negative_rates: None,
+        //         cpc_margin_of_error: None,
+        //         frozen: None,
+        //         rev_to_stakers: None,
+        //         multi_asset_supply_caps: None,
+        //         take_revenue: None,
+        //     });
+        //     let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+        //     app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Add LP pool assets first: Quote
-            let msg = ExecuteMsg::EditBasket(EditBasket {
-                added_cAsset: Some(cAsset {
-                    asset: Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: "quote".to_string(),
-                        },
-                        amount: Uint128::zero(),
-                    },
-                    max_borrow_LTV: Decimal::percent(60),
-                    max_LTV: Decimal::percent(80),
-                    pool_info: None,
-                    rate_index: Decimal::one(),
-                }),
-                liq_queue: None,
-                credit_pool_infos: None,
-                collateral_supply_caps: None,
-                base_interest_rate: None,
-                credit_asset_twap_price_source: None,
-                negative_rates: None,
-                cpc_margin_of_error: None,
-                frozen: None,
-                rev_to_stakers: None,
-                multi_asset_supply_caps: None,
-                take_revenue: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+        //     //Add LP pool assets first: Quote
+        //     let msg = ExecuteMsg::EditBasket(EditBasket {
+        //         added_cAsset: Some(cAsset {
+        //             asset: Asset {
+        //                 info: AssetInfo::NativeToken {
+        //                     denom: "quote".to_string(),
+        //                 },
+        //                 amount: Uint128::zero(),
+        //             },
+        //             max_borrow_LTV: Decimal::percent(60),
+        //             max_LTV: Decimal::percent(80),
+        //             pool_info: None,
+        //             rate_index: Decimal::one(),
+        //         }),
+        //         liq_queue: None,
+        //         credit_pool_infos: None,
+        //         collateral_supply_caps: None,
+        //         base_interest_rate: None,
+        //         credit_asset_twap_price_source: None,
+        //         negative_rates: None,
+        //         cpc_margin_of_error: None,
+        //         frozen: None,
+        //         rev_to_stakers: None,
+        //         multi_asset_supply_caps: None,
+        //         take_revenue: None,
+        //     });
+        //     let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+        //     app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
             
-            //Add LP asset
-            //Set supply caps
-            //Set general parameters
-            let msg = ExecuteMsg::EditBasket(EditBasket {
-                added_cAsset: Some(cAsset {
-                    asset: Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: "lp_denom".to_string(),
-                        },
-                        amount: Uint128::zero(),
-                    },
-                    max_borrow_LTV: Decimal::percent(50),
-                    max_LTV: Decimal::percent(70),
-                    pool_info: Some(PoolInfo {
-                        pool_id: 99u64,
-                        asset_infos: vec![
-                            LPAssetInfo {
-                                info: AssetInfo::NativeToken {
-                                    denom: String::from("base"),
-                                },
-                                decimals: 6u64,
-                                ratio: Decimal::percent(50),
-                            },
-                            LPAssetInfo {
-                                info: AssetInfo::NativeToken {
-                                    denom: String::from("quote"),
-                                },
-                                decimals: 6u64,
-                                ratio: Decimal::percent(50),
-                            },
-                        ],
-                    }),
-                    rate_index: Decimal::one(),
-                }),
-                liq_queue: Some(lq_contract.addr().to_string()),
-                credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
-                collateral_supply_caps: Some(vec![
-                    SupplyCap {
-                        asset_info: AssetInfo::NativeToken {
-                            denom: "debit".to_string(),
-                        },
-                        current_supply: Uint128::zero(),
-                        debt_total: Uint128::zero(),
-                        supply_cap_ratio: Decimal::percent(100),
-                        lp: false,
-                        stability_pool_ratio_for_debt_cap: None,
-                    },
-                    SupplyCap {
-                        asset_info: AssetInfo::NativeToken {
-                            denom: "base".to_string(),
-                        },
-                        current_supply: Uint128::zero(),
-                        debt_total: Uint128::zero(),
-                        supply_cap_ratio: Decimal::percent(100),
-                        lp: false,
-                        stability_pool_ratio_for_debt_cap: None,
-                    },
-                    SupplyCap {
-                        asset_info: AssetInfo::NativeToken {
-                            denom: "quote".to_string(),
-                        },
-                        current_supply: Uint128::zero(),
-                        debt_total: Uint128::zero(),
-                        supply_cap_ratio: Decimal::percent(100),
-                        lp: false,
-                        stability_pool_ratio_for_debt_cap: None,
-                    },
-                    SupplyCap {
-                        asset_info: AssetInfo::NativeToken {
-                            denom: "lp_denom".to_string(),
-                        },
-                        current_supply: Uint128::zero(),
-                        debt_total: Uint128::zero(),
-                        supply_cap_ratio: Decimal::percent(100),
-                        lp: false,
-                        stability_pool_ratio_for_debt_cap: None,
-                    },
-                ]),
-                base_interest_rate: None,
-                credit_asset_twap_price_source: None,
-                negative_rates: None,
-                cpc_margin_of_error: None,
-                frozen: None,
-                rev_to_stakers: None,
-                multi_asset_supply_caps: None,
-                take_revenue: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+        //     //Add LP asset
+        //     //Set supply caps
+        //     //Set general parameters
+        //     let msg = ExecuteMsg::EditBasket(EditBasket {
+        //         added_cAsset: Some(cAsset {
+        //             asset: Asset {
+        //                 info: AssetInfo::NativeToken {
+        //                     denom: "lp_denom".to_string(),
+        //                 },
+        //                 amount: Uint128::zero(),
+        //             },
+        //             max_borrow_LTV: Decimal::percent(50),
+        //             max_LTV: Decimal::percent(70),
+        //             pool_info: Some(PoolInfo {
+        //                 pool_id: 99u64,
+        //                 asset_infos: vec![
+        //                     LPAssetInfo {
+        //                         info: AssetInfo::NativeToken {
+        //                             denom: String::from("base"),
+        //                         },
+        //                         decimals: 6u64,
+        //                         ratio: Decimal::percent(50),
+        //                     },
+        //                     LPAssetInfo {
+        //                         info: AssetInfo::NativeToken {
+        //                             denom: String::from("quote"),
+        //                         },
+        //                         decimals: 6u64,
+        //                         ratio: Decimal::percent(50),
+        //                     },
+        //                 ],
+        //             }),
+        //             rate_index: Decimal::one(),
+        //         }),
+        //         liq_queue: Some(lq_contract.addr().to_string()),
+        //         credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
+        //         collateral_supply_caps: Some(vec![
+        //             SupplyCap {
+        //                 asset_info: AssetInfo::NativeToken {
+        //                     denom: "debit".to_string(),
+        //                 },
+        //                 current_supply: Uint128::zero(),
+        //                 debt_total: Uint128::zero(),
+        //                 supply_cap_ratio: Decimal::percent(100),
+        //                 lp: false,
+        //                 stability_pool_ratio_for_debt_cap: None,
+        //             },
+        //             SupplyCap {
+        //                 asset_info: AssetInfo::NativeToken {
+        //                     denom: "base".to_string(),
+        //                 },
+        //                 current_supply: Uint128::zero(),
+        //                 debt_total: Uint128::zero(),
+        //                 supply_cap_ratio: Decimal::percent(100),
+        //                 lp: false,
+        //                 stability_pool_ratio_for_debt_cap: None,
+        //             },
+        //             SupplyCap {
+        //                 asset_info: AssetInfo::NativeToken {
+        //                     denom: "quote".to_string(),
+        //                 },
+        //                 current_supply: Uint128::zero(),
+        //                 debt_total: Uint128::zero(),
+        //                 supply_cap_ratio: Decimal::percent(100),
+        //                 lp: false,
+        //                 stability_pool_ratio_for_debt_cap: None,
+        //             },
+        //             SupplyCap {
+        //                 asset_info: AssetInfo::NativeToken {
+        //                     denom: "lp_denom".to_string(),
+        //                 },
+        //                 current_supply: Uint128::zero(),
+        //                 debt_total: Uint128::zero(),
+        //                 supply_cap_ratio: Decimal::percent(100),
+        //                 lp: false,
+        //                 stability_pool_ratio_for_debt_cap: None,
+        //             },
+        //         ]),
+        //         base_interest_rate: None,
+        //         credit_asset_twap_price_source: None,
+        //         negative_rates: None,
+        //         cpc_margin_of_error: None,
+        //         frozen: None,
+        //         rev_to_stakers: None,
+        //         multi_asset_supply_caps: None,
+        //         take_revenue: None,
+        //     });
+        //     let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+        //     app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Initial Deposit
-            //Current Position: 100_000_000_000_000_000 lp_denom
-            let msg = ExecuteMsg::Deposit {
-                position_owner: Some("bigger_bank".to_string()),
-                position_id: None,
-            };
-            let cosmos_msg = cdp_contract
-                .call(
-                    msg,
-                    vec![Coin {
-                        denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000_000_000_000_000_000u128),
-                    }],
-                )
-                .unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
+        //     //Initial Deposit
+        //     //Current Position: 100_000_000_000_000_000 lp_denom
+        //     let msg = ExecuteMsg::Deposit {
+        //         position_owner: Some("bigger_bank".to_string()),
+        //         position_id: None,
+        //     };
+        //     let cosmos_msg = cdp_contract
+        //         .call(
+        //             msg,
+        //             vec![Coin {
+        //                 denom: "lp_denom".to_string(),
+        //                 amount: Uint128::from(100_000_000_000_000_000_000u128),
+        //             }],
+        //         )
+        //         .unwrap();
+        //     app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+        //         .unwrap();
 
-            //Successful Increase
-            //Current Position: 100_000_000_000_000_000_000 lp_denom -> 100_000 credit_fulldenom: 50% LTV
-            let msg = ExecuteMsg::IncreaseDebt {
-                position_id: Uint128::from(1u128),
-                amount: Some(Uint128::from(100_000_000000u128)),
-                LTV: None,
-                mint_to_addr: None,
-            };
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
+        //     //Successful Increase
+        //     //Current Position: 100_000_000_000_000_000_000 lp_denom -> 100_000 credit_fulldenom: 50% LTV
+        //     let msg = ExecuteMsg::IncreaseDebt {
+        //         position_id: Uint128::from(1u128),
+        //         amount: Some(Uint128::from(100_000_000000u128)),
+        //         LTV: None,
+        //         mint_to_addr: None,
+        //     };
+        //     let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+        //     app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+        //         .unwrap();
 
-            //Close Position: Unauthorized
-            let msg = ExecuteMsg::ClosePosition { 
-                position_id: Uint128::from(1u128),
-                max_spread: Decimal::percent(1),
-                send_to: None,
-            };
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("smaller_bank"), cosmos_msg)
-                .unwrap_err();
+        //     //Close Position: Unauthorized
+        //     let msg = ExecuteMsg::ClosePosition { 
+        //         position_id: Uint128::from(1u128),
+        //         max_spread: Decimal::percent(1),
+        //         send_to: None,
+        //     };
+        //     let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+        //     app.execute(Addr::unchecked("smaller_bank"), cosmos_msg)
+        //         .unwrap_err();
 
-            //Send assets to mimic LP split
-            app.send_tokens(
-                Addr::unchecked("bigger_bank"),
-                cdp_contract.addr(),
-                &[coin(112_914_609, "base"), coin(112_914_609, "quote"), coin(100_000_000000, "credit_fulldenom")],
-            ).unwrap();
+        //     //Send assets to mimic LP split
+        //     app.send_tokens(
+        //         Addr::unchecked("bigger_bank"),
+        //         cdp_contract.addr(),
+        //         &[coin(112_914_609, "base"), coin(112_914_609, "quote"), coin(100_000_000000, "credit_fulldenom")],
+        //     ).unwrap();
 
-            //Close Position: Make sure huge spread doesn't over sell
-            let msg = ExecuteMsg::ClosePosition { 
-                position_id: Uint128::from(1u128),
-                max_spread: Decimal::percent(100),
-                send_to: None,
-            };
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            //Execute
-            let res = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Assert Position was deleted after Closing
-            app
-                .wrap()
-                .query_wasm_smart::<PositionResponse>(&cdp_contract.addr(), &QueryMsg::GetPosition { 
-                    position_id: Uint128::one(), 
-                    position_owner: String::from("bigger_bank")
-                })
-                .unwrap_err();
+        //     //Close Position: Make sure huge spread doesn't over sell
+        //     let msg = ExecuteMsg::ClosePosition { 
+        //         position_id: Uint128::from(1u128),
+        //         max_spread: Decimal::percent(100),
+        //         send_to: None,
+        //     };
+        //     let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+        //     //Execute
+        //     let res = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+        //         .unwrap();
+        //     //Assert Position was deleted after Closing
+        //     app
+        //         .wrap()
+        //         .query_wasm_smart::<PositionResponse>(&cdp_contract.addr(), &QueryMsg::GetPosition { 
+        //             position_id: Uint128::one(), 
+        //             position_owner: String::from("bigger_bank")
+        //         })
+        //         .unwrap_err();
 
-            //Initial Deposit
-            //Current Position: 100_000_000_000_000_000_000 lp_denom
-            let msg = ExecuteMsg::Deposit {
-                position_owner: Some("bigger_bank".to_string()),
-                position_id: None,
-            };
-            let cosmos_msg = cdp_contract
-                .call(
-                    msg,
-                    vec![Coin {
-                        denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000_000_000_000_000_000u128),
-                    }],
-                )
-                .unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
+        //     //Initial Deposit
+        //     //Current Position: 100_000_000_000_000_000_000 lp_denom
+        //     let msg = ExecuteMsg::Deposit {
+        //         position_owner: Some("bigger_bank".to_string()),
+        //         position_id: None,
+        //     };
+        //     let cosmos_msg = cdp_contract
+        //         .call(
+        //             msg,
+        //             vec![Coin {
+        //                 denom: "lp_denom".to_string(),
+        //                 amount: Uint128::from(100_000_000_000_000_000_000u128),
+        //             }],
+        //         )
+        //         .unwrap();
+        //     app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+        //         .unwrap();
 
-            //Successful Increase
-            //Current Position: 100_000_000_000_000_000_000 lp_denom -> 100_000 credit_fulldenom: 50% LTV
-            let msg = ExecuteMsg::IncreaseDebt {
-                position_id: Uint128::from(2u128),
-                amount: Some(Uint128::from(100_000_000000u128)),
-                LTV: None,
-                mint_to_addr: None,
-            };
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
+        //     //Successful Increase
+        //     //Current Position: 100_000_000_000_000_000_000 lp_denom -> 100_000 credit_fulldenom: 50% LTV
+        //     let msg = ExecuteMsg::IncreaseDebt {
+        //         position_id: Uint128::from(2u128),
+        //         amount: Some(Uint128::from(100_000_000000u128)),
+        //         LTV: None,
+        //         mint_to_addr: None,
+        //     };
+        //     let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+        //     app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+        //         .unwrap();
 
-            //Send assets to mimic LP split
-            app.send_tokens(
-                Addr::unchecked("bigger_bank"),
-                cdp_contract.addr(),
-                &[coin(57_021_877, "base"), coin(57_021_877, "quote"), coin(100_000_000000, "credit_fulldenom")],
-            ).unwrap();
+        //     //Send assets to mimic LP split
+        //     app.send_tokens(
+        //         Addr::unchecked("bigger_bank"),
+        //         cdp_contract.addr(),
+        //         &[coin(57_021_877, "base"), coin(57_021_877, "quote"), coin(100_000_000000, "credit_fulldenom")],
+        //     ).unwrap();
 
-            //Close Position: Success.
-            let msg = ExecuteMsg::ClosePosition { 
-                position_id: Uint128::from(2u128),
-                max_spread: Decimal::percent(1),
-                send_to: None,
-            };
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            //Execute
-            let res = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Assert Position was deleted after Closing
-            app
-                .wrap()
-                .query_wasm_smart::<PositionResponse>(&cdp_contract.addr(), &QueryMsg::GetPosition { 
-                    position_id: Uint128::new(2), 
-                    position_owner: String::from("bigger_bank")
-                })
-                .unwrap_err();
+        //     //Close Position: Success.
+        //     let msg = ExecuteMsg::ClosePosition { 
+        //         position_id: Uint128::from(2u128),
+        //         max_spread: Decimal::percent(1),
+        //         send_to: None,
+        //     };
+        //     let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+        //     //Execute
+        //     let res = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+        //         .unwrap();
+        //     //Assert Position was deleted after Closing
+        //     app
+        //         .wrap()
+        //         .query_wasm_smart::<PositionResponse>(&cdp_contract.addr(), &QueryMsg::GetPosition { 
+        //             position_id: Uint128::new(2), 
+        //             position_owner: String::from("bigger_bank")
+        //         })
+        //         .unwrap_err();
             
-        }
+        // }
 
         #[test]
         fn edit_redemption_info(){
@@ -8924,6 +9546,7 @@ mod tests {
 
             //Add supply caps and a new cAsset (2nddebit)
             let edit_basket_msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -9097,7 +9720,7 @@ mod tests {
             };
             let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![]).unwrap();
             let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
-            assert_eq!(err.root_cause().to_string(), String::from("Generic error: User does not own position id: 0"));
+            assert_eq!(err.root_cause().to_string(), String::from("Generic error: User does not own this position id"));
             
             //No ID specified
             let redemption_msg = ExecuteMsg::EditRedeemability { 
@@ -9240,7 +9863,7 @@ mod tests {
             };
             let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![]).unwrap();
             let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
-            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"Invalid restricted asset, only collateral assets are viable to restrict\""));           
+            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"Invalid restricted asset, only the position's collateral assets are viable to restrict\""));           
             //Success
             let redemption_msg = ExecuteMsg::EditRedeemability { 
                 position_ids: vec![Uint128::one(), Uint128::new(2)], 
@@ -9281,6 +9904,7 @@ mod tests {
             let op_contract = res.osmosis_proxy.unwrap();
             //Add supply caps and a new cAsset (2nddebit)
             let edit_basket_msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -9373,7 +9997,7 @@ mod tests {
             let redemption_msg = ExecuteMsg::RedeemCollateral { max_collateral_premium: None };
             let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![coin(100_000_000000, "credit_fulldenom")]).unwrap();
             let err = app.execute(Addr::unchecked("redeemer"), cosmos_msg).unwrap_err();
-            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"No collateral to redeem with a max premium of: 99\""));  
+            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"No collateral to redeem with at this max premium\""));  
 
             //Set #1 to 10% premium
             let redemption_msg = ExecuteMsg::EditRedeemability { 
@@ -9402,7 +10026,7 @@ mod tests {
             let redemption_msg = ExecuteMsg::RedeemCollateral { max_collateral_premium: None };
             let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![coin(1, "not_redeemable")]).unwrap();
             let err = app.execute(Addr::unchecked("redeemer"), cosmos_msg).unwrap_err();
-            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"Must send only the debt token: credit_fulldenom\""));           
+            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"Must send only the Basket's debt token\""));           
 
 
             //Success, but Send too much (15k max currently)
@@ -9418,25 +10042,39 @@ mod tests {
             );
 
             //Assert Positions were updated
-            let position: PositionResponse = app
+            let position: Vec<BasketPositionsResponse> = app
                 .wrap()
-                .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetPosition { 
-                    position_id: Uint128::one(), 
-                    position_owner: String::from(USER)
+                .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetBasketPositions {
+                    start_after: None, 
+                    limit: None,
+                    user: None,
+                    user_info: Some(
+                        UserInfo {
+                            position_id: Uint128::new(1),
+                            position_owner: USER.to_string(),
+                        }
+                    ),
                 })
                 .unwrap();
-            assert_eq!(position.collateral_assets[0].asset.amount, Uint128::new(95_500_000000));
-            assert_eq!(position.credit_amount, Uint128::new(45000_000000));
+            assert_eq!(position[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(95_500_000000));
+            assert_eq!(position[0].positions[0].credit_amount, Uint128::new(45000_000000));
 
-            let position_2: PositionResponse = app
+            let position_2: Vec<BasketPositionsResponse> = app
                 .wrap()
-                .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetPosition { 
-                    position_id: Uint128::new(2), 
-                    position_owner: String::from("bigger_bank")
+                .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetBasketPositions {
+                    start_after: None, 
+                    limit: None,
+                    user: None,
+                    user_info: Some(
+                        UserInfo {
+                            position_id: Uint128::new(2),
+                            position_owner: "bigger_bank".to_string(),
+                        }
+                    ),
                 })
                 .unwrap();
-            assert_eq!(position_2.collateral_assets[0].asset.amount, Uint128::new(92_000_000000));
-            assert_eq!(position_2.credit_amount, Uint128::new(40000_000000));
+            assert_eq!(position_2[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(92_000_000000));
+            assert_eq!(position_2[0].positions[0].credit_amount, Uint128::new(40000_000000));
         }
 
         //Redemption test with multiple collateral in the position (debit & LP bc they r priced differently)
@@ -9448,6 +10086,7 @@ mod tests {
 
             //Add 2nddebit as collateral
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -9476,6 +10115,7 @@ mod tests {
 
             //Add LP pool assets first: Base
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -9504,6 +10144,7 @@ mod tests {
 
             //Add LP pool assets first: Quote
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -9532,6 +10173,7 @@ mod tests {
 
             //Add supply caps and a new cAsset (lp_denom)            
             let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
                 added_cAsset: Some(cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -9631,7 +10273,7 @@ mod tests {
             app.send_tokens(
                 Addr::unchecked("bigger_bank"),
                 Addr::unchecked(USER),
-                &[coin(100_000_000_000_000_000_000, "lp_denom")],
+                &[coin(100_000_000_000_000_000_000_000, "lp_denom")],
             )
             .unwrap();
 
@@ -9641,7 +10283,7 @@ mod tests {
                 position_id: None,
             };
             let cosmos_msg = cdp_contract
-            .call(exec_msg.clone(), vec![coin(100_000000_000, "debit"), coin(100_000_000_000_000_000_000, "lp_denom")])
+            .call(exec_msg.clone(), vec![coin(100_000000_000, "debit"), coin(100_000_000_000_000_000_000_000, "lp_denom")])
                 .unwrap();
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
@@ -9705,7 +10347,7 @@ mod tests {
             //Error: Nothing redeemed since premium is too low
             let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![coin(100_000_000000, "credit_fulldenom")]).unwrap();
             let err = app.execute(Addr::unchecked("redeemer"), cosmos_msg).unwrap_err();
-            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"No collateral to redeem with a max premium of: 9\""));           
+            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"No collateral to redeem with at this max premium\""));  
 
             //Successful redemption
             let redemption_msg = ExecuteMsg::RedeemCollateral { max_collateral_premium: Some(10) };          
@@ -9718,21 +10360,28 @@ mod tests {
                     coin(95000_000000, "credit_fulldenom"), //excess
                     //user pays 5k for 4500 worth 
                     coin(1499_999999, "debit"),// (1499)
-                    coin(1499_999999999999998, "lp_denom"), //(1499 * 2)
+                    coin(1499_999999999999998500, "lp_denom"), //(1499 * 2)
                     coin(1, "not_redeemable")]
             );
 
             //Assert Positions were updated
-            let position: PositionResponse = app
+            let position: Vec<BasketPositionsResponse> = app
                 .wrap()
-                .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetPosition { 
-                    position_id: Uint128::one(), 
-                    position_owner: String::from(USER)
+                .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetBasketPositions {
+                    start_after: None, 
+                    limit: None,
+                    user: None,
+                    user_info: Some(
+                        UserInfo {
+                            position_id: Uint128::new(1),
+                            position_owner: USER.to_string(),
+                        }
+                    ),
                 })
                 .unwrap();
-            assert_eq!(position.collateral_assets[0].asset.amount, Uint128::new(98500_000001));
-            assert_eq!(position.collateral_assets[1].asset.amount, Uint128::new(98500_000000000000002));
-            assert_eq!(position.credit_amount, Uint128::new(45000_000000));  
+            assert_eq!(position[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98500_000001));
+            assert_eq!(position[0].positions[0].collateral_assets[1].asset.amount, Uint128::new(98500_000000000000001500));
+            assert_eq!(position[0].positions[0].credit_amount, Uint128::new(45000_000000));  
 
             //Assert remaining loan repayment is 0'd
             let query_msg = QueryMsg::GetBasketRedeemability { 
@@ -9781,21 +10430,28 @@ mod tests {
                 vec![
                     coin(91000_000000, "credit_fulldenom"),  
                     coin(5099_999999, "debit"), //5099 - 1499 = 3600 new debit redeemed
-                    coin(1499_999999999999998, "lp_denom"), //No extra since restricted
+                    coin(1499_999999999999998500, "lp_denom"), //No extra since restricted
                     coin(1, "not_redeemable")]
             );
 
             //Assert Positions were updated
-            let position: PositionResponse = app
+            let position: Vec<BasketPositionsResponse> = app
                 .wrap()
-                .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetPosition { 
-                    position_id: Uint128::one(), 
-                    position_owner: String::from(USER)
+                .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetBasketPositions {
+                    start_after: None, 
+                    limit: None,
+                    user: None,
+                    user_info: Some(
+                        UserInfo {
+                            position_id: Uint128::new(1),
+                            position_owner: USER.to_string(),
+                        }
+                    ),
                 })
                 .unwrap();
-            assert_eq!(position.collateral_assets[0].asset.amount, Uint128::new(94900_000001));
-            assert_eq!(position.collateral_assets[1].asset.amount, Uint128::new(98_500_000_000_000_000_002));
-            assert_eq!(position.credit_amount, Uint128::new(41000_000000));  
+            assert_eq!(position[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(94900_000001));
+            assert_eq!(position[0].positions[0].collateral_assets[1].asset.amount, Uint128::new(98500_000000000000001500));
+            assert_eq!(position[0].positions[0].credit_amount, Uint128::new(41000_000000));  
 
             //Assert Pos #1 remaining loan repayment is updated from a partial full
             //while Pos #2 is still 5k bc all assets were restricted

@@ -4,7 +4,7 @@ use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResu
 use cosmwasm_schema::cw_serde;
 use cw_storage_plus::{Item, Map};
 
-use membrane::types::{Asset, Basket, Position, RedemptionInfo, UserInfo, AssetInfo, cAsset};
+use membrane::types::{cAsset, Asset, AssetInfo, Basket, Position, RedemptionInfo, StoredPrice, UserInfo};
 use membrane::cdp::Config;
 
 use crate::ContractError;
@@ -26,9 +26,9 @@ pub struct ContractVersion {
 //This propogates liquidation info && state to reduce gas
 #[cw_serde]
 pub struct LiquidationPropagation {
-    pub per_asset_repayment: Vec<Decimal>,
-    pub liq_queue_leftovers: Decimal, //List of repayments
-    pub stability_pool: Decimal,      //Value of repayment
+    pub per_asset_repayment: Vec<Decimal>,//List of repayments
+    pub liq_queue_leftovers: Decimal, //Live tally of leftover repayment
+    pub stability_pool: Decimal, //SP repayment or leftover_position value
     pub user_repay_amount: Decimal,
     pub positions_contract: Addr,
     pub sp_liq_fee: Decimal,
@@ -36,6 +36,8 @@ pub struct LiquidationPropagation {
     pub cAsset_prices: Vec<PriceResponse>,
     pub target_position: Position,
     pub liquidated_assets: Vec<cAsset>, //List of assets liquidated for supply caps
+    pub caller_fee_value_paid: Decimal,
+    pub total_repaid: Decimal,
     pub position_owner: Addr,
     pub basket: Basket,
     pub config: Config,
@@ -54,11 +56,25 @@ pub struct ClosePositionPropagation {
     pub position_info: UserInfo,
     pub send_to: Option<String>,
 }
+#[cw_serde]
+pub struct Timer {
+    pub start_time: u64,
+    pub end_time: u64,
+}
+#[cw_serde]
+pub struct CollateralVolatility {
+    pub index: Decimal,
+    pub volatility_list: Vec<Decimal>,
+}
+
 pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const BASKET: Item<Basket> = Item::new("basket"); 
 pub const POSITIONS: Map<Addr, Vec<Position>> = Map::new("positions"); //owner, list of positions
+//Volatility Tracker
+pub const VOLATILITY: Map<String, CollateralVolatility> = Map::new("volatility");
+pub const STORED_PRICES: Map<String, StoredPrice> = Map::new("stored_prices");
 
 /// CDT redemption premium, opt-in mechanism.
 /// This is the premium that the user will pay to redeem their debt token.
@@ -71,6 +87,8 @@ pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
 pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");
 pub const LIQUIDATION: Item<LiquidationPropagation> = Item::new("repay_propagation");
 pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");
+//Freeze Timer
+pub const FREEZE_TIMER: Item<Timer> = Item::new("freeze_timer");
 
 //Helper functions
 /// Update asset claims a Position has
@@ -86,6 +104,8 @@ pub fn update_position_claims(
 ) -> StdResult<()> {
     let mut credit_amount: Uint128 = Uint128::zero();
 
+    let mut target_position = None;
+
     POSITIONS.update(
         storage,
         position_owner,
@@ -96,6 +116,8 @@ pub fn update_position_claims(
                     .map(|mut position| {
                         //Find position
                         if position.position_id == position_id {
+                            //Set target_position
+                            target_position = Some(position.clone());
                             //Set credit_amount
                             credit_amount = position.credit_amount;
 
@@ -144,7 +166,7 @@ pub fn update_position_claims(
     }
 
     let mut basket = BASKET.load(storage)?;
-    match update_basket_tally(storage, querier, env, &mut basket, collateral_assets, false, config, false) {
+    match update_basket_tally(storage, querier, env, &mut basket, collateral_assets, target_position.unwrap().collateral_assets, false, config, false) {
         Ok(_res) => {
             BASKET.save(storage, &basket)?;
         }

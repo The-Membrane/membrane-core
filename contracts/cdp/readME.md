@@ -4,8 +4,6 @@ The Positions contract is used to create multi-collateral backed positions to ta
 
 ---
 
-WARNING: Having more than 3-4 separate Positions will make it impossible to unstake in Staking & withdraw in the Stability Pool/Discount Vault, due to the gas cost of the accrual messages.
-
 ## ExecuteMsg
 - Functions deposit, repay & increase_debt assert state is saved correctly at the end of the function
 - A frozen basket only halts withdraw & increase_debt
@@ -103,14 +101,14 @@ The default fee is the Stability Pool's liquidation fee since if the LQ doesn't 
 ### To Pass Tests...
 In liquidations.rs for sell wall usage & liquidation LTV
 - line 37-51, downtime detector
-- Create a Static LTV of 90 & insolvent variable after line 94
-- set sp_liq_fee to 10% on line 542
+- Create a Static LTV of 90 & insolvent variable after line 97
 
-In positions.rs for close_position
-- Comment 1627 lp withdrawal msgs
+<!-- In reply.rs for sell wall usage & Router Errors
+- Comment 135, 301, 385, 587
+- Comment 33-35 & 94 for Router successful sale asset calc & burn msg send -->
 
-In reply.rs for sell wall usage & Router Errors
-- Comment 242, 408, 492, 689
-- Comment 33-35 & 92 for Router successful sale asset calc & burn msg send
+In positions
+- Uncomment create_basket fn at 1507 
 
-
+In contracts
+- Uncomment 26 & 105-116 for create_basket usage

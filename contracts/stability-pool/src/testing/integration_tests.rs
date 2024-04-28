@@ -3,7 +3,7 @@ mod tests {
 
     use crate::helpers::SPContract;
 
-    use membrane::cdp::PositionResponse;
+    use membrane::cdp::{PositionResponse, BasketPositionsResponse};
     use membrane::oracle::PriceResponse;
     use membrane::osmosis_proxy::TokenInfoResponse;
     use membrane::stability_pool::{ClaimsResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
@@ -142,7 +142,7 @@ mod tests {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum CDP_MockQueryMsg {
-        GetUserPositions {
+        GetBasketPositions {
             user: String,
             limit: Option<u32>,
         }, 
@@ -157,15 +157,16 @@ mod tests {
             |_, _, _, _: CDP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
             |_, _, msg: CDP_MockQueryMsg| -> StdResult<Binary> { 
                 match msg {
-                    CDP_MockQueryMsg::GetUserPositions { user, limit } => {
-                        Ok(to_binary(&vec![PositionResponse { 
-                            position_id: Uint128::one(),
-                            collateral_assets: vec![],
-                            cAsset_ratios: vec![],
-                            credit_amount: Uint128::one(),
-                            basket_id: Uint128::one(),
-                            avg_borrow_LTV: Decimal::one(),
-                            avg_max_LTV: Decimal::one()
+                    CDP_MockQueryMsg::GetBasketPositions { user, limit } => {
+                        Ok(to_binary(&vec![BasketPositionsResponse {
+                            user: String::from(USER),
+                            positions: vec![PositionResponse { 
+                                position_id: Uint128::one(),
+                                collateral_assets: vec![],
+                                cAsset_ratios: vec![],
+                                credit_amount: Uint128::one(),
+                                avg_borrow_LTV: Decimal::one(),
+                                avg_max_LTV: Decimal::one()}]
                         }])?)
                     },
                     CDP_MockQueryMsg::GetBasket {} => {
@@ -636,7 +637,7 @@ mod tests {
                 ]
             );
 
-            //Rewithdrawl Success
+            //Reunstake Success
             let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_001u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
@@ -675,7 +676,15 @@ mod tests {
                 ]
             );
 
-            //Withdrawl Success, anythiing between 100_001 & 100_005 will withdraw the first 2 deposits to enforce the minimum
+            
+            //Test unstaking a new deposit that doesn't stop at the already unstaking deposits
+            let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(5u128) };
+            let cosmos_msg = sp_contract
+                .call(withdraw_msg, vec![])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Withdrawl Success, anything between 100_001 & 100_005 will withdraw the first 2 deposits to enforce the minimum
             let withdraw_msg = ExecuteMsg::Withdraw { amount: Uint128::new(100_004u128) };
             let cosmos_msg = sp_contract
                 .call(withdraw_msg, vec![])
@@ -703,7 +712,7 @@ mod tests {
                         amount: Decimal::percent(5_00),
                         deposit_time: 1571797419,
                         last_accrued: app.block_info().time.seconds(),
-                        unstake_time: None,
+                        unstake_time: Some(1571797419),
                     },
                     ]
             );

@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - main
+      - oracle_pricing
   pull_request:
     branches:
       - master

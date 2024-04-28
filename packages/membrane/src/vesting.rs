@@ -177,3 +177,6 @@ impl RecipientsResponse {
         total_vesting
     }
 }
+
+#[cw_serde]
+pub struct MigrateMsg {}

@@ -13,7 +13,7 @@ use osmosis_std::types::osmosis::twap::v1beta1 as TWAP;
 use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::osmosis_proxy::{QueryMsg as OP_QueryMsg, Config as OP_Config};
-use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg};
+use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg, MigrateMsg};
 use membrane::types::{AssetInfo, AssetOracleInfo, PriceInfo, Basket, TWAPPoolInfo, PoolInfo, Owner, PoolStateResponse};
 
 use crate::error::ContractError;
@@ -41,7 +41,7 @@ pub fn instantiate(
     let mut config: Config;
     if msg.owner.is_some() {
         config = Config {
-            owner: deps.api.addr_validate(&msg.owner.unwrap())?,
+            owner: deps.api.addr_validate(&msg.clone().owner.unwrap())?,
             positions_contract: None,
             osmosis_proxy_contract: None,            
             pyth_osmosis_address: Some(deps.api.addr_validate(&"osmo1hpdzqku55lmfmptpyj6wdlugqs5etr6teqf7r4yqjjrxjznjhtuqqu5kdh")?), //mainnet: osmo13ge29x4e2s63a8ytz2px8gurtyznmue4a69n5275692v3qn3ks8q7cwck7
@@ -65,6 +65,47 @@ pub fn instantiate(
     }
     if let Some(osmosis_proxy) = msg.osmosis_proxy_contract {
         config.osmosis_proxy_contract = Some(deps.api.addr_validate(&osmosis_proxy)?);
+    }
+    //Copy oracle info from another oracle contract
+    if let Some(oracle_contract) = msg.oracle_contract {
+        let oracle_config: Config = deps.querier.query_wasm_smart(deps.api.addr_validate(&oracle_contract)?, &QueryMsg::Config {  })?;
+        config = oracle_config.clone();
+
+        //Query all assets from oracle contract
+        let assets: Vec<AssetResponse> = deps.querier.query_wasm_smart(deps.api.addr_validate(&oracle_contract)?, &QueryMsg::Assets { asset_infos: vec![
+            //ATOM
+            AssetInfo::NativeToken { denom: "ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2".to_string() },
+            //OSMO
+            AssetInfo::NativeToken { denom: "uosmo".to_string() },
+            //CDT
+            AssetInfo::NativeToken { denom: "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt".to_string() },
+            //CDT LP
+            AssetInfo::NativeToken { denom: "gamm/pool/1226".to_string() },
+            //axlUSDC
+            AssetInfo::NativeToken { denom: "ibc/D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858".to_string() },
+            //ATOM OSMO LP
+            AssetInfo::NativeToken { denom: "gamm/pool/1".to_string() },
+            //OSMO axlUSDC LP
+            AssetInfo::NativeToken { denom: "gamm/pool/678".to_string() },
+            //USDC
+            AssetInfo::NativeToken { denom: "ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4".to_string() },
+            //stATOM
+            AssetInfo::NativeToken { denom: "ibc/C140AFD542AE77BD7DCC83F13FDD8C5E5BB8C4929785E6EC2F4C636F98F17901".to_string() },
+            //stOSMO
+            AssetInfo::NativeToken { denom: "ibc/D176154B0C63D1F9C6DCFB4F70349EBF2E2B5A87A05902F57A6AE92B863E9AEC".to_string() },
+            //TIA
+            AssetInfo::NativeToken { denom: "ibc/D79E7D83AB399BFFF93433E54FAA480C191248FC556924A2A8351AE2638B3877".to_string() },
+            //USDT
+            AssetInfo::NativeToken { denom: "ibc/4ABBEF4C8926DDDB320AE5188CFD63267ABBCEFC0583E4AE05D6E5AA2401DDAB".to_string() },
+        ] })?;
+        //Save all queried assets
+        for asset in assets {
+            ASSETS.save(deps.storage, asset.asset_info.to_string(), &asset.oracle_info)?;
+        }
+
+        if msg.owner.is_some() {
+            config.owner = deps.api.addr_validate(&msg.owner.unwrap())?;
+        }
     }
 
     CONFIG.save(deps.storage, &config)?;
@@ -187,7 +228,7 @@ fn edit_asset(
         attrs.push(attr("new_oracle_info", oracle_info.to_string()));
 
         //Test the new price source
-        let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id));
+        let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id), None, None);
         attrs.push(attr("price", format!("{:?}", price)));
     }
         
@@ -239,8 +280,8 @@ fn add_asset(
 
             
             //Test the new price source
-            let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id));
-            attrs.push(attr("price", format!("{:?}", price)));
+            // let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id));
+            // attrs.push(attr("price", format!("{:?}", price)));
         }
         Ok(oracles) => {
             //Save oracle to asset, no duplicates
@@ -265,8 +306,8 @@ fn add_asset(
 
                 
                 //Test the new price source
-                let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id));
-                attrs.push(attr("price", format!("{:?}", price)));
+                // let price = get_asset_price(deps.storage, deps.querier, env, asset_info, 0, 0, Some(oracle_info.basket_id));
+                // attrs.push(attr("price", format!("{:?}", price)));
             } else {
                 return Err(ContractError::DuplicateOracle { basket_id: oracle_info.basket_id.to_string()});
             }
@@ -362,6 +403,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
                     twap_timeframe,
                     oracle_time_limit,
                     basket_id,
+                    None,
+                    None,
                 )?),
                 None => to_binary(&get_asset_price(
                     deps.storage,
@@ -371,7 +414,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
                     twap_timeframe,
                     oracle_time_limit,
                     basket_id,
-                    )?)
+                    None,
+                    None,
+                    )?.0)
             }
         },
         QueryMsg::Prices {
@@ -385,6 +430,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             asset_infos,
             twap_timeframe,
             oracle_time_limit,
+            None,
+            None,
             None,
         )?),
         QueryMsg::Assets { asset_infos } => to_binary(&get_assets(deps, asset_infos)?),
@@ -402,12 +449,17 @@ pub fn get_lp_price(
     twap_timeframe: u64, //in minutes
     oracle_time_limit: u64, //in seconds
     basket_id_field: Option<Uint128>,
+    //For Multi-Asset queries or recursive queries
+    queried_asset_prices: Option<Vec<(String, PriceResponse)>>, //Asset & Price
+    osmo_quote_price: Option<Decimal>, 
 ) -> StdResult<PriceResponse>{
     //Turn pool info into asset info
     let asset_infos: Vec<AssetInfo> = pool_info.clone().asset_infos
         .into_iter()
         .map(|asset| asset.info)
         .collect::<Vec<AssetInfo>>();
+
+    let mut asset_values: Vec<Decimal> = vec![];
 
     //Get asset prices
     let (asset_prices, oracle_sources) = {
@@ -419,6 +471,8 @@ pub fn get_lp_price(
             twap_timeframe,
             oracle_time_limit,
             basket_id_field,
+            queried_asset_prices,
+            osmo_quote_price,
         )?;
 
         let mut price_infos = vec![];
@@ -435,51 +489,46 @@ pub fn get_lp_price(
     };
 
     //Calculate share value
-    let LP_value = {
-        //Query share asset amount
-        let share_asset_amounts = querier
-            .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.osmosis_proxy_contract.unwrap().to_string(),
-                msg: to_binary(&OP_QueryMsg::PoolState {
-                    id: pool_info.pool_id,
-                })?,
-            }))?
-            .shares_value(1_000_000_000_000_000_000u128); //1_000_000_000_000_000_000 = 1 pool share token
+    //Query share asset amount
+    let share_asset_amounts = querier
+        .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.osmosis_proxy_contract.unwrap().to_string(),
+            msg: to_binary(&OP_QueryMsg::PoolState {
+                id: pool_info.pool_id,
+            })?,
+        }))?
+        .shares_value(1_000_000_000_000_000_000u128); //1_000_000_000_000_000_000 = 1 pool share token
 
-        //Calculate value of Assets in 1 share token
-        let mut value = Decimal::zero();
-        for (i, price) in asset_prices.into_iter().enumerate() {
-            //Assert we are pulling asset amount from the correct asset
-            let asset_share =
-                match share_asset_amounts.clone().into_iter().find(|coin| {
-                    AssetInfo::NativeToken {
-                        denom: coin.denom.clone(),
-                    } == pool_info.clone().asset_infos[i].info
-                }) {
-                    Some(coin) => coin,
-                    None => {
-                        return Err(StdError::GenericErr {
-                            msg: format!(
-                                "Invalid asset denom: {}",
-                                pool_info.clone().asset_infos[i].info
-                            ),
-                        })
-                    }
-                };
+    //Calculate value of Assets in 1 share token
+    for (i, price) in asset_prices.into_iter().enumerate() {
+        //Assert we are pulling asset amount from the correct asset
+        let asset_share =
+            match share_asset_amounts.clone().into_iter().find(|coin| {
+                AssetInfo::NativeToken {
+                    denom: coin.denom.clone(),
+                } == pool_info.clone().asset_infos[i].info
+            }) {
+                Some(coin) => coin,
+                None => {
+                    return Err(StdError::GenericErr {
+                        msg: format!(
+                            "Invalid asset denom: {}",
+                            pool_info.clone().asset_infos[i].info
+                        ),
+                    })
+                }
+            };
 
-            //Price * # of assets in 1 LP share token
-            value += price.get_value(Uint128::from_str(&asset_share.amount)?)?;
-        }
+        //Price * # of assets in 1 LP share token
+        asset_values.push(price.get_value(Uint128::from_str(&asset_share.amount)?)?);
+    }
 
-        value
-    };
-
-    //Calculate LP price
+    //Calculate LP price as the value of 1 share token
     let LP_price = {
-        let share_amount =
-            Decimal::from_ratio(Uint128::new(1_000_000_000_000_000_000u128), Uint128::new(1u128));//18 decimals for LP share tokens
-        
-        decimal_division(LP_value, share_amount)?
+        asset_values
+            .clone()
+            .into_iter()
+            .sum::<Decimal>()
     };
 
     Ok(PriceResponse { 
@@ -513,7 +562,10 @@ fn get_asset_price(
     twap_timeframe: u64, //in minutes
     oracle_time_limit: u64, //in seconds
     basket_id_field: Option<Uint128>,
-) -> StdResult<PriceResponse> {
+    //For Multi-Asset queries or recursive queries
+    queried_asset_prices: Option<Vec<(String, PriceResponse)>>, //Asset & Price
+    osmo_quote_price: Option<Decimal>, 
+) -> StdResult<(PriceResponse, Option<Decimal>)> { //Return Asset Price & Quote Price (OSMO/USD)
     //Load state
     let config: Config = CONFIG.load(storage)?;
     let asset_oracle_info = ASSETS.load(storage, asset_info.to_string())?;
@@ -548,7 +600,7 @@ fn get_asset_price(
 
     //Use Pyth USD-quoted price feeds first if available
     if let Some(pyth_osmosis_address) = config.clone().pyth_osmosis_address {
-        if let Some(feed_id) = oracle_info.pyth_price_feed_id {
+        if let Some(feed_id) = oracle_info.clone().pyth_price_feed_id {
             //Query USD price from Pyth
             let price_feed_response: PriceFeedResponse = match query_price_feed(
                 &querier, 
@@ -606,11 +658,11 @@ fn get_asset_price(
 
             //Return Pyth only price if it was queried successfully
             if !pyth_feed_errored {
-                return Ok(PriceResponse {
+                return Ok((PriceResponse {
                     prices: oracle_prices,
                     price: pyth_price,
                     decimals: oracle_info.decimals,
-                });
+                }, None));
             }
         }
     }
@@ -618,7 +670,7 @@ fn get_asset_price(
 
     //Query OSMO price from the TWAP sources
     //This can use multiple pools to calculate our price
-    for pool in oracle_info.pools_for_osmo_twap {
+    for pool in oracle_info.pools_for_osmo_twap.clone() {
 
         let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
             pool.clone().pool_id, 
@@ -634,7 +686,7 @@ fn get_asset_price(
         asset_price_in_osmo_steps.push(Decimal::from_str(&res.geometric_twap)?);
     }
 
-    //Multiply prices to denomiate in OSMO
+    //Multiply prices to denominate in OSMO
     let asset_price_in_osmo = {
         let mut final_price = Decimal::one();
         //If no prices were queried, return error unless its OSMO
@@ -654,7 +706,11 @@ fn get_asset_price(
             } 
         }
         
-
+        //Transform price by moving its decimal point by the difference in decimals from 6 (OSMO's decimals)
+        //WARNING: This may not work if multiple assets in the path are different decimal places
+        if oracle_info.decimals > 6 {
+            final_price = decimal_multiplication(final_price, Decimal::from_ratio(Uint128::new(10).checked_pow(oracle_info.decimals as u32 - 6)?, Uint128::one()))?;
+        }
         final_price
     };
     //Results in slight error: (https://medium.com/reflexer-labs/analysis-of-the-rai-twap-oracle-20a01af2e49d)
@@ -665,120 +721,197 @@ fn get_asset_price(
         price: asset_price_in_osmo,
     });
 
-    //Has USD pricing failed?
-    let mut usd_price_failed = false;
+    ///If the last Osmosis TWAP isn't ending in OSMO, then find the asset in our oracle to pull from
+    /// Ex: milkTIA ends in TIA, so we find the TIA -> USD price and use that to calculate the milkTIA price
+    if oracle_info.pools_for_osmo_twap.len() > 0 && oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom != String::from("uosmo") {
+        if let Some(prices) = queried_asset_prices.clone() {
+            //Find the asset in the queried prices
+            let asset_price = prices.clone().into_iter().find(|price| price.0 == oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom.clone());
+            match asset_price {
+                Some(price) => {
+                    //Get price source
+                    let mut source = String::from("");
+                    
+                    for price in price.1.prices.iter(){
+                        source += &price.source;
+                        source += ", ";
+                    }
+                    //Push OSMO TWAP price
+                    oracle_prices.push(PriceInfo {
+                        source,
+                        price: price.1.price,
+                    });                    
 
-    //If we have an OSMO -> USD price feed, we will use that to calculate the peg price
-    if config.pyth_osmosis_address.is_some() {
-        
-        //Query OSMO -> USD price from Pyth
-        // If fail, skip to USD-par pricing
-        let price_feed_response: PriceFeedResponse = match query_price_feed(
-            &querier, 
-            config.pyth_osmosis_address.unwrap(),
-            config.osmo_usd_pyth_feed_id
-        ){
-                Ok(res) => res,
-                Err(_) => {
-                    usd_price_failed = true;
-                    PriceFeedResponse {
-                        price_feed: PriceFeed::default(),
+                    //Return price
+                    return Ok((PriceResponse {
+                        prices: oracle_prices,
+                        //Multiply prices to get the desired Quote
+                        price: decimal_multiplication(asset_price_in_osmo, price.1.price)?,
+                        decimals: oracle_info.decimals,
+                    }, osmo_quote_price));
+                },
+                None => {
+                    //If None, we attempt to query the price
+                    match get_asset_price(
+                        storage, 
+                        querier, 
+                        env, 
+                        AssetInfo::NativeToken { denom: oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].clone().quote_asset_denom }, 
+                        twap_timeframe / 60, 
+                        oracle_time_limit, 
+                        basket_id_field,
+                        queried_asset_prices,
+                        osmo_quote_price,
+                    ){
+                        Ok((res, quote)) => {
+                            //Get price source
+                            let mut source = String::from("");                            
+                            for price in res.prices.iter(){
+                                source += &price.source;
+                                source += ", ";
+                            }
+                            //Push OSMO TWAP price
+                            oracle_prices.push(PriceInfo {
+                                source,
+                                price: res.price,
+                            });
+
+                            //Return price
+                            return Ok((PriceResponse {
+                                prices: oracle_prices,
+                                //Multiply prices to get the desired Quote
+                                price: decimal_multiplication(asset_price_in_osmo, res.price)?,
+                                decimals: oracle_info.decimals,
+                            }, quote));
+                        },
+                        Err(_) => {
+                            return Err(StdError::GenericErr {
+                                msg: format!("No {} price found", oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom),
+                            });
+                        }
                     }
                 }
-            };
-        
-        //Query unscaled price
-        let price_feed = price_feed_response.price_feed;
-        let price = price_feed
-            .get_ema_price_no_older_than(env.block.time.seconds() as i64, oracle_time_limit);
-
-        //If price was queried && within the time limit, scale it & use it
-        //If not, skip to USD-par pricing
-        match price {
-            Some(price) => {
-                if !usd_price_failed {
-                    //Scale price using given exponent
-                    match price.expo > 0 {
-                        true => {
-                            quote_price = decimal_multiplication(
-                                Decimal::from_str(&price.price.to_string())?, 
-                                Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(price.expo as u32)?
-                            )?;
-                        },
-                        //If the exponent is negative we divide, it should be for most if not all
-                        false => {
-                            quote_price = decimal_division(
-                                Decimal::from_str(&price.price.to_string())?, 
-                                Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow((price.expo*-1) as u32)?
-                            )?;
-                        }
-                    };                   
-                    
-
-                    //Push Pyth OSMO USD price
-                    oracle_prices.push(PriceInfo {
-                        source: String::from("pyth"),
-                        price: quote_price,
-                    });
-                }
-            },
-            None => {
-                usd_price_failed = true;
             }
         }
-
-    } else {
-        usd_price_failed = true;
     }
 
-    //If we don't have an OSMO -> USD price feed or it has failed, we will calculate the peg price using USD-par prices
-    if usd_price_failed {
-        if !config.pools_for_usd_par_twap.is_empty() {
-            //Query OSMO -> USD-par prices from the TWAP sources
-            for pool in config.pools_for_usd_par_twap {
+    if osmo_quote_price.is_none() {
+        //Has USD pricing failed?
+        let mut usd_price_failed = false;
 
-                let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
-                    pool.clone().pool_id, 
-                    pool.clone().base_asset_denom, 
-                    pool.clone().quote_asset_denom, 
-                    Some(osmosis_std::shim::Timestamp {
-                        seconds:  start_time as i64,
-                        nanos: 0,
-                    }),
-                )?;
-
-                //Push TWAP
-                usd_par_prices.push(Decimal::from_str(&res.geometric_twap)?);
-            }
+        //If we have an OSMO -> USD price feed, we will use that to calculate the peg price
+        if config.pyth_osmosis_address.is_some() {
             
-            //Sort & Medianize OSMO -> USD-par prices
-            //Sort prices
-            usd_par_prices.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+            //Query OSMO -> USD price from Pyth
+            // If fail, skip to USD-par pricing
+            let price_feed_response: PriceFeedResponse = match query_price_feed(
+                &querier, 
+                config.pyth_osmosis_address.unwrap(),
+                config.osmo_usd_pyth_feed_id
+            ){
+                    Ok(res) => res,
+                    Err(_) => {
+                        usd_price_failed = true;
+                        PriceFeedResponse {
+                            price_feed: PriceFeed::default(),
+                        }
+                    }
+                };
+            
+            //Query unscaled price
+            let price_feed = price_feed_response.price_feed;
+            let price = price_feed
+                .get_ema_price_no_older_than(env.block.time.seconds() as i64, oracle_time_limit);
 
-            //Get Median price and set it as the quote price
-            quote_price = if usd_par_prices.len() % 2 == 0 {
-                let median_index = usd_par_prices.len() / 2;
+            //If price was queried && within the time limit, scale it & use it
+            //If not, skip to USD-par pricing
+            match price {
+                Some(price) => {
+                    if !usd_price_failed {
+                        //Scale price using given exponent
+                        match price.expo > 0 {
+                            true => {
+                                quote_price = decimal_multiplication(
+                                    Decimal::from_str(&price.price.to_string())?, 
+                                    Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow(price.expo as u32)?
+                                )?;
+                            },
+                            //If the exponent is negative we divide, it should be for most if not all
+                            false => {
+                                quote_price = decimal_division(
+                                    Decimal::from_str(&price.price.to_string())?, 
+                                    Decimal::from_ratio(Uint128::new(10), Uint128::one()).checked_pow((price.expo*-1) as u32)?
+                                )?;
+                            }
+                        };                   
+                        
 
-                //Add the two middle usd_par_prices and divide by 2
-                decimal_division(usd_par_prices[median_index] + usd_par_prices[median_index-1], Decimal::percent(2_00)).unwrap()
-                
-            } else if usd_par_prices.len() != 1 {
-                let median_index = usd_par_prices.len() / 2;
-                usd_par_prices[median_index]
-            } else {
-                usd_par_prices[0]
-            };
+                        //Push Pyth OSMO USD price
+                        oracle_prices.push(PriceInfo {
+                            source: String::from("pyth"),
+                            price: quote_price,
+                        });
+                    }
+                },
+                None => {
+                    usd_price_failed = true;
+                }
+            }
 
-            //Push Osmosis OSMO USD-par price
-            oracle_prices.push(PriceInfo {
-                source: String::from("osmosis"),
-                price: quote_price,
-            });
         } else {
-            return Err(StdError::GenericErr { msg: String::from("No USD-par price feeds") })
+            usd_price_failed = true;
         }
-    } 
 
+        //If we don't have an OSMO -> USD price feed or it has failed, we will calculate the peg price using USD-par prices
+        if usd_price_failed {
+            if !config.pools_for_usd_par_twap.is_empty() {
+                //Query OSMO -> USD-par prices from the TWAP sources
+                for pool in config.pools_for_usd_par_twap {
+
+                    let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
+                        pool.clone().pool_id, 
+                        pool.clone().base_asset_denom, 
+                        pool.clone().quote_asset_denom, 
+                        Some(osmosis_std::shim::Timestamp {
+                            seconds:  start_time as i64,
+                            nanos: 0,
+                        }),
+                    )?;
+
+                    //Push TWAP
+                    usd_par_prices.push(Decimal::from_str(&res.geometric_twap)?);
+                }
+                
+                //Sort & Medianize OSMO -> USD-par prices
+                //Sort prices
+                usd_par_prices.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+
+                //Get Median price and set it as the quote price
+                quote_price = if usd_par_prices.len() % 2 == 0 {
+                    let median_index = usd_par_prices.len() / 2;
+
+                    //Add the two middle usd_par_prices and divide by 2
+                    decimal_division(usd_par_prices[median_index] + usd_par_prices[median_index-1], Decimal::percent(2_00)).unwrap()
+                    
+                } else if usd_par_prices.len() != 1 {
+                    let median_index = usd_par_prices.len() / 2;
+                    usd_par_prices[median_index]
+                } else {
+                    usd_par_prices[0]
+                };
+
+                //Push Osmosis OSMO USD-par price
+                oracle_prices.push(PriceInfo {
+                    source: String::from("osmosis"),
+                    price: quote_price,
+                });
+            } else {
+                return Err(StdError::GenericErr { msg: String::from("No USD-par price feeds") })
+            }
+        }
+    } else {
+        quote_price = osmo_quote_price.unwrap();
+    }
     //quote_price is either OSMO -> USD or OSMO -> USD-par, prio to USD
     //Find asset price using asset_price_in_osmo * quote price
     let mut asset_price = decimal_multiplication(asset_price_in_osmo, quote_price)?;
@@ -788,11 +921,11 @@ fn get_asset_price(
         asset_price = STATIC_USD_PRICE;
     }
 
-    Ok(PriceResponse {
+    Ok((PriceResponse {
         prices: oracle_prices,
         price: asset_price,
         decimals: oracle_info.decimals,
-    })
+    }, Some(quote_price)))
 }
 
 /// Return list of asset price info as list of PriceResponse
@@ -804,6 +937,9 @@ fn get_asset_prices(
     twap_timeframe: u64, //in minutes
     oracle_time_limit: u64, //in seconds
     basket_id_field: Option<Uint128>,
+    //For Multi-Asset queries or recursive queries
+    queried_asset_prices: Option<Vec<(String, PriceResponse)>>, //Asset & Price
+    mut osmo_quote_price: Option<Decimal>, 
 ) -> StdResult<Vec<PriceResponse>> {
 
     //Enforce Vec max size
@@ -814,6 +950,11 @@ fn get_asset_prices(
     }
 
     let mut price_responses = vec![];
+    let mut price_propagations: Vec<(String, PriceResponse)> = if let Some(prices) = queried_asset_prices.clone() {
+        prices
+    } else {
+        vec![]
+    };
 
     for asset in asset_infos {
         //Switch based on if asset is an LP 
@@ -829,22 +970,39 @@ fn get_asset_prices(
                     twap_timeframe,
                     oracle_time_limit,
                     basket_id_field,
+                    Some(price_propagations.clone()), //LPs will never be queried first during Basket queries so we don't need to save their prices
+                    osmo_quote_price,
                 )?);
             },
             None => {
-                //If asset is not an LP, get the asset price
-                price_responses.push(get_asset_price(
+                //If asset is not an LP && the price isn't in the list of propogated prices, get the asset price
+                if let Some(price) = price_propagations.clone().into_iter().find(|price| price.0 == asset.to_string()) {
+                    price_responses.push(price.1);
+                    continue;
+                }
+                //Query price if not found
+                let (price, quote_price) = get_asset_price(
                     storage,
                     querier.clone(),
                     env.clone(),
-                    asset,
+                    asset.clone(),
                     twap_timeframe,
                     oracle_time_limit,
                     basket_id_field,
-                )?);
+                    Some(price_propagations.clone()),
+                    osmo_quote_price,
+                )?;
+                price_propagations.push((asset.to_string(), price.clone()));
+                osmo_quote_price = quote_price;
+                price_responses.push(price);
             }
         }
     }
 
     Ok(price_responses)
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    Ok(Response::default())
 }

@@ -2,7 +2,7 @@ use std::cmp::min;
 
 use cosmwasm_std::{
     entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, WasmMsg,
-    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, Addr, coin, attr, Storage, Empty,
+    Response, StdResult, Uint128, Reply, StdError, CosmosMsg, SubMsg, Addr, coin, attr, Storage, Empty, WasmQuery, QueryRequest,
 };
 use cw2::set_contract_version;
 
@@ -11,7 +11,15 @@ use membrane::launch::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfi
 use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OPExecuteMsg;
-use membrane::types::{AssetInfo, Asset, UserRatio, Lockdrop, LockedUser, Lock};
+use membrane::types::{AssetInfo, Asset, UserRatio, Lockdrop, LockedUser, Lock, Owner, VestingPeriod};
+
+use membrane::vesting::{QueryMsg as VestingQueryMsg, ExecuteMsg as VestingExecuteMsg, RecipientsResponse};
+use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, UpdateConfig as CDPUpdateConfig};
+use membrane::oracle::ExecuteMsg as OracleExecuteMsg;
+use membrane::liq_queue::ExecuteMsg as LQExecuteMsg;
+use membrane::liquidity_check::ExecuteMsg as LCExecuteMsg;
+use membrane::auction::{ExecuteMsg as DAExecuteMsg, UpdateConfig as AuctionUpdateConfig};
+use membrane::discount_vault::ExecuteMsg as DiscountVaultExecuteMsg;
 
 use osmosis_std::types::cosmos::base::v1beta1::Coin;
 use osmosis_std::types::osmosis::gamm::poolmodels::balancer::v1beta1::MsgCreateBalancerPool;
@@ -56,7 +64,7 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
 
     //Need 20 OSMO for CreateDenom Msgs
-    if deps.querier.query_balance(env.clone().contract.address, "uosmo")?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
+    // if deps.querier.query_balance(env.clone().contract.address, "uosmo")?.amount < Uint128::new(20_000_000){ return Err(ContractError::NeedOsmo {}) }
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
@@ -79,11 +87,11 @@ pub fn instantiate(
         mbrn_auction_id: msg.mbrn_auction_id,
         system_discounts_id: msg.system_discounts_id,
         discount_vault_id: msg.discount_vault_id,
-        atom_denom: String::from("ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2"), //mainnet: ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2
+        atom_denom: String::from("ibc/27394FB092D2ECCD56123C74F36E4C1F926001CEADA9CA97EA622B25F41E5EB2"), //testnet: ibc/A8C2D23A1E6F95DA4E48BA349667E322BD7A6C996D8A4AAE8BA72E190F3D1477
         osmo_denom: String::from("uosmo"),
-        usdc_denom: String::from("ibc/D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858"),  //axl wrapped usdc //mainnet: D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858
-        atomosmo_pool_id: 1, //mainnet is 1
-        osmousdc_pool_id: 678, //axl wrapped usdc, mainnet is 678
+        usdc_denom: String::from("ibc/D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858"),  //axl wrapped usdc //testnet: 6F34E1BD664C36CE49ACC28E60D62559A5F96C4F9A6CCE4FC5A67B2852E24CFE
+        atomosmo_pool_id: 1, //testnet is 12
+        osmousdc_pool_id: 678, //axl wrapped usdc, testnet is 5
     };
     CONFIG.save(deps.storage, &config)?;
 
@@ -150,6 +158,7 @@ pub fn execute(
         ExecuteMsg::Claim { } => claim(deps, env, info),
         ExecuteMsg::Launch{ } => end_of_launch(deps, env),
         ExecuteMsg::UpdateConfig(update) => update_config(deps, info, update),
+        ExecuteMsg::UpdateContractConfigs { new_governance_contract } => update_contract_configs(deps, info, new_governance_contract),
     }
 }
 
@@ -362,7 +371,7 @@ fn withdraw(
 }
 
 /// Claim unlocked MBRN rewards
-fn claim (    
+fn claim(    
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
@@ -423,6 +432,12 @@ fn claim (
             Decimal::from_ratio(locked_user.total_tickets, Uint128::one()))?;
 
         let unlocked_incentives = ratio_of_unlock * incentives;
+
+        //Calc locked incentives
+        let locked_incentives = incentives.checked_sub(unlocked_incentives).unwrap_or_else(|_| Uint128::zero());
+        if locked_incentives < Uint128::new(1_000_000) && locked_incentives > Uint128::zero() {
+            return Err(ContractError::CustomError { val: String::from("If you leave less than 1 MBRN still unlocking, it'll get stuck due to the minimum stake amount") })
+        }
 
         //Calc amount available to mint
         amount_to_mint = match unlocked_incentives.checked_sub(locked_user.incentives_withdrawn){
@@ -620,6 +635,186 @@ fn update_config(
     Ok(Response::new().add_attribute("new_config", format!("{:?}", config)))
 }
 
+/// Update contract configuration
+fn update_contract_configs(
+    deps: DepsMut,
+    info: MessageInfo,
+    gov_contract: String,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    if info.sender != config.clone().pre_launch_contributors {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    let addresses = ADDRESSES.load(deps.storage)?;
+    let mut msgs: Vec<CosmosMsg> = vec![];
+
+    //Update Vesting
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.vesting.to_string(),
+    //         msg: to_binary(&VestingExecuteMsg::UpdateConfig {
+    //             owner: Some(gov_contract.clone()),
+    //             osmosis_proxy: None,
+    //             staking_contract: None,
+    //             mbrn_denom: None,
+    //             additional_allocation: None,                
+    //         })?,
+    //         funds: vec![],
+    //     })
+    // );
+    //Update CDP
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.positions.to_string(),
+    //         msg: to_binary(&CDPExecuteMsg::UpdateConfig(CDPUpdateConfig {
+    //             owner: Some(gov_contract.clone()),
+    //             stability_pool: None,
+    //             debt_auction: None,
+    //             staking_contract: None,
+    //             rate_slope_multiplier: None,
+    //             debt_minimum: None,
+    //             dex_router: None,
+    //             discounts_contract: None,
+    //             base_debt_cap_multiplier: None,
+    //             oracle_contract: None,
+    //             oracle_time_limit: None,
+    //             osmosis_proxy: None,
+    //             liq_fee: None,
+    //             liquidity_contract: None,
+    //             collateral_twap_timeframe: None,
+    //             cpc_multiplier: None,
+    //             credit_twap_timeframe: None,
+    //         }))?,
+    //         funds: vec![],
+    //     })
+    // );
+    //Update Auction
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.mbrn_auction.to_string(),
+    //         msg: to_binary(&DAExecuteMsg::UpdateConfig(AuctionUpdateConfig {
+    //             owner: Some(gov_contract.clone()),
+    //             governance_contract: Some(gov_contract.clone()),
+    //             staking_contract: None,
+    //             oracle_contract: None,
+    //             osmosis_proxy: None,
+    //             positions_contract: None,
+    //             mbrn_denom: None,
+    //             cdt_denom: None,
+    //             desired_asset: None,
+    //             twap_timeframe: None,
+    //             initial_discount: None,
+    //             discount_increase_timeframe: None,
+    //             discount_increase: None,
+    //             send_to_stakers: None,
+
+    //         }))?,
+    //         funds: vec![],
+    //     })
+    // );
+    //Update Discount Vault
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.discount_vault.to_string(),
+    //         msg: to_binary(&DiscountVaultExecuteMsg::ChangeOwner { owner: gov_contract.clone() })?,
+    //         funds: vec![],
+    //     })
+    // );
+    //Update Liquidation Queue
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.liq_queue.to_string(),
+    //         msg: to_binary(&LQExecuteMsg::UpdateConfig { 
+    //             owner: Some(gov_contract.clone()),
+    //             positions_contract:  None,
+    //             osmosis_proxy_contract:  None,
+    //             waiting_period:  None, 
+    //             minimum_bid:  None, 
+    //             maximum_waiting_bids: None
+    //         })?,
+    //         funds: vec![],
+    //     })
+    // );
+    //Update Liquidity Check
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.liquidity_check.to_string(),
+    //         msg: to_binary(&LCExecuteMsg::UpdateConfig { 
+    //             owner: Some(gov_contract.clone()),
+    //             positions_contract:  None,
+    //             osmosis_proxy:  None,
+    //             stableswap_multiplier:  None,
+    //         })?,
+    //         funds: vec![],
+    //     })
+    // );
+    //Update Oracle
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.oracle.to_string(),
+    //         msg: to_binary(&OracleExecuteMsg::UpdateConfig { 
+    //             owner: Some(gov_contract.clone()),
+    //             positions_contract:  None,
+    //             osmosis_proxy_contract: None,
+    //             osmo_usd_pyth_feed_id: None,
+    //             pyth_osmosis_address: None,
+    //             pools_for_usd_par_twap: None,
+    //         })?,
+    //         funds: vec![],
+    //     })
+    // );
+    //Update Osmosis Proxy 
+    msgs.push(
+        CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: addresses.osmosis_proxy.to_string(),
+            msg: to_binary(&OPExecuteMsg::UpdateConfig { 
+                owners: Some(vec![
+                    Owner {
+                        owner: deps.api.addr_validate(&gov_contract.clone())?,
+                        total_minted: Uint128::zero(), 
+                        stability_pool_ratio: None,
+                        non_token_contract_auth: true,
+                        is_position_contract: false,
+                    }
+                ]),
+                positions_contract:  None,
+                add_owner: Some(true),
+                liquidity_multiplier: None,
+                debt_auction: None,
+                liquidity_contract: None,
+                oracle_contract: None,
+            })?,
+            funds: vec![],
+        })
+    );
+    //Update Staking
+    // msgs.push(
+    //     CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: addresses.staking.to_string(),
+    //         msg: to_binary(&StakingExecuteMsg::UpdateConfig { 
+    //             owner: Some(gov_contract.clone()),
+    //             governance_contract: Some(gov_contract.clone()),
+    //             positions_contract:  None,
+    //             auction_contract: None,
+    //             vesting_contract: None,
+    //             osmosis_proxy: None,
+    //             mbrn_denom: None,
+    //             incentive_schedule: None,
+    //             unstaking_period: None,
+    //             max_commission_rate: None,
+    //             keep_raw_cdt: None,
+    //             vesting_rev_multiplier: None,
+    //         })?,
+    //         funds: vec![],
+    //     })
+    // );
+
+    
+    Ok(Response::new().add_messages(msgs))
+}
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
@@ -778,7 +973,7 @@ pub fn end_of_launch(
     //Mint MBRN for LP
     let msg = OPExecuteMsg::MintTokens { 
         denom: config.clone().mbrn_denom, 
-        amount: Uint128::new(1_000_000_000_000), //1M umbrn
+        amount: Uint128::new(1_000_000_000_000), //1M mbrn
         mint_to_address: env.clone().contract.address.to_string(),
     };
     let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
@@ -871,7 +1066,82 @@ pub fn end_of_launch(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    Ok(Response::default())
-}
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    
+    let vesting = ADDRESSES.load(deps.storage)?.vesting;
 
+    //Add recipients to vesting contract
+    let pre_launch_community =  vec![
+        "osmo1ssgz49n7a6uc0xvxwmx59t60mgktnk238m5yf0",
+        "osmo1d9ryqp7yfmr92vkk2yal96824pewf2g5wx0h2r",
+        "osmo10k0qxqh39fwk2khv49g0n673kfqwe778f09ffg",
+        "osmo1ks3p0rtxkph9us3rg5z3as2hl4gfq4fua5d0vh",
+        "osmo1xaaxw8xzyxh6cflqd4g2xqmypsa4x8hzl8t4nc",
+        "osmo1dxrfdpxju5jmcqz3lffn5qj4kqvtpuvjdet49z",
+        "osmo1w7tql40ad8m4hzw65ahlcgd72vm4zwfq6uw68j",
+        "osmo1t7f0rmcjxvmdmftsfsy66k2yny9zq703hwa9qg",
+        "osmo1vg5gzyfqfnqz7l6hqh307q9mczjrns266a2q06",
+        "osmo1pgsya6vgfr0rzxuc24wn5t3x9azy6r83mumygz"
+    ];
+    let founder = "osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n";
+    
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    //Loop through pre_launch_community to create add_recipient messages
+    for recipient in pre_launch_community.clone() {
+        let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+            contract_addr: vesting.to_string(), 
+            msg: to_binary(&VestingExecuteMsg::AddRecipient { 
+                recipient: recipient.to_string(),
+            })?, 
+            funds: vec![], 
+        });
+        msgs.push(msg);
+    }
+    //Add founder recipient
+    let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+        contract_addr: vesting.to_string(), 
+        msg: to_binary(&VestingExecuteMsg::AddRecipient { 
+            recipient: founder.to_string(),
+        })?, 
+        funds: vec![], 
+    });
+    msgs.push(msg);
+
+    //////Allocations
+    //Subtract 99 days from first vesting date.
+    //PLC: 0 cliff 266 linear 
+    //Founder: 631 cliff 365 linear
+
+    //Loop through pre_launch_community to create add_allocation messages
+    for recipient in pre_launch_community {
+        let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+            contract_addr: vesting.to_string(), 
+            msg: to_binary(&VestingExecuteMsg::AddAllocation { 
+                recipient: recipient.to_string(),
+                allocation: Uint128::new(1_000_000_000u128),
+                vesting_period: Some(VestingPeriod {
+                    cliff: 0,
+                    linear: 266,
+                })
+            })?, 
+            funds: vec![], 
+        });
+        msgs.push(msg);
+    }
+    //Set founder allocation
+    let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+        contract_addr: vesting.to_string(), 
+        msg: to_binary(&VestingExecuteMsg::AddAllocation { 
+            recipient: founder.to_string(),
+            allocation: Uint128::new(9_000_000_000_000u128), //9M
+            vesting_period: Some(VestingPeriod {
+                cliff: 631,
+                linear: 365,
+            })
+        })?, 
+        funds: vec![], 
+    });
+    msgs.push(msg);
+
+    Ok(Response::new().add_messages(msgs))
+}

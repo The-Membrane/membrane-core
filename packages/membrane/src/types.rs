@@ -218,6 +218,8 @@ pub struct StakeDeposit {
     pub stake_time: u64,
     /// Time of unstake in seconds
     pub unstake_start_time: Option<u64>,
+    /// last_accrued time in seconds
+    pub last_accrued: Option<u64>,
 }
 
 impl fmt::Display for StakeDeposit {
@@ -227,7 +229,36 @@ impl fmt::Display for StakeDeposit {
 }
 
 #[cw_serde]
+pub struct OldStakeDeposit {
+    /// Staker address
+    pub staker: Addr,
+    /// Amount of stake
+    pub amount: Uint128,
+    /// Time of stake in seconds
+    pub stake_time: u64,
+    /// Time of unstake in seconds
+    pub unstake_start_time: Option<u64>,
+}
+
+#[cw_serde]
 pub struct Delegation {
+    /// Delegate address
+    pub delegate: Addr,
+    /// Amount of stake
+    pub amount: Uint128,
+    /// Fluidity toggle
+    /// true: delegation can be redelegated by the delegate
+    pub fluidity: bool,
+    /// Delegate voting power as well as commission
+    pub voting_power_delegation: bool,
+    /// Time of delegation in seconds
+    pub time_of_delegation: u64,
+    /// last_accrued time in seconds
+    pub last_accrued: Option<u64>,
+}
+
+#[cw_serde]
+pub struct OldDelegation {
     /// Delegate address
     pub delegate: Addr,
     /// Amount of stake
@@ -249,6 +280,29 @@ pub struct DelegationInfo {
     pub delegated_to: Vec<Delegation>,
     /// Commission %
     pub commission: Decimal,
+}
+#[cw_serde]
+pub struct OldDelegationInfo {    
+    /// Delegated stake
+    pub delegated: Vec<OldDelegation>,
+    /// Stake delagated to staker
+    pub delegated_to: Vec<OldDelegation>,
+    /// Commission %
+    pub commission: Decimal,
+}
+
+#[cw_serde]
+pub struct Delegate {
+    /// Delegate address
+    pub delegate: Addr,
+    /// Alias
+    pub alias: Option<String>,
+    /// Discord username
+    pub discord_username: Option<String>,
+    /// Twitter username
+    pub twitter_username: Option<String>,
+    /// Some URL
+    pub url: Option<String>,
 }
 
 #[cw_serde]
@@ -322,16 +376,6 @@ impl fmt::Display for TWAPPoolInfo {
 pub struct StoredPrice {
     /// Price
     pub price: PriceResponse,
-    /// Time of price in seconds
-    pub last_time_updated: u64,
-    /// Previous price to measure volatility
-    pub price_vol_limiter: PriceVolLimiter,
-}
-
-#[cw_serde]
-pub struct PriceVolLimiter {
-    /// Price
-    pub price: Decimal,
     /// Time of price in seconds
     pub last_time_updated: u64,
 }
@@ -649,7 +693,7 @@ pub struct DebtTokenAsset {
 pub struct Owner {
     /// Owner address
     pub owner: Addr,
-    /// Total CDT minted
+    /// Total CDT minted (Unused)
     pub total_minted: Uint128,
     /// Stability pool ratio allocated to CDT mint caps
     pub stability_pool_ratio: Option<Decimal>,

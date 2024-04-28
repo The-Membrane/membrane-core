@@ -14,13 +14,13 @@ use cw_coins::Coins;
 use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg};
 use membrane::oracle::PriceResponse;
 use membrane::stability_pool::{
-    Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig,
+    Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, MigrateMsg
 };
 use membrane::osmosis_proxy::ExecuteMsg as OsmosisProxy_ExecuteMsg;
 use membrane::types::{
     Asset, AssetInfo, AssetPool, Deposit, User, UserInfo, UserRatio, Basket,
 };
-use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest, accrue_user_positions, query_asset_price, query_basket};
+use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest, query_asset_price, query_basket};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
@@ -296,33 +296,33 @@ fn accrue_incentives(
     let mut incentives = accumulate_interest(stake, rate, time_elapsed)?;   
 
     //Get CDT Price
-    let basket: Basket = match query_basket(querier, config.clone().positions_contract.to_string()){
-        Ok(basket) => basket,
-        Err(_) => {
-            querier.query_wasm_smart::<Basket>(
-            config.clone().positions_contract,
-            &CDP_QueryMsg::GetBasket {}
-            )?
-        },
-    };
-    let cdt_price: PriceResponse = basket.credit_price;
+    // let basket: Basket = match query_basket(querier, config.clone().positions_contract.to_string()){
+    //     Ok(basket) => basket,
+    //     Err(_) => {
+    //         querier.query_wasm_smart::<Basket>(
+    //         config.clone().positions_contract,
+    //         &CDP_QueryMsg::GetBasket {}
+    //         )?
+    //     },
+    // };
+    // let cdt_price: PriceResponse = basket.credit_price;
 
     //Get MBRN price
-    let mbrn_price: Decimal = match query_asset_price(
-        querier, 
-        config.clone().oracle_contract.into(), 
-        AssetInfo::NativeToken { denom: config.clone().mbrn_denom },
-        60,
-        None,
-    ){
-        Ok(price) => price,
-        Err(_) => cdt_price.price, //We default to CDT repayment price in the first hour of incentives
-    };
+    // let mbrn_price: Decimal = match query_asset_price(
+    //     querier, 
+    //     config.clone().oracle_contract.into(), 
+    //     AssetInfo::NativeToken { denom: config.clone().mbrn_denom },
+    //     60,
+    //     None,
+    // ){
+    //     Ok(price) => price,
+    //     Err(_) => cdt_price.price, //We default to CDT repayment price in the first hour of incentives
+    // };
 
     //Transmute CDT amount to MBRN incentive amount
-    incentives = decimal_division(
-        cdt_price.get_value(incentives)?
-        , mbrn_price)? * Uint128::one();
+    // incentives = decimal_division(
+    //     cdt_price.get_value(incentives)?
+    //     , mbrn_price)? * Uint128::one();
 
     let mut total_incentives = INCENTIVES.load(storage)?;
 
@@ -390,20 +390,28 @@ pub fn withdraw(
             skip_unstaking,
         )?;
 
+        let user_deposits: Vec<Deposit> = new_pool.clone().deposits
+            .into_iter()
+            .filter(|deposit| deposit.user == info.sender)
+            .collect::<Vec<Deposit>>();
+
+        let new_total_user_deposits: Decimal = user_deposits
+            .iter()
+            .map(|user_deposit| user_deposit.amount)
+            .collect::<Vec<Decimal>>()
+            .into_iter()
+            .sum();
+        
+        if withdrawable > total_user_deposits.to_uint_floor() || withdrawable > amount+config.minimum_deposit_amount || withdrawable + new_total_user_deposits.to_uint_floor() != total_user_deposits.to_uint_floor() {
+            return Err(ContractError::CustomError {
+                val: String::from("Invalid withdrawable amount"),
+            });
+        }
         //Update pool
         ASSET.save(deps.storage, &new_pool)?;
 
         //If there is a withdrawable amount
         if !withdrawable.is_zero() {
-            //Create Position accrual msgs to lock in user discounts before withdrawing
-            let accrual_msg = accrue_user_positions(
-                deps.querier, 
-                config.positions_contract.to_string(),
-                info.sender.clone().to_string(), 
-                32,
-            )?;
-            msgs.push(accrual_msg);
-
             let withdrawable_asset = Asset {
                 amount: withdrawable,
                 ..asset_pool.clone().credit_asset
@@ -505,16 +513,26 @@ fn withdrawal_from_state(
 
                             //Update existing deposit state
                             deposit_item.amount = withdrawal_amount;
-                            deposit_item.unstake_time = Some(env.block.time.seconds());
+                            //Only set stake time if it hasn't been set yet
+                            //Only 0 withdrawal_amount if this is a new unstaking
+                            if deposit_item.unstake_time.is_none() {
+                                deposit_item.unstake_time = Some(env.block.time.seconds());
 
-                            //Set withdrawal_amount to 0
-                            withdrawal_amount = Decimal::zero();
+                                //Set withdrawal_amount to 0
+                                withdrawal_amount = Decimal::zero();
+                            }
+
 
                         } else if withdrawal_amount != Decimal::zero() {
                             //Set unstaking time
-                            deposit_item.unstake_time = Some(env.block.time.seconds());
-                            //Subtract from withdrawal_amount 
-                            withdrawal_amount -= deposit_item.amount;
+                            //Only set stake time if it hasn't been set yet
+                            //Only subtract from withdrawal_amount if this is a new unstaking
+                            if deposit_item.unstake_time.is_none() {
+                                deposit_item.unstake_time = Some(env.block.time.seconds());
+                                
+                                //Subtract from withdrawal_amount 
+                                withdrawal_amount -= deposit_item.amount;
+                            }
                         }                        
                     }
                 } else {
@@ -563,7 +581,7 @@ fn withdrawal_from_state(
                     
                     withdrawal_amount = Decimal::zero();
 
-                } else if withdrawal_amount != Decimal::zero() && deposit_item.amount <= withdrawal_amount {
+                } else if withdrawal_amount != Decimal::zero() && deposit_item.amount <= withdrawal_amount && (skip_unstaking || withdrawable) {
                     //If deposit.amount less than withdrawal_amount, subtract it from the withdrawal amount
                     withdrawal_amount -= deposit_item.amount;  
                     
@@ -583,6 +601,10 @@ fn withdrawal_from_state(
         .into_iter()
         .filter(|deposit| deposit.amount != Decimal::zero())
         .collect::<Vec<Deposit>>();
+
+    if withdrawal_amount != Decimal::zero() {
+        return Err(ContractError::InvalidWithdrawal {});
+    }
 
     //Sets returning_deposit to the back of the line, if some
     if let Some(deposit) = returning_deposit {
@@ -934,7 +956,7 @@ fn repay(
     env: Env,
     info: MessageInfo,
     user_info: UserInfo,
-    repayment: Asset,
+    mut repayment: Asset,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -976,7 +998,7 @@ fn repay(
             return Err(ContractError::InvalidWithdrawal {});
         } else {
             //Go thru each deposit and withdraw request from state
-            let (_withdrawable, new_pool) = withdrawal_from_state(
+            let (withdrawable, new_pool) = withdrawal_from_state(
                 deps.storage,
                 deps.querier,
                 env,
@@ -986,6 +1008,10 @@ fn repay(
                 asset_pool,
                 true,
             )?;
+            //If withdrawable is less than repayment amount, set repayment amount to withdrawable to assert state is safe
+            if withdrawable < repayment.amount {
+                repayment.amount = withdrawable;
+            }
             
             //Update pool
             ASSET.save(deps.storage, &new_pool)?;
@@ -1369,4 +1395,9 @@ pub fn validate_assets(
     }
 
     Ok(valid_assets)
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    Ok(Response::default())
 }

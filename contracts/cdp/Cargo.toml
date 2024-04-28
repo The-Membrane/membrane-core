@@ -33,5 +33,7 @@ serde = { version = "1.0.137", default-features = false, features = ["derive"] }
 thiserror = { version = "1.0.31" }
 wasm = "0.0.0"
 
+
 [dev-dependencies]
 cw-multi-test = "0.13.4"
+apollo-cw-asset = "0.1.0"

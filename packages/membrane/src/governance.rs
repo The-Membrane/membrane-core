@@ -1,4 +1,5 @@
 use cosmwasm_std::{Addr, CosmosMsg, Decimal, StdError, StdResult, Uint128, Uint64};
+use osmosis_std::types::osmosis::incentives::{MsgCreateGauge, MsgAddToGauge};
 use cosmwasm_schema::cw_serde;
 use std::fmt::{Display, Formatter, Result};
 use std::ops::RangeInclusive;
@@ -6,7 +7,7 @@ use std::ops::RangeInclusive;
 use self::helpers::is_safe_link;
 
 //Osmosis Constants
-pub const BLOCKS_PER_DAY: u64 = 2400; //6 sec blocks
+pub const BLOCKS_PER_DAY: u64 = 14400; //6 sec blocks
 
 pub const MINIMUM_PROPOSAL_REQUIRED_THRESHOLD_PERCENTAGE: u64 = 51;
 pub const MAX_PROPOSAL_REQUIRED_THRESHOLD_PERCENTAGE: u64 = 100;
@@ -87,9 +88,11 @@ pub enum ExecuteMsg {
     CheckMessages {
         /// messages
         messages: Vec<ProposalMessage>,
+        /// Additional contract check messages: 0 - CDP, 1 - Staking, 2 - LQ
+        msg_switch: Option<u64>,
     },
     /// The last endpoint which is executed only if all proposal messages have been passed
-    CheckMessagesPassed {},
+    CheckMessagesPassed { error: Option<bool> },
     /// Execute a successful proposal
     ExecuteProposal {
         /// Proposal identifier
@@ -104,6 +107,17 @@ pub enum ExecuteMsg {
     /// ## Executor
     /// Only the Governance contract is allowed to update its own parameters
     UpdateConfig(UpdateConfig),
+    /// Use osmosis-std to create a gauge with assets in this contract
+    CreateOsmosisGauge { gauge_msg: MsgCreateGauge },
+    /// Use osmosis-std to add to a gauge, owned by this contract, with assets in this contract
+    AddToOsmosisGauge { gauge_msg: MsgAddToGauge },
+    //Freeze positions contract
+    FreezePositions {
+        frozen: bool,
+        //Set supply caps to 0
+        //We only allow native tokens anyway
+        freeze_these_assets: Vec<String>,
+    }
 }
 
 /// Thie enum describes all the queries available in the contract.
@@ -540,3 +554,6 @@ pub mod helpers {
         Ok(())
     }
 }
+
+#[cw_serde]
+pub struct MigrateMsg {}

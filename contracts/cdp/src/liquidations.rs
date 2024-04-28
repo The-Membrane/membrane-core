@@ -15,10 +15,11 @@ use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, PoolStateResponse, AssetPool};
 
 use crate::error::ContractError; 
-use crate::positions::{BAD_DEBT_REPLY_ID, ROUTER_REPLY_ID, STABILITY_POOL_REPLY_ID, USER_SP_REPAY_REPLY_ID, LIQ_QUEUE_REPLY_ID};
+use crate::positions::{BAD_DEBT_REPLY_ID, USER_SP_REPAY_REPLY_ID, LIQ_QUEUE_REPLY_ID, SP_REPLY_ID};
 use crate::query::{insolvency_check, get_cAsset_ratios};
-use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation, get_target_position};
+use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation, get_target_position, FREEZE_TIMER, Timer};
 
+pub const SECONDS_PER_DAY: u64 = 86400;
 
 /// Confirms insolvency and calculates repayment amount,
 /// then sends liquidation messages to the modules if they have funds.
@@ -38,7 +39,7 @@ pub fn liquidate(
         .recovered_since_downtime_of_length(
             10 * 60 * 8, //8 hours from 6 second blocks
             Some(Duration {
-                seconds: 60 * 60, //1 hour
+                seconds: 60 * 60 * 1, //1 hour
                 nanos: 0,
             })
     ){
@@ -50,10 +51,26 @@ pub fn liquidate(
         Err(_) => (),
     };
 
+    let basket: Basket = BASKET.load(storage)?;
+    //Check if frozen
+    if basket.frozen {
+        return Err(ContractError::Frozen {});
+    }
+
+    //Check contract downtime
+    let freeze_timer = match FREEZE_TIMER.load(storage){
+        Ok(timer) => timer,
+        Err(_) => Timer {
+            start_time: 0,
+            end_time: 0,
+        },
+    };
+    if (env.block.time.seconds().checked_sub(freeze_timer.end_time).unwrap_or_else(|| SECONDS_PER_DAY/24)) < (SECONDS_PER_DAY/24){ //1 hour grace
+        return Err(ContractError::Std(StdError::GenericErr { msg: format!("You can liquidate in {} seconds, there is a post-freeze grace period", (SECONDS_PER_DAY/24) - (env.block.time.seconds() - freeze_timer.end_time)) }));
+    }
+
     //Load state
     let config: Config = CONFIG.load(storage)?;
-
-    let basket: Basket = BASKET.load(storage)?;
     let valid_position_owner =
         validate_position_owner(api, info.clone(), Some(position_owner.clone()))?;
 
@@ -77,7 +94,6 @@ pub fn liquidate(
         basket.clone().credit_price,
         false,
         config.clone(),
-        true,
     )?;
     
     if !insolvent {
@@ -122,12 +138,16 @@ pub fn liquidate(
     //Track repay_amount_per_asset
     let mut per_asset_repayment: Vec<Decimal> = vec![];
     let mut liquidated_assets: Vec<cAsset> = vec![];
+    //Track value paid within the mechanism
+    let mut caller_fee_value_paid = Decimal::zero();
 
     let mut leftover_position_value = total_value;
 
+    let pre_lq_msg_length = submessages.len();
+
     //Calculate caller & protocol fees 
     //and amount to send to the Liquidation Queue.
-    let (protocol_fee_msg, leftover_repayment) = per_asset_fulfillments(
+    let (protocol_fee_msg, _) = per_asset_fulfillments(
         querier, 
         config.clone(), 
         basket.clone(), 
@@ -143,35 +163,64 @@ pub fn liquidate(
         &mut submessages, 
         &mut caller_fee_messages, 
         &mut per_asset_repayment,
-        &mut liquidated_assets
+        &mut liquidated_assets,
+        &mut caller_fee_value_paid,
     )?;
 
+    let post_lq_msg_length = submessages.len();
+        
     //Update collateral_assets to reflect the fees
     target_position.collateral_assets = collateral_assets;
-    
-    //Build SubMsgs to send to the Stability Pool & Sell Wall
-    //This will only run if config.stability_pool.is_some()
-    let ( leftover_repayment ) = build_sp_submsgs(
-        storage, 
-        querier,
-        env.clone(), 
-        config, 
-        basket.clone(), 
-        valid_position_owner.clone(), 
-        leftover_repayment, 
-        credit_repay_amount, 
-        leftover_position_value, 
-        &mut submessages, 
-        per_asset_repayment.clone(), 
-        user_repay_amount,
-        target_position.clone(),
-        liquidated_assets,
-        cAsset_ratios,
-        cAsset_prices_res,
-    )?;
+
+    //Skip SP if LQ is used at all.
+    //It'll be called in the reply instead
+    if post_lq_msg_length == pre_lq_msg_length {
+        //Build SubMsgs to send to the Stability Pool & Sell Wall
+        //This will only run if config.stability_pool.is_some()
+        let ( _ ) = build_sp_submsgs(
+            storage, 
+            querier,
+            env.clone(), 
+            config, 
+            basket.clone(), 
+            valid_position_owner.clone(), 
+            leftover_repayment, 
+            credit_repay_amount, 
+            leftover_position_value, 
+            &mut submessages, 
+            per_asset_repayment.clone(), 
+            user_repay_amount,
+            target_position.clone(),
+            liquidated_assets,
+            cAsset_ratios,
+            cAsset_prices_res,
+            caller_fee_value_paid,
+        )?;
+    } else {
+        //Set Liquidation Prop
+        let liquidation_propagation = LiquidationPropagation {
+            per_asset_repayment,
+            liq_queue_leftovers: leftover_repayment,
+            stability_pool: leftover_position_value, //This value is used to calculate the SP's repay amount
+            user_repay_amount,
+            target_position,
+            liquidated_assets,
+            caller_fee_value_paid,
+            total_repaid: Decimal::zero(),
+            position_owner: valid_position_owner.clone(),
+            positions_contract: env.clone().contract.address,
+            sp_liq_fee: Decimal::zero(),
+            cAsset_ratios,
+            cAsset_prices: cAsset_prices_res,
+            basket,
+            config,
+        };
+        //Save
+        LIQUIDATION.save(storage, &liquidation_propagation)?;
+    }
 
     //Create the Bad debt callback message to be added as the last SubMsg
-    let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+    let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
         msg: to_binary(&ExecuteMsg::Callback(CallbackMsg::BadDebtCheck {
             position_id,
@@ -180,7 +229,7 @@ pub fn liquidate(
         funds: vec![],
     });
     //The logic for this will be handled in the callback
-    //Replying on Error is just so an Auction error doesn't cancel transaction
+    //Replying on Error is so any error doesn't cancel the full transaction
     //Don't care about the success case so didnt reply_always
     let call_back = SubMsg::reply_on_error(msg, BAD_DEBT_REPLY_ID);
     
@@ -231,7 +280,9 @@ fn get_repay_quantities(
     if repay_value < decimal_debt_minimum {
         //If setting the repay value to the minimum leaves at least the minimum in the position...
         //..then partially liquidate
-        if loan_value - decimal_debt_minimum >= decimal_debt_minimum {
+        if loan_value < decimal_debt_minimum {
+            repay_value = loan_value;
+        } else if  loan_value - decimal_debt_minimum >= decimal_debt_minimum {            
             repay_value = decimal_debt_minimum;
         } else {
             //Else liquidate it all
@@ -340,7 +391,7 @@ fn per_asset_fulfillments(
     caller_fee: Decimal,
     collateral_assets: &mut Vec<cAsset>,
     leftover_position_value: &mut Decimal,
-    mut leftover_repayment: Uint128,
+    leftover_repayment: Uint128,
     repay_value: Decimal,
     pre_user_repay_repay_value: Decimal,
     cAsset_ratios: Vec<Decimal>,
@@ -349,6 +400,7 @@ fn per_asset_fulfillments(
     caller_fee_messages: &mut Vec<CosmosMsg>,
     per_asset_repayment: &mut Vec<Decimal>,
     liquidated_assets: &mut Vec<cAsset>,
+    caller_fee_value_paid: &mut Decimal,
 ) -> StdResult<(CosmosMsg, Decimal)>{
 
     let mut caller_coins: Vec<Coin> = vec![];
@@ -367,6 +419,10 @@ fn per_asset_fulfillments(
 
         //Subtract Caller fee from Position's claims
         let caller_fee_in_collateral_amount = pre_user_repay_collateral_repay_amount * caller_fee;
+        
+        //Add to caller_fee_value_paid
+        let fee_value = collateral_price.get_value(caller_fee_in_collateral_amount)?;
+        *caller_fee_value_paid = *caller_fee_value_paid + fee_value;
 
         //Update collateral_assets to reflect the fee
         collateral_assets[num].asset.amount -= caller_fee_in_collateral_amount;
@@ -396,7 +452,6 @@ fn per_asset_fulfillments(
                 ..cAsset.clone()
             }
         );
-        ///These updates are necessary bc the fees are always taken out so if the liquidation is SW only, it'll try to sell more than the position owns.
         
         //Subtract fees from leftover_position value
         //fee_value = total_fee_collateral_amount * collateral_price
@@ -436,12 +491,9 @@ fn per_asset_fulfillments(
             if collateral_repay_amount > collateral_assets[num].asset.amount {
                 collateral_repay_amount = collateral_assets[num].asset.amount;
             }
-
-            //Store repay amount
-            per_asset_repayment.push(Decimal::from_ratio(repay_amount_per_asset, Uint128::one()));
             
             let res: LQ_LiquidatibleResponse =
-                querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+                match querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
                     contract_addr: basket.clone().liq_queue.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                     msg: to_binary(&LQ_QueryMsg::CheckLiquidatible {
                         bid_for: cAsset.clone().asset.info,
@@ -452,14 +504,23 @@ fn per_asset_fulfillments(
                         credit_info: basket.clone().credit_asset.info,
                         credit_price: basket.clone().credit_price,
                     })?,
-                }))?;
+                })){
+                    Ok(res) => res,
+                    //If this errors we go to the next asset.
+                    //If they all error, the SP will get an initial call instead of waiting for the reply.
+                    Err(_) => continue, 
+                
+                };
                 
             //Calculate how much collateral we are sending to the liq_queue to liquidate
             let leftover: Uint128 = Uint128::from_str(&res.leftover_collateral)?;
             let queue_asset_amount_paid: Uint128 =
                 collateral_repay_amount  - leftover;
 
-
+            //Don't send a message if the amount is 0
+            if queue_asset_amount_paid.is_zero() || Uint128::from_str(&res.total_debt_repaid)?.is_zero(){
+                continue;
+            }
             //Call Liq Queue::Liquidate for the asset
             let liq_msg = LQ_ExecuteMsg::Liquidate {
                 credit_price: basket.clone().credit_price,
@@ -475,10 +536,10 @@ fn per_asset_fulfillments(
             *leftover_position_value = decimal_subtraction(*leftover_position_value, value_paid_to_queue)?;
             
             //Calculate how much the queue repaid in credit
-            let queue_credit_repaid = Uint128::from_str(&res.total_debt_repaid)?;
+            // let queue_credit_repaid = Uint128::from_str(&res.total_debt_repaid)?;
             //Subtract that from the running total for potential leftovers
             //i.e. after this function is over, this value will be the amount of credit that was not repaid
-            leftover_repayment = leftover_repayment.checked_sub(queue_credit_repaid)?;
+            // leftover_repayment = leftover_repayment.checked_sub(queue_credit_repaid)?;
             
             //Create CosmosMsg
             let msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -487,8 +548,14 @@ fn per_asset_fulfillments(
                 funds: vec![],
             });
 
+            
+            /////Store credit repay amount////
+            //Only store if we make it this far in the block.
+            //If we continue beforehand we don't want to save these as it breaks the reply logic.
+            per_asset_repayment.push(Decimal::from_ratio(repay_amount_per_asset, Uint128::one()));
+
             //Convert to submsg
-            let sub_msg: SubMsg = SubMsg::reply_always(msg, LIQ_QUEUE_REPLY_ID);
+            let sub_msg: SubMsg = SubMsg::reply_on_success(msg, LIQ_QUEUE_REPLY_ID);
             submessages.push(sub_msg);
         }
     }
@@ -507,12 +574,12 @@ fn per_asset_fulfillments(
         funds: protocol_coins,
     }); 
 
-    Ok((protocol_fee_msg, Decimal::from_ratio(leftover_repayment, Uint128::one())))
+    Ok((protocol_fee_msg, Decimal::zero() /*unused*/))
 }
 
 /// This function is used to build (sub)messages for the Stability Pool and sell wall.
 /// Also returns leftover debt repayment amount.
-fn build_sp_submsgs(
+pub fn build_sp_submsgs(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
@@ -529,15 +596,34 @@ fn build_sp_submsgs(
     liquidated_assets: Vec<cAsset>,
     cAsset_ratios: Vec<Decimal>,
     cAsset_prices: Vec<PriceResponse>,
+    caller_fee_value_paid: Decimal,
 ) -> Result<(Decimal), ContractError>{
 
     //Leftover's starts as the total LQ is supposed to pay, and is subtracted by every successful LQ reply
-    let liq_queue_leftovers =
-        decimal_subtraction(credit_repay_amount, leftover_repayment)?;
+    // let liq_queue_leftovers =
+    //     decimal_subtraction(credit_repay_amount, leftover_repayment)?;
+    //Leftover's starts as the total repay_amount and is subtracted by every successful LQ reply
+    let liq_queue_leftovers = credit_repay_amount;
     
     if config.stability_pool.is_some() && !leftover_repayment.is_zero() {
-        let sp_liq_fee = query_stability_pool_fee(querier, config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string())?;
+        let sp_liq_fee = match query_stability_pool_fee(querier, config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string()){
+            Ok(fee) => fee,
+            Err(_) =>
+            //Query the SP regularly
+            {
+                let sp_pool: AssetPool = querier.query_wasm_smart::<AssetPool>(
+                    config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(), 
+                    &SP_QueryMsg::AssetPool {
+                        user: None,
+                        deposit_limit: Some(1),
+                        start_after: None,
+                    }
+                )?;
 
+                sp_pool.liq_premium
+            }
+        };
+        
         //If LTV is 90% and the fees are 10%, the position would pay everything to pay the liquidators.
         //So above that, the liquidators are losing the premium guarantee.
         // !( leftover_position_value >= leftover_repay_value * sp_fee)
@@ -558,10 +644,12 @@ fn build_sp_submsgs(
         let liquidation_propagation = LiquidationPropagation {
             per_asset_repayment,
             liq_queue_leftovers,
-            stability_pool: leftover_repayment,
+            stability_pool: leftover_repayment, 
             user_repay_amount,
             target_position,
             liquidated_assets,
+            caller_fee_value_paid,
+            total_repaid: Decimal::zero(),
             position_owner: valid_position_owner,
             positions_contract: env.contract.address,
             sp_liq_fee,
@@ -584,11 +672,13 @@ fn build_sp_submsgs(
             funds: vec![],
         });
 
-        let sub_msg: SubMsg = SubMsg::reply_always(msg, STABILITY_POOL_REPLY_ID);
+        //This will only error if it can only repay 0.
+        //If it errors we'll update the user's position to keep state in tact
+        let sub_msg: SubMsg = SubMsg::reply_on_error(msg, SP_REPLY_ID);
 
         submessages.push(sub_msg);
 
-        //Because these are reply always, we can NOT make state changes that we wouldn't allow no matter the tx result, as our altereed state will NOT revert.
+        //Replying on erros means we can NOT make state changes that we wouldn't allow no matter the tx result, as our altereed state will NOT revert.
         //Errors also won't revert the whole transaction
         //( https://github.com/CosmWasm/cosmwasm/blob/main/SEMANTICS.md#submessages )
 
@@ -599,10 +689,12 @@ fn build_sp_submsgs(
         let liquidation_propagation = LiquidationPropagation {
             per_asset_repayment,
             liq_queue_leftovers,
-            stability_pool: Decimal::zero(),
+            stability_pool: leftover_position_value, //This value is used to calculate the SP's repay amount if necessary
             user_repay_amount,
             target_position,
             liquidated_assets,
+            caller_fee_value_paid,
+            total_repaid: Decimal::zero(),
             position_owner: valid_position_owner,
             positions_contract: env.contract.address,
             sp_liq_fee: Decimal::zero(),
@@ -654,111 +746,6 @@ fn get_lp_liq_withdraw_msg(
         pool_info.pool_id, 
         lp_liquidate_amount
     )?.0 )
-}
-
-/// Returns router & lp withdraw messages for use in liquidations
-pub fn sell_wall(
-    storage: &mut dyn Storage,
-    querier: QuerierWrapper,
-    env: Env,
-    prop: &mut LiquidationPropagation,
-    repay_amount: Decimal,
-) -> Result<(Vec<SubMsg>, Vec<CosmosMsg>), ContractError> {
-
-    let mut router_messages = vec![];
-    let mut lp_withdraw_messages = vec![];
-
-    let repay_value = prop.clone().basket.credit_price.get_value(repay_amount.to_uint_floor())?;
-
-    //Calc collateral repay amounts to sell
-    for (i, cAsset) in prop.clone().target_position.collateral_assets
-        .clone()    
-        .into_iter()
-        .enumerate()
-    {
-        //Withdraw the necessary amount of LP shares
-        //Ensures liquidations are on the pooled assets and not the LP share itself
-        if cAsset.clone().pool_info.is_some() {
-
-            let msg = get_lp_liq_withdraw_msg( 
-                querier, 
-                env.clone(), 
-                prop,
-                repay_value,
-                cAsset.clone(), 
-                i, 
-            )?;
-
-            lp_withdraw_messages.push(msg);            
-        } else {
-            
-            //Calc collateral_repay_amount        
-            let collateral_price = prop.clone().cAsset_prices[i].clone();
-            let collateral_repay_value = decimal_multiplication(repay_value, prop.clone().cAsset_ratios[i])?;
-            let collateral_repay_amount = collateral_price.get_amount(collateral_repay_value)?;
-            //The repay_amount per asset may be greater after LP splits so the amount used to update claims isn't necessary the total amount that'll get sold
-            
-            //Remove assets from Position claims before spliting the LP cAsset to ensure excess claims aren't removed
-            //Avoid a situation where the user's LP token claims are reduced && it's pool asset claims are reduced, doubling the "loss" of funds due to state mismanagement
-            prop.target_position.collateral_assets[i].asset.amount -= collateral_repay_amount; 
-
-            //Update liquidated assets as well
-            prop.liquidated_assets.push(
-                cAsset {
-                    asset: Asset {
-                        amount: collateral_repay_amount,
-                        ..cAsset.asset.clone()
-                    },
-                    ..cAsset.clone()     
-                }
-            );
-        }
-    }    
-
-    //Split LP into assets
-    let collateral_assets = get_LP_pool_cAssets(
-        querier,
-        prop.clone().config.clone(),
-        prop.clone().basket.clone(),
-        prop.clone().target_position.collateral_assets,
-    )?;
-
-    //Post-LP Split ratios
-    let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(
-        storage,
-        env,
-        querier,
-        collateral_assets.clone(),
-        prop.clone().config.clone(),
-    )?;
-
-    //Create Router Msgs for each asset
-    //The LP will be sold as pool assets so individual ratios may increase
-    for (index, ratio) in cAsset_ratios.clone().into_iter().enumerate() {
-
-        //Calc collateral_repay_amount        
-        let collateral_price = cAsset_prices[index].clone();
-        let collateral_repay_value = decimal_multiplication(repay_value, ratio)?;        
-        let collateral_repay_amount = collateral_price.get_amount(collateral_repay_value)?;
-
-        //Create router reply msg to repay debt after sales
-        let router_msg = router_native_to_native(
-            prop.clone().config.clone().dex_router.unwrap_or_else(|| Addr::unchecked("")).into(),
-            collateral_assets[index].clone().asset.info,
-            prop.clone().basket.clone().credit_asset.info, 
-            None, 
-            collateral_repay_amount.into()
-        )?;
-        let router_msg = SubMsg::new(router_msg);
-        router_messages.push(router_msg);        
-    }
-
-    //The last router message is updated to a ROUTER_REPLY_ID to repay the position after all sales are done.
-    let index = router_messages.clone().len()-1;
-    router_messages[index].id = ROUTER_REPLY_ID;
-    router_messages[index].reply_on = ReplyOn::Success;
-    
-    Ok((router_messages, lp_withdraw_messages))
 }
 
 /// Returns leftover liquidatible amount from the stability pool

@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::str::FromStr;
 
 use cosmwasm_std::{
     to_binary, Decimal, Deps, Env, Order, QuerierWrapper, QueryRequest, StdError, StdResult,
@@ -10,22 +11,20 @@ use cw_storage_plus::Bound;
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::cdp::{
     Config, CollateralInterestResponse,
-    InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse, InsolvencyResponse,
+    InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse,
 };
 
 use membrane::types::{
-    cAsset, AssetInfo, Basket, Position,
-    UserInfo, DebtCap, RedemptionInfo, PremiumInfo, InsolventPosition
+    cAsset, AssetInfo, Basket, DebtCap, Position, PremiumInfo, RedemptionInfo, StoredPrice, UserInfo
 };
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
-
-use crate::rates::{get_interest_rates, accrue};
+use crate::positions::get_amount_from_LTV;
 use crate::risk_engine::get_basket_debt_caps;
-use crate::positions::read_price;
-use crate::state::{BASKET, CONFIG, POSITIONS, get_target_position, REDEMPTION_OPT_IN};
+use crate::state::{get_target_position, CollateralVolatility, BASKET, CONFIG, POSITIONS, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY};
 
 const MAX_LIMIT: u32 = 31;
+pub const VOLATILITY_LIST_LIMIT: u32 = 48;
 
 /// Returns Positions in a Basket
 pub fn query_basket_positions(
@@ -40,11 +39,10 @@ pub fn query_basket_positions(
 ) -> StdResult<Vec<BasketPositionsResponse>> {
     let basket = BASKET.load(deps.storage)?;
     let config = CONFIG.load(deps.storage)?;
-    /////Check single position and single user first/////
+    /////Check single user and single position first/////
     /// User, default limit is 10 anyway
     if let Some(user) = user {
         
-        let mut error: Option<StdError> = None;
         let user = deps.api.addr_validate(&user)?;
 
         let positions: Vec<Position> = match POSITIONS.load(deps.storage,user.clone()){
@@ -55,41 +53,15 @@ pub fn query_basket_positions(
         let mut user_positions: Vec<PositionResponse> = vec![];
         
         for position in positions.into_iter() {
-            
-            let (borrow, max, _value, _prices, ratios) = match get_avg_LTV(
-                deps.storage,
-                env.clone(),
-                deps.querier,
-                config.clone(),
-                Some(basket.clone()),
-                position.clone().collateral_assets,
-                false,
-                false
-            ) {
-                Ok((borrow, max, value, prices, ratios)) => (borrow, max, value, prices, ratios),
-                Err(err) => {
-                    error = Some(err);
-                    (Decimal::zero(), Decimal::zero(), Decimal::zero(), vec![], vec![])
-                }
-            };
-
-            let cAsset_ratios = ratios;
-
-            if error.is_none() {
-                user_positions.push(PositionResponse {
-                    position_id: position.position_id,
-                    collateral_assets: position.collateral_assets,
-                    cAsset_ratios,
-                    credit_amount: position.credit_amount,
-                    avg_borrow_LTV: borrow,
-                    avg_max_LTV: max,
-                })
-            }
+            user_positions.push(PositionResponse {
+                position_id: position.position_id,
+                collateral_assets: position.collateral_assets,
+                cAsset_ratios: vec![],
+                credit_amount: position.credit_amount,
+                avg_borrow_LTV: Decimal::zero(),
+                avg_max_LTV: Decimal::zero(),
+            });
         };
-
-        if let Some(error) = error{
-            return Err(error)
-        }
 
         return Ok(vec![BasketPositionsResponse {
             user: user.to_string(),
@@ -102,34 +74,21 @@ pub fn query_basket_positions(
             Ok(position) => position,
             Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
         };
-            
-        let (borrow, max, _value, _prices, ratios) = get_avg_LTV(
-            deps.storage,
-            env.clone(),
-            deps.querier,
-            config.clone(),
-            Some(basket.clone()),
-            position.clone().collateral_assets,
-            false,
-            false,
-        )?;
-
 
         return Ok(vec![BasketPositionsResponse {
             user: user.to_string(),
             positions: vec![PositionResponse {
                 position_id: position.position_id,
                 collateral_assets: position.clone().collateral_assets,
-                cAsset_ratios: ratios,
+                cAsset_ratios: vec![],
                 credit_amount: position.credit_amount,
-                avg_borrow_LTV: borrow,
-                avg_max_LTV: max,
+                avg_borrow_LTV: Decimal::zero(),
+                avg_max_LTV: Decimal::zero(),
             }],
         }])
     }
 
     //Basket Positions
-
     let limit = limit.unwrap_or(MAX_LIMIT) as usize;
 
     let start = if let Some(start) = start_after {
@@ -168,7 +127,7 @@ pub fn query_basket_positions(
 pub fn query_basket_debt_caps(deps: Deps, env: Env) -> StdResult<Vec<DebtCap>> {    
     let mut basket: Basket = BASKET.load(deps.storage)?;
 
-    let asset_caps = get_basket_debt_caps(deps.storage, deps.querier, env, &mut basket)?;
+    let asset_caps = get_basket_debt_caps(deps.storage, deps.querier, env, &mut basket, &mut vec![], None)?;
 
     let mut res = vec![];
     //Append DebtCap
@@ -188,94 +147,13 @@ pub fn query_basket_debt_caps(deps: Deps, env: Env) -> StdResult<Vec<DebtCap>> {
 /// Returns cAsset interest rates for the Basket
 pub fn query_collateral_rates(
     deps: Deps,
-    env: Env,
 ) -> StdResult<CollateralInterestResponse> {
-    let mut basket = BASKET.load(deps.storage)?;
+    let basket = BASKET.load(deps.storage)?;
 
-    let rates = get_interest_rates(deps.storage, deps.querier, env.clone(), &mut basket, true)?;
+    let rates = basket.lastest_collateral_rates.into_iter().map(|rate| rate.rate).collect::<Vec<Decimal>>();
 
-    let config = CONFIG.load(deps.storage)?;
-
-    //Get repayment price - market price difference
-    //Calc Time-elapsed and update last_Accrued
-    let time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
-
-    let mut negative_rate: bool = false;
-    let mut price_difference: Decimal;
-
-    if time_elapsed != 0u64 && basket.oracle_set {
-        basket.credit_last_accrued = env.block.time.seconds();
-
-        //Calculate new interest rate
-        let credit_asset = cAsset {
-            asset: basket.clone().credit_asset,
-            max_borrow_LTV: Decimal::zero(),
-            max_LTV: Decimal::zero(),
-            pool_info: None,
-            rate_index: Decimal::one(),
-        };
-        let credit_TWAP_price = match get_asset_values(
-            deps.storage,
-            env,
-            deps.querier,
-            vec![credit_asset],
-            config,
-            false
-        ){
-            Ok((_, prices)) => {
-                if prices[0].price.is_zero() {
-                    return Ok(CollateralInterestResponse { rates });
-                }
-                prices[0].price
-            },
-            //It'll error if the twap is longer than the pool lifespan
-            Err(_) => return Ok(CollateralInterestResponse { rates }),
-        };
-        //We divide w/ the greater number first so the quotient is always 1.__
-        price_difference = {
-            //Compare market price & redemption price
-            match credit_TWAP_price.cmp(&basket.credit_price.price) {
-                Ordering::Greater => {
-                    negative_rate = true;
-                    decimal_subtraction(
-                        decimal_division(credit_TWAP_price, basket.credit_price.price)?,
-                        Decimal::one(),
-                    )?
-                }
-                Ordering::Less => {
-                    decimal_subtraction(
-                        decimal_division(basket.credit_price.price, credit_TWAP_price)?,
-                        Decimal::one(),
-                    )?
-                }
-                Ordering::Equal => Decimal::zero(),
-            }
-        };
-
-        //Don't accrue interest if price is within the margin of error
-        if price_difference <= basket.clone().cpc_margin_of_error {
-            price_difference = Decimal::zero();
-        }
-
-        let new_rates: Vec<Decimal> = rates
-            .into_iter()
-            .map(|rate| {
-                //Accrue a year of repayment rate to interest rates
-                if negative_rate {
-                    decimal_multiplication(
-                        rate,
-                        decimal_subtraction(Decimal::one(), price_difference)?,
-                    )
-                } else {
-                    decimal_multiplication(rate, (Decimal::one() + price_difference))
-                }
-            })
-            .collect::<StdResult<Vec<Decimal>>>()?;
-
-        Ok(CollateralInterestResponse { rates: new_rates })
-    } else {
-        Ok(CollateralInterestResponse { rates })
-    }
+    Ok(CollateralInterestResponse { rates })
+    
 }
 
 /// Returns Basket credit redemption interest rate
@@ -307,6 +185,7 @@ pub fn query_basket_credit_interest(
             deps.querier,
             vec![credit_asset],
             config,
+            Some(basket.clone()),
             false
         ){
             Ok((_, prices)) => {
@@ -361,12 +240,125 @@ pub fn query_basket_credit_interest(
 
 ////Helper/////
 /// Returns cAsset ratios & prices for a Position
+/// Handles Volatility tracking & saving
 pub fn get_cAsset_ratios(
+    storage: &mut dyn Storage,
+    env: Env,
+    querier: QuerierWrapper,
+    collateral_assets: Vec<cAsset>,
+    config: Config,
+    basket: Option<Basket>,
+) -> StdResult<(Vec<Decimal>, Vec<PriceResponse>)> {
+    let (cAsset_values, cAsset_prices) = get_asset_values(
+        storage,
+        env.clone(),
+        querier,
+        collateral_assets.clone(),
+        config,
+        basket.clone(),
+        false
+    )?;
+
+    //Loop through collateral assets to save prices & volatility
+    for (i, cAsset) in collateral_assets.iter().enumerate() {
+        //Check if the querier used the stored price by asserting equality
+        //This also skips any equal prices which should be fairly rare anyway
+        let stored_price_res = STORED_PRICES.load(storage, cAsset.asset.info.to_string()); 
+        if let Ok(ref stored_price) = stored_price_res {
+            if stored_price.price.price != cAsset_prices[i].price.clone() {
+                
+                //Save new Stored price
+                STORED_PRICES.save(storage, cAsset.asset.info.to_string(),
+                &StoredPrice {
+                    price: cAsset_prices[i].clone(),
+                    last_time_updated: env.block.time.seconds(),
+                })?;
+
+                //Bc the prices aren't equal we need to update the volatility list
+                let mut volatility_store = match VOLATILITY.load(storage, cAsset.asset.info.to_string()){
+                    Ok(volatility) => volatility,
+                    Err(_) => CollateralVolatility {
+                        index: Decimal::one(),
+                        volatility_list: vec![],
+                    },
+                };
+                //Get new volatility %
+                let new_volatility = decimal_division(cAsset_prices[i].price.abs_diff(stored_price.price.price), stored_price.price.price)?;
+                //Get speed of price change by dividing by the time elapsed
+                let time_elapsed = env.block.time.seconds() - stored_price.last_time_updated;
+                let speed_of_volatility = match decimal_division(new_volatility, Decimal::from_str(&time_elapsed.to_string())?){
+                    Ok(speed) => speed,
+                    //In case the time elapsed is so large it errors
+                    Err(_) => Decimal::zero(),
+                };
+                //Add new volatility to the list
+                volatility_store.volatility_list.push(speed_of_volatility);
+                //If the list is at the limit, remove the first element
+                if volatility_store.volatility_list.len() > VOLATILITY_LIST_LIMIT as usize {
+                    volatility_store.volatility_list.remove(0);
+                }
+                //Find the current average volatility
+                let mut avg_volatility: Decimal = volatility_store.volatility_list.iter().sum();
+                avg_volatility = decimal_division(avg_volatility, Decimal::from_str(&volatility_store.volatility_list.len().to_string())?)?;
+
+                //With volatility btwn any time points standardized to the same units (vol/time)
+                // we can now calculate the change in index based on the % difference btwn the avg volatility & the newest speed of volatility
+                let mut change_in_index = decimal_division(avg_volatility, speed_of_volatility)?;
+                //If change is < 1, meaning new speed is less than avg
+                //The new change is 1 - new_vol
+                if change_in_index < Decimal::one() {
+                    change_in_index = match Decimal::one().checked_sub(new_volatility){
+                        Ok(diff) => diff,
+                        Err(_) => Decimal::percent(1) //Vol is over 100% we set change to 0.01
+                    };
+                }
+
+                //Index can't hit 0
+                volatility_store.index = decimal_multiplication(volatility_store.index, change_in_index)?;
+                //Index can't go above 1
+                volatility_store.index = Decimal::one().min(volatility_store.index);
+                
+                // println!("Avg: {:?} --- New: {:?}-- Index: {}", avg_volatility, speed_of_volatility, volatility_store.index);
+                //Save the new volatility store
+                VOLATILITY.save(storage, cAsset.asset.info.to_string(), &volatility_store)?;
+                
+                //This index will be used to lower the Basket's supply caps on rate calculations & supply tallies
+            }
+        } 
+        //Save new Stored price & skip volatility calcs
+        else {
+            STORED_PRICES.save(storage, cAsset.asset.info.to_string(),
+            &StoredPrice {
+                price: cAsset_prices[i].clone(),
+                last_time_updated: env.block.time.seconds(),
+            })?;
+
+        }
+    }
+    
+    let total_value: Decimal = cAsset_values.iter().sum();
+
+    //getting each cAsset's % of total value
+    let mut cAsset_ratios: Vec<Decimal> = vec![];
+    for cAsset in cAsset_values {
+        if total_value.is_zero() {
+            cAsset_ratios.push(Decimal::zero());
+        } else {
+            cAsset_ratios.push(decimal_division(cAsset, total_value)?);
+        }
+    }
+
+    Ok((cAsset_ratios, cAsset_prices))
+}
+
+//For debt_cap_queries
+pub fn get_cAsset_ratios_imut(
     storage: &dyn Storage,
     env: Env,
     querier: QuerierWrapper,
     collateral_assets: Vec<cAsset>,
     config: Config,
+    basket: Option<Basket>,
 ) -> StdResult<(Vec<Decimal>, Vec<PriceResponse>)> {
     let (cAsset_values, cAsset_prices) = get_asset_values(
         storage,
@@ -374,6 +366,7 @@ pub fn get_cAsset_ratios(
         querier,
         collateral_assets,
         config,
+        basket.clone(),
         false
     )?;
     
@@ -392,60 +385,96 @@ pub fn get_cAsset_ratios(
     Ok((cAsset_ratios, cAsset_prices))
 }
 
-/// Function queries the price of an asset from the oracle.
+/// Function queries the price of assets from the oracle.
 /// If the query is within the oracle_time_limit, it will use the stored price.
-pub fn query_price(
+pub fn query_prices(
     storage: &dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     config: Config,
-    asset_info: AssetInfo,
+    asset_infos: Vec<AssetInfo>, //Pass a single asset_info for Credit market price queries
+    basket: Option<Basket>,
     is_deposit_function: bool,
-) -> StdResult<PriceResponse> {
+) -> StdResult<Vec<PriceResponse>> {
     //Set timeframe
     let mut twap_timeframe: u64 = config.collateral_twap_timeframe;
+    
+    //Load basket
+    let basket = if let Some(basket) = basket {
+        basket
+    } else {
+        BASKET.load(storage)?
+    };
 
-    let basket = BASKET.load(storage)?;
     //if AssetInfo is the basket.credit_asset, change twap timeframe
-    if asset_info.equal(&basket.credit_asset.info) {
+    if asset_infos[0].equal(&basket.credit_asset.info) {
         twap_timeframe = config.credit_twap_timeframe;
     }   
 
-    //Try to use a stored price
-    let stored_price_res = read_price(storage, &asset_info);
-    
-    //If depositing, always query a new price to ensure removed assets aren't deposited
-    if !is_deposit_function {
-        //Use the stored price if within the oracle_time_limit
+    //Price list
+    let mut prices: Vec<(String, PriceResponse)> = vec![];
+    let mut bulk_asset_query = asset_infos.clone();
+    for asset_info in asset_infos.clone() {
+        //Try to use a stored price
+        let stored_price_res = STORED_PRICES.load(storage, asset_info.to_string()); 
+        //Set the old_price if the stored price is within the oracle_time_limit
+        let mut old_price: Option<PriceResponse> = None;
         if let Ok(ref stored_price) = stored_price_res {
             let time_elapsed: u64 = env.block.time.seconds() - stored_price.last_time_updated;
 
             if time_elapsed <= config.oracle_time_limit {
-                return Ok(stored_price.clone().price)
+                old_price = Some(stored_price.clone().price)
+            }
+        }
+        
+        //If depositing, always query a new price to ensure removed assets aren't deposited
+        if !is_deposit_function {
+            //Use the stored price if it was within the oracle_time_limit
+            if let Some(old_price) = old_price {
+                prices.push((asset_info.to_string(), old_price));
+
+                //Remove the asset from the bulk_asset_query list
+                bulk_asset_query.retain(|asset| !asset.equal(&asset_info));
+            }
+            
+        }
+
+    }
+    
+    //Query the remaining Prices
+    if bulk_asset_query.len() != 0 {
+        match querier.query::<Vec<PriceResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.clone().oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+            msg: to_binary(&OracleQueryMsg::Prices {
+                asset_infos: bulk_asset_query.clone(),
+                twap_timeframe,
+                oracle_time_limit: config.oracle_time_limit,
+            })?,
+        })) {
+            Ok(res) => {
+                //Add new prices
+                for (i, price) in res.iter().enumerate() {
+                    prices.push((bulk_asset_query[i].to_string(), price.clone()));
+                }
+            }
+            Err(err) => {
+                //if the oracle is down, error
+                return Err(err)
+            }
+        };
+    }
+    
+    //Sort prices based on the asset_info order
+    let mut sorted_prices: Vec<PriceResponse> = vec![];
+    for asset_info in asset_infos {
+        for (i, (asset, price)) in prices.clone().into_iter().enumerate() {
+            if asset == asset_info.to_string() {
+                sorted_prices.push(price);
+                prices.remove(i);
             }
         }
     }
-    
-    //Query Price
-    let res = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-        msg: to_binary(&OracleQueryMsg::Price {
-            asset_info,
-            twap_timeframe,
-            oracle_time_limit: config.oracle_time_limit,
-            basket_id: None,
-        })?,
-    })) {
-        Ok(res) => {
-            res
-        }
-        Err(err) => {
-            //if the oracle is down, error
-            return Err(err)
-        }
-    };
-
-    Ok(res)
+    Ok(sorted_prices)
 }
 
 /// Get Basket Redeemability
@@ -523,6 +552,36 @@ pub fn query_basket_redeemability(
     )
 }
 
+pub fn simulate_LTV_mint(
+    deps: Deps,
+    env: Env,
+    user_info: UserInfo,
+    LTV: Decimal,
+) -> StdResult<Uint128> {
+    let (_, target_position) = match get_target_position(
+        deps.storage,
+        deps.api.addr_validate(&user_info.position_owner)?, 
+        user_info.position_id){
+            Ok(position) => position,
+            Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+        };
+
+    let amount = match  get_amount_from_LTV(
+        deps.storage,
+        deps.querier, 
+        env.clone(), 
+        CONFIG.load(deps.storage)?,
+        target_position,
+        BASKET.load(deps.storage)?,
+        LTV
+    ){
+        Ok(amount) => amount,
+        Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+    };
+
+    Ok( amount )
+}
+
 /// Calculate cAsset values & returns a tuple of (cAsset_values, cAsset_prices)
 pub fn get_asset_values(
     storage: &dyn Storage,
@@ -530,6 +589,7 @@ pub fn get_asset_values(
     querier: QuerierWrapper,
     assets: Vec<cAsset>,
     config: Config,
+    basket: Option<Basket>,
     is_deposit_function: bool,
 ) -> StdResult<(Vec<Decimal>, Vec<PriceResponse>)> {
     //Enforce Vec max size
@@ -545,26 +605,29 @@ pub fn get_asset_values(
     let mut cAsset_values: Vec<Decimal> = vec![];
     let mut cAsset_prices: Vec<PriceResponse> = vec![];
 
-    if config.oracle_contract.is_some() {
-        for (_i, cAsset) in assets.iter().enumerate() {
-            //Query prices
-            //The oracle handles LP pricing
-            let price_res = query_price(
-                storage,
-                querier,
-                env.clone(),
-                config.clone(),
-                cAsset.clone().asset.info,
-                is_deposit_function,
-            )?;
-            let cAsset_value = price_res.get_value(cAsset.asset.amount)?;
-            
-            cAsset_prices.push(price_res);
+    if config.oracle_contract.is_some() && assets.len() > 0 {
+        //Set asset_infos
+        let asset_infos: Vec<AssetInfo> = assets.iter().map(|asset| asset.asset.info.clone()).collect();
+
+        //Query prices
+        cAsset_prices = query_prices(
+            storage,
+            querier.clone(),
+            env.clone(),
+            config.clone(),
+            asset_infos,
+            basket.clone(),
+            is_deposit_function,
+        )?;
+        
+        //Calculate cAsset values
+        for (i, cAsset) in assets.iter().enumerate() {
+            let cAsset_value = cAsset_prices[i].get_value(cAsset.asset.amount)?;
             cAsset_values.push(cAsset_value);
         
         }
     }
-
+    
     Ok((cAsset_values, cAsset_prices))
 }
 
@@ -578,18 +641,7 @@ pub fn get_avg_LTV(
     basket: Option<Basket>,
     collateral_assets: Vec<cAsset>,
     is_deposit_function: bool,
-    is_liquidation_function: bool, //Skip softened borrow LTV
 ) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>)> {
-    //Calc total value of collateral
-    let (cAsset_values, cAsset_price_res) = get_asset_values(
-        storage,
-        env.clone(),
-        querier,
-        collateral_assets.clone(),
-        config.clone(),
-        is_deposit_function,
-    )?;
-
     //Load basket
     let basket = if let Some(basket) = basket {
         basket
@@ -597,13 +649,15 @@ pub fn get_avg_LTV(
         BASKET.load(storage)?
     };
 
-    //Get basket cAsset ratios
-    let (basket_cAsset_ratios, _) = get_cAsset_ratios(
-        storage, 
-        env, 
-        querier, 
-        basket.clone().collateral_types, 
-        config
+    //Calc total value of collateral
+    let (cAsset_values, cAsset_price_res) = get_asset_values(
+        storage,
+        env.clone(),
+        querier,
+        collateral_assets.clone(),
+        config.clone(),
+        Some(basket.clone()),
+        is_deposit_function,
     )?;
     
     //Calculate avg LTV & return values
@@ -611,9 +665,6 @@ pub fn get_avg_LTV(
         cAsset_values, 
         cAsset_price_res, 
         collateral_assets, 
-        basket.clone().collateral_types, 
-        basket_cAsset_ratios,
-        is_liquidation_function,
     )
 }
 
@@ -621,10 +672,7 @@ pub fn get_avg_LTV(
 pub fn calculate_avg_LTV(
     cAsset_values: Vec<Decimal>,
     cAsset_prices: Vec<PriceResponse>,    
-    mut collateral_assets: Vec<cAsset>,
-    basket_collateral_assets: Vec<cAsset>,
-    basket_cAsset_ratios: Vec<Decimal>,
-    is_liquidation_function: bool,
+    collateral_assets: Vec<cAsset>,
 ) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>)> {
     let total_value: Decimal = cAsset_values.iter().sum();
 
@@ -663,24 +711,6 @@ pub fn calculate_avg_LTV(
         ));
     }
 
-    //Don't soften avg_borrow_LTV if we are liquidating, to keep liquidation price flat
-    if !is_liquidation_function {
-        //Alter borrow_LTV based on Basket supply ratio
-        for (i, cAsset) in collateral_assets.clone().into_iter().enumerate() {
-            //Find cAsset_ratio in basket
-            if let Some((basket_index, _)) = basket_collateral_assets.iter().enumerate().find(|(_, x)| x.asset == cAsset.asset) {
-                //Get the difference between max & borrow LTV
-                let LTV_difference = cAsset.max_LTV - cAsset.max_borrow_LTV;
-
-                //Multiply difference by basket ratio
-                let added_LTV_difference = decimal_multiplication(LTV_difference, 
-                    decimal_subtraction(Decimal::one(), basket_cAsset_ratios[basket_index])?
-                )?;
-                collateral_assets[i].max_borrow_LTV = cAsset.max_borrow_LTV + added_LTV_difference;
-            }
-        }
-    }
-
     for (i, _cAsset) in collateral_assets.iter().enumerate() {
         avg_borrow_LTV +=
             decimal_multiplication(cAsset_ratios[i], collateral_assets[i].max_borrow_LTV)?;
@@ -697,7 +727,7 @@ pub fn calculate_avg_LTV(
 /// Uses a Position's info to calculate if the user is insolvent.
 /// Returns insolvent, current_LTV and available fee.
 pub fn insolvency_check(
-    storage: &dyn Storage,
+    storage: &mut dyn Storage,
     env: Env,
     querier: QuerierWrapper,
     basket: Option<Basket>,
@@ -706,12 +736,11 @@ pub fn insolvency_check(
     credit_price: PriceResponse,
     max_borrow: bool, //Toggle for either over max_borrow or over max_LTV (liquidatable)
     config: Config,
-    is_liquidation_function: bool, //Skip softened borrow LTV
 ) -> StdResult<((bool, Decimal, Uint128), (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>))> { //insolvent, current_LTV, available_fee, (avg_LTV return values)
 
     //Get avg LTVs
     let avg_LTVs: (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>) =
-        get_avg_LTV(storage, env, querier, config, basket, collateral_assets.clone(), false, is_liquidation_function)?;
+        get_avg_LTV(storage, env, querier, config, basket, collateral_assets.clone(), false)?;
 
     //Insolvency check
     Ok((insolvency_check_calc(avg_LTVs.clone(), collateral_assets, credit_amount, credit_price, max_borrow)?, avg_LTVs))

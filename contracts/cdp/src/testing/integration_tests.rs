@@ -629,7 +629,7 @@ mod tests {
                             info: AssetInfo::NativeToken {
                                 denom: "cdt".to_string(),
                             },
-                            amount: Uint128::zero(),
+                            amount: Uint128::one(),
                         },
                         liq_premium: Decimal::percent(10),
                         deposits: vec![],
@@ -727,7 +727,7 @@ mod tests {
                             info: AssetInfo::NativeToken {
                                 denom: "cdt".to_string(),
                             },
-                            amount: Uint128::zero(),
+                            amount: Uint128::one(),
                         },
                         liq_premium: Decimal::percent(10),
                         deposits: vec![],
@@ -3672,7 +3672,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res[0].positions[0].collateral_assets[0].rate_index.to_string(), String::from("1.022857600009143039"));
+            assert_eq!(res[0].positions[0].collateral_assets[0].rate_index.to_string(), String::from("1.022857600009051607"));
             assert_eq!(res[0].positions[0].credit_amount, Uint128::new(100000_000000));
 
             //Accrue Position 1 to update rates since query doesn't accrue anymore
@@ -3700,7 +3700,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res[0].positions[0].collateral_assets[0].rate_index.to_string(), String::from("1.022857600009143039"));
+            assert_eq!(res[0].positions[0].collateral_assets[0].rate_index.to_string(), String::from("1.022857600009051607"));
             assert_eq!(res[0].positions[0].credit_amount, Uint128::new(40914_304000));
 
 
@@ -3713,7 +3713,7 @@ mod tests {
             assert_eq!(
                 format!("{:?}", res.rates),
                 String::from(
-                    "[Decimal(0), Decimal(0), Decimal(0), Decimal(0.080001600032000639)]"
+                    "[Decimal(0), Decimal(0), Decimal(0), Decimal(0.080001600031680627)]"
                 )
             );
         }
@@ -4612,7 +4612,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(2000000000), cap: Uint128(249995000000) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(2000000000), cap: Uint128(249995000001) }]")
             );
             
             //Accrue position bc queries no longer accrue new rates
@@ -4632,7 +4632,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                res.rates[3].to_string(),
-                String::from("0.000800016000320006")
+                String::from("0.000800016000316806")
             );
 
             //Successful Increase for Position 1
@@ -4655,7 +4655,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 format!("{:?}", res),
-                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(198000000000), cap: Uint128(249995000000) }]")
+                String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(198000000000), cap: Uint128(249995000001) }]")
             );
             
             //Accrue position since query will use old rates if not
@@ -4675,7 +4675,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.rates[3].to_string(),
-                String::from("0.079201584031680633")
+                String::from("0.07920158403136382")
             );
 
             //Set LP denom supply cap super low to spike rate
@@ -4952,6 +4952,7 @@ mod tests {
                     attr("method", "liq_repay"),
                     attr("distribution_assets", String::from("[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(55000000000) }]")),
                     attr("distribute_for", "50000000000"),
+                    attr("excess", "0")
                 ]
             );
 
@@ -5092,6 +5093,7 @@ mod tests {
                     attr("method", "liq_repay"),
                     attr("distribution_assets", String::from("[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(111111111) }, Asset { info: NativeToken { denom: \"2nddebit\" }, amount: Uint128(111111111) }]")),
                     attr("distribute_for", "222222222"),
+                    attr("excess", "0")
                 ]
             );
 
@@ -5735,7 +5737,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(97486_166667055555555986));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(97405_616667055555555986));
             //2777 credit liquidated at $1
             //lp_denom is worth $2
             //Assert sell wall wasn't sent assets
@@ -5759,7 +5761,7 @@ mod tests {
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(1166_777777, "credit_fulldenom"), coin(805_500000000000000000, "lp_denom")]
+                vec![coin(1166_777777, "credit_fulldenom"), coin(886_050000000000000000, "lp_denom")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
@@ -6595,7 +6597,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res[0].positions[0].collateral_assets[0].asset.amount,
-                Uint128::new(97_311_111111115)
+                Uint128::new(97288888888893)
             );
 
             //Assert sell wall wasn't sent assets
@@ -6621,7 +6623,7 @@ mod tests {
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
                 vec![
                     coin(2777_777777, "credit_fulldenom"),
-                    coin(222_222222222, "debit")
+                    coin(244_444444444, "debit")
                 ]
             );
             assert_eq!(
@@ -6754,7 +6756,7 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98791_210000));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98741_210001));
 
             //Assert sell wall wasn't sent assets
             assert_eq!(
@@ -6777,7 +6779,7 @@ mod tests {
             //Assert collateral to be liquidated was sent
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(2277_777778, "credit_fulldenom"), coin(499_999_999, "debit")]
+                vec![coin(2277_777778, "credit_fulldenom"), coin(549_999_998, "debit")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),

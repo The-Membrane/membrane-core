@@ -697,7 +697,7 @@ pub fn liq_repay(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    credit_asset: Asset,
+    mut credit_asset: Asset,
 ) -> Result<Response, ContractError> {
     //Fetch liquidation info and state propagation
     let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;    
@@ -712,6 +712,9 @@ pub fn liq_repay(
     // from LQ replies && fee handling
     let mut target_position = liquidation_propagation.clone().target_position;
 
+    
+    let mut messages = vec![];
+    let mut excess_repayment = Uint128::zero();
     //Update credit amount in target_position to account for SP's repayment
     target_position.credit_amount = match target_position.credit_amount.checked_sub(credit_asset.amount){
         Ok(difference) => {
@@ -722,10 +725,25 @@ pub fn liq_repay(
                 difference
             }
         },
-        Err(_err) => return Err(ContractError::CustomError { val: String::from("Repay amount is greater than credit amount in liq_repay") }),
-    };
+        Err(_err) => {
+            //Send the excess repayment back to the SP
+            excess_repayment = credit_asset.amount - target_position.credit_amount;
+            let excess_repayment_msg = withdrawal_msg(
+                Asset {
+                    amount: excess_repayment,
+                    ..basket.clone().credit_asset
+                },
+                config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")),
+            )?;
+            //Update credit_asset amount so its correct for the burn
+            credit_asset.amount = target_position.credit_amount;
 
-    let mut messages = vec![];
+            //Add msg
+            messages.push(excess_repayment_msg);
+
+            Uint128::zero()
+        },
+    };
     
     //Burn repayment & send revenue to stakers
     let burn_and_rev_msgs = credit_burn_rev_msg(
@@ -849,7 +867,8 @@ pub fn liq_repay(
         .add_messages(messages)
         .add_attribute("method", "liq_repay")
         .add_attribute("distribution_assets", format!("{:?}", distribution_assets))
-        .add_attribute("distribute_for", credit_asset.amount))
+        .add_attribute("distribute_for", credit_asset.amount)
+        .add_attribute("excess", excess_repayment))
 }
 
 /// Increase debt of a position.

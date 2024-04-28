@@ -27,8 +27,8 @@ pub struct ContractVersion {
 #[cw_serde]
 pub struct LiquidationPropagation {
     pub per_asset_repayment: Vec<Decimal>,//List of repayments
-    pub liq_queue_leftovers: Decimal, //Live tally of leftover repayment
-    pub stability_pool: Decimal, //SP repayment or leftover_position value
+    pub liq_queue_repayment: Decimal, //LQ repayment
+    pub stability_pool: Decimal, //SP repayment
     pub user_repay_amount: Decimal,
     pub positions_contract: Addr,
     pub sp_liq_fee: Decimal,

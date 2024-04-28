@@ -30,7 +30,7 @@ use crate::query::{
     query_basket_credit_interest, query_basket_debt_caps, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint
 };
 use crate::liquidations::liquidate;
-use crate::reply::{handle_liq_queue_reply, handle_withdraw_reply, handle_user_sp_repay_reply};
+use crate::reply::{handle_liq_queue_reply, handle_withdraw_reply};
 use crate::state::{ get_target_position, update_position, CollateralVolatility, ContractVersion, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER, VOLATILITY };
 
 // version info for migration info
@@ -511,7 +511,6 @@ fn check_and_fulfill_bad_debt(
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         LIQ_QUEUE_REPLY_ID => handle_liq_queue_reply(deps, msg, env),
-        USER_SP_REPAY_REPLY_ID => handle_user_sp_repay_reply(deps, env, msg),
         WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
@@ -574,13 +573,43 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-     //Reset all volatility indices
-     let basket: Basket = BASKET.load(deps.storage)?;
-     for asset in basket.collateral_types.clone() {
-         VOLATILITY.save(deps.storage, asset.asset.info.to_string(), &CollateralVolatility {
-             index: Decimal::one(),
-             volatility_list: vec![]
-         })?;
-     }
-    Ok(Response::default())
+    //Load user position
+    let mut user_position = get_target_position(deps.storage, Addr::unchecked("osmo12uk22nzee0hgahzttujcdce78ax627as04tcas"), Uint128::new(269))?.1;
+    //Save subtraction overages
+    let mut overages = vec![];
+
+    //Update collateral
+    for (i, asset) in user_position.clone().collateral_assets.into_iter().enumerate() {
+        if asset.asset.info.to_string() == "uosmo" {
+            user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(25373457 + 1795915 + 288567)){
+                Ok(diff) => diff,
+                None => overages.push((asset.asset.info.to_string(), Uint128::new(25373457 + 1795915 + 288567) - asset.asset.amount)), 
+            };
+        } else if asset.asset.info.to_string() == "ibc/D79E7D83AB399BFFF93433E54FAA480C191248FC556924A2A8351AE2638B3877" {
+            user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(334147+53690)){
+                Ok(diff) => diff,
+                None => overages.push((asset.asset.info.to_string(), Uint128::new(334147+53690) - asset.asset.amount)), 
+            };
+        }
+        else if asset.asset.info.to_string() == "ibc/D176154B0C63D1F9C6DCFB4F70349EBF2E2B5A87A05902F57A6AE92B863E9AEC" {
+            user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(54466+8751)){
+                Ok(diff) => diff,
+                None => overages.push((asset.asset.info.to_string(), Uint128::new(54466+8751) - asset.asset.amount)), 
+            };
+        }
+        else if asset.asset.info.to_string() == "ibc/C140AFD542AE77BD7DCC83F13FDD8C5E5BB8C4929785E6EC2F4C636F98F17901" {
+            user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(126294+2029)){
+                Ok(diff) => diff,
+                None => overages.push((asset.asset.info.to_string(), Uint128::new(126294+2029) - asset.asset.amount)), 
+            };
+        }
+    }
+
+    //Update debt
+    user_position.credit_amount -= Uint128::new(19596856);
+
+    //Update the position w/ the new credit & collateral amount
+    update_position(deps.storage, Addr::unchecked("osmo12uk22nzee0hgahzttujcdce78ax627as04tcas"), user_position)?;
+
+    Ok(Response::default().add_attribute("overages", format!("{:?}", overages)))
 }

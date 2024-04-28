@@ -24,7 +24,7 @@ use crate::positions::{
     edit_basket, increase_debt,
     liq_repay, repay, redeem_for_collateral, edit_redemption_info,
     withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID,
-    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, //create_basket,
+    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, create_basket,
 };
 use crate::query::{
     query_basket_credit_interest, query_basket_debt_caps, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint
@@ -100,18 +100,18 @@ pub fn instantiate(
     })?;
 
     //Create basket
-    // create_basket(
-    //     deps, 
-    //     info, 
-    //     env.clone(), 
-    //     msg.create_basket.basket_id, 
-    //     msg.create_basket.collateral_types, 
-    //     msg.create_basket.credit_asset, 
-    //     msg.create_basket.credit_price, 
-    //     msg.create_basket.base_interest_rate, 
-    //     msg.create_basket.credit_pool_infos, 
-    //     msg.create_basket.liq_queue
-    // )?; 
+    create_basket(
+        deps, 
+        info, 
+        env.clone(), 
+        msg.create_basket.basket_id, 
+        msg.create_basket.collateral_types, 
+        msg.create_basket.credit_asset, 
+        msg.create_basket.credit_price, 
+        msg.create_basket.base_interest_rate, 
+        msg.create_basket.credit_pool_infos, 
+        msg.create_basket.liq_queue
+    )?; 
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -581,26 +581,35 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     //Update collateral
     for (i, asset) in user_position.clone().collateral_assets.into_iter().enumerate() {
         if asset.asset.info.to_string() == "uosmo" {
-            user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(25373457 + 1795915 + 288567)){
+            match user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(25373457 + 1795915 + 288567)){
                 Ok(diff) => diff,
-                None => overages.push((asset.asset.info.to_string(), Uint128::new(25373457 + 1795915 + 288567) - asset.asset.amount)), 
+                Err(_) => {
+                    overages.push((asset.asset.info.to_string(), Uint128::new(25373457 + 1795915 + 288567) - asset.asset.amount));
+                    Uint128::zero()
+                }, 
             };
         } else if asset.asset.info.to_string() == "ibc/D79E7D83AB399BFFF93433E54FAA480C191248FC556924A2A8351AE2638B3877" {
-            user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(334147+53690)){
+            match user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(334147+53690)){
                 Ok(diff) => diff,
-                None => overages.push((asset.asset.info.to_string(), Uint128::new(334147+53690) - asset.asset.amount)), 
+                Err(_) => {overages.push((asset.asset.info.to_string(), Uint128::new(334147+53690) - asset.asset.amount));
+                    Uint128::zero()
+                }, 
             };
         }
         else if asset.asset.info.to_string() == "ibc/D176154B0C63D1F9C6DCFB4F70349EBF2E2B5A87A05902F57A6AE92B863E9AEC" {
-            user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(54466+8751)){
+            match user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(54466+8751)){
                 Ok(diff) => diff,
-                None => overages.push((asset.asset.info.to_string(), Uint128::new(54466+8751) - asset.asset.amount)), 
+                Err(_) => {overages.push((asset.asset.info.to_string(), Uint128::new(54466+8751) - asset.asset.amount));
+                    Uint128::zero()
+                }, 
             };
         }
         else if asset.asset.info.to_string() == "ibc/C140AFD542AE77BD7DCC83F13FDD8C5E5BB8C4929785E6EC2F4C636F98F17901" {
-            user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(126294+2029)){
+            match user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(126294+2029)){
                 Ok(diff) => diff,
-                None => overages.push((asset.asset.info.to_string(), Uint128::new(126294+2029) - asset.asset.amount)), 
+                Err(_) => {overages.push((asset.asset.info.to_string(), Uint128::new(126294+2029) - asset.asset.amount));
+                    Uint128::zero()
+                }, 
             };
         }
     }

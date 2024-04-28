@@ -5076,7 +5076,7 @@ mod tests {
             //Call LiqRepay to mimic a successful SP Liquidate call (even tho they don't actually repay anything here)
             let msg = ExecuteMsg::LiqRepay {};
             let cosmos_msg = cdp_contract
-                .call(msg, vec![coin(222_222222, "credit_fulldenom")])
+                .call(msg, vec![coin(2777_777777, "credit_fulldenom")])
                 .unwrap();
             let res = app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
                 .unwrap();

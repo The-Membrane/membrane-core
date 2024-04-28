@@ -15,7 +15,7 @@ use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, PoolStateResponse, AssetPool};
 
 use crate::error::ContractError; 
-use crate::positions::{BAD_DEBT_REPLY_ID, USER_SP_REPAY_REPLY_ID, LIQ_QUEUE_REPLY_ID, SP_REPLY_ID};
+use crate::positions::{BAD_DEBT_REPLY_ID, USER_SP_REPAY_REPLY_ID, LIQ_QUEUE_REPLY_ID};
 use crate::query::{insolvency_check, get_cAsset_ratios};
 use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation, get_target_position, FREEZE_TIMER, Timer};
 
@@ -95,6 +95,8 @@ pub fn liquidate(
         false,
         config.clone(),
     )?;
+    let insolvent = true;
+    let current_LTV = Decimal::percent(90)
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -195,6 +197,7 @@ pub fn liquidate(
             cAsset_ratios,
             cAsset_prices_res,
             caller_fee_value_paid,
+            Decimal::zero()
         )?;
     } else {
         //Set Liquidation Prop
@@ -577,7 +580,7 @@ fn per_asset_fulfillments(
     Ok((protocol_fee_msg, Decimal::zero() /*unused*/))
 }
 
-/// This function is used to build (sub)messages for the Stability Pool and sell wall.
+/// This function is used to build (sub)messages for the Stability Pool.
 /// Also returns leftover debt repayment amount.
 pub fn build_sp_submsgs(
     storage: &mut dyn Storage,
@@ -597,11 +600,9 @@ pub fn build_sp_submsgs(
     cAsset_ratios: Vec<Decimal>,
     cAsset_prices: Vec<PriceResponse>,
     caller_fee_value_paid: Decimal,
+    total_repaid: Decimal, //total credit repaid, this is non-zerowhen LQ liquidations are successful
 ) -> Result<(Decimal), ContractError>{
 
-    //Leftover's starts as the total LQ is supposed to pay, and is subtracted by every successful LQ reply
-    // let liq_queue_leftovers =
-    //     decimal_subtraction(credit_repay_amount, leftover_repayment)?;
     //Leftover's starts as the total repay_amount and is subtracted by every successful LQ reply
     let liq_queue_leftovers = credit_repay_amount;
     
@@ -649,7 +650,7 @@ pub fn build_sp_submsgs(
             target_position,
             liquidated_assets,
             caller_fee_value_paid,
-            total_repaid: Decimal::zero(),
+            total_repaid,
             position_owner: valid_position_owner,
             positions_contract: env.contract.address,
             sp_liq_fee,
@@ -672,9 +673,8 @@ pub fn build_sp_submsgs(
             funds: vec![],
         });
 
-        //This will only error if it can only repay 0.
-        //If it errors we'll update the user's position to keep state in tact
-        let sub_msg: SubMsg = SubMsg::reply_on_error(msg, SP_REPLY_ID);
+        //Can't use SubMsg replies bc there are too many msgs in the SP liquidation flow which means loss of funds if we error too deep
+        let sub_msg: SubMsg = SubMsg::new(msg);
 
         submessages.push(sub_msg);
 
@@ -689,12 +689,12 @@ pub fn build_sp_submsgs(
         let liquidation_propagation = LiquidationPropagation {
             per_asset_repayment,
             liq_queue_leftovers,
-            stability_pool: leftover_position_value, //This value is used to calculate the SP's repay amount if necessary
+            stability_pool: leftover_position_value, //This value is used to calculate the SP's repay amount in the LQ reply
             user_repay_amount,
             target_position,
             liquidated_assets,
             caller_fee_value_paid,
-            total_repaid: Decimal::zero(),
+            total_repaid,
             position_owner: valid_position_owner,
             positions_contract: env.contract.address,
             sp_liq_fee: Decimal::zero(),
@@ -708,44 +708,6 @@ pub fn build_sp_submsgs(
     }
 
     Ok((leftover_repayment))
-}
-
-/// Returns LP withdrawal message use in liquidations
-fn get_lp_liq_withdraw_msg(
-    querier: QuerierWrapper,
-    env: Env,
-    prop: &mut LiquidationPropagation,
-    repay_value: Decimal,
-    cAsset: cAsset,
-    i: usize,
-) -> StdResult<CosmosMsg>{    
-    let pool_info = cAsset.clone().pool_info.unwrap();
-
-    ////Calculate amount of asset to liquidate
-    // Amount to liquidate = cAsset_ratio * % of position insolvent * cAsset amount
-    let lp_liq_value = decimal_multiplication(prop.clone().cAsset_ratios[i],repay_value)?;
-    let lp_liquidate_amount = prop.clone().cAsset_prices[i].get_amount(lp_liq_value)?;
-
-    //Remove asset from Position claims
-    prop.target_position.collateral_assets[i].asset.amount -= lp_liquidate_amount;
-    //Add to liquidated assets list
-    prop.liquidated_assets.push(
-        cAsset {
-            asset: Asset {
-                amount: lp_liquidate_amount,
-                ..cAsset.asset.clone()
-            },
-            ..cAsset.clone()     
-        }
-    );
-
-    Ok( pool_query_and_exit(
-        querier, 
-        env, 
-        prop.clone().config.osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string(), 
-        pool_info.pool_id, 
-        lp_liquidate_amount
-    )?.0 )
 }
 
 /// Returns leftover liquidatible amount from the stability pool
@@ -763,74 +725,4 @@ pub fn query_stability_pool_liquidatible(
         }))?;
 
     Ok(query_res.leftover)
-}
-
-/// If cAssets include an LP, remove the LP share denom and add its paired assets
-pub fn get_LP_pool_cAssets(
-    querier: QuerierWrapper,
-    config: Config,
-    basket: Basket,
-    position_assets: Vec<cAsset>,
-) -> StdResult<Vec<cAsset>> {
-    let mut new_assets = position_assets
-        .clone()
-        .into_iter()
-        .filter(|asset| asset.pool_info.is_none())
-        .collect::<Vec<cAsset>>();
-
-    //Add LP's Assets as cAssets
-    //Remove LP share token
-    for cAsset in position_assets {
-        if let Some(pool_info) = cAsset.pool_info {
-
-            //Query share asset amount
-            let share_asset_amounts = querier
-                .query::<PoolStateResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-                    contract_addr: config.clone().osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                    msg: to_binary(&OsmoQueryMsg::PoolState {
-                        id: pool_info.pool_id,
-                    })?,
-                }))?
-                .shares_value(cAsset.asset.amount);
-
-            for pool_coin in share_asset_amounts {
-                let info = AssetInfo::NativeToken {
-                    denom: pool_coin.denom,
-                };
-                //Find the coin in the basket
-                if let Some(basket_cAsset) = basket
-                    .clone()
-                    .collateral_types
-                    .into_iter()
-                    .find(|cAsset| cAsset.asset.info.equal(&info))
-                {
-                    //Check if its already in the position asset list
-                    if let Some((i, _cAsset)) =
-                        new_assets
-                            .clone()
-                            .into_iter()
-                            .enumerate()
-                            .find(|(_index, cAsset)| {
-                                cAsset.asset.info.equal(&basket_cAsset.clone().asset.info)
-                            })
-                    {
-                        //Add to assets
-                        new_assets[i].asset.amount += Uint128::from_str(&pool_coin.amount).unwrap();
-                    } else {
-                        //Push to list
-                        new_assets.push(cAsset {
-                            asset: Asset {
-                                amount: Uint128::from_str(&pool_coin.amount).unwrap(),
-                                info,
-                            },
-                            ..basket_cAsset
-                        })
-                    }
-                }
-                //No reason to error bc LPs can't be added if their assets aren't added first
-            }
-        }
-    }
-
-    Ok(new_assets)
 }

@@ -780,6 +780,7 @@ pub fn liquidate(
     let mut prop = PROP.load(deps.storage)?;
     prop.repaid_amount += repay_asset.amount;
     PROP.save(deps.storage, &prop)?;
+    //^This isn't used for anything bc we pass in the distribute_for field
 
     //Repay for the user
     let repay_msg = CDP_ExecuteMsg::LiqRepay {};

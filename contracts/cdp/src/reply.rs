@@ -39,78 +39,6 @@ pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
     }
 }
 
-/// On error of a Stability Pool liquidation, update the user's position to keep state intact.
-/// Otherwise, the position is updated on a success in the liq_repay msg.
-/// Successful LQ msgs don't update the position state unless the SP isn't being used to repay due to there being none leftover to handle.
-#[allow(unused_variables)]
-pub fn handle_sp_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
-    match msg.result.into_result() {
-        Ok(_result) => {
-            //Its reply on error only
-            Ok(Response::new())
-        }        
-        Err(string) => {
-            //Load the state
-            let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
-            let mut basket = prop.clone().basket;
-            let config: Config = prop.clone().config;
-
-            /////If nothing has been repaid, error so the position can't be farmed for fees/////
-            /// SP fails when repaying 0
-            /// If user_repay fails, it gets set to 0
-            /// If LQ isn't used or fails, the total_repaid is stagnant.
-            if prop.clone().total_repaid.is_zero() && prop.clone().user_repay_amount.is_zero(){
-                return Err(StdError::GenericErr { msg: String::from("Stability pool failed, user didn't repay from Stability pool or it failed & LQ wasn't used, no repayments made") });
-            }
-
-            //Update supply caps
-            if prop.clone().target_position.credit_amount.is_zero(){                
-                //Remove position's assets from Supply caps 
-                match update_basket_tally(
-                    deps.storage, 
-                    deps.querier, 
-                    env.clone(), 
-                    &mut basket, 
-                    prop.clone().target_position.clone().collateral_assets,
-                    prop.clone().target_position.clone().collateral_assets,
-                    false, 
-                    config.clone(),
-                    true,
-                ){
-                    Ok(_) => {},
-                    Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
-                };
-            } else {
-                //Remove liquidated assets from Supply caps
-                match update_basket_tally(
-                    deps.storage, 
-                    deps.querier, 
-                    env.clone(), 
-                    &mut basket,
-                    prop.clone().liquidated_assets,
-                    prop.clone().target_position.clone().collateral_assets,
-                    false,
-                    config.clone(),
-                    true,
-                ){
-                    Ok(_) => {},
-                    Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
-                };
-            }            
-            //Update Basket
-            BASKET.save(deps.storage, &basket)?;
-
-            //Update the position w/ the new credit & collateral amount
-            update_position(deps.storage, prop.clone().position_owner, prop.clone().target_position)?;
-
-            Ok(Response::new()
-                .add_attribute("error", string)
-                .add_attribute("new_position", format!("{:?}", prop.target_position)))
-        }
-    }
-}
-
-
 /// Validate withdrawls by asserting that the amount withdrawn is less than or equal to the amount of the asset in the contract.
 /// Assert new cAssets amount was saved correctly.
 pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
@@ -202,55 +130,6 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
     Ok(Response::new().add_attributes(attrs))
 }
 
-/// The reply used to output leftovers.
-// #[allow(unused_variables)]
-// pub fn handle_stability_pool_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
-//     match msg.result.into_result() {
-//         Ok(result) => {
-//             //1) Parse potential leftover amount and send to sell_wall if there is any
-//             //Don't need to change state bc the SP will be repaying thru the contract
-//             //There should only be leftover here if the SP loses funds between the query and the repayment
-//             //2) Send collateral to the SP in the repay function and call distribute
-
-//             let liq_event = result
-//                 .events
-//                 .iter()
-//                 .find(|e| {
-//                     e.attributes
-//                         .iter()
-//                         .any(|attr| attr.key == "leftover_repayment")
-//                 })
-//                 .ok_or_else(|| {
-//                     StdError::GenericErr { msg: String::from("unable to find stability pool event") }
-//                 })?;
-
-//             let leftover = &liq_event
-//                 .attributes
-//                 .iter()
-//                 .find(|attr| attr.key == "leftover_repayment")
-//                 .unwrap()
-//                 .value;
-
-//             let leftover_amount = Uint128::from_str(leftover)?;
-
-//             //Success w/ leftovers: Leave leftovers for the next liquidation call
-//             //Success w/o leftovers: Do nothing, LQ leftovers are what called this msg
-//             //Error: Leave repayment for the next liquidation call
-
-//             Ok(Response::new()
-//                 .add_attributes([
-//                     attr("leftover_repayment", leftover_amount),
-//                 ]))
-//         }
-//         Err(error) => {            
-//             Ok(Response::new()
-//                 .add_attributes([
-//                     attr("error", error),
-//                 ]))
-//         }
-//     }
-// }
-
 /// Send the liquidation queue its collateral reward.
 /// Send leftovers to the SP.
 /// Note: We send collateral here bc the LQ queries have returned less debt than the executed msg before so we want to give the LQ exactly what its expecting.
@@ -325,7 +204,8 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             
             //Subtract repaid amount from total repay amount that is held in liq_queue_leftovers. The remaining is the leftover sent to the SP.
             if repay_amount != Uint128::zero() {
-                if !prop.liq_queue_leftovers.is_zero() {
+                //1 is the LQ rounding error so that counts as our 0.
+                if prop.liq_queue_leftovers > Decimal::one() {
                          
                     prop.liq_queue_leftovers = match decimal_subtraction(
                         prop.liq_queue_leftovers,
@@ -334,12 +214,12 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                         Ok(difference) => difference,
                         Err(_err) => return Err(StdError::GenericErr { msg: format!("leftovers: {} < repay: {}", prop.liq_queue_leftovers, repay_amount) }),                    
                     };
-                    //SP reply handles LQ_leftovers
+                    //SP handles LQ_leftovers
 
                     //Update credit amount based on liquidation's total repaid amount
                     prop.target_position.credit_amount -= repay_amount;
                 } else {
-                    return Err(StdError::GenericErr { msg: String::from("Repay amount is 0 before finishing LQ liquidations") })
+                    return Err(StdError::GenericErr { msg: String::from("Repay amount is 0 or 1 before finishing LQ liquidations") })
                 }
                 
                 //Update position claims in prop.target_position
@@ -371,8 +251,9 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             //If this is the last asset left to send and there is still more to liquidate, send the leftovers to the SP
             if prop.per_asset_repayment.len() == 1 {
                 
-                //If there are leftovers, send them to the SP
-                if !prop.liq_queue_leftovers.is_zero(){
+                //If there are leftovers, send them to the SP.
+                //1 is the LQ rounding error so that counts as our 0.
+                if prop.liq_queue_leftovers > Decimal::one(){
                     match build_sp_submsgs(
                         deps.storage, 
                         deps.querier, 
@@ -390,12 +271,14 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                         prop.clone().liquidated_assets, 
                         prop.clone().cAsset_ratios, 
                         prop.clone().cAsset_prices,
-                        prop.clone().caller_fee_value_paid
+                        prop.clone().caller_fee_value_paid,
+                        prop.clone().total_repaid,
                     ){
                         Ok(_) => {},
                         Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
                     };
                 } //If we aren't sending to the SP we need to update the positon && basket here
+                //Otherwise updates will happen in liq_repay
                 else {
                     //Update supply caps
                     if prop.clone().target_position.credit_amount.is_zero(){                

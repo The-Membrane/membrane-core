@@ -575,8 +575,8 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     //Liquidate position
     let msg = ExecuteMsg::Liquidate {
-        position_id: Uint128::one(),
-        position_owner: String::from("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n"),
+        position_id: Uint128::new(269),
+        position_owner: String::from("osmo12uk22nzee0hgahzttujcdce78ax627as04tcas"),
     };
     //CosmosMsg
     let liquidate_msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -585,5 +585,5 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
         funds: vec![],
     });
     
-    Ok(Response::default().add_message(liquidate_msg))
+    Ok(Response::default())
 }

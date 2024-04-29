@@ -585,5 +585,5 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
         funds: vec![],
     });
     
-    Ok(Response::default())
+    Ok(Response::default().add_message(liquidate_msg))
 }

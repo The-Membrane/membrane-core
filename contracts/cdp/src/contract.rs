@@ -573,52 +573,17 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Load user position
-    let mut user_position = get_target_position(deps.storage, Addr::unchecked("osmo12uk22nzee0hgahzttujcdce78ax627as04tcas"), Uint128::new(269))?.1;
-    //Save subtraction overages
-    let mut overages = vec![];
-
-    //Update collateral
-    for (i, asset) in user_position.clone().collateral_assets.into_iter().enumerate() {
-        if asset.asset.info.to_string() == "uosmo" {
-            match user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(25373457 + 1795915 + 288567)){
-                Ok(diff) => diff,
-                Err(_) => {
-                    overages.push((asset.asset.info.to_string(), Uint128::new(25373457 + 1795915 + 288567) - asset.asset.amount));
-                    Uint128::zero()
-                }, 
-            };
-        } else if asset.asset.info.to_string() == "ibc/D79E7D83AB399BFFF93433E54FAA480C191248FC556924A2A8351AE2638B3877" {
-            match user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(334147+53690)){
-                Ok(diff) => diff,
-                Err(_) => {overages.push((asset.asset.info.to_string(), Uint128::new(334147+53690) - asset.asset.amount));
-                    Uint128::zero()
-                }, 
-            };
-        }
-        else if asset.asset.info.to_string() == "ibc/D176154B0C63D1F9C6DCFB4F70349EBF2E2B5A87A05902F57A6AE92B863E9AEC" {
-            match user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(54466+8751)){
-                Ok(diff) => diff,
-                Err(_) => {overages.push((asset.asset.info.to_string(), Uint128::new(54466+8751) - asset.asset.amount));
-                    Uint128::zero()
-                }, 
-            };
-        }
-        else if asset.asset.info.to_string() == "ibc/C140AFD542AE77BD7DCC83F13FDD8C5E5BB8C4929785E6EC2F4C636F98F17901" {
-            match user_position.collateral_assets[i].asset.amount.checked_sub(Uint128::new(126294+2029)){
-                Ok(diff) => diff,
-                Err(_) => {overages.push((asset.asset.info.to_string(), Uint128::new(126294+2029) - asset.asset.amount));
-                    Uint128::zero()
-                }, 
-            };
-        }
-    }
-
-    //Update debt
-    user_position.credit_amount -= Uint128::new(19596856);
-
-    //Update the position w/ the new credit & collateral amount
-    update_position(deps.storage, Addr::unchecked("osmo12uk22nzee0hgahzttujcdce78ax627as04tcas"), user_position)?;
-
-    Ok(Response::default().add_attribute("overages", format!("{:?}", overages)))
+    //Liquidate position
+    let msg = ExecuteMsg::Liquidate {
+        position_id: Uint128::one(),
+        position_owner: String::from("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n"),
+    };
+    //CosmosMsg
+    let liquidate_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: env.contract.address.to_string(),
+        msg: to_binary(&msg)?,
+        funds: vec![],
+    });
+    
+    Ok(Response::default().add_message(msg))
 }

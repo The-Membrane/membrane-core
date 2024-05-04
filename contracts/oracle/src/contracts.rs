@@ -390,34 +390,17 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             oracle_time_limit,
             basket_id,
         } => {
-            //Get asset price
-            //Switch if an LP or not
-            match ASSETS.load(deps.storage, asset_info.to_string())?[0].clone().lp_pool_info {
-                //If asset is LP token, get LP price
-                Some(pool_info) => to_binary(&get_lp_price(
-                    deps.storage,
-                    deps.querier,
-                    env,
-                    CONFIG.load(deps.storage)?,
-                    pool_info,
-                    twap_timeframe,
-                    oracle_time_limit,
-                    basket_id,
-                    None,
-                    None,
-                )?),
-                None => to_binary(&get_asset_price(
-                    deps.storage,
-                    deps.querier,
-                    env,
-                    asset_info,
-                    twap_timeframe,
-                    oracle_time_limit,
-                    basket_id,
-                    None,
-                    None,
-                    )?.0)
-            }
+            to_binary(&get_asset_prices(
+            deps.storage, 
+            deps.querier,
+            env,
+            vec![asset_info],
+            twap_timeframe,
+            oracle_time_limit,
+            basket_id,
+            None,
+            None,
+        )?)
         },
         QueryMsg::Prices {
             asset_infos,

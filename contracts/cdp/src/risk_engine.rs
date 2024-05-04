@@ -63,12 +63,7 @@ pub fn update_basket_tally(
             } else {                
                 cap.current_supply = match cap.current_supply.checked_sub(cAsset.asset.amount){
                     Ok(diff) => diff,
-                    Err(_) => return Err(ContractError::CustomError {
-                        val: format!(
-                            "Removal amount ({}) is greater than current supply ({}) for {}", 
-                            cAsset.asset.amount, cap.current_supply, cap.asset_info
-                        ),
-                    }),
+                    Err(_) => Uint128::zero(),
                 }; 
             }
 

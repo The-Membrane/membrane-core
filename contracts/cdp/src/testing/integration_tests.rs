@@ -6937,15 +6937,6 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Call LiqRepay to mimic a successfull SP Liquidate call
-            // let msg = ExecuteMsg::LiqRepay {};
-
-            // let cosmos_msg = cdp_contract
-            //     .call(msg, vec![coin(499_999999, "credit_fulldenom")])
-            //     .unwrap();
-            // app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
-            //     .unwrap();
-
             let query_msg = QueryMsg::GetBasketPositions {
                 start_after: None, 
                 limit: None,

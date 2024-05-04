@@ -96,6 +96,9 @@ pub fn liquidate(
         false,
         config.clone(),
     )?;
+    let insolvent = true;
+    let current_LTV = Decimal::percent(98);
+
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});

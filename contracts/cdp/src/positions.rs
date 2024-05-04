@@ -711,7 +711,6 @@ pub fn liq_repay(
     //This position has collateral & credit_amount updated in the liquidation process...
     // from LQ replies && fee handling
     let mut target_position = liquidation_propagation.clone().target_position;
-
     
     let mut messages = vec![];
     let mut excess_repayment = Uint128::zero();
@@ -728,6 +727,7 @@ pub fn liq_repay(
         Err(_err) => {
             //Send the excess repayment back to the SP
             excess_repayment = credit_asset.amount - target_position.credit_amount;
+
             let excess_repayment_msg = withdrawal_msg(
                 Asset {
                     amount: excess_repayment,
@@ -770,7 +770,7 @@ pub fn liq_repay(
 
     //Add repay amount && user_repay_amount to total repaid
     //This makes the assumption that if the SP liquidation is successful, the user_repay_amount was too
-    liquidation_propagation.total_repaid +=  Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128)) + liquidation_propagation.clone().user_repay_amount;
+    liquidation_propagation.total_repaid +=  Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128));
 
     //Error if the caller fee is more than the total repaid value
     let repaid_value = basket.clone().credit_price.get_value(liquidation_propagation.clone().total_repaid.to_uint_floor())?;
@@ -822,8 +822,8 @@ pub fn liq_repay(
             deps.storage, 
             deps.querier, 
             env.clone(), 
-            &mut basket, 
-            target_position.clone().collateral_assets,
+            &mut basket,
+            [target_position.clone().collateral_assets, liquidation_propagation.clone().liquidated_assets].concat(),
             target_position.clone().collateral_assets,
             false, 
             config.clone(),

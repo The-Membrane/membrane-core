@@ -1,17 +1,12 @@
 use std::str::FromStr;
 
-use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response, SubMsg, Decimal, Uint128, StdError, attr, to_binary, WasmMsg, CosmosMsg};
+use cosmwasm_std::{DepsMut, Env, Reply, StdResult, Response,  Decimal, Uint128, StdError, attr};
 
-use membrane::types::{AssetInfo, Asset, Basket, cAsset};
-use membrane::stability_pool::ExecuteMsg as SP_ExecuteMsg;
-use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
-use membrane::cdp::Config;
-use membrane::math::decimal_subtraction;
+use membrane::types::{AssetInfo, Asset, cAsset};
 use membrane::helpers::{withdrawal_msg, get_contract_balances};
 
 use crate::risk_engine::update_basket_tally;
 use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, BASKET, get_target_position, update_position};
-use crate::liquidations::build_sp_submsgs;
 
 /// On error of a user's Stability Pool repayment, leave leftover to the SP within the LQ reply.
 // #[allow(unused_variables)]
@@ -240,13 +235,13 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
 
                 //Update supply caps
                 if prop.clone().target_position.credit_amount.is_zero(){                
-                    //Remove position's assets from Supply caps 
+                    //Remove all assets from Supply caps 
                     match update_basket_tally(
                         deps.storage, 
                         deps.querier, 
                         env.clone(), 
                         &mut basket, 
-                        prop.clone().target_position.clone().collateral_assets,
+                       [prop.clone().target_position.clone().collateral_assets, prop.clone().liquidated_assets].concat(),
                         prop.clone().target_position.clone().collateral_assets,
                         false, 
                         config.clone(),

@@ -17,7 +17,8 @@ use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, Pool
 use crate::error::ContractError; 
 use crate::positions::{BAD_DEBT_REPLY_ID, USER_SP_REPAY_REPLY_ID, LIQ_QUEUE_REPLY_ID};
 use crate::query::{insolvency_check, get_cAsset_ratios};
-use crate::state::{CONFIG, BASKET, LIQUIDATION, LiquidationPropagation, get_target_position, FREEZE_TIMER, Timer};
+use crate::risk_engine::update_basket_tally;
+use crate::state::{get_target_position, update_position, LiquidationPropagation, Timer, BASKET, CONFIG, FREEZE_TIMER, LIQUIDATION};
 
 pub const SECONDS_PER_DAY: u64 = 86400;
 
@@ -51,7 +52,7 @@ pub fn liquidate(
         Err(_) => (),
     };
 
-    let basket: Basket = BASKET.load(storage)?;
+    let mut basket: Basket = BASKET.load(storage)?;
     //Check if frozen
     if basket.frozen {
         return Err(ContractError::Frozen {});
@@ -95,6 +96,9 @@ pub fn liquidate(
         false,
         config.clone(),
     )?;
+    let insolvent = true;
+    let current_LTV = Decimal::percent(98);
+
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -126,6 +130,9 @@ pub fn liquidate(
 
     //Dynamic fee that goes to the caller (info.sender): current_LTV - max_LTV
     let caller_fee = decimal_subtraction(current_LTV, avg_max_LTV)?;
+
+    //Set pre-user repay amount 
+    let pre_user_repay_repay_amount = credit_repay_amount;
 
     //Get amount of repayment user can repay from the Stability Pool
     let user_repay_amount = get_user_repay_amount(querier, config.clone(), basket.clone(), position_id, position_owner.clone(), &mut credit_repay_amount, &mut submessages)?;
@@ -167,6 +174,54 @@ pub fn liquidate(
         
     //Update collateral_assets to reflect the fees
     target_position.collateral_assets = collateral_assets;
+
+    //If the user repaid the whole liquidation from the SP, we need to update the position here
+    if leftover_repayment.is_zero() && user_repay_amount == pre_user_repay_repay_amount {
+        //Update the credit
+        target_position.credit_amount -= pre_user_repay_repay_amount.to_uint_floor();
+        //Collateral from fees is updated above
+
+        //Update supply caps
+        if target_position.credit_amount.is_zero(){                
+            //Remove position's assets from Supply caps 
+            match update_basket_tally(
+                storage, 
+                querier, 
+                env.clone(), 
+                &mut basket, 
+                [target_position.clone().collateral_assets, liquidated_assets.clone()].concat(),
+                target_position.clone().collateral_assets,
+                false, 
+                config.clone(),
+                true,
+            ){
+                Ok(_) => {},
+                Err(err) => return Err(err),
+            };
+        } else {
+            //Remove liquidated assets from Supply caps
+            match update_basket_tally(
+                storage, 
+                querier, 
+                env.clone(), 
+                &mut basket,
+                liquidated_assets.clone(),
+                target_position.clone().collateral_assets,
+                false,
+                config.clone(),
+                true,
+            ){
+                Ok(_) => {},
+                Err(err) => return Err(err),
+            };
+        }            
+        //Update Basket
+        BASKET.save(storage, &basket)?;
+
+        //Update position w/ new credit amount
+        update_position(storage, valid_position_owner.clone(), target_position.clone())?;      
+    }
+
 
     //Build SP msgs
     let ( leftover_repayment ) = build_sp_submsgs(
@@ -450,7 +505,7 @@ fn per_asset_fulfillments(
         } 
 
         /////////////LiqQueue calls//////
-        if basket.clone().liq_queue.is_some() {
+        if basket.clone().liq_queue.is_some() && leftover_repayment > Uint128::zero(){
             //Repay amount using repay_value after the user's SP repayment            
             let collateral_price = cAsset_prices[num].clone();
             let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num])?;
@@ -530,7 +585,7 @@ fn per_asset_fulfillments(
             submessages.push(sub_msg);
         }
     }
-    
+
     //Create Msg to send all native token liq fees for fn caller
     let msg = CosmosMsg::Bank(BankMsg::Send {
         to_address: fee_recipient.clone(),
@@ -616,7 +671,7 @@ pub fn build_sp_submsgs(
             target_position,
             liquidated_assets,
             caller_fee_value_paid,
-            total_repaid: Decimal::zero(),
+            total_repaid: user_repay_amount,
             position_owner: valid_position_owner,
             positions_contract: env.contract.address,
             sp_liq_fee,
@@ -664,7 +719,7 @@ pub fn build_sp_submsgs(
             target_position,
             liquidated_assets,
             caller_fee_value_paid,
-            total_repaid: Decimal::zero(),
+            total_repaid: user_repay_amount,
             position_owner: valid_position_owner,
             positions_contract: env.contract.address,
             sp_liq_fee: Decimal::zero(),

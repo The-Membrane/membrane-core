@@ -738,6 +738,56 @@ mod tests {
         Box::new(contract)
     }
 
+    pub fn stability_pool_contract_all_user_repay() -> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |_, _, _, msg: SP_MockExecuteMsg| -> StdResult<Response> {
+                match msg {
+                    SP_MockExecuteMsg::Liquidate { liq_amount: _ } => Ok(Response::new()
+                        .add_attribute("method", "liquidate")
+                        .add_attribute("leftover_repayment", "0")),
+                    SP_MockExecuteMsg::Distribute {
+                        distribution_assets: _,
+                        distribution_asset_ratios: _,
+                        distribute_for: _,
+                    } => Ok(Response::new()
+                        .add_attribute("method", "distribute")
+                        .add_attribute("credit_asset", "cdt")),
+                    SP_MockExecuteMsg::Repay {
+                        user_info: _,
+                        repayment: _,
+                    } => Ok(Response::new()),
+                }
+            },
+            |_, _, _, _: SP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
+            |_, _, msg: SP_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    SP_MockQueryMsg::CheckLiquidatible { amount: _ } => {
+                        Ok(to_binary(&SP_LiquidatibleResponse {
+                            leftover: Decimal::zero(),
+                        })?)
+                    }
+                    SP_MockQueryMsg::AssetPool { user: _, deposit_limit: _, start_after: _ } => Ok(to_binary(&AssetPool {
+                        credit_asset: Asset {
+                            info: AssetInfo::NativeToken {
+                                denom: "cdt".to_string(),
+                            },
+                            amount: Uint128::one(),
+                        },
+                        liq_premium: Decimal::percent(10),
+                        deposits: vec![Deposit {
+                            user: Addr::unchecked(USER),
+                            amount: Decimal::percent(2_222_222_222_00),
+                            deposit_time: 0u64,
+                            last_accrued: 0u64,
+                            unstake_time: None,
+                        }],
+                    })?),
+                }
+            },
+        );
+        Box::new(contract)
+    }
+
     pub fn stability_pool_contract_high_premium() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             |_, _, _, msg: SP_MockExecuteMsg| -> StdResult<Response> {
@@ -1559,6 +1609,8 @@ mod tests {
         let sp_id: u64;
         if sp_error {
             sp_id = app.store_code(stability_pool_contract_errors());
+        }  else if bignums && liq_minimum {
+            sp_id = app.store_code(stability_pool_contract_all_user_repay());
         } else if liq_minimum && !lq_error {
             sp_id = app.store_code(stability_pool_contract_minimumliq());
         } else if liq_minimum && lq_error {
@@ -5073,7 +5125,7 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            //Call LiqRepay to mimic a successful SP Liquidate call (even tho they don't actually repay anything here)
+            //Call LiqRepay to mimic a successful SP Liquidate call (over repaying to test excess)
             let msg = ExecuteMsg::LiqRepay {};
             let cosmos_msg = cdp_contract
                 .call(msg, vec![coin(2777_777777, "credit_fulldenom")])
@@ -5091,9 +5143,9 @@ mod tests {
                 response.attributes[1..],
                 vec![             
                     attr("method", "liq_repay"),
-                    attr("distribution_assets", String::from("[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(111111111) }, Asset { info: NativeToken { denom: \"2nddebit\" }, amount: Uint128(111111111) }]")),
-                    attr("distribute_for", "222222222"),
-                    attr("excess", "0")
+                    attr("distribution_assets", String::from("[Asset { info: NativeToken { denom: \"debit\" }, amount: Uint128(1250000000) }, Asset { info: NativeToken { denom: \"2nddebit\" }, amount: Uint128(1250000000) }]")),
+                    attr("distribute_for", "2500000000"),
+                    attr("excess", "277777777")
                 ]
             );
 
@@ -5112,8 +5164,8 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98313888889));
-            assert_eq!(res[0].positions[0].collateral_assets[1].asset.amount, Uint128::new(98313888889));
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(97175000000));
+            assert_eq!(res[0].positions[0].collateral_assets[1].asset.amount, Uint128::new(97175000000));
 
             //Assert fees were sent.
             assert_eq!(
@@ -5128,9 +5180,10 @@ mod tests {
             );
 
             //Assert collateral to be liquidated was sent
+            //Excess Credit was sent back to the SP
             assert_eq!(
                 app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-                vec![coin(111_111111, "2nddebit"), coin(2555_555555, "credit_fulldenom"), coin(111_111111, "debit")]
+                vec![coin(1250000000, "2nddebit"), coin(277_777_777, "credit_fulldenom"), coin(1250000000, "debit")]
             );
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
@@ -5144,11 +5197,11 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.collateral_supply_caps[0].current_supply,
-                Uint128::new(98313_888889)
+                Uint128::new(0)
             );
             assert_eq!(
                 res.collateral_supply_caps[1].current_supply,
-                Uint128::new(98313_888889)
+                Uint128::new(0)
             );
         
 
@@ -6784,6 +6837,152 @@ mod tests {
             assert_eq!(
                 app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
                 vec![coin(499_000001, "debit")]
+            );
+        }
+
+        #[test]
+        fn liquidate_all_user_repay() {
+            let (mut app, cdp_contract, lq_contract) =
+                proper_instantiate(false, false, true, true);
+
+            let res: Config = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {})
+                .unwrap();
+            let sp_addr = res.stability_pool.unwrap();
+            let router_addr = res.dex_router.unwrap();
+            let staking_contract = res.staking_contract.unwrap();
+
+            //Add liq-queue to the initial basket
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                take_revenue: None,
+                added_cAsset: None,
+                liq_queue: Some(lq_contract.addr().to_string()),
+                credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
+                collateral_supply_caps: Some(vec![SupplyCap {
+                    asset_info: AssetInfo::NativeToken {
+                        denom: "debit".to_string(),
+                    },
+                    current_supply: Uint128::zero(),
+                    debt_total: Uint128::zero(),
+                    supply_cap_ratio: Decimal::percent(100),
+                    lp: false,
+                        stability_pool_ratio_for_debt_cap: None,
+                }]),
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                rev_to_stakers: None,
+                multi_asset_supply_caps: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Lower debt minimum
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: None,
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: Some(Uint128::new(500u128)),
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Initial Deposit
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some(USER.to_string()),
+                position_id: None,
+            };
+            let cosmos_msg = cdp_contract
+                .call(
+                    msg,
+                    vec![Coin {
+                        denom: "debit".to_string(),
+                        amount: Uint128::from(100_000_000000u128),
+                    }],
+                )
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Mint
+            let msg = ExecuteMsg::IncreaseDebt {
+                position_id: Uint128::from(1u128),
+                amount: Some(Uint128::from(999_000000u128)),
+                LTV: None,
+                mint_to_addr: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Call liquidate on CDP contract
+            let msg = ExecuteMsg::Liquidate {
+                position_id: Uint128::new(1u128),
+                position_owner: USER.to_string(),
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Call LiqRepay to mimic a successfull SP Liquidate call
+            // let msg = ExecuteMsg::LiqRepay {};
+
+            // let cosmos_msg = cdp_contract
+            //     .call(msg, vec![coin(499_999999, "credit_fulldenom")])
+            //     .unwrap();
+            // app.execute(Addr::unchecked(sp_addr.clone()), cosmos_msg)
+            //     .unwrap();
+
+            let query_msg = QueryMsg::GetBasketPositions {
+                start_after: None, 
+                limit: None,
+                user: None,
+                user_info: Some(
+                    UserInfo {
+                        position_id: Uint128::new(1),
+                        position_owner: USER.to_string(),
+                    }
+                ),
+            };
+            let res: Vec<BasketPositionsResponse> = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(99790_210000));
+
+            //Assert fees were sent.
+            assert_eq!(
+                app.wrap()
+                    .query_all_balances(staking_contract.clone())
+                    .unwrap(),
+                vec![coin(9_990_000, "debit")]
+            );
+            assert_eq!(
+                app.wrap().query_all_balances(USER).unwrap(),
+                vec![coin(100000_000000, "2nddebit"), coin(199_800000, "debit")]
+            );
+
+            //Assert collateral to be liquidated wasn't sent bc user repaid themselves
+            assert_eq!(
+                app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
+                vec![coin(2777_777777, "credit_fulldenom")]
+            );
+            assert_eq!(
+                app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
+                vec![]
             );
         }
 

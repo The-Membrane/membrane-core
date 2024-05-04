@@ -96,6 +96,8 @@ pub fn liquidate(
         false,
         config.clone(),
     )?;
+    let insolvent = true;
+    let current_LTV = Decimal::percent(98);
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -179,7 +181,7 @@ pub fn liquidate(
         //Collateral from fees is updated above
 
         //Update supply caps
-        if target_position.credit_amount.is_zero(){                
+        if target_position.credit_amount.is_zero(){
             //Remove position's assets from Supply caps 
             match update_basket_tally(
                 storage, 

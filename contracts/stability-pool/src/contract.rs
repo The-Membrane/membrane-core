@@ -212,6 +212,7 @@ fn update_config(
 }
 
 /// Deposit debt tokens into the contract
+/// Warning: Don't deposit twice separately in the same tx. Because ids aren't used, deposits with the same owner, amount & time will be deleted together if one is used for liquidation.
 pub fn deposit(
     deps: DepsMut,
     env: Env,

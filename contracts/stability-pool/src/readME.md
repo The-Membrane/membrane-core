@@ -9,6 +9,8 @@ The Stability Pool contract is used to pool debt tokens that act as a second lay
 
 - Simple function that adds deposited asset to the AssetPool total and a Deposit object to it's list of deposits
 
+/// Warning: Don't deposit twice separately in the same tx. Because deposit ids aren't used, deposits with the same owner, amount & time will be deleted together if one is used for liquidation.
+
 ### `withdraw`
 
 - Unstake & withdraw deposited assets

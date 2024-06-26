@@ -43,7 +43,7 @@ pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 
 //Constants
-const MAX_POSITIONS_AMOUNT: u32 = 3;
+const MAX_POSITIONS_AMOUNT: u32 = 9;
 
 
 /// Deposit collateral to existing position. New or existing collateral.
@@ -75,11 +75,6 @@ pub fn deposit(
     let position_info: UserInfo;
 
     if let Ok(mut positions) = POSITIONS.load(deps.storage, valid_owner_addr.clone()){
-
-        //Enforce max positions
-        if positions.len() >= MAX_POSITIONS_AMOUNT as usize {
-            return Err(ContractError::MaxPositionsReached {});
-        }
 
         //Add collateral to the position_id or Create a new position 
         if let Some(position_id) = position_id {
@@ -159,6 +154,13 @@ pub fn deposit(
                 return Err(ContractError::NonExistentPosition { id: position_id });
             }
         } else { //If user doesn't pass an ID, we create a new position
+
+            //Enforce max positions
+            if positions.len() >= MAX_POSITIONS_AMOUNT as usize {
+                return Err(ContractError::MaxPositionsReached {});
+            }
+            
+            //Create new position
             let (new_position_info, new_position) = create_position_in_deposit(
                 deps.storage,
                 deps.querier,

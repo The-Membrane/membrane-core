@@ -238,7 +238,7 @@ fn get_user_value_in_network(
     };
     let credit_price = basket.clone().credit_price;
 
-    let mbrn_price_res = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    let mbrn_price_res = match querier.query::<Vec<PriceResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().oracle_contract.to_string(),
         msg: to_binary(&Oracle_QueryMsg::Price {
             asset_info: AssetInfo::NativeToken { denom: config.clone().mbrn_denom },
@@ -248,8 +248,8 @@ fn get_user_value_in_network(
         })?,
     })){
         Ok(price_res) => {
-            if price_res.price > credit_price.price {
-                price_res
+            if price_res[0].price > credit_price.price {
+                price_res[0].clone()
             } else {
                 credit_price.clone()
             }
@@ -306,7 +306,7 @@ fn get_incentive_gauge_value(
         for user_lock_period in res.locks.clone().into_iter(){
             //Parse thru locked coins in the lock
             for coin in user_lock_period.coins {
-                let coin_price = match querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+                let coin_price = match querier.query::<Vec<PriceResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
                     contract_addr: config.clone().oracle_contract.to_string(),
                     msg: to_binary(&Oracle_QueryMsg::Price {
                         asset_info: AssetInfo::NativeToken { denom: coin.clone().denom },
@@ -315,7 +315,7 @@ fn get_incentive_gauge_value(
                         basket_id: None,
                     })?,
                 })){
-                    Ok(price) => price,
+                    Ok(price) => price[0].clone(),
                     Err(_) => continue,
                 };
     

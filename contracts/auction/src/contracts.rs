@@ -145,7 +145,7 @@ fn update_config(
     //Ensure desired asset has an oracle price to save
     if let Some(asset) = update.desired_asset {
         ///Get desired_asset price
-        if let Ok(_) = deps.querier.query_wasm_smart::<PriceResponse>(
+        if let Ok(_) = deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
             config.clone().oracle_contract.to_string(),
             &OracleQueryMsg::Price {
                 asset_info: AssetInfo::NativeToken {
@@ -390,7 +390,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
     if !auction.auction_asset.amount.is_zero() && auction.auction_start_time <= env.block.time.seconds() {
 
         //Get desired_asset price
-        let desired_res: PriceResponse = deps.querier.query_wasm_smart(
+        let desired_res: Vec<PriceResponse> = deps.querier.query_wasm_smart(
             config.clone().oracle_contract.to_string(), 
         &OracleQueryMsg::Price {
                 asset_info: AssetInfo::NativeToken {
@@ -402,10 +402,10 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
             })?;
             
         //Get value of sent desired asset
-        let desired_asset_value = desired_res.get_value(coin.amount)?;
+        let desired_asset_value = desired_res[0].get_value(coin.amount)?;
                 
         //Get auction asset price
-        let mut auction_res: PriceResponse = deps.querier.query_wasm_smart(
+        let mut auction_res: Vec<PriceResponse> = deps.querier.query_wasm_smart(
             config.clone().oracle_contract.to_string(), 
             &OracleQueryMsg::Price {
                     asset_info: AssetInfo::NativeToken {
@@ -416,7 +416,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
                     basket_id: None,
                 })?;      
         //Get value of auction asset
-        let mut auction_asset_value = auction_res.get_value(auction.auction_asset.amount)?;
+        let mut auction_asset_value = auction_res[0].get_value(auction.auction_asset.amount)?;
         
         //Get discount
         let discount_ratio = get_discount_ratio(env.clone(), auction.clone().auction_start_time, config.clone())?;
@@ -429,7 +429,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
         if desired_asset_value > auction_asset_value {
 
             //Calc overpay amount in desired_asset
-            overpay = desired_res.get_amount((desired_asset_value - auction_asset_value))?;
+            overpay = desired_res[0].get_amount((desired_asset_value - auction_asset_value))?;
 
             successful_swap_amount = auction.auction_asset.amount;
             auction.auction_asset.amount = Uint128::zero();
@@ -440,12 +440,12 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
         } else if desired_asset_value < auction_asset_value {
             /////If the value of the sent desired_Asset is less than the value of the auction asset, set successful_swap_amount
             //Set auction_price to the discounted price
-            let discounted_auction_price = decimal_multiplication(auction_res.price, discount_ratio)?;
-            auction_res.price = discounted_auction_price;
+            let discounted_auction_price = decimal_multiplication(auction_res[0].price, discount_ratio)?;
+            auction_res[0].price = discounted_auction_price;
 
             //Update auction asset amount
-            successful_swap_amount = auction_res.get_amount(desired_asset_value)?;
-            auction.auction_asset.amount = auction_res.get_amount(auction_asset_value - desired_asset_value)?;
+            successful_swap_amount = auction_res[0].get_amount(desired_asset_value)?;
+            auction.auction_asset.amount = auction_res[0].get_amount(auction_asset_value - desired_asset_value)?;
             
             //Update Auction
             FEE_AUCTIONS.save(deps.storage, auction_asset.clone().to_string(), &auction)?;
@@ -576,7 +576,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
 
         let swap_amount = Decimal::from_ratio(coin.amount, Uint128::new(1u128));                
 
-        let res: PriceResponse = deps.querier.query_wasm_smart(
+        let res: Vec<PriceResponse> = deps.querier.query_wasm_smart(
             config.clone().oracle_contract.to_string(), 
         &OracleQueryMsg::Price {
                 asset_info: AssetInfo::NativeToken {
@@ -586,7 +586,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                 oracle_time_limit: 600,
                 basket_id: None,
             })?;
-        let mbrn_price = res.price;
+        let mbrn_price = res[0].price;
 
         //Get credit price at peg to further incentivize recapitalization
         let basket_credit_price = deps

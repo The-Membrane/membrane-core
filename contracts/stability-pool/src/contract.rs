@@ -12,7 +12,6 @@ use cw2::set_contract_version;
 use cw_coins::Coins;
 
 use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg};
-use membrane::oracle::PriceResponse;
 use membrane::stability_pool::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, MigrateMsg
 };
@@ -20,7 +19,7 @@ use membrane::osmosis_proxy::ExecuteMsg as OsmosisProxy_ExecuteMsg;
 use membrane::types::{
     Asset, AssetInfo, AssetPool, Deposit, User, UserInfo, UserRatio, Basket,
 };
-use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest, query_asset_price, query_basket};
+use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;

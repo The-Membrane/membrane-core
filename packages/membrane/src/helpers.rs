@@ -24,7 +24,7 @@ pub fn query_asset_price(
     twap_timeframe: u64,
     basket_id: Option<Uint128>,
 ) -> StdResult<Decimal> {
-    let res: PriceResponse = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    let res: Vec<PriceResponse> = querier.query::<Vec<PriceResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: oracle_contract,
         msg: to_binary(&crate::oracle::QueryMsg::Price {
             asset_info,
@@ -34,7 +34,7 @@ pub fn query_asset_price(
         })?,
     }))?;
 
-    Ok(res.price)
+    Ok(res[0].price)
 }
 
 /// Returns asset liquidity from the liquidity check contract

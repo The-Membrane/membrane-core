@@ -131,11 +131,11 @@ mod tests {
                         if asset_info.to_string() == String::from("no_price"){
                             return Err(cosmwasm_std::StdError::GenericErr { msg: String::from("Asset has no oracle price") })
                         } else {
-                            Ok(to_binary(&PriceResponse {
+                            Ok(to_binary(&vec![PriceResponse {
                                 prices: vec![],
                                 price: Decimal::one(),
                                 decimals: 0,
-                            })?)
+                            }])?)
                         }
                     }
                 }

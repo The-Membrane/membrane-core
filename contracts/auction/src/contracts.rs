@@ -421,9 +421,9 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
         
         //Get discount
         let discount_ratio = get_discount_ratio(env.clone(), auction.clone().auction_start_time, config.clone())?;
-        panic!("Discount: {:?}, auction_asset_value: {}, desired_asset_value: {}, auction amount: {}, auction_res: {:?}", discount_ratio, auction_asset_value, desired_asset_value, auction.auction_asset.amount, auction_res[0].price);
+        
         //Incorporate discount to auction asset value
-        auction_asset_value = decimal_multiplication(auction_asset_value, discount_ratio)?.floor();
+        auction_asset_value = decimal_multiplication(auction_asset_value, discount_ratio)?;
 
         //Get successful_swap_amount
         //If the value of the sent desired_Asset is greater than the value of the auction asset, set overpay amount
@@ -435,7 +435,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
 
             successful_swap_amount = auction.auction_asset.amount;
             auction.auction_asset.amount = Uint128::zero();
-            panic!("Overpay: {}, desired: {}, auction: {}, de_res: {:?}, auc_res: {:?}", overpay, desired_asset_value, auction_asset_value, desired_res[0], auction_res[0]);
+            
             //Delete Auction
             FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
 
@@ -449,16 +449,12 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
             successful_swap_amount = auction_res[0].get_amount(desired_asset_value)?;
             auction.auction_asset.amount = auction_res[0].get_amount(auction_asset_value - desired_asset_value)?;
             
-            panic!("Remaining Auction: {}, desired: {}, auction: {}, de_res: {:?}, auc_res: {:?}", auction.auction_asset.amount, desired_asset_value, auction_asset_value, desired_res[0], auction_res[0]);
-            
             //Update Auction
             FEE_AUCTIONS.save(deps.storage, auction_asset.clone().to_string(), &auction)?;
         } else {
             successful_swap_amount = auction.auction_asset.amount;
             auction.auction_asset.amount = Uint128::zero();
             
-            panic!("Overpay: {}, desired: {}, auction: {}, de_res: {:?}, auc_res: {:?}", overpay, desired_asset_value, auction_asset_value, desired_res[0], auction_res[0]);
-
             //Delete Auction
             FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
         }

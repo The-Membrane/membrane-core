@@ -421,6 +421,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
         
         //Get discount
         let discount_ratio = get_discount_ratio(env.clone(), auction.clone().auction_start_time, config.clone())?;
+        panic!("Discount: {:?}, auction_asset_value: {}, desired_asset_value: {}", discount_ratio, auction_asset_value, desired_asset_value);
         //Incorporate discount to auction asset value
         auction_asset_value = decimal_multiplication(auction_asset_value, discount_ratio)?.floor();
 

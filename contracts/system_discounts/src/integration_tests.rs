@@ -146,11 +146,11 @@ mod tests {
                         twap_timeframe,
                         basket_id,
                     } => {
-                        Ok(to_binary(&PriceResponse {
+                        Ok(to_binary(&vec![PriceResponse {
                             prices: vec![],
                             price: Decimal::one(),
                             decimals: 0,
-                        })?)
+                        }])?)
                         
                     }
                 }

@@ -13,6 +13,7 @@ use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
 use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient, Basket, DebtAuction, FeeAuction};
 use membrane::helpers::withdrawal_msg;
+use serde::de;
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, DEBT_AUCTION, FEE_AUCTIONS, OWNERSHIP_TRANSFER};
@@ -433,7 +434,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
 
             successful_swap_amount = auction.auction_asset.amount;
             auction.auction_asset.amount = Uint128::zero();
-
+            panic!("Overpay: {}, desired: {}, auction: {}, de_res: {:?}, auc_res: {:?}", overpay, desired_asset_value, auction_asset_value, desired_res[0], auction_res[0]);
             //Delete Auction
             FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
 
@@ -447,11 +448,15 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
             successful_swap_amount = auction_res[0].get_amount(desired_asset_value)?;
             auction.auction_asset.amount = auction_res[0].get_amount(auction_asset_value - desired_asset_value)?;
             
+            panic!("Remaining Auction: {}, desired: {}, auction: {}, de_res: {:?}, auc_res: {:?}", auction.auction_asset.amount, desired_asset_value, auction_asset_value, desired_res[0], auction_res[0]);
+            
             //Update Auction
             FEE_AUCTIONS.save(deps.storage, auction_asset.clone().to_string(), &auction)?;
         } else {
             successful_swap_amount = auction.auction_asset.amount;
             auction.auction_asset.amount = Uint128::zero();
+            
+            panic!("Overpay: {}, desired: {}, auction: {}, de_res: {:?}, auc_res: {:?}", overpay, desired_asset_value, auction_asset_value, desired_res[0], auction_res[0]);
 
             //Delete Auction
             FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());

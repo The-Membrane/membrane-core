@@ -9,7 +9,7 @@ use cw_storage_plus::Bound;
 use membrane::oracle::PriceResponse;
 use membrane::points_system::{ClaimCheck, Config, ExecuteMsg, InstantiateMsg, QueryMsg, UserStats, UserStatsResponse};
 use membrane::math::decimal_multiplication;
-use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg};
+use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, MigrateMsg, QueryMsg as CDP_QueryMsg};
 use membrane::stability_pool::{QueryMsg as SP_QueryMsg, ClaimsResponse};
 use membrane::liq_queue::{QueryMsg as LIQ_QueryMsg, ClaimsResponse as LQ_ClaimsResponse};
 use membrane::governance::{QueryMsg as GOV_QueryMsg, Proposal};
@@ -799,4 +799,10 @@ fn query_user_stats(
     }
 
     Ok(user_stats)
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    
+    Ok(Response::default())
 }

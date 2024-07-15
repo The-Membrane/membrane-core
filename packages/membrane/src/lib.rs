@@ -14,6 +14,7 @@ pub mod cdp;
 pub mod stability_pool;
 pub mod staking;
 pub mod margin_proxy;
+pub mod points_system;
 pub mod system_discounts;
 pub mod launch;
 pub mod discount_vault;

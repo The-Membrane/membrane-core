@@ -93,6 +93,7 @@ pub fn execute(
         ExecuteMsg::ClaimMBRN {} => claim_mbrn_from_points(deps, env, info),
     }
 }
+
 //CheckClaims & GivePoints are used to sandwich executable msgs to check for claims before giving points
 //1) CDP Repayment: Save CDP's pending revenue to check its difference in GivePoints
 //2) SP Claims: Save SP's pending claims to check its difference in GivePoints
@@ -131,10 +132,16 @@ fn check_claims(
     //2) Check SP claims?
     if sp_claims {
         //Get SP's pending claims
-        let sp_claims: ClaimsResponse = deps.querier.query::<ClaimsResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+        let sp_claims: ClaimsResponse = match deps.querier.query::<ClaimsResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
             contract_addr: config.clone().stability_pool_contract.to_string(), 
             msg: to_binary(&SP_QueryMsg::UserClaims { user: info.clone().sender.to_string() })?
-        }))?;
+        })){
+            Ok(claims) => claims,
+            //The SP errors if you have empty claims
+            Err(_) => ClaimsResponse {
+                claims: vec![],
+            },
+        };
         pending_sp_claims = sp_claims;
     }
 
@@ -146,6 +153,9 @@ fn check_claims(
             contract_addr: config.clone().liq_queue_contract.to_string(), 
             msg: to_binary(&LIQ_QueryMsg::UserClaims { user: info.clone().sender.to_string() })?
         }))?;
+        //Filter out any that are 0
+        let lq_claims = lq_claims.into_iter().filter(|x| !x.pending_liquidated_collateral.is_zero()).collect::<Vec<LQ_ClaimsResponse>>();
+
         pending_lq_claims = lq_claims;
     }
 
@@ -244,10 +254,16 @@ fn give_points(
     //2) Check SP claims?
     if sp_claims {
         //Get SP's pending claims
-        let sp_current_claims: ClaimsResponse = deps.querier.query::<ClaimsResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
+        let sp_current_claims: ClaimsResponse = match deps.querier.query::<ClaimsResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
             contract_addr: config.clone().stability_pool_contract.to_string(), 
             msg: to_binary(&SP_QueryMsg::UserClaims { user: info.clone().sender.to_string() })?
-        }))?;
+        })){
+            Ok(claims) => claims,
+            //The SP errors if you have empty claims
+            Err(_) => ClaimsResponse {
+                claims: vec![],
+            },
+        };
         //Check difference in claims from the query & claim check
         for previous_claim in claim_check.sp_pending_claims.clone() {
             let mut found = false;             
@@ -281,7 +297,10 @@ fn give_points(
         let lq_current_claims: Vec<LQ_ClaimsResponse> = deps.querier.query::<Vec<LQ_ClaimsResponse>>(&QueryRequest::Wasm(WasmQuery::Smart { 
             contract_addr: config.clone().liq_queue_contract.to_string(), 
             msg: to_binary(&LIQ_QueryMsg::UserClaims { user: info.clone().sender.to_string() })?
-        }))?;
+        }))?;        
+        //Filter out any that are 0
+        let lq_current_claims = lq_current_claims.into_iter().filter(|x| !x.pending_liquidated_collateral.is_zero()).collect::<Vec<LQ_ClaimsResponse>>();
+
         //Check difference in claims from the query & claim check
         for prev_claim in claim_check.lq_pending_claims.clone() {
             let mut found = false; 

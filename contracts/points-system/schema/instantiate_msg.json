@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InstantiateMsg",
+  "type": "object",
+  "required": [
+    "cdt_denom",
+    "governance_contract",
+    "liq_queue_contract",
+    "oracle_contract",
+    "osmosis_proxy_contract",
+    "positions_contract",
+    "stability_pool_contract"
+  ],
+  "properties": {
+    "cdt_denom": {
+      "type": "string"
+    },
+    "governance_contract": {
+      "type": "string"
+    },
+    "liq_queue_contract": {
+      "type": "string"
+    },
+    "oracle_contract": {
+      "type": "string"
+    },
+    "osmosis_proxy_contract": {
+      "type": "string"
+    },
+    "positions_contract": {
+      "type": "string"
+    },
+    "stability_pool_contract": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

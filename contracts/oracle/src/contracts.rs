@@ -708,9 +708,9 @@ fn get_asset_price(
             //We do this bc if the 1st asset is 18 decimals & the quote is 6, the price will be 12 decimals off.
             //Furthermore if the 1st asset is 6 decimals & the quote is 18, the price will be 12 decimals off.
             if oracle_info.decimals > trailing_oracle_info.decimals {
-                final_price = decimal_multiplication(final_price, Decimal::from_ratio(Uint128::new(10).checked_pow(oracle_info.decimals as u32 - trailing_oracle_info.decimals)?, Uint128::one()))?;
+                final_price = decimal_multiplication(final_price, Decimal::from_ratio(Uint128::new(10).checked_pow(oracle_info.decimals as u32 - trailing_oracle_info.decimals as u32)?, Uint128::one()))?;
             } else if oracle_info.decimals < trailing_oracle_info.decimals {
-                final_price = decimal_division(final_price, Decimal::from_ratio(Uint128::one(), Uint128::new(10).checked_pow(trailing_oracle_info.decimals - oracle_info.decimals)?))?;
+                final_price = decimal_division(final_price, Decimal::from_ratio(Uint128::one(), Uint128::new(10).checked_pow(trailing_oracle_info.decimals as u32 - oracle_info.decimals as u32)?))?;
             }
         }
         final_price

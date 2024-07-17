@@ -669,7 +669,8 @@ fn get_asset_price(
         asset_price_in_osmo_steps.push(Decimal::from_str(&res.geometric_twap)?);
     }
 
-    //Multiply prices to denominate in OSMO
+    //Multiply prices to denominate in OSMO or the final quote asset...
+    //...twe'll then find the final price in OSMO further down
     let asset_price_in_osmo = {
         let mut final_price = Decimal::one();
         //If no prices were queried, return error unless its OSMO
@@ -682,17 +683,35 @@ fn get_asset_price(
         //Find asset price in OSMO
         if asset_info.to_string() == String::from("uosmo"){
             final_price = Decimal::one();
-        } else {            
+        } else {
             //Multiply prices to get the desired Quote
             for price in asset_price_in_osmo_steps {
                 final_price = decimal_multiplication(final_price, price)?;
             } 
         }
-        
-        //Transform price by moving its decimal point by the difference in decimals from 6 (OSMO's decimals)
-        //WARNING: This may not work if multiple assets in the path are different decimal places
-        if oracle_info.decimals > 6 {
-            final_price = decimal_multiplication(final_price, Decimal::from_ratio(Uint128::new(10).checked_pow(oracle_info.decimals as u32 - 6)?, Uint128::one()))?;
+
+        //Get oracle info for the last pool
+        if oracle_info.pools_for_osmo_twap.len() != 0 {
+            let trailing_oracle_list = ASSETS.load(storage, oracle_info.pools_for_osmo_twap[oracle_info.pools_for_osmo_twap.len()-1].quote_asset_denom.clone())?;
+            //Find the basket 
+            let trailing_oracle_info = match trailing_oracle_list.into_iter().find(|oracle| oracle.basket_id == basket_id){
+                Some(oracle) => oracle,
+                None => {
+                    return Err(StdError::GenericErr {
+                        msg: String::from("Invalid basket_id"),
+                    });
+                }
+            };
+            
+            //Transform price by moving its decimal point by the difference in decimals from the last quote asset
+            //WARNING: This may not work if multiple assets in the path are different decimal places
+            //We do this bc if the 1st asset is 18 decimals & the quote is 6, the price will be 12 decimals off.
+            //Furthermore if the 1st asset is 6 decimals & the quote is 18, the price will be 12 decimals off.
+            if oracle_info.decimals > trailing_oracle_info.decimals {
+                final_price = decimal_multiplication(final_price, Decimal::from_ratio(Uint128::new(10).checked_pow(oracle_info.decimals as u32 - trailing_oracle_info.decimals)?, Uint128::one()))?;
+            } else if oracle_info.decimals < trailing_oracle_info.decimals {
+                final_price = decimal_division(final_price, Decimal::from_ratio(Uint128::one(), Uint128::new(10).checked_pow(trailing_oracle_info.decimals - oracle_info.decimals)?))?;
+            }
         }
         final_price
     };

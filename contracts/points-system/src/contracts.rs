@@ -15,7 +15,7 @@ use membrane::liq_queue::{QueryMsg as LIQ_QueryMsg, ClaimsResponse as LQ_ClaimsR
 use membrane::governance::{QueryMsg as GOV_QueryMsg, Proposal};
 use membrane::oracle::QueryMsg as Oracle_QueryMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
-use membrane::types::{AssetInfo, Basket};
+use membrane::types::{AssetInfo, Basket, UserInfo};
 
 use crate::error::ContractError;
 use crate::state::{LiquidationPropagation, CLAIM_CHECK, CONFIG, LIQ_PROPAGATION, OWNERSHIP_TRANSFER, USER_STATS};
@@ -29,6 +29,7 @@ const PAGINATION_DEFAULT_LIMIT: u64 = 30;
 
 //Reply IDs
 const LIQUIDATION_REPLY_ID: u64 = 1u64;
+const ACCRUE_REPLY_ID: u64 = 2u64;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -103,7 +104,7 @@ fn check_claims(
     deps: DepsMut,
     _env: Env,
     info: MessageInfo,    
-    cdp_repayment: bool,
+    cdp_repayment: Option<UserInfo>,
     sp_claims: bool,
     lq_claims: bool,
     vote: Option<Vec<u64>>,
@@ -111,19 +112,25 @@ fn check_claims(
     //Load config
     let config: Config = CONFIG.load(deps.storage)?;
 
-    if !cdp_repayment && !sp_claims && !lq_claims && vote.is_none() {
+    if cdp_repayment.is_none() && !sp_claims && !lq_claims && vote.is_none() {
         return Err(ContractError::Std(StdError::generic_err("No claims to check")));
     }
+
+    let mut msgs: Vec<SubMsg> = vec![];
     
-    let mut present_revenue: Uint128 = Uint128::zero();
     //1) Check CDP repayment?
-    if cdp_repayment {
-        //Get CDP's pending revenue
-        let basket: Basket = deps.querier.query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart { 
+    if let Some(user_info) = cdp_repayment.clone() {
+        //Create accrue message
+        let accrue_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
             contract_addr: config.clone().positions_contract.to_string(), 
-            msg: to_binary(&CDP_QueryMsg::GetBasket {  })?
-        }))?;
-        present_revenue = basket.pending_revenue;
+            msg: to_binary(&CDP_ExecuteMsg::Accrue {
+                position_ids: vec![ user_info.position_id ],
+                position_owner: Some(user_info.position_owner),
+            })?,
+            funds: vec![] 
+        });
+        let sub_msg = SubMsg::reply_on_success(accrue_msg, ACCRUE_REPLY_ID);
+        msgs.push(sub_msg);
     }
 
     let mut pending_sp_claims: ClaimsResponse = ClaimsResponse {
@@ -189,7 +196,7 @@ fn check_claims(
     CLAIM_CHECK.save(deps.storage, &
         ClaimCheck {
             user: info.clone().sender,
-            cdp_pending_revenue: present_revenue,
+            cdp_pending_revenue: Uint128::zero(),
             lq_pending_claims: pending_lq_claims.clone(),
             sp_pending_claims: pending_sp_claims.clone().claims,
             vote_pending: unvoted_proposals.clone(),
@@ -198,14 +205,14 @@ fn check_claims(
 
     //Set attributes
     let mut attrs: Vec<Attribute> = vec![];
-        attrs.push(attr("cdp_pending_revenue", present_revenue));
+        attrs.push(attr("accrual_msg_sent", cdp_repayment.is_some().to_string()));
         attrs.push(attr("sp_pending_claims", format!("{:?}", pending_sp_claims.clone().claims)));
         attrs.push(attr("lq_pending_claims", format!("{:?}", pending_lq_claims)));
         attrs.push(attr("vote_pending", format!("{:?}", unvoted_proposals)));   
 
 
 
-    Ok(Response::new().add_attributes(attrs))
+    Ok(Response::new().add_attributes(attrs).add_submessages(msgs))
 }
 
 
@@ -663,6 +670,7 @@ fn update_config(
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         LIQUIDATION_REPLY_ID => handle_liq_reply(deps, env, msg),
+        ACCRUE_REPLY_ID => handle_accrue_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 }
@@ -745,8 +753,41 @@ fn handle_liq_reply(
 
         },
         Err(string) => {            
-            //Error likely means the target_LTV was hit
-            Ok(Response::new().add_attribute("increase_debt_error", string))
+            Ok(Response::new().add_attribute("we no error", string))
+        }
+    }
+}
+
+fn handle_accrue_reply(
+    deps: DepsMut,
+    env: Env,
+    msg: Reply,
+) -> StdResult<Response>{
+    
+    match msg.result.into_result() {
+        Ok(_) => {
+            //Load config
+            let config: Config = CONFIG.load(deps.storage)?;
+            //Get CDP's pending revenue
+            let basket: Basket = deps.querier.query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart { 
+                contract_addr: config.clone().positions_contract.to_string(), 
+                msg: to_binary(&CDP_QueryMsg::GetBasket {  })?
+            }))?;
+            let present_revenue = basket.pending_revenue;
+
+            //Load Claim Check
+            let mut claim_check: ClaimCheck = CLAIM_CHECK.load(deps.storage)?;
+            claim_check.cdp_pending_revenue = present_revenue;
+            CLAIM_CHECK.save(deps.storage, &claim_check)?;
+
+            
+            Ok(Response::new()
+                .add_attribute("pending_revenue_post_accrual", present_revenue)
+            )
+
+        },
+        Err(string) => {            
+            Ok(Response::new().add_attribute("we no error", string))
         }
     }
 }

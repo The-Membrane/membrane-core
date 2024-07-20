@@ -1,6 +1,7 @@
 use cosmwasm_std::{Addr, Coin, Decimal, Uint128};
 use cosmwasm_schema::cw_serde;
 
+use crate::types::UserInfo;
 use crate::liq_queue::ClaimsResponse;
 
 #[cw_serde]
@@ -31,7 +32,7 @@ pub enum ExecuteMsg {
     },
     /// Queries contracts to confirm & save current claims for the user
     CheckClaims {
-        cdp_repayment: bool,
+        cdp_repayment: Option<UserInfo>,
         sp_claims: bool,
         lq_claims: bool,
         /// Proposal ID

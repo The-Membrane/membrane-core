@@ -196,11 +196,15 @@ pub fn get_interest_rates(
         //ex: 2% * 110% = 2.2%
         //Higher rates for more volatile assets
 
-        //base * (1/max_LTV)
-        rates.push(decimal_multiplication(
-            basket.clone().base_interest_rate,
-            decimal_division(Decimal::one(), asset.max_LTV)?,
-        )?);        
+        if asset.hike_rates {
+            rates.push( config.rate_hike_rate )
+        } else {
+            //base * (1/max_LTV)
+            rates.push(decimal_multiplication(
+                basket.clone().base_interest_rate,
+                decimal_division(Decimal::one(), asset.max_LTV)?,
+            )?);    
+        }    
     }
 
     //Get proportion of debt && supply caps filled
@@ -502,6 +506,7 @@ pub fn accrue(
         max_LTV: Decimal::zero(),
         pool_info: None,
         rate_index: Decimal::one(),
+        hike_rates: false,
     };
 
     let credit_TWAP_price = match get_asset_values(

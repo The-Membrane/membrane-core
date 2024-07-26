@@ -256,6 +256,8 @@ pub struct Config {
     pub base_debt_cap_multiplier: Uint128,
     /// Interest rate 2nd Slope multiplier
     pub rate_slope_multiplier: Decimal,
+    /// Rate hike rate
+    pub rate_hike_rate: Decimal,
 }
 
 
@@ -317,6 +319,8 @@ pub struct UpdateConfig {
     pub base_debt_cap_multiplier: Option<Uint128>,
     /// Interest rate 2nd Slope multiplier
     pub rate_slope_multiplier: Option<Decimal>,
+    /// Rate hike rate
+    pub rake_hike_rate: Option<Decimal>,
 }
 
 impl UpdateConfig {
@@ -389,6 +393,9 @@ impl UpdateConfig {
                 return Err(StdError::GenericErr{ msg: String::from("Rate slope multiplier must be between 0-10000%") });
             }            
             config.rate_slope_multiplier = rate_slope_multiplier;
+        }
+        if let Some(new_rate) = self.rake_hike_rate {
+            config.rate_hike_rate = new_rate;
         }
         Ok(())
     }

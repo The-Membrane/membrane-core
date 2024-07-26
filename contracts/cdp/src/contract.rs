@@ -31,7 +31,7 @@ use crate::query::{
 };
 use crate::liquidations::liquidate;
 use crate::reply::{handle_liq_queue_reply, handle_withdraw_reply};
-use crate::state::{ get_target_position, update_position, CollateralVolatility, ContractVersion, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER, VOLATILITY };
+use crate::state::{ get_target_position, update_position, RATE_HIKES, RateHiked, CollateralVolatility, ContractVersion, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER, VOLATILITY };
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cdp";
@@ -63,6 +63,7 @@ pub fn instantiate(
         base_debt_cap_multiplier: msg.base_debt_cap_multiplier,
         collateral_twap_timeframe: msg.collateral_twap_timeframe,
         credit_twap_timeframe: msg.credit_twap_timeframe,
+        rate_hike_rate: Decimal::zero(),
     };
 
     //Set optional config parameters
@@ -573,6 +574,13 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    
+    let mut config = CONFIG.load(deps.storage)?;
+    config.rate_hike_rate = Decimal::percent(30);
+
+    let mut basket = BASKET.load(deps.storage)?;
+    for (i, asset) in basket.collateral_types.into_iter().enumerate(){
+        basket.collateral_types[i].hike_rates = false;
+    }
+    panic!("update cAssets and remember to upgrade any contracts that query the config");
     Ok(Response::default())
 }

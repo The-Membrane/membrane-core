@@ -403,6 +403,8 @@ pub struct cAsset {
     pub rate_index: Decimal, 
     /// Pool Info for Osmosis LP
     pub pool_info: Option<PoolInfo>,
+    /// Is this subject to rate hikes?
+    pub hike_rates: bool,
 }
 
 /// Osmosis PoolInfo

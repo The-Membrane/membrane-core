@@ -158,6 +158,7 @@ pub fn update_position_claims(
         max_LTV: Decimal::zero(),
         pool_info: None,
         rate_index: Decimal::one(),
+        hike_rates: false,
     }];
 
     //If there is no credit, basket tallies were updated in the repay function

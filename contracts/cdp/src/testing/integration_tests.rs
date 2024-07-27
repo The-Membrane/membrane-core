@@ -1786,6 +1786,7 @@ mod tests {
                 max_LTV: Decimal::percent(70),
                 pool_info: None,
                 rate_index: Decimal::one(),
+                    hike_rates: Some(false),
             }],
             credit_asset: Asset {
                 info: AssetInfo::NativeToken {
@@ -2314,6 +2315,7 @@ mod tests {
                         max_LTV: Decimal::percent(70),
                         pool_info: None,  
                         rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                     }
                 ]
             );
@@ -2331,6 +2333,7 @@ mod tests {
                         max_LTV: Decimal::percent(70),
                         pool_info: None,  
                         rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                     }
                 ]
             );
@@ -2532,6 +2535,7 @@ mod tests {
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -3040,6 +3044,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -3069,6 +3074,7 @@ mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -3118,6 +3124,7 @@ mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -3477,6 +3484,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -3506,6 +3514,7 @@ mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -3555,6 +3564,7 @@ mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -3795,6 +3805,7 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3821,6 +3832,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -3850,6 +3862,7 @@ mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -3899,6 +3912,7 @@ mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -4491,6 +4505,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -4520,6 +4535,7 @@ mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -4569,6 +4585,7 @@ mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
+                    hike_rates: Some(true),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -4684,7 +4701,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                res.rates[3].to_string(),
-                String::from("0.000800016000316806")
+                String::from("0.002400048000950418")
             );
 
             //Successful Increase for Position 1
@@ -4727,7 +4744,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 res.rates[3].to_string(),
-                String::from("0.07920158403136382")
+                String::from("0.237604752094091462")
             );
 
             //Set LP denom supply cap super low to spike rate
@@ -4769,7 +4786,7 @@ mod tests {
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
 
-            //Check lp_Denom rate is at the top of Slope 1 due to debt at the desired_debt_util (79% out of 80%)
+            //Check lp_Denom rate is at the top of Slope 2 bc its supply ratio is way over its cap
             let query_msg = QueryMsg::GetCollateralInterest { };
             let res: CollateralInterestResponse = app
                 .wrap()
@@ -5053,6 +5070,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -5596,6 +5614,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -5625,6 +5644,7 @@ mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -5675,6 +5695,7 @@ mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -5840,6 +5861,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -5869,6 +5891,7 @@ mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -5919,6 +5942,7 @@ mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -6075,6 +6099,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -6104,6 +6129,7 @@ mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -6154,6 +6180,7 @@ mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -6319,6 +6346,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -6348,6 +6376,7 @@ mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -6398,6 +6427,7 @@ mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -6744,6 +6774,7 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6899,6 +6930,7 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7004,6 +7036,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -7033,6 +7066,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -7080,6 +7114,7 @@ mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -7260,6 +7295,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -7575,6 +7611,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -7693,6 +7730,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -7811,6 +7849,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -7840,6 +7879,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -7887,6 +7927,7 @@ mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -8075,6 +8116,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -8104,6 +8146,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -8151,6 +8194,7 @@ mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -8348,6 +8392,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -8377,6 +8422,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -8424,6 +8470,7 @@ mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -8634,6 +8681,7 @@ mod tests {
                             max_LTV: Decimal::percent(70),
                             pool_info: None,
                             rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                         }
                     ], 
                     cAsset_ratios: vec![], //arent calc'd in queries anymore
@@ -8662,6 +8710,7 @@ mod tests {
                 collateral_twap_timeframe: Some(33u64), 
                 cpc_multiplier: Some(Decimal::percent(50)),
                 rate_slope_multiplier: Some(Decimal::percent(2)), 
+                rate_hike_rate: Some(Decimal::one()),
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8691,6 +8740,7 @@ mod tests {
                     collateral_twap_timeframe: 33u64, 
                     cpc_multiplier: Decimal::percent(50),
                     rate_slope_multiplier: Decimal::percent(2), 
+                    rate_hike_rate: Some(Decimal::one()),
                 }
             );
 
@@ -8714,6 +8764,7 @@ mod tests {
                 collateral_twap_timeframe: None, 
                 cpc_multiplier: None, 
                 rate_slope_multiplier: Some(Decimal::percent(3)), 
+                rate_hike_rate: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
@@ -8742,7 +8793,8 @@ mod tests {
                     credit_twap_timeframe: 33u64, 
                     collateral_twap_timeframe: 33u64, 
                     cpc_multiplier: Decimal::percent(50),
-                    rate_slope_multiplier: Decimal::percent(3), 
+                    rate_slope_multiplier: Decimal::percent(3),
+                    rate_hike_rate: Some(Decimal::one()),
                 }
             );
 
@@ -8850,6 +8902,7 @@ mod tests {
                     max_LTV: Decimal::percent(70),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -9276,6 +9329,7 @@ mod tests {
                     max_LTV: Decimal::percent(70),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -9744,6 +9798,7 @@ mod tests {
                     max_LTV: Decimal::percent(70),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -10102,6 +10157,7 @@ mod tests {
                     max_LTV: Decimal::percent(70),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -10284,6 +10340,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -10313,6 +10370,7 @@ mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -10342,6 +10400,7 @@ mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -10389,6 +10448,7 @@ mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
+                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,

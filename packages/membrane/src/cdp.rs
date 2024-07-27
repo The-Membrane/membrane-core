@@ -257,7 +257,7 @@ pub struct Config {
     /// Interest rate 2nd Slope multiplier
     pub rate_slope_multiplier: Decimal,
     /// Rate hike rate
-    pub rate_hike_rate: Decimal,
+    pub rate_hike_rate: Option<Decimal>,
 }
 
 
@@ -320,7 +320,7 @@ pub struct UpdateConfig {
     /// Interest rate 2nd Slope multiplier
     pub rate_slope_multiplier: Option<Decimal>,
     /// Rate hike rate
-    pub rake_hike_rate: Option<Decimal>,
+    pub rate_hike_rate: Option<Decimal>,
 }
 
 impl UpdateConfig {
@@ -394,8 +394,8 @@ impl UpdateConfig {
             }            
             config.rate_slope_multiplier = rate_slope_multiplier;
         }
-        if let Some(new_rate) = self.rake_hike_rate {
-            config.rate_hike_rate = new_rate;
+        if let Some(new_rate) = self.rate_hike_rate {
+            config.rate_hike_rate = Some(new_rate);
         }
         Ok(())
     }

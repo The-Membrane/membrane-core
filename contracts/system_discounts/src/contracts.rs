@@ -248,11 +248,11 @@ fn get_user_value_in_network(
         })?,
     })){
         Ok(price_res) => {
-            if price_res[0].price > credit_price.price {
+            // if price_res[0].price > credit_price.price {
                 price_res[0].clone()
-            } else {
-                credit_price.clone()
-            }
+            // } else {
+            //     credit_price.clone()
+            // }
         },
         //Default to CDT price
         Err(_) => credit_price.clone()

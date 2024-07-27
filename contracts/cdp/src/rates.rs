@@ -196,8 +196,8 @@ pub fn get_interest_rates(
         //ex: 2% * 110% = 2.2%
         //Higher rates for more volatile assets
 
-        if asset.hike_rates {
-            rates.push( config.rate_hike_rate )
+        if config.rate_hike_rate.is_some() && asset.hike_rates.is_some() && asset.hike_rates.unwrap() {
+            rates.push( config.rate_hike_rate.unwrap() )
         } else {
             //base * (1/max_LTV)
             rates.push(decimal_multiplication(
@@ -506,7 +506,7 @@ pub fn accrue(
         max_LTV: Decimal::zero(),
         pool_info: None,
         rate_index: Decimal::one(),
-        hike_rates: false,
+        hike_rates: Some(false),
     };
 
     let credit_TWAP_price = match get_asset_values(

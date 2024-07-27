@@ -31,7 +31,7 @@ use crate::query::{
 };
 use crate::liquidations::liquidate;
 use crate::reply::{handle_liq_queue_reply, handle_withdraw_reply};
-use crate::state::{ get_target_position, update_position, RATE_HIKES, RateHiked, CollateralVolatility, ContractVersion, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER, VOLATILITY };
+use crate::state::{ get_target_position, update_position, ContractVersion, POSITIONS, LIQUIDATION, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER, VOLATILITY };
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cdp";
@@ -63,7 +63,7 @@ pub fn instantiate(
         base_debt_cap_multiplier: msg.base_debt_cap_multiplier,
         collateral_twap_timeframe: msg.collateral_twap_timeframe,
         credit_twap_timeframe: msg.credit_twap_timeframe,
-        rate_hike_rate: Decimal::zero(),
+        rate_hike_rate: Some(Decimal::percent(30)),
     };
 
     //Set optional config parameters
@@ -425,17 +425,30 @@ fn check_and_fulfill_bad_debt(
     //Get target Position
     let (_i, mut target_position) = get_target_position(deps.storage, position_owner.clone(), position_id)?;
 
+    //Load Liquidation Prop
+    let cAsset_prices = LIQUIDATION.load(deps.storage)?.cAsset_prices;
+
     //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
     //This is allowed bc any calls here will be after a liquidation where the SP would've sold all it could to cover debts
-    let total_assets: Uint128 = target_position
+    let total_asset_value: Decimal = target_position.clone()
         .collateral_assets
-        .iter()
-        .map(|asset| asset.asset.amount)
-        .collect::<Vec<Uint128>>()
+        .into_iter()
+        .enumerate()
+        .map(|(index, asset)| 
+            {
+                //Find asset's price
+                let price = cAsset_prices[index].clone();
+                //Return asset value
+                price.get_value(asset.asset.amount).unwrap_or_else(|_| Decimal::zero())
+
+            }
+        )
+        .collect::<Vec<Decimal>>()
         .iter()
         .sum();
 
-    if total_assets > Uint128::zero() || target_position.credit_amount.is_zero() {
+    //We use > $1 bc full liquidations will leave rounding errors in the collateral assets so we just use $1 as a floor instead of $0
+    if total_asset_value > Decimal::one() || target_position.credit_amount.is_zero() {
         Err(ContractError::PositionSolvent {})
     } else {
         let mut messages: Vec<CosmosMsg> = vec![];
@@ -573,14 +586,25 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
-    config.rate_hike_rate = Decimal::percent(30);
+    println!("{:?}", config); //This should print a None for the rate hike rate
+    config.rate_hike_rate = Some(Decimal::percent(30));
 
     let mut basket = BASKET.load(deps.storage)?;
-    for (i, asset) in basket.collateral_types.into_iter().enumerate(){
-        basket.collateral_types[i].hike_rates = false;
+    for (i, _asset) in basket.collateral_types.clone().iter().enumerate(){
+        basket.collateral_types[i].hike_rates = Some(false);
     }
-    panic!("update cAssets and remember to upgrade any contracts that query the config");
+
+    CONFIG.save(deps.storage, &config)?;
+    BASKET.save(deps.storage, &basket)?;
+
+    //Load position to see if it'll error due to a new cAsset struct
+    let pos = POSITIONS.load(deps.storage, Addr::unchecked("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n"))?;
+    println!("{:?}", pos[0].collateral_assets);
+
+    //The Gov check msgs switch 0 will test if new queries of Config will fail with the new Optional field
+
+    // panic!("update cAssets and remember to upgrade any contracts that query the config");
     Ok(Response::default())
 }

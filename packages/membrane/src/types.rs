@@ -404,7 +404,7 @@ pub struct cAsset {
     /// Pool Info for Osmosis LP
     pub pool_info: Option<PoolInfo>,
     /// Is this subject to rate hikes?
-    pub hike_rates: bool,
+    pub hike_rates: Option<bool>,
 }
 
 /// Osmosis PoolInfo

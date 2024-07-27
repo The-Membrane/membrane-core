@@ -12,7 +12,7 @@ use membrane::helpers::assert_sent_native_token_balance;
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, MigrateMsg};
 use membrane::types::{
-    cAsset, Asset, AssetInfo, Basket, UserInfo,
+    cAsset, Asset, AssetInfo, Basket, UserInfo, RateHikes
 };
 use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 
@@ -31,7 +31,7 @@ use crate::query::{
 };
 use crate::liquidations::liquidate;
 use crate::reply::{handle_liq_queue_reply, handle_withdraw_reply};
-use crate::state::{ get_target_position, update_position, ContractVersion, POSITIONS, LIQUIDATION, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER, VOLATILITY };
+use crate::state::{ get_target_position, update_position, ContractVersion, BASKET, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS, RATE_HIKES, VOLATILITY };
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cdp";
@@ -63,7 +63,6 @@ pub fn instantiate(
         base_debt_cap_multiplier: msg.base_debt_cap_multiplier,
         collateral_twap_timeframe: msg.collateral_twap_timeframe,
         credit_twap_timeframe: msg.credit_twap_timeframe,
-        rate_hike_rate: Some(Decimal::percent(30)),
     };
 
     //Set optional config parameters
@@ -93,6 +92,10 @@ pub fn instantiate(
     };
     
     CONFIG.save(deps.storage, &config)?;
+    RATE_HIKES.save(deps.storage, &RateHikes {
+        rate: Decimal::percent(30),
+        assets_to_hike: vec![],
+    })?;
 
     //Set contract version
     CONTRACT.save(deps.storage, &ContractVersion {
@@ -385,6 +388,11 @@ fn update_config(
         OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?; 
         attrs.push(attr("owner_transfer", valid_addr));
     }
+
+    if let Some(rate_hikes) = update.clone().rate_hikes {
+        RATE_HIKES.save(deps.storage, &rate_hikes)?;
+        attrs.push(attr("rate_hikes", format!("{:?}", rate_hikes)));
+    }
     
     //Update Config
     update.update_config(deps.api, &mut config)?;
@@ -563,7 +571,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         },
         QueryMsg::SimulateMint { position_info, LTV } => {
             to_binary(&simulate_LTV_mint(deps, env, position_info, LTV)?)
-        }
+        },
+        QueryMsg::RateHike { } => to_binary(&RATE_HIKES.load(deps.storage)?),
     }
 }
 
@@ -587,24 +596,11 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    let mut config = CONFIG.load(deps.storage)?;
-    println!("{:?}", config); //This should print a None for the rate hike rate
-    config.rate_hike_rate = Some(Decimal::percent(30));
+    //Set RateHikes
+    RATE_HIKES.save(deps.storage, &RateHikes {
+        rate: Decimal::percent(30),
+        assets_to_hike: vec![],
+    })?;
 
-    let mut basket = BASKET.load(deps.storage)?;
-    for (i, _asset) in basket.collateral_types.clone().iter().enumerate(){
-        basket.collateral_types[i].hike_rates = Some(false);
-    }
-
-    CONFIG.save(deps.storage, &config)?;
-    BASKET.save(deps.storage, &basket)?;
-
-    //Load position to see if it'll error due to a new cAsset struct
-    let pos = POSITIONS.load(deps.storage, Addr::unchecked("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n"))?;
-    println!("{:?}", pos[0].collateral_assets);
-
-    //The Gov check msgs switch 0 will test if new queries of Config will fail with the new Optional field
-
-    // panic!("update cAssets and remember to upgrade any contracts that query the config");
     Ok(Response::default())
 }

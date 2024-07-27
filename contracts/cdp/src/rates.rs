@@ -12,7 +12,7 @@ use membrane::math::{decimal_multiplication, decimal_division, decimal_subtracti
 use crate::ContractError;
 use crate::query::{get_asset_values, get_cAsset_ratios, VOLATILITY_LIST_LIMIT};
 use crate::risk_engine::get_basket_debt_caps;
-use crate::state::{get_target_position, update_position, BASKET, CONFIG, VOLATILITY};
+use crate::state::{get_target_position, update_position, BASKET, CONFIG, RATE_HIKES, VOLATILITY};
 
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
@@ -188,6 +188,7 @@ pub fn get_interest_rates(
     cdt_liquidity: Option<Uint128>,
 ) -> StdResult<Vec<Decimal>> {
     let config = CONFIG.load(storage)?;
+    let rate_hikes = RATE_HIKES.load(storage)?;
 
     let mut rates = vec![];
 
@@ -196,8 +197,8 @@ pub fn get_interest_rates(
         //ex: 2% * 110% = 2.2%
         //Higher rates for more volatile assets
 
-        if config.rate_hike_rate.is_some() && asset.hike_rates.is_some() && asset.hike_rates.unwrap() {
-            rates.push( config.rate_hike_rate.unwrap() )
+        if !rate_hikes.assets_to_hike.is_empty() && rate_hikes.assets_to_hike.contains(&asset.asset.info.to_string()) {
+            rates.push( rate_hikes.rate )
         } else {
             //base * (1/max_LTV)
             rates.push(decimal_multiplication(
@@ -293,7 +294,7 @@ pub fn get_interest_rates(
             //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
             //// rate = 3.6%
             //If its a rate hiked rate we add, not multiply
-            if config.rate_hike_rate.is_some() && rates[i] == config.rate_hike_rate.unwrap() {
+            if !rate_hikes.assets_to_hike.is_empty() && rates[i] == rate_hikes.rate {
                 two_slope_pro_rata_rates.push(
                     min(
                         decimal_multiplication(rates[i], supply_proportions[i])? +  decimal_division(multiplier,Decimal::percent(100_00))?,
@@ -515,7 +516,6 @@ pub fn accrue(
         max_LTV: Decimal::zero(),
         pool_info: None,
         rate_index: Decimal::one(),
-        hike_rates: Some(false),
     };
 
     let credit_TWAP_price = match get_asset_values(

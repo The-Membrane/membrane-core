@@ -1,8 +1,7 @@
 use std::str::FromStr;
 
 use cosmwasm_std::{
-    entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo,
-    QueryRequest, Response, StdResult, Uint128, WasmQuery, QuerierWrapper, attr, Addr,
+    attr, entry_point, to_binary, to_json_binary, Addr, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper, QueryRequest, Response, StdResult, Uint128, WasmQuery
 };
 use cw2::set_contract_version;
 
@@ -240,7 +239,7 @@ fn get_user_value_in_network(
 
     let mbrn_price_res = match querier.query::<Vec<PriceResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.clone().oracle_contract.to_string(),
-        msg: to_binary(&Oracle_QueryMsg::Price {
+        msg: to_json_binary(&Oracle_QueryMsg::Price {
             asset_info: AssetInfo::NativeToken { denom: config.clone().mbrn_denom },
             twap_timeframe: 60,
             oracle_time_limit: 600,

@@ -599,7 +599,7 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
     //Set RateHikes
     RATE_HIKES.save(deps.storage, &RateHikes {
         rate: Decimal::percent(30),
-        assets_to_hike: vec![],
+        assets_to_hike: vec![String::from("ibc/23104D411A6EB6031FA92FB75F227422B84989969E91DCAD56A535DD7FF0A373")],
     })?;
 
     Ok(Response::default())

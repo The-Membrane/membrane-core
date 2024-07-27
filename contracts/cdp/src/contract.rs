@@ -589,7 +589,7 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     println!("{:?}", config); //This should print a None for the rate hike rate
-    config.rate_hike_rate = Some(Decimal::percent(20));
+    config.rate_hike_rate = Some(Decimal::percent(30));
 
     let mut basket = BASKET.load(deps.storage)?;
     for (i, _asset) in basket.collateral_types.clone().iter().enumerate(){

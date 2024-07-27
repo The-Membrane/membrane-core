@@ -1490,26 +1490,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "stability_pool_vault"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cosmwasm-schema",
- "cosmwasm-std",
- "cosmwasm-storage",
- "cw-multi-test 0.13.4",
- "cw-storage-plus 0.13.4",
- "cw2 0.13.4",
- "itertools",
- "membrane",
- "osmosis-std 0.16.2",
- "prost 0.11.9",
- "schemars",
- "serde",
- "thiserror",
-]
-
-[[package]]
 name = "staking"
 version = "0.1.0"
 dependencies = [

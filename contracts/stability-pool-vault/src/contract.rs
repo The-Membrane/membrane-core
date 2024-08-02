@@ -1,6 +1,3 @@
-//Token factory fork
-//https://github.com/osmosis-labs/bindings/blob/main/contracts/tokenfactory
-
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
@@ -10,7 +7,7 @@ use cw2::set_contract_version;
 use membrane::math::{decimal_multiplication, decimal_division};
 
 use crate::error::TokenFactoryError;
-use crate::state::{APRInstance, APRTracker, APR_TRACKER, TOKEN_RATE_ASSURANCE, CONFIG, DEPOSIT_BALANCE_AT_LAST_CLAIM, OWNERSHIP_TRANSFER, VAULT_TOKEN};
+use crate::state::{APRInstance, APRTracker, APR_TRACKER, TOKEN_RATE_ASSURANCE, TokenRateAssurance, CONFIG, DEPOSIT_BALANCE_AT_LAST_CLAIM, OWNERSHIP_TRANSFER, VAULT_TOKEN};
 use membrane::stability_pool_vault::{
     calculate_base_tokens, calculate_vault_tokens, Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, APRResponse
 };
@@ -126,15 +123,17 @@ fn rate_assurance(
     //If deposit or withdraw check, that the rates are static 
     if deposit_or_withdraw {
         if vtokens_per_one != token_rate_assurance.pre_vtokens_per_one || btokens_per_one != token_rate_assurance.pre_btokens_per_one {
-            return Err(TokenFactoryError::CustomError { val: format!("Deposit or withdraw rate assurance failed. Vtokens_per_one: {:?} --- pre-tx {:?}, BTokens_per_one: {:?} --- pre-tx: {:?}", vtokens_per_one, pre_vtokens_per_one, btokens_per_one, pre_btokens_per_one) });
+            return Err(TokenFactoryError::CustomError { val: format!("Deposit or withdraw rate assurance failed. Vtokens_per_one: {:?} --- pre-tx {:?}, BTokens_per_one: {:?} --- pre-tx: {:?}", vtokens_per_one, token_rate_assurance.pre_vtokens_per_one, btokens_per_one, token_rate_assurance.pre_btokens_per_one) });
         }
     }
     //If compound check, that the rates have increased
     if compound {
         if btokens_per_one <= token_rate_assurance.pre_btokens_per_one {
-            return Err(TokenFactoryError::CustomError { val: format!("Compound rate assurance failed, base tokens per vault token decreased from {:?} to {:?}", pre_btokens_per_one, btokens_per_one) });
+            return Err(TokenFactoryError::CustomError { val: format!("Compound rate assurance failed, base tokens per vault token decreased from {:?} to {:?}", token_rate_assurance.pre_btokens_per_one, btokens_per_one) });
         }
     }
+
+    Ok(Response::new())
 }
 
 
@@ -447,14 +446,16 @@ fn claim_rewards(
     )?;
     //If there are no claims, the query will error//
     
+    
+    let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
     //Calc & save the rate of vault tokens to deposit tokens
-    let btokens_per_one = calculate_base_tokens(
+    let pre_btokens_per_one = calculate_base_tokens(
         Uint128::new(1_000_000), 
         config.clone().total_deposit_tokens, 
         total_vault_tokens
     )?;
     TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
-        pre_vtokens_per_one: Decimal::zero(),
+        pre_vtokens_per_one: Uint128::zero(),
         pre_btokens_per_one,
     })?;
                      

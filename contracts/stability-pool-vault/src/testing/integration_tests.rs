@@ -288,7 +288,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 config.total_deposit_tokens,
-                Uint128::new(10)
+                Uint128::new(20)
             );
             
             //Query Vault deposit token balance

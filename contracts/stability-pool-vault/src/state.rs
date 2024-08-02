@@ -19,9 +19,16 @@ pub struct APRTracker {
     pub last_updated: u64,
 }
 
+#[cw_serde]
+pub struct TokenRateAssurance {
+    pub pre_vtokens_per_one: Uint128,
+    pub pre_btokens_per_one: Uint128,
+}
+
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const VAULT_TOKEN: Item<Uint128> = Item::new("vault_token");
 pub const DEPOSIT_BALANCE_AT_LAST_CLAIM: Item<Uint128> = Item::new("deposit_balance");
 pub const APR_TRACKER: Item<APRTracker> = Item::new("apr_tracker");
+pub const TOKEN_RATE_ASSURANCE: Item<Uint128> = Item::new("token_rate_assurance");
 
 pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");

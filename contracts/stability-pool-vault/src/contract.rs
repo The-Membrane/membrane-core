@@ -10,7 +10,7 @@ use cw2::set_contract_version;
 use membrane::math::{decimal_multiplication, decimal_division};
 
 use crate::error::TokenFactoryError;
-use crate::state::{APRInstance, APRTracker, APR_TRACKER, CONFIG, DEPOSIT_BALANCE_AT_LAST_CLAIM, OWNERSHIP_TRANSFER, VAULT_TOKEN};
+use crate::state::{APRInstance, APRTracker, APR_TRACKER, TOKEN_RATE_ASSURANCE, CONFIG, DEPOSIT_BALANCE_AT_LAST_CLAIM, OWNERSHIP_TRANSFER, VAULT_TOKEN};
 use membrane::stability_pool_vault::{
     calculate_base_tokens, calculate_vault_tokens, Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, APRResponse
 };
@@ -43,6 +43,7 @@ pub fn instantiate(
         total_deposit_tokens: Uint128::zero(),
         percent_to_keep_liquid: Decimal::percent(10),
         compound_activation_fee: Uint128::new(1_000_000),
+        min_time_before_next_compound: SECONDS_PER_DAY,
         stability_pool_contract: deps.api.addr_validate(&msg.stability_pool_contract)?,
         osmosis_proxy_contract: deps.api.addr_validate(&msg.osmosis_proxy_contract)?,
     };
@@ -77,12 +78,65 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, TokenFactoryError> {
     match msg {
-        ExecuteMsg::UpdateConfig { owner } => update_config(deps, info, owner),
+        ExecuteMsg::UpdateConfig { owner, percent_to_keep_liquid, compound_activation_fee, min_time_before_next_compound } => update_config(deps, info, owner, percent_to_keep_liquid, compound_activation_fee, min_time_before_next_compound),
         ExecuteMsg::EnterVault { } => enter_vault(deps, env, info),
         ExecuteMsg::ExitVault {  } => exit_vault(deps, env, info),
         ExecuteMsg::Compound { } => claim_rewards(deps, env, info),
+        ExecuteMsg::RateAssurance { deposit_or_withdraw, compound } => rate_assurance(deps, env, info, deposit_or_withdraw, compound),
     }
 }
+
+///Rate assurance
+/// Ensures that the conversion rate is static for deposits & withdrawals
+/// & increases for compounds
+fn rate_assurance(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    deposit_or_withdraw: bool,
+    compound: bool,
+) -> Result<Response, TokenFactoryError> {
+    //Load config    
+    let config = CONFIG.load(deps.storage)?;
+
+    //Error if not the contract calling
+    if info.sender != env.contract.address {
+        return Err(TokenFactoryError::Unauthorized {});
+    }
+
+    //Load Token Assurance State
+    let token_rate_assurance = TOKEN_RATE_ASSURANCE.load(deps.storage)?;
+
+    //Load Vault token supply
+    let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
+
+    //Calc the rate of deposit tokens to vault tokens
+    let vtokens_per_one = calculate_vault_tokens(
+        Uint128::new(1_000_000), 
+        config.clone().total_deposit_tokens, 
+        total_vault_tokens
+    )?;
+    //Calc the rate of vault tokens to deposit tokens
+    let btokens_per_one = calculate_base_tokens(
+        Uint128::new(1_000_000), 
+        config.clone().total_deposit_tokens, 
+        total_vault_tokens
+    )?;
+
+    //If deposit or withdraw check, that the rates are static 
+    if deposit_or_withdraw {
+        if vtokens_per_one != token_rate_assurance.pre_vtokens_per_one || btokens_per_one != token_rate_assurance.pre_btokens_per_one {
+            return Err(TokenFactoryError::CustomError { val: format!("Deposit or withdraw rate assurance failed. Vtokens_per_one: {:?} --- pre-tx {:?}, BTokens_per_one: {:?} --- pre-tx: {:?}", vtokens_per_one, pre_vtokens_per_one, btokens_per_one, pre_btokens_per_one) });
+        }
+    }
+    //If compound check, that the rates have increased
+    if compound {
+        if btokens_per_one <= token_rate_assurance.pre_btokens_per_one {
+            return Err(TokenFactoryError::CustomError { val: format!("Compound rate assurance failed, base tokens per vault token decreased from {:?} to {:?}", pre_btokens_per_one, btokens_per_one) });
+        }
+    }
+}
+
 
 ///Deposit the deposit_token to the vault & receive vault tokens in return
 /// Send the deposit tokens to the yield strategy, in this case, the stability pool.
@@ -97,6 +151,7 @@ fn enter_vault(
     //Error is there are claims.
     //Catch the error if there aren't.
     //We don't let users enter the vault if the contract has claims bc the claims go to existing users.
+    /////To avoid this error, compound before depositing/////
     let _claims: ClaimsResponse = match deps.querier.query_wasm_smart::<ClaimsResponse>(
         config.stability_pool_contract.to_string(),
         &StabilityPoolQueryMsg::UserClaims {
@@ -122,6 +177,21 @@ fn enter_vault(
     //////Calculate the amount of vault tokens to mint////
     //Get the total amount of vault tokens circulating
     let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
+    //Calc & save token rates
+    let pre_vtokens_per_one = calculate_vault_tokens(
+        Uint128::new(1_000_000), 
+        config.clone().total_deposit_tokens, 
+        total_vault_tokens
+    )?;
+    let pre_btokens_per_one = calculate_base_tokens(
+        Uint128::new(1_000_000), 
+        config.clone().total_deposit_tokens, 
+        total_vault_tokens
+    )?;
+    TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
+        pre_vtokens_per_one,
+        pre_btokens_per_one,
+    })?;
     //Calculate the amount of vault tokens to mint
     let vault_tokens_to_distribute = calculate_vault_tokens(
         deposit_amount, 
@@ -191,6 +261,15 @@ fn enter_vault(
         msgs.push(send_deposit_to_yield_msg);
     }
 
+    //Add rate assurance callback msg
+    msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: env.contract.address.to_string(),
+        msg: to_binary(&ExecuteMsg::RateAssurance {
+            deposit_or_withdraw: true,
+            compound: false,
+        })?,
+        funds: vec![],
+    }));
 
     //Create Response
     let res = Response::new()
@@ -249,6 +328,21 @@ fn exit_vault(
     //////Calculate the amount of deposit tokens to withdraw////
     //Get the total amount of vault tokens circulating
     let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
+    //Calc & save token rates
+    let pre_vtokens_per_one = calculate_vault_tokens(
+        Uint128::new(1_000_000), 
+        config.clone().total_deposit_tokens, 
+        total_vault_tokens
+    )?;
+    let pre_btokens_per_one = calculate_base_tokens(
+        Uint128::new(1_000_000), 
+        config.clone().total_deposit_tokens, 
+        total_vault_tokens
+    )?;
+    TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
+        pre_vtokens_per_one,
+        pre_btokens_per_one,
+    })?;
     //Calculate the amount of deposit tokens to withdraw
     let mut deposit_tokens_to_withdraw = calculate_base_tokens(
         vault_tokens, 
@@ -313,6 +407,16 @@ fn exit_vault(
         funds: vec![],
     });
 
+    //Add rate assurance callback msg
+    let assurance = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: env.contract.address.to_string(),
+        msg: to_binary(&ExecuteMsg::RateAssurance {
+            deposit_or_withdraw: true,
+            compound: false,
+        })?,
+        funds: vec![],
+    });
+
     //Create Response 
     let res = Response::new()
         .add_attribute("method", "exit_vault")
@@ -320,7 +424,8 @@ fn exit_vault(
         .add_attribute("deposit_tokens_to_withdraw", deposit_tokens_to_withdraw)
         .add_message(burn_vault_tokens_msg)
         .add_message(unstake_tokens_msg)
-        .add_message(send_deposit_tokens_msg);
+        .add_message(send_deposit_tokens_msg)
+        .add_message(assurance);
 
     Ok(res)
 }
@@ -341,7 +446,18 @@ fn claim_rewards(
         },
     )?;
     //If there are no claims, the query will error//
-        
+    
+    //Calc & save the rate of vault tokens to deposit tokens
+    let btokens_per_one = calculate_base_tokens(
+        Uint128::new(1_000_000), 
+        config.clone().total_deposit_tokens, 
+        total_vault_tokens
+    )?;
+    TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
+        pre_vtokens_per_one: Decimal::zero(),
+        pre_btokens_per_one,
+    })?;
+                     
     //Send fee to caller
     let send_fee: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
         to_address: info.sender.to_string(),
@@ -378,13 +494,23 @@ fn claim_rewards(
     let current_balance = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
     DEPOSIT_BALANCE_AT_LAST_CLAIM.save(deps.storage, &current_balance)?;
 
+    //Create Assurance msg
+    let assurance = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: env.contract.address.to_string(),
+        msg: to_binary(&ExecuteMsg::RateAssurance {
+            deposit_or_withdraw: false,
+            compound: true,
+        })?,
+        funds: vec![],
+    });
 
     //Create Response
     let res = Response::new()
         .add_attribute("method", "claim_rewards")
-        .add_message(claim_msg)        
-        .add_message(send_fee)
-        .add_submessage(compound_submsg);
+        .add_message(claim_msg)   
+        .add_submessage(compound_submsg)
+        .add_message(send_fee) //send post-compound to avoid not having liquidity to send the fee
+        .add_message(assurance);
 
     Ok(res)
 }
@@ -395,6 +521,9 @@ fn update_config(
     deps: DepsMut,
     info: MessageInfo,
     owner: Option<String>,
+    percent_to_keep_liquid: Option<Decimal>,
+    compound_activation_fee: Option<Uint128>,
+    min_time_before_next_compound: Option<u64>,
 ) -> Result<Response, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -416,6 +545,18 @@ fn update_config(
         //Set owner transfer state
         OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
         attrs.push(attr("owner_transfer", valid_addr));  
+    }
+    if let Some(percent) = percent_to_keep_liquid {
+        config.percent_to_keep_liquid = percent;
+        attrs.push(attr("percent_to_keep_liquid", percent.to_string()));
+    }
+    if let Some(fee) = compound_activation_fee {
+        config.compound_activation_fee = fee;
+        attrs.push(attr("compound_activation_fee", fee.to_string()));
+    }
+    if let Some(interval) = min_time_before_next_compound {
+        config.min_time_before_next_compound = interval;
+        attrs.push(attr("min_time_before_next_compound", interval.to_string()));
     }
 
     CONFIG.save(deps.storage, &config)?;
@@ -518,7 +659,6 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     }
 }
 
-
 /// Find & save created full denom
 fn handle_compound_reply(
     deps: DepsMut,
@@ -528,7 +668,8 @@ fn handle_compound_reply(
     match msg.result.into_result() {
         Ok(result) => {
             //Load config
-            let mut config = CONFIG.load(deps.storage)?;
+            let mut config = CONFIG.load(deps.storage)?;  
+
             //Load previous deposit token balance
             let prev_balance = DEPOSIT_BALANCE_AT_LAST_CLAIM.load(deps.storage)?;
             
@@ -536,37 +677,57 @@ fn handle_compound_reply(
             let current_balance = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
 
             //If the contract has less of the deposit token than it started with, error
-            if current_balance < prev_balance {
-                return Err(StdError::GenericErr { msg: "Contract has less of the deposit token than it started with".to_string() });
+            if current_balance - config.compound_activation_fee <= prev_balance {
+                return Err(StdError::GenericErr { msg: "Contract needs to compound more than the compound fee".to_string() });
             }
             
             //Calc the amount of deposit tokens that were compounded
             let compounded_amount = current_balance - prev_balance;
             //Update APR tracker
             let mut apr_tracker = APR_TRACKER.load(deps.storage)?;
-            //Calculate APR
+            //Calculate time since last claim
             let time_since_last_claim = env.block.time.seconds() - apr_tracker.last_updated;
+            //If the time since last claim is less than the max compound interval, error
+            if time_since_last_claim < config.min_time_before_next_compound {
+                return Err(StdError::GenericErr { msg: format!("Only {:?} seconds have passed and the minimum time before the next compound is {:?}", time_since_last_claim, config.clone().min_time_before_next_compound) });
+            }
+            //Calculate APR of this claim
             let apr_of_this_claim = Decimal::from_ratio(compounded_amount, config.total_deposit_tokens);
             let apr_per_second = decimal_division(apr_of_this_claim, Decimal::from_ratio(time_since_last_claim, Uint128::one()))?;
+            //If the trackers total time is over a year, replace the first instance
+            if apr_tracker.aprs.len() > 0 && apr_tracker.aprs.iter().map(|apr_instance| apr_instance.time_since_last_claim).sum::<u64>() > SECONDS_PER_DAY * 365 {
+                apr_tracker.aprs.remove(0);
+            }
+            //Push new instance
             apr_tracker.aprs.push(APRInstance {
                 apr_per_second,
-                time_since_last_claim: time_since_last_claim,
-                apr_of_this_claim: apr_of_this_claim,
+                time_since_last_claim,
+                apr_of_this_claim,
             });
             apr_tracker.last_updated = env.block.time.seconds();
             //Save APR Tracker
             APR_TRACKER.save(deps.storage, &apr_tracker)?;
 
-
             //Update the total deposit tokens
             config.total_deposit_tokens += compounded_amount;
             //Save Updated Config
             CONFIG.save(deps.storage, &config)?;
+            
+            //Send everything but the compound fee to the yield strategy
+            let send_deposit_to_yield_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.stability_pool_contract.to_string(),
+                msg: to_binary(&StabilityPoolExecuteMsg::Deposit { user: None })?,
+                funds: vec![Coin {
+                    denom: config.deposit_token.clone(),
+                    amount: compounded_amount - config.compound_activation_fee,
+                }],
+            });
 
             //Create Response
             let res = Response::new()
                 .add_attribute("method", "handle_compound_reply")
-                .add_attribute("compounded_amount", compounded_amount);
+                .add_attribute("compounded_amount", compounded_amount)
+                .add_message(send_deposit_to_yield_msg);
 
             return Ok(res);
 

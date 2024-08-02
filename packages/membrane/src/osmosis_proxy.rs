@@ -51,6 +51,11 @@ pub enum ExecuteMsg {
         /// New max supply
         max_supply: Uint128,
     },
+    /// Execute Swaps
+    ExecuteSwaps {
+        /// Token out
+        token_out: String,
+    },
     /// Update contract config
     UpdateConfig {
         /// List of owners

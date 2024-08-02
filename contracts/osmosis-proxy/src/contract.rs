@@ -74,6 +74,9 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, TokenFactoryError> {
     match msg {
+        ExecuteMsg::ExecuteSwaps { token_out } => {
+            Ok(Response::new())
+        }
         ExecuteMsg::CreateDenom {
             subdenom,
             max_supply,

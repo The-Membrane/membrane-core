@@ -757,6 +757,10 @@ pub(crate) fn set_slot_total(
 fn claim_bid_residue(slot: &mut PremiumSlot) -> Uint256 {
     let claimable = slot.residue_bid * Uint256::one();
 
+    if slot.residue_bid < Decimal256::from_uint256(claimable){
+        return Uint256::zero();
+    }
+
     if !claimable.is_zero() {
         slot.residue_bid = slot.residue_bid - Decimal256::from_uint256(claimable);
     }
@@ -812,14 +816,14 @@ pub fn calculate_liquidated_collateral(
     let liquidated_collateral = liquidated_collateral_dec * Uint256::one();
     //If the residue calc is going to error, then just skip the residue calc
     //We don't want that to be the reason users can't withdraw their liquidations
-    // if liquidated_collateral_dec < Decimal256::from_uint256(liquidated_collateral){
-    //     return Ok((liquidated_collateral, Decimal256::zero()));
-    // }
+    if liquidated_collateral_dec < Decimal256::from_uint256(liquidated_collateral){
+        return Ok((liquidated_collateral, Decimal256::zero()));
+    }
     // stacks the residue when converting to integer
-    // let residue_collateral =
-    //     liquidated_collateral_dec - Decimal256::from_uint256(liquidated_collateral);
+    let residue_collateral =
+        liquidated_collateral_dec - Decimal256::from_uint256(liquidated_collateral);
 
-    Ok((liquidated_collateral, Decimal256::zero()))
+    Ok((liquidated_collateral, residue_collateral))
 }
 
 /// Store epoch scale sum
@@ -887,13 +891,13 @@ pub fn calculate_remaining_bid(bid: &Bid, slot: &PremiumSlot) -> StdResult<(Uint
     let remaining_bid = remaining_bid_dec * Uint256::one();
     //If the residue calc is going to error, then just skip the residue calc
     //We don't want that to be the reason users can't withdraw their bids
-    // if remaining_bid_dec < Decimal256::from_uint256(remaining_bid){
-    //     return Ok((remaining_bid, Decimal256::zero()));
-    // }
+    if remaining_bid_dec < Decimal256::from_uint256(remaining_bid){
+        return Ok((remaining_bid, Decimal256::zero()));
+    }
     // stacks the residue when converting to integer
-    // let bid_residue = remaining_bid_dec - Decimal256::from_uint256(remaining_bid);
+    let bid_residue = remaining_bid_dec - Decimal256::from_uint256(remaining_bid);
 
-    Ok((remaining_bid, Decimal256::zero()))
+    Ok((remaining_bid, bid_residue))
 }
 
 /// Read premium slot

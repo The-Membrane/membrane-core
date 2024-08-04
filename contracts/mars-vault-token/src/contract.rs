@@ -53,9 +53,9 @@ pub fn instantiate(
         .add_attribute("method", "instantiate")
         .add_attribute("config", format!("{:?}", config))
         .add_attribute("contract_address", env.contract.address)
-        .add_attribute("sub_denom", msg.clone().vault_subdenom);
+        .add_attribute("sub_denom", msg.clone().vault_subdenom)
     //UNCOMMENT
-        // .add_message(denom_msg);
+        .add_message(denom_msg);
     Ok(res)
 }
 
@@ -82,7 +82,7 @@ fn crank_apr(
     env: Env,
     _info: MessageInfo,
 ) -> Result<Response, TokenFactoryError> {
-    let mut apr_tracker = APR_TRACKER.load(deps.storage)?;
+    let apr_tracker = APR_TRACKER.load(deps.storage)?;
     let config = CONFIG.load(deps.storage)?;
 
     //Get the current total deposit tokens
@@ -254,7 +254,7 @@ fn enter_vault(
         mint_to_address: info.sender.to_string(),
     }.into();
     //UNCOMMENT
-    // msgs.push(mint_vault_tokens_msg);
+    msgs.push(mint_vault_tokens_msg);
 
     //Update the total vault tokens
     VAULT_TOKEN.save(deps.storage, &(total_vault_tokens + vault_tokens_to_distribute))?;
@@ -392,7 +392,7 @@ fn exit_vault(
         .add_attribute("vault_tokens", vault_tokens)
         .add_attribute("deposit_tokens_withdrawn", deposit_tokens_to_withdraw)
         //UNCOMMENT
-        // .add_message(burn_vault_tokens_msg)
+        .add_message(burn_vault_tokens_msg)
         .add_message(red_bank_withdrawal)
         .add_message(assurance);
 

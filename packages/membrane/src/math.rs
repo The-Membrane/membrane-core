@@ -172,7 +172,9 @@ impl ops::Sub for Decimal256 {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self {
-        assert!(self.0 >= rhs.0);
+        if !(self.0 >= rhs.0){
+            panic!("Decimal256 underflow: {} - {}", self, rhs);
+        };
         Decimal256(self.0 - rhs.0)
     }
 }

@@ -793,7 +793,7 @@ pub fn calculate_liquidated_collateral(
     )
     .unwrap_or_default();
 
-    if reference_sum_snapshot.is_zero() {
+    if reference_sum_snapshot.is_zero() || reference_sum_snapshot < bid.sum_snapshot {
         return Ok((Uint256::zero(), Decimal256::zero()));
     }
 

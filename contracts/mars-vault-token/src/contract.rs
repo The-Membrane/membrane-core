@@ -526,25 +526,16 @@ fn get_total_deposit_tokens(
     //Set total deposit tokens
     let total_deposit_tokens = vault_user_info.amount;
 
-    //Query the Red Bank market for its total funds in state    
-    let deposit_token_market: Market = deps.querier.query_wasm_smart::<Market> (
-        config.mars_redbank_addr.to_string(),
-        &Mars_QueryMsg::Market { denom: config.deposit_token.clone() },
-    )?;
-    let market_deposit_tokens: Uint128 = deps.querier.query_wasm_smart::<Uint128> (
-        config.mars_redbank_addr.to_string(),
-        &Mars_QueryMsg::UnderlyingLiquidityAmount { 
-            denom: config.deposit_token.clone(),
-            amount_scaled: deposit_token_market.collateral_total_scaled
-        },
-    )?;
     //Query the Red Bank balance for its total deposit tokens
     let total_redbank_deposit_tokens = deps.querier.query_balance(config.mars_redbank_addr.clone(), config.deposit_token.clone())?.amount;
+
+    //BC THE BANK SENDS ASSETS TO BORROWERS WE CAN ONLY ASSERT AN INSOLVENCY IF THEY HAVE LESS THAN WE'VE DEPOSITED
+
     // If the Red Bank has less deposit tokens than it thinks it does in state, return a discounted amount
     /////This is hack insurance & guarantees that underlying queries return less if the Red Bank has been exploited////////
     let mut deposit_discount = Decimal::one();
-    if total_redbank_deposit_tokens < market_deposit_tokens {
-        deposit_discount = Decimal::from_ratio(total_redbank_deposit_tokens, market_deposit_tokens);
+    if total_redbank_deposit_tokens < total_deposit_tokens {
+        deposit_discount = Decimal::from_ratio(total_redbank_deposit_tokens, total_deposit_tokens);
     }
     
     //Apply the discount to the total deposit tokens

@@ -527,22 +527,22 @@ fn get_total_deposit_tokens(
     let total_deposit_tokens = vault_user_info.amount;
 
     //Query the Red Bank balance for its total deposit tokens
-    let total_redbank_deposit_tokens = deps.querier.query_balance(config.mars_redbank_addr.clone(), config.deposit_token.clone())?.amount;
+    // let total_redbank_deposit_tokens = deps.querier.query_balance(config.mars_redbank_addr.clone(), config.deposit_token.clone())?.amount;
 
     //BC THE BANK SENDS ASSETS TO BORROWERS WE CAN ONLY ASSERT AN INSOLVENCY IF THEY HAVE LESS THAN WE'VE DEPOSITED
 
     // If the Red Bank has less deposit tokens than it thinks it does in state, return a discounted amount
     /////This is hack insurance & guarantees that underlying queries return less if the Red Bank has been exploited////////
-    let mut deposit_discount = Decimal::one();
-    if total_redbank_deposit_tokens < total_deposit_tokens {
-        deposit_discount = Decimal::from_ratio(total_redbank_deposit_tokens, total_deposit_tokens);
-    }
+    // let mut deposit_discount = Decimal::one();
+    // if total_redbank_deposit_tokens < total_deposit_tokens {
+    //     deposit_discount = Decimal::from_ratio(total_redbank_deposit_tokens, total_deposit_tokens);
+    // }
     
     //Apply the discount to the total deposit tokens
-    let discounted_deposit_tokens: Decimal = decimal_multiplication(Decimal::from_ratio(total_deposit_tokens, Uint128::one()), deposit_discount)?;
+    // let discounted_deposit_tokens: Decimal = decimal_multiplication(Decimal::from_ratio(total_deposit_tokens, Uint128::one()), deposit_discount)?;
 
     //return the discounted amount
-    Ok(discounted_deposit_tokens.to_uint_floor())
+    Ok(total_deposit_tokens)
     
 }
 

@@ -262,7 +262,16 @@ mod tests {
             //Enter Vault: Some of the deposit is kept in the vault
             let msg = ExecuteMsg::EnterVault { };
             let cosmos_msg = vault_contract.call(msg, vec![coin(10, "cdt_fulldenom")]).unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
 
             // Query Vault token underlying
             let underlying_deposit_token: Uint128 = app
@@ -288,7 +297,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 config.total_deposit_tokens,
-                Uint128::new(20)
+                Uint128::new(110)
             );
             
             //Query Vault deposit token balance
@@ -297,7 +306,62 @@ mod tests {
                 .wrap()
                 .query_balance(Addr::unchecked("contract2"), "cdt_fulldenom")
                 .unwrap().amount;
-            assert_eq!(balance, Uint128::zero());
+            assert_eq!(balance, Uint128::new(10));
+        }
+        
+        // #[test]
+        fn exit_vault() {
+            let (mut app, vault_contract) = proper_instantiate();
+
+            //Enter Vault
+            let msg = ExecuteMsg::EnterVault { };
+            let cosmos_msg = vault_contract.call(msg, vec![coin(10, "cdt_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+
+            // // Query Vault token underlying
+            // let underlying_deposit_token: Uint128 = app
+            //     .wrap()
+            //     .query_wasm_smart(
+            //         vault_contract.addr(),
+            //         &QueryMsg::VaultTokenUnderlying { 
+            //             vault_token_amount: Uint128::new(10_000_000)
+            //         },
+            //     )
+            //     .unwrap();
+            // assert_eq!(
+            //     underlying_deposit_token,
+            //     Uint128::new(10)
+            // );
+            // // Query Config for total deposit amount
+            // let config: Config = app
+            //     .wrap()
+            //     .query_wasm_smart(
+            //         vault_contract.addr(),
+            //         &QueryMsg::Config { },
+            //     )
+            //     .unwrap();
+            // assert_eq!(
+            //     config.total_deposit_tokens,
+            //     Uint128::new(20)
+            // );
+            
+            // //Query Vault deposit token balance
+            // //Should be 0 bc everything was sent to the vault
+            // let balance = app
+            //     .wrap()
+            //     .query_balance(Addr::unchecked("contract2"), "cdt_fulldenom")
+            //     .unwrap().amount;
+            // assert_eq!(balance, Uint128::zero());
         }
     }
 

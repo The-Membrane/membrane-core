@@ -1,7 +1,7 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg
+    attr, to_json_binary, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg
 };
 use cw2::set_contract_version;
 use membrane::math::{decimal_multiplication, decimal_division};
@@ -224,13 +224,13 @@ fn enter_vault(
     /////Send the deposit tokens to the yield strategy///
     let contract_balance_of_deposit_tokens = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
     //Calculate ratio of deposit tokens in the contract to the total deposit tokens
-    let ratio = decimal_division(Decimal::from_ratio(contract_balance_of_deposit_tokens, Uint128::one()), Decimal::from_ratio(config.total_deposit_tokens, Uint128::one()))?;
+    let ratio_of_tokens_in_contract = decimal_division(Decimal::from_ratio(contract_balance_of_deposit_tokens, Uint128::one()), Decimal::from_ratio(config.total_deposit_tokens, Uint128::one()))?;
 
     //Calculate what is sent and what is kept
     let mut deposit_sent_to_yield: Uint128 = Uint128::zero();
     let mut deposit_kept: Uint128 = Uint128::zero();
     //If the ratio is less than the percent_to_keep_liquid, calculate the amount of deposit tokens to send to the yield strategy
-    if ratio < config.percent_to_keep_liquid {
+    if ratio_of_tokens_in_contract < config.percent_to_keep_liquid {
         //Calculate the amount of deposit tokens that would make the ratio equal to the percent_to_keep_liquid
         let desired_ratio_tokens = decimal_multiplication(Decimal::from_ratio(config.total_deposit_tokens, Uint128::one()), config.percent_to_keep_liquid)?;
         let tokens_to_fill_ratio = desired_ratio_tokens.to_uint_floor() - contract_balance_of_deposit_tokens;
@@ -242,7 +242,7 @@ fn enter_vault(
             deposit_kept = tokens_to_fill_ratio;
         }
     } else
-    //If the ratio to keep is past the threshold then send all the deposit tokens to the yield strategy
+    //If the ratio to keep is past the threshold then keep all the deposit tokens
     {
         deposit_sent_to_yield = deposit_amount;
     }
@@ -251,7 +251,7 @@ fn enter_vault(
     if !deposit_sent_to_yield.is_zero() {
         let send_deposit_to_yield_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.stability_pool_contract.to_string(),
-            msg: to_binary(&StabilityPoolExecuteMsg::Deposit { user: None })?,
+            msg: to_json_binary(&StabilityPoolExecuteMsg::Deposit { user: None })?,
             funds: vec![Coin {
                 denom: config.deposit_token.clone(),
                 amount: deposit_sent_to_yield,
@@ -263,7 +263,7 @@ fn enter_vault(
     //Add rate assurance callback msg
     msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
-        msg: to_binary(&ExecuteMsg::RateAssurance {
+        msg: to_json_binary(&ExecuteMsg::RateAssurance {
             deposit_or_withdraw: true,
             compound: false,
         })?,
@@ -400,7 +400,7 @@ fn exit_vault(
     //Unstake the deposit tokens from the Stability Pool
     let unstake_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.stability_pool_contract.to_string(),
-        msg: to_binary(&StabilityPoolExecuteMsg::Withdraw {
+        msg: to_json_binary(&StabilityPoolExecuteMsg::Withdraw {
             amount: deposit_tokens_to_withdraw,
         })?,
         funds: vec![],
@@ -409,7 +409,7 @@ fn exit_vault(
     //Add rate assurance callback msg
     let assurance = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
-        msg: to_binary(&ExecuteMsg::RateAssurance {
+        msg: to_json_binary(&ExecuteMsg::RateAssurance {
             deposit_or_withdraw: true,
             compound: false,
         })?,
@@ -476,7 +476,7 @@ fn claim_rewards(
     //Claim rewards from Stability Pool
     let claim_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.stability_pool_contract.to_string(),
-        msg: to_binary(&StabilityPoolExecuteMsg::ClaimRewards { })?,
+        msg: to_json_binary(&StabilityPoolExecuteMsg::ClaimRewards { })?,
         funds: vec![]
     });
 
@@ -484,7 +484,7 @@ fn claim_rewards(
     //...send as a submsg that checks that the contract has more of the deposit token than it started with
     let compound_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.osmosis_proxy_contract.to_string(),
-        msg: to_binary(&OsmosisProxyExecuteMsg::ExecuteSwaps {
+        msg: to_json_binary(&OsmosisProxyExecuteMsg::ExecuteSwaps {
             token_out: config.deposit_token.clone(),
         })?,
         funds: claims.claims,
@@ -498,7 +498,7 @@ fn claim_rewards(
     //Create Assurance msg
     let assurance = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
-        msg: to_binary(&ExecuteMsg::RateAssurance {
+        msg: to_json_binary(&ExecuteMsg::RateAssurance {
             deposit_or_withdraw: false,
             compound: true,
         })?,
@@ -569,9 +569,9 @@ fn update_config(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::VaultTokenUnderlying { vault_token_amount } => to_binary(&query_vault_token_underlying(deps, env, vault_token_amount)?),
-        QueryMsg::APR {} => to_binary(&query_apr(deps, env)?),
+        QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
+        QueryMsg::VaultTokenUnderlying { vault_token_amount } => to_json_binary(&query_vault_token_underlying(deps, env, vault_token_amount)?),
+        QueryMsg::APR {} => to_json_binary(&query_apr(deps, env)?),
     }
 }
 
@@ -597,6 +597,8 @@ fn query_apr(
         apr_of_this_claim: Decimal::zero(),
     });
     //Parse instances to allocate APRs to the correct duration
+    //We reverse to get the most recent instances first
+    apr_instances.reverse();
     for apr_instance in apr_instances.into_iter() {
         running_duration += apr_instance.time_since_last_claim;
         running_apr += apr_instance.apr_of_this_claim;
@@ -717,7 +719,7 @@ fn handle_compound_reply(
             //Send everything but the compound fee to the yield strategy
             let send_deposit_to_yield_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.stability_pool_contract.to_string(),
-                msg: to_binary(&StabilityPoolExecuteMsg::Deposit { user: None })?,
+                msg: to_json_binary(&StabilityPoolExecuteMsg::Deposit { user: None })?,
                 funds: vec![Coin {
                     denom: config.deposit_token.clone(),
                     amount: compounded_amount - config.compound_activation_fee,

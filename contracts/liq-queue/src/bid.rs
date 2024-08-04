@@ -793,6 +793,10 @@ pub fn calculate_liquidated_collateral(
     )
     .unwrap_or_default();
 
+    if reference_sum_snapshot.is_zero() {
+        return Ok((Uint256::zero(), Decimal256::zero()));
+    }
+
     // reward = reward from first scale + reward from second scale (if any)
     let first_portion = reference_sum_snapshot - bid.sum_snapshot;
     let second_portion = if let Ok(second_scale_sum_snapshot) = read_epoch_scale_sum(

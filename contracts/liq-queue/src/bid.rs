@@ -810,6 +810,11 @@ pub fn calculate_liquidated_collateral(
         / bid.product_snapshot;
 
     let liquidated_collateral = liquidated_collateral_dec * Uint256::one();
+    //If the residue calc is going to error, then just skip the residue calc
+    //We don't want that to be the reason users can't withdraw their liquidations
+    if liquidated_collateral_dec < Decimal256::from_uint256(liquidated_collateral){
+        return Ok((liquidated_collateral, Decimal256::zero()));
+    }
     // stacks the residue when converting to integer
     let residue_collateral =
         liquidated_collateral_dec - Decimal256::from_uint256(liquidated_collateral);
@@ -880,6 +885,11 @@ pub fn calculate_remaining_bid(bid: &Bid, slot: &PremiumSlot) -> StdResult<(Uint
     };
 
     let remaining_bid = remaining_bid_dec * Uint256::one();
+    //If the residue calc is going to error, then just skip the residue calc
+    //We don't want that to be the reason users can't withdraw their bids
+    if remaining_bid_dec < Decimal256::from_uint256(remaining_bid){
+        return Ok((remaining_bid, Decimal256::zero()));
+    }
     // stacks the residue when converting to integer
     let bid_residue = remaining_bid_dec - Decimal256::from_uint256(remaining_bid);
 

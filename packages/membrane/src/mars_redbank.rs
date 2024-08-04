@@ -35,8 +35,8 @@ pub enum ExecuteMsg {
 #[derive(QueryResponses)]
 pub enum QueryMsg {
     /// Get asset market with underlying collateral and debt amount
-    #[returns(MarketV2Response)]
-    MarketV2 {
+    #[returns(Market)]
+    Market {
         denom: String,
     },
 
@@ -48,22 +48,14 @@ pub enum QueryMsg {
         denom: String,
     },
 
-    // /// Get liquidity scaled amount for a given underlying asset amount.
-    // /// (i.e: how much scaled collateral is added if the given amount is deposited)
-    // #[returns(Uint128)]
-    // ScaledLiquidityAmount {
-    //     denom: String,
-    //     amount: Uint128,
-    // },
-
-    // /// Get underlying asset amount for a given asset and scaled amount.
-    // /// (i.e. How much underlying asset will be released if withdrawing by burning a given scaled
-    // /// collateral amount stored in state.)
-    // #[returns(Uint128)]
-    // UnderlyingLiquidityAmount {
-    //     denom: String,
-    //     amount_scaled: Uint128,
-    // },
+    /// Get underlying asset amount for a given asset and scaled amount.
+    /// (i.e. How much underlying asset will be released if withdrawing by burning a given scaled
+    /// collateral amount stored in state.)
+    #[returns(Uint128)]
+    UnderlyingLiquidityAmount {
+        denom: String,
+        amount_scaled: Uint128,
+    },
 }
 
 #[cw_serde]
@@ -115,14 +107,4 @@ pub struct InterestRateModel {
     pub slope_1: Decimal,
     /// Slope parameter for interest rate model function when utilization_rate > optimal_utilization_rate
     pub slope_2: Decimal,
-}
-
-#[cw_serde]
-pub struct MarketV2Response {
-    pub collateral_total_amount: Uint128,
-    pub debt_total_amount: Uint128,
-    pub utilization_rate: Decimal,
-
-    #[serde(flatten)]
-    pub market: Market,
 }

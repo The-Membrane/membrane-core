@@ -3,7 +3,7 @@ mod tests {
     use crate::helpers::MarsVaultContract;
 
     use membrane::mars_vault_token::{ExecuteMsg, InstantiateMsg, QueryMsg, Config};
-    use membrane::mars_redbank::{MarketV2Response, UserCollateralResponse, Market, InterestRateModel};
+    use membrane::mars_redbank::{Market, UserCollateralResponse, InterestRateModel};
     use membrane::types::{AssetInfo, Asset, AssetPool};
 
     use cosmwasm_std::{
@@ -61,8 +61,12 @@ mod tests {
      
     #[cw_serde]
      pub enum Mars_MockQueryMsg {        
-        MarketV2 {
+        Market {
             denom: String,
+        },
+        UnderlyingLiquidityAmount {
+            denom: String,
+            amount_scaled: Uint128,
         },
         UserCollateral {
             user: String,
@@ -88,29 +92,27 @@ mod tests {
             },
             |_, _, msg: Mars_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    Mars_MockQueryMsg::MarketV2 { denom } => {
-                        Ok(to_binary(&MarketV2Response {
-                            collateral_total_amount: Uint128::new(10),
-                            debt_total_amount: Uint128::zero(),
-                            utilization_rate: Decimal::zero(),
-                            market: Market {
-                                denom: String::from("uusdc"),
-                                reserve_factor: Decimal::zero(),                            
-                                interest_rate_model: InterestRateModel {
-                                    optimal_utilization_rate: Decimal::zero(),
-                                    base: Decimal::zero(),
-                                    slope_1: Decimal::zero(),
-                                    slope_2: Decimal::zero(),
-                                },                            
-                                borrow_index: Decimal::zero(),
-                                liquidity_index: Decimal::zero(),
-                                borrow_rate: Decimal::zero(),
-                                liquidity_rate: Decimal::zero(),
-                                indexes_last_updated: 1u64,                            
-                                collateral_total_scaled: Uint128::zero(),
-                                debt_total_scaled: Uint128::zero(),
-                            },
+                    Mars_MockQueryMsg::Market { denom } => {
+                        Ok(to_binary(&Market {
+                            denom: String::from("uusdc"),
+                            reserve_factor: Decimal::zero(),                            
+                            interest_rate_model: InterestRateModel {
+                                optimal_utilization_rate: Decimal::zero(),
+                                base: Decimal::zero(),
+                                slope_1: Decimal::zero(),
+                                slope_2: Decimal::zero(),
+                            },                            
+                            borrow_index: Decimal::zero(),
+                            liquidity_index: Decimal::zero(),
+                            borrow_rate: Decimal::zero(),
+                            liquidity_rate: Decimal::zero(),
+                            indexes_last_updated: 1u64,                            
+                            collateral_total_scaled: Uint128::zero(),
+                            debt_total_scaled: Uint128::zero()
                         }).unwrap())
+                    },
+                    Mars_MockQueryMsg::UnderlyingLiquidityAmount { denom, amount_scaled } => {
+                        Ok(to_binary(&Uint128::new(10)).unwrap())
                     },
                     Mars_MockQueryMsg::UserCollateral { user, account_id, denom } => {
                         Ok(to_binary(&UserCollateralResponse {
@@ -143,29 +145,27 @@ mod tests {
             },
             |_, _, msg: Mars_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                Mars_MockQueryMsg::MarketV2 { denom } => {
-                    Ok(to_binary(&MarketV2Response {
-                        collateral_total_amount: Uint128::new(16),
-                        debt_total_amount: Uint128::zero(),
-                        utilization_rate: Decimal::zero(),
-                        market: Market {
-                            denom: String::from("uusdc"),
-                            reserve_factor: Decimal::zero(),                            
-                            interest_rate_model: InterestRateModel {
-                                optimal_utilization_rate: Decimal::zero(),
-                                base: Decimal::zero(),
-                                slope_1: Decimal::zero(),
-                                slope_2: Decimal::zero(),
-                            },                            
-                            borrow_index: Decimal::zero(),
-                            liquidity_index: Decimal::zero(),
-                            borrow_rate: Decimal::zero(),
-                            liquidity_rate: Decimal::zero(),
-                            indexes_last_updated: 1u64,                            
-                            collateral_total_scaled: Uint128::zero(),
-                            debt_total_scaled: Uint128::zero(),
-                        },
+                Mars_MockQueryMsg::Market { denom } => {
+                    Ok(to_binary(&Market {
+                        denom: String::from("uusdc"),
+                        reserve_factor: Decimal::zero(),                            
+                        interest_rate_model: InterestRateModel {
+                            optimal_utilization_rate: Decimal::zero(),
+                            base: Decimal::zero(),
+                            slope_1: Decimal::zero(),
+                            slope_2: Decimal::zero(),
+                        },                            
+                        borrow_index: Decimal::zero(),
+                        liquidity_index: Decimal::zero(),
+                        borrow_rate: Decimal::zero(),
+                        liquidity_rate: Decimal::zero(),
+                        indexes_last_updated: 1u64,                            
+                        collateral_total_scaled: Uint128::zero(),
+                        debt_total_scaled: Uint128::zero(),
                     }).unwrap())
+                },
+                Mars_MockQueryMsg::UnderlyingLiquidityAmount { denom, amount_scaled } => {
+                    Ok(to_binary(&Uint128::new(16)).unwrap())
                 },
                 Mars_MockQueryMsg::UserCollateral { user, account_id, denom } => {
                     Ok(to_binary(&UserCollateralResponse {
@@ -197,29 +197,27 @@ mod tests {
             },
             |_, _, msg: Mars_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                Mars_MockQueryMsg::MarketV2 { denom } => {
-                    Ok(to_binary(&MarketV2Response {
-                        collateral_total_amount: Uint128::new(20),
-                        debt_total_amount: Uint128::zero(),
-                        utilization_rate: Decimal::zero(),
-                        market: Market {
-                            denom: String::from("uusdc"),
-                            reserve_factor: Decimal::zero(),                            
-                            interest_rate_model: InterestRateModel {
-                                optimal_utilization_rate: Decimal::zero(),
-                                base: Decimal::zero(),
-                                slope_1: Decimal::zero(),
-                                slope_2: Decimal::zero(),
-                            },                            
-                            borrow_index: Decimal::zero(),
-                            liquidity_index: Decimal::zero(),
-                            borrow_rate: Decimal::zero(),
-                            liquidity_rate: Decimal::zero(),
-                            indexes_last_updated: 1u64,                            
-                            collateral_total_scaled: Uint128::zero(),
-                            debt_total_scaled: Uint128::zero(),
-                        },
+                Mars_MockQueryMsg::Market { denom } => {
+                    Ok(to_binary(&Market {
+                        denom: String::from("uusdc"),
+                        reserve_factor: Decimal::zero(),                            
+                        interest_rate_model: InterestRateModel {
+                            optimal_utilization_rate: Decimal::zero(),
+                            base: Decimal::zero(),
+                            slope_1: Decimal::zero(),
+                            slope_2: Decimal::zero(),
+                        },                            
+                        borrow_index: Decimal::zero(),
+                        liquidity_index: Decimal::zero(),
+                        borrow_rate: Decimal::zero(),
+                        liquidity_rate: Decimal::zero(),
+                        indexes_last_updated: 1u64,                            
+                        collateral_total_scaled: Uint128::zero(),
+                        debt_total_scaled: Uint128::zero(),
                     }).unwrap())
+                },
+                Mars_MockQueryMsg::UnderlyingLiquidityAmount { denom, amount_scaled } => {
+                    Ok(to_binary(&Uint128::new(20)).unwrap())
                 },
                 Mars_MockQueryMsg::UserCollateral { user, account_id, denom } => {
                     Ok(to_binary(&UserCollateralResponse {
@@ -468,7 +466,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 apr.week_apr,
-                Some(Decimal::from_str("5.000005291014039375").unwrap())
+                Some(Decimal::from_str("0.000005291005291005").unwrap())
             );
 
             //Enter Vault as a new user who gets less vault tokens

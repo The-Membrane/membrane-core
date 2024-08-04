@@ -9,7 +9,7 @@ use membrane::math::{decimal_multiplication, decimal_division};
 use crate::error::TokenFactoryError;
 use crate::state::{APRInstance, APRTracker, APR_TRACKER, TOKEN_RATE_ASSURANCE, TokenRateAssurance, CONFIG, OWNERSHIP_TRANSFER, VAULT_TOKEN};
 use membrane::mars_vault_token::{Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
-use membrane::mars_redbank::{QueryMsg as Mars_QueryMsg, ExecuteMsg as Mars_ExecuteMsg, UserCollateralResponse, MarketV2Response};
+use membrane::mars_redbank::{QueryMsg as Mars_QueryMsg, ExecuteMsg as Mars_ExecuteMsg, UserCollateralResponse, Market};
 use membrane::stability_pool_vault::{
     calculate_base_tokens, calculate_vault_tokens, APRResponse
 };
@@ -535,11 +535,17 @@ fn get_total_deposit_tokens(
     let total_deposit_tokens = vault_user_info.amount;
 
     //Query the Red Bank market for its total funds in state    
-    let deposit_token_market: MarketV2Response = deps.querier.query_wasm_smart::<MarketV2Response> (
+    let deposit_token_market: Market = deps.querier.query_wasm_smart::<Market> (
         config.mars_redbank_addr.to_string(),
-        &Mars_QueryMsg::MarketV2 { denom: config.deposit_token.clone() },
+        &Mars_QueryMsg::Market { denom: config.deposit_token.clone() },
     )?;
-    let market_deposit_tokens = deposit_token_market.collateral_total_amount;
+    let market_deposit_tokens: Uint128 = deps.querier.query_wasm_smart::<Uint128> (
+        config.mars_redbank_addr.to_string(),
+        &Mars_QueryMsg::UnderlyingLiquidityAmount { 
+            denom: config.deposit_token.clone(),
+            amount_scaled: deposit_token_market.collateral_total_scaled
+        },
+    )?;
     //Query the Red Bank balance for its total deposit tokens
     let total_redbank_deposit_tokens = deps.querier.query_balance(config.mars_redbank_addr.clone(), config.deposit_token.clone())?.amount;
     // If the Red Bank has less deposit tokens than it thinks it does in state, return a discounted amount

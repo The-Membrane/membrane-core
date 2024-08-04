@@ -807,12 +807,14 @@ pub fn calculate_liquidated_collateral(
         bid.scale_snapshot + Uint128::from(1u128),
     ) {
         if second_scale_sum_snapshot.0 < reference_sum_snapshot.0 {
-            return Ok((Uint256::zero(), Decimal256::zero()));
+            Decimal256::zero()
+        } else {
+            Decimal256(
+                (second_scale_sum_snapshot.0 - reference_sum_snapshot.0) / U256::from(1_000_000_000u64),
+            )
         }
+
         
-        Decimal256(
-            (second_scale_sum_snapshot.0 - reference_sum_snapshot.0) / U256::from(1_000_000_000u64),
-        )
     } else {
         Decimal256::zero()
     };

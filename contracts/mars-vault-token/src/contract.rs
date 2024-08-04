@@ -129,7 +129,7 @@ fn calc_apr_instance(
         time_since_last_update,
         apr_of_this_update,
     };
-    println!("new_apr_instance: {:?}, {}", apr_of_this_update, apr_tracker.last_total_deposit);
+    // println!("new_apr_instance: {:?}, {}", apr_of_this_update, apr_tracker.last_total_deposit);
 
     Ok(new_apr_instance)
 }
@@ -228,7 +228,7 @@ fn enter_vault(
         total_deposit_tokens, 
         total_vault_tokens
     )?;
-    println!("vault_tokens_to_distribute: {:?}", vault_tokens_to_distribute);
+    // println!("vault_tokens_to_distribute: {:?}", vault_tokens_to_distribute);
     ////////////////////////////////////////////////////
 
     let mut msgs = vec![];
@@ -369,7 +369,7 @@ fn exit_vault(
         msg: to_json_binary(&red_bank_withdrawal)?,
         funds: vec![],
     });
-    println!("deposit_tokens_to_withdraw: {:?}", deposit_tokens_to_withdraw);
+    // println!("deposit_tokens_to_withdraw: {:?}", deposit_tokens_to_withdraw);
     msgs.push(red_bank_withdrawal);
     
     //Add rate assurance callback msg if this withdrawal leaves other depositors with tokens to withdraw

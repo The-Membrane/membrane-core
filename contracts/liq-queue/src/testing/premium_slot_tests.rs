@@ -900,7 +900,8 @@ fn product_truncated_to_zero() {
         vec![
             attr("action", "claim_liquidations"),
             attr("collateral_token", "gamm/pool/5"),
-            attr("collateral_amount", "7999999959"), // 999999995 * 8 = 7,999,999,960 missing 1ucol due to rounding and product resolution
+            attr("collateral_amount", "7999999953"), // 999999995 * 8 = 7,999,999,960 missing 1ucol due to rounding and product resolution
+            //removed residual calcs
         ]
     );
 
@@ -1102,7 +1103,7 @@ fn two_bidder_distribution_multiple_common_slots() {
         vec![
             attr("action", "claim_liquidations"),
             attr("collateral_token", "osmo"),
-            attr("collateral_amount", "16000001"),
+            attr("collateral_amount", "15999999"),//removed residual calcs
         ]
     );
 
@@ -1121,7 +1122,7 @@ fn two_bidder_distribution_multiple_common_slots() {
             attr("method", "retract_bid"),
             attr("bid_for", "osmo"),
             attr("bid_id", "4"),
-            attr("amount", "150736840"),
+            attr("amount", "150736839"),//removed residual calcs
         ]
     );
 

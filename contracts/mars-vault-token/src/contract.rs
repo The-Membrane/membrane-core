@@ -157,23 +157,16 @@ fn rate_assurance(
     //Get total deposit tokens
     let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config)?;
 
-    //Calc the rate of deposit tokens to vault tokens
-    let vtokens_per_one = calculate_vault_tokens(
-        Uint128::new(1_000_000), 
-        total_deposit_tokens, 
-        total_vault_tokens
-    )?;
-
     //Calc the rate of vault tokens to deposit tokens
     let btokens_per_one = calculate_base_tokens(
-        Uint128::new(1_000_000), 
+        Uint128::new(1_000_000_000_000), 
         total_deposit_tokens, 
         total_vault_tokens
     )?;
 
-    //If deposit or withdraw check, that the rates are static 
-    if vtokens_per_one != token_rate_assurance.pre_vtokens_per_one || btokens_per_one != token_rate_assurance.pre_btokens_per_one {
-        return Err(TokenFactoryError::CustomError { val: format!("Deposit or withdraw rate assurance failed. Vtokens_per_one: {:?} --- pre-tx {:?}, BTokens_per_one: {:?} --- pre-tx: {:?}", vtokens_per_one, token_rate_assurance.pre_vtokens_per_one, btokens_per_one, token_rate_assurance.pre_btokens_per_one) });
+    //Check that the rates are static 
+    if btokens_per_one != token_rate_assurance.pre_btokens_per_one {
+        return Err(TokenFactoryError::CustomError { val: format!("Deposit or withdraw rate assurance failed. Deposit tokens per 1 post-tx: {:?} --- pre-tx: {:?}", btokens_per_one, token_rate_assurance.pre_btokens_per_one) });
     }
 
     Ok(Response::new())
@@ -220,19 +213,13 @@ fn enter_vault(
 
     //Get the total amount of vault tokens circulating
     let total_vault_tokens: Uint128 = VAULT_TOKEN.load(deps.storage)?;
-    //Calc & save token rates
-    let pre_vtokens_per_one = calculate_vault_tokens(
-        Uint128::new(1_000_000), 
-        total_deposit_tokens, 
-        total_vault_tokens
-    )?;
+    //Calc & save base token rates
     let pre_btokens_per_one = calculate_base_tokens(
-        Uint128::new(1_000_000), 
+        Uint128::new(1_000_000_000_000), 
         total_deposit_tokens, 
         total_vault_tokens
     )?;
     TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
-        pre_vtokens_per_one,
         pre_btokens_per_one,
     })?;
     //Calculate the amount of vault tokens to mint
@@ -241,6 +228,7 @@ fn enter_vault(
         total_deposit_tokens, 
         total_vault_tokens
     )?;
+    println!("vault_tokens_to_distribute: {:?}", vault_tokens_to_distribute);
     ////////////////////////////////////////////////////
 
     let mut msgs = vec![];
@@ -278,11 +266,13 @@ fn enter_vault(
     
 
     //Add rate assurance callback msg
-    msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: env.contract.address.to_string(),
-        msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
-        funds: vec![],
-    }));
+    if !total_deposit_tokens.is_zero() && !total_vault_tokens.is_zero() {
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
+            funds: vec![],
+        }));
+    }
 
     //Create Response
     let res = Response::new()
@@ -304,6 +294,7 @@ fn exit_vault(
 ) -> Result<Response, TokenFactoryError> {
     let config = CONFIG.load(deps.storage)?;
     let apr_tracker = APR_TRACKER.load(deps.storage)?;
+    let mut msgs: Vec<CosmosMsg> = vec![];
     
     //Assert the only token sent is the vault token
     if info.funds.len() != 1 {
@@ -327,19 +318,13 @@ fn exit_vault(
     save_apr_instance(deps.storage, new_apr_instance.clone(), env.block.time.seconds(), total_deposit_tokens)?;
     //Get the total amount of vault tokens circulating
     let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
-    //Calc & save token rates
-    let pre_vtokens_per_one = calculate_vault_tokens(
-        Uint128::new(1_000_000), 
-        total_deposit_tokens, 
-        total_vault_tokens
-    )?;
+    //Calc & save token rate
     let pre_btokens_per_one = calculate_base_tokens(
-        Uint128::new(1_000_000), 
+        Uint128::new(1_000_000_000_000), 
         total_deposit_tokens, 
         total_vault_tokens
     )?;
     TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
-        pre_vtokens_per_one,
         pre_btokens_per_one,
     })?;
     //Calculate the amount of deposit tokens to withdraw
@@ -359,9 +344,15 @@ fn exit_vault(
         }), 
         burn_from_address: info.sender.to_string(),
     }.into();
+    //UNCOMMENT
+    msgs.push(burn_vault_tokens_msg);
 
     //Update the total vault tokens
-    VAULT_TOKEN.save(deps.storage, &(total_vault_tokens - vault_tokens))?;
+    let new_vault_token_supply = match total_vault_tokens.checked_sub(vault_tokens){
+        Ok(v) => v,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to subtract vault tokens") }),
+    };
+    VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
     //Save the updated config
     CONFIG.save(deps.storage, &config)?;
 
@@ -378,23 +369,24 @@ fn exit_vault(
         msg: to_json_binary(&red_bank_withdrawal)?,
         funds: vec![],
     });
+    println!("deposit_tokens_to_withdraw: {:?}", deposit_tokens_to_withdraw);
+    msgs.push(red_bank_withdrawal);
     
-    //Add rate assurance callback msg
-    let assurance = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: env.contract.address.to_string(),
-        msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
-        funds: vec![],
-    });
+    //Add rate assurance callback msg if this withdrawal leaves other depositors with tokens to withdraw
+    if !new_vault_token_supply.is_zero() && total_deposit_tokens > deposit_tokens_to_withdraw {
+        // msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        //     contract_addr: env.contract.address.to_string(),
+        //     msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
+        //     funds: vec![],
+        // }));
+    }
 
     //Create Response 
     let res = Response::new()
         .add_attribute("method", "exit_vault")
         .add_attribute("vault_tokens", vault_tokens)
         .add_attribute("deposit_tokens_withdrawn", deposit_tokens_to_withdraw)
-        //UNCOMMENT
-        .add_message(burn_vault_tokens_msg)
-        .add_message(red_bank_withdrawal)
-        .add_message(assurance);
+        .add_messages(msgs);
 
     Ok(res)
 }

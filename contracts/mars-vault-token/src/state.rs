@@ -22,7 +22,6 @@ pub struct APRTracker {
 
 #[cw_serde]
 pub struct TokenRateAssurance {
-    pub pre_vtokens_per_one: Uint128,
     pub pre_btokens_per_one: Uint128,
 }
 

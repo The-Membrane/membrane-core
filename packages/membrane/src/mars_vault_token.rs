@@ -47,7 +47,5 @@ pub struct Config {
     pub total_deposit_tokens: Uint128,
 }
 
-
-
 #[cw_serde]
 pub struct MigrateMsg {}

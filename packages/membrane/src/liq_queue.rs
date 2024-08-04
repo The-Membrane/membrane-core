@@ -262,3 +262,6 @@ pub struct QueueResponse {
     /// Minimum bid amount
     pub bid_threshold: Uint256,
 }
+
+#[cw_serde]
+pub struct MigrateMsg {}

@@ -813,7 +813,6 @@ pub fn calculate_liquidated_collateral(
                 (second_scale_sum_snapshot.0 - reference_sum_snapshot.0) / U256::from(1_000_000_000u64),
             )
         }
-
         
     } else {
         Decimal256::zero()

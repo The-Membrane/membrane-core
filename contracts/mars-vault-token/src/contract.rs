@@ -342,7 +342,7 @@ fn exit_vault(
             denom: config.vault_token.clone(),
             amount: vault_tokens.to_string(),
         }), 
-        burn_from_address: info.sender.to_string(),
+        burn_from_address: env.contract.address.to_string(),
     }.into();
     //UNCOMMENT
     msgs.push(burn_vault_tokens_msg);
@@ -374,11 +374,11 @@ fn exit_vault(
     
     //Add rate assurance callback msg if this withdrawal leaves other depositors with tokens to withdraw
     if !new_vault_token_supply.is_zero() && total_deposit_tokens > deposit_tokens_to_withdraw {
-        // msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        //     contract_addr: env.contract.address.to_string(),
-        //     msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
-        //     funds: vec![],
-        // }));
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
+            funds: vec![],
+        }));
     }
 
     //Create Response 

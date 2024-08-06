@@ -2,7 +2,6 @@
 #![allow(unused_parens)]
 #![allow(unused_doc_comments)]
 #![allow(non_camel_case_types)]
-pub mod apollo_router;
 pub mod vesting;
 pub mod auction;
 pub mod governance;

@@ -458,7 +458,7 @@ pub fn get_vault_token_price(
 
     //Query underlying amount for 1 vault token (1_000_000)
     let underlying_token_amount: Uint128 = querier.query_wasm_smart::<Uint128>(
-        config.osmosis_proxy_contract.unwrap(),
+        vault_info.clone().vault_contract,
         &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: Uint128::new(1_000_000) },
     )?;
 

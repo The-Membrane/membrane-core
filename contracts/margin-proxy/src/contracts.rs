@@ -7,7 +7,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 
 use cw_storage_plus::Bound;
-use membrane::helpers::{router_native_to_native, get_contract_balances, asset_to_coin};
+use membrane::helpers::{get_contract_balances, asset_to_coin};
 use membrane::margin_proxy::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::decimal_multiplication;
 use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg, PositionResponse};
@@ -391,22 +391,22 @@ fn handle_loop_reply(
             .credit_asset;
 
             //Initialize messages
-            let mut messages = vec![];
+            let mut messages: Vec<SubMsg> = vec![];
 
             //Sell new debt for collateral composition & redeposit 
             for (collateral, ratio) in composition_to_loop {
                 
                 let credit_to_sell = decimal_multiplication(credit_amount, ratio)?;
 
-                let msg = router_native_to_native(                    
-                    config.clone().apollo_router_contract.to_string(),                    
-                    credit_asset.clone().info,
-                    collateral,          
-                    Some(config.clone().positions_contract.to_string()),
-                    (credit_to_sell * Uint128::new(1u128)).u128(),
-                )?;
-                //Add a reply msg to execute the hook msg
-                messages.push(SubMsg::new(msg));
+                // let msg = router_native_to_native(                    
+                //     config.clone().apollo_router_contract.to_string(),                    
+                //     credit_asset.clone().info,
+                //     collateral,          
+                //     Some(config.clone().positions_contract.to_string()),
+                //     (credit_to_sell * Uint128::new(1u128)).u128(),
+                // )?;
+                // //Add a reply msg to execute the hook msg
+                // messages.push(SubMsg::new(msg));
             }
             //Save Router Reply Hook Msg
             let hook_msg = to_binary(&CDP_ExecuteMsg::Deposit { 

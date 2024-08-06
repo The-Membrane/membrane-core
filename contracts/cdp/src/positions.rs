@@ -2008,6 +2008,7 @@ pub fn edit_basket(
                         lp_pool_info: None,
                         decimals: 6,
                         pyth_price_feed_id: None,
+                        vault_info: None,
                     }),
                     remove: false,
                 })?,

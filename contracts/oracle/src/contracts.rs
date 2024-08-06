@@ -429,7 +429,8 @@ pub fn get_vault_token_price(
     querier: QuerierWrapper,
     env: Env,
     config: Config,
-    vault_info: VaultTokenInfo,    
+    vault_info: VaultTokenInfo,
+    decimals: u64,
     twap_timeframe: u64, //in minutes
     oracle_time_limit: u64, //in seconds
     basket_id_field: Option<Uint128>,
@@ -456,10 +457,11 @@ pub fn get_vault_token_price(
     )?;
     
 
-    //Query underlying amount for 1 vault token (1_000_000)
+    //Query underlying amount for 1 vault token (1_000_000_000_000)
+    //Bc The vault token is using a minimum of 6 decimal place ASSETS, a single token will always be 1_000_000_000_000
     let underlying_token_amount: Uint128 = querier.query_wasm_smart::<Uint128>(
-        vault_info.clone().vault_contract,
-        &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: Uint128::new(1_000_000) },
+        vault_info.clone().vault_contract,//Uint128::new(1_000_000_000_000)
+        &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: Uint128::new(1u128 * 10u128.pow(decimals as u32)) },
     )?;
 
     //Calculate value of Assets in 1 vault token
@@ -475,7 +477,7 @@ pub fn get_vault_token_price(
     Ok((PriceResponse { 
         prices: oracle_sources,
         price: vault_token_value,
-        decimals: 6u64,
+        decimals,
     }, osmo_quote))
 }
 
@@ -1044,6 +1046,7 @@ fn get_asset_prices(
                         env.clone(),
                         CONFIG.load(storage)?,
                         vault_info,
+                        asset_info.decimals,
                         twap_timeframe,
                         oracle_time_limit,
                         basket_id_field,

@@ -4,7 +4,7 @@ use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Resp
 use osmosis_std::shim::Duration;
 use osmosis_std::types::osmosis::downtimedetector::v1beta1::DowntimedetectorQuerier;
 
-use membrane::helpers::{router_native_to_native, pool_query_and_exit, query_stability_pool_fee, asset_to_coin, validate_position_owner};
+use membrane::helpers::{pool_query_and_exit, query_stability_pool_fee, asset_to_coin, validate_position_owner};
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction, Uint256};
 use membrane::cdp::{Config, ExecuteMsg, CallbackMsg};
 use membrane::oracle::PriceResponse;

@@ -1880,6 +1880,7 @@ pub fn edit_basket(
                         ),                       
                         decimals: 18,
                         pyth_price_feed_id: None,
+                        vault_info: None,
                     },
                 })?,
                 funds: vec![],

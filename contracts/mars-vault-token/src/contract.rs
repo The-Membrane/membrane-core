@@ -549,5 +549,14 @@ fn get_total_deposit_tokens(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
+    //Reset APR tracker to just the latest instance
+    let apr_tracker = APR_TRACKER.load(deps.storage)?;
+    let last_apr_instance = apr_tracker.aprs.last().unwrap().clone();
+    APR_TRACKER.save(deps.storage, &APRTracker {
+        last_total_deposit: apr_tracker.last_total_deposit,
+        aprs: vec![last_apr_instance],
+        last_updated: apr_tracker.last_updated,
+    })?;
+    
     Ok(Response::default())
 }

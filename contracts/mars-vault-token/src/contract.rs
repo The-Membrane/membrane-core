@@ -122,7 +122,7 @@ fn calc_apr_instance(
     //Calc APR fields
     let time_since_last_update = max(block_time - apr_tracker.last_updated, 1u64);
     let apr_of_this_update = Decimal::from_ratio(total_deposit_tokens, max(apr_tracker.clone().last_total_deposit, Uint128::one()));
-    let apr_per_second = decimal_division(apr_of_this_update, Decimal::from_ratio(time_since_last_update, Uint128::one()))?;
+    let apr_per_second = decimal_division(apr_of_this_update - Decimal::one(), Decimal::from_ratio(time_since_last_update, Uint128::one()))?;
     //Save the new APR instance
     let new_apr_instance = APRInstance {
         apr_per_second,

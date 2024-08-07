@@ -34,6 +34,7 @@ pub enum QueryMsg {
     /// Return contract config
     Config {},
     VaultTokenUnderlying { vault_token_amount: Uint128 },
+    DepositTokenConversion { deposit_token_amount: Uint128 },
     APR {},
 }
 

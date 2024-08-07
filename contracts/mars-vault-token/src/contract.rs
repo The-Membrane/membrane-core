@@ -435,6 +435,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::VaultTokenUnderlying { vault_token_amount } => to_json_binary(&query_vault_token_underlying(deps, env, vault_token_amount)?),
+        QueryMsg::DepositTokenConversion { deposit_token_amount } => to_json_binary(&query_deposit_token_conversion(deps, env, deposit_token_amount)?),
         QueryMsg::APR {} => to_json_binary(&query_apr(deps, env)?),
     }
 }
@@ -502,6 +503,29 @@ fn query_vault_token_underlying(
 
     //Return the discounted amount
     Ok(users_base_tokens)
+}
+
+/// Return vault token amount for an amount of newly deposited tokens
+fn query_deposit_token_conversion(
+    deps: Deps,
+    env: Env,
+    deposit_token_amount: Uint128,
+) -> StdResult<Uint128> {
+    let config = CONFIG.load(deps.storage)?;
+    let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
+
+    
+    //Get total deposit tokens
+    let total_deposit_tokens = get_total_deposit_tokens(deps, env.clone(), config.clone())?;
+    //Calc the amount of vault tokens the user would receive for depositing
+    let vault_tokens = calculate_vault_tokens(
+        deposit_token_amount, 
+        total_deposit_tokens, 
+        total_vault_tokens
+    )?;
+
+    //Return the discounted amount
+    Ok(vault_tokens)
 }
 
 //This checks the Red Bank to make sure its solvent & if not it discounts the total deposit tokens so that...

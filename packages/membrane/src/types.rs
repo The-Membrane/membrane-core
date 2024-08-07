@@ -756,6 +756,14 @@ pub struct Lock {
     pub lock_up_duration: u64,
 }
 
+/// Earn Vault
+#[cw_serde]
+pub struct VaultInfo {
+    pub vault_addr: Addr,
+    pub deposit_token: String,
+    pub vault_token: String
+}
+
 /// Discount Vault
 #[cw_serde]
 pub struct VaultUser {

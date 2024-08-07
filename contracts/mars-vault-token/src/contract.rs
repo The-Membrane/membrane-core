@@ -196,13 +196,13 @@ fn enter_vault(
     let deposit_amount = info.funds[0].amount;
 
     //////Calculate the amount of vault tokens to mint////
-    //Get total deposit tokens
+    //Get current total deposit tokens
     let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
     
     //Calc & save new APRInstance
     if apr_tracker.last_total_deposit != total_deposit_tokens {     
         let new_apr_instance = calc_apr_instance(apr_tracker.clone(), total_deposit_tokens, env.block.time.seconds())?;
-        save_apr_instance(deps.storage, new_apr_instance.clone(), env.block.time.seconds(), total_deposit_tokens)?;
+        save_apr_instance(deps.storage, new_apr_instance.clone(), env.block.time.seconds(), total_deposit_tokens + deposit_amount)?;
     } else if apr_tracker.last_total_deposit == Uint128::zero() {
         save_apr_instance(deps.storage, APRInstance {
             apr_per_second: Decimal::zero(),
@@ -313,9 +313,6 @@ fn exit_vault(
     //////Calculate the amount of deposit tokens to withdraw////
     //Get total deposit tokens
     let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
-    //Calc & save new APRInstance
-    let new_apr_instance = calc_apr_instance(apr_tracker.clone(), total_deposit_tokens, env.block.time.seconds())?;
-    save_apr_instance(deps.storage, new_apr_instance.clone(), env.block.time.seconds(), total_deposit_tokens)?;
     //Get the total amount of vault tokens circulating
     let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
     //Calc & save token rate
@@ -333,6 +330,9 @@ fn exit_vault(
         total_deposit_tokens, 
         total_vault_tokens
     )?;
+    //Calc & save new APRInstance
+    let new_apr_instance = calc_apr_instance(apr_tracker.clone(), total_deposit_tokens, env.block.time.seconds())?;
+    save_apr_instance(deps.storage, new_apr_instance.clone(), env.block.time.seconds(), total_deposit_tokens - deposit_tokens_to_withdraw)?;
     ////////////////////////////////////////////////////
     
     //Burn vault tokens

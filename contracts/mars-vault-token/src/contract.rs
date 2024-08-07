@@ -200,15 +200,15 @@ fn enter_vault(
     let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
     
     //Calc & save new APRInstance
-    if apr_tracker.last_total_deposit != total_deposit_tokens {     
-        let new_apr_instance = calc_apr_instance(apr_tracker.clone(), total_deposit_tokens, env.block.time.seconds())?;
-        save_apr_instance(deps.storage, new_apr_instance.clone(), env.block.time.seconds(), total_deposit_tokens + deposit_amount)?;
-    } else if apr_tracker.last_total_deposit == Uint128::zero() {
+    if apr_tracker.last_total_deposit == Uint128::zero() {
         save_apr_instance(deps.storage, APRInstance {
             apr_per_second: Decimal::zero(),
             time_since_last_update: 0,
             apr_of_this_update: Decimal::zero(),
         }, env.block.time.seconds(), deposit_amount)?;
+    } else {     
+        let new_apr_instance = calc_apr_instance(apr_tracker.clone(), total_deposit_tokens, env.block.time.seconds())?;
+        save_apr_instance(deps.storage, new_apr_instance.clone(), env.block.time.seconds(), total_deposit_tokens + deposit_amount)?;
     }
 
     //Get the total amount of vault tokens circulating
@@ -551,12 +551,12 @@ fn get_total_deposit_tokens(
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
     //Reset APR tracker to just the latest instance
     let apr_tracker = APR_TRACKER.load(deps.storage)?;
-    let last_apr_instance = apr_tracker.aprs.last().unwrap().clone();
+    // let last_apr_instance = apr_tracker.aprs.last().unwrap().clone();
     APR_TRACKER.save(deps.storage, &APRTracker {
         last_total_deposit: apr_tracker.last_total_deposit,
-        aprs: vec![last_apr_instance],
+        aprs: vec![],
         last_updated: apr_tracker.last_updated,
     })?;
-    
+
     Ok(Response::default())
 }

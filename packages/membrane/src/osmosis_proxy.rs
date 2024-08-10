@@ -55,6 +55,8 @@ pub enum ExecuteMsg {
     ExecuteSwaps {
         /// Token out
         token_out: String,
+        /// Max slippage
+        max_slippage: Decimal,
     },
     /// Update contract config
     UpdateConfig {

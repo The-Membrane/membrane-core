@@ -486,6 +486,7 @@ fn claim_rewards(
         contract_addr: config.osmosis_proxy_contract.to_string(),
         msg: to_json_binary(&OsmosisProxyExecuteMsg::ExecuteSwaps {
             token_out: config.deposit_token.clone(),
+            max_slippage: Decimal::percent(1),
         })?,
         funds: claims.claims,
     });

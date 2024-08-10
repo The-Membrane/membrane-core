@@ -587,21 +587,21 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    let mut config = CONFIG.load(deps.storage)?;
-    println!("{:?}", config); //This should print a None for the rate hike rate
-    config.rate_hike_rate = Some(Decimal::percent(30));
+    // let mut config = CONFIG.load(deps.storage)?;
+    // println!("{:?}", config); //This should print a None for the rate hike rate
+    // config.rate_hike_rate = Some(Decimal::percent(30));
 
-    let mut basket = BASKET.load(deps.storage)?;
-    for (i, _asset) in basket.collateral_types.clone().iter().enumerate(){
-        basket.collateral_types[i].hike_rates = Some(false);
-    }
+    // let mut basket = BASKET.load(deps.storage)?;
+    // for (i, _asset) in basket.collateral_types.clone().iter().enumerate(){
+    //     basket.collateral_types[i].hike_rates = Some(false);
+    // }
 
-    CONFIG.save(deps.storage, &config)?;
-    BASKET.save(deps.storage, &basket)?;
+    // CONFIG.save(deps.storage, &config)?;
+    // BASKET.save(deps.storage, &basket)?;
 
-    //Load position to see if it'll error due to a new cAsset struct
-    let pos = POSITIONS.load(deps.storage, Addr::unchecked("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n"))?;
-    println!("{:?}", pos[0].collateral_assets);
+    // //Load position to see if it'll error due to a new cAsset struct
+    // let pos = POSITIONS.load(deps.storage, Addr::unchecked("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n"))?;
+    // println!("{:?}", pos[0].collateral_assets);
 
     //The Gov check msgs switch 0 will test if new queries of Config will fail with the new Optional field
 

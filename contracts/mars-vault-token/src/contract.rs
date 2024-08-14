@@ -1,8 +1,10 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_json_binary, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Reply, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg
-};use std::cmp::max;
+    attr, to_json_binary, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper, Reply, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg
+};
+use core::time;
+use std::cmp::max;
 use cw2::set_contract_version;
 use membrane::math::{decimal_multiplication, decimal_division};
 
@@ -93,12 +95,12 @@ fn crank_apr(
     let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
 
     //Calc a new APRInstance
-    let new_apr_instance = calc_apr_instance(apr_tracker.clone(), total_deposit_tokens, env.block.time.seconds())?;
+    let apr_instance = get_apr_instance(deps.querier, config.clone(), apr_tracker.clone(), total_deposit_tokens, env.block.time.seconds())?;
 
     //Save the new APRInstance
-    save_apr_instance(deps.storage, new_apr_instance.clone(), env.block.time.seconds(), total_deposit_tokens)?;
+    save_apr_instance(deps.storage, apr_instance.clone(), env.block.time.seconds(), total_deposit_tokens)?;
 
-    Ok(Response::new().add_attribute("new_apr_instance", format!("{:?}", new_apr_instance)))
+    Ok(Response::new().add_attribute("new_apr_instance", format!("{:?}", apr_instance)))
 }
 
 /// Save a new APRInstance for the APRTracker
@@ -118,27 +120,30 @@ fn save_apr_instance(
 }
 
 /// Calc a new APRInstance for the APRTracker
-fn calc_apr_instance(
+fn get_apr_instance(
+    querier: QuerierWrapper,
+    config: Config,
     apr_tracker: APRTracker,
     total_deposit_tokens: Uint128,
     block_time: u64
 ) -> StdResult<APRInstance> {
-    //Calc APR fields
+    //Query APR from Mars
+    let market: Market = querier.query_wasm_smart(
+        config.mars_redbank_addr.to_string(),
+        &Mars_QueryMsg::Market {
+            denom: config.deposit_token.clone(),
+        },
+    )?;
+    let apr = market.liquidity_rate;
     let time_since_last_update = max(block_time - apr_tracker.last_updated, 1u64);
-    let apr_of_this_update = match Decimal::from_ratio(total_deposit_tokens, max(apr_tracker.clone().last_total_deposit, Uint128::one())).checked_sub(Decimal::one()){
-        Ok(apr) => apr,
-        Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to subtract in calc_apr_insatnce, current total: {} last total: {}", total_deposit_tokens, apr_tracker.clone().last_total_deposit) }),
-    };
-    let apr_per_second = decimal_division(apr_of_this_update, Decimal::from_ratio(time_since_last_update, Uint128::one()))?;
-    //Save the new APR instance
-    let new_apr_instance = APRInstance {
-        apr_per_second,
+    let apr_instance = APRInstance {
+        apr_per_second: decimal_division(apr, Decimal::from_ratio(time_since_last_update.clone(), 1u64))?,
         time_since_last_update,
-        apr_of_this_update,
+        apr_of_this_update: apr,
     };
     // println!("new_apr_instance: {:?}, {}, {}", apr_of_this_update, apr_tracker.last_total_deposit, total_deposit_tokens);
 
-    Ok(new_apr_instance)
+    Ok(apr_instance)
 }
 
 ///Rate assurance
@@ -206,17 +211,10 @@ fn enter_vault(
     //Get current total deposit tokens
     let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
     
-    //Calc & save new APRInstance
-    if apr_tracker.last_total_deposit == Uint128::zero() {
-        save_apr_instance(deps.storage, APRInstance {
-            apr_per_second: Decimal::zero(),
-            time_since_last_update: 0,
-            apr_of_this_update: Decimal::zero(),
-        }, env.block.time.seconds(), deposit_amount)?;
-    } else {     
-        let new_apr_instance = calc_apr_instance(apr_tracker.clone(), total_deposit_tokens, env.block.time.seconds())?;
-        save_apr_instance(deps.storage, new_apr_instance.clone(), env.block.time.seconds(), total_deposit_tokens + deposit_amount)?;
-    }
+    //Calc & save new APRInstance  
+    let new_apr_instance = get_apr_instance(deps.querier, config.clone(), apr_tracker.clone(), total_deposit_tokens, env.block.time.seconds())?;
+    save_apr_instance(deps.storage, new_apr_instance.clone(), env.block.time.seconds(), total_deposit_tokens + deposit_amount)?;
+    
 
     //Get the total amount of vault tokens circulating
     let total_vault_tokens: Uint128 = VAULT_TOKEN.load(deps.storage)?;
@@ -338,7 +336,7 @@ fn exit_vault(
         total_vault_tokens
     )?;
     //Calc & save new APRInstance
-    let new_apr_instance = calc_apr_instance(apr_tracker.clone(), total_deposit_tokens, env.block.time.seconds())?;
+    let new_apr_instance = get_apr_instance(deps.querier, config.clone(), apr_tracker.clone(), total_deposit_tokens, env.block.time.seconds())?;
     save_apr_instance(deps.storage, new_apr_instance.clone(), env.block.time.seconds(), total_deposit_tokens - deposit_tokens_to_withdraw)?;
     ////////////////////////////////////////////////////
     
@@ -453,6 +451,7 @@ fn query_apr(
     env: Env,
 ) -> StdResult<APRResponse> {
     let apr_tracker = APR_TRACKER.load(deps.storage)?;
+    let config = CONFIG.load(deps.storage)?;
     let mut aprs = APRResponse {
         week_apr: None,
         month_apr: None,
@@ -464,7 +463,7 @@ fn query_apr(
     //Get total_deposit_tokens
     let total_deposit_tokens = get_total_deposit_tokens(deps, env.clone(), CONFIG.load(deps.storage)?)?;
     //Calc & add new APRInstance
-    let new_apr_instance = calc_apr_instance(apr_tracker.clone(), total_deposit_tokens, env.block.time.seconds())?;
+    let new_apr_instance = get_apr_instance(deps.querier, config.clone(), apr_tracker.clone(), total_deposit_tokens, env.block.time.seconds())?;
     let mut apr_instances = apr_tracker.clone().aprs;
     apr_instances.push(new_apr_instance);
     //We reverse to get the most recent instances first
@@ -474,7 +473,7 @@ fn query_apr(
     for apr_instance in apr_instances.into_iter() {
         running_duration += apr_instance.time_since_last_update;
 
-        //We need to add the ratio of the APR to the running APR
+        //We add the instance to calc pro-rata APRs later
         running_aprs.push(apr_instance);
 
         if running_duration >= SECONDS_PER_WEEK && aprs.week_apr.is_none() {
@@ -512,8 +511,6 @@ fn calc_duration_apr(
         running_apr += decimal_multiplication(apr_instance.apr_of_this_update, ratio)?;
     }
 
-    //Multiply the running APR by the duration
-    // running_apr = decimal_multiplication(running_apr, Decimal::from_ratio(duration, 1u64),)?;
 
     Ok(Some(running_apr))
 }
@@ -595,6 +592,11 @@ fn get_total_deposit_tokens(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
+    // Load APR tracker
+    let mut apr_tracker = APR_TRACKER.load(deps.storage)?;
+    apr_tracker.aprs = vec![];
+    //Reset APR tracker
+    APR_TRACKER.save(deps.storage, &apr_tracker)?;
 
     Ok(Response::default())
 }

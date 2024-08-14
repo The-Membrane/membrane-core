@@ -105,7 +105,7 @@ mod tests {
                             borrow_index: Decimal::zero(),
                             liquidity_index: Decimal::zero(),
                             borrow_rate: Decimal::zero(),
-                            liquidity_rate: Decimal::zero(),
+                            liquidity_rate: Decimal::percent(10),
                             indexes_last_updated: 1u64,                            
                             collateral_total_scaled: Uint128::zero(),
                             debt_total_scaled: Uint128::zero()
@@ -157,7 +157,7 @@ mod tests {
                             borrow_index: Decimal::zero(),
                             liquidity_index: Decimal::zero(),
                             borrow_rate: Decimal::zero(),
-                            liquidity_rate: Decimal::zero(),
+                            liquidity_rate: Decimal::percent(0),
                             indexes_last_updated: 1u64,                            
                             collateral_total_scaled: Uint128::zero(),
                             debt_total_scaled: Uint128::zero()
@@ -209,7 +209,7 @@ mod tests {
                             borrow_index: Decimal::zero(),
                             liquidity_index: Decimal::zero(),
                             borrow_rate: Decimal::zero(),
-                            liquidity_rate: Decimal::zero(),
+                            liquidity_rate: Decimal::percent(5),
                             indexes_last_updated: 1u64,                            
                             collateral_total_scaled: Uint128::zero(),
                             debt_total_scaled: Uint128::zero()
@@ -262,7 +262,7 @@ mod tests {
                         borrow_index: Decimal::zero(),
                         liquidity_index: Decimal::zero(),
                         borrow_rate: Decimal::zero(),
-                        liquidity_rate: Decimal::zero(),
+                        liquidity_rate: Decimal::percent(16),
                         indexes_last_updated: 1u64,                            
                         collateral_total_scaled: Uint128::zero(),
                         debt_total_scaled: Uint128::zero(),
@@ -314,7 +314,7 @@ mod tests {
                         borrow_index: Decimal::zero(),
                         liquidity_index: Decimal::zero(),
                         borrow_rate: Decimal::zero(),
-                        liquidity_rate: Decimal::zero(),
+                        liquidity_rate: Decimal::percent(20),
                         indexes_last_updated: 1u64,                            
                         collateral_total_scaled: Uint128::zero(),
                         debt_total_scaled: Uint128::zero(),
@@ -366,7 +366,7 @@ mod tests {
                         borrow_index: Decimal::zero(),
                         liquidity_index: Decimal::zero(),
                         borrow_rate: Decimal::zero(),
-                        liquidity_rate: Decimal::zero(),
+                        liquidity_rate: Decimal::percent(24),
                         indexes_last_updated: 1u64,                            
                         collateral_total_scaled: Uint128::zero(),
                         debt_total_scaled: Uint128::zero(),
@@ -686,7 +686,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 apr.week_apr,
-                Some(Decimal::from_str("0.414285714285714284").unwrap())
+                Some(Decimal::from_str("0.155714285714285712").unwrap())
             );
 
             //Enter Vault as a new user who gets less vault tokens

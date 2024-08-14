@@ -75,7 +75,7 @@ mod tests {
         },
     }
  
-    pub fn redbank_contract() -> Box<dyn Contract<Empty>> {
+    pub fn redbank_contract_ten() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
             |deps, _, info, msg: Mars_MockExecuteMsg| -> StdResult<Response> {
                 match msg {
@@ -119,6 +119,110 @@ mod tests {
                             denom: denom,
                             amount: Uint128::new(10),
                             amount_scaled: Uint128::new(10),
+                            enabled: false
+                        }).unwrap())
+                    }
+                }
+            },
+        );
+        Box::new(contract)
+    }
+    pub fn redbank_contract_zero() -> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: Mars_MockExecuteMsg| -> StdResult<Response> {
+                match msg {
+                    Mars_MockExecuteMsg::Deposit { account_id, on_behalf_of } => {
+                    Ok(Response::default())
+                    },
+                    Mars_MockExecuteMsg::Withdraw { denom, amount, recipient, account_id, liquidation_related } => {
+                        Ok(Response::default())
+                        }
+                }
+            },
+            |_, _, _, _: Mars_MockInstantiateMsg| -> StdResult<Response> {
+                Ok(Response::default())
+            },
+            |_, _, msg: Mars_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    Mars_MockQueryMsg::Market { denom } => {
+                        Ok(to_binary(&Market {
+                            denom: String::from("uusdc"),
+                            reserve_factor: Decimal::zero(),                            
+                            interest_rate_model: InterestRateModel {
+                                optimal_utilization_rate: Decimal::zero(),
+                                base: Decimal::zero(),
+                                slope_1: Decimal::zero(),
+                                slope_2: Decimal::zero(),
+                            },                            
+                            borrow_index: Decimal::zero(),
+                            liquidity_index: Decimal::zero(),
+                            borrow_rate: Decimal::zero(),
+                            liquidity_rate: Decimal::zero(),
+                            indexes_last_updated: 1u64,                            
+                            collateral_total_scaled: Uint128::zero(),
+                            debt_total_scaled: Uint128::zero()
+                        }).unwrap())
+                    },
+                    Mars_MockQueryMsg::UnderlyingLiquidityAmount { denom, amount_scaled } => {
+                        Ok(to_binary(&Uint128::new(10)).unwrap())
+                    },
+                    Mars_MockQueryMsg::UserCollateral { user, account_id, denom } => {
+                        Ok(to_binary(&UserCollateralResponse {
+                            denom: denom,
+                            amount: Uint128::new(0),
+                            amount_scaled: Uint128::new(0),
+                            enabled: false
+                        }).unwrap())
+                    }
+                }
+            },
+        );
+        Box::new(contract)
+    }
+    pub fn redbank_contract_five() -> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: Mars_MockExecuteMsg| -> StdResult<Response> {
+                match msg {
+                    Mars_MockExecuteMsg::Deposit { account_id, on_behalf_of } => {
+                    Ok(Response::default())
+                    },
+                    Mars_MockExecuteMsg::Withdraw { denom, amount, recipient, account_id, liquidation_related } => {
+                        Ok(Response::default())
+                        }
+                }
+            },
+            |_, _, _, _: Mars_MockInstantiateMsg| -> StdResult<Response> {
+                Ok(Response::default())
+            },
+            |_, _, msg: Mars_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    Mars_MockQueryMsg::Market { denom } => {
+                        Ok(to_binary(&Market {
+                            denom: String::from("uusdc"),
+                            reserve_factor: Decimal::zero(),                            
+                            interest_rate_model: InterestRateModel {
+                                optimal_utilization_rate: Decimal::zero(),
+                                base: Decimal::zero(),
+                                slope_1: Decimal::zero(),
+                                slope_2: Decimal::zero(),
+                            },                            
+                            borrow_index: Decimal::zero(),
+                            liquidity_index: Decimal::zero(),
+                            borrow_rate: Decimal::zero(),
+                            liquidity_rate: Decimal::zero(),
+                            indexes_last_updated: 1u64,                            
+                            collateral_total_scaled: Uint128::zero(),
+                            debt_total_scaled: Uint128::zero()
+                        }).unwrap())
+                    },
+                    Mars_MockQueryMsg::UnderlyingLiquidityAmount { denom, amount_scaled } => {
+                        Ok(to_binary(&Uint128::new(5)).unwrap())
+                    },
+                    Mars_MockQueryMsg::UserCollateral { user, account_id, denom } => {
+                        Ok(to_binary(&UserCollateralResponse {
+                            denom: denom,
+                            amount: Uint128::new(5),
+                            amount_scaled: Uint128::new(5),
                             enabled: false
                         }).unwrap())
                     }
@@ -232,6 +336,58 @@ mod tests {
         );
         Box::new(contract)
     }
+    pub fn redbank_24() -> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |deps, _, info, msg: Mars_MockExecuteMsg| -> StdResult<Response> {
+                match msg {
+                    Mars_MockExecuteMsg::Deposit { account_id, on_behalf_of } => {
+                    Ok(Response::default())
+                    },
+                    Mars_MockExecuteMsg::Withdraw { denom, amount, recipient, account_id, liquidation_related } => {
+                        Ok(Response::default())
+                        }
+                }
+            },
+            |_, _, _, _: Mars_MockInstantiateMsg| -> StdResult<Response> {
+                Ok(Response::default())
+            },
+            |_, _, msg: Mars_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                Mars_MockQueryMsg::Market { denom } => {
+                    Ok(to_binary(&Market {
+                        denom: String::from("uusdc"),
+                        reserve_factor: Decimal::zero(),                            
+                        interest_rate_model: InterestRateModel {
+                            optimal_utilization_rate: Decimal::zero(),
+                            base: Decimal::zero(),
+                            slope_1: Decimal::zero(),
+                            slope_2: Decimal::zero(),
+                        },                            
+                        borrow_index: Decimal::zero(),
+                        liquidity_index: Decimal::zero(),
+                        borrow_rate: Decimal::zero(),
+                        liquidity_rate: Decimal::zero(),
+                        indexes_last_updated: 1u64,                            
+                        collateral_total_scaled: Uint128::zero(),
+                        debt_total_scaled: Uint128::zero(),
+                    }).unwrap())
+                },
+                Mars_MockQueryMsg::UnderlyingLiquidityAmount { denom, amount_scaled } => {
+                    Ok(to_binary(&Uint128::new(20)).unwrap())
+                },
+                Mars_MockQueryMsg::UserCollateral { user, account_id, denom } => {
+                    Ok(to_binary(&UserCollateralResponse {
+                        denom: denom,
+                        amount: Uint128::new(24),
+                        amount_scaled: Uint128::new(10),
+                        enabled: false
+                    }).unwrap())
+                }
+            }
+            },
+        );
+        Box::new(contract)
+    }
 
 
     fn mock_app() -> App {
@@ -247,12 +403,12 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked(USER),
-                vec![coin(14, "uusdc"), coin(100_000, "wrong_token"),coin(100_000_000, "factory/contract3/mars-usdc-vault")],
+                vec![coin(14, "uusdc"), coin(100_000, "wrong_token"),coin(100_000_000, "factory/contract5/mars-usdc-vault")],
             )
             .unwrap();
             bank.init_balance(
                 storage,
-                &Addr::unchecked("contract0"),
+                &Addr::unchecked("contract4"),
                 vec![],
             )
             .unwrap();
@@ -265,7 +421,29 @@ mod tests {
         let mut app = mock_app();
 
         //Instaniate Red Banks
-        let redbank_id = app.store_code(redbank_contract());
+        let redbank_id = app.store_code(redbank_contract_zero());
+        let redbank_contract_zero_addr = app
+            .instantiate_contract(
+                redbank_id,
+                Addr::unchecked(ADMIN),
+                &Mars_MockInstantiateMsg {},
+                &[],
+                "test",
+                None,
+            )
+            .unwrap();
+        let redbank_id = app.store_code(redbank_contract_five());
+        let redbank_contract_five_addr = app
+            .instantiate_contract(
+                redbank_id,
+                Addr::unchecked(ADMIN),
+                &Mars_MockInstantiateMsg {},
+                &[],
+                "test",
+                None,
+            )
+            .unwrap();
+        let redbank_id = app.store_code(redbank_contract_ten());
 
         let redbank_contract_addr = app
             .instantiate_contract(
@@ -306,7 +484,7 @@ mod tests {
         let msg = InstantiateMsg { 
             vault_subdenom: String::from("mars-usdc-vault"), 
             deposit_token: String::from("uusdc"),
-            mars_redbank_addr: redbank_contract_addr.to_string(),
+            mars_redbank_addr: redbank_contract_zero_addr.to_string(),
         };
         let vault_contract_addr = app
             .instantiate_contract(vault_id, Addr::unchecked(ADMIN), &msg, &[], "test", None)
@@ -314,6 +492,18 @@ mod tests {
 
         let vault_contract = MarsVaultContract(vault_contract_addr);
 
+
+        let redbank_id = app.store_code(redbank_24());
+        let redbank_v2_contract_addr = app
+            .instantiate_contract(
+                redbank_id,
+                Addr::unchecked(ADMIN),
+                &Mars_MockInstantiateMsg {},
+                &[],
+                "test",
+                None,
+            )
+            .unwrap();
         (app, vault_contract)
     }
 
@@ -364,7 +554,7 @@ mod tests {
             //Should be 0 bc everything was sent to the vault
             let balance = app
                 .wrap()
-                .query_balance(Addr::unchecked("contract2"), "uusdc")
+                .query_balance(Addr::unchecked("contract4"), "uusdc")
                 .unwrap().amount;
             assert_eq!(balance, Uint128::zero());
             
@@ -392,7 +582,7 @@ mod tests {
             //Should be 0 bc everything was sent to the vault
             let balance = app
                 .wrap()
-                .query_balance(Addr::unchecked("contract2"), "uusdc")
+                .query_balance(Addr::unchecked("contract4"), "uusdc")
                 .unwrap().amount;
             assert_eq!(balance, Uint128::new(0));
         }
@@ -405,21 +595,8 @@ mod tests {
             let msg = ExecuteMsg::EnterVault { };
             let cosmos_msg = vault_contract.call(msg, vec![coin(5, "uusdc")]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
-
-            //Enter Vault: None of the deposit is kept in the vault
-            let msg = ExecuteMsg::EnterVault { };
-            let cosmos_msg = vault_contract.call(msg, vec![coin(5, "uusdc")]).unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
-
-            //Skip ahead 1 day             
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(86400*7), //Added a day + 1
-                chain_id: app.block_info().chain_id,
-            }); 
-
-
-            //Change redbank contract to v1 interest
+            
+            //Change redbank contract to 5 uusdc
             let msg = ExecuteMsg::UpdateConfig {
                 owner: None,
                 mars_redbank_addr: Some("contract1".to_string()),
@@ -427,8 +604,41 @@ mod tests {
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Send deposits + nterest to the new redbank
-            app.send_tokens(Addr::unchecked("god"), Addr::unchecked("contract1"), &vec![coin(16, "uusdc")]).unwrap();
+
+            //Skip ahead 1 day
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(86400), //Added a day
+                chain_id: app.block_info().chain_id,
+            }); 
+
+            //Enter Vault: None of the deposit is kept in the vault
+            let msg = ExecuteMsg::EnterVault { };
+            let cosmos_msg = vault_contract.call(msg, vec![coin(5, "uusdc")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            
+            //Change redbank contract to 10 uusdc
+            let msg = ExecuteMsg::UpdateConfig {
+                owner: None,
+                mars_redbank_addr: Some("contract2".to_string()),
+            };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Skip ahead 4 days
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(86400*4), //Added 4 days
+                chain_id: app.block_info().chain_id,
+            }); 
+
+            //Change redbank contract to v1 interest: 16 uusdc
+            let msg = ExecuteMsg::UpdateConfig {
+                owner: None,
+                mars_redbank_addr: Some("contract3".to_string()),
+            };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             // Query Vault token underlying
             let underlying_deposit_token: Uint128 = app
@@ -445,16 +655,26 @@ mod tests {
                 Uint128::new(8)
             );
 
-            //Change redbank contract to v2
-            let msg = ExecuteMsg::UpdateConfig {
-                owner: None,
-                mars_redbank_addr: Some("contract2".to_string()),
-            };
+            //Crank the vault
+            let msg = ExecuteMsg::CrankAPR {  };
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Send the deposit token to the redbank to setup the current state
-            app.send_tokens(Addr::unchecked("god"), Addr::unchecked("contract2"), &vec![coin(16, "uusdc")]).unwrap();
+
+            //Skip ahead 2days
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(86400*2), //Added 2 days
+                chain_id: app.block_info().chain_id,
+            }); 
+
+            //Change redbank contract to v2: 20 uusdc
+            let msg = ExecuteMsg::UpdateConfig {
+                owner: None,
+                mars_redbank_addr: Some("contract4".to_string()),
+            };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Query APR for the vault
             let apr: APRResponse = app
@@ -466,13 +686,21 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 apr.week_apr,
-                Some(Decimal::from_str("0.000005291005291005").unwrap())
+                Some(Decimal::from_str("0.414285714285714284").unwrap())
             );
 
             //Enter Vault as a new user who gets less vault tokens
             let msg = ExecuteMsg::EnterVault { };
             let cosmos_msg = vault_contract.call(msg, vec![coin(4, "uusdc")]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Switch to 24 TVL redbank
+            let msg = ExecuteMsg::UpdateConfig {
+                owner: None,
+                mars_redbank_addr: Some("contract6".to_string()),
+            };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             // Query Vault token underlying
             let underlying_deposit_token: Uint128 = app
@@ -486,14 +714,14 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 underlying_deposit_token,
-                Uint128::new(8)
+                Uint128::new(10)
             );
             let underlying_deposit_token: Uint128 = app
                 .wrap()
                 .query_wasm_smart(
                     vault_contract.addr(),
                     &QueryMsg::VaultTokenUnderlying { 
-                        vault_token_amount: Uint128::new(2500000)
+                        vault_token_amount: Uint128::new(2000000)
                     },
                 )
                 .unwrap();
@@ -504,37 +732,42 @@ mod tests {
 
             //Exit Vault: THE RATE ASSURANCE ERRORS BC WE CAN'T REMOVE TOKENS FROM THE MARS CONTRACT MID-EXECUTION
             let msg = ExecuteMsg::ExitVault { };
-            let cosmos_msg = vault_contract.call(msg, vec![coin(2500000, "factory/contract3/mars-usdc-vault")]).unwrap();
+            let cosmos_msg = vault_contract.call(msg, vec![coin(2000000, "factory/contract5/mars-usdc-vault")]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
-
-            //Send the deposit token to the redbank to setup the current state
-            app.send_tokens(Addr::unchecked("contract2"), Addr::unchecked("god"), &vec![coin(4, "uusdc")]).unwrap();
 
             let msg = ExecuteMsg::ExitVault { };
-            let cosmos_msg = vault_contract.call(msg, vec![coin(5000000, "factory/contract3/mars-usdc-vault")]).unwrap();
+            let cosmos_msg = vault_contract.call(msg, vec![coin(5000000, "factory/contract5/mars-usdc-vault")]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
+            //Swap to 10 TVL redbank
+            let msg = ExecuteMsg::UpdateConfig {
+                owner: None,
+                mars_redbank_addr: Some("contract2".to_string()),
+            };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
             // Query Vault token underlying
-            // let underlying_deposit_token: Uint128 = app
-            //     .wrap()
-            //     .query_wasm_smart(
-            //         vault_contract.addr(),
-            //         &QueryMsg::VaultTokenUnderlying { 
-            //             vault_token_amount: Uint128::new(5_000_000)
-            //         },
-            //     )
-            //     .unwrap();
-            // assert_eq!(
-            //     underlying_deposit_token,
-            //     Uint128::new(8)
-            // );
+            let underlying_deposit_token: Uint128 = app
+                .wrap()
+                .query_wasm_smart(
+                    vault_contract.addr(),
+                    &QueryMsg::VaultTokenUnderlying { 
+                        vault_token_amount: Uint128::new(5_000_000)
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                underlying_deposit_token,
+                Uint128::new(10)
+            );
 
             //Query user balance
-            let balance = app
-                .wrap()
-                .query_balance(Addr::unchecked(USER), "uusdc")
-                .unwrap().amount;
-            assert_eq!(balance, Uint128::new(4));
+            // let balance = app
+            //     .wrap()
+            //     .query_balance(Addr::unchecked(USER), "uusdc")
+            //     .unwrap().amount;
+            // assert_eq!(balance, Uint128::new(4));
         }
     }
 

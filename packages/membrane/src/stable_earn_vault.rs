@@ -23,16 +23,14 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         /// Mainly for testing, we shouldn't change addrs bc we'd lose deposits
         cdp_contract_addr: Option<String>,
+        mars_vault_addr: Option<String>,
         //
         osmosis_proxy_contract_addr: Option<String>,
         oracle_contract_addr: Option<String>,
         self_debt_cap: Option<Uint128>,
         swap_slippage: Option<Decimal>,
-        vault_cost_index: Option<bool>
+        vault_cost_index: Option<()>
     },
-    ///APRs are calculated for every deposit and withdrawla but if you want something up to date
-    /// you must crank.
-    CrankAPR { },
     /// Unloop the vault's CDP position to free up collateral
     /// Called by the contract for withdrawals.
     /// Called by external to unloop & retain profitability.
@@ -40,9 +38,6 @@ pub enum ExecuteMsg {
         /// Amount of collateral to withdraw.
         /// Only callable by the contract/
         desired_collateral_withdrawal: Option<Uint128>,
-        /// Max loops to run
-        /// This caps msgs sent (i.e. gas) and prevents infinite loops
-        loop_max: Option<u32>,
     },
     /// Loop the vault's CDP position to increase collateral
     LoopCDP {

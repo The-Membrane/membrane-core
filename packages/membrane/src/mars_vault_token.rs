@@ -48,5 +48,13 @@ pub struct Config {
     pub total_deposit_tokens: Uint128,
 }
 
+//AVERAGE APR PER TIME PERIOD
+#[cw_serde]
+pub struct APRResponse {
+    pub week_apr: Option<Decimal>,
+    pub month_apr: Option<Decimal>,
+    pub three_month_apr: Option<Decimal>,
+    pub year_apr: Option<Decimal>,
+}
 #[cw_serde]
 pub struct MigrateMsg {}

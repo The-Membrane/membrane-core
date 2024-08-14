@@ -8,10 +8,10 @@ use membrane::math::{decimal_multiplication, decimal_division};
 
 use crate::error::TokenFactoryError;
 use crate::state::{APRInstance, APRTracker, APR_TRACKER, TOKEN_RATE_ASSURANCE, TokenRateAssurance, CONFIG, OWNERSHIP_TRANSFER, VAULT_TOKEN};
-use membrane::mars_vault_token::{Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
+use membrane::mars_vault_token::{Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, APRResponse};
 use membrane::mars_redbank::{QueryMsg as Mars_QueryMsg, ExecuteMsg as Mars_ExecuteMsg, UserCollateralResponse, Market};
 use membrane::stability_pool_vault::{
-    calculate_base_tokens, calculate_vault_tokens, APRResponse
+    calculate_base_tokens, calculate_vault_tokens
 };
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
 
@@ -21,6 +21,10 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 //Timeframe constants
 const SECONDS_PER_DAY: u64 = 86_400u64;
+const SECONDS_PER_WEEK: u64 = SECONDS_PER_DAY * 7;
+const SECONDS_PER_MONTH: u64 = SECONDS_PER_DAY * 30;
+const SECONDS_PER_THREE_MONTHS: u64 = SECONDS_PER_DAY * 90;
+const SECONDS_PER_YEAR: u64 = SECONDS_PER_DAY * 365;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -121,7 +125,10 @@ fn calc_apr_instance(
 ) -> StdResult<APRInstance> {
     //Calc APR fields
     let time_since_last_update = max(block_time - apr_tracker.last_updated, 1u64);
-    let apr_of_this_update = Decimal::from_ratio(total_deposit_tokens, max(apr_tracker.clone().last_total_deposit, Uint128::one())) - Decimal::one();
+    let apr_of_this_update = match Decimal::from_ratio(total_deposit_tokens, max(apr_tracker.clone().last_total_deposit, Uint128::one())).checked_sub(Decimal::one()){
+        Ok(apr) => apr,
+        Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to subtract in calc_apr_insatnce, current total: {} last total: {}", total_deposit_tokens, apr_tracker.clone().last_total_deposit) }),
+    };
     let apr_per_second = decimal_division(apr_of_this_update, Decimal::from_ratio(time_since_last_update, Uint128::one()))?;
     //Save the new APR instance
     let new_apr_instance = APRInstance {
@@ -129,7 +136,7 @@ fn calc_apr_instance(
         time_since_last_update,
         apr_of_this_update,
     };
-    // println!("new_apr_instance: {:?}, {}", apr_of_this_update, apr_tracker.last_total_deposit);
+    // println!("new_apr_instance: {:?}, {}, {}", apr_of_this_update, apr_tracker.last_total_deposit, total_deposit_tokens);
 
     Ok(new_apr_instance)
 }
@@ -228,7 +235,7 @@ fn enter_vault(
         total_deposit_tokens, 
         total_vault_tokens
     )?;
-    // println!("vault_tokens_to_distribute: {:?}", vault_tokens_to_distribute);
+    // println!("vault_tokens_to_distribute: {:?}, {}, {}, {}", vault_tokens_to_distribute, total_deposit_tokens, total_vault_tokens, deposit_amount);
     ////////////////////////////////////////////////////
 
     let mut msgs = vec![];
@@ -453,7 +460,7 @@ fn query_apr(
         year_apr: None,        
     };
     let mut running_duration = 0;
-    let mut running_apr = Decimal::zero();
+    let mut running_aprs = vec![];
     //Get total_deposit_tokens
     let total_deposit_tokens = get_total_deposit_tokens(deps, env.clone(), CONFIG.load(deps.storage)?)?;
     //Calc & add new APRInstance
@@ -466,20 +473,49 @@ fn query_apr(
     //Parse instances to allocate APRs to the correct duration
     for apr_instance in apr_instances.into_iter() {
         running_duration += apr_instance.time_since_last_update;
-        running_apr += apr_instance.apr_per_second;
 
-        if running_duration >= SECONDS_PER_DAY * 7 && aprs.week_apr.is_none() {
-            aprs.week_apr = Some(running_apr);
-        } else if running_duration >= SECONDS_PER_DAY * 30 && aprs.month_apr.is_none() {
-            aprs.month_apr = Some(running_apr);
-        } else if running_duration >= SECONDS_PER_DAY * 90 && aprs.three_month_apr.is_none() {
-            aprs.three_month_apr = Some(running_apr);
-        } else if running_duration >= SECONDS_PER_DAY * 365 && aprs.year_apr.is_none() {
-            aprs.year_apr = Some(running_apr);            
+        //We need to add the ratio of the APR to the running APR
+        running_aprs.push(apr_instance);
+
+        if running_duration >= SECONDS_PER_WEEK && aprs.week_apr.is_none() {
+            //Calc & Set the APR for the duration
+            aprs.week_apr = calc_duration_apr(running_aprs.clone(), running_duration)?;
+
+        } else if running_duration >= SECONDS_PER_MONTH && aprs.month_apr.is_none() {            
+            //Calc & Set the APR for the duration
+            aprs.month_apr = calc_duration_apr(running_aprs.clone(), running_duration)?;
+
+        } else if running_duration >= SECONDS_PER_THREE_MONTHS && aprs.three_month_apr.is_none() {
+            //Calc & Set the APR for the duration
+            aprs.three_month_apr = calc_duration_apr(running_aprs.clone(), running_duration)?;
+
+        } else if running_duration >= SECONDS_PER_YEAR && aprs.year_apr.is_none() {
+            //Calc & Set the APR for the duration
+            aprs.year_apr = calc_duration_apr(running_aprs.clone(), running_duration)?;     
+
         }        
     }
 
     Ok(aprs)
+}
+
+fn calc_duration_apr(
+    apr_instances: Vec<APRInstance>,
+    duration: u64,
+) -> StdResult<Option<Decimal>>{
+    let mut running_apr = Decimal::zero();
+    //Find the ratio of each apr duration to the total duration
+    for apr_instance in apr_instances.iter() {
+        //Calc the ratio of the APR instance to the total duration
+        let ratio = Decimal::from_ratio(apr_instance.time_since_last_update, duration);
+        //Add the ratio of the APR to the running APR
+        running_apr += decimal_multiplication(apr_instance.apr_of_this_update, ratio)?;
+    }
+
+    //Multiply the running APR by the duration
+    // running_apr = decimal_multiplication(running_apr, Decimal::from_ratio(duration, 1u64),)?;
+
+    Ok(Some(running_apr))
 }
 
 /// Return underlying deposit token amount for an amount of vault tokens
@@ -500,6 +536,7 @@ fn query_vault_token_underlying(
         total_deposit_tokens, 
         total_vault_tokens
     )?;
+    // println!("{:?}, {}, {}, {}", users_base_tokens, total_deposit_tokens, total_vault_tokens, vault_token_amount);
 
     //Return the discounted amount
     Ok(users_base_tokens)
@@ -550,22 +587,7 @@ fn get_total_deposit_tokens(
     //Set total deposit tokens
     let total_deposit_tokens = vault_user_info.amount;
 
-    //Query the Red Bank balance for its total deposit tokens
-    // let total_redbank_deposit_tokens = deps.querier.query_balance(config.mars_redbank_addr.clone(), config.deposit_token.clone())?.amount;
-
-    //BC THE BANK SENDS ASSETS TO BORROWERS WE CAN ONLY ASSERT AN INSOLVENCY IF THEY HAVE LESS THAN WE'VE DEPOSITED
-
-    // If the Red Bank has less deposit tokens than it thinks it does in state, return a discounted amount
-    /////This is hack insurance & guarantees that underlying queries return less if the Red Bank has been exploited////////
-    // let mut deposit_discount = Decimal::one();
-    // if total_redbank_deposit_tokens < total_deposit_tokens {
-    //     deposit_discount = Decimal::from_ratio(total_redbank_deposit_tokens, total_deposit_tokens);
-    // }
-    
-    //Apply the discount to the total deposit tokens
-    // let discounted_deposit_tokens: Decimal = decimal_multiplication(Decimal::from_ratio(total_deposit_tokens, Uint128::one()), deposit_discount)?;
-
-    //return the discounted amount
+    //Return the total deposit tokens
     Ok(total_deposit_tokens)
     
 }

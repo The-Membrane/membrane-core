@@ -2415,60 +2415,60 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
 
-    let current_delegates = vec![
-        Delegate { 
-            delegate: Addr::unchecked("osmo1d9ryqp7yfmr92vkk2yal96824pewf2g5wx0h2r"), 
-            alias: Some(String::from("Frontend Host")), 
-            discord_username: Some(String::from("cyph3rpunk")),
-            twitter_username: Some(String::from("Cyph3rpunk1")),
-            url: None,
-        },        
-        Delegate { 
-            delegate: Addr::unchecked("osmo1nktatq53eah8efefsry33yg3zkhrrzwq3k6wg7"), 
-            alias: Some(String::from("RoboMcGobo")), 
-            discord_username: Some(String::from("robomcgobo")),
-            twitter_username: Some(String::from("RoboMcGobo")),
-            url: None,
-        },        
-        Delegate { 
-            delegate: Addr::unchecked("osmo1dplx2zw3mjk5lam6fnv5q2yxldcshs3wl3s8ph"), 
-            alias: Some(String::from("Johnny Wyles")), 
-            discord_username: Some(String::from("johnnywyles")),
-            twitter_username: Some(String::from("JohnnyWyles87")),
-            url: None,
-        },        
-        Delegate { 
-            delegate: Addr::unchecked("osmo1ckgwfferpjy6usm3nvyjknat5d6frrhypl6kku"), 
-            alias: Some(String::from("Macks Wolfard")), 
-            discord_username: Some(String::from("nostradamus.nosnode")),
-            twitter_username: Some(String::from("nostradamus411")),
-            url: None,
-        },        
-        Delegate { 
-            delegate: Addr::unchecked("osmo1xp0qs6pkay2jssu58p8eap0epdhwx5mqlhs4v7"), 
-            alias: Some(String::from("Nostradamus")), 
-            discord_username: Some(String::from("nostradamus.nosnode")),
-            twitter_username: Some(String::from("nostradamus411")),
-            url: None,
-        },        
-        Delegate { 
-            delegate: Addr::unchecked("osmo1uvnk984yhpw48jfu5srvsrqdt03kkvlcjqx8x5"), 
-            alias: Some(String::from("Banana DAO")), 
-            discord_username: Some(String::from("arcmosis")),
-            twitter_username: Some(String::from("thebananadao")),
-            url: None,
-        },        
-        Delegate { 
-            delegate: Addr::unchecked("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w"), 
-            alias: Some(String::from("Trix")), 
-            discord_username: Some(String::from("tri.xxx")),
-            twitter_username: Some(String::from("brane_trix")),
-            url: None,
-        }
-    ];
+    // let current_delegates = vec![
+    //     Delegate { 
+    //         delegate: Addr::unchecked("osmo1d9ryqp7yfmr92vkk2yal96824pewf2g5wx0h2r"), 
+    //         alias: Some(String::from("Frontend Host")), 
+    //         discord_username: Some(String::from("cyph3rpunk")),
+    //         twitter_username: Some(String::from("Cyph3rpunk1")),
+    //         url: None,
+    //     },        
+    //     Delegate { 
+    //         delegate: Addr::unchecked("osmo1nktatq53eah8efefsry33yg3zkhrrzwq3k6wg7"), 
+    //         alias: Some(String::from("RoboMcGobo")), 
+    //         discord_username: Some(String::from("robomcgobo")),
+    //         twitter_username: Some(String::from("RoboMcGobo")),
+    //         url: None,
+    //     },        
+    //     Delegate { 
+    //         delegate: Addr::unchecked("osmo1dplx2zw3mjk5lam6fnv5q2yxldcshs3wl3s8ph"), 
+    //         alias: Some(String::from("Johnny Wyles")), 
+    //         discord_username: Some(String::from("johnnywyles")),
+    //         twitter_username: Some(String::from("JohnnyWyles87")),
+    //         url: None,
+    //     },        
+    //     Delegate { 
+    //         delegate: Addr::unchecked("osmo1ckgwfferpjy6usm3nvyjknat5d6frrhypl6kku"), 
+    //         alias: Some(String::from("Macks Wolfard")), 
+    //         discord_username: Some(String::from("nostradamus.nosnode")),
+    //         twitter_username: Some(String::from("nostradamus411")),
+    //         url: None,
+    //     },        
+    //     Delegate { 
+    //         delegate: Addr::unchecked("osmo1xp0qs6pkay2jssu58p8eap0epdhwx5mqlhs4v7"), 
+    //         alias: Some(String::from("Nostradamus")), 
+    //         discord_username: Some(String::from("nostradamus.nosnode")),
+    //         twitter_username: Some(String::from("nostradamus411")),
+    //         url: None,
+    //     },        
+    //     Delegate { 
+    //         delegate: Addr::unchecked("osmo1uvnk984yhpw48jfu5srvsrqdt03kkvlcjqx8x5"), 
+    //         alias: Some(String::from("Banana DAO")), 
+    //         discord_username: Some(String::from("arcmosis")),
+    //         twitter_username: Some(String::from("thebananadao")),
+    //         url: None,
+    //     },        
+    //     Delegate { 
+    //         delegate: Addr::unchecked("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w"), 
+    //         alias: Some(String::from("Trix")), 
+    //         discord_username: Some(String::from("tri.xxx")),
+    //         twitter_username: Some(String::from("brane_trix")),
+    //         url: None,
+    //     }
+    // ];
 
-    //Initialize Delegate state
-    DELEGATE_INFO.save(deps.storage, &current_delegates)?;
+    // //Initialize Delegate state
+    // DELEGATE_INFO.save(deps.storage, &current_delegates)?;
 
     Ok(Response::default())
 }

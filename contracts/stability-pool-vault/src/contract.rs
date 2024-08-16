@@ -242,7 +242,7 @@ fn enter_vault(
             deposit_kept = tokens_to_fill_ratio;
         }
     } else
-    //If the ratio to keep is past the threshold then keep all the deposit tokens
+    //If the ratio to keep is past the threshold then send all the deposit tokens
     {
         deposit_sent_to_yield = deposit_amount;
     }

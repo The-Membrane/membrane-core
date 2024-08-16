@@ -592,11 +592,11 @@ fn get_total_deposit_tokens(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-    // Load APR tracker
-    let mut apr_tracker = APR_TRACKER.load(deps.storage)?;
-    apr_tracker.aprs = vec![];
-    //Reset APR tracker
-    APR_TRACKER.save(deps.storage, &apr_tracker)?;
+    // // Load APR tracker
+    // let mut apr_tracker = APR_TRACKER.load(deps.storage)?;
+    // apr_tracker.aprs = vec![];
+    // //Reset APR tracker
+    // APR_TRACKER.save(deps.storage, &apr_tracker)?;
 
     Ok(Response::default())
 }

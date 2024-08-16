@@ -1,7 +1,6 @@
-use std::cmp::min;
 #[cfg(not(feature = "library"))]
 use std::env;
-
+use std::cmp::min;
 
 use cosmwasm_std::{entry_point, Coin};
 use cosmwasm_std::{
@@ -672,7 +671,7 @@ pub fn unstake(
     //We update with the difference between the withdraw_amount and the withdrawable amount bc whatever isn't withdrawable was newly unstaked
     let mut totals = STAKING_TOTALS.load(deps.storage)?;
     //Set withdraw_amount to newly unstaked amount
-    if withdrawable_amount > withdraw_amount {
+    if withdrawable_amount >= withdraw_amount {
         withdraw_amount = Uint128::zero();
     } else {
         withdraw_amount -= withdrawable_amount;
@@ -2262,7 +2261,8 @@ pub fn get_delegation_commission(
     };
     
     //Calc the ratio of the total delegated_to to the total stake
-    let total_delegated_ratio = Decimal::from_ratio(total_delegated_to, total_rewarding_stake);
+    //Largest it can be is 1
+    let total_delegated_ratio = min(Decimal::from_ratio(total_delegated_to, total_rewarding_stake), Decimal::one());
 
     //Calculate the per deposit commission rate
     let per_deposit_commission_subtraction = decimal_multiplication(total_delegated_ratio, commission_rate)?;

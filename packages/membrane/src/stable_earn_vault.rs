@@ -27,7 +27,8 @@ pub enum ExecuteMsg {
         //
         osmosis_proxy_contract_addr: Option<String>,
         oracle_contract_addr: Option<String>,
-        self_debt_cap: Option<Uint128>,
+        withdrawal_buffer: Option<Decimal>,
+        deposit_cap: Option<Uint128>,
         swap_slippage: Option<Decimal>,
         vault_cost_index: Option<()>
     },
@@ -72,15 +73,27 @@ pub struct Config {
     pub cdt_denom: String,
     pub vault_token: String,
     pub deposit_token: VaultInfo,
+    /// % of deposits to keep outside of the CDP to ease withdrawals
+    pub withdrawal_buffer: Decimal,
     /// Stores total non-leveraged vault token amount
     pub total_nonleveraged_vault_tokens: Uint128,
     /// Position ID of the vault's CDP position (set in instantiation)
     pub cdp_position_id: Uint128,
     /// Vault debt cap
-    /// The CP contract will have another debt cap but we use this for a static debt cap so we accurately limit based on liquidity.
-    pub self_debt_cap: Uint128,
+    /// The CDP contract will have another debt cap but we use this for a static deposit cap so we accurately limit based on liquidity.
+    pub deposit_cap: Uint128,
     pub swap_slippage: Decimal,
     pub vault_cost_index: usize,
+}
+
+/// config.witdrawal_buffer's percent of the vault isn't earning the levered APR, just the deposit_token's vault APR
+#[cw_serde]
+pub struct APRResponse {
+    pub week_apr: Option<Decimal>,
+    pub month_apr: Option<Decimal>,
+    pub three_month_apr: Option<Decimal>,
+    pub year_apr: Option<Decimal>,
+    pub cost: Decimal,
 }
 
 #[cw_serde]

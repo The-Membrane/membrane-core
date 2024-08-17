@@ -51,9 +51,13 @@ pub enum ExecuteMsg {
     /// We are trusting that Mars deposits will only go up.
     /// Only callable by the contract
     RateAssurance { },
-    /// Check Loop profitability & Deposit excess VT into the CDP
+    /// Check Loop profitability, Deposit excess VT into the CDP & assert price is >= 99%
     /// Only callable by the contract
     PostLoopMaintenance { },
+    /// Assert price is <= 101% 
+    /// Only callable by the contract
+    UnloopMaintenance { },
+
 }
 
 #[cw_serde]

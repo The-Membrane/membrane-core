@@ -6,8 +6,7 @@ use std::convert::TryInto;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Addr,
-    Reply, Response, StdError, StdResult, Uint128, SubMsg, CosmosMsg, Decimal, Order, QuerierWrapper,
+    attr, to_binary, Addr, BankMsg, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, QuerierWrapper, Reply, Response, StdError, StdResult, SubMsg, Uint128
 };
 use cw2::set_contract_version;
 use membrane::helpers::get_asset_liquidity;
@@ -16,7 +15,7 @@ use osmosis_std::types::osmosis::gamm::v1beta1::GammQuerier;
 use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
 
 use crate::error::TokenFactoryError;
-use crate::state::{PendingTokenInfo, SwapRoute, TokenInfo, CONFIG, PENDING, SWAP_ROUTES, TOKENS};
+use crate::state::{PendingTokenInfo, SwapRoute, TokenInfo, CONFIG, PENDING, SWAPPER, SWAP_ROUTES, TOKENS};
 use membrane::osmosis_proxy::{
     Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, MigrateMsg, TokenInfoResponse, OwnerResponse, ContractDenomsResponse,
 };
@@ -34,6 +33,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_LIMIT: u32 = 64;
 
 const CREATE_DENOM_REPLY_ID: u64 = 1u64;
+const SWAP_REPLY_ID: u64 = 2u64;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -173,12 +173,27 @@ fn execute_swaps(
             token_out_min_amount: token_out_min_amount.to_string(),
             
         }.into();
-        //Add Msg
+        //Add Msgs
         msgs.push(msg);
     }
 
+    //Set swapper
+    SWAPPER.save(deps.storage, &info.sender.clone().to_string())?;
+    
+    //Remove last msg from msgs
+    let last_msg = match msgs.pop(){
+        Some(msg) => msg,
+        None => return Err(TokenFactoryError::CustomError { val: String::from("No messages to swap") })
+    };
 
-    Ok(Response::new().add_messages(msgs))
+    //Set the last msg of the list to be a submessage with a swap reply
+    let submsg = SubMsg::reply_on_success(last_msg, SWAP_REPLY_ID);
+
+
+    Ok(Response::new()
+    .add_attribute("token_out", token_out)
+    .add_attribute("max_slippage", max_slippage.to_string())
+    .add_messages(msgs).add_submessage(submsg))
 }
 
 fn get_swap_route(swap_routes: Vec<SwapRoute>, mut token_in: String, token_out: String) -> Result<Vec<SwapAmountInRoute>, TokenFactoryError> {
@@ -848,7 +863,38 @@ pub fn validate_denom(denom: String) -> Result<(), TokenFactoryError> {
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, env, msg),
+        SWAP_REPLY_ID => handle_swap_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
+    }
+}
+
+fn handle_swap_reply(
+    deps: DepsMut,
+    env: Env,
+    msg: Reply,
+) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(result) => {
+            //Get swapper
+            let swapper = SWAPPER.load(deps.storage)?;
+
+            //Send all assets in the contract to the swapper
+            let balances = deps.querier.query_all_balances(&env.contract.address)?;
+
+            let msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+                to_address: swapper.clone(),
+                amount: balances.clone(),
+            });
+
+            //Remove swapper
+            SWAPPER.remove(deps.storage);
+
+            return Ok(Response::new()
+            .add_attribute("swapper", swapper)
+            .add_attribute("tokens_received", format!("{:?}", balances))
+            .add_message(msg))
+        } //We only reply on success
+        Err(err) => return Err(StdError::GenericErr { msg: err }),
     }
 }
 

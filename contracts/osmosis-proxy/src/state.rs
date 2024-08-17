@@ -34,3 +34,4 @@ pub const CONFIG: Item<Config> = Item::new("config");
 pub const TOKENS: Map<String, TokenInfo> = Map::new("tokens"); //AssetInfo, TokenInfo
 pub const PENDING: Item<PendingTokenInfo> = Item::new("pending_denoms");
 pub const SWAP_ROUTES: Item<Vec<SwapRoute>> = Item::new("swap_routes");
+pub const SWAPPER: Item<String> = Item::new("swapper");

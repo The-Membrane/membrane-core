@@ -459,8 +459,8 @@ pub struct RedemptionInfo {
 pub struct PositionRedemption {
     /// Position ID of the position to be redeemed from
     pub position_id: Uint128,
-    /// Remaining available loan repayment in debt tokens
-    pub remaining_loan_repayment: Uint128,
+    /// (Deprecated) Remaining available loan repayment in debt tokens
+    pub remaining_loan_repayment: Uint128,    
     /// Restricted collateral assets.
     /// These aren't used for redemptions.
     pub restricted_collateral_assets: Vec<String>,

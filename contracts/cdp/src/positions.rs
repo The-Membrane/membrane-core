@@ -1075,8 +1075,8 @@ pub fn edit_redemption_info(
 
     //Check for valid max_loan_repayment
     if let Some(max_loan_repayment) = max_loan_repayment {
-        if max_loan_repayment > Decimal::one() {
-            return Err(ContractError::CustomError { val: String::from("Max loan repayment can't be greater than 100%") })
+        if max_loan_repayment > Decimal::one() || max_loan_repayment.is_zero() {
+            return Err(ContractError::CustomError { val: String::from("Max loan repayment can't be 0% or greater than 100%") })
         }
     }
 
@@ -1358,6 +1358,12 @@ pub fn redeem_for_collateral(
                             .collect::<Vec<cAsset>>();
                     }
                     if target_position.collateral_assets.is_empty() {
+                        //Remove PositionRedemption from user
+                        user.position_infos.remove(pos_rdmpt_index);
+                        //Remove user if no more PositionRedemptions
+                        if user.position_infos.is_empty() {
+                            users_of_premium.remove(user_index);
+                        }
                         continue;
                     }
 
@@ -1371,9 +1377,10 @@ pub fn redeem_for_collateral(
                         Some(basket.clone()),
                     )?;
 
-                    //Calc amount of credit that can be redeemed
+                    //Calc amount of credit that can be redeemed.
+                    //Max we can redeem is the target_position's credit_amount.
                     redeemable_credit = Decimal::min(
-                        Decimal::from_ratio(position_redemption_info.remaining_loan_repayment, Uint128::one()),
+                        Decimal::min(Decimal::from_ratio(position_redemption_info.remaining_loan_repayment, Uint128::one()), Decimal::from_ratio(target_position.credit_amount, Uint128::one())),
                         credit_amount
                     );
                     //Subtract redeemable from credit_amount 
@@ -1451,6 +1458,16 @@ pub fn redeem_for_collateral(
 
                     //Set position.credit_amount
                     target_position.credit_amount -= redeemable_credit.to_uint_floor();
+
+                    //Remove from redemption_info if credit_amount is zero
+                    if target_position.credit_amount.is_zero() {
+                        //Remove PositionRedemption from user
+                        user.position_infos.remove(pos_rdmpt_index);
+                        //Remove user if no more PositionRedemptions
+                        if user.position_infos.is_empty() {
+                            users_of_premium.remove(user_index);
+                        }
+                    }
 
                     //Update position.credit_amount
                     update_position(

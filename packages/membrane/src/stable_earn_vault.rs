@@ -97,6 +97,7 @@ pub struct APRResponse {
     pub month_apr: Option<Decimal>,
     pub three_month_apr: Option<Decimal>,
     pub year_apr: Option<Decimal>,
+    pub leverage: Decimal,
     pub cost: Decimal,
 }
 

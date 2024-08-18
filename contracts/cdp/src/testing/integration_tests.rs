@@ -10593,6 +10593,14 @@ mod tests {
             let err = app.execute(Addr::unchecked("redeemer"), cosmos_msg).unwrap_err();
             assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"Must send only the Basket's debt token\""));           
 
+            //Repay 46k of the 50k debt in position 1 to lower the available redemption amount to 4k or 14k total
+            let msg = ExecuteMsg::Repay {
+                position_id: Uint128::one(),
+                position_owner: Some(String::from(USER)),
+                send_excess_to: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![coin(46_000_000000, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
 
             //Success, but Send too much (15k max currently)
             let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![coin(100_000_000000, "credit_fulldenom")]).unwrap();
@@ -10601,8 +10609,8 @@ mod tests {
             assert_eq!(
                 app.wrap().query_all_balances(Addr::unchecked("redeemer")).unwrap(),
                 vec![
-                    coin(85000_000000, "credit_fulldenom"),  
-                    coin(12500_000000, "debit"), 
+                    coin(86000_000000, "credit_fulldenom"),  
+                    coin(11600_000000, "debit"), 
                     coin(1, "not_redeemable")]
             );
 
@@ -10621,8 +10629,8 @@ mod tests {
                     ),
                 })
                 .unwrap();
-            assert_eq!(position[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(95_500_000000));
-            assert_eq!(position[0].positions[0].credit_amount, Uint128::new(45000_000000));
+            assert_eq!(position[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(96_400_000000));
+            assert_eq!(position[0].positions[0].credit_amount, Uint128::new(0));
 
             let position_2: Vec<BasketPositionsResponse> = app
                 .wrap()

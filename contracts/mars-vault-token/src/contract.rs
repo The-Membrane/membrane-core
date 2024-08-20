@@ -22,6 +22,8 @@ const CONTRACT_NAME: &str = "crates.io:mars-vault-token";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 //Timeframe constants
+const HOURS_PER_YEAR: usize = 8784usize; //leap year
+const SECONDS_PER_HOUR: u64 = 3_600u64;
 const SECONDS_PER_DAY: u64 = 86_400u64;
 const SECONDS_PER_WEEK: u64 = SECONDS_PER_DAY * 7;
 const SECONDS_PER_MONTH: u64 = SECONDS_PER_DAY * 30;
@@ -111,9 +113,20 @@ fn save_apr_instance(
     total_deposit_tokens: Uint128,
 ) -> StdResult<()> {
     let mut apr_tracker = APR_TRACKER.load(storage)?;
+    //if it hasn't been at least 1 HOUR since the last update, don't update
+    if block_time - apr_tracker.last_updated < SECONDS_PER_HOUR {
+        return Ok(());
+    }
     apr_tracker.aprs.push(apr_instance);
     apr_tracker.last_updated = block_time;
     apr_tracker.last_total_deposit = total_deposit_tokens;
+
+    //If we have more than 1 year of APRs, remove the oldest
+    if apr_tracker.aprs.len() > HOURS_PER_YEAR {
+        apr_tracker.aprs.remove(0);
+    }
+
+    //Save the updated APRTracker
     APR_TRACKER.save(storage, &apr_tracker)?;
 
     Ok(())
@@ -503,12 +516,21 @@ fn calc_duration_apr(
     duration: u64,
 ) -> StdResult<Option<Decimal>>{
     let mut running_apr = Decimal::zero();
-    //Find the ratio of each apr duration to the total duration
-    for apr_instance in apr_instances.iter() {
-        //Calc the ratio of the APR instance to the total duration
+    /////Find the ratio of each apr duration to the total duration////
+    //Use the next time_since_last_update to calc the ratio for the previous apr
+    //NOTE: we do this so if someone manipulates APR they are taking an opportunity cost to hold the rate for longer
+    let mut previous_apr = Decimal::zero();
+    for (index, apr_instance) in apr_instances.iter().enumerate() {
+        if index == 0 {
+            previous_apr = apr_instance.apr_of_this_update;
+            continue;
+        }
+        //Calc the ratio of the previous_APR's duration to the total duration
         let ratio = Decimal::from_ratio(apr_instance.time_since_last_update, duration);
         //Add the ratio of the APR to the running APR
-        running_apr += decimal_multiplication(apr_instance.apr_of_this_update, ratio)?;
+        running_apr += decimal_multiplication(previous_apr, ratio)?;
+        
+        previous_apr = apr_instance.apr_of_this_update;
     }
 
 

@@ -4664,6 +4664,33 @@ mod tests {
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
 
+            //Assert redemptions were set for a hiked rate asset
+            let query_msg = QueryMsg::GetBasketRedeemability { 
+                position_owner: None,
+                start_after: None, 
+                limit: None 
+            };
+            let res = app
+                .wrap()
+                .query_wasm_smart::<RedeemabilityResponse>(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[0].remaining_loan_repayment, Uint128::new(0));
+            assert_eq!(res.premium_infos[0].premium, 1u128);
+            assert_eq!(res.premium_infos[0].users_of_premium.len(), 1);
+            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos.len(), 1);
+
+            //Error: Can't manually change if rate hiked asset
+            let redemption_msg = ExecuteMsg::EditRedeemability { 
+                position_ids: vec![Uint128::one()], 
+                redeemable: Some(true), 
+                premium: Some(99), 
+                max_loan_repayment: Some(Decimal::percent(100)),
+                restricted_collateral_assets: None,
+            };
+            let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![]).unwrap();
+            let err = app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap_err();
+            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"Can't edit redemption for a position with a rate hike asset: NativeToken { denom: \\\"lp_denom\\\" }\""));
+
            
             //Successful Increase for Position 1
             //Current Position: 100_000_000_000_000_000_000_000 lp_denom -> 2_000_000000 credit_fulldenom
@@ -4676,6 +4703,21 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
+            
+            //Assert redemptions were set for a hiked rate asset
+            let query_msg = QueryMsg::GetBasketRedeemability { 
+                position_owner: None,
+                start_after: None, 
+                limit: None 
+            };
+            let res = app
+                .wrap()
+                .query_wasm_smart::<RedeemabilityResponse>(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[0].remaining_loan_repayment, Uint128::new(0));
+            assert_eq!(res.premium_infos[0].premium, 1u128);
+            assert_eq!(res.premium_infos[0].users_of_premium.len(), 1);
+            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos.len(), 1);
 
             //Query Basket Debt Caps
             let query_msg = QueryMsg::GetBasketDebtCaps { };

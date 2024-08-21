@@ -208,13 +208,14 @@ pub fn execute(
         },
         ExecuteMsg::EditRedeemability { position_ids, redeemable, premium, max_loan_repayment, restricted_collateral_assets } => {
             edit_redemption_info(
-                deps, 
+                deps.storage,
                 info, 
                 position_ids, 
                 redeemable, 
                 premium, 
                 max_loan_repayment,
-                restricted_collateral_assets
+                restricted_collateral_assets,
+                false
             )
         },
         ExecuteMsg::LiqRepay {} => {
@@ -587,5 +588,9 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    //Set rate hike rate to None
+    let mut config = CONFIG.load(deps.storage)?;
+    config.rate_hike_rate = None;
+    CONFIG.save(deps.storage, &config)?;
     Ok(Response::default())
 }

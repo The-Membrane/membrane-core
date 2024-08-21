@@ -946,9 +946,6 @@ pub fn increase_debt(
     //Get Target position
     let (position_index, mut target_position) = get_target_position(deps.storage, info.clone().sender, position_id)?;
     
-    //Check if frozen
-    if basket.frozen { return Err(ContractError::Frozen {  }) }
-
     //If any cAsset is a rate_hike asset, force a redemption 
     for cAsset in target_position.collateral_assets.clone(){
         if cAsset.hike_rates.is_some() && cAsset.hike_rates.unwrap() {

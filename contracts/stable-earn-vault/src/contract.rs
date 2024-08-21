@@ -504,6 +504,8 @@ fn unloop_cdp(
         cdt_price
     ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
 
+    panic!("running_credit_amount: {}, running_collateral_amount: {}", running_credit_amount, running_collateral_amount);
+
     //Initialize loop variables 
     let mut loops_count = 0;
     ////Loop: Create an unloop msg instance////

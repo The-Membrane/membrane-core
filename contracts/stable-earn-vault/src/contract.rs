@@ -177,7 +177,7 @@ fn loop_cdp(
     
     //Ensure price is above 99.5% of peg
     //We want to ensure loops keep redemptions at 99% of peg profitable
-    test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(99) + config.swap_slippage)?;
+    test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98) + config.swap_slippage)?;
 
     //Deposit any excess vtokens into the CDP
     let ( _, _, _, mut vt_sent_to_cdp ) = get_buffer_amounts(
@@ -350,7 +350,7 @@ fn post_loop(
     // };
 
     //Ensure price is still above 99% of peg
-    let (cdt_market_price, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(99))?;
+    let (cdt_market_price, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98))?;
 
     //Create Response
     let res = Response::new()

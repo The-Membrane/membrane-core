@@ -588,9 +588,5 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Set rate hike rate to None
-    let mut config = CONFIG.load(deps.storage)?;
-    config.rate_hike_rate = None;
-    CONFIG.save(deps.storage, &config)?;
     Ok(Response::default())
 }

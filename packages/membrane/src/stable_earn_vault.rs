@@ -37,8 +37,8 @@ pub enum ExecuteMsg {
     /// Called by external to unloop & retain profitability.
     UnloopCDP {
         /// Amount of collateral to withdraw.
-        /// Only callable by the contract/
-        desired_collateral_withdrawal: Option<Uint128>,
+        /// Only callable by the contract
+        desired_collateral_withdrawal: Uint128,
     },
     /// Loop the vault's CDP position to increase collateral
     LoopCDP {

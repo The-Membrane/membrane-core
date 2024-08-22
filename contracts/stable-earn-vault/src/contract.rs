@@ -32,7 +32,6 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 //Reply IDs
 const ENTER_VAULT_REPLY_ID: u64 = 1u64;
 const CDP_REPLY_ID: u64 = 2u64;
-const ROUTER_REPLY_ID: u64 = 3u64;
 
 //Constants
 const SECONDS_PER_DAY: u64 = 86_400u64;
@@ -117,7 +116,7 @@ pub fn instantiate(
         .add_attribute("contract_address", env.contract.address)
         .add_attribute("sub_denom", msg.clone().vault_subdenom)
     //UNCOMMENT
-        // .add_message(denom_msg)
+        .add_message(denom_msg)
         .add_submessage(cdp_submsg);
     Ok(res)
 }
@@ -932,7 +931,7 @@ fn enter_vault(
         mint_to_address: info.sender.to_string(),
     }.into();
     //UNCOMMENT
-    // msgs.push(SubMsg::new(mint_vault_tokens_msg));
+    msgs.push(SubMsg::new(mint_vault_tokens_msg));
 
     //Update the total token amounts
     VAULT_TOKEN.save(deps.storage, &(total_vault_tokens + vault_tokens_to_distribute))?;

@@ -60,7 +60,7 @@ pub fn instantiate(
         osmosis_proxy_contract_addr: deps.api.addr_validate(&msg.clone().osmosis_proxy_contract_addr)?,
         oracle_contract_addr: deps.api.addr_validate(&msg.clone().oracle_contract_addr)?,
         withdrawal_buffer: Decimal::percent(10),
-        total_nonleveraged_vault_tokens: Uint128::zero(),
+        total_nonleveraged_vault_tokens: Uint128::new(1_000_000_000_000), //from initial deposit
         cdp_position_id: Uint128::zero(),
         deposit_cap: Uint128::new(10_000_000_000),
         swap_slippage: Decimal::from_str("0.005").unwrap(), //0.5%
@@ -69,27 +69,26 @@ pub fn instantiate(
     //Validate the deposit token vault addr
     deps.api.addr_validate(&config.deposit_token.vault_addr.to_string())?;
     //Query the basket to find the index of the vault_token
-    let vault_cost_index: u64 = match deps.querier.query_wasm_smart::<Basket>(
+    let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
         config.cdp_contract_addr.to_string(),
         &CDP_QueryMsg::GetBasket { },
     ){
-        Ok(basket) => {
-            let mut saved_index: Option<u64> = None;
-            for (index, asset) in basket.clone().collateral_types.into_iter().enumerate(){
-                if asset.asset.info.to_string() == config.deposit_token.clone().vault_token {
-                    saved_index = Some(index as u64);
-                    break;
-                }
-            }
-            if let Some(index) = saved_index {
-                index
-            } else {
-                return Err(TokenFactoryError::CustomError { val: String::from("Failed to find the vault token in the CDP Basket") });
-            }
-        },
+        Ok(basket) => basket,
         Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP Basket") }),
     };
-    config.vault_cost_index = vault_cost_index as usize;
+    //Find the index
+    let mut saved_index: Option<u64> = None;
+    for (index, asset) in basket.clone().collateral_types.into_iter().enumerate(){
+        if asset.asset.info.to_string() == config.deposit_token.clone().vault_token {
+            saved_index = Some(index as u64);
+            break;
+        }
+    }
+    if let Some(index) = saved_index {
+        config.vault_cost_index = index as usize;
+    } else {
+        return Err(TokenFactoryError::CustomError { val: String::from("Failed to find the vault token in the CDP Basket") });
+    }
 
     //Save initial state
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
@@ -210,7 +209,7 @@ fn loop_cdp(
         msgs.push(set_redemptions_msg);
     }
     //Get deposit token price
-    let deposit_token_price: PriceResponse = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
+    let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
         config.oracle_contract_addr.to_string(),
         &Oracle_QueryMsg::Price {
             asset_info: AssetInfo::NativeToken { denom: config.clone().deposit_token.deposit_token },
@@ -219,9 +218,10 @@ fn loop_cdp(
             basket_id: None
         },
     ){
-        Ok(price) => price[0].clone(),
+        Ok(prices) => prices,
         Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the deposit token price in loop") }),
     };
+    let deposit_token_price: PriceResponse = prices[0].clone();
 
     let mut loops_count = 0;
     while loops_count < loop_max {
@@ -365,17 +365,18 @@ fn test_looping_peg_price(
     config: Config,
     desired_peg_price: Decimal,
 ) -> Result<(Decimal, Decimal), TokenFactoryError>{
-     //Query basket for CDT peg price
-     let cdt_peg_price: Decimal = match querier.query_wasm_smart::<Basket>(
+    //Query basket for CDT peg price
+    let basket: Basket = match  querier.query_wasm_smart::<Basket>(
         config.cdp_contract_addr.to_string(),
         &CDP_QueryMsg::GetBasket {  },
     ){
-        Ok(basket) => basket.clone().credit_price.price,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in unloop") }),
+        Ok(basket) => basket,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in test_looping_peg_price") }),
     };
+    let cdt_peg_price: Decimal = basket.credit_price.price;
 
     //Check that CDT market price is equal or above 99% of peg
-    let cdt_market_price: Decimal = match querier.query_wasm_smart::<Vec<PriceResponse>>(
+    let prices: Vec<PriceResponse> = match querier.query_wasm_smart::<Vec<PriceResponse>>(
         config.oracle_contract_addr.to_string(),
         &Oracle_QueryMsg::Price {
             asset_info: AssetInfo::NativeToken { denom: config.clone().cdt_denom },
@@ -384,9 +385,11 @@ fn test_looping_peg_price(
             basket_id: None
         },
     ){
-        Ok(price) => price[0].clone().price,
+        Ok(prices) => prices,
         Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the cdt price in post unloop") }),
     };
+    let cdt_market_price: Decimal = prices[0].clone().price;
+
     if decimal_division(cdt_market_price, max(cdt_peg_price, Decimal::one()))? < desired_peg_price {
         return Err(TokenFactoryError::CustomError { val: String::from("CDT price is below 99% of peg, can't loop. Try a lower loop_max to reduce sell pressure.") });
     }
@@ -402,16 +405,17 @@ fn post_unloop(
     let config = CONFIG.load(deps.storage)?;
 
     //Query basket for CDT peg price
-    let cdt_peg_price: Decimal = match deps.querier.query_wasm_smart::<Basket>(
+    let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
         config.cdp_contract_addr.to_string(),
         &CDP_QueryMsg::GetBasket {  },
     ){
-        Ok(basket) => basket.clone().credit_price.price,
+        Ok(basket) => basket,
         Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in unloop") }),
     };
+    let cdt_peg_price: Decimal = basket.credit_price.price;
 
     //Check that CDT market price is equal or below 101% of peg
-    let cdt_market_price: Decimal = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
+    let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
         config.oracle_contract_addr.to_string(),
         &Oracle_QueryMsg::Price {
             asset_info: AssetInfo::NativeToken { denom: config.clone().cdt_denom },
@@ -420,9 +424,11 @@ fn post_unloop(
             basket_id: None
         },
     ){
-        Ok(price) => price[0].clone().price,
+        Ok(prices) => prices,
         Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the cdt price in post unloop") }),
     };
+    let cdt_market_price: Decimal = prices[0].clone().price;
+
     if decimal_division(cdt_market_price, max(cdt_peg_price, Decimal::one()))? > Decimal::percent(101){
         return Err(TokenFactoryError::CustomError { val: String::from("CDT price is above 101% of peg, can't unloop.") });
     }
@@ -567,7 +573,7 @@ fn unloop_cdp(
         // - Exit the vault
         // - sell the underlying token for CDT
         //Query the amount of deposit tokens we'll receive
-        let underlying_deposit_token = match deps.querier.query_wasm_smart::<Uint128>(
+        let underlying_deposit_token: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
             config.deposit_token.vault_addr.to_string(),
             &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: withdrawable_collateral },
         ){
@@ -694,7 +700,7 @@ fn get_cdp_position_info(
     config: Config,
 ) -> Result<(Uint128,Uint128, PriceResponse, PriceResponse), TokenFactoryError> {
     //Query VT token price
-    let vt_token_price: PriceResponse = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
+    let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
         config.oracle_contract_addr.to_string(),
         &Oracle_QueryMsg::Price {
             asset_info: AssetInfo::NativeToken { denom: config.clone().deposit_token.vault_token },
@@ -703,20 +709,23 @@ fn get_cdp_position_info(
             basket_id: None
         },
     ){
-        Ok(price) => price[0].clone(),
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the VT token price in unloop") }),
-    };    
+        Ok(prices) => prices,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the VT token price in get_cdp_position_info") }),
+    };   
+    let vt_token_price: PriceResponse = prices[0].clone();
     //Query basket for CDT price
-    let cdt_price: PriceResponse = match deps.querier.query_wasm_smart::<Basket>(
+    let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
         config.cdp_contract_addr.to_string(),
         &CDP_QueryMsg::GetBasket {  },
     ){
-        Ok(basket) => basket.credit_price,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in unloop") }),
+        Ok(basket) => basket,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in get_cdp_position_info") }),
     };
+    let cdt_price: PriceResponse = basket.credit_price;
     
     //Query the CDP position for the amount of vault tokens we have
-    let vault_position: PositionResponse = match deps.querier.query_wasm_smart::<Vec<BasketPositionsResponse>>(
+    //Query the CDP position for the amount of vault tokens we have as collateral
+    let vault_position: Vec<BasketPositionsResponse> = match deps.querier.query_wasm_smart::<Vec<BasketPositionsResponse>>(
         config.cdp_contract_addr.to_string(),
         &CDP_QueryMsg::GetBasketPositions { 
             start_after: None, 
@@ -728,9 +737,10 @@ fn get_cdp_position_info(
             limit: None, 
         },
     ){
-        Ok(vault_position) => vault_position[0].positions[0].clone(),
-        Err(err) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP Position for the vault token amount:") + &err.to_string() }),
+        Ok(vault_position) => vault_position,
+        Err(err) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP Position for the vault token amount in get_cdp_position_info:") + &err.to_string() }),
     };
+    let vault_position: PositionResponse = vault_position[0].positions[0].clone();
 
     //Set running credit amount 
     let running_credit_amount = vault_position.credit_amount;
@@ -1186,28 +1196,26 @@ fn update_config(
     }
     if let Some(_) = vault_cost_index {
         //Query the basket to find the index of the vault_token
-        let vault_cost_index: usize = match deps.querier.query_wasm_smart::<Basket>(
+        let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
             config.cdp_contract_addr.to_string(),
             &CDP_QueryMsg::GetBasket { },
         ){
-            Ok(basket) => {
-                let mut saved_index: Option<usize> = None;
-                for (index, asset) in basket.clone().collateral_types.into_iter().enumerate(){
-                    if asset.asset.info.to_string() == config.deposit_token.clone().vault_token {
-                        saved_index = Some(index as usize);
-                        break;
-                    }
-                }
-                if let Some(index) = saved_index {
-                    index
-                } else {
-                    return Err(TokenFactoryError::CustomError { val: String::from("Failed to find the vault token in the CDP Basket") });
-                }
-            },
+            Ok(basket) => basket,
             Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP Basket") }),
         };
-        config.vault_cost_index = vault_cost_index;
-        attrs.push(attr("updated_vault_cost_index", vault_cost_index.to_string()));
+        //Find the index
+        let mut saved_index: Option<u64> = None;
+        for (index, asset) in basket.clone().collateral_types.into_iter().enumerate(){
+            if asset.asset.info.to_string() == config.deposit_token.clone().vault_token {
+                saved_index = Some(index as u64);
+                break;
+            }
+        }
+        if let Some(index) = saved_index {
+            config.vault_cost_index = index as usize;
+        } else {
+            return Err(TokenFactoryError::CustomError { val: String::from("Failed to find the vault token in the CDP Basket") });
+        }    
     }
     CONFIG.save(deps.storage, &config)?;
     attrs.push(attr("updated_config", format!("{:?}", config)));
@@ -1245,7 +1253,7 @@ fn query_apr(
     ////Find the leverage of the contract////
     //Query the collateral of the contract's CDP
     //Query the CDP position for the amount of vault tokens we have
-    let vault_position: PositionResponse = match deps.querier.query_wasm_smart::<Vec<BasketPositionsResponse>>(
+    let vault_position: Vec<BasketPositionsResponse> = match deps.querier.query_wasm_smart::<Vec<BasketPositionsResponse>>(
         config.cdp_contract_addr.to_string(),
         &CDP_QueryMsg::GetBasketPositions { 
             start_after: None, 
@@ -1257,9 +1265,10 @@ fn query_apr(
             limit: None, 
         },
     ){
-        Ok(vault_position) => vault_position[0].positions[0].clone(),
-        Err(err) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP Position for the vault token amount in calc_apr_instance:") + &err.to_string() }),
+        Ok(vault_position) => vault_position,
+        Err(err) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP Position for the vault token amount in get_total_deposit_tokens:") + &err.to_string() }),
     };
+    let vault_position: PositionResponse = vault_position[0].positions[0].clone();
     //Set running collateral amount
     let vt_collateral_amount = vault_position.collateral_assets[0].asset.amount;
     //Find the leverage by dividing the collateral by the non-leveraged vault tokens
@@ -1349,13 +1358,14 @@ fn query_apr(
     }
 
     //Query the cost of the deposit vault's vault token
-    let vt_cost = match deps.querier.query_wasm_smart::<CollateralInterestResponse>(
+    let basket_interest: CollateralInterestResponse = match deps.querier.query_wasm_smart::<CollateralInterestResponse>(
         config.cdp_contract_addr.to_string(),
         &CDP_QueryMsg::GetCollateralInterest {  },
     ){
-        Ok(basket_interest) => basket_interest.rates[config.vault_cost_index].clone(),
+        Ok(basket_interest) => basket_interest,
         Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP collateral interest rates in query_apr") }),
     };
+    let vt_cost: Decimal = basket_interest.rates[config.vault_cost_index].clone();
     //Set cost
     aprs.cost = vt_cost;
 
@@ -1394,15 +1404,16 @@ fn get_total_deposit_tokens(
     config: Config,
 ) -> StdResult<Uint128> {
     //Get CDT price
-    let cdt_price: PriceResponse = match deps.querier.query_wasm_smart::<Basket>(
+    let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
         config.cdp_contract_addr.to_string(),
         &CDP_QueryMsg::GetBasket {  },
     ){
-        Ok(basket) => basket.credit_price,
+        Ok(basket) => basket,
         Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP basket in get_total_deposit_tokens") }),
     };
+    let cdt_price: PriceResponse = basket.credit_price;
     //Get vault token price
-    let vt_token_price: PriceResponse = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
+    let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
         config.oracle_contract_addr.to_string(),
         &Oracle_QueryMsg::Price {
             asset_info: AssetInfo::NativeToken{ denom: config.clone().deposit_token.vault_token },
@@ -1411,25 +1422,27 @@ fn get_total_deposit_tokens(
             basket_id: None
         },
     ){
-        Ok(price) => price[0].clone(),
+        Ok(prices) => prices,
         Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the VT token price in get_total_deposit_tokens") }),
     };
+    let vt_token_price: PriceResponse = prices[0].clone();
     //Query the CDP position for the amount of vault tokens we have as collateral
-    let vault_position: PositionResponse = match deps.querier.query_wasm_smart::<Vec<BasketPositionsResponse>>(
+    let vault_position: Vec<BasketPositionsResponse> = match deps.querier.query_wasm_smart::<Vec<BasketPositionsResponse>>(
         config.cdp_contract_addr.to_string(),
         &CDP_QueryMsg::GetBasketPositions { 
             start_after: None, 
             user: None,
             user_info: Some(UserInfo {
-                position_owner: config.owner.to_string(),
+                position_owner: env.contract.address.to_string(),
                 position_id: config.cdp_position_id,
             }), 
             limit: None, 
         },
     ){
-        Ok(vault_position) => vault_position[0].positions[0].clone(),
+        Ok(vault_position) => vault_position,
         Err(err) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP Position for the vault token amount in get_total_deposit_tokens:") + &err.to_string() }),
     };
+    let vault_position: PositionResponse = vault_position[0].positions[0].clone();
     //Calc value of the debt
     let debt_value = cdt_price.get_value(vault_position.credit_amount)?;
     //Calc value of the collateral
@@ -1626,5 +1639,9 @@ fn get_buffer_amounts(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
+    //Load the config
+    let mut config = CONFIG.load(deps.storage)?;
+    config.total_nonleveraged_vault_tokens = Uint128::new(1_000_000_000_000);
+    CONFIG.save(deps.storage, &config)?;
     Ok(Response::default())
 }

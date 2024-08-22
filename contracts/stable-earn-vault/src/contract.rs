@@ -92,8 +92,24 @@ pub fn instantiate(
 
     //Save initial state
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+
+    //Query the underlying of the initial vault token deposit
+    let underlying_deposit_token: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
+        config.deposit_token.vault_addr.to_string(),
+        &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: Uint128::new(1_000_000_000_000) },
+    ){
+        Ok(underlying_deposit_token) => underlying_deposit_token,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the Mars Vault Token for the underlying deposit amount in instantiate") }),
+    };
+
+    //Set the initial vault token amount from the initial deposit
+    let vault_tokens_to_distribute = calculate_vault_tokens(
+        underlying_deposit_token,
+        Uint128::zero(), 
+        Uint128::zero()
+    )?;
     CONFIG.save(deps.storage, &config)?;
-    VAULT_TOKEN.save(deps.storage, &Uint128::zero())?;  
+    VAULT_TOKEN.save(deps.storage, &vault_tokens_to_distribute)?;  
     //Create Denom Msg
     let denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: msg.vault_subdenom.clone() };
     //Create CDP deposit msg to get the position ID
@@ -1380,7 +1396,6 @@ fn query_vault_token_underlying(
 ) -> StdResult<Uint128> {
     let config = CONFIG.load(deps.storage)?;
     let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
-
     
     //Get total deposit tokens
     let total_deposit_tokens = get_total_deposit_tokens(deps, env.clone(), config.clone())?;
@@ -1640,8 +1655,33 @@ fn get_buffer_amounts(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
     //Load the config
-    let mut config = CONFIG.load(deps.storage)?;
-    config.total_nonleveraged_vault_tokens = Uint128::new(1_000_000_000_000);
-    CONFIG.save(deps.storage, &config)?;
-    Ok(Response::default())
+    let config = CONFIG.load(deps.storage)?;
+    //Query the underlying of the initial vault token deposit
+    let underlying_deposit_token: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
+        config.deposit_token.vault_addr.to_string(),
+        &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: Uint128::new(1_000_000_000_000) },
+    ){
+        Ok(underlying_deposit_token) => underlying_deposit_token,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the Mars Vault Token for the underlying deposit amount in instantiate") }),
+    };
+
+    //Set the initial vault token amount from the initial deposit
+    let vault_tokens_to_distribute = calculate_vault_tokens(
+        underlying_deposit_token,
+        Uint128::zero(), 
+        Uint128::zero()
+    )?;
+    VAULT_TOKEN.save(deps.storage, &vault_tokens_to_distribute)?;
+
+    //Mint vault tokens to the sender
+    let mint_vault_tokens_msg: CosmosMsg = TokenFactory::MsgMint {
+        sender: env.contract.address.to_string(), 
+        amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
+            denom: config.vault_token.clone(),
+            amount: vault_tokens_to_distribute.to_string(),
+        }), 
+        mint_to_address: "osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w".to_string(),
+    }.into();
+
+    Ok(Response::default().add_message(mint_vault_tokens_msg))
 }

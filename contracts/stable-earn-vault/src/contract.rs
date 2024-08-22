@@ -252,9 +252,9 @@ fn loop_cdp(
          
         //Leave a 101 CDT LTV gap to allow easier unlooping under the minimum debt (100)
         //$112.22 of LTV space is ~101 CDT at 90% borrow LTV
-        if min_deposit_value < Decimal::percent(112_22){
-            break;
-        }
+        // if min_deposit_value < Decimal::percent(112_22){
+        //     break;
+        // }
 
         //Create mint msg
         let mint_msg = CosmosMsg::Wasm(WasmMsg::Execute {

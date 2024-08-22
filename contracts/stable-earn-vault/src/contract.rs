@@ -1472,8 +1472,8 @@ fn get_total_deposit_tokens(
         //Calc value minus slippage
         liquid_value = decimal_multiplication(liquid_value, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?;
     }    
-    //Calc the amount of deposit tokens
-    let mut total_deposit_tokens = vt_token_price.get_amount(liquid_value)?;
+    //Calc the amount of vaulted deposit tokens
+    let mut total_vaulted_deposit_tokens = vt_token_price.get_amount(liquid_value)?;
 
     //Query the contract balance for the amount of buffered vault tokens
     let vt_buffer = match deps.querier.query_balance(env.contract.address.to_string(), config.deposit_token.vault_token){
@@ -1481,9 +1481,18 @@ fn get_total_deposit_tokens(
         Err(_) => Uint128::zero(),
     };    
     //Add buffered assets to the total deposit tokens
-    total_deposit_tokens += vt_buffer;
+    total_vaulted_deposit_tokens += vt_buffer;
 
-    Ok(total_deposit_tokens)
+    //Query the underlying of the initial vault token deposit
+    let underlying_deposit_token: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
+        config.deposit_token.vault_addr.to_string(),
+        &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: total_vaulted_deposit_tokens },
+    ){
+        Ok(underlying_deposit_token) => underlying_deposit_token,
+        Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the Mars Vault Token for the underlying deposit amount in instantiate") }),
+    };
+
+    Ok(underlying_deposit_token)
     
 }
 
@@ -1654,34 +1663,34 @@ fn get_buffer_amounts(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-    //Load the config
-    let config = CONFIG.load(deps.storage)?;
-    //Query the underlying of the initial vault token deposit
-    let underlying_deposit_token: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
-        config.deposit_token.vault_addr.to_string(),
-        &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: Uint128::new(1_000_000_000_000) },
-    ){
-        Ok(underlying_deposit_token) => underlying_deposit_token,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the Mars Vault Token for the underlying deposit amount in instantiate") }),
-    };
+    // //Load the config
+    // let config = CONFIG.load(deps.storage)?;
+    // //Query the underlying of the initial vault token deposit
+    // let underlying_deposit_token: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
+    //     config.deposit_token.vault_addr.to_string(),
+    //     &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: Uint128::new(1_000_000_000_000) },
+    // ){
+    //     Ok(underlying_deposit_token) => underlying_deposit_token,
+    //     Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the Mars Vault Token for the underlying deposit amount in instantiate") }),
+    // };
 
-    //Set the initial vault token amount from the initial deposit
-    let vault_tokens_to_distribute = calculate_vault_tokens(
-        underlying_deposit_token,
-        Uint128::zero(), 
-        Uint128::zero()
-    )?;
-    VAULT_TOKEN.save(deps.storage, &vault_tokens_to_distribute)?;
+    // //Set the initial vault token amount from the initial deposit
+    // let vault_tokens_to_distribute = calculate_vault_tokens(
+    //     underlying_deposit_token,
+    //     Uint128::zero(), 
+    //     Uint128::zero()
+    // )?;
+    // VAULT_TOKEN.save(deps.storage, &vault_tokens_to_distribute)?;
 
-    //Mint vault tokens to the sender
-    let mint_vault_tokens_msg: CosmosMsg = TokenFactory::MsgMint {
-        sender: env.contract.address.to_string(), 
-        amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
-            denom: config.vault_token.clone(),
-            amount: vault_tokens_to_distribute.to_string(),
-        }), 
-        mint_to_address: "osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w".to_string(),
-    }.into();
+    // //Mint vault tokens to the sender
+    // let mint_vault_tokens_msg: CosmosMsg = TokenFactory::MsgMint {
+    //     sender: env.contract.address.to_string(), 
+    //     amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
+    //         denom: config.vault_token.clone(),
+    //         amount: vault_tokens_to_distribute.to_string(),
+    //     }), 
+    //     mint_to_address: "osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w".to_string(),
+    // }.into();
 
-    Ok(Response::default().add_message(mint_vault_tokens_msg))
+    Ok(Response::default())
 }

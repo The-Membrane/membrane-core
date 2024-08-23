@@ -187,7 +187,7 @@ fn loop_cdp(
 ) -> Result<Response, TokenFactoryError> {
     //Load config
     let config = CONFIG.load(deps.storage)?;
-    let mut msgs = vec![];
+    let mut msgs: Vec<CosmosMsg> = vec![];
     
     //Ensure price is above 99.5% of peg
     //We want to ensure loops keep redemptions at 99% of peg profitable

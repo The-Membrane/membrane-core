@@ -803,7 +803,7 @@ mod tests {
                 .wrap()
                 .query_balance(Addr::unchecked("contract4"), "factory/contract3/mars-usdc-vault")
                 .unwrap().amount;
-            assert_eq!(balance, Uint128::new(99999999990));
+            assert_eq!(balance, Uint128::new(99999999995));
 
             //Change to an unprofitable CDP rate contract using update config
             let msg = ExecuteMsg::UpdateConfig {

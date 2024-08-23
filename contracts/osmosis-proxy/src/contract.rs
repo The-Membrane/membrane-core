@@ -936,22 +936,22 @@ fn handle_create_denom_reply(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
     //Set 1st swp route of USDC to CDT
-    let swap_route = SwapRoute {
-        token_in: String::from("ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4"),
-        route_out: SwapAmountInRoute {
-            token_out_denom: String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt"),
-            pool_id: 1268u64,
-        },
-    };
-    //Set 2nd swp route of CDT to USDC
-    let swap_route2 = SwapRoute {
-        token_in: String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt"),
-        route_out: SwapAmountInRoute {
-            token_out_denom: String::from("ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4"),
-            pool_id: 1268u64,
-        },
-    };
-    //Save swap routes
-    SWAP_ROUTES.save(deps.storage, &vec![swap_route, swap_route2])?;
+    // let swap_route = SwapRoute {
+    //     token_in: String::from("ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4"),
+    //     route_out: SwapAmountInRoute {
+    //         token_out_denom: String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt"),
+    //         pool_id: 1268u64,
+    //     },
+    // };
+    // //Set 2nd swp route of CDT to USDC
+    // let swap_route2 = SwapRoute {
+    //     token_in: String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt"),
+    //     route_out: SwapAmountInRoute {
+    //         token_out_denom: String::from("ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4"),
+    //         pool_id: 1268u64,
+    //     },
+    // };
+    // //Save swap routes
+    // SWAP_ROUTES.save(deps.storage, &vec![swap_route, swap_route2])?;
     Ok(Response::default())
 }

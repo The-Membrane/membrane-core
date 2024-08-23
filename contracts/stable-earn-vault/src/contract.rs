@@ -243,31 +243,30 @@ fn loop_cdp(
     });
     msgs.push(mint_msg);
     //Create swap msg
-    let swap_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.osmosis_proxy_contract_addr.to_string(),
-        msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps { 
-            token_out: config.deposit_token.deposit_token.clone(),
-            max_slippage: config.swap_slippage,
-        })?,
-        funds: vec![
-            Coin {
-                denom: config.cdt_denom.clone(),
-                amount: amount_to_mint,
-            }
-        ],
-    });
-    let submsg = SubMsg::reply_on_success(swap_msg, LOOP_REPLY_ID);
+    // let swap_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //     contract_addr: config.osmosis_proxy_contract_addr.to_string(),
+    //     msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps { 
+    //         token_out: config.deposit_token.deposit_token.clone(),
+    //         max_slippage: config.swap_slippage,
+    //     })?,
+    //     funds: vec![
+    //         Coin {
+    //             denom: config.cdt_denom.clone(),
+    //             amount: amount_to_mint,
+    //         }
+    //     ],
+    // });
+    // let submsg = SubMsg::reply_on_success(swap_msg, LOOP_REPLY_ID);
     
     /////What if we submsg the swap & do the next steps after the swap so we don't have to guess the deposit_value?////
 
-    println!("end of loop_cdp");
     //Create Response
     let res = Response::new()
         .add_attribute("method", "loop_cdp")
         .add_attribute("current_collateral", running_collateral_amount)
         .add_attribute("current_debt", running_credit_amount)
-        .add_messages(msgs)
-        .add_submessage(submsg);
+        .add_messages(msgs);
+        // .add_submessage(submsg);
 
     Ok(res)
     
@@ -1443,7 +1442,6 @@ fn handle_loop_reply(
             //Load config
             let config = CONFIG.load(deps.storage)?;  
             let mut msgs = vec![];
-            panic!("start of swap reply: {:?}, {:?}, {:?}", env.contract.address.to_string(), config.clone().deposit_token.deposit_token, config.clone().deposit_token.vault_addr);
                
             //Query balances for the deposit token received from the swap
             let deposit_token_amount = match deps.querier.query_balance(env.contract.address.to_string(), config.clone().deposit_token.deposit_token){

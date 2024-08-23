@@ -290,18 +290,16 @@ fn post_loop(
     // };
 
     //Get running totals for CDP position & prices
-    let (
-        mut running_credit_amount, 
-        mut running_collateral_amount, 
-        vt_token_price, 
-        cdt_price
-    ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
+    // let (
+    //     mut running_credit_amount, 
+    //     mut running_collateral_amount, 
+    //     vt_token_price, 
+    //     cdt_price
+    // ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
 
-    let balances = deps.querier.query_all_balances(env.contract.address)?;
+    // let balances = deps.querier.query_all_balances(env.contract.address)?;
 
-    panic!("running_credit_amount: {}, running_collateral_amount: {}, balances: {:?}", running_credit_amount, running_collateral_amount, balances);
-
-            
+    // panic!("running_credit_amount: {}, running_collateral_amount: {}, balances: {:?}", running_credit_amount, running_collateral_amount, balances);            
 
     //Ensure price is still above 99% of peg
     let (cdt_market_price, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98))?;
@@ -464,7 +462,7 @@ fn unloop_cdp(
         cdt_price
     ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
 
-    panic!("running_credit_amount: {}, running_collateral_amount: {}", running_credit_amount, running_collateral_amount);
+    // panic!("running_credit_amount: {}, running_collateral_amount: {}", running_credit_amount, running_collateral_amount);
 
     //Initialize loop variables 
     let mut loops_count = 0;

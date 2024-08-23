@@ -32,8 +32,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 //Reply IDs
 const ENTER_VAULT_REPLY_ID: u64 = 1u64;
 const CDP_REPLY_ID: u64 = 2u64;
-const LOOP_SWAP_REPLY_ID: u64 = 3u64;
-const LOOP_ENTER_VAULT_REPLY_ID: u64 = 4u64;
+const LOOP_REPLY_ID: u64 = 3u64;
 
 //Constants
 const SECONDS_PER_DAY: u64 = 86_400u64;
@@ -133,7 +132,7 @@ pub fn instantiate(
         .add_attribute("contract_address", env.contract.address)
         .add_attribute("sub_denom", msg.clone().vault_subdenom)
     //UNCOMMENT
-        // .add_message(denom_msg)
+        .add_message(denom_msg)
         .add_submessage(cdp_submsg);
     Ok(res)
 }
@@ -257,7 +256,7 @@ fn loop_cdp(
             }
         ],
     });
-    let submsg = SubMsg::reply_on_success(swap_msg, LOOP_SWAP_REPLY_ID);
+    let submsg = SubMsg::reply_on_success(swap_msg, LOOP_REPLY_ID);
     
     /////What if we submsg the swap & do the next steps after the swap so we don't have to guess the deposit_value?////
 
@@ -883,7 +882,7 @@ fn enter_vault(
         mint_to_address: info.sender.to_string(),
     }.into();
     //UNCOMMENT
-    // msgs.push(SubMsg::new(mint_vault_tokens_msg));
+    msgs.push(SubMsg::new(mint_vault_tokens_msg));
 
     //Update the total token amounts
     VAULT_TOKEN.save(deps.storage, &(total_vault_tokens + vault_tokens_to_distribute))?;
@@ -908,11 +907,11 @@ fn enter_vault(
     //Add rate assurance callback msg
     if !total_deposit_tokens.is_zero() && !total_vault_tokens.is_zero() {
         //UNCOMMENT
-        // msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
-        //     contract_addr: env.contract.address.to_string(),
-        //     msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
-        //     funds: vec![],
-        // })));
+        msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
+            funds: vec![],
+        })));
     }
 
     //Create Response
@@ -982,7 +981,7 @@ fn exit_vault(
         burn_from_address: env.contract.address.to_string(),
     }.into();
     //UNCOMMENT
-    // msgs.push(burn_vault_tokens_msg);
+    msgs.push(burn_vault_tokens_msg);
 
     //Update the total vault tokens
     let new_vault_token_supply = match total_vault_tokens.checked_sub(vault_tokens){
@@ -1428,14 +1427,13 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         ENTER_VAULT_REPLY_ID => handle_enter_reply(deps, env, msg),
         CDP_REPLY_ID => handle_cdp_reply(deps, env, msg),
-        LOOP_SWAP_REPLY_ID => handle_loop_swap_reply(deps, env, msg),
-        LOOP_ENTER_VAULT_REPLY_ID => handle_loop_enter_vault_reply(deps, env, msg),
+        LOOP_REPLY_ID => handle_loop_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 } 
 
 
-fn handle_loop_swap_reply(
+fn handle_loop_reply(
     deps: DepsMut,
     env: Env,
     msg: Reply,
@@ -1444,10 +1442,20 @@ fn handle_loop_swap_reply(
         Ok(result) => {
             //Load config
             let config = CONFIG.load(deps.storage)?;  
+            let mut msgs = vec![];
                
             //Query balances for the deposit token received from the swap
             let deposit_token_amount = deps.querier.query_balance(env.contract.address.to_string(), config.clone().deposit_token.deposit_token)?.amount;
-              
+            
+            //Query how many vault tokens we'll get for this deposit
+            let vault_tokens: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
+                config.deposit_token.vault_addr.to_string(),
+                &Vault_QueryMsg::DepositTokenConversion { deposit_token_amount: deposit_token_amount.clone() },
+            ){
+                Ok(vault_tokens) => vault_tokens,
+                Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the Mars Vault Token for the new deposit amount in loop") }),
+            };
+            
             //Create enter into vault msg
             let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.deposit_token.vault_addr.to_string(),
@@ -1459,32 +1467,8 @@ fn handle_loop_swap_reply(
                     }
                 ],
             });
-            let submsg = SubMsg::reply_on_success(deposit_msg, LOOP_ENTER_VAULT_REPLY_ID);
-                   
-            //Create Response
-            let res = Response::new()
-                .add_attribute("method", "handle_loop_reply")
-                .add_attribute("deposit_tokens_swapped_for", deposit_token_amount)
-                .add_submessage(submsg);
-
-            return Ok(res);
-
-        } //We only reply on success
-        Err(err) => return Err(StdError::GenericErr { msg: err }),
-    }
-}
-
-fn handle_loop_enter_vault_reply(
-    deps: DepsMut,
-    env: Env,
-    msg: Reply,
-) -> StdResult<Response> {
-    match msg.result.into_result() {
-        Ok(result) => {
-            //Load config
-            let config = CONFIG.load(deps.storage)?;  
-            let mut msgs = vec![];
-                                     
+            msgs.push(deposit_msg);
+                     
             //Deposit any excess vtokens into the CDP
             let ( _, _, _, vt_sent_to_cdp ) = get_buffer_amounts(
                 deps.querier, 
@@ -1492,23 +1476,21 @@ fn handle_loop_enter_vault_reply(
                 env.contract.address.to_string(),
             )?;
 
-            //Create deposit msg for newly acquired vault tokens & any excess from the buffer
-            if !vt_sent_to_cdp.is_zero() {
-                let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: config.cdp_contract_addr.to_string(),
-                    msg: to_json_binary(&CDP_ExecuteMsg::Deposit { 
-                        position_id: Some(config.cdp_position_id),
-                        position_owner: None,
-                    })?,
-                    funds: vec![
-                        Coin {
-                            denom: config.deposit_token.clone().vault_token,
-                            amount: vt_sent_to_cdp,
-                        }
-                    ],
-                });
-                msgs.push(deposit_msg);
-            }
+            //Create deposit msg
+            let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.cdp_contract_addr.to_string(),
+                msg: to_json_binary(&CDP_ExecuteMsg::Deposit { 
+                    position_id: Some(config.cdp_position_id),
+                    position_owner: None,
+                })?,
+                funds: vec![
+                    Coin {
+                        denom: config.deposit_token.clone().vault_token,
+                        amount: vault_tokens + vt_sent_to_cdp,
+                    }
+                ],
+            });
+            msgs.push(deposit_msg);
             
             //Add post loop maintenance msg 
             let post_loop_msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1521,7 +1503,8 @@ fn handle_loop_enter_vault_reply(
             //Create Response
             let res = Response::new()
                 .add_attribute("method", "handle_loop_reply")
-                .add_attribute("vt_sent_to_cdp", vt_sent_to_cdp)
+                .add_attribute("deposit_tokens_swapped_for", deposit_token_amount)
+                .add_attribute("vault_tokens_sent_to_cdp", vault_tokens + vt_sent_to_cdp)
                 .add_messages(msgs);
 
             return Ok(res);

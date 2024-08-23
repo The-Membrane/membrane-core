@@ -450,9 +450,7 @@ fn unloop_cdp(
         cdt_price
     ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
 
-    let balances = deps.querier.query_all_balances(env.contract.address)?;
-
-    panic!("running_credit_amount: {}, running_collateral_amount: {}, contract_balances: {:?}", running_credit_amount, running_collateral_amount, balances);
+    panic!("running_credit_amount: {}, running_collateral_amount: {}", running_credit_amount, running_collateral_amount);
 
     //Initialize loop variables 
     let mut loops_count = 0;
@@ -641,7 +639,7 @@ fn get_cdp_position_info(
     deps: Deps,
     env: Env,
     config: Config,
-) -> Result<(Uint128,Uint128, PriceResponse, PriceResponse), TokenFactoryError> {
+) -> StdResult<(Uint128,Uint128, PriceResponse, PriceResponse)> {
     //Query VT token price
     let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
         config.oracle_contract_addr.to_string(),
@@ -653,7 +651,7 @@ fn get_cdp_position_info(
         },
     ){
         Ok(prices) => prices,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the VT token price in get_cdp_position_info") }),
+        Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the VT token price in get_cdp_position_info") }),
     };   
     let vt_token_price: PriceResponse = prices[0].clone();
     //Query basket for CDT price
@@ -662,7 +660,7 @@ fn get_cdp_position_info(
         &CDP_QueryMsg::GetBasket {  },
     ){
         Ok(basket) => basket,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in get_cdp_position_info") }),
+        Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP basket in get_cdp_position_info") }),
     };
     let cdt_price: PriceResponse = basket.credit_price;
     
@@ -681,7 +679,7 @@ fn get_cdp_position_info(
         },
     ){
         Ok(vault_position) => vault_position,
-        Err(err) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP Position for the vault token amount in get_cdp_position_info:") + &err.to_string() }),
+        Err(err) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP Position for the vault token amount in get_cdp_position_info:") + &err.to_string() }),
     };
     let vault_position: PositionResponse = vault_position[0].positions[0].clone();
 
@@ -1458,6 +1456,27 @@ fn handle_loop_reply(
                 Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the Mars Vault Token for the new deposit amount in loop") }),
             };
             
+   
+            //Deposit any excess vtokens into the CDP
+            let ( _, _, _, vt_sent_to_cdp ) = get_buffer_amounts(
+                deps.querier, 
+                config.clone(),
+                env.contract.address.to_string(),
+            )?;
+
+            //Get running totals for CDP position & prices
+            let (
+                mut running_credit_amount, 
+                mut running_collateral_amount, 
+                vt_token_price, 
+                cdt_price
+            ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
+
+            let balances = deps.querier.query_all_balances(env.contract.address)?;
+
+            panic!("running_credit_amount: {}, running_collateral_amount: {}, deposit_token_amount: {:?}, vault_tokens: {}, vt_sent_to_cdp: {}", running_credit_amount, running_collateral_amount, deposit_token_amount, vault_tokens, vt_sent_to_cdp);
+
+            
             //Create enter into vault msg
             let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.deposit_token.vault_addr.to_string(),
@@ -1470,13 +1489,7 @@ fn handle_loop_reply(
                 ],
             });
             msgs.push(deposit_msg);
-                     
-            //Deposit any excess vtokens into the CDP
-            let ( _, _, _, vt_sent_to_cdp ) = get_buffer_amounts(
-                deps.querier, 
-                config.clone(),
-                env.contract.address.to_string(),
-            )?;
+                  
 
             //Create deposit msg
             let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {

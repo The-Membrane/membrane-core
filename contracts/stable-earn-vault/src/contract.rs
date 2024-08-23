@@ -450,7 +450,9 @@ fn unloop_cdp(
         cdt_price
     ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
 
-    panic!("running_credit_amount: {}, running_collateral_amount: {}", running_credit_amount, running_collateral_amount);
+    let balances = deps.querier.query_all_balances(env.contract.address)?;
+
+    panic!("running_credit_amount: {}, running_collateral_amount: {}, contract_balances: {:?}", running_credit_amount, running_collateral_amount, balances);
 
     //Initialize loop variables 
     let mut loops_count = 0;
@@ -581,7 +583,7 @@ fn unloop_cdp(
     }
 
     //If we didn't hit the desired collateral withdrawal after LOOP_MAX loops, check again then return an error
-        let (withdrawable_collateral, withdrawable_value) = calc_withdrawable_collateral(
+        let (withdrawable_collateral, _withdrawable_value) = calc_withdrawable_collateral(
             config.clone().swap_slippage, 
             vt_token_price.clone(),
             cdt_price.clone(),
@@ -619,7 +621,7 @@ fn unloop_cdp(
     //This allows us to take into account swap fees & slippage
     if running_credit_amount.is_zero() {
         config.total_nonleveraged_vault_tokens = running_collateral_amount;
-        println!("Total Non-Leveraged Vault Tokens: {}", config.total_nonleveraged_vault_tokens);
+        // println!("Total Non-Leveraged Vault Tokens: {}", config.total_nonleveraged_vault_tokens);
         //Save the updated config
         CONFIG.save(deps.storage, &config)?;
     }
@@ -1499,6 +1501,7 @@ fn handle_loop_reply(
                 funds: vec![],
             });
             msgs.push(post_loop_msg);
+
 
             //Create Response
             let res = Response::new()

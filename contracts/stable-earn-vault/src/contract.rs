@@ -1443,7 +1443,7 @@ fn handle_loop_reply(
             //Load config
             let config = CONFIG.load(deps.storage)?;  
             let mut msgs = vec![];
-            println!("start of swap reply: {:?}, {:?}, {:?}", env.contract.address.to_string(), config.clone().deposit_token.deposit_token, config.clone().deposit_token.vault_addr);
+            panic!("start of swap reply: {:?}, {:?}, {:?}", env.contract.address.to_string(), config.clone().deposit_token.deposit_token, config.clone().deposit_token.vault_addr);
                
             //Query balances for the deposit token received from the swap
             let deposit_token_amount = match deps.querier.query_balance(env.contract.address.to_string(), config.clone().deposit_token.deposit_token){

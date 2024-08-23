@@ -187,11 +187,11 @@ fn loop_cdp(
 ) -> Result<Response, TokenFactoryError> {
     //Load config
     let config = CONFIG.load(deps.storage)?;
-    let mut msgs: Vec<CosmosMsg> = vec![];
+    let mut msgs = vec![];
     
     //Ensure price is above 99.5% of peg
     //We want to ensure loops keep redemptions at 99% of peg profitable
-    // test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98) + config.swap_slippage)?;
+    test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98) + config.swap_slippage)?;
 
     let (
         running_credit_amount, 
@@ -201,28 +201,28 @@ fn loop_cdp(
     ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
 
     //Get deposit token price
-    // let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
-    //     config.oracle_contract_addr.to_string(),
-    //     &Oracle_QueryMsg::Price {
-    //         asset_info: AssetInfo::NativeToken { denom: config.clone().deposit_token.deposit_token },
-    //         twap_timeframe: 0, //We want current swap price
-    //         oracle_time_limit: 0,
-    //         basket_id: None
-    //     },
-    // ){
-    //     Ok(prices) => prices,
-    //     Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the deposit token price in loop") }),
-    // };
-    // let deposit_token_price: PriceResponse = prices[0].clone();
+    let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
+        config.oracle_contract_addr.to_string(),
+        &Oracle_QueryMsg::Price {
+            asset_info: AssetInfo::NativeToken { denom: config.clone().deposit_token.deposit_token },
+            twap_timeframe: 0, //We want current swap price
+            oracle_time_limit: 0,
+            basket_id: None
+        },
+    ){
+        Ok(prices) => prices,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the deposit token price in loop") }),
+    };
+    let deposit_token_price: PriceResponse = prices[0].clone();
 
-    // let (_, _, amount_to_mint) = calc_mintable(
-    //     config.clone().swap_slippage, 
-    //     vt_price.clone(),
-    //     deposit_token_price.clone(), 
-    //     cdt_price.clone(), 
-    //     running_collateral_amount, 
-    //     running_credit_amount
-    // )?;
+    let (_, _, amount_to_mint) = calc_mintable(
+        config.clone().swap_slippage, 
+        vt_price.clone(),
+        deposit_token_price.clone(), 
+        cdt_price.clone(), 
+        running_collateral_amount, 
+        running_credit_amount
+    )?;
         
     //Leave a 101 CDT LTV gap to allow easier unlooping under the minimum debt (100)
     //$112.22 of LTV space is ~101 CDT at 90% borrow LTV
@@ -231,42 +231,43 @@ fn loop_cdp(
     // }
 
     //Create mint msg
-    // let mint_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-    //     contract_addr: config.cdp_contract_addr.to_string(),
-    //     msg: to_json_binary(&CDP_ExecuteMsg::IncreaseDebt { 
-    //         position_id: config.cdp_position_id,
-    //         amount: Some(amount_to_mint),
-    //         LTV: None,
-    //         mint_to_addr: None,
-    //     })?,
-    //     funds: vec![],
-    // });
-    // msgs.push(mint_msg);
+    let mint_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.cdp_contract_addr.to_string(),
+        msg: to_json_binary(&CDP_ExecuteMsg::IncreaseDebt { 
+            position_id: config.cdp_position_id,
+            amount: Some(amount_to_mint),
+            LTV: None,
+            mint_to_addr: None,
+        })?,
+        funds: vec![],
+    });
+    msgs.push(mint_msg);
     //Create swap msg
-    // let swap_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-    //     contract_addr: config.osmosis_proxy_contract_addr.to_string(),
-    //     msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps { 
-    //         token_out: config.deposit_token.deposit_token.clone(),
-    //         max_slippage: config.swap_slippage,
-    //     })?,
-    //     funds: vec![
-    //         Coin {
-    //             denom: config.cdt_denom.clone(),
-    //             amount: amount_to_mint,
-    //         }
-    //     ],
-    // });
-    // let submsg = SubMsg::reply_on_success(swap_msg, LOOP_REPLY_ID);
+    let swap_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.osmosis_proxy_contract_addr.to_string(),
+        msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps { 
+            token_out: config.deposit_token.deposit_token.clone(),
+            max_slippage: config.swap_slippage,
+        })?,
+        funds: vec![
+            Coin {
+                denom: config.cdt_denom.clone(),
+                amount: amount_to_mint,
+            }
+        ],
+    });
+    let submsg = SubMsg::reply_on_success(swap_msg, LOOP_REPLY_ID);
     
     /////What if we submsg the swap & do the next steps after the swap so we don't have to guess the deposit_value?////
+
 
     //Create Response
     let res = Response::new()
         .add_attribute("method", "loop_cdp")
         .add_attribute("current_collateral", running_collateral_amount)
         .add_attribute("current_debt", running_credit_amount)
-        .add_messages(msgs);
-        // .add_submessage(submsg);
+        .add_messages(msgs)
+        .add_submessage(submsg);
 
     Ok(res)
     
@@ -1444,13 +1445,7 @@ fn handle_loop_reply(
             let mut msgs = vec![];
                
             //Query balances for the deposit token received from the swap
-            let deposit_token_amount = match deps.querier.query_balance(env.contract.address.to_string(), config.clone().deposit_token.deposit_token){
-                Ok(balance) => balance.amount,
-                Err(_) => match deps.querier.query_all_balances(env.contract.address.to_string()).unwrap().iter().find(|coin| coin.denom == config.clone().deposit_token.deposit_token){
-                    Some(coin) => coin.amount,
-                    None => return Err(StdError::GenericErr { msg: String::from("Failed to query the deposit token amount in loop") }),
-                },
-            };
+            let deposit_token_amount = deps.querier.query_balance(env.contract.address.to_string(), config.clone().deposit_token.deposit_token)?.amount;
             
             //Query how many vault tokens we'll get for this deposit
             let vault_tokens: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(

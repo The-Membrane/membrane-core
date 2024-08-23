@@ -788,9 +788,15 @@ fn calc_withdrawable_collateral(
     let withdrawal_w_slippage = decimal_multiplication(withdrawable_value, decimal_subtraction(Decimal::one(), swap_slippage)?)?;
     if debt_value > withdrawal_w_slippage && decimal_subtraction(debt_value, withdrawal_w_slippage)? < minimum_debt_value {
         //Calc the difference but add one as a buffer
-        let difference = decimal_subtraction(debt_value, minimum_debt_value)? + Decimal::one();
+        let difference = match decimal_subtraction(debt_value, minimum_debt_value){
+            Ok(v) => v + Decimal::one(),
+            Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to subtract debt_value from minimum_debt_value: {} - {}", debt_value, minimum_debt_value) }),
+        };
         //Subtract difference from withdrawable_value bc we want to withdraw less
-        withdrawable_value = decimal_subtraction(withdrawable_value, difference)?;        
+        withdrawable_value = match decimal_subtraction(withdrawable_value, difference){
+            Ok(v) => v,
+            Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to subtract difference from withdrawable_value: {} - {}", withdrawable_value, difference) }),
+        };        
     } 
     
     //Return the amount of vault tokens we can withdraw

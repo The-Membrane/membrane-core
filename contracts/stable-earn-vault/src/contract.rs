@@ -289,6 +289,20 @@ fn post_loop(
     //     Err(_) => {},
     // };
 
+    //Get running totals for CDP position & prices
+    let (
+        mut running_credit_amount, 
+        mut running_collateral_amount, 
+        vt_token_price, 
+        cdt_price
+    ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
+
+    let balances = deps.querier.query_all_balances(env.contract.address)?;
+
+    panic!("running_credit_amount: {}, running_collateral_amount: {}, balances: {:?}", running_credit_amount, running_collateral_amount, balances);
+
+            
+
     //Ensure price is still above 99% of peg
     let (cdt_market_price, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98))?;
 
@@ -1020,15 +1034,17 @@ fn exit_vault(
 
     //Withdraw tokens from CDP Position
     //..which requires us to unloop
-    let unloop_to_withdraw = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: env.contract.address.to_string(),
-        msg: to_json_binary(&ExecuteMsg::UnloopCDP { 
-            desired_collateral_withdrawal: vtokens_to_unloop_from_cdp,
-            })?,
-        funds: vec![],
-    });
-    // println!("deposit_tokens_to_withdraw: {:?}", deposit_tokens_to_withdraw);
-    msgs.push(unloop_to_withdraw);
+    if !vtokens_to_unloop_from_cdp.is_zero() {
+        let unloop_to_withdraw = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::UnloopCDP { 
+                desired_collateral_withdrawal: vtokens_to_unloop_from_cdp,
+                })?,
+            funds: vec![],
+        });
+        // println!("deposit_tokens_to_withdraw: {:?}", deposit_tokens_to_withdraw);
+        msgs.push(unloop_to_withdraw);
+    }
 
     //Withdraw deposit tokens from the yield strategy
     let withdraw_deposit_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1454,28 +1470,7 @@ fn handle_loop_reply(
             ){
                 Ok(vault_tokens) => vault_tokens,
                 Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the Mars Vault Token for the new deposit amount in loop") }),
-            };
-            
-   
-            //Deposit any excess vtokens into the CDP
-            let ( _, _, _, vt_sent_to_cdp ) = get_buffer_amounts(
-                deps.querier, 
-                config.clone(),
-                env.contract.address.to_string(),
-            )?;
-
-            //Get running totals for CDP position & prices
-            let (
-                mut running_credit_amount, 
-                mut running_collateral_amount, 
-                vt_token_price, 
-                cdt_price
-            ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
-
-            let balances = deps.querier.query_all_balances(env.contract.address)?;
-
-            panic!("running_credit_amount: {}, running_collateral_amount: {}, deposit_token_amount: {:?}, vault_tokens: {}, vt_sent_to_cdp: {}", running_credit_amount, running_collateral_amount, deposit_token_amount, vault_tokens, vt_sent_to_cdp);
-
+            };           
             
             //Create enter into vault msg
             let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1489,10 +1484,16 @@ fn handle_loop_reply(
                 ],
             });
             msgs.push(deposit_msg);
-                  
+                     
+            //Deposit any excess vtokens into the CDP
+            let ( _, _, _, vt_sent_to_cdp ) = get_buffer_amounts(
+                deps.querier, 
+                config.clone(),
+                env.contract.address.to_string(),
+            )?;
 
             //Create deposit msg
-            let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            let cdp_deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.cdp_contract_addr.to_string(),
                 msg: to_json_binary(&CDP_ExecuteMsg::Deposit { 
                     position_id: Some(config.cdp_position_id),
@@ -1505,7 +1506,7 @@ fn handle_loop_reply(
                     }
                 ],
             });
-            msgs.push(deposit_msg);
+            msgs.push(cdp_deposit_msg);
             
             //Add post loop maintenance msg 
             let post_loop_msg = CosmosMsg::Wasm(WasmMsg::Execute {

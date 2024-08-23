@@ -260,7 +260,7 @@ fn loop_cdp(
     
     /////What if we submsg the swap & do the next steps after the swap so we don't have to guess the deposit_value?////
 
-
+    println!("end of loop_cdp");
     //Create Response
     let res = Response::new()
         .add_attribute("method", "loop_cdp")
@@ -1441,11 +1441,18 @@ fn handle_loop_reply(
     match msg.result.into_result() {
         Ok(result) => {
             //Load config
-            let mut config = CONFIG.load(deps.storage)?;  
+            let config = CONFIG.load(deps.storage)?;  
             let mut msgs = vec![];
+            println!("start of swap reply: {:?}, {:?}, {:?}", env.contract.address.to_string(), config.clone().deposit_token.deposit_token, config.clone().deposit_token.vault_addr);
                
             //Query balances for the deposit token received from the swap
-            let deposit_token_amount = deps.querier.query_balance(env.contract.address.to_string(), config.clone().deposit_token.deposit_token)?.amount;
+            let deposit_token_amount = match deps.querier.query_balance(env.contract.address.to_string(), config.clone().deposit_token.deposit_token){
+                Ok(balance) => balance.amount,
+                Err(_) => match deps.querier.query_all_balances(env.contract.address.to_string()).unwrap().iter().find(|coin| coin.denom == config.clone().deposit_token.deposit_token){
+                    Some(coin) => coin.amount,
+                    None => return Err(StdError::GenericErr { msg: String::from("Failed to query the deposit token amount in loop") }),
+                },
+            };
             
             //Query how many vault tokens we'll get for this deposit
             let vault_tokens: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(

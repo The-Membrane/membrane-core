@@ -794,9 +794,7 @@ mod tests {
             app.send_tokens(Addr::unchecked("god"), Addr::unchecked("contract4"), &vec![coin(5, "factory/contract3/mars-usdc-vault")]).unwrap();
 
             //Loop 
-            let msg = ExecuteMsg::LoopCDP {
-                loop_max: Some(1u32)
-            };
+            let msg = ExecuteMsg::LoopCDP { };
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
@@ -805,7 +803,7 @@ mod tests {
                 .wrap()
                 .query_balance(Addr::unchecked("contract4"), "factory/contract3/mars-usdc-vault")
                 .unwrap().amount;
-            assert_eq!(balance, Uint128::new(10000000000));
+            assert_eq!(balance, Uint128::new(99999999990));
 
             //Change to an unprofitable CDP rate contract using update config
             let msg = ExecuteMsg::UpdateConfig {
@@ -823,9 +821,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Loop: Error, unprofitable
-            let msg = ExecuteMsg::LoopCDP {
-                loop_max: Some(1u32)
-            };
+            let msg = ExecuteMsg::LoopCDP {};
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap(); 
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();         
 

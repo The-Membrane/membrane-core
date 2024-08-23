@@ -32,6 +32,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 //Reply IDs
 const ENTER_VAULT_REPLY_ID: u64 = 1u64;
 const CDP_REPLY_ID: u64 = 2u64;
+const LOOP_REPLY_ID: u64 = 3u64;
 
 //Constants
 const SECONDS_PER_DAY: u64 = 86_400u64;
@@ -159,7 +160,7 @@ pub fn execute(
         ExecuteMsg::EnterVault { } => enter_vault(deps, env, info),
         ExecuteMsg::ExitVault {  } => exit_vault(deps, env, info),
         ExecuteMsg::UnloopCDP { desired_collateral_withdrawal } => unloop_cdp(deps, env, info, desired_collateral_withdrawal),
-        ExecuteMsg::LoopCDP { loop_max } => loop_cdp(deps, env, info, loop_max.unwrap_or_else(|| LOOP_MAX)),
+        ExecuteMsg::LoopCDP { } => loop_cdp(deps, env, info),
         ///CALLBACKS///
         ExecuteMsg::RateAssurance {  } => rate_assurance(deps, env, info),
         ExecuteMsg::PostLoopMaintenance {  } => post_loop(deps, env),
@@ -183,7 +184,6 @@ fn loop_cdp(
     deps: DepsMut,
     env: Env,
     _info: MessageInfo,
-    loop_max: u32, //We don't know how much gas each loop will take so the caller can test
 ) -> Result<Response, TokenFactoryError> {
     //Load config
     let config = CONFIG.load(deps.storage)?;
@@ -193,37 +193,13 @@ fn loop_cdp(
     //We want to ensure loops keep redemptions at 99% of peg profitable
     test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98) + config.swap_slippage)?;
 
-    //Deposit any excess vtokens into the CDP
-    let ( _, _, _, mut vt_sent_to_cdp ) = get_buffer_amounts(
-        deps.querier, 
-        config.clone(),
-        env.contract.address.to_string(),
-    )?;
-
     let (
-        mut running_credit_amount, 
-        mut running_collateral_amount, 
+        running_credit_amount, 
+        running_collateral_amount, 
         vt_price, 
         cdt_price
     ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
 
-    // If debt is 0, reset redemption info
-    if running_credit_amount.is_zero() {
-        //Set redemptions for the position
-        let set_redemptions_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.cdp_contract_addr.to_string(),
-            msg: to_json_binary(&CDP_ExecuteMsg::EditRedeemability { 
-                position_ids: (vec![config.cdp_position_id]),
-                redeemable: Some(true), 
-                //Bc if we set it at 99% where the loop price floor is, redemptions will be unprofitable anytime we loop within (max_slippage) of the floor
-                premium: Some(2),  
-                max_loan_repayment: Some(Decimal::one()), 
-                restricted_collateral_assets: None 
-            })?,
-            funds: vec![],
-        });
-        msgs.push(set_redemptions_msg);
-    }
     //Get deposit token price
     let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
         config.oracle_contract_addr.to_string(),
@@ -239,115 +215,64 @@ fn loop_cdp(
     };
     let deposit_token_price: PriceResponse = prices[0].clone();
 
-    let mut loops_count = 0;
-    while loops_count < loop_max {
-        let (min_new_deposit_token, min_deposit_value, amount_to_mint) = calc_mintable(
-            config.clone().swap_slippage, 
-            vt_price.clone(),
-            deposit_token_price.clone(), 
-            cdt_price.clone(), 
-            running_collateral_amount, 
-            running_credit_amount
-        )?;
-         
-        //Leave a 101 CDT LTV gap to allow easier unlooping under the minimum debt (100)
-        //$112.22 of LTV space is ~101 CDT at 90% borrow LTV
-        // if min_deposit_value < Decimal::percent(112_22){
-        //     break;
-        // }
-
-        //Create mint msg
-        let mint_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.cdp_contract_addr.to_string(),
-            msg: to_json_binary(&CDP_ExecuteMsg::IncreaseDebt { 
-                position_id: config.cdp_position_id,
-                amount: Some(amount_to_mint),
-                LTV: None,
-                mint_to_addr: None,
-            })?,
-            funds: vec![],
-        });
-        msgs.push(mint_msg);
-        //Create swap msg
-        let swap_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.osmosis_proxy_contract_addr.to_string(),
-            msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps { 
-                token_out: config.deposit_token.deposit_token.clone(),
-                max_slippage: config.swap_slippage,
-            })?,
-            funds: vec![
-                Coin {
-                    denom: config.cdt_denom.clone(),
-                    amount: amount_to_mint,
-                }
-            ],
-        });
-        msgs.push(swap_msg);
-        //Update running credit amount
-        running_credit_amount += amount_to_mint;
-
-        //Query how many vault tokens we'll get for this deposit
-        let vault_tokens: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
-            config.deposit_token.vault_addr.to_string(),
-            &Vault_QueryMsg::DepositTokenConversion { deposit_token_amount: min_new_deposit_token },
-        ){
-            Ok(vault_tokens) => vault_tokens,
-            Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the Mars Vault Token for the new deposit amount in loop") }),
-        };
+    let (_, _, amount_to_mint) = calc_mintable(
+        config.clone().swap_slippage, 
+        vt_price.clone(),
+        deposit_token_price.clone(), 
+        cdt_price.clone(), 
+        running_collateral_amount, 
+        running_credit_amount
+    )?;
         
-        //Create enter into vault msg
-        let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.deposit_token.vault_addr.to_string(),
-            msg: to_json_binary(&Vault_ExecuteMsg::EnterVault { })?,
-            funds: vec![
-                Coin {
-                    denom: config.deposit_token.deposit_token.clone(),
-                    amount: min_new_deposit_token,
-                }
-            ],
-        });
-        msgs.push(deposit_msg);
-        //Create deposit msg
-        let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.cdp_contract_addr.to_string(),
-            msg: to_json_binary(&CDP_ExecuteMsg::Deposit { 
-                position_id: Some(config.cdp_position_id),
-                position_owner: None,
-            })?,
-            funds: vec![
-                Coin {
-                    denom: config.deposit_token.clone().vault_token,
-                    amount: vault_tokens + vt_sent_to_cdp,
-                }
-            ],
-        });
-        msgs.push(deposit_msg);
-        //Set to 0 so it only deposits once
-        vt_sent_to_cdp = Uint128::zero();
-        //Update running collateral amount
-        running_collateral_amount += vault_tokens;
-        //Increment loop count
-        loops_count += 1;
-    }
+    //Leave a 101 CDT LTV gap to allow easier unlooping under the minimum debt (100)
+    //$112.22 of LTV space is ~101 CDT at 90% borrow LTV
+    // if min_deposit_value < Decimal::percent(112_22){
+    //     break;
+    // }
 
-    //Add post loop maintenance msg 
-    let post_loop_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: env.contract.address.to_string(),
-        msg: to_json_binary(&ExecuteMsg::PostLoopMaintenance { })?,
+    //Create mint msg
+    let mint_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.cdp_contract_addr.to_string(),
+        msg: to_json_binary(&CDP_ExecuteMsg::IncreaseDebt { 
+            position_id: config.cdp_position_id,
+            amount: Some(amount_to_mint),
+            LTV: None,
+            mint_to_addr: None,
+        })?,
         funds: vec![],
     });
-    msgs.push(post_loop_msg);
+    msgs.push(mint_msg);
+    //Create swap msg
+    let swap_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.osmosis_proxy_contract_addr.to_string(),
+        msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps { 
+            token_out: config.deposit_token.deposit_token.clone(),
+            max_slippage: config.swap_slippage,
+        })?,
+        funds: vec![
+            Coin {
+                denom: config.cdt_denom.clone(),
+                amount: amount_to_mint,
+            }
+        ],
+    });
+    let submsg = SubMsg::reply_on_success(swap_msg, LOOP_REPLY_ID);
+    
+    /////What if we submsg the swap & do the next steps after the swap so we don't have to guess the deposit_value?////
+
 
     //Create Response
     let res = Response::new()
         .add_attribute("method", "loop_cdp")
         .add_attribute("current_collateral", running_collateral_amount)
         .add_attribute("current_debt", running_credit_amount)
-        .add_messages(msgs);
+        .add_messages(msgs)
+        .add_submessage(submsg);
 
     Ok(res)
     
 }
+
 
 /// POST LOOP: Check loop profitablility & peg price
 fn post_loop(
@@ -981,6 +906,7 @@ fn enter_vault(
 
     //Add rate assurance callback msg
     if !total_deposit_tokens.is_zero() && !total_vault_tokens.is_zero() {
+        //UNCOMMENT
         msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: env.contract.address.to_string(),
             msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
@@ -1501,9 +1427,92 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         ENTER_VAULT_REPLY_ID => handle_enter_reply(deps, env, msg),
         CDP_REPLY_ID => handle_cdp_reply(deps, env, msg),
+        LOOP_REPLY_ID => handle_loop_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 } 
+
+
+fn handle_loop_reply(
+    deps: DepsMut,
+    env: Env,
+    msg: Reply,
+) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(result) => {
+            //Load config
+            let mut config = CONFIG.load(deps.storage)?;  
+            let mut msgs = vec![];
+               
+            //Query balances for the deposit token received from the swap
+            let deposit_token_amount = deps.querier.query_balance(&env.contract.address, config.clone().deposit_token.deposit_token)?.amount;
+            
+            //Query how many vault tokens we'll get for this deposit
+            let vault_tokens: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
+                config.deposit_token.vault_addr.to_string(),
+                &Vault_QueryMsg::DepositTokenConversion { deposit_token_amount: deposit_token_amount.clone() },
+            ){
+                Ok(vault_tokens) => vault_tokens,
+                Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the Mars Vault Token for the new deposit amount in loop") }),
+            };
+            
+            //Create enter into vault msg
+            let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.deposit_token.vault_addr.to_string(),
+                msg: to_json_binary(&Vault_ExecuteMsg::EnterVault { })?,
+                funds: vec![
+                    Coin {
+                        denom: config.deposit_token.deposit_token.clone(),
+                        amount: deposit_token_amount,
+                    }
+                ],
+            });
+            msgs.push(deposit_msg);
+                     
+            //Deposit any excess vtokens into the CDP
+            let ( _, _, _, vt_sent_to_cdp ) = get_buffer_amounts(
+                deps.querier, 
+                config.clone(),
+                env.contract.address.to_string(),
+            )?;
+
+            //Create deposit msg
+            let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.cdp_contract_addr.to_string(),
+                msg: to_json_binary(&CDP_ExecuteMsg::Deposit { 
+                    position_id: Some(config.cdp_position_id),
+                    position_owner: None,
+                })?,
+                funds: vec![
+                    Coin {
+                        denom: config.deposit_token.clone().vault_token,
+                        amount: vault_tokens + vt_sent_to_cdp,
+                    }
+                ],
+            });
+            msgs.push(deposit_msg);
+            
+            //Add post loop maintenance msg 
+            let post_loop_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: env.contract.address.to_string(),
+                msg: to_json_binary(&ExecuteMsg::PostLoopMaintenance { })?,
+                funds: vec![],
+            });
+            msgs.push(post_loop_msg);
+
+            //Create Response
+            let res = Response::new()
+                .add_attribute("method", "handle_loop_reply")
+                .add_attribute("deposit_tokens_swapped_for", deposit_token_amount)
+                .add_attribute("vault_tokens_sent_to_cdp", vault_tokens + vt_sent_to_cdp)
+                .add_messages(msgs);
+
+            return Ok(res);
+
+        } //We only reply on success
+        Err(err) => return Err(StdError::GenericErr { msg: err }),
+    }
+}
 
 fn handle_cdp_reply(
     deps: DepsMut,

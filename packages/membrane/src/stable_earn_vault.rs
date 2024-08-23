@@ -41,11 +41,7 @@ pub enum ExecuteMsg {
         desired_collateral_withdrawal: Uint128,
     },
     /// Loop the vault's CDP position to increase collateral
-    LoopCDP {
-        /// Max loops to run
-        /// This caps msgs sent (i.e. gas) and prevents infinite loops
-        loop_max: Option<u32>,
-    },
+    LoopCDP { },
     //////////////CALLBACKS////////////////
     /// Assures that for deposits & withdrawals the conversion rate is static.
     /// We are trusting that Mars deposits will only go up.

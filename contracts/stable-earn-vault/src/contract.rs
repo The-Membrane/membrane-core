@@ -760,6 +760,7 @@ fn get_cdp_position_info(
 //     Ok(())
 // }
 
+//Withdrawable collateral for unloops
 fn calc_withdrawable_collateral(
     swap_slippage: Decimal,
     vt_price: PriceResponse,
@@ -783,7 +784,7 @@ fn calc_withdrawable_collateral(
     let mut withdrawable_value = min(decimal_multiplication(vault_tokens_value, ltv_space_to_withdraw)?, debt_value);
 
     //If withdrawable_value * slippage puts the debt value below 100 debt, withdraw the difference
-    let minimum_debt_value = cdt_price.get_value(Uint128::new(100))?;
+    let minimum_debt_value = cdt_price.get_value(Uint128::new(100_000_000))?;
     let withdrawal_w_slippage = decimal_multiplication(withdrawable_value, decimal_subtraction(Decimal::one(), swap_slippage)?)?;
     if debt_value > withdrawal_w_slippage && decimal_subtraction(debt_value, withdrawal_w_slippage)? < minimum_debt_value {
         //Calc the difference but add one as a buffer

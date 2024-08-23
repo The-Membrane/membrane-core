@@ -1445,7 +1445,7 @@ fn handle_loop_reply(
             let mut msgs = vec![];
                
             //Query balances for the deposit token received from the swap
-            let deposit_token_amount = deps.querier.query_balance(&env.contract.address, config.clone().deposit_token.deposit_token)?.amount;
+            let deposit_token_amount = deps.querier.query_balance(&env.contract.address.to_string(), config.clone().deposit_token.deposit_token)?.amount;
             
             //Query how many vault tokens we'll get for this deposit
             let vault_tokens: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(

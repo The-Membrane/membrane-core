@@ -201,28 +201,28 @@ fn loop_cdp(
     ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
 
     //Get deposit token price
-    let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
-        config.oracle_contract_addr.to_string(),
-        &Oracle_QueryMsg::Price {
-            asset_info: AssetInfo::NativeToken { denom: config.clone().deposit_token.deposit_token },
-            twap_timeframe: 0, //We want current swap price
-            oracle_time_limit: 0,
-            basket_id: None
-        },
-    ){
-        Ok(prices) => prices,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the deposit token price in loop") }),
-    };
-    let deposit_token_price: PriceResponse = prices[0].clone();
+    // let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
+    //     config.oracle_contract_addr.to_string(),
+    //     &Oracle_QueryMsg::Price {
+    //         asset_info: AssetInfo::NativeToken { denom: config.clone().deposit_token.deposit_token },
+    //         twap_timeframe: 0, //We want current swap price
+    //         oracle_time_limit: 0,
+    //         basket_id: None
+    //     },
+    // ){
+    //     Ok(prices) => prices,
+    //     Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the deposit token price in loop") }),
+    // };
+    // let deposit_token_price: PriceResponse = prices[0].clone();
 
-    let (_, _, amount_to_mint) = calc_mintable(
-        config.clone().swap_slippage, 
-        vt_price.clone(),
-        deposit_token_price.clone(), 
-        cdt_price.clone(), 
-        running_collateral_amount, 
-        running_credit_amount
-    )?;
+    // let (_, _, amount_to_mint) = calc_mintable(
+    //     config.clone().swap_slippage, 
+    //     vt_price.clone(),
+    //     deposit_token_price.clone(), 
+    //     cdt_price.clone(), 
+    //     running_collateral_amount, 
+    //     running_credit_amount
+    // )?;
         
     //Leave a 101 CDT LTV gap to allow easier unlooping under the minimum debt (100)
     //$112.22 of LTV space is ~101 CDT at 90% borrow LTV
@@ -231,17 +231,17 @@ fn loop_cdp(
     // }
 
     //Create mint msg
-    let mint_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&CDP_ExecuteMsg::IncreaseDebt { 
-            position_id: config.cdp_position_id,
-            amount: Some(amount_to_mint),
-            LTV: None,
-            mint_to_addr: None,
-        })?,
-        funds: vec![],
-    });
-    msgs.push(mint_msg);
+    // let mint_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //     contract_addr: config.cdp_contract_addr.to_string(),
+    //     msg: to_json_binary(&CDP_ExecuteMsg::IncreaseDebt { 
+    //         position_id: config.cdp_position_id,
+    //         amount: Some(amount_to_mint),
+    //         LTV: None,
+    //         mint_to_addr: None,
+    //     })?,
+    //     funds: vec![],
+    // });
+    // msgs.push(mint_msg);
     //Create swap msg
     // let swap_msg = CosmosMsg::Wasm(WasmMsg::Execute {
     //     contract_addr: config.osmosis_proxy_contract_addr.to_string(),

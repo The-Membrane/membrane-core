@@ -783,6 +783,8 @@ fn calc_withdrawable_collateral(
     //It's either clearing the debt or using the LTV space
     let mut withdrawable_value = min(decimal_multiplication(vault_tokens_value, ltv_space_to_withdraw)?, debt_value);
 
+    panic!("withdrawable_value: {}, vault_tokens_value: {}, ltv_space_to_withdraw: {}, debt_value: {}", withdrawable_value, vault_tokens_value, ltv_space_to_withdraw, debt_value);
+
     //If withdrawable_value * slippage puts the debt value below 100 debt, withdraw the difference
     let minimum_debt_value = cdt_price.get_value(Uint128::new(100_000_000))?;
     let withdrawal_w_slippage = decimal_multiplication(withdrawable_value, decimal_subtraction(Decimal::one(), swap_slippage)?)?;

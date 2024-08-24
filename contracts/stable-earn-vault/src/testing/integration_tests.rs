@@ -889,7 +889,7 @@ mod tests {
             );
         }
         
-        // #[test]
+        #[test]
         fn exit_vault() {
             let (mut app, vault_contract) = proper_instantiate();
 

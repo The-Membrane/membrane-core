@@ -282,25 +282,6 @@ fn post_loop(
     //Load config
     let config = CONFIG.load(deps.storage)?;
 
-    //Only loop if the 7 day APR is profitable.
-    //This fn will error if the APR is profitable.
-    // match test_7day_apr_profitability(deps.as_ref(), env.clone(), config.clone(), true){
-    //     Ok(_) => return Err(TokenFactoryError::CustomError { val: String::from("Looped APR is less profitable than unleveraged APR, try a lower loop max to reduce CDP rates.") }),
-    //     Err(_) => {},
-    // };
-
-    //Get running totals for CDP position & prices
-    // let (
-    //     mut running_credit_amount, 
-    //     mut running_collateral_amount, 
-    //     vt_token_price, 
-    //     cdt_price
-    // ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
-
-    // let balances = deps.querier.query_all_balances(env.contract.address)?;
-
-    // panic!("running_credit_amount: {}, running_collateral_amount: {}, balances: {:?}", running_credit_amount, running_collateral_amount, balances);            
-
     //Ensure price is still above 99% of peg
     let (cdt_market_price, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98))?;
 
@@ -652,31 +633,22 @@ fn get_cdp_position_info(
     env: Env,
     config: Config,
 ) -> StdResult<(Uint128,Uint128, PriceResponse, PriceResponse)> {
-    //Query VT token price
+    //Query VT & CDT token price
     let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
         config.oracle_contract_addr.to_string(),
-        &Oracle_QueryMsg::Price {
-            asset_info: AssetInfo::NativeToken { denom: config.clone().deposit_token.vault_token },
+        &Oracle_QueryMsg::Prices {
+            asset_infos: vec![AssetInfo::NativeToken { denom: config.clone().deposit_token.vault_token },
+            AssetInfo::NativeToken { denom: config.cdt_denom.clone() }],
             twap_timeframe: 0, //We want current swap price
             oracle_time_limit: 0,
-            basket_id: None
         },
     ){
         Ok(prices) => prices,
         Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the VT token price in get_cdp_position_info") }),
     };   
     let vt_token_price: PriceResponse = prices[0].clone();
-    //Query basket for CDT price
-    let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
-        config.cdp_contract_addr.to_string(),
-        &CDP_QueryMsg::GetBasket {  },
-    ){
-        Ok(basket) => basket,
-        Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP basket in get_cdp_position_info") }),
-    };
-    let cdt_price: PriceResponse = basket.credit_price;
-    
-    //Query the CDP position for the amount of vault tokens we have
+    let cdt_price: PriceResponse = prices[1].clone();
+
     //Query the CDP position for the amount of vault tokens we have as collateral
     let vault_position: Vec<BasketPositionsResponse> = match deps.querier.query_wasm_smart::<Vec<BasketPositionsResponse>>(
         config.cdp_contract_addr.to_string(),

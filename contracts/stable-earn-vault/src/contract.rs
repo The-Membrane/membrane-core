@@ -793,7 +793,7 @@ fn calc_withdrawable_collateral(
     );
 
     /////If withdrawable_value puts the debt value below $100, make sure to leave the withdraw buffer ($100) for a full unloop////
-    let minimum_debt_value = Decimal::percent(100_00);
+    let minimum_debt_value = Decimal::percent(101_00);
 
     if debt_value > withdrawable_value && decimal_subtraction(debt_value, withdrawable_value)? < minimum_debt_value {
         //Calc the difference

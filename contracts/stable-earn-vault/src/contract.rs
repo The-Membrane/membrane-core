@@ -114,7 +114,8 @@ pub fn instantiate(
     //Create Denom Msg
     let denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: msg.vault_subdenom.clone() };
     //Create CDP deposit msg to get the position ID
-    //Instantiatoor must send a vault token
+    //Instantiatoor must send a vault token.
+    //This initial deposit means the position should never be empty due to user withdrawals.
     let cdp_deposit_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.cdp_contract_addr.to_string(),
         msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None })?,
@@ -198,7 +199,7 @@ fn loop_cdp(
         running_collateral_amount, 
         vt_price, 
         cdt_price
-    ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
+    ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone(), &mut msgs)?;
 
     //Get deposit token price
     let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
@@ -441,7 +442,7 @@ fn unloop_cdp(
         mut running_collateral_amount, 
         vt_token_price, 
         cdt_market_price
-    ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
+    ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone(), &mut vec![])?;
 
     //Get CDT peg price
     let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
@@ -622,8 +623,6 @@ fn unloop_cdp(
     //This allows us to take into account swap fees & slippage
     if running_credit_amount.is_zero() {
         config.total_nonleveraged_vault_tokens = running_collateral_amount;
-        // println!("Total Non-Leveraged Vault Tokens: {}", config.total_nonleveraged_vault_tokens);
-        //Save the updated config
         CONFIG.save(deps.storage, &config)?;
     }
     
@@ -642,6 +641,7 @@ fn get_cdp_position_info(
     deps: Deps,
     env: Env,
     config: Config,
+    msgs: &mut Vec<CosmosMsg>,
 ) -> StdResult<(Uint128,Uint128, PriceResponse, PriceResponse)> {
     //Query VT & CDT token price
     let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
@@ -681,6 +681,29 @@ fn get_cdp_position_info(
     let running_credit_amount = vault_position.credit_amount;
     //Set running collateral amount
     let running_collateral_amount = vault_position.collateral_assets[0].asset.amount;
+
+    //If vault position has more than 1 collateral asset, withdraw all except the 1st (the accepted vault token) and send them to the contract owner (Governance)
+    if vault_position.collateral_assets.len() > 1 {
+        let mut assets_to_withdraw: Vec<Asset> = vec![];
+        for (index, asset) in vault_position.collateral_assets.iter().enumerate(){
+            if index > 0 {
+                assets_to_withdraw.push(asset.clone().asset);
+            }
+        }
+
+        let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.cdp_contract_addr.to_string(),
+            msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
+                position_id: config.cdp_position_id,
+                assets: assets_to_withdraw,
+                send_to: Some(config.owner.clone().to_string()),
+            })?,
+            funds: vec![],
+        });
+        msgs.push(withdraw_msg);        
+    }
+    //We do this to ensure we don't loop (i.e. take risk) with value in volatile assets that may have been planted in our position maliciously
+    
 
     Ok((running_credit_amount, running_collateral_amount, vt_token_price, cdt_price))   
 }
@@ -765,8 +788,6 @@ fn calc_withdrawable_collateral(
     //It's either clearing the debt or using the LTV space
     let mut withdrawable_value = min(decimal_multiplication(vault_tokens_value, ltv_space_to_withdraw)?, debt_value);
 
-    panic!("withdrawable_value: {}, vault_tokens_value: {}, ltv_space_to_withdraw: {}, debt_value: {}", withdrawable_value, vault_tokens_value, ltv_space_to_withdraw, debt_value);
-
     //If withdrawable_value * slippage puts the debt value below 100 debt, withdraw the difference
     let minimum_debt_value = cdt_price.get_value(Uint128::new(100_000_000))?;
     let withdrawal_w_slippage = decimal_multiplication(withdrawable_value, decimal_subtraction(Decimal::one(), swap_slippage)?)?;
@@ -781,7 +802,9 @@ fn calc_withdrawable_collateral(
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to subtract difference from withdrawable_value: {} - {}", withdrawable_value, difference) }),
         };        
-    } 
+    } else if debt_value < minimum_debt_value {
+        return Err(StdError::GenericErr { msg: format!("Debt value: ({}), is less than minimum debt value: ({}), which is used to ensure all users can unloop and exit. Someone needs to add more capital to the CDP.", debt_value, minimum_debt_value) })
+    }
     
     //Return the amount of vault tokens we can withdraw
     let withdrawable_collateral = vt_price.get_amount(withdrawable_value)?;
@@ -1018,8 +1041,7 @@ fn exit_vault(
     let vtokens_to_unloop_from_cdp = match mars_vault_tokens_to_withdraw.checked_sub(contract_balance_of_deposit_vault_tokens){
         Ok(v) => v,
         Err(_) => Uint128::zero(), //This means contract balance is larger and we don't need to unloop any extra
-    };
-    
+    };    
 
     //Withdraw tokens from CDP Position
     //..which requires us to unloop
@@ -1547,26 +1569,10 @@ fn handle_cdp_reply(
             //Save Updated Config
             CONFIG.save(deps.storage, &config)?;
 
-
-            //Set redemptions for the position
-            let set_redemptions_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.cdp_contract_addr.to_string(),
-                msg: to_json_binary(&CDP_ExecuteMsg::EditRedeemability { 
-                    position_ids: (vec![position_id]),
-                    redeemable: Some(true), 
-                    //Bc if we set it at 99% where the loop price floor is, redemptions will be unprofitable anytime we loop within (max_slippage) of the floor
-                    premium: Some(2),  
-                    max_loan_repayment: Some(Decimal::one()), 
-                    restricted_collateral_assets: None 
-                })?,
-                funds: vec![],
-            });
-
             //Create Response
             let res = Response::new()
                 .add_attribute("method", "handle_initial_cdp_deposit_reply")
-                .add_attribute("vault_position_id", position_id)
-                .add_message(set_redemptions_msg);  
+                .add_attribute("vault_position_id", position_id);  
 
             return Ok(res);
 

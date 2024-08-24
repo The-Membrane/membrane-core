@@ -289,8 +289,8 @@ fn post_loop(
     //Create Response
     let res = Response::new()
         .add_attribute("method", "post_loop")
-        .add_attribute("cdt_market_price", cdt_market_price.to_string())
-        .add_attribute("cdt_peg_price", cdt_peg_price.to_string());
+        .add_attribute("cdt_market_price", cdt_market_price.price.to_string())
+        .add_attribute("cdt_peg_price", cdt_peg_price.price.to_string());
 
     Ok(res)
 }
@@ -299,7 +299,7 @@ fn test_looping_peg_price(
     querier: QuerierWrapper,
     config: Config,
     desired_peg_price: Decimal,
-) -> Result<(Decimal, Decimal), TokenFactoryError>{
+) -> Result<(PriceResponse, PriceResponse), TokenFactoryError>{
     //Query basket for CDT peg price
     let basket: Basket = match  querier.query_wasm_smart::<Basket>(
         config.cdp_contract_addr.to_string(),

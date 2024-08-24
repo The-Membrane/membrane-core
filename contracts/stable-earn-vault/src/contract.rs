@@ -192,7 +192,7 @@ fn loop_cdp(
     
     //Ensure price is above 99.5% of peg
     //We want to ensure loops keep redemptions at 99% of peg profitable
-    let (cdt_market_price, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98) + config.swap_slippage)?;
+    let (_, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98) + config.swap_slippage)?;
 
     let (
         running_credit_amount, 
@@ -216,7 +216,7 @@ fn loop_cdp(
     };
     let deposit_token_price: PriceResponse = prices[0].clone();
 
-    let (_, _, amount_to_mint) = calc_mintable(
+    let (_, min_deposit_value, amount_to_mint) = calc_mintable(
         config.clone().swap_slippage, 
         vt_price.clone(),
         deposit_token_price.clone(), 
@@ -227,9 +227,9 @@ fn loop_cdp(
         
     //Leave a 101 CDT LTV gap to allow easier unlooping under the minimum debt (100)
     //$112.22 of LTV space is ~101 CDT at 90% borrow LTV
-    // if min_deposit_value < Decimal::percent(112_22){
-    //     break;
-    // }
+    if min_deposit_value < Decimal::percent(112_22){
+        return Err(TokenFactoryError::CustomError { val: format!("Minimum deposit value for this loop: {}, is less than our minimum used to ensure unloopability: {}", min_deposit_value, Decimal::percent(112_22)) })
+    }
 
     //Create mint msg
     let mint_msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -308,7 +308,7 @@ fn test_looping_peg_price(
         Ok(basket) => basket,
         Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in test_looping_peg_price") }),
     };
-    let cdt_peg_price: Decimal = basket.credit_price.price;
+    let cdt_peg_price: PriceResponse = basket.credit_price;
 
     //Check that CDT market price is equal or above 99% of peg
     let prices: Vec<PriceResponse> = match querier.query_wasm_smart::<Vec<PriceResponse>>(
@@ -323,9 +323,9 @@ fn test_looping_peg_price(
         Ok(prices) => prices,
         Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the cdt price in post unloop") }),
     };
-    let cdt_market_price: Decimal = prices[0].clone().price;
+    let cdt_market_price: PriceResponse = prices[0].clone();
 
-    if decimal_division(cdt_market_price, max(cdt_peg_price, Decimal::one()))? < desired_peg_price {
+    if decimal_division(cdt_market_price.price, max(cdt_peg_price.price, Decimal::one()))? < desired_peg_price {
         return Err(TokenFactoryError::CustomError { val: String::from("CDT price is below 99% of peg, can't loop. Try a lower loop_max to reduce sell pressure.") });
     }
 

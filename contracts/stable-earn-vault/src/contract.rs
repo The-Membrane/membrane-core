@@ -37,6 +37,7 @@ const LOOP_REPLY_ID: u64 = 3u64;
 //Constants
 const SECONDS_PER_DAY: u64 = 86_400u64;
 const LOOP_MAX: u32 = 5u32;
+const MIN_LTV_SPACE: Decimal = Decimal::percent(91_00);
 
 ////PROCEDURAL FLOW/NOTES////
 // - There is a deposit and exit fee. 
@@ -226,9 +227,9 @@ fn loop_cdp(
     )?;
         
     //Leave a 101 CDT LTV gap to allow easier unlooping under the minimum debt (100)
-    //$112.22 of LTV space is ~101 CDT at 90% borrow LTV
-    if min_deposit_value < Decimal::percent(112_22){
-        return Err(TokenFactoryError::CustomError { val: format!("Minimum deposit value for this loop: {}, is less than our minimum used to ensure unloopability: {}", min_deposit_value, Decimal::percent(112_22)) })
+    //$91 of LTV space is ~101 withdrawal space so we can always fulfill the minimum debt of 100
+    if min_deposit_value < MIN_LTV_SPACE {
+        return Err(TokenFactoryError::CustomError { val: format!("Minimum deposit value for this loop: {}, is less than our minimum used to ensure unloopability: {}", min_deposit_value, MIN_LTV_SPACE) })
     }
 
     //Create mint msg
@@ -785,26 +786,34 @@ fn calc_withdrawable_collateral(
         Err(_) => return Err(StdError::GenericErr { msg: format!("LTV over 90%: {} > 0.9", ltv) }),
     };
     //Calc the value of the vault tokens we withdraw
-    //It's either clearing the debt or using the LTV space
-    let mut withdrawable_value = min(decimal_multiplication(vault_tokens_value, ltv_space_to_withdraw)?, debt_value);
+    //It's either clearing the debt (accounting for the swap slippage) or using the LTV space
+    let mut withdrawable_value = min(
+        decimal_division(decimal_multiplication(vault_tokens_value, ltv_space_to_withdraw)?, Decimal::percent(90))?,
+        decimal_multiplication(debt_value, Decimal::one() + swap_slippage)?,
+    );
 
-    //If withdrawable_value * slippage puts the debt value below 100 debt, withdraw the difference
-    let minimum_debt_value = cdt_price.get_value(Uint128::new(100_000_000))?;
-    let withdrawal_w_slippage = decimal_multiplication(withdrawable_value, decimal_subtraction(Decimal::one(), swap_slippage)?)?;
-    if debt_value > withdrawal_w_slippage && decimal_subtraction(debt_value, withdrawal_w_slippage)? < minimum_debt_value {
-        //Calc the difference but add one as a buffer
+    /////If withdrawable_value puts the debt value below $100, make sure to leave the withdraw buffer ($100) for a full unloop////
+    let minimum_debt_value = Decimal::percent(100_00);
+
+    if debt_value > withdrawable_value && decimal_subtraction(debt_value, withdrawable_value)? < minimum_debt_value {
+        //Calc the difference
         let difference = match decimal_subtraction(debt_value, minimum_debt_value){
-            Ok(v) => v + Decimal::one(),
+            Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to subtract debt_value from minimum_debt_value: {} - {}", debt_value, minimum_debt_value) }),
         };
-        //Subtract difference from withdrawable_value bc we want to withdraw less
-        withdrawable_value = match decimal_subtraction(withdrawable_value, difference){
-            Ok(v) => v,
-            Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to subtract difference from withdrawable_value: {} - {}", withdrawable_value, difference) }),
-        };        
-    } else if debt_value < minimum_debt_value {
-        return Err(StdError::GenericErr { msg: format!("Debt value: ({}), is less than minimum debt value: ({}), which is used to ensure all users can unloop and exit. Someone needs to add more capital to the CDP.", debt_value, minimum_debt_value) })
+
+        //Set withdrawable_value to the difference
+        withdrawable_value = difference;
+
+    } 
+    //We should never get here, 
+    //If this errors the CDP repay function would've errored later.
+    else if debt_value < minimum_debt_value {
+        return Err(StdError::GenericErr { msg: format!("Debt value: ({}), is less than minimum debt value: ({}), which will error in the CDP repay function anyway. Someone needs to add more capital to the contract's CDP, whose position ID is in the config, to create more withdrawal space to totally unloop.", debt_value, minimum_debt_value) })
     }
+
+    //Set minimum withdrawn & swapped value
+    let withdrawal_w_slippage = decimal_multiplication(withdrawable_value, decimal_subtraction(Decimal::one(), swap_slippage)?)?;
     
     //Return the amount of vault tokens we can withdraw
     let withdrawable_collateral = vt_price.get_amount(withdrawable_value)?;

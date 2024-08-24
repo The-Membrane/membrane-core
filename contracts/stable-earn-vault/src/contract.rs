@@ -548,7 +548,7 @@ fn unloop_cdp(
             funds: vec![
                 Coin {
                     denom: config.deposit_token.deposit_token.clone(),
-                    amount: underlying_deposit_token,
+                    amount: underlying_deposit_token - Uint128::one(), //vault query rounding error
                 }
             ],
         });

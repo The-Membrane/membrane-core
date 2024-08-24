@@ -192,13 +192,13 @@ fn loop_cdp(
     
     //Ensure price is above 99.5% of peg
     //We want to ensure loops keep redemptions at 99% of peg profitable
-    test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98) + config.swap_slippage)?;
+    let (cdt_market_price, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98) + config.swap_slippage)?;
 
     let (
         running_credit_amount, 
         running_collateral_amount, 
         vt_price, 
-        cdt_price
+        _cdt_price
     ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone(), &mut msgs)?;
 
     //Get deposit token price
@@ -220,7 +220,7 @@ fn loop_cdp(
         config.clone().swap_slippage, 
         vt_price.clone(),
         deposit_token_price.clone(), 
-        cdt_price.clone(), 
+        cdt_peg_price.clone(), 
         running_collateral_amount, 
         running_credit_amount
     )?;

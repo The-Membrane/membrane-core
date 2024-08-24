@@ -440,8 +440,18 @@ fn unloop_cdp(
         mut running_credit_amount, 
         mut running_collateral_amount, 
         vt_token_price, 
-        cdt_price
+        cdt_market_price
     ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone())?;
+
+    //Get CDT peg price
+    let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
+        config.cdp_contract_addr.to_string(),
+        &CDP_QueryMsg::GetBasket {  },
+    ){
+        Ok(basket) => basket,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in unloop") }),
+    };
+    let cdt_peg_price: PriceResponse = basket.credit_price.clone();
 
     // panic!("running_credit_amount: {}, running_collateral_amount: {}", running_credit_amount, running_collateral_amount);
 
@@ -453,7 +463,7 @@ fn unloop_cdp(
         let (withdrawable_collateral, withdrawable_value_w_slippage) = calc_withdrawable_collateral(
             config.clone().swap_slippage, 
             vt_token_price.clone(),
-            cdt_price.clone(),
+            cdt_peg_price.clone(),
             running_collateral_amount,
             running_credit_amount,
         )?;
@@ -543,7 +553,7 @@ fn unloop_cdp(
         msgs.push(sell_deposit_token_for_CDT);
         //3) Repay the CDP loan
         //Calc the minimum amount of CDT received from the router
-        let minimum_CDT = cdt_price.get_amount(withdrawable_value_w_slippage)?;
+        let minimum_CDT = cdt_market_price.get_amount(withdrawable_value_w_slippage)?;
         //Create repay_msg
         let repay_CDP_loan = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.cdp_contract_addr.to_string(),
@@ -577,7 +587,7 @@ fn unloop_cdp(
         let (withdrawable_collateral, _withdrawable_value) = calc_withdrawable_collateral(
             config.clone().swap_slippage, 
             vt_token_price.clone(),
-            cdt_price.clone(),
+            cdt_peg_price.clone(),
             running_collateral_amount,
             running_credit_amount,
         )?;

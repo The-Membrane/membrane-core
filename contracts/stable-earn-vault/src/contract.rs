@@ -39,7 +39,7 @@ const EXIT_VAULT_REPLY_ID: u64 = 5u64;
 //Constants
 const SECONDS_PER_DAY: u64 = 86_400u64;
 const LOOP_MAX: u64 = 5u64;
-const MIN_LTV_SPACE: Decimal = Decimal::percent(91_00);
+const MIN_LTV_SPACE: Decimal = Decimal::percent(112_22);
 
 ////PROCEDURAL FLOW/NOTES////
 // - There is a deposit and exit fee. 

@@ -1621,7 +1621,7 @@ fn handle_unloop_reply(
                 unloop_props.running_credit_amount,
                 true
             )?;
-        panic!("withdrawable_collateral: {}, desired: {}, running_collateral_amount: {}, running_credit_amount: {}", withdrawable_collateral, unloop_props.desired_collateral_withdrawal.clone(), unloop_props.running_collateral_amount, unloop_props.running_credit_amount );
+        // panic!("withdrawable_collateral: {}, desired: {}, running_collateral_amount: {}, running_credit_amount: {}", withdrawable_collateral, unloop_props.desired_collateral_withdrawal.clone(), unloop_props.running_collateral_amount, unloop_props.running_credit_amount );
 
             //If this withdraw hits the desired_collateral_withdrawal, we send 
             if withdrawable_collateral >= unloop_props.desired_collateral_withdrawal.clone(){

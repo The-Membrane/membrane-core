@@ -673,26 +673,26 @@ pub fn burn_tokens(
     validate_denom(denom.clone())?;
 
     //Update Owner total_mints
-    if config.owners[owner_index].total_minted.is_zero() {
-        //////Subtracted from the Position Contract's minted amount
-        //Find the is_position_contract = true in config owners
-        let mut position_contract_index = 0;
-        for (i, owner) in config.clone().owners.into_iter().enumerate() {
-            if owner.is_position_contract {
-                position_contract_index = i;
-            }
-        }
-        //Subtract from the position contract's total minted
-        config.owners[position_contract_index].total_minted = match config.owners[position_contract_index].total_minted.checked_sub(amount){
-            Ok(diff) => diff,
-            Err(err) => return Err(TokenFactoryError::CustomError { val: err.to_string() })
-        };
-    } else {
-        config.owners[owner_index].total_minted = match config.owners[owner_index].total_minted.checked_sub(amount){
-            Ok(diff) => diff,
-            Err(err) => return Err(TokenFactoryError::CustomError { val: err.to_string() })
-        }
-    };
+    // if config.owners[owner_index].total_minted.is_zero() {
+    //     //////Subtracted from the Position Contract's minted amount
+    //     //Find the is_position_contract = true in config owners
+    //     let mut position_contract_index = 0;
+    //     for (i, owner) in config.clone().owners.into_iter().enumerate() {
+    //         if owner.is_position_contract {
+    //             position_contract_index = i;
+    //         }
+    //     }
+    //     //Subtract from the position contract's total minted
+    //     config.owners[position_contract_index].total_minted = match config.owners[position_contract_index].total_minted.checked_sub(amount){
+    //         Ok(diff) => diff,
+    //         Err(err) => return Err(TokenFactoryError::CustomError { val: err.to_string() })
+    //     };
+    // } else {
+    //     config.owners[owner_index].total_minted = match config.owners[owner_index].total_minted.checked_sub(amount){
+    //         Ok(diff) => diff,
+    //         Err(err) => return Err(TokenFactoryError::CustomError { val: err.to_string() })
+    //     }
+    // };
     CONFIG.save(deps.storage, &config)?;
 
 

@@ -151,7 +151,7 @@ pub fn instantiate(
         .add_attribute("contract_address", env.contract.address)
         .add_attribute("sub_denom", msg.clone().vault_subdenom)
     //UNCOMMENT
-        // .add_message(denom_msg)
+        .add_message(denom_msg)
         .add_submessage(cdp_submsg);
     Ok(res)
 }
@@ -905,7 +905,7 @@ fn enter_vault(
         mint_to_address: info.sender.to_string(),
     }.into();
     //UNCOMMENT
-    // msgs.push(SubMsg::new(mint_vault_tokens_msg));
+    msgs.push(SubMsg::new(mint_vault_tokens_msg));
 
     //Update the total token amounts
     VAULT_TOKEN.save(deps.storage, &(total_vault_tokens + vault_tokens_to_distribute))?;
@@ -930,11 +930,11 @@ fn enter_vault(
     //Add rate assurance callback msg
     if !total_deposit_tokens.is_zero() && !total_vault_tokens.is_zero() {
         //UNCOMMENT
-        // msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
-        //     contract_addr: env.contract.address.to_string(),
-        //     msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
-        //     funds: vec![],
-        // })));
+        msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
+            funds: vec![],
+        })));
     }
 
     //Create Response
@@ -1004,7 +1004,7 @@ fn exit_vault(
         burn_from_address: env.contract.address.to_string(),
     }.into();
     //UNCOMMENT
-    // msgs.push(burn_vault_tokens_msg);
+    msgs.push(burn_vault_tokens_msg);
 
     //Update the total vault tokens
     let new_vault_token_supply = match total_vault_tokens.checked_sub(vault_tokens){
@@ -1086,11 +1086,11 @@ fn exit_vault(
     
     //Add rate assurance callback msg if this withdrawal leaves other depositors with tokens to withdraw
     if !new_vault_token_supply.is_zero() && total_deposit_tokens > deposit_tokens_to_withdraw {
-        // msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        //     contract_addr: env.contract.address.to_string(),
-        //     msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
-        //     funds: vec![],
-        // }));
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
+            funds: vec![],
+        }));
     }
     
     //Create Response 

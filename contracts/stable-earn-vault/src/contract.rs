@@ -750,6 +750,10 @@ fn calc_withdrawable_collateral(
     debt: Uint128,
     in_reply: bool, //If this is in a reply, we don't want to return an error for being under debt minimum
 ) -> StdResult<(Uint128, Decimal)>{ //withdrawal_amount, withdraw_value
+    //If debt is 0, quick return 
+    if debt.is_zero() {
+        return Ok((vault_tokens, Decimal::zero())); //we don't use withdraw value 
+    } 
     //Calc the value of the vault tokens
     let vault_tokens_value = vt_price.get_value(vault_tokens)?;
     //Calc the value of the CDT debt
@@ -1617,7 +1621,7 @@ fn handle_unloop_reply(
                 unloop_props.running_credit_amount,
                 true
             )?;
-        panic!("withdrawable_collateral: {}, running_collateral_amount: {}, running_credit_amount: {}", withdrawable_collateral, unloop_props.running_collateral_amount, unloop_props.running_credit_amount );
+        panic!("withdrawable_collateral: {}, desired: {}, running_collateral_amount: {}, running_credit_amount: {}", withdrawable_collateral, unloop_props.desired_collateral_withdrawal.clone(), unloop_props.running_collateral_amount, unloop_props.running_credit_amount );
 
             //If this withdraw hits the desired_collateral_withdrawal, we send 
             if withdrawable_collateral >= unloop_props.desired_collateral_withdrawal.clone(){

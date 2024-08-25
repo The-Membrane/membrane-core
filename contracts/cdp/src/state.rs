@@ -4,7 +4,7 @@ use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResu
 use cosmwasm_schema::cw_serde;
 use cw_storage_plus::{Item, Map};
 
-use membrane::types::{cAsset, Asset, AssetInfo, Basket, Position, RedemptionInfo, StoredPrice, UserInfo, RateHikes};
+use membrane::types::{cAsset, Asset, AssetInfo, Basket, Position, RedemptionInfo, StoredPrice, UserInfo};
 use membrane::cdp::Config;
 
 use crate::ContractError;
@@ -72,7 +72,6 @@ pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const BASKET: Item<Basket> = Item::new("basket"); 
 pub const POSITIONS: Map<Addr, Vec<Position>> = Map::new("positions"); //owner, list of positions
-pub const RATE_HIKES: Item<RateHikes> = Item::new("rate_hikes");
 //Volatility Tracker
 pub const VOLATILITY: Map<String, CollateralVolatility> = Map::new("volatility");
 pub const STORED_PRICES: Map<String, StoredPrice> = Map::new("stored_prices");
@@ -159,6 +158,7 @@ pub fn update_position_claims(
         max_LTV: Decimal::zero(),
         pool_info: None,
         rate_index: Decimal::one(),
+        hike_rates: Some(false),
     }];
 
     //If there is no credit, basket tallies were updated in the repay function

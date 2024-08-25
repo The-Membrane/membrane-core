@@ -357,59 +357,6 @@ fn test_looping_peg_price(
 
     Ok((cdt_market_price, cdt_peg_price))
 }
-
-fn post_unloop(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-) -> Result<Response, TokenFactoryError>{
-    //Load config
-    let config = CONFIG.load(deps.storage)?;
-
-    //Error if not the contract calling
-    if info.sender != env.contract.address {
-        return Err(TokenFactoryError::Unauthorized {});
-    }
-
-    //Query basket for CDT peg price
-    let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
-        config.cdp_contract_addr.to_string(),
-        &CDP_QueryMsg::GetBasket {  },
-    ){
-        Ok(basket) => basket,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in unloop") }),
-    };
-    let cdt_peg_price: Decimal = basket.credit_price.price;
-
-    //Check that CDT market price is equal or below 101% of peg
-    let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
-        config.oracle_contract_addr.to_string(),
-        &Oracle_QueryMsg::Price {
-            asset_info: AssetInfo::NativeToken { denom: config.clone().cdt_denom },
-            twap_timeframe: 0, //We want current swap price
-            oracle_time_limit: 0,
-            basket_id: None
-        },
-    ){
-        Ok(prices) => prices,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the cdt price in post unloop") }),
-    };
-    let cdt_market_price: Decimal = prices[0].clone().price;
-
-    if decimal_division(cdt_market_price, max(cdt_peg_price, Decimal::one()))? > Decimal::percent(101){
-        return Err(TokenFactoryError::CustomError { val: String::from("CDT price is above 101% of peg, can't unloop.") });
-    }
-
-    //Create Response
-    let res = Response::new()
-        .add_attribute("method", "post_unloop")
-        .add_attribute("cdt_market_price", cdt_market_price.to_string())
-        .add_attribute("cdt_peg_price", cdt_peg_price.to_string());
-
-
-    Ok(res)
-    
-}
  
 /// Calc mintable value & return new tokens to deposit, value & amount to mint
 fn calc_mintable(
@@ -430,9 +377,9 @@ fn calc_mintable(
     let ltv_space_to_mint = match Decimal::percent(90).checked_sub(ltv){
         Ok(v) => v,
         Err(_) => return Err(StdError::GenericErr { msg: format!("LTV over 90%: {} > 0.9", ltv) }),
-    };
+    }.checked_mul(Decimal::percent(100_00))?.to_uint_floor(); //this is done to get rid of the 3rd decimal place. Mints were erroring right above 90% LTV
     //Calc the value of the debt to mint
-    let mintable_value = decimal_multiplication(vault_tokens_value, ltv_space_to_mint)?;
+    let mintable_value = decimal_multiplication(vault_tokens_value, Decimal::percent(ltv_space_to_mint.u128() as u64))?;
     //Calc the amount of vault tokens to mint
     let amount_to_mint = cdt_price.get_amount(mintable_value)?;
     //Calc the value of the mintable value with slippage
@@ -512,6 +459,7 @@ fn unloop_cdp(
             unloop_props.running_credit_amount,
             false
         )?;
+        panic!("withdrawable_collateral: {}, running_collateral_amount: {}, running_credit_amount: {}", withdrawable_collateral, unloop_props.running_collateral_amount, unloop_props.running_credit_amount );
         //1a) If this withdraw hits the desired_collateral_withdrawal then we stop
         // - We'll have to stop early & withdraw less if its more than the desired_collateral_withdrawal
         if withdrawable_collateral >= desired_collateral_withdrawal.clone() {
@@ -539,7 +487,7 @@ fn unloop_cdp(
             .add_attribute("method", "unloop_cdp")
             .add_attribute("withdrawn_collateral", withdrawable_collateral)
             .add_submessages(msgs));
-        } else {        
+        } else {
             let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.cdp_contract_addr.to_string(),
                 msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
@@ -609,6 +557,59 @@ fn unloop_cdp(
         .add_submessages(msgs);
 
     Ok(res)
+}
+
+fn post_unloop(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, TokenFactoryError>{
+    //Load config
+    let config = CONFIG.load(deps.storage)?;
+
+    //Error if not the contract calling
+    if info.sender != env.contract.address {
+        return Err(TokenFactoryError::Unauthorized {});
+    }
+
+    //Query basket for CDT peg price
+    let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
+        config.cdp_contract_addr.to_string(),
+        &CDP_QueryMsg::GetBasket {  },
+    ){
+        Ok(basket) => basket,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in unloop") }),
+    };
+    let cdt_peg_price: Decimal = basket.credit_price.price;
+
+    //Check that CDT market price is equal or below 101% of peg
+    let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
+        config.oracle_contract_addr.to_string(),
+        &Oracle_QueryMsg::Price {
+            asset_info: AssetInfo::NativeToken { denom: config.clone().cdt_denom },
+            twap_timeframe: 0, //We want current swap price
+            oracle_time_limit: 0,
+            basket_id: None
+        },
+    ){
+        Ok(prices) => prices,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the cdt price in post unloop") }),
+    };
+    let cdt_market_price: Decimal = prices[0].clone().price;
+
+    if decimal_division(cdt_market_price, max(cdt_peg_price, Decimal::one()))? > Decimal::percent(101){
+        return Err(TokenFactoryError::CustomError { val: String::from("CDT price is above 101% of peg, can't unloop.") });
+    }
+
+    //Create Response
+    let res = Response::new()
+        .add_attribute("method", "post_unloop")
+        .add_attribute("cdt_market_price", cdt_market_price.to_string())
+        .add_attribute("cdt_peg_price", cdt_peg_price.to_string());
+
+
+    Ok(res)
+    
 }
 
 //Return CP position info
@@ -1060,7 +1061,7 @@ fn exit_vault(
         to_address: info.sender.to_string(),
         amount: vec![Coin {
             denom: config.deposit_token.deposit_token.clone(),
-            amount: deposit_tokens_to_withdraw,
+            amount: deposit_tokens_to_withdraw - Uint128::one(), //Vault rounding error
         }],
     });
     msgs.push(send_deposit_to_user_msg);
@@ -1081,6 +1082,24 @@ fn exit_vault(
         }));
     }
     
+    //Reset Unloop Props
+    UNLOOP_PROPS.save(deps.storage, &UnloopProps {
+        desired_collateral_withdrawal: Uint128::zero(),
+        loop_count: 0,
+        running_collateral_amount: Uint128::zero(),
+        running_credit_amount: Uint128::zero(),
+        vt_token_price: PriceResponse {
+            price: Decimal::zero(),
+            prices: vec![],
+            decimals: 6
+        },
+        cdt_peg_price: PriceResponse {
+            price: Decimal::zero(),
+            prices: vec![],
+            decimals: 6
+        },
+    })?;
+
     //Create Response 
     let res = Response::new()
         .add_attribute("method", "exit_vault")
@@ -1663,18 +1682,18 @@ fn handle_loop_reply(
     msg: Reply,
 ) -> StdResult<Response> {
     match msg.result.into_result() {
-        Ok(result) => {
+        Ok(_result) => {
             //Load config
             let config = CONFIG.load(deps.storage)?;  
             let mut msgs = vec![];
                
             //Query balances for the deposit token received from the swap
-            let deposit_token_amount = deps.querier.query_balance(env.contract.address.to_string(), config.clone().deposit_token.deposit_token)?.amount;
+            let deposit_token_balance = deps.querier.query_balance(env.contract.address.to_string(), config.clone().deposit_token.deposit_token)?.amount;
             
             //Query how many vault tokens we'll get for this deposit
             let vault_tokens: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
                 config.deposit_token.vault_addr.to_string(),
-                &Vault_QueryMsg::DepositTokenConversion { deposit_token_amount: deposit_token_amount.clone() },
+                &Vault_QueryMsg::DepositTokenConversion { deposit_token_amount: deposit_token_balance.clone() },
             ){
                 Ok(vault_tokens) => vault_tokens,
                 Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the Mars Vault Token for the new deposit amount in loop") }),
@@ -1687,7 +1706,7 @@ fn handle_loop_reply(
                 funds: vec![
                     Coin {
                         denom: config.deposit_token.deposit_token.clone(),
-                        amount: deposit_token_amount,
+                        amount: deposit_token_balance,
                     }
                 ],
             });
@@ -1728,7 +1747,7 @@ fn handle_loop_reply(
             //Create Response
             let res = Response::new()
                 .add_attribute("method", "handle_loop_reply")
-                .add_attribute("deposit_tokens_swapped_for", deposit_token_amount)
+                .add_attribute("deposit_tokens_swapped_for", deposit_token_balance)
                 .add_attribute("vault_tokens_sent_to_cdp", vault_tokens + vt_sent_to_cdp)
                 .add_messages(msgs);
 

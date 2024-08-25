@@ -413,12 +413,8 @@ pub struct cAsset {
     pub rate_index: Decimal, 
     /// Pool Info for Osmosis LP
     pub pool_info: Option<PoolInfo>,
-}
-
-#[cw_serde]
-pub struct RateHikes {
-    pub rate: Decimal,
-    pub assets_to_hike: Vec<String>,
+    /// Is this subject to rate hikes?
+    pub hike_rates: Option<bool>,
 }
 
 /// Osmosis PoolInfo

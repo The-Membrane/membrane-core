@@ -222,6 +222,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                         max_LTV: Decimal::zero(),
                         pool_info: None,
                         rate_index: Decimal::one(),
+                        hike_rates: Some(false),
                     }
                 );
 

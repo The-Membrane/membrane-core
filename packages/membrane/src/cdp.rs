@@ -2,7 +2,7 @@ use cosmwasm_std::{Addr, Decimal, Uint128, StdResult, Api, StdError};
 use cosmwasm_schema::cw_serde;
 
 use crate::types::{
-    cAsset, Asset, AssetInfo, InsolventPosition, RateHikes,
+    cAsset, Asset, AssetInfo, InsolventPosition,
     SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType, Basket, equal, PremiumInfo,
 };
 
@@ -167,8 +167,6 @@ pub enum CallbackMsg {
 pub enum QueryMsg {
     /// Returns the contract's config
     Config {},
-    /// Returns the contract's RateHike info
-    RateHike {},
     /// Get Basket redeemability
     GetBasketRedeemability {
         /// Position owner to query.
@@ -258,6 +256,8 @@ pub struct Config {
     pub base_debt_cap_multiplier: Uint128,
     /// Interest rate 2nd Slope multiplier
     pub rate_slope_multiplier: Decimal,
+    /// Rate hike rate
+    pub rate_hike_rate: Option<Decimal>,
 }
 
 
@@ -320,7 +320,7 @@ pub struct UpdateConfig {
     /// Interest rate 2nd Slope multiplier
     pub rate_slope_multiplier: Option<Decimal>,
     /// Rate hike rate
-    pub rate_hikes: Option<RateHikes>,
+    pub rate_hike_rate: Option<Decimal>,
 }
 
 impl UpdateConfig {
@@ -393,6 +393,9 @@ impl UpdateConfig {
                 return Err(StdError::GenericErr{ msg: String::from("Rate slope multiplier must be between 0-10000%") });
             }            
             config.rate_slope_multiplier = rate_slope_multiplier;
+        }
+        if let Some(new_rate) = self.rate_hike_rate {
+            config.rate_hike_rate = Some(new_rate);
         }
         Ok(())
     }

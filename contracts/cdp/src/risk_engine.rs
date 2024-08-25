@@ -85,10 +85,11 @@ pub fn update_basket_tally(
             get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config, Some(basket.clone()))?;
 
         
+        //Initialize in_position to check if the position has these assets
+        let mut in_position = false;
+
         //Assert new ratios aren't above Collateral Supply Caps. If so, conditionally error.
         for (i, ratio) in new_basket_ratios.clone().into_iter().enumerate() {
-            //Initialize in_position to check if the position has these assets
-            let mut in_position = false;
             
             if add_to_cAsset {
                 //Check if the depositing assets are part of this cap

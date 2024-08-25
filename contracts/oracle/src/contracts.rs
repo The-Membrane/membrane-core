@@ -1,7 +1,8 @@
 use std::str::FromStr;
 
 use cosmwasm_std::{
-    attr, entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, Order, QuerierWrapper, QueryRequest, Response, StdError, StdResult, Storage, Uint128, WasmQuery
+    attr, entry_point, to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper,
+    Response, StdError, StdResult, Storage, Uint128, QueryRequest, WasmQuery,
 };
 use cw2::set_contract_version;
 
@@ -13,8 +14,7 @@ use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
 use membrane::osmosis_proxy::{QueryMsg as OP_QueryMsg, Config as OP_Config};
 use membrane::oracle::{Config, AssetResponse, ExecuteMsg, InstantiateMsg, PriceResponse, QueryMsg, MigrateMsg};
-use membrane::mars_vault_token::QueryMsg as Vault_QueryMsg;
-use membrane::types::{AssetInfo, AssetOracleInfo, Basket, Owner, PoolInfo, PoolStateResponse, PriceInfo, TWAPPoolInfo, VaultTokenInfo};
+use membrane::types::{AssetInfo, AssetOracleInfo, PriceInfo, Basket, TWAPPoolInfo, PoolInfo, Owner, PoolStateResponse};
 
 use crate::error::ContractError;
 use crate::state::{ASSETS, CONFIG, OWNERSHIP_TRANSFER};
@@ -419,66 +419,6 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         )?),
         QueryMsg::Assets { asset_infos } => to_binary(&get_assets(deps, asset_infos)?),
     }
-}
-
-/// Get underlying asset price
-/// Get underlying token amount
-/// Calculate vault token price.
-pub fn get_vault_token_price(
-    storage: &dyn Storage,
-    querier: QuerierWrapper,
-    env: Env,
-    config: Config,
-    vault_info: VaultTokenInfo,
-    decimals: u64,
-    twap_timeframe: u64, //in minutes
-    oracle_time_limit: u64, //in seconds
-    basket_id_field: Option<Uint128>,
-    //For Multi-Asset queries or recursive queries
-    queried_asset_prices: Option<Vec<(String, PriceResponse)>>, //Asset & Price
-    osmo_quote_price: Option<Decimal>, 
-) -> StdResult<(PriceResponse, Option<Decimal>)>{
-    //Turn underlying token to asset info
-    let asset_info = AssetInfo::NativeToken {
-        denom: vault_info.underlying_token.clone(),
-    };
-
-    //Get asset price
-    let (underlying_price, osmo_quote) = get_asset_price(
-        storage,
-        querier.clone(),
-        env,
-        asset_info,
-        twap_timeframe,
-        oracle_time_limit,
-        basket_id_field,
-        queried_asset_prices,
-        osmo_quote_price,
-    )?;
-    
-
-    //Query underlying amount for 1 vault token (1_000_000_000_000)
-    //Bc The vault token is using a minimum of 6 decimal place ASSETS, a single token will always be 1_000_000_000_000
-    let underlying_token_amount: Uint128 = querier.query_wasm_smart::<Uint128>(
-        vault_info.clone().vault_contract,//Uint128::new(1_000_000_000_000)
-        &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: Uint128::new(1u128 * 10u128.pow(decimals as u32)) },
-    )?;
-
-    //Calculate value of Assets in 1 vault token
-    let vault_token_value = underlying_price.get_value(underlying_token_amount)?;
-        
-    //Add vault token value to the list of oracle sources
-    let mut oracle_sources = underlying_price.prices.clone();
-    oracle_sources.push(PriceInfo {
-        source: String::from("vault_contract"),
-        price: vault_token_value,
-    });
-
-    Ok((PriceResponse { 
-        prices: oracle_sources,
-        price: vault_token_value,
-        decimals,
-    }, osmo_quote))
 }
 
 /// Calculate LP share token value.
@@ -1019,9 +959,8 @@ fn get_asset_prices(
     };
 
     for asset in asset_infos {
-        let asset_info = ASSETS.load(storage, asset.to_string())?[0].clone();
         //Switch based on if asset is an LP 
-        match asset_info.clone().lp_pool_info {
+        match ASSETS.load(storage, asset.to_string())?[0].clone().lp_pool_info {
             Some(pool_info) => {
                 //If asset is an LP, get the LP price
                 price_responses.push(get_lp_price(
@@ -1038,47 +977,26 @@ fn get_asset_prices(
                 )?);
             },
             None => {
-                //If its a vault token get the vault token price
-                if let Some(vault_info) = asset_info.clone().vault_info {
-                    let (price, quote_price) = get_vault_token_price(
-                        storage,
-                        querier.clone(),
-                        env.clone(),
-                        CONFIG.load(storage)?,
-                        vault_info,
-                        asset_info.decimals,
-                        twap_timeframe,
-                        oracle_time_limit,
-                        basket_id_field,
-                        Some(price_propagations.clone()), //Vault tokens will never be queried first during Basket queries so we don't need to save their prices
-                        osmo_quote_price,
-                    )?;
-                    price_propagations.push((asset.to_string(), price.clone()));
-                    osmo_quote_price = quote_price;
-                    price_responses.push(price);
-                } else {
-
-                    //If asset is not an LP && the price isn't in the list of propogated prices, get the asset price
-                    if let Some(price) = price_propagations.clone().into_iter().find(|price| price.0 == asset.to_string()) {
-                        price_responses.push(price.1);
-                        continue;
-                    }
-                    //Query price if not found
-                    let (price, quote_price) = get_asset_price(
-                        storage,
-                        querier.clone(),
-                        env.clone(),
-                        asset.clone(),
-                        twap_timeframe,
-                        oracle_time_limit,
-                        basket_id_field,
-                        Some(price_propagations.clone()),
-                        osmo_quote_price,
-                    )?;
-                    price_propagations.push((asset.to_string(), price.clone()));
-                    osmo_quote_price = quote_price;
-                    price_responses.push(price);
+                //If asset is not an LP && the price isn't in the list of propogated prices, get the asset price
+                if let Some(price) = price_propagations.clone().into_iter().find(|price| price.0 == asset.to_string()) {
+                    price_responses.push(price.1);
+                    continue;
                 }
+                //Query price if not found
+                let (price, quote_price) = get_asset_price(
+                    storage,
+                    querier.clone(),
+                    env.clone(),
+                    asset.clone(),
+                    twap_timeframe,
+                    oracle_time_limit,
+                    basket_id_field,
+                    Some(price_propagations.clone()),
+                    osmo_quote_price,
+                )?;
+                price_propagations.push((asset.to_string(), price.clone()));
+                osmo_quote_price = quote_price;
+                price_responses.push(price);
             }
         }
     }
@@ -1087,25 +1005,6 @@ fn get_asset_prices(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Get state keys for oracle info
-    let keys = ASSETS
-        .range(deps.storage, None, None, Order::Ascending)
-        .map(|asset| {
-            let (key, _asset_info) = asset?;
-
-            Ok(key)
-
-        })
-        .collect::<StdResult<Vec<String>>>()?;
-    
-    //Set underlying token field for all stored Assets
-    for key in keys {
-        let mut asset_info = ASSETS.load(deps.storage, key.clone())?;
-
-        asset_info[0].vault_info = None;
-
-        ASSETS.save(deps.storage, key, &asset_info)?;
-    }
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     Ok(Response::default())
 }

@@ -329,14 +329,6 @@ pub struct StakeDistributionLog {
     pub start_time: u64,
 }
 
-#[cw_serde]
-pub struct VaultTokenInfo {
-    /// Vault contract address
-    pub vault_contract: String,
-    /// Underlying token 
-    pub underlying_token: String,
-}
-
 /// Oracle
 #[cw_serde]
 pub struct AssetOracleInfo {
@@ -350,8 +342,6 @@ pub struct AssetOracleInfo {
     pub is_usd_par: bool,
     /// LP pool info
     pub lp_pool_info: Option<PoolInfo>,
-    /// Vault Info (for vault tokens only)
-    pub vault_info: Option<VaultTokenInfo>,
     /// Asset decimals
     pub decimals: u64,
 }
@@ -760,14 +750,6 @@ pub struct Lock {
     pub lock_up_duration: u64,
 }
 
-/// Earn Vault
-#[cw_serde]
-pub struct VaultInfo {
-    pub vault_addr: Addr,
-    pub deposit_token: String,
-    pub vault_token: String
-}
-
 /// Discount Vault
 #[cw_serde]
 pub struct VaultUser {
@@ -830,6 +812,13 @@ impl AssetInfo {
                     AssetInfo::NativeToken { denom, .. } => self_denom == denom,
                 }
             }
+        }
+    }
+
+    pub fn into_apollo_cw_asset(&self) -> apollo_cw_asset::AssetInfoBase<String> {
+        match self {
+            AssetInfo::Token { address } => apollo_cw_asset::AssetInfoBase::Cw20(address.to_string()),
+            AssetInfo::NativeToken { denom } => apollo_cw_asset::AssetInfoBase::Native(denom.to_string()),
         }
     }
 }

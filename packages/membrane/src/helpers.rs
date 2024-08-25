@@ -1,6 +1,9 @@
 use cosmwasm_std::{CosmosMsg, StdResult, Decimal, to_binary, WasmMsg, coin, StdError, Addr, Coin, BankMsg, Uint128, MessageInfo, Api, QuerierWrapper, Env, WasmQuery, QueryRequest};
 use osmosis_std::types::osmosis::gamm::v1beta1::MsgExitPool;
 
+use apollo_cw_asset::AssetInfoUnchecked;
+
+use crate::apollo_router::ExecuteMsg as RouterExecuteMsg;
 use crate::oracle::PriceResponse;
 use crate::discount_vault::Config as DV_Config;
 use crate::staking::Totals;
@@ -102,45 +105,45 @@ pub fn get_pool_state_response(
 }
 
 /// Creates router swap msg between native assets
-// pub fn router_native_to_native(
-//     router_addr: String,
-//     asset_to_sell: AssetInfo,
-//     asset_to_buy: AssetInfo,
-//     recipient: Option<String>,
-//     amount_to_sell: u128,
-// ) -> StdResult<CosmosMsg>{
-//     if let AssetInfo::NativeToken { denom } = asset_to_sell {
-//         if let AssetInfo::NativeToken { denom:_ } = asset_to_buy {
+pub fn router_native_to_native(
+    router_addr: String,
+    asset_to_sell: AssetInfo,
+    asset_to_buy: AssetInfo,
+    recipient: Option<String>,
+    amount_to_sell: u128,
+) -> StdResult<CosmosMsg>{
+    if let AssetInfo::NativeToken { denom } = asset_to_sell {
+        if let AssetInfo::NativeToken { denom:_ } = asset_to_buy {
 
-//             let router_msg = RouterExecuteMsg::BasketLiquidate { 
-//                 offer_assets: vec![apollo_cw_asset::AssetUnchecked {
-//                     info: AssetInfoUnchecked::Native(denom.clone()),
-//                     amount: Uint128::new(amount_to_sell),
-//                 }].into(),
-//                 receive_asset: asset_to_buy.into_apollo_cw_asset(), 
-//                 minimum_receive: None, 
-//                 to: recipient 
-//             };
+            let router_msg = RouterExecuteMsg::BasketLiquidate { 
+                offer_assets: vec![apollo_cw_asset::AssetUnchecked {
+                    info: AssetInfoUnchecked::Native(denom.clone()),
+                    amount: Uint128::new(amount_to_sell),
+                }].into(),
+                receive_asset: asset_to_buy.into_apollo_cw_asset(), 
+                minimum_receive: None, 
+                to: recipient 
+            };
     
-//             let payment = coin(
-//                 amount_to_sell,
-//                 denom,
-//             );
+            let payment = coin(
+                amount_to_sell,
+                denom,
+            );
     
-//             let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-//                 contract_addr: router_addr,
-//                 msg: to_binary(&router_msg)?,
-//                 funds: vec![payment],
-//             });
+            let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: router_addr,
+                msg: to_binary(&router_msg)?,
+                funds: vec![payment],
+            });
     
-//             Ok(msg)            
-//         } else {
-//             Err(StdError::GenericErr { msg: String::from("Native assets only") })
-//         }
-//     } else {
-//         Err(StdError::GenericErr { msg: String::from("Native assets only") })
-//     }
-// }
+            Ok(msg)            
+        } else {
+            Err(StdError::GenericErr { msg: String::from("Native assets only") })
+        }
+    } else {
+        Err(StdError::GenericErr { msg: String::from("Native assets only") })
+    }
+}
 
 /// Returns Stability Pool liq premium
 pub fn query_stability_pool_fee(

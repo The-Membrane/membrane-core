@@ -22,7 +22,7 @@ mod tests {
     use membrane::liquidity_check::LiquidityResponse;
 
     use cosmwasm_std::{
-        attr, coin, to_json_binary, Addr, Binary, Coin, Decimal, Empty, Response, StdError, StdResult,
+        attr, coin, to_binary, Addr, Binary, Coin, Decimal, Empty, Response, StdError, StdResult,
         Uint128, Uint64,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
@@ -50,10 +50,6 @@ mod tests {
             position_id: Uint128,
             position_owner: String,
         },
-        Accrue {
-            position_ids: Vec<Uint128>,
-            position_owner: Option<String>,
-        },
     }
 
     #[cw_serde]
@@ -74,19 +70,13 @@ mod tests {
                     } => Ok(
                         Response::new()
                     ),
-                    CDP_MockExecuteMsg::Accrue {
-                        position_ids,
-                        position_owner,
-                    } => Ok(
-                        Response::new()
-                    ),
                 }
             },
             |_, _, _, _: CDP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
             |_, _, msg: CDP_MockQueryMsg| -> StdResult<Binary> { 
                 match msg {
                     CDP_MockQueryMsg::GetBasket { } => {
-                        Ok(to_json_binary(&Basket {
+                        Ok(to_binary(&Basket {
                             basket_id: Uint128::zero(),
                             current_position_id: Uint128::zero(),
                             collateral_types: vec![],
@@ -131,17 +121,13 @@ mod tests {
                     } => Ok(
                         Response::new()
                     ),
-                    CDP_MockExecuteMsg::Accrue { position_ids, position_owner }
-                    => Ok(
-                        Response::new()
-                    ),
                 }
             },
             |_, _, _, _: CDP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
             |_, _, msg: CDP_MockQueryMsg| -> StdResult<Binary> { 
                 match msg {
                     CDP_MockQueryMsg::GetBasket { } => {
-                        Ok(to_json_binary(&Basket {
+                        Ok(to_binary(&Basket {
                             basket_id: Uint128::zero(),
                             current_position_id: Uint128::zero(),
                             collateral_types: vec![],
@@ -199,7 +185,7 @@ mod tests {
                 match msg {
                     Gov_MockQueryMsg::Proposal { proposal_id } => {
                         if proposal_id == 3u64 {
-                            return Ok(to_json_binary(&Proposal {
+                            return Ok(to_binary(&Proposal {
                                 voting_power: vec![],
                                 proposal_id: Uint64::new(proposal_id),
                                 submitter: Addr::unchecked(""),
@@ -215,7 +201,7 @@ mod tests {
                                 amendment_voters: vec![],
                                 removal_voters: vec![],
                                 start_block: 1,
-                                start_time: 1571793819,
+                                start_time: 1,
                                 end_block: 1,
                                 delayed_end_block: 1,
                                 expiration_block: 1,
@@ -224,9 +210,9 @@ mod tests {
                                 link: None,
                                 messages: None,
                             })?)
-                        } 
+                        }
 
-                        Ok(to_json_binary(&Proposal {
+                        Ok(to_binary(&Proposal {
                             voting_power: vec![],
                             proposal_id: Uint64::new(proposal_id),
                             submitter: Addr::unchecked(""),
@@ -267,35 +253,7 @@ mod tests {
             |_, _, msg: Gov_MockQueryMsg| -> StdResult<Binary> { 
                 match msg {
                     Gov_MockQueryMsg::Proposal { proposal_id } => {
-                        if proposal_id == 21u64 {
-                            return Ok(to_json_binary(&Proposal {
-                                voting_power: vec![],
-                                proposal_id: Uint64::new(proposal_id),
-                                submitter: Addr::unchecked(""),
-                                status: ProposalStatus::Passed,
-                                aligned_power: Uint128::zero(),
-                                for_power: Uint128::zero(),
-                                against_power: Uint128::zero(),
-                                amendment_power: Uint128::zero(),
-                                removal_power: Uint128::zero(),
-                                aligned_voters: vec![],
-                                for_voters: vec![ ],
-                                against_voters: vec![],
-                                amendment_voters: vec![],
-                                removal_voters: vec![],
-                                start_block: 1,
-                                start_time: 1571793819,
-                                end_block: 1,
-                                delayed_end_block: 1,
-                                expiration_block: 1,
-                                title: String::from(""),
-                                description: String::from(""),
-                                link: None,
-                                messages: None,
-                            })?)
-                        }
-
-                        Ok(to_json_binary(&Proposal {
+                        Ok(to_binary(&Proposal {
                             voting_power: vec![],
                             proposal_id: Uint64::new(proposal_id),
                             submitter: Addr::unchecked(""),
@@ -311,7 +269,7 @@ mod tests {
                             amendment_voters: vec![],
                             removal_voters: vec![],
                             start_block: 1,
-                            start_time: 1571793818,
+                            start_time: 1,
                             end_block: 1,
                             delayed_end_block: 1,
                             expiration_block: 1,
@@ -352,7 +310,7 @@ mod tests {
                     LQ_MockQueryMsg::UserClaims {
                         user: _,
                     } => 
-                        Ok(to_json_binary(&vec![LQ_ClaimsResponse {
+                        Ok(to_binary(&vec![LQ_ClaimsResponse {
                             bid_for: String::from("cdp"),
                             pending_liquidated_collateral: Uint256::from(100_000_000u128),
                         }, LQ_ClaimsResponse {
@@ -376,7 +334,7 @@ mod tests {
                     LQ_MockQueryMsg::UserClaims {
                         user: _,
                     } => 
-                        Ok(to_json_binary(&vec![LQ_ClaimsResponse {
+                        Ok(to_binary(&vec![LQ_ClaimsResponse {
                             bid_for: String::from("cdp"),
                             pending_liquidated_collateral: Uint256::from(90_000_000u128),
                         }])?)
@@ -410,7 +368,7 @@ mod tests {
             |_, _, msg: SP_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     SP_MockQueryMsg::UserClaims { user: _ } => {
-                        Ok(to_json_binary(&SP_ClaimsResponse {
+                        Ok(to_binary(&SP_ClaimsResponse {
                             claims: vec![
                                 Coin::new(100_000_000u128, "claim1"),
                                 Coin::new(10_000_000u128, "claim2"),
@@ -432,7 +390,7 @@ mod tests {
             |_, _, msg: SP_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     SP_MockQueryMsg::UserClaims { user: _ } => {
-                        Ok(to_json_binary(&SP_ClaimsResponse {
+                        Ok(to_binary(&SP_ClaimsResponse {
                             claims: vec![
                                 Coin::new(90_000_000u128, "claim1"),
                             ],
@@ -525,7 +483,7 @@ mod tests {
                                     decimals: 6,
                                 });
                             }
-                            Ok(to_json_binary(&resp)?) 
+                            Ok(to_binary(&resp)?) 
                     }
             }
         }
@@ -757,7 +715,7 @@ mod tests {
 
             //CheckClaims
             let msg = ExecuteMsg::CheckClaims { 
-                cdp_repayment: Some(UserInfo { position_id: Uint128::one(), position_owner: String::from("hahahehe") }), 
+                cdp_repayment: true, 
                 sp_claims: true, 
                 lq_claims: true, 
                 vote: Some(vec![1u64, 21u64, 3u64])
@@ -830,8 +788,8 @@ mod tests {
                 assert_eq!(stats[0], UserStatsResponse {
                     user: Addr::unchecked(USER), 
                     stats: UserStats { 
-                        total_points: Decimal::from_ratio(41u128, 1u128), 
-                        claimable_points: Decimal::from_ratio(41u128, 1u128),
+                        total_points: Decimal::from_ratio(42u128, 1u128), 
+                        claimable_points: Decimal::from_ratio(42u128, 1u128),
                     }
                 });
                 //20 from each liquidation contract claim & 1 from each vote
@@ -863,7 +821,7 @@ mod tests {
                 assert_eq!(stats[0], UserStatsResponse {
                     user: Addr::unchecked(USER), 
                     stats: UserStats { 
-                        total_points: Decimal::from_ratio(41u128, 1u128), 
+                        total_points: Decimal::from_ratio(42u128, 1u128), 
                         claimable_points: Decimal::from_ratio(0u128, 1u128),
                     }
                 });

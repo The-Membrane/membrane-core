@@ -1,7 +1,7 @@
 use core::panic;
 
 use cosmwasm_std::{
-    attr, entry_point, to_json_binary, Addr, Attribute, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, QuerierWrapper, QueryRequest, Reply, ReplyOn, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg, WasmQuery
+    attr, entry_point, to_binary, Addr, Attribute, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, QuerierWrapper, QueryRequest, Reply, ReplyOn, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg, WasmQuery
 };
 use cw2::set_contract_version;
 
@@ -23,9 +23,6 @@ use crate::state::{LiquidationPropagation, CLAIM_CHECK, CONFIG, LIQ_PROPAGATION,
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "points_system";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
-
-// Seconds per day
-const SECONDS_PER_DAY: u64 = 86_400;
 
 // Pagination defaults
 const PAGINATION_DEFAULT_LIMIT: u64 = 30;
@@ -126,7 +123,7 @@ fn check_claims(
         //Create accrue message
         let accrue_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
             contract_addr: config.clone().positions_contract.to_string(), 
-            msg: to_json_binary(&CDP_ExecuteMsg::Accrue {
+            msg: to_binary(&CDP_ExecuteMsg::Accrue {
                 position_ids: vec![ user_info.position_id ],
                 position_owner: Some(user_info.position_owner),
             })?,
@@ -144,7 +141,7 @@ fn check_claims(
         //Get SP's pending claims
         let sp_claims: ClaimsResponse = match deps.querier.query::<ClaimsResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
             contract_addr: config.clone().stability_pool_contract.to_string(), 
-            msg: to_json_binary(&SP_QueryMsg::UserClaims { user: info.clone().sender.to_string() })?
+            msg: to_binary(&SP_QueryMsg::UserClaims { user: info.clone().sender.to_string() })?
         })){
             Ok(claims) => claims,
             //The SP errors if you have empty claims
@@ -161,7 +158,7 @@ fn check_claims(
         //Get Liquidation's pending claims
         let lq_claims: Vec<LQ_ClaimsResponse> = deps.querier.query::<Vec<LQ_ClaimsResponse>>(&QueryRequest::Wasm(WasmQuery::Smart { 
             contract_addr: config.clone().liq_queue_contract.to_string(), 
-            msg: to_json_binary(&LIQ_QueryMsg::UserClaims { user: info.clone().sender.to_string() })?
+            msg: to_binary(&LIQ_QueryMsg::UserClaims { user: info.clone().sender.to_string() })?
         }))?;
         //Filter out any that are 0
         let lq_claims = lq_claims.into_iter().filter(|x| !x.pending_liquidated_collateral.is_zero()).collect::<Vec<LQ_ClaimsResponse>>();
@@ -176,7 +173,7 @@ fn check_claims(
             //Query proposal
             let proposal: Proposal = deps.querier.query::<Proposal>(&QueryRequest::Wasm(WasmQuery::Smart { 
                 contract_addr: config.clone().governance_contract.to_string(), 
-                msg: to_json_binary(&GOV_QueryMsg::Proposal { proposal_id: id })?
+                msg: to_binary(&GOV_QueryMsg::Proposal { proposal_id: id })?
             }))?;
 
             //Check queried proposal & add to the unvoted proposals list if the user hasn't voted
@@ -227,7 +224,7 @@ fn check_claims(
 //4) Governance Votes: Give points for every unvoted proposal saved in CheckClaims that is now voted on
 fn give_points(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     info: MessageInfo,    
     cdp_repayment: bool,
     sp_claims: bool,
@@ -247,7 +244,7 @@ fn give_points(
     //Get CDP Basket    
     let basket: Basket = deps.querier.query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart { 
         contract_addr: config.clone().positions_contract.to_string(), 
-        msg: to_json_binary(&CDP_QueryMsg::GetBasket {  })?
+        msg: to_binary(&CDP_QueryMsg::GetBasket {  })?
     }))?;
     
     let mut revenue_paid: Uint128 = Uint128::zero();
@@ -266,7 +263,7 @@ fn give_points(
         //Get SP's pending claims
         let sp_current_claims: ClaimsResponse = match deps.querier.query::<ClaimsResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
             contract_addr: config.clone().stability_pool_contract.to_string(), 
-            msg: to_json_binary(&SP_QueryMsg::UserClaims { user: info.clone().sender.to_string() })?
+            msg: to_binary(&SP_QueryMsg::UserClaims { user: info.clone().sender.to_string() })?
         })){
             Ok(claims) => claims,
             //The SP errors if you have empty claims
@@ -306,7 +303,7 @@ fn give_points(
         //Get Liquidation's pending claims
         let lq_current_claims: Vec<LQ_ClaimsResponse> = deps.querier.query::<Vec<LQ_ClaimsResponse>>(&QueryRequest::Wasm(WasmQuery::Smart { 
             contract_addr: config.clone().liq_queue_contract.to_string(), 
-            msg: to_json_binary(&LIQ_QueryMsg::UserClaims { user: info.clone().sender.to_string() })?
+            msg: to_binary(&LIQ_QueryMsg::UserClaims { user: info.clone().sender.to_string() })?
         }))?;        
         //Filter out any that are 0
         let lq_current_claims = lq_current_claims.into_iter().filter(|x| !x.pending_liquidated_collateral.is_zero()).collect::<Vec<LQ_ClaimsResponse>>();
@@ -349,14 +346,8 @@ fn give_points(
             //Query proposal
             let proposal: Proposal = deps.querier.query::<Proposal>(&QueryRequest::Wasm(WasmQuery::Smart { 
                 contract_addr: config.clone().governance_contract.to_string(), 
-                msg: to_json_binary(&GOV_QueryMsg::Proposal { proposal_id: id })?
+                msg: to_binary(&GOV_QueryMsg::Proposal { proposal_id: id })?
             }))?;
-
-            //If the proposal was within the last hour, continue.
-            //This blocks attempts of farming proposals since they r free.
-            if proposal.start_time >= env.block.time.seconds() - SECONDS_PER_DAY/24 {
-                continue;
-            }
 
             //Check queried proposal & add to the unvoted proposals list if the user has voted
             let mut has_voted = false;
@@ -421,7 +412,7 @@ fn liquidate_for_user(
     //Create Liquidation message
     let liquidation_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
         contract_addr: config.clone().positions_contract.to_string(), 
-        msg: to_json_binary(&CDP_ExecuteMsg::Liquidate {
+        msg: to_binary(&CDP_ExecuteMsg::Liquidate {
                 position_id,
                 position_owner: position_owner.to_string(),
             })?,
@@ -433,7 +424,7 @@ fn liquidate_for_user(
     //Get CDP's outstanding credit supply
     let basket: Basket = deps.querier.query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart { 
         contract_addr: config.clone().positions_contract.to_string(), 
-        msg: to_json_binary(&CDP_QueryMsg::GetBasket {  })?
+        msg: to_binary(&CDP_QueryMsg::GetBasket {  })?
     }))?;
     //Save balances
     LIQ_PROPAGATION.save(deps.storage, &
@@ -494,7 +485,7 @@ fn claim_mbrn_from_points(
     //Mint MBRN to user
     let mbrn_mint: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.clone().osmosis_proxy_contract.to_string(),
-        msg: to_json_binary(&OP_ExecuteMsg::MintTokens { 
+        msg: to_binary(&OP_ExecuteMsg::MintTokens { 
             denom: String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn"), 
             amount: mbrn_to_claim, 
             mint_to_address: info.sender.clone().to_string(), 
@@ -543,7 +534,7 @@ fn allocate_points(
     //Get the current price of each unique denom
     let denoms_prices: Vec<PriceResponse> = querier.query::<Vec<PriceResponse>>(&QueryRequest::Wasm(WasmQuery::Smart { 
         contract_addr: config.clone().oracle_contract.to_string(), 
-        msg: to_json_binary(&Oracle_QueryMsg::Prices { 
+        msg: to_binary(&Oracle_QueryMsg::Prices { 
             asset_infos: unique_denoms.clone(),
             twap_timeframe: 60u64,
             oracle_time_limit: 600u64,
@@ -699,7 +690,7 @@ fn handle_liq_reply(
             //Query new CDT SUPPLY
             let basket: Basket = deps.querier.query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart { 
                 contract_addr: config.clone().positions_contract.to_string(), 
-                msg: to_json_binary(&CDP_QueryMsg::GetBasket {  })?
+                msg: to_binary(&CDP_QueryMsg::GetBasket {  })?
             }))?;
             let post_liq_CDT = basket.credit_asset.amount;
 
@@ -780,7 +771,7 @@ fn handle_accrue_reply(
             //Get CDP's pending revenue
             let basket: Basket = deps.querier.query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart { 
                 contract_addr: config.clone().positions_contract.to_string(), 
-                msg: to_json_binary(&CDP_QueryMsg::GetBasket {  })?
+                msg: to_binary(&CDP_QueryMsg::GetBasket {  })?
             }))?;
             let present_revenue = basket.pending_revenue;
 
@@ -804,9 +795,9 @@ fn handle_accrue_reply(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::ClaimCheck {} => to_json_binary(&CLAIM_CHECK.load(deps.storage)?),
-        QueryMsg::UserStats { user, limit, start_after } => to_json_binary(&query_user_stats(deps, user, limit, start_after)?),
+        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
+        QueryMsg::ClaimCheck {} => to_binary(&CLAIM_CHECK.load(deps.storage)?),
+        QueryMsg::UserStats { user, limit, start_after } => to_binary(&query_user_stats(deps, user, limit, start_after)?),
     }
 }
 

@@ -245,7 +245,6 @@ mod tests {
                     lp_pool_info: None,
                     decimals: 6,
                     pyth_price_feed_id: None,
-                    vault_info: None,
                 },
             };
             let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
@@ -267,7 +266,6 @@ mod tests {
                     lp_pool_info: None,
                     decimals: 6,
                     pyth_price_feed_id: None,
-                    vault_info: None,
                 },
             };
             let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
@@ -289,7 +287,6 @@ mod tests {
                     lp_pool_info: None,
                     decimals: 6,
                     pyth_price_feed_id: None,
-                    vault_info: None,
                 },
             };
             let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();
@@ -357,7 +354,6 @@ mod tests {
                     lp_pool_info: None,
                     decimals: 6,
                     pyth_price_feed_id: None,
-                    vault_info: None,
                 }),
                 remove: false,
             };
@@ -394,7 +390,6 @@ mod tests {
                     lp_pool_info: None,
                     decimals: 6,
                     pyth_price_feed_id: None,
-                    vault_info: None,
                 },
             };
             let cosmos_msg = oracleContract.call(msg, vec![]).unwrap();

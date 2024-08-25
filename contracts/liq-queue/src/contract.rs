@@ -8,7 +8,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 use membrane::cdp::QueryMsg as CDP_QueryMsg;
-use membrane::liq_queue::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, MigrateMsg};
+use membrane::liq_queue::{Config, ExecuteMsg, InstantiateMsg, QueryMsg};
 use membrane::math::{Decimal256, Uint256};
 use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue, Basket};
 
@@ -407,9 +407,4 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_binary(&query_queues(deps, start_after, limit)?)
         }
     }
-}
-
-#[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    Ok(Response::default())
 }

@@ -2,6 +2,7 @@
 #![allow(unused_parens)]
 #![allow(unused_doc_comments)]
 #![allow(non_camel_case_types)]
+pub mod apollo_router;
 pub mod vesting;
 pub mod auction;
 pub mod governance;
@@ -11,10 +12,6 @@ pub mod oracle;
 pub mod osmosis_proxy;
 pub mod cdp;
 pub mod stability_pool;
-pub mod stability_pool_vault;
-pub mod mars_vault_token;
-pub mod stable_earn_vault;
-pub mod mars_redbank;
 pub mod staking;
 pub mod margin_proxy;
 pub mod points_system;

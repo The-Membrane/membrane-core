@@ -96,7 +96,6 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
             .map(|deposit| deposit.amount)
             .sum();
 
-            // println!("user_deposits {:?}", deposits);
         for deposit in deposits {
             let (claims, incentives) = get_deposit_claimables(
                 deps.storage, 

@@ -1,7 +1,7 @@
 [workspace]
 members = ["contracts/*", "packages/*"]
 
-exclude = ["my_scripts", "artifacts", "contracts/cdp/src/testing/*", "contracts/stability-pool-vault"]
+exclude = ["my_scripts", "artifacts", "contracts/cdp/src/testing/*"]
 
 
 [profile.release]

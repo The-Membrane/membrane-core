@@ -57,8 +57,9 @@ pub fn deposit(
     cAssets: Vec<cAsset>,
 ) -> Result<Response, ContractError> {    
     let config = CONFIG.load(deps.storage)?;
-    let valid_owner_addr = validate_position_owner(deps.api, info, position_owner)?;
+    let valid_owner_addr = validate_position_owner(deps.api, info.clone(), position_owner)?;
     let mut basket: Basket = BASKET.load(deps.storage)?;
+    let mut set_redemption = false;
     
     //Check if frozen
     if basket.frozen { return Err(ContractError::Frozen {  }) }
@@ -69,6 +70,13 @@ pub fn deposit(
         .map(|cAsset| cAsset.asset.amount)
         .collect::<Vec<Uint128>>();
 
+    //If any cAsset is a rate_hike asset, force a redemption 
+    for cAsset in cAssets.clone(){
+        if cAsset.hike_rates.is_some() && cAsset.hike_rates.unwrap() {
+            set_redemption = true;
+        }
+    }
+
     //Initialize positions_prev_collateral & position_info for deposited assets
     //Used for to double check state storage
     let mut positions_prev_collateral = vec![];
@@ -78,6 +86,19 @@ pub fn deposit(
 
         //Add collateral to the position_id or Create a new position 
         if let Some(position_id) = position_id {
+            //If a rate hike asset is deposited, force a redemption
+            if set_redemption {
+                edit_redemption_info(
+                    deps.storage,
+                    info.clone(),
+                    vec![position_id],
+                    Some(true),
+                    Some(1),
+                    Some(Decimal::one()),
+                    None,
+                    true,
+                )?;
+            }
             //Find the position
             if let Some((position_index, mut position)) = positions.clone()
                 .into_iter()
@@ -148,7 +169,7 @@ pub fn deposit(
                 //Save Basket
                 BASKET.save(deps.storage, &basket)?;
 
-            } else {                
+            } else {
                 //If position_ID is passed but no position is found, Error. 
                 //In case its a mistake, don't want to add assets to a new position.
                 return Err(ContractError::NonExistentPosition { id: position_id });
@@ -184,6 +205,21 @@ pub fn deposit(
                     Ok(positions)
                 },
             )?;
+
+            
+            //If a rate hike asset is deposited, force a redemption
+            if set_redemption {
+                edit_redemption_info(
+                    deps.storage,
+                    info.clone(),
+                    vec![position_info.position_id],
+                    Some(true),
+                    Some(1),
+                    Some(Decimal::one()),
+                    None,
+                    true,
+                )?;
+            }
         }
     } else { //No existing positions loaded so new Vec<Position> is created
         let (new_position_info, new_position) = create_position_in_deposit(
@@ -205,12 +241,27 @@ pub fn deposit(
             valid_owner_addr,
             &vec![new_position],
         )?;
+                
+        //If a rate hike asset is deposited, force a redemption
+        if set_redemption {
+            edit_redemption_info(
+                deps.storage,
+                info.clone(),
+                vec![position_info.position_id],
+                Some(true),
+                Some(1),
+                Some(Decimal::one()),
+                None,
+                true,
+            )?;
+        }
     }
 
     //Double check State storage
     check_deposit_state(deps.storage, deps.api, positions_prev_collateral, deposit_amounts, position_info.clone())?;    
 
-    Ok(Response::new().add_attributes(vec![
+    Ok(Response::new()
+    .add_attributes(vec![
         attr("method", "deposit"),
         attr("position_owner", position_info.position_owner),
         attr("position_id", position_info.position_id),
@@ -887,12 +938,20 @@ pub fn increase_debt(
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
     let mut basket: Basket = BASKET.load(deps.storage)?;
+    let mut set_redemption = false;
 
     //Check if frozen
     if basket.frozen { return Err(ContractError::Frozen {  }) }
 
     //Get Target position
     let (position_index, mut target_position) = get_target_position(deps.storage, info.clone().sender, position_id)?;
+    
+    //If any cAsset is a rate_hike asset, force a redemption 
+    for cAsset in target_position.collateral_assets.clone(){
+        if cAsset.hike_rates.is_some() && cAsset.hike_rates.unwrap() {
+            set_redemption = true;
+        }
+    }    
 
     //Accrue interest
     accrue(
@@ -1009,8 +1068,22 @@ pub fn increase_debt(
         prev_credit_amount,
         prev_basket_credit,
         position_id, 
-        info.sender,
+        info.clone().sender,
     )?;
+    
+    //If a rate hike asset is deposited, force a redemption
+    if set_redemption {
+        edit_redemption_info(
+            deps.storage,
+            info.clone(),
+            vec![position_id.clone()],
+            Some(true),
+            Some(1),
+            Some(Decimal::one()),
+            None,
+            true,
+        )?;
+    }
 
     let response = Response::new()
         .add_message(message)
@@ -1051,7 +1124,7 @@ fn check_debt_increase_state(
 
 /// Edit and Enable debt token Redemption for any address-owned Positions
 pub fn edit_redemption_info(
-    deps: DepsMut, 
+    storage: &mut dyn Storage, 
     info: MessageInfo,
     // Position IDs to edit
     mut position_ids: Vec<Uint128>,
@@ -1065,6 +1138,8 @@ pub fn edit_redemption_info(
     // Restricted collateral assets.
     // These aren't used for redemptions.
     restricted_collateral_assets: Option<Vec<String>>,
+    // If called by the contract
+    called_by_contract: bool,
 ) -> Result<Response, ContractError>{
     //Check for valid premium
     if let Some(premium) = updated_premium {
@@ -1075,8 +1150,8 @@ pub fn edit_redemption_info(
 
     //Check for valid max_loan_repayment
     if let Some(max_loan_repayment) = max_loan_repayment {
-        if max_loan_repayment > Decimal::one() {
-            return Err(ContractError::CustomError { val: String::from("Max loan repayment can't be greater than 100%") })
+        if max_loan_repayment > Decimal::one() || max_loan_repayment.is_zero() {
+            return Err(ContractError::CustomError { val: String::from("Max loan repayment can't be 0% or greater than 100%") })
         }
     }
 
@@ -1091,12 +1166,22 @@ pub fn edit_redemption_info(
         }
     }
 
+    //If a rate hike asset is in the position, USER CAN"T REMOVE REEDMPTIONS
+    for id in position_ids.clone() {
+        let (_i, target_position) = get_target_position(storage, info.sender.clone(), id)?;
+        for cAsset in target_position.collateral_assets.clone(){
+            if !called_by_contract && cAsset.hike_rates.is_some() && cAsset.hike_rates.unwrap() {
+                return Err(ContractError::CustomError { val: format!("Can't edit redemption for a position with a rate hike asset: {:?}", cAsset.asset.info) })
+            }
+        }
+    }
+
     //////Additions//////
     //Add PositionRedemption objects under the user in the desired premium while skipping duplicates, if redeemable is true or None
     if (redeemable.is_some() && redeemable.unwrap_or_else(|| false)) || redeemable.is_none(){
         if let Some(updated_premium) = updated_premium {                
             //Load premium we are adding to 
-            match REDEMPTION_OPT_IN.load(deps.storage, updated_premium){
+            match REDEMPTION_OPT_IN.load(storage, updated_premium){
                 Ok(mut users_of_premium)=> {
                     //If the user already has a PositionRedemption, add the Position to the list
                     if let Some ((user_index, mut user_positions)) = users_of_premium.clone().into_iter().enumerate().find(|(_, user)| user.position_owner == info.sender){
@@ -1106,7 +1191,7 @@ pub fn edit_redemption_info(
                             if !user_positions.position_infos.iter().any(|position| position.position_id == id){
 
                                 //Get target_position
-                                let target_position = match get_target_position(deps.storage, info.sender.clone(), id){
+                                let target_position = match get_target_position(storage, info.sender.clone(), id){
                                     Ok((_, pos)) => pos,
                                     Err(_e) => return Err(ContractError::CustomError { val: String::from("User does not own this position id") })
                                 };
@@ -1126,12 +1211,12 @@ pub fn edit_redemption_info(
                         users_of_premium[user_index] = user_positions;
 
                         //Save the updated list
-                        REDEMPTION_OPT_IN.save(deps.storage, updated_premium, &users_of_premium)?;
+                        REDEMPTION_OPT_IN.save(storage, updated_premium, &users_of_premium)?;
                     } //Add user to the premium state
                     else {                            
                         //Create new RedemptionInfo
                         let new_redemption_info = create_redemption_info(
-                            deps.storage,
+                            storage,
                             position_ids.clone(), 
                             max_loan_repayment.clone(), 
                             info.clone().sender,
@@ -1142,14 +1227,14 @@ pub fn edit_redemption_info(
                         users_of_premium.push(new_redemption_info);
 
                         //Save the updated list
-                        REDEMPTION_OPT_IN.save(deps.storage, updated_premium, &users_of_premium)?;
+                        REDEMPTION_OPT_IN.save(storage, updated_premium, &users_of_premium)?;
                     }
                 },
                 //If no users, create a new list
                 Err(_err) => {
                     //Create new RedemptionInfo
                     let new_redemption_info = create_redemption_info(
-                        deps.storage,
+                        storage,
                         position_ids.clone(), 
                         max_loan_repayment.clone(), 
                         info.clone().sender,
@@ -1157,7 +1242,7 @@ pub fn edit_redemption_info(
                     )?;
 
                     //Save the new RedemptionInfo
-                    REDEMPTION_OPT_IN.save(deps.storage, updated_premium, &vec![new_redemption_info])?;
+                    REDEMPTION_OPT_IN.save(storage, updated_premium, &vec![new_redemption_info])?;
                 },
             };
         } else if (redeemable.is_some() && redeemable.unwrap_or_else(|| false)) && updated_premium.is_none(){
@@ -1169,7 +1254,7 @@ pub fn edit_redemption_info(
     //Parse through premium range to look for the Position IDs
     for premium in 0..100u128 {
         //Load premium we are editing
-        let mut users_of_premium: Vec<RedemptionInfo> = match REDEMPTION_OPT_IN.load(deps.storage, premium){
+        let mut users_of_premium: Vec<RedemptionInfo> = match REDEMPTION_OPT_IN.load(storage, premium){
             Ok(list)=> list,
             Err(_err) => vec![], //If no users, return empty vec
         };
@@ -1193,7 +1278,7 @@ pub fn edit_redemption_info(
                                     users_of_premium.remove(user_index);
                                     
                                     //Save the updated list
-                                    REDEMPTION_OPT_IN.save(deps.storage, premium, &users_of_premium)?;
+                                    REDEMPTION_OPT_IN.save(storage, premium, &users_of_premium)?;
                                     break;
                                 }
                             }
@@ -1202,7 +1287,7 @@ pub fn edit_redemption_info(
                         //Update maximum loan repayment
                         if let Some(max_loan_repayment) = max_loan_repayment {
                             //Get target_position
-                            let target_position = match get_target_position(deps.storage, info.sender.clone(), id){
+                            let target_position = match get_target_position(storage, info.sender.clone(), id){
                                 Ok((_, pos)) => pos,
                                 Err(_e) => return Err(ContractError::CustomError { val: String::from("User does not own this position id") })
                             };
@@ -1220,7 +1305,7 @@ pub fn edit_redemption_info(
                                     users_of_premium.remove(user_index);
                                     
                                     //Save the updated list
-                                    REDEMPTION_OPT_IN.save(deps.storage, premium, &users_of_premium)?;
+                                    REDEMPTION_OPT_IN.save(storage, premium, &users_of_premium)?;
                                     break;
                                 }
                             }   
@@ -1229,7 +1314,7 @@ pub fn edit_redemption_info(
                         //Update restricted collateral assets
                         if let Some(restricted_assets) = restricted_collateral_assets.clone() {
                             //Map collateral assets to String
-                            let basket = BASKET.load(deps.storage)?;
+                            let basket = BASKET.load(storage)?;
                             let collateral = basket.collateral_types.iter().map(|asset| asset.asset.info.to_string()).collect::<Vec<String>>();
 
                             //If all restricted assets are valid, swap objects
@@ -1244,7 +1329,7 @@ pub fn edit_redemption_info(
                         users_of_premium[user_index] = user_positions.clone();
 
                         //Save the updated list
-                        REDEMPTION_OPT_IN.save(deps.storage, premium, &users_of_premium)?;
+                        REDEMPTION_OPT_IN.save(storage, premium, &users_of_premium)?;
 
                         //Remove the Position ID from the list
                         position_ids = position_ids
@@ -1358,6 +1443,12 @@ pub fn redeem_for_collateral(
                             .collect::<Vec<cAsset>>();
                     }
                     if target_position.collateral_assets.is_empty() {
+                        //Remove PositionRedemption from user
+                        user.position_infos.remove(pos_rdmpt_index);
+                        //Remove user if no more PositionRedemptions
+                        if user.position_infos.is_empty() {
+                            users_of_premium.remove(user_index);
+                        }
                         continue;
                     }
 
@@ -1371,9 +1462,10 @@ pub fn redeem_for_collateral(
                         Some(basket.clone()),
                     )?;
 
-                    //Calc amount of credit that can be redeemed
+                    //Calc amount of credit that can be redeemed.
+                    //Max we can redeem is the target_position's credit_amount.
                     redeemable_credit = Decimal::min(
-                        Decimal::from_ratio(position_redemption_info.remaining_loan_repayment, Uint128::one()),
+                        Decimal::min(Decimal::from_ratio(position_redemption_info.remaining_loan_repayment, Uint128::one()), Decimal::from_ratio(target_position.credit_amount, Uint128::one())),
                         credit_amount
                     );
                     //Subtract redeemable from credit_amount 
@@ -1451,6 +1543,16 @@ pub fn redeem_for_collateral(
 
                     //Set position.credit_amount
                     target_position.credit_amount -= redeemable_credit.to_uint_floor();
+
+                    //Remove from redemption_info if credit_amount is zero
+                    if target_position.credit_amount.is_zero() {
+                        //Remove PositionRedemption from user
+                        user.position_infos.remove(pos_rdmpt_index);
+                        //Remove user if no more PositionRedemptions
+                        if user.position_infos.is_empty() {
+                            users_of_premium.remove(user_index);
+                        }
+                    }
 
                     //Update position.credit_amount
                     update_position(
@@ -1879,6 +1981,7 @@ pub fn edit_basket(
                         ),                       
                         decimals: 18,
                         pyth_price_feed_id: None,
+                        vault_info: None,
                     },
                 })?,
                 funds: vec![],
@@ -2006,6 +2109,7 @@ pub fn edit_basket(
                         lp_pool_info: None,
                         decimals: 6,
                         pyth_price_feed_id: None,
+                        vault_info: None,
                     }),
                     remove: false,
                 })?,

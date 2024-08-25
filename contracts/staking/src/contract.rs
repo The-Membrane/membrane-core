@@ -1,7 +1,6 @@
-use std::cmp::min;
 #[cfg(not(feature = "library"))]
 use std::env;
-
+use std::cmp::min;
 
 use cosmwasm_std::{entry_point, Coin};
 use cosmwasm_std::{
@@ -672,7 +671,7 @@ pub fn unstake(
     //We update with the difference between the withdraw_amount and the withdrawable amount bc whatever isn't withdrawable was newly unstaked
     let mut totals = STAKING_TOTALS.load(deps.storage)?;
     //Set withdraw_amount to newly unstaked amount
-    if withdrawable_amount > withdraw_amount {
+    if withdrawable_amount >= withdraw_amount {
         withdraw_amount = Uint128::zero();
     } else {
         withdraw_amount -= withdrawable_amount;
@@ -1934,6 +1933,7 @@ fn get_user_claimables(
 
     //Find rewards from deposits
     if deposits != vec![] {
+        // println!("{:?}", deposits);
         let mut claimables: Vec<Asset> = vec![];
         let mut accrued_interest = Uint128::zero();
 
@@ -1948,6 +1948,7 @@ fn get_user_claimables(
             .into_iter()
             .filter(|deposit| deposit.unstake_start_time.is_none())
             .collect::<Vec<StakeDeposit>>();
+
         //Get earliest stake time from staked deposits
         let earliest_stake_time = deposits.clone()
             .into_iter()
@@ -2262,7 +2263,10 @@ pub fn get_delegation_commission(
     };
     
     //Calc the ratio of the total delegated_to to the total stake
-    let total_delegated_ratio = Decimal::from_ratio(total_delegated_to, total_rewarding_stake);
+    //Largest it can be is 1
+    // println!("total_delegated_to: {}, {}", total_delegated_to, total_rewarding_stake);
+    let total_delegated_ratio = min(Decimal::from_ratio(total_delegated_to, total_rewarding_stake), Decimal::one());
+    // println!("total_delegated_ratio: {}", total_delegated_ratio);
 
     //Calculate the per deposit commission rate
     let per_deposit_commission_subtraction = decimal_multiplication(total_delegated_ratio, commission_rate)?;
@@ -2319,6 +2323,7 @@ pub fn get_deposit_claimables(
         .into_iter()
         .filter(|delegation| delegation.last_accrued.unwrap_or_else(|| delegation.time_of_delegation) < env.block.time.seconds())
         .collect::<Vec<Delegation>>();
+    // println!("total_rewarding stake {:?}, {:?}, {:?}", total_rewarding_stake, delegated.clone(), delegated_to.clone());
     //Get commission rates per deposit
     let (per_deposit_commission_subtraction, per_deposit_commission_addition) = get_delegation_commission(
         storage, 
@@ -2327,6 +2332,8 @@ pub fn get_deposit_claimables(
         total_rewarding_stake,
         user_commission_rate,
     )?;
+    // println!("total_rewarding stake fin");
+
     
     //Subtract commission from deposit
     if per_deposit_commission_subtraction > Decimal::zero() {
@@ -2414,61 +2421,6 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-
-    let current_delegates = vec![
-        Delegate { 
-            delegate: Addr::unchecked("osmo1d9ryqp7yfmr92vkk2yal96824pewf2g5wx0h2r"), 
-            alias: Some(String::from("Frontend Host")), 
-            discord_username: Some(String::from("cyph3rpunk")),
-            twitter_username: Some(String::from("Cyph3rpunk1")),
-            url: None,
-        },        
-        Delegate { 
-            delegate: Addr::unchecked("osmo1nktatq53eah8efefsry33yg3zkhrrzwq3k6wg7"), 
-            alias: Some(String::from("RoboMcGobo")), 
-            discord_username: Some(String::from("robomcgobo")),
-            twitter_username: Some(String::from("RoboMcGobo")),
-            url: None,
-        },        
-        Delegate { 
-            delegate: Addr::unchecked("osmo1dplx2zw3mjk5lam6fnv5q2yxldcshs3wl3s8ph"), 
-            alias: Some(String::from("Johnny Wyles")), 
-            discord_username: Some(String::from("johnnywyles")),
-            twitter_username: Some(String::from("JohnnyWyles87")),
-            url: None,
-        },        
-        Delegate { 
-            delegate: Addr::unchecked("osmo1ckgwfferpjy6usm3nvyjknat5d6frrhypl6kku"), 
-            alias: Some(String::from("Macks Wolfard")), 
-            discord_username: Some(String::from("nostradamus.nosnode")),
-            twitter_username: Some(String::from("nostradamus411")),
-            url: None,
-        },        
-        Delegate { 
-            delegate: Addr::unchecked("osmo1xp0qs6pkay2jssu58p8eap0epdhwx5mqlhs4v7"), 
-            alias: Some(String::from("Nostradamus")), 
-            discord_username: Some(String::from("nostradamus.nosnode")),
-            twitter_username: Some(String::from("nostradamus411")),
-            url: None,
-        },        
-        Delegate { 
-            delegate: Addr::unchecked("osmo1uvnk984yhpw48jfu5srvsrqdt03kkvlcjqx8x5"), 
-            alias: Some(String::from("Banana DAO")), 
-            discord_username: Some(String::from("arcmosis")),
-            twitter_username: Some(String::from("thebananadao")),
-            url: None,
-        },        
-        Delegate { 
-            delegate: Addr::unchecked("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w"), 
-            alias: Some(String::from("Trix")), 
-            discord_username: Some(String::from("tri.xxx")),
-            twitter_username: Some(String::from("brane_trix")),
-            url: None,
-        }
-    ];
-
-    //Initialize Delegate state
-    DELEGATE_INFO.save(deps.storage, &current_delegates)?;
 
     Ok(Response::default())
 }

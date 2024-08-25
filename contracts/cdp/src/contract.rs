@@ -211,13 +211,14 @@ pub fn execute(
         },
         ExecuteMsg::EditRedeemability { position_ids, redeemable, premium, max_loan_repayment, restricted_collateral_assets } => {
             edit_redemption_info(
-                deps, 
+                deps.storage,
                 info, 
                 position_ids, 
                 redeemable, 
                 premium, 
                 max_loan_repayment,
-                restricted_collateral_assets
+                restricted_collateral_assets,
+                false
             )
         },
         ExecuteMsg::LiqRepay {} => {
@@ -596,11 +597,24 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Set RateHikes
-    RATE_HIKES.save(deps.storage, &RateHikes {
-        rate: Decimal::percent(30),
-        assets_to_hike: vec![String::from("ibc/23104D411A6EB6031FA92FB75F227422B84989969E91DCAD56A535DD7FF0A373")],
-    })?;
+    // let mut config = CONFIG.load(deps.storage)?;
+    // println!("{:?}", config); //This should print a None for the rate hike rate
+    // config.rate_hike_rate = Some(Decimal::percent(30));
 
+    // let mut basket = BASKET.load(deps.storage)?;
+    // for (i, _asset) in basket.collateral_types.clone().iter().enumerate(){
+    //     basket.collateral_types[i].hike_rates = Some(false);
+    // }
+
+    // CONFIG.save(deps.storage, &config)?;
+    // BASKET.save(deps.storage, &basket)?;
+
+    // //Load position to see if it'll error due to a new cAsset struct
+    // let pos = POSITIONS.load(deps.storage, Addr::unchecked("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n"))?;
+    // println!("{:?}", pos[0].collateral_assets);
+
+    //The Gov check msgs switch 0 will test if new queries of Config will fail with the new Optional field
+
+    // panic!("update cAssets and remember to upgrade any contracts that query the config");
     Ok(Response::default())
 }

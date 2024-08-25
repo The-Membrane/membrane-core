@@ -464,7 +464,6 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
                 },
                 cAsset {
                     asset: Asset {
@@ -477,7 +476,6 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
                 },                
                 cAsset {
                     asset: Asset {
@@ -490,7 +488,6 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     max_LTV: Decimal::percent(96),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
                 }],
                 credit_asset: Asset {
                     info: AssetInfo::NativeToken {
@@ -790,7 +787,6 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                             LPAssetInfo { info: AssetInfo::NativeToken { denom: config.clone().osmo_denom }, decimals: 6, ratio: Decimal::percent(50) }], 
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
                 }),
                 liq_queue: Some(addrs.clone().liq_queue.to_string()),
                 collateral_supply_caps: Some(vec![
@@ -858,7 +854,6 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                             LPAssetInfo { info: AssetInfo::NativeToken { denom: config.clone().usdc_denom }, decimals: 6, ratio: Decimal::percent(50) }], 
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
                 }),
                 liq_queue: None,
                 collateral_supply_caps: None,
@@ -1654,7 +1649,7 @@ pub fn handle_balancer_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                         collateral_twap_timeframe: None,
                         cpc_multiplier: None,
                         rate_slope_multiplier: None,
-                        rate_hike_rate: None,
+                        rate_hikes: None,
                     }))?, 
                     funds: vec![],
                 }));

@@ -177,7 +177,6 @@ pub fn query_basket_credit_interest(
             max_LTV: Decimal::zero(),
             pool_info: None,
             rate_index: Decimal::one(),
-            hike_rates: Some(false),
         };
 
         let credit_TWAP_price = match  get_asset_values(

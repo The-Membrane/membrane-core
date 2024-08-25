@@ -1853,7 +1853,6 @@ pub fn edit_basket(
         max_LTV: Decimal::zero(),
         pool_info: None,
         rate_index: Decimal::one(),
-        hike_rates: Some(false),
     };
 
     let mut msgs: Vec<CosmosMsg> = vec![];    

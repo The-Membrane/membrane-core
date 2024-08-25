@@ -34,6 +34,7 @@ const ENTER_VAULT_REPLY_ID: u64 = 1u64;
 const CDP_REPLY_ID: u64 = 2u64;
 const LOOP_REPLY_ID: u64 = 3u64;
 const UNLOOP_REPLY_ID: u64 = 4u64;
+const EXIT_VAULT_REPLY_ID: u64 = 5u64;
 
 //Constants
 const SECONDS_PER_DAY: u64 = 86_400u64;
@@ -559,15 +560,16 @@ fn unloop_cdp(
         }
         //2) - Query the amount of deposit tokens we'll receive
         // - Exit the vault
-        // - sell the underlying token for CDT
+        // - sell the underlying token for CDT in the reply
+
         //Query the amount of deposit tokens we'll receive
-        let underlying_deposit_token: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
-            config.deposit_token.vault_addr.to_string(),
-            &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: withdrawable_collateral },
-        ){
-            Ok(underlying_deposit_token) => underlying_deposit_token,
-            Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the Mars Vault Token for the underlying deposit amount in unloop") }),
-        };
+        // let underlying_deposit_token: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
+        //     config.deposit_token.vault_addr.to_string(),
+        //     &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: withdrawable_collateral },
+        // ){
+        //     Ok(underlying_deposit_token) => underlying_deposit_token,
+        //     Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the Mars Vault Token for the underlying deposit amount in unloop") }),
+        // };
         //Exit vault
         let exit_vault_strat =  CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.deposit_token.vault_addr.to_string(),
@@ -579,29 +581,15 @@ fn unloop_cdp(
                 }
             ],
         });
-        msgs.push(SubMsg::new(exit_vault_strat));
-        //Sell tokens for CDT
-        let sell_deposit_token_for_CDT = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.osmosis_proxy_contract_addr.to_string(),
-            msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps { 
-                token_out: config.cdt_denom.clone(),
-                max_slippage: config.swap_slippage,
-            })?,
-            funds: vec![
-                Coin {
-                    denom: config.deposit_token.deposit_token.clone(),
-                    amount: underlying_deposit_token - Uint128::one(), //vault query rounding error
-                }
-            ],
-        });
-        msgs.push(SubMsg::reply_on_success(sell_deposit_token_for_CDT, UNLOOP_REPLY_ID));
+        msgs.push(SubMsg::reply_on_success(exit_vault_strat, EXIT_VAULT_REPLY_ID));
+
 
         //Update running collateral amount
         unloop_props.running_collateral_amount = match unloop_props.running_collateral_amount.checked_sub(withdrawable_collateral){
             Ok(v) => v,
             Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to subtract running_collateral_amount: {} - {}", unloop_props.running_collateral_amount, withdrawable_collateral) }),
         };
-        println!("unloop {:?}", unloop_props);
+
         //Save UNLOOP propogations
         UNLOOP_PROPS.save(deps.storage, &unloop_props)?;
 
@@ -1496,9 +1484,52 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         CDP_REPLY_ID => handle_cdp_reply(deps, env, msg),
         LOOP_REPLY_ID => handle_loop_reply(deps, env, msg),
         UNLOOP_REPLY_ID => handle_unloop_reply(deps, env, msg),
+        EXIT_VAULT_REPLY_ID => handle_exit_deposit_token_vault_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 } 
+
+fn handle_exit_deposit_token_vault_reply(
+    deps: DepsMut,
+    env: Env,
+    msg: Reply,
+) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => {
+            //Load config
+            let config = CONFIG.load(deps.storage)?;  
+               
+            //Query balance for the deposit token received from the exit vault
+            let deposit_token_balance = deps.querier.query_balance(env.contract.address.to_string(), config.clone().deposit_token.deposit_token)?.amount;   
+
+            //Sell tokens for CDT
+            let sell_deposit_token_for_CDT = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.osmosis_proxy_contract_addr.to_string(),
+                msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps { 
+                    token_out: config.cdt_denom.clone(),
+                    max_slippage: config.swap_slippage,
+                })?,
+                funds: vec![
+                    Coin {
+                        denom: config.deposit_token.deposit_token.clone(),
+                        amount: deposit_token_balance,
+                    }
+                ],
+            });
+            let submsg = SubMsg::reply_on_success(sell_deposit_token_for_CDT, UNLOOP_REPLY_ID);
+
+            //Create Response
+            let res = Response::new()
+                .add_attribute("method", "handle_exit_deposit_token_vault_reply")
+                .add_attribute("deposit_token_swapped_for", deposit_token_balance)
+                .add_submessage(submsg);
+
+            return Ok(res);
+
+        } //We only reply on success
+        Err(err) => return Err(StdError::GenericErr { msg: err }),
+    }
+}
 
 
 //1) repay debt

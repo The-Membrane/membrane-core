@@ -82,6 +82,7 @@ pub struct Config {
     pub cdp_position_id: Uint128,
     /// Vault debt cap
     /// The CDP contract will have another debt cap but we use this for a static deposit cap so we accurately limit based on liquidity.
+    /// UNUSED.
     pub deposit_cap: Uint128,
     pub swap_slippage: Decimal,
     pub vault_cost_index: usize,

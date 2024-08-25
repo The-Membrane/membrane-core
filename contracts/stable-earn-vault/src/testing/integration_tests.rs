@@ -150,6 +150,11 @@ mod tests {
             oracle_time_limit: u64,
             basket_id: Option<Uint128>,
         },
+        Prices {
+            asset_infos: Vec<AssetInfo>,
+            twap_timeframe: u64,
+            oracle_time_limit: u64,
+        },
     }
 
     pub fn oracle_contract() -> Box<dyn Contract<Empty>> {
@@ -191,6 +196,21 @@ mod tests {
                         
                         
                         Ok(to_json_binary(&prices)?)                        
+                    },
+                    Oracle_MockQueryMsg::Prices {
+                        asset_infos,
+                        twap_timeframe,
+                        oracle_time_limit,
+                    } => {
+                        Ok(to_json_binary(&vec![PriceResponse {
+                            prices: vec![],
+                            price: Decimal::one(),
+                            decimals: 6,
+                        }, PriceResponse {
+                            prices: vec![],
+                            price: Decimal::one(),
+                            decimals: 6,
+                        }])?)
                     }
                 }
             },
@@ -490,7 +510,7 @@ mod tests {
                                     
                                 }
                             ],
-                            credit_amount: Uint128::new(890_000_000_000),  
+                            credit_amount: Uint128::new(101_000_000),  
                             cAsset_ratios: vec![],
                             avg_borrow_LTV: Decimal::zero(),
                             avg_max_LTV: Decimal::zero(),                              
@@ -867,9 +887,10 @@ mod tests {
             app.send_tokens(Addr::unchecked("god"), Addr::unchecked("contract4"), &vec![coin(10000000000, "factory/contract3/mars-usdc-vault")]).unwrap();
 
             /////Test withdrawals
+            /// 
             //Unloop 
             let msg = ExecuteMsg::UnloopCDP {
-                desired_collateral_withdrawal: Uint128::new(3)
+                desired_collateral_withdrawal: Uint128::new(1_000_000_000_000)
             };
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("contract4"), cosmos_msg).unwrap();
@@ -885,7 +906,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 config.total_nonleveraged_vault_tokens,
-                Uint128::new(1000000000000)
+                Uint128::new(2000000000000)
             );
         }
         
@@ -916,6 +937,14 @@ mod tests {
             
             //Send the vault token to the user to enable exit
             app.send_tokens(Addr::unchecked("god"), Addr::unchecked(USER), &vec![coin(2500000, "factory/contract4/stable-earn-vault")]).unwrap();
+            app.send_tokens(Addr::unchecked("god"), Addr::unchecked("contract4"), &vec![coin(1, "uusdc")]).unwrap();
+
+            //Query user balance
+            let balance = app
+                .wrap()
+                .query_balance(Addr::unchecked(USER), "uusdc")
+                .unwrap().amount;
+            assert_eq!(balance, Uint128::new(9));
 
             //Exit Vault: THE RATE ASSURANCE ERRORS BC WE CAN'T REMOVE TOKENS FROM THE MARS CONTRACT MID-EXECUTION
             let msg = ExecuteMsg::ExitVault { };
@@ -942,7 +971,21 @@ mod tests {
                 .wrap()
                 .query_balance(Addr::unchecked(USER), "uusdc")
                 .unwrap().amount;
-            assert_eq!(balance, Uint128::new(4));
+            assert_eq!(balance, Uint128::new(10));
+
+            //Query to assert the config total wasn't changed 
+            //Exit vault handles the state updates
+            let config: Config = app
+                .wrap()
+                .query_wasm_smart(
+                    vault_contract.addr(),
+                    &QueryMsg::Config {},
+                )
+                .unwrap();
+            assert_eq!(
+                config.total_nonleveraged_vault_tokens,
+                Uint128::new(99999999995)
+            );
         }
     }
 

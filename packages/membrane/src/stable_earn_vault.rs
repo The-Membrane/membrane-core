@@ -33,12 +33,10 @@ pub enum ExecuteMsg {
         vault_cost_index: Option<()>
     },
     /// Unloop the vault's CDP position to free up collateral
-    /// Called by the contract for withdrawals.
-    /// Called by external to unloop & retain profitability.
+    /// Only called by the contract. (for withdrawals)
     UnloopCDP {
         /// Amount of collateral to withdraw.
-        /// Only callable by the contract
-        desired_collateral_withdrawal: Uint128,
+        desired_collateral_withdrawal: Uint128,        
     },
     /// Loop the vault's CDP position to increase collateral
     LoopCDP { },
@@ -53,6 +51,9 @@ pub enum ExecuteMsg {
     /// Assert price is <= 101% 
     /// Only callable by the contract
     UnloopMaintenance { },
+    /// Update the config's total_nonleveraged_vault_tokens
+    /// Only callable by the contract
+    UpdateNonleveragedVaultTokens { },
 
 }
 

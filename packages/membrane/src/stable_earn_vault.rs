@@ -44,7 +44,7 @@ pub enum ExecuteMsg {
     /// Assures that for deposits & withdrawals the conversion rate is static.
     /// We are trusting that Mars deposits will only go up.
     /// Only callable by the contract
-    RateAssurance { },
+    RateAssurance { exit: bool },
     /// Check Loop profitability, Deposit excess VT into the CDP & assert price is >= 99%
     /// Only callable by the contract
     PostLoopMaintenance { },

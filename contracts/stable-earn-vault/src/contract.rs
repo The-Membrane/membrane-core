@@ -182,7 +182,7 @@ pub fn execute(
         ExecuteMsg::UnloopCDP { desired_collateral_withdrawal } => unloop_cdp(deps, env, info, desired_collateral_withdrawal),
         ExecuteMsg::LoopCDP { } => loop_cdp(deps, env, info),
         ///CALLBACKS///
-        ExecuteMsg::RateAssurance {  } => rate_assurance(deps, env, info),
+        ExecuteMsg::RateAssurance { exit } => rate_assurance(deps, env, info, exit),
         ExecuteMsg::PostLoopMaintenance {  } => post_loop(deps, env, info),
         ExecuteMsg::UnloopMaintenance {  } => post_unloop(deps, env, info),
         ExecuteMsg::UpdateNonleveragedVaultTokens {  } => update_nonleveraged_vault_tokens(deps, env, info),
@@ -295,7 +295,7 @@ fn loop_cdp(
 }
 
 
-/// POST LOOP: Check loop profitablility & peg price
+/// POST LOOP: Check peg price
 fn post_loop(
     deps: DepsMut,
     env: Env,
@@ -352,7 +352,7 @@ fn test_looping_peg_price(
     let cdt_market_price: PriceResponse = prices[0].clone();
 
     if decimal_division(cdt_market_price.price, max(cdt_peg_price.price, Decimal::one()))? < desired_peg_price {
-        return Err(TokenFactoryError::CustomError { val: String::from("CDT price is below 99% of peg, can't loop. Try a lower loop_max to reduce sell pressure.") });
+        return Err(TokenFactoryError::CustomError { val: String::from("CDT price is below 99% of peg, can't loop.") });
     }
 
     Ok((cdt_market_price, cdt_peg_price))
@@ -422,7 +422,7 @@ fn unloop_cdp(
             running_credit_amount, 
             running_collateral_amount, 
             vt_token_price, 
-            _cdt_market_price
+            cdt_market_price
         ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone(), &mut vec![])?;
 
         //Get CDT peg price
@@ -434,6 +434,12 @@ fn unloop_cdp(
             Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in unloop") }),
         };
         let cdt_peg_price: PriceResponse = basket.credit_price.clone();
+        
+        //Ensure price is at or below peg
+        //This will ensure unloops aren't unprofitable for remaining users
+        if decimal_division(cdt_market_price.price, max(cdt_peg_price.price, Decimal::one()))? > Decimal::one() {
+            return Err(TokenFactoryError::CustomError { val: String::from("CDT price is above peg, can't unloop.") });
+        }
 
         //Set unloop props
         unloop_props = UnloopProps {
@@ -597,8 +603,8 @@ fn post_unloop(
     };
     let cdt_market_price: Decimal = prices[0].clone().price;
 
-    if decimal_division(cdt_market_price, max(cdt_peg_price, Decimal::one()))? > Decimal::percent(101){
-        return Err(TokenFactoryError::CustomError { val: String::from("CDT price is above 101% of peg, can't unloop.") });
+    if decimal_division(cdt_market_price, max(cdt_peg_price, Decimal::one()))? > Decimal::percent(100) + config.swap_slippage {
+        return Err(TokenFactoryError::CustomError { val: String::from("CDT price is above peg more than the config's slippage, can't unloop.") });
     }
 
     //Create Response
@@ -810,6 +816,7 @@ fn rate_assurance(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    exit: bool,
 ) -> Result<Response, TokenFactoryError> {
     //Load config    
     let config = CONFIG.load(deps.storage)?;
@@ -833,9 +840,12 @@ fn rate_assurance(
         total_vault_tokens
     )?;
 
-    //Check that the rates are static 
-    if btokens_per_one != token_rate_assurance.pre_btokens_per_one {
-        return Err(TokenFactoryError::CustomError { val: format!("Deposit or withdraw rate assurance failed. Deposit tokens per 1 post-tx: {:?} --- pre-tx: {:?}", btokens_per_one, token_rate_assurance.pre_btokens_per_one) });
+    //Check that the rates are static for everything other than exits.
+    //Exits will show an increase bc of the exit fee & calculation logic.
+    if !exit && btokens_per_one != token_rate_assurance.pre_btokens_per_one {
+        return Err(TokenFactoryError::CustomError { val: format!("Enter vault rate assurance failed, should be equal. If its 1 off just try again. Deposit tokens per 1 post-tx: {:?} --- pre-tx: {:?}", btokens_per_one, token_rate_assurance.pre_btokens_per_one) });
+    } else if exit && !(btokens_per_one > token_rate_assurance.pre_btokens_per_one) {
+        return Err(TokenFactoryError::CustomError { val: format!("Exit rate assurance failed, should be at least greater. Deposit tokens per 1 post-tx: {:?} --- pre-tx: {:?}", btokens_per_one, token_rate_assurance.pre_btokens_per_one) });
     }
 
     Ok(Response::new())
@@ -937,7 +947,7 @@ fn enter_vault(
         //UNCOMMENT
         msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: env.contract.address.to_string(),
-            msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
+            msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: false })?,
             funds: vec![],
         })));
     }
@@ -1093,11 +1103,14 @@ fn exit_vault(
     if !new_vault_token_supply.is_zero() && total_deposit_tokens > deposit_tokens_to_withdraw {
         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: env.contract.address.to_string(),
-            msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
+            msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: true })?,
             funds: vec![],
         }));
     }
-    
+    //This will be more bc of the exit fee...
+    //&& bc the initial total deposit calculation takes the liquid value using CDT's peg price and not market price. 
+    //So if debt is cleared the total deposit tokens will be higher than the starting calc.
+
     //Reset Unloop Props
     UNLOOP_PROPS.save(deps.storage, &UnloopProps {
         desired_collateral_withdrawal: Uint128::zero(),
@@ -1442,7 +1455,7 @@ fn get_total_deposit_tokens(
         Ok(basket) => basket,
         Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP basket in get_total_deposit_tokens") }),
     };
-    let cdt_price: PriceResponse = basket.credit_price;
+    let cdt_peg_price: PriceResponse = basket.credit_price;
     //Get vault token price
     let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
         config.oracle_contract_addr.to_string(),
@@ -1475,7 +1488,7 @@ fn get_total_deposit_tokens(
     };
     let vault_position: PositionResponse = vault_position[0].positions[0].clone();
     //Calc value of the debt
-    let debt_value = cdt_price.get_value(vault_position.credit_amount)?;
+    let debt_value = cdt_peg_price.get_value(vault_position.credit_amount)?;
     //Calc value of the collateral
     let collateral_value = vt_token_price.get_value(vault_position.collateral_assets[0].asset.amount)?;
     //Calc the value of the collateral minus the debt

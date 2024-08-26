@@ -45,12 +45,6 @@ pub enum ExecuteMsg {
     /// We are trusting that Mars deposits will only go up.
     /// Only callable by the contract
     RateAssurance { exit: bool },
-    /// Check Loop profitability, Deposit excess VT into the CDP & assert price is >= 99%
-    /// Only callable by the contract
-    PostLoopMaintenance { },
-    /// Assert price is <= 101% 
-    /// Only callable by the contract
-    UnloopMaintenance { },
     /// Update the config's total_nonleveraged_vault_tokens
     /// Only callable by the contract
     UpdateNonleveragedVaultTokens { },

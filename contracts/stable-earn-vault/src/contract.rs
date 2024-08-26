@@ -183,8 +183,6 @@ pub fn execute(
         ExecuteMsg::LoopCDP { } => loop_cdp(deps, env, info),
         ///CALLBACKS///
         ExecuteMsg::RateAssurance { exit } => rate_assurance(deps, env, info, exit),
-        ExecuteMsg::PostLoopMaintenance {  } => post_loop(deps, env, info),
-        ExecuteMsg::UnloopMaintenance {  } => post_unloop(deps, env, info),
         ExecuteMsg::UpdateNonleveragedVaultTokens {  } => update_nonleveraged_vault_tokens(deps, env, info),
     }
 }
@@ -193,14 +191,10 @@ pub fn execute(
 
 //LOOP NOTES: 
 // - Loop to leave a 101 CDT LTV gap to allow easier unlooping under the minimum
-// - Only loop if 7 day APR is profitable
-// - Don't loop if CDT price is below 99% of peg
+// - Don't loop if CDT price is below 99% + slippage of peg
 // - We don't loop the buffer of vault tokens in the contract
-// todo!(); //Also do the unloop blocker above 101% of peg
 //POST LOOP NOTES:
-// - At the end of the loop in a submsg, we deposit all vault tokens in our contract in case we withdraw too many during the unloop or swap below the slippage limit in the loop.
-// - If the vault is unprofitable post loop, we error, the caller needs to attempt a lower loop max.
-// -- We need to avoid the vault getting farmed for swap fees
+// - Bc we only loop once, as long as we start above 99% + slippage, we'll never make a trade that is unprofitable (i.e. under 99% of peg)
 fn loop_cdp(
     deps: DepsMut,
     env: Env,
@@ -246,7 +240,7 @@ fn loop_cdp(
     )?;
         
     //Leave a 101 CDT LTV gap to allow easier unlooping under the minimum debt (100)
-    //$91 of LTV space is ~101 withdrawal space so we can always fulfill the minimum debt of 100
+    //$101 min deposit is $91 of LTV space which is ~101 withdrawal space so we can always fulfill the minimum debt of 100
     if min_deposit_value < MIN_DEPOSIT_VALUE {
         return Err(TokenFactoryError::CustomError { val: format!("Minimum deposit value for this loop: {}, is less than our minimum used to ensure unloopability: {}", min_deposit_value, MIN_DEPOSIT_VALUE) })
     }
@@ -296,30 +290,30 @@ fn loop_cdp(
 
 
 /// POST LOOP: Check peg price
-fn post_loop(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-) -> Result<Response, TokenFactoryError>{
-    //Load config
-    let config = CONFIG.load(deps.storage)?;
+// fn post_loop(
+//     deps: DepsMut,
+//     env: Env,
+//     info: MessageInfo,
+// ) -> Result<Response, TokenFactoryError>{
+//     //Load config
+//     let config = CONFIG.load(deps.storage)?;
 
-    //Error if not the contract calling
-    if info.sender != env.contract.address {
-        return Err(TokenFactoryError::Unauthorized {});
-    }
+//     //Error if not the contract calling
+//     if info.sender != env.contract.address {
+//         return Err(TokenFactoryError::Unauthorized {});
+//     }
 
-    //Ensure price is still above 99% of peg
-    let (cdt_market_price, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98))?;
+//     //Ensure price is still above 99% of peg
+//     let (cdt_market_price, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98))?;
 
-    //Create Response
-    let res = Response::new()
-        .add_attribute("method", "post_loop")
-        .add_attribute("cdt_market_price", cdt_market_price.price.to_string())
-        .add_attribute("cdt_peg_price", cdt_peg_price.price.to_string());
+//     //Create Response
+//     let res = Response::new()
+//         .add_attribute("method", "post_loop")
+//         .add_attribute("cdt_market_price", cdt_market_price.price.to_string())
+//         .add_attribute("cdt_peg_price", cdt_peg_price.price.to_string());
 
-    Ok(res)
-}
+//     Ok(res)
+// }
 
 fn test_looping_peg_price(
     querier: QuerierWrapper,
@@ -394,12 +388,11 @@ fn calc_mintable(
 
 
 //Unloop the vaults CDP position
-//..to either withdraw for a user OR to fully close debt position
+//..to withdraw for a user
 //NOTE: 
 //- Accrue beforehand if trying to fully unloop
-//- If the 7 day APR is unprofitable, anyone can call this fn with desired collateral withdrawal as None
-// - If the 7 day APR is profitable, only the contract can call this fn
-// - We only loop once per call if the desired collateral withdrawal is None bc we don't want to unloop too deep into profitability and have to loop again
+//POST LOOP NOTES:
+// - Bc we only loop once, as long as we at least start at the peg, we'll never make a trade more than 100% + slippage which is covered for by the exit fee.
 fn unloop_cdp(
     deps: DepsMut,
     env: Env,
@@ -565,58 +558,58 @@ fn unloop_cdp(
     Ok(res)
 }
 
-fn post_unloop(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-) -> Result<Response, TokenFactoryError>{
-    //Load config
-    let config = CONFIG.load(deps.storage)?;
+// fn post_unloop(
+//     deps: DepsMut,
+//     env: Env,
+//     info: MessageInfo,
+// ) -> Result<Response, TokenFactoryError>{
+//     //Load config
+//     let config = CONFIG.load(deps.storage)?;
 
-    //Error if not the contract calling
-    if info.sender != env.contract.address {
-        return Err(TokenFactoryError::Unauthorized {});
-    }
+//     //Error if not the contract calling
+//     if info.sender != env.contract.address {
+//         return Err(TokenFactoryError::Unauthorized {});
+//     }
 
-    //Query basket for CDT peg price
-    let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
-        config.cdp_contract_addr.to_string(),
-        &CDP_QueryMsg::GetBasket {  },
-    ){
-        Ok(basket) => basket,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in unloop") }),
-    };
-    let cdt_peg_price: Decimal = basket.credit_price.price;
+//     //Query basket for CDT peg price
+//     let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
+//         config.cdp_contract_addr.to_string(),
+//         &CDP_QueryMsg::GetBasket {  },
+//     ){
+//         Ok(basket) => basket,
+//         Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in unloop") }),
+//     };
+//     let cdt_peg_price: Decimal = basket.credit_price.price;
 
-    //Check that CDT market price is equal or below 101% of peg
-    let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
-        config.oracle_contract_addr.to_string(),
-        &Oracle_QueryMsg::Price {
-            asset_info: AssetInfo::NativeToken { denom: config.clone().cdt_denom },
-            twap_timeframe: 0, //We want current swap price
-            oracle_time_limit: 0,
-            basket_id: None
-        },
-    ){
-        Ok(prices) => prices,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the cdt price in post unloop") }),
-    };
-    let cdt_market_price: Decimal = prices[0].clone().price;
+//     //Check that CDT market price is equal or below 101% of peg
+//     let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
+//         config.oracle_contract_addr.to_string(),
+//         &Oracle_QueryMsg::Price {
+//             asset_info: AssetInfo::NativeToken { denom: config.clone().cdt_denom },
+//             twap_timeframe: 0, //We want current swap price
+//             oracle_time_limit: 0,
+//             basket_id: None
+//         },
+//     ){
+//         Ok(prices) => prices,
+//         Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the cdt price in post unloop") }),
+//     };
+//     let cdt_market_price: Decimal = prices[0].clone().price;
 
-    if decimal_division(cdt_market_price, max(cdt_peg_price, Decimal::one()))? > Decimal::percent(100) + config.swap_slippage {
-        return Err(TokenFactoryError::CustomError { val: String::from("CDT price is above peg more than the config's slippage, can't unloop.") });
-    }
+//     if decimal_division(cdt_market_price, max(cdt_peg_price, Decimal::one()))? > Decimal::percent(100) + config.swap_slippage {
+//         return Err(TokenFactoryError::CustomError { val: String::from("CDT price is above peg more than the config's slippage, can't unloop.") });
+//     }
 
-    //Create Response
-    let res = Response::new()
-        .add_attribute("method", "post_unloop")
-        .add_attribute("cdt_market_price", cdt_market_price.to_string())
-        .add_attribute("cdt_peg_price", cdt_peg_price.to_string());
+//     //Create Response
+//     let res = Response::new()
+//         .add_attribute("method", "post_unloop")
+//         .add_attribute("cdt_market_price", cdt_market_price.to_string())
+//         .add_attribute("cdt_peg_price", cdt_peg_price.to_string());
 
 
-    Ok(res)
+//     Ok(res)
     
-}
+// }
 
 //Return CP position info
 fn get_cdp_position_info(
@@ -1766,15 +1759,6 @@ fn handle_loop_reply(
             });
             msgs.push(cdp_deposit_msg);
             
-            //Add post loop maintenance msg 
-            let post_loop_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: env.contract.address.to_string(),
-                msg: to_json_binary(&ExecuteMsg::PostLoopMaintenance { })?,
-                funds: vec![],
-            });
-            msgs.push(post_loop_msg);
-
-
             //Create Response
             let res = Response::new()
                 .add_attribute("method", "handle_loop_reply")

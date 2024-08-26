@@ -206,7 +206,7 @@ fn loop_cdp(
     
     //Ensure price is above 99.5% of peg
     //We want to ensure loops keep redemptions at 99% of peg profitable
-    let (_, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98) + config.swap_slippage)?;
+    let (_, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(99) + config.swap_slippage)?;
 
     let (
         running_credit_amount, 
@@ -288,33 +288,6 @@ fn loop_cdp(
     
 }
 
-
-/// POST LOOP: Check peg price
-// fn post_loop(
-//     deps: DepsMut,
-//     env: Env,
-//     info: MessageInfo,
-// ) -> Result<Response, TokenFactoryError>{
-//     //Load config
-//     let config = CONFIG.load(deps.storage)?;
-
-//     //Error if not the contract calling
-//     if info.sender != env.contract.address {
-//         return Err(TokenFactoryError::Unauthorized {});
-//     }
-
-//     //Ensure price is still above 99% of peg
-//     let (cdt_market_price, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(98))?;
-
-//     //Create Response
-//     let res = Response::new()
-//         .add_attribute("method", "post_loop")
-//         .add_attribute("cdt_market_price", cdt_market_price.price.to_string())
-//         .add_attribute("cdt_peg_price", cdt_peg_price.price.to_string());
-
-//     Ok(res)
-// }
-
 fn test_looping_peg_price(
     querier: QuerierWrapper,
     config: Config,
@@ -346,7 +319,7 @@ fn test_looping_peg_price(
     let cdt_market_price: PriceResponse = prices[0].clone();
 
     if decimal_division(cdt_market_price.price, cdt_peg_price.price)? < desired_peg_price {
-        return Err(TokenFactoryError::CustomError { val: String::from("CDT price is below 99% of peg, can't loop.") });
+        return Err(TokenFactoryError::CustomError { val: format!("CDT price is below {} of peg, can't loop.", desired_peg_price) });
     }
 
     Ok((cdt_market_price, cdt_peg_price))
@@ -1041,13 +1014,13 @@ fn exit_vault(
     
     //Get the amount of vault tokens in the contract    
     let contract_balance_of_deposit_vault_tokens = deps.querier.query_balance(env.clone().contract.address.to_string(), config.deposit_token.clone().vault_token)?.amount;
-    
+
     //Calc the amount of vt tokens to withdraw from the CDP position
     let vtokens_to_unloop_from_cdp = match mars_vault_tokens_to_withdraw.checked_sub(contract_balance_of_deposit_vault_tokens){
         Ok(v) => v,
         Err(_) => Uint128::zero(), //This means contract balance is larger and we don't need to unloop any extra
     };    
-
+    
     //Withdraw tokens from CDP Position
     //..which requires us to unloop
     if !vtokens_to_unloop_from_cdp.is_zero() {
@@ -1094,6 +1067,7 @@ fn exit_vault(
     
     //Add rate assurance callback msg if this withdrawal leaves other depositors with tokens to withdraw
     if !new_vault_token_supply.is_zero() && total_deposit_tokens > deposit_tokens_to_withdraw {
+        //UNCOMMENT
         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: env.contract.address.to_string(),
             msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: true })?,
@@ -1501,7 +1475,7 @@ fn get_total_deposit_tokens(
     let vt_buffer = match deps.querier.query_balance(env.contract.address.to_string(), config.deposit_token.vault_token){
         Ok(balance) => balance.amount,
         Err(_) => Uint128::zero(),
-    };    
+    };
     //Add buffered assets to the total deposit tokens
     total_vaulted_deposit_tokens += vt_buffer;
 

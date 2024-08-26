@@ -357,7 +357,7 @@ mod tests {
                                     
                                 }
                             ],
-                            credit_amount: Uint128::new(1),  
+                            credit_amount: Uint128::new(101_000_000),  
                             cAsset_ratios: vec![],
                             avg_borrow_LTV: Decimal::zero(),
                             avg_max_LTV: Decimal::zero(),                              
@@ -596,7 +596,7 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked("contract4"),
-                vec![coin(1_000_000_000_000, "factory/contract3/mars-usdc-vault")],
+                vec![coin(0, "factory/contract3/mars-usdc-vault")],
             )
             .unwrap();
 
@@ -884,7 +884,7 @@ mod tests {
             //- Send the contract factory/contract3/mars-usdc-vault to mimic an exit from the deposit token vault
             app.send_tokens(Addr::unchecked("god"), Addr::unchecked("contract4"), &vec![coin(9950000000, "cdt")]).unwrap();
             app.send_tokens(Addr::unchecked("god"), Addr::unchecked("contract4"), &vec![coin(5, "uusdc")]).unwrap();
-            app.send_tokens(Addr::unchecked("god"), Addr::unchecked("contract4"), &vec![coin(10000000000, "factory/contract3/mars-usdc-vault")]).unwrap();
+            app.send_tokens(Addr::unchecked("god"), Addr::unchecked("contract4"), &vec![coin(101505000, "factory/contract3/mars-usdc-vault")]).unwrap();
 
             /////Test withdrawals
             /// 
@@ -906,7 +906,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 config.total_nonleveraged_vault_tokens,
-                Uint128::new(2000000000000)
+                Uint128::new(1000000000004)
             );
         }
         
@@ -936,8 +936,9 @@ mod tests {
 
             
             //Send the vault token to the user to enable exit
-            app.send_tokens(Addr::unchecked("god"), Addr::unchecked(USER), &vec![coin(2500000, "factory/contract4/stable-earn-vault")]).unwrap();
-            app.send_tokens(Addr::unchecked("god"), Addr::unchecked("contract4"), &vec![coin(1, "uusdc")]).unwrap();
+            app.send_tokens(Addr::unchecked("god"), Addr::unchecked(USER), &vec![coin(10000000, "factory/contract4/stable-earn-vault")]).unwrap();
+            app.send_tokens(Addr::unchecked("god"), Addr::unchecked("contract4"), &vec![coin(4, "uusdc")]).unwrap();
+            app.send_tokens(Addr::unchecked("god"), Addr::unchecked("contract4"), &vec![coin(101505000, "factory/contract3/mars-usdc-vault")]).unwrap();
 
             //Query user balance
             let balance = app
@@ -948,7 +949,7 @@ mod tests {
 
             //Exit Vault: THE RATE ASSURANCE ERRORS BC WE CAN'T REMOVE TOKENS FROM THE MARS CONTRACT MID-EXECUTION
             let msg = ExecuteMsg::ExitVault { };
-            let cosmos_msg = vault_contract.call(msg, vec![coin(2500000, "factory/contract4/stable-earn-vault")]).unwrap();
+            let cosmos_msg = vault_contract.call(msg, vec![coin(10000000, "factory/contract4/stable-earn-vault")]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             // Query Vault token underlying
@@ -971,9 +972,8 @@ mod tests {
                 .wrap()
                 .query_balance(Addr::unchecked(USER), "uusdc")
                 .unwrap().amount;
-            assert_eq!(balance, Uint128::new(10));
+            assert_eq!(balance, Uint128::new(13));
 
-            //Query to assert the config total wasn't changed 
             //Exit vault handles the state updates
             let config: Config = app
                 .wrap()
@@ -984,7 +984,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 config.total_nonleveraged_vault_tokens,
-                Uint128::new(99999999995)
+                Uint128::new(101504995)
             );
         }
     }

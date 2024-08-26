@@ -345,7 +345,7 @@ fn test_looping_peg_price(
     };
     let cdt_market_price: PriceResponse = prices[0].clone();
 
-    if decimal_division(cdt_market_price.price, max(cdt_peg_price.price, Decimal::one()))? < desired_peg_price {
+    if decimal_division(cdt_market_price.price, cdt_peg_price.price)? < desired_peg_price {
         return Err(TokenFactoryError::CustomError { val: String::from("CDT price is below 99% of peg, can't loop.") });
     }
 
@@ -430,7 +430,7 @@ fn unloop_cdp(
         
         //Ensure price is at or below peg
         //This will ensure unloops aren't unprofitable for remaining users
-        if decimal_division(cdt_market_price.price, max(cdt_peg_price.price, Decimal::one()))? > Decimal::one() {
+        if decimal_division(cdt_market_price.price, cdt_peg_price.price)? > Decimal::one() {
             return Err(TokenFactoryError::CustomError { val: String::from("CDT price is above peg, can't unloop.") });
         }
 
@@ -596,7 +596,7 @@ fn unloop_cdp(
 //     };
 //     let cdt_market_price: Decimal = prices[0].clone().price;
 
-//     if decimal_division(cdt_market_price, max(cdt_peg_price, Decimal::one()))? > Decimal::percent(100) + config.swap_slippage {
+//     if decimal_division(cdt_market_price, cdt_peg_price)? > Decimal::percent(100) + config.swap_slippage {
 //         return Err(TokenFactoryError::CustomError { val: String::from("CDT price is above peg more than the config's slippage, can't unloop.") });
 //     }
 

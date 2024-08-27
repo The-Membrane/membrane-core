@@ -1429,11 +1429,22 @@ pub fn redeem_for_collateral(
                 //Parse thru Positions
                 for (pos_rdmpt_index, position_redemption_info) in user.clone().position_infos.into_iter().enumerate() {
                     //Query for user Positions in the premium
-                    let (_i, mut target_position) = get_target_position(
+                    let (_i, mut target_position) = match get_target_position(
                         deps.storage, 
                         user.clone().position_owner, 
                         position_redemption_info.position_id
-                    )?;                    
+                    ){
+                        Ok(pos) => pos,
+                        Err(_e) => {
+                            //Remove PositionRedemption from user
+                            user.position_infos.remove(pos_rdmpt_index);
+                            //Remove user if no more PositionRedemptions
+                            if user.position_infos.is_empty() {
+                                users_of_premium.remove(user_index);
+                            }
+                            continue;
+                        }
+                    };
 
                     //Remove restricted collateral assets from target_position.collateral_assets
                     for restricted_asset in position_redemption_info.restricted_collateral_assets {

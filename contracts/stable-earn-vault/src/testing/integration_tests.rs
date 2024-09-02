@@ -814,7 +814,7 @@ mod tests {
             app.send_tokens(Addr::unchecked("god"), Addr::unchecked("contract4"), &vec![coin(5, "factory/contract3/mars-usdc-vault")]).unwrap();
 
             //Loop 
-            let msg = ExecuteMsg::LoopCDP { };
+            let msg = ExecuteMsg::LoopCDP { max_mint_amount: None };
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
@@ -841,7 +841,7 @@ mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             //Loop: Error, unprofitable
-            let msg = ExecuteMsg::LoopCDP {};
+            let msg = ExecuteMsg::LoopCDP { max_mint_amount: None};
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap(); 
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();         
 

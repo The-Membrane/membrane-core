@@ -39,7 +39,11 @@ pub enum ExecuteMsg {
         desired_collateral_withdrawal: Uint128,        
     },
     /// Loop the vault's CDP position to increase collateral
-    LoopCDP { },
+    LoopCDP {
+        /// Max mint amount to swap to the collateral.
+        /// This allows the caller to meter the potential slippage.
+        max_mint_amount: Option<Uint128>,
+    },
     //////////////CALLBACKS////////////////
     /// Assures that for deposits & withdrawals the conversion rate is static.
     /// We are trusting that Mars deposits will only go up.

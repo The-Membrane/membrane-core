@@ -180,7 +180,7 @@ pub fn execute(
         ExecuteMsg::EnterVault { } => enter_vault(deps, env, info),
         ExecuteMsg::ExitVault {  } => exit_vault(deps, env, info),
         ExecuteMsg::UnloopCDP { desired_collateral_withdrawal } => unloop_cdp(deps, env, info, desired_collateral_withdrawal),
-        ExecuteMsg::LoopCDP { } => loop_cdp(deps, env, info),
+        ExecuteMsg::LoopCDP { max_mint_amount } => loop_cdp(deps, env, info, max_mint_amount),
         ///CALLBACKS///
         ExecuteMsg::RateAssurance { exit } => rate_assurance(deps, env, info, exit),
         ExecuteMsg::UpdateNonleveragedVaultTokens {  } => update_nonleveraged_vault_tokens(deps, env, info),
@@ -199,6 +199,7 @@ fn loop_cdp(
     deps: DepsMut,
     env: Env,
     _info: MessageInfo,
+    max_mint_amount: Option<Uint128>,
 ) -> Result<Response, TokenFactoryError> {
     //Load config
     let config = CONFIG.load(deps.storage)?;
@@ -244,6 +245,12 @@ fn loop_cdp(
     if min_deposit_value < MIN_DEPOSIT_VALUE {
         return Err(TokenFactoryError::CustomError { val: format!("Minimum deposit value for this loop: {}, is less than our minimum used to ensure unloopability: {}", min_deposit_value, MIN_DEPOSIT_VALUE) })
     }
+
+    //If amount to mint is greater than max_mint_amount, set it to max_mint_amount while retaining the minimum 101 CDT LTV gap
+    let amount_to_mint = match max_mint_amount {
+        Some(max_mint_amount) => min(amount_to_mint, max(max_mint_amount, Uint128::new(102_000_000))), //Retain the minimum 101 CDT LTV gap + buffer
+        None => amount_to_mint,
+    };
 
     //Create mint msg
     let mint_msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1283,13 +1290,10 @@ fn query_apr(
     let vault_position: PositionResponse = vault_position[0].positions[0].clone();
     //Set running collateral amount
     let vt_collateral_amount = vault_position.collateral_assets[0].asset.amount;
-    //Find the leverage by dividing the collateral by the non-leveraged vault tokens
-    let leverage = decimal_division(Decimal::from_ratio(vt_collateral_amount, Uint128::one()), Decimal::from_ratio(max(config.total_nonleveraged_vault_tokens, Uint128::one()), Uint128::one()))?;
-    aprs.leverage = leverage;
     
 
     //Get ratio of tokens not in the CDP loop
-    let ( ratio_of_tokens_in_contract, _, _, _ ) = get_buffer_amounts(
+    let ( ratio_of_tokens_in_contract, vt_buffer_amount, _, _ ) = get_buffer_amounts(
         deps.querier, 
         config.clone(),
         env.contract.address.to_string(),
@@ -1298,6 +1302,15 @@ fn query_apr(
         Ok(v) => v,
         Err(_) => Decimal::one(),
     };
+    
+    //Calc non-buffered non-leveraged total
+    let non_buffered_non_leveraged_total = match config.total_nonleveraged_vault_tokens.checked_sub(vt_buffer_amount){
+        Ok(v) => v,
+        Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to subtract the buffer amount: {}, from the total non-leveraged vault tokens: {}, in query_apr", vt_buffer_amount, config.total_nonleveraged_vault_tokens) }),
+    };
+    //Find the leverage by dividing the collateral by the non-leveraged vault tokens
+    let leverage = decimal_division(Decimal::from_ratio(vt_collateral_amount, Uint128::one()), Decimal::from_ratio(max(non_buffered_non_leveraged_total, Uint128::one()), Uint128::one()))?;
+    aprs.leverage = leverage;
     
     //Query Mars Vault APR
     let apr: NoCost_APRResponse = match deps.querier.query_wasm_smart::<NoCost_APRResponse>(

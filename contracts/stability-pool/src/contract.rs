@@ -131,6 +131,8 @@ pub fn execute(
             user_info,
             repayment,
         } => repay(deps, env, info, user_info, repayment),
+        ExecuteMsg::CompoundFee {  } => compound_fee(deps, env, info),
+        ExecuteMsg::DepositFee {  } => deposit_fee(deps, env, info)
     }
 }
 

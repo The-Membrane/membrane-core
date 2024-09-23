@@ -528,7 +528,7 @@ fn unloop_cdp(
         //4) If not, reloop by calling with the same desired_collateral_withdrawal
         
     } else if unloop_props.running_credit_amount.is_zero() {
-        //Attempt a normal withdrawal if the debt is 0 //Send the desired collateral withdrawal at the end of the msgs
+        //Attempt a normal withdrawal if the debt is 0 
         let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.cdp_contract_addr.to_string(),
             msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 

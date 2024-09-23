@@ -429,8 +429,7 @@ fn check_and_fulfill_bad_debt(
     //Load Liquidation Prop
     let cAsset_prices = LIQUIDATION.load(deps.storage)?.cAsset_prices;
 
-    //We do a lazy check for bad debt by checking if there is debt without any assets left in the position
-    //This is allowed bc any calls here will be after a liquidation where the SP would've sold all it could to cover debts
+    //We check if the value left is > $1
     let total_asset_value: Decimal = target_position.clone()
         .collateral_assets
         .into_iter()

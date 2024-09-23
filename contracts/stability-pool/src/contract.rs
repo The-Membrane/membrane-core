@@ -4,7 +4,7 @@ use std::str::FromStr;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
+    attr, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps,
     DepsMut, Env, MessageInfo, Response, StdError, StdResult, QuerierWrapper,
     Storage, Uint128, WasmMsg, coin,
 };
@@ -17,14 +17,14 @@ use membrane::stability_pool::{
 };
 use membrane::osmosis_proxy::ExecuteMsg as OsmosisProxy_ExecuteMsg;
 use membrane::types::{
-    Asset, AssetInfo, AssetPool, Deposit, User, UserInfo, UserRatio, Basket,
+    Asset, AssetInfo, AssetPool, Basket, Deposit, FeeEvent, LiqAsset, User, UserInfo, UserRatio
 };
 use membrane::helpers::{validate_position_owner, withdrawal_msg, assert_sent_native_token_balance, asset_to_coin, accumulate_interest};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::ContractError;
 use crate::query::{query_user_incentives, query_liquidatible, query_user_claims, query_capital_ahead_of_deposits, query_asset_pool};
-use crate::state::{Propagation, ASSET, CONFIG, INCENTIVES, PROP, USERS, OWNERSHIP_TRANSFER};
+use crate::state::{Propagation, ASSET, CONFIG, INCENTIVES, PROP, USERS, OUTSTANDING_FEES, OWNERSHIP_TRANSFER};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:stability-pool";
@@ -73,6 +73,9 @@ pub fn instantiate(
 
     //Initialize Incentive Total
     INCENTIVES.save(deps.storage, &Uint128::zero())?;
+    //Initialize Fee list
+    OUTSTANDING_FEES.save(deps.storage, &vec![])?;
+
 
     //Initialize Asset Pool
     let mut pool = msg.asset_pool;
@@ -789,7 +792,7 @@ pub fn liquidate(
 
     let message = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.positions_contract.to_string(),
-        msg: to_binary(&repay_msg)?,
+        msg: to_json_binary(&repay_msg)?,
         funds: vec![coin],
     });
 
@@ -1029,7 +1032,7 @@ fn repay(
 
             let msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.positions_contract.to_string(),
-                msg: to_binary(&repay_msg)?,
+                msg: to_json_binary(&repay_msg)?,
                 funds: vec![coin],
             });
             msgs.push(msg);
@@ -1073,6 +1076,125 @@ pub fn claim(
     Ok(res.add_messages(messages))
 }
 
+/// Deposit fee to the contract.
+/// Fees can only be in the credit asset.
+/// Position contract is the only one that can deposit fees.
+pub fn deposit_fee(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let asset_pool = ASSET.load(deps.storage)?;
+    let mut fee_list = OUTSTANDING_FEES.load(deps.storage)?;
+
+    //Assert that the positions contract is the sender.
+    //This allows us to not worry about spam of miniscule amounts.
+    if info.sender != config.positions_contract {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    //Assert that the fee is in the credit asset
+    if asset_pool.credit_asset.info.to_string() != info.funds[0].denom {
+        return Err(ContractError::InvalidAsset {});
+    }
+    
+    //Add fee to outstanding fees
+    let fee = LiqAsset {
+        amount: Decimal::from_ratio(info.funds[0].amount, Uint128::one()),
+        info: asset_pool.credit_asset.info.clone(),
+    };
+    let event = FeeEvent {
+        fee: fee.clone(),
+        time_of_event: env.block.time.seconds(),
+    };
+    fee_list.push(event);
+    OUTSTANDING_FEES.save(deps.storage, &fee_list)?;
+
+
+    Ok(Response::new()
+    .add_attribute("method", "deposit_fee")
+    .add_attribute("fee", fee.amount.to_string()))
+}
+
+//Compounding outstanding fees into the user deposits that were prior to the fee event
+//and remove them from the outstanding fees list.
+pub fn compound_fee(    
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let mut asset_pool = ASSET.load(deps.storage)?;
+    let mut fee_list = OUTSTANDING_FEES.load(deps.storage)?;
+
+    //Set initial deposit list to the asset pool's deposits
+    let mut deposits = asset_pool.clone().deposits;
+
+    //Initialize updated deposits list 
+    let mut updated_deposits: Vec<Deposit> = vec![];
+
+    //Loop thru the fee list and compound fees into the deposits pro-rata to the ratio of the deposit to the total deposits prior to the fee event
+    for (i, fee_event) in fee_list.clone().into_iter().enumerate() {
+        //Find the index of the first deposit that was made after the fee event
+        let index = deposits
+            .iter()
+            .position(|deposit| deposit.deposit_time > fee_event.time_of_event)
+            .unwrap_or(deposits.len());
+
+        //If index is 0, there are no deposits made before the fee event
+        if index == 0 {
+            continue;
+        }
+
+        //Get the deposits that were made prior to the fee event
+        let pre_split = deposits.clone();
+        let (left, right) = pre_split.split_at(index);
+        deposits = right.to_vec();
+        let rewarding_deposits = left.to_vec();
+
+        //Get the total deposit amount prior to the fee event
+        let total_deposit_amount: Decimal = rewarding_deposits.clone()
+            .into_iter()
+            .map(|deposit| deposit.amount)
+            .collect::<Vec<Decimal>>()
+            .into_iter()
+            .sum();
+
+        //Get the ratio of each deposit to the total deposit amount
+        let ratios: Vec<Decimal> = rewarding_deposits
+            .iter()
+            .map(|deposit| decimal_division(deposit.amount, total_deposit_amount))
+            .collect::<StdResult<Vec<Decimal>>>()?;
+
+        //Loop thru the deposits and compound the fees
+        for (index, mut deposit) in rewarding_deposits.clone().into_iter().enumerate() {
+            //Get the fee amount for the deposit
+            let fee_amount = decimal_multiplication(fee_event.fee.amount, ratios[index])?;
+
+            //Add the fee amount to the deposit.
+            //We floor to ensure there are no overflow errors, the loss of $.0000009 is negligible.
+            deposit.amount += fee_amount.floor();
+        }
+
+        //Add rewarded deposits to the updated deposits list
+        updated_deposits = [updated_deposits.clone(), rewarding_deposits].concat();
+
+        //Remove fee event
+        fee_list.remove(i);
+    }
+
+    //Set & save Asset Pool's new deposits
+    asset_pool.deposits = updated_deposits;
+    ASSET.save(deps.storage, &asset_pool);
+
+    //Save new fee list
+    OUTSTANDING_FEES.save(deps.storage, &fee_list);
+
+    Ok(Response::new())
+}
+
+
 /// Build claim messages for a user & clear claims
 fn user_claims_msgs(
     storage: &mut dyn Storage,
@@ -1094,7 +1216,7 @@ fn user_claims_msgs(
             };
             let msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.osmosis_proxy.to_string(),
-                msg: to_binary(&mint_msg)?,
+                msg: to_json_binary(&mint_msg)?,
                 funds: vec![],
             });
             messages.push(msg);
@@ -1355,12 +1477,12 @@ fn get_user_incentives(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::UnclaimedIncentives { user } => to_binary(&query_user_incentives(deps, env, user)?),
-        QueryMsg::CapitalAheadOfDeposit { user } => to_binary(&query_capital_ahead_of_deposits(deps, user)?),
-        QueryMsg::CheckLiquidatible { amount } => to_binary(&query_liquidatible(deps, amount)?),
-        QueryMsg::UserClaims { user } => to_binary(&query_user_claims(deps, user)?),
-        QueryMsg::AssetPool { user, deposit_limit , start_after} => to_binary(&query_asset_pool(deps, user, deposit_limit, start_after)?),
+        QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
+        QueryMsg::UnclaimedIncentives { user } => to_json_binary(&query_user_incentives(deps, env, user)?),
+        QueryMsg::CapitalAheadOfDeposit { user } => to_json_binary(&query_capital_ahead_of_deposits(deps, user)?),
+        QueryMsg::CheckLiquidatible { amount } => to_json_binary(&query_liquidatible(deps, amount)?),
+        QueryMsg::UserClaims { user } => to_json_binary(&query_user_claims(deps, user)?),
+        QueryMsg::AssetPool { user, deposit_limit , start_after} => to_json_binary(&query_asset_pool(deps, user, deposit_limit, start_after)?),
     }
 }
 
@@ -1400,5 +1522,8 @@ pub fn validate_assets(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    //Initialize Fee list
+    OUTSTANDING_FEES.save(deps.storage, &vec![])?;
+
     Ok(Response::default())
 }

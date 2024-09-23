@@ -527,7 +527,26 @@ fn unloop_cdp(
         //3a) If so, also check if debt is 0 to see if we can reset the total_nonleveraged_vault_tokens
         //4) If not, reloop by calling with the same desired_collateral_withdrawal
         
-    }    
+    } else if unloop_props.running_credit_amount.is_zero() {
+        //Attempt a normal withdrawal if the debt is 0 //Send the desired collateral withdrawal at the end of the msgs
+        let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.cdp_contract_addr.to_string(),
+            msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
+                position_id: config.cdp_position_id,
+                assets: vec![
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: config.deposit_token.clone().vault_token,
+                        },
+                        amount: unloop_props.desired_collateral_withdrawal.clone(),
+                    }
+                ],
+                send_to: None,
+            })?,
+            funds: vec![],
+        });
+        msgs.push(SubMsg::new(withdraw_msg));
+    }
     //Create Response
     let res = Response::new()
         .add_attribute("method", "unloop_cdp")

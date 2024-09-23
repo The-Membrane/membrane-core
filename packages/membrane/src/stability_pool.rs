@@ -68,6 +68,11 @@ pub enum ExecuteMsg {
         /// Repayment asset
         repayment: Asset,
     },
+    /// Deposit CDT-denominated fees/incentives into the contract
+    DepositFee { },
+    /// Compound outstanding fees/incentives for every deposit
+    CompoundFee { }
+    
 }
 
 #[cw_serde]

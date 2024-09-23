@@ -250,7 +250,7 @@ fn start_auction(
             }
         })?;
     } //If CDT, start DebtAuction
-    else if auction_asset.info.to_string() == config.clone().cdt_denom{
+    else if auction_asset.info.to_string() == config.clone().cdt_denom {
 
         //Both can't be Some
         if send_to.is_some() && user_info.is_some(){

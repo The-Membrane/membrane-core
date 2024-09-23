@@ -646,7 +646,7 @@ pub fn build_sp_submsgs(
         let leftover_repayment_value = basket.credit_price.get_value(leftover_repayment.to_uint_floor())?;
 
         //SP liq_fee Guarantee check
-        //if leftover_position_value is less than leftover_repay value + the SP fee, we liquidate what we can and send the rest to the sell wall
+        //if leftover_position_value is less than leftover_repay value + the SP fee, we liquidate what we can
         if leftover_position_value < decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee))?{
             //Set Position value to the discounted value the SP will be distributed
             leftover_position_value = decimal_division(leftover_position_value, (Decimal::one() + sp_liq_fee))?;

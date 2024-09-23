@@ -1093,10 +1093,19 @@ fn exit_vault(
     
     //Add rate assurance callback msg if this withdrawal leaves other depositors with tokens to withdraw
     if !new_vault_token_supply.is_zero() && total_deposit_tokens > deposit_tokens_to_withdraw {
+        //Get current credit amount
+        let (
+            running_credit_amount, 
+            _, 
+            _, 
+            _
+        ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone(), &mut vec![])?;
+
+        //If the vault has no debt, there is no exit fee so we don't expect the conversion rate to increase
         //UNCOMMENT
         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: env.contract.address.to_string(),
-            msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: true })?,
+            msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: !running_credit_amount.is_zero() })?,
             funds: vec![],
         }));
     }

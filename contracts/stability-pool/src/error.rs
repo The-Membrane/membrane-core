@@ -36,6 +36,9 @@ pub enum ContractError {
     #[error("Variable overflow due to mismanaged state")]
     MismanagedState {},
 
+    #[error("No fee events to compound")]
+    NoFees {},
+
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },
     // Add any other custom errors you like here.

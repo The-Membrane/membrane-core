@@ -13,7 +13,7 @@ use cw_coins::Coins;
 
 use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, QueryMsg as CDP_QueryMsg};
 use membrane::stability_pool::{
-    Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, MigrateMsg
+    Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, MigrateMsg, FeeEventsResponse
 };
 use membrane::osmosis_proxy::ExecuteMsg as OsmosisProxy_ExecuteMsg;
 use membrane::types::{
@@ -32,6 +32,8 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 //Timeframe constants
 const SECONDS_PER_DAY: u64 = 86_400u64;
+
+const DEFAULT_LIMIT: u32 = 30;
 
 //FIFO Stability Pool
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -131,7 +133,7 @@ pub fn execute(
             user_info,
             repayment,
         } => repay(deps, env, info, user_info, repayment),
-        ExecuteMsg::CompoundFee {  } => compound_fee(deps, env, info),
+        ExecuteMsg::CompoundFee { num_of_events } => compound_fee(deps, env, info, num_of_events),
         ExecuteMsg::DepositFee {  } => deposit_fee(deps, env, info)
     }
 }
@@ -1090,15 +1092,14 @@ pub fn deposit_fee(
     let asset_pool = ASSET.load(deps.storage)?;
     let mut fee_list = OUTSTANDING_FEES.load(deps.storage)?;
 
-    //Assert that the positions contract is the sender.
-    //This allows us to not worry about spam of miniscule amounts.
-    if info.sender != config.positions_contract {
-        return Err(ContractError::Unauthorized {});
-    }
-
     //Assert that the fee is in the credit asset
     if asset_pool.credit_asset.info.to_string() != info.funds[0].denom {
         return Err(ContractError::InvalidAsset {});
+    }
+    
+    //Assert that the deposit isn't spam of miniscule amounts.
+    if info.funds[0].amount < config.minimum_deposit_amount {
+        return Err(ContractError::MinimumDeposit { min: config.minimum_deposit_amount });
     }
     
     //Add fee to outstanding fees
@@ -1125,10 +1126,21 @@ pub fn compound_fee(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    num_of_events: Option<u32>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut asset_pool = ASSET.load(deps.storage)?;
     let mut fee_list = OUTSTANDING_FEES.load(deps.storage)?;
+
+    //If no fee events, return
+    if fee_list.is_empty() {
+        return Err(ContractError::NoFees {});
+    }
+
+    
+    //initialize events compounded tracker
+    let max_events_to_compound = num_of_events.unwrap_or(1);
+    let mut events_compounded = 0u32;
 
     //Set initial deposit list to the asset pool's deposits
     let mut deposits = asset_pool.clone().deposits;
@@ -1138,22 +1150,28 @@ pub fn compound_fee(
 
     //Loop thru the fee list and compound fees into the deposits pro-rata to the ratio of the deposit to the total deposits prior to the fee event
     for (i, fee_event) in fee_list.clone().into_iter().enumerate() {
-        //Find the index of the first deposit that was made after the fee event
-        let index = deposits
+        //If we've compounded the max number of events, break
+        if events_compounded >= max_events_to_compound {
+            break;
+        }
+        //Find the index of the first deposit that was made at or after the fee event
+        let index = deposits.clone()
             .iter()
-            .position(|deposit| deposit.deposit_time > fee_event.time_of_event)
+            .position(|deposit| deposit.deposit_time <= fee_event.time_of_event)
             .unwrap_or(deposits.len());
 
-        //If index is 0, there are no deposits made before the fee event
-        if index == 0 {
+        //If index is the deposits length, there are no deposits made before the fee event
+        if index == deposits.len() {
             continue;
         }
 
         //Get the deposits that were made prior to the fee event
-        let pre_split = deposits.clone();
-        let (left, right) = pre_split.split_at(index);
-        deposits = right.to_vec();
-        let rewarding_deposits = left.to_vec();
+        let (mut rewarding_deposits, static_deposits) = if index == 0 {
+            (deposits.clone(), vec![])
+        } else {
+            let (left, right) = deposits.split_at(index);
+            (left.to_vec(), right.to_vec())
+        };
 
         //Get the total deposit amount prior to the fee event
         let total_deposit_amount: Decimal = rewarding_deposits.clone()
@@ -1170,28 +1188,35 @@ pub fn compound_fee(
             .collect::<StdResult<Vec<Decimal>>>()?;
 
         //Loop thru the deposits and compound the fees
-        for (index, mut deposit) in rewarding_deposits.clone().into_iter().enumerate() {
+        for (index, _) in rewarding_deposits.clone().into_iter().enumerate() {
             //Get the fee amount for the deposit
             let fee_amount = decimal_multiplication(fee_event.fee.amount, ratios[index])?;
 
             //Add the fee amount to the deposit.
             //We floor to ensure there are no overflow errors, the loss of $.0000009 is negligible.
-            deposit.amount += fee_amount.floor();
-        }
-
-        //Add rewarded deposits to the updated deposits list
-        updated_deposits = [updated_deposits.clone(), rewarding_deposits].concat();
-
-        //Remove fee event
-        fee_list.remove(i);
+            rewarding_deposits[index].amount += fee_amount.floor();
     }
 
+        //Add rewarded deposits back to the deposits list
+        deposits = [rewarding_deposits, static_deposits.clone()].concat();
+
+        //Increment events_compounded
+        events_compounded += 1;
+    }
+
+    //Remove all used fee events
+    fee_list = fee_list
+        .into_iter()
+        .skip(events_compounded as usize)
+        .collect::<Vec<FeeEvent>>();   
+
+
     //Set & save Asset Pool's new deposits
-    asset_pool.deposits = updated_deposits;
-    ASSET.save(deps.storage, &asset_pool);
+    asset_pool.deposits = deposits;
+    let _ = ASSET.save(deps.storage, &asset_pool);
 
     //Save new fee list
-    OUTSTANDING_FEES.save(deps.storage, &fee_list);
+    let _ = OUTSTANDING_FEES.save(deps.storage, &fee_list);
 
     Ok(Response::new())
 }
@@ -1485,7 +1510,27 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::CheckLiquidatible { amount } => to_json_binary(&query_liquidatible(deps, amount)?),
         QueryMsg::UserClaims { user } => to_json_binary(&query_user_claims(deps, user)?),
         QueryMsg::AssetPool { user, deposit_limit , start_after} => to_json_binary(&query_asset_pool(deps, user, deposit_limit, start_after)?),
+        QueryMsg::FeeEvents { limit, start_after } => to_json_binary(&query_fee_events(deps, limit, start_after)?),
     }
+}
+
+/// Returns historical fee events
+pub fn query_fee_events(
+    deps: Deps,
+    limit: Option<u32>,
+    start_after: Option<u64>,
+) -> StdResult<FeeEventsResponse> {
+    let limit = limit.unwrap_or(DEFAULT_LIMIT);
+    let start_after = start_after.unwrap_or(0u64);
+
+    let fee_events = OUTSTANDING_FEES
+        .load(deps.storage)?
+        .into_iter()
+        .filter(|event| event.time_of_event >= start_after)
+        .take(limit as usize)
+        .collect::<Vec<FeeEvent>>();
+
+    Ok(FeeEventsResponse { fee_events })
 }
 
 /// Note: This fails if an asset total is sent in two separate Asset objects. Both will be invalidated.

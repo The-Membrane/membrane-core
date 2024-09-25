@@ -6,8 +6,8 @@ mod tests {
     use membrane::cdp::{PositionResponse, BasketPositionsResponse};
     use membrane::oracle::PriceResponse;
     use membrane::osmosis_proxy::TokenInfoResponse;
-    use membrane::stability_pool::{ClaimsResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::types::{Asset, AssetInfo, AssetPool, UserInfo, Deposit, Basket};
+    use membrane::stability_pool::{ClaimsResponse, ExecuteMsg, InstantiateMsg, QueryMsg, FeeEventsResponse};
+    use membrane::types::{Asset, AssetInfo, AssetPool, UserInfo, Deposit, Basket, FeeEvent, LiqAsset};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
@@ -288,7 +288,7 @@ mod tests {
             bank.init_balance(
                 storage,
                 &Addr::unchecked(USER),
-                vec![coin(200_000, "credit")],
+                vec![coin(500_000, "credit")],
             )
             .unwrap();
             bank.init_balance(
@@ -417,7 +417,7 @@ mod tests {
 
         use super::*;
         use cosmwasm_std::{BlockInfo, Coin};
-        use membrane::stability_pool::{Config, UserIncentivesResponse};
+        use membrane::stability_pool::{Config, UserIncentivesResponse, FeeEventsResponse};
 
         #[test]
         fn cdp_repay() {
@@ -923,6 +923,226 @@ mod tests {
             let claim_msg = ExecuteMsg::ClaimRewards { };
             let cosmos_msg = sp_contract.call(claim_msg, vec![]).unwrap();
             let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+        }
+
+        #[test]
+        fn compound_fees() {
+            let (mut app, sp_contract, cw20_addr, cdp_contract_addr) = proper_instantiate();
+
+            //Deposit credit to AssetPool
+            let deposit_msg = ExecuteMsg::Deposit { user: None };
+            let cosmos_msg = sp_contract
+                .call(deposit_msg, vec![coin(100_000, "credit")])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            
+            //Deposit Fee: Error under minimum
+            let deposit_msg = ExecuteMsg::DepositFee { };
+            let cosmos_msg = sp_contract
+                .call(deposit_msg, vec![coin(4, "credit")])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            
+            //Deposit Fee: Success
+            let deposit_msg = ExecuteMsg::DepositFee { };
+            let cosmos_msg = sp_contract
+                .call(deposit_msg, vec![coin(5, "credit")])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Query fees 
+            let query_msg = QueryMsg::FeeEvents {
+                limit: None,
+                start_after: None
+            };
+            let res: FeeEventsResponse = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
+                .unwrap();
+            assert_eq!(
+                res.fee_events,
+                vec![
+                    FeeEvent {
+                        time_of_event: 1571797419,
+                        fee: LiqAsset {
+                            amount: Decimal::percent(5_00),
+                            info: AssetInfo::NativeToken {
+                                denom: String::from("credit"),
+                            },
+                        }
+                    },
+                ]
+            );
+
+            //Compound Fee
+            let compound_msg = ExecuteMsg::CompoundFee { 
+                num_of_events: None,
+            };
+            let cosmos_msg = sp_contract
+                .call(compound_msg, vec![])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Query user deposit
+            let query_msg = QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None };
+            let res: AssetPool = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
+                .unwrap();
+            // panic!("{:?}", res.deposits);
+            assert_eq!(res.deposits[0], Deposit {
+                user: Addr::unchecked(USER),
+                amount: Decimal::percent(100_005_00),
+                deposit_time: app.block_info().time.seconds(),
+                last_accrued: app.block_info().time.seconds(),
+                unstake_time: None,
+            });
+
+            //Compound Fee: No events means no changes
+            let compound_msg = ExecuteMsg::CompoundFee { 
+                num_of_events: None,
+            };
+            let cosmos_msg = sp_contract
+                .call(compound_msg, vec![])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            //////Now test multiple compounds////
+            //Deposit Fee
+            let deposit_msg = ExecuteMsg::DepositFee { };
+            let cosmos_msg = sp_contract
+                .call(deposit_msg, vec![coin(5, "credit")])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();            
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            //Compound Fee
+            let compound_msg = ExecuteMsg::CompoundFee { 
+                num_of_events: Some(3u32),
+            };
+            let cosmos_msg = sp_contract
+                .call(compound_msg, vec![])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Query user deposit
+            let query_msg = QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None };
+            let res: AssetPool = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
+                .unwrap();
+            // panic!("{:?}", res.deposits);
+            assert_eq!(res.deposits[0], Deposit {
+                user: Addr::unchecked(USER),
+                amount: Decimal::percent(100_020_00),
+                deposit_time: app.block_info().time.seconds(),
+                last_accrued: app.block_info().time.seconds(),
+                unstake_time: None,
+            });
+
+            //Compound Fee: No events means no changes
+            let compound_msg = ExecuteMsg::CompoundFee { 
+                num_of_events: None,
+            };
+            let cosmos_msg = sp_contract
+                .call(compound_msg, vec![])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+            ////////////////
+            
+            
+            ///////Now test multiple deposits w/ multiple compounds/////
+            let deposit_msg = ExecuteMsg::Deposit { user: None };
+            let cosmos_msg = sp_contract
+                .call(deposit_msg, vec![coin(100_000, "credit")])
+                .unwrap();
+            //deposit
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();                   
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(1u64), //Added a second
+                chain_id: app.block_info().chain_id,
+            });
+            //deposit
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();                   
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(1u64), //Added a second
+                chain_id: app.block_info().chain_id,
+            });
+            //deposit
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();                   
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(1u64), //Added a second
+                chain_id: app.block_info().chain_id,
+            });
+            //Deposit Fee
+            let deposit_msg = ExecuteMsg::DepositFee { };
+            let cosmos_msg = sp_contract
+                .call(deposit_msg, vec![coin(5, "credit")])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();            
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            //Compound Fee
+            let compound_msg = ExecuteMsg::CompoundFee { 
+                num_of_events: Some(3u32),
+            };
+            let cosmos_msg = sp_contract
+                .call(compound_msg, vec![])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            //Query user deposit
+            let query_msg = QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None };
+            let res: AssetPool = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
+                .unwrap();
+            // panic!("{:?}", res.deposits);
+            assert_eq!(res.deposits, vec![
+                Deposit {
+                    user: Addr::unchecked(USER),
+                    amount: Decimal::percent(100_023_00),
+                    deposit_time: 1571797419,
+                    last_accrued: 1571797419,
+                    unstake_time: None,
+                },
+                Deposit {
+                    user: Addr::unchecked(USER),
+                    amount: Decimal::percent(100_003_00),
+                    deposit_time: 1571797419,
+                    last_accrued: 1571797419,
+                    unstake_time: None,
+                },
+                Deposit {
+                    user: Addr::unchecked(USER),
+                    amount: Decimal::percent(100_003_00),
+                    deposit_time: 1571797420,
+                    last_accrued: 1571797420,
+                    unstake_time: None,
+                },
+                Deposit {
+                    user: Addr::unchecked(USER),
+                    amount: Decimal::percent(100_003_00),
+                    deposit_time: 1571797421,
+                    last_accrued: 1571797421,
+                    unstake_time: None,
+                }
+            ]);
+
+            //Compound Fee: No events means no changes
+            let compound_msg = ExecuteMsg::CompoundFee { 
+                num_of_events: None,
+            };
+            let cosmos_msg = sp_contract
+                .call(compound_msg, vec![])
+                .unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
         }
     }

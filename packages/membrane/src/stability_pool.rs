@@ -2,7 +2,7 @@ use cosmwasm_schema::cw_serde;
 
 use cosmwasm_std::{Decimal, Uint128, Addr, Coin};
 
-use crate::types::{Asset, AssetPool, Deposit, UserInfo};
+use crate::types::{Asset, AssetPool, Deposit, UserInfo, FeeEvent};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -71,7 +71,10 @@ pub enum ExecuteMsg {
     /// Deposit CDT-denominated fees/incentives into the contract
     DepositFee { },
     /// Compound outstanding fees/incentives for every deposit
-    CompoundFee { }
+    CompoundFee { 
+        /// Number of events to compound
+        num_of_events: Option<u32>
+    },
     
 }
 
@@ -107,6 +110,13 @@ pub enum QueryMsg {
         deposit_limit: Option<u32>,
         /// Deposit to start after
         start_after: Option<u32>,        
+    },
+    /// Returns list of FeeEvents [`FeeEventsResponse`]
+    FeeEvents {
+        /// Response limit
+        limit: Option<u32>,
+        /// Start after timestamp in seconds
+        start_after: Option<u64>,
     },
 }
 
@@ -164,6 +174,12 @@ pub struct LiquidatibleResponse {
 pub struct ClaimsResponse {
     /// Claimable assets
     pub claims: Vec<Coin>,
+}
+
+#[cw_serde]
+pub struct FeeEventsResponse {
+    /// List of FeeEvents
+    pub fee_events: Vec<FeeEvent>,
 }
 
 #[cw_serde]

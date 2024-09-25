@@ -834,10 +834,8 @@ fn rate_assurance(
 
     //Check that the rates are static for everything other than exits.
     //Exits will show an increase bc of the exit fee & calculation logic.
-    if !exit && btokens_per_one != token_rate_assurance.pre_btokens_per_one {
-        return Err(TokenFactoryError::CustomError { val: format!("Enter vault rate assurance failed, should be equal. If its 1 off just try again. Deposit tokens per 1 post-tx: {:?} --- pre-tx: {:?}", btokens_per_one, token_rate_assurance.pre_btokens_per_one) });
-    } else if exit && !(btokens_per_one > token_rate_assurance.pre_btokens_per_one) {
-        return Err(TokenFactoryError::CustomError { val: format!("Exit rate assurance failed, should be at least greater. Deposit tokens per 1 post-tx: {:?} --- pre-tx: {:?}", btokens_per_one, token_rate_assurance.pre_btokens_per_one) });
+    if !(btokens_per_one >= token_rate_assurance.pre_btokens_per_one) {
+        return Err(TokenFactoryError::CustomError { val: format!("Conversation rate assurance failed, should be equal or greater than. If its 1 off just try again. Deposit tokens per 1 pre-tx: {:?} --- post-tx: {:?}", token_rate_assurance.pre_btokens_per_one, btokens_per_one) });
     }
 
     Ok(Response::new())
@@ -1847,7 +1845,7 @@ fn handle_enter_reply(
             )?;
 
             
-            //Deposit everything to the CDP Position
+            //Deposit the calc'd amount to the CDP Position
             if !vt_sent_to_cdp.is_zero() {
                 let send_deposit_to_yield_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: config.cdp_contract_addr.to_string(),

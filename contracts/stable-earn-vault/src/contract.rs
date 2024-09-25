@@ -152,7 +152,7 @@ pub fn instantiate(
         .add_attribute("contract_address", env.contract.address)
         .add_attribute("sub_denom", msg.clone().vault_subdenom)
     //UNCOMMENT
-        // .add_message(denom_msg)
+        .add_message(denom_msg)
         .add_submessage(cdp_submsg);
     Ok(res)
 }
@@ -206,7 +206,7 @@ fn loop_cdp(
     let mut msgs = vec![];
     
     //Ensure price is above 99.5% of peg
-    //We want to ensure loops keep redemptions at 99% of peg profitable
+    //We want to ensure loops keep redemptions at 99% of peg profitable or even
     let (_, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(99) + config.swap_slippage)?;
 
     let (
@@ -279,9 +279,6 @@ fn loop_cdp(
         ],
     });
     let submsg = SubMsg::reply_on_success(swap_msg, LOOP_REPLY_ID);
-    
-    /////What if we submsg the swap & do the next steps after the swap so we don't have to guess the deposit_value?////
-
 
     //Create Response
     let res = Response::new()
@@ -887,7 +884,7 @@ fn enter_vault(
         total_deposit_tokens, 
         total_vault_tokens
     )?;
-    println!("vault_tokens_to_distribute: {:?}, {}, {}, {}", vault_tokens_to_distribute, total_deposit_tokens, decimal_multiplication(decimal_deposit_amount, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?.to_uint_floor(), total_vault_tokens);
+    // println!("vault_tokens_to_distribute: {:?}, {}, {}, {}", vault_tokens_to_distribute, total_deposit_tokens, decimal_multiplication(decimal_deposit_amount, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?.to_uint_floor(), total_vault_tokens);
     ////////////////////////////////////////////////////
 
     let mut msgs: Vec<SubMsg> = vec![];
@@ -901,7 +898,7 @@ fn enter_vault(
         mint_to_address: info.sender.to_string(),
     }.into();
     //UNCOMMENT
-    // msgs.push(SubMsg::new(mint_vault_tokens_msg));
+    msgs.push(SubMsg::new(mint_vault_tokens_msg));
 
     //Update the total token amounts
     VAULT_TOKEN.save(deps.storage, &(total_vault_tokens + vault_tokens_to_distribute))?;
@@ -937,12 +934,12 @@ fn enter_vault(
 
     //Add rate assurance callback msg
     if !total_deposit_tokens.is_zero() && !total_vault_tokens.is_zero() {
-        //UNCOMMENT
-        // msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
-        //     contract_addr: env.contract.address.to_string(),
-        //     msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: false })?,
-        //     funds: vec![],
-        // })));
+        // UNCOMMENT
+        msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: false })?,
+            funds: vec![],
+        })));
     }
 
     //Create Response
@@ -1012,7 +1009,7 @@ fn exit_vault(
         burn_from_address: env.contract.address.to_string(),
     }.into();
     //UNCOMMENT
-    // msgs.push(burn_vault_tokens_msg);
+    msgs.push(burn_vault_tokens_msg);
 
     //Update the total vault tokens
     let new_vault_token_supply = match total_vault_tokens.checked_sub(vault_tokens){
@@ -1095,11 +1092,11 @@ fn exit_vault(
     //Add rate assurance callback msg if this withdrawal leaves other depositors with tokens to withdraw
     if !new_vault_token_supply.is_zero() && total_deposit_tokens > deposit_tokens_to_withdraw {
         //UNCOMMENT
-        // msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        //     contract_addr: env.contract.address.to_string(),
-        //     msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: false })?,
-        //     funds: vec![],
-        // }));
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: false })?,
+            funds: vec![],
+        }));
     }
 
     //Reset Unloop Props
@@ -1432,7 +1429,7 @@ fn query_vault_token_underlying(
         total_vault_tokens
     )?;
 
-    println!("total_deposit_tokens: {:?}, total_vault_tokens: {:?}, vault_token_amount: {:?}, users_base_tokens: {:?}", total_deposit_tokens, total_vault_tokens, vault_token_amount, users_base_tokens);
+    // println!("total_deposit_tokens: {:?}, total_vault_tokens: {:?}, vault_token_amount: {:?}, users_base_tokens: {:?}", total_deposit_tokens, total_vault_tokens, vault_token_amount, users_base_tokens);
 
     //Return
     Ok(users_base_tokens)
@@ -1838,7 +1835,7 @@ fn handle_enter_reply(
                 env.contract.address.to_string(),
             )?;
 
-            println!("vt_kept: {}, vt_sent_to_cdp: {}", vt_kept, vt_sent_to_cdp);
+            // println!("vt_kept: {}, vt_sent_to_cdp: {}", vt_kept, vt_sent_to_cdp);
 
             
             //Deposit the calc'd amount to the CDP Position

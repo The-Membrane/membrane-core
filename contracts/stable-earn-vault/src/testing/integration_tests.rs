@@ -949,7 +949,7 @@ mod tests {
 
             //Exit Vault: THE RATE ASSURANCE ERRORS BC WE CAN'T REMOVE TOKENS FROM THE MARS CONTRACT MID-EXECUTION
             let msg = ExecuteMsg::ExitVault { };
-            let cosmos_msg = vault_contract.call(msg, vec![coin(10000000, "factory/contract4/stable-earn-vault")]).unwrap();
+            let cosmos_msg = vault_contract.call(msg, vec![coin(9000000, "factory/contract4/stable-earn-vault")]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
             // Query Vault token underlying

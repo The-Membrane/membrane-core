@@ -152,7 +152,7 @@ pub fn instantiate(
         .add_attribute("contract_address", env.contract.address)
         .add_attribute("sub_denom", msg.clone().vault_subdenom)
     //UNCOMMENT
-        .add_message(denom_msg)
+        // .add_message(denom_msg)
         .add_submessage(cdp_submsg);
     Ok(res)
 }
@@ -879,14 +879,15 @@ fn enter_vault(
         pre_btokens_per_one,
     })?;
 
+    let decimal_deposit_amount = Decimal::from_ratio(deposit_amount, Uint128::one());
     //Calculate the amount of vault tokens to mint
     let vault_tokens_to_distribute = calculate_vault_tokens(
         //Reduce the deposit amount by the slippage to account for the user's actual ownership amount 
-        decimal_multiplication(deposit_amount, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?.to_uint_floor(),
+        decimal_multiplication(decimal_deposit_amount, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?.to_uint_floor(),
         total_deposit_tokens, 
         total_vault_tokens
     )?;
-    // println!("vault_tokens_to_distribute: {:?}, {}, {}, {}", vault_tokens_to_distribute, total_deposit_tokens, deposit_amount, total_vault_tokens);
+    println!("vault_tokens_to_distribute: {:?}, {}, {}, {}", vault_tokens_to_distribute, total_deposit_tokens, decimal_multiplication(decimal_deposit_amount, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?.to_uint_floor(), total_vault_tokens);
     ////////////////////////////////////////////////////
 
     let mut msgs: Vec<SubMsg> = vec![];
@@ -900,7 +901,7 @@ fn enter_vault(
         mint_to_address: info.sender.to_string(),
     }.into();
     //UNCOMMENT
-    msgs.push(SubMsg::new(mint_vault_tokens_msg));
+    // msgs.push(SubMsg::new(mint_vault_tokens_msg));
 
     //Update the total token amounts
     VAULT_TOKEN.save(deps.storage, &(total_vault_tokens + vault_tokens_to_distribute))?;
@@ -937,11 +938,11 @@ fn enter_vault(
     //Add rate assurance callback msg
     if !total_deposit_tokens.is_zero() && !total_vault_tokens.is_zero() {
         //UNCOMMENT
-        msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: env.contract.address.to_string(),
-            msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: false })?,
-            funds: vec![],
-        })));
+        // msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+        //     contract_addr: env.contract.address.to_string(),
+        //     msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: false })?,
+        //     funds: vec![],
+        // })));
     }
 
     //Create Response
@@ -1011,7 +1012,7 @@ fn exit_vault(
         burn_from_address: env.contract.address.to_string(),
     }.into();
     //UNCOMMENT
-    msgs.push(burn_vault_tokens_msg);
+    // msgs.push(burn_vault_tokens_msg);
 
     //Update the total vault tokens
     let new_vault_token_supply = match total_vault_tokens.checked_sub(vault_tokens){
@@ -1094,11 +1095,11 @@ fn exit_vault(
     //Add rate assurance callback msg if this withdrawal leaves other depositors with tokens to withdraw
     if !new_vault_token_supply.is_zero() && total_deposit_tokens > deposit_tokens_to_withdraw {
         //UNCOMMENT
-        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: env.contract.address.to_string(),
-            msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: false })?,
-            funds: vec![],
-        }));
+        // msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        //     contract_addr: env.contract.address.to_string(),
+        //     msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: false })?,
+        //     funds: vec![],
+        // }));
     }
 
     //Reset Unloop Props
@@ -1424,14 +1425,16 @@ fn query_vault_token_underlying(
     
     //Get total deposit tokens
     let total_deposit_tokens = get_total_deposit_tokens(deps, env.clone(), config.clone())?;
-    //Calc the amount of deposit tokens the user owns pre-discount
+    //Calc the amount of deposit tokens the user owns
     let users_base_tokens = calculate_base_tokens(
         vault_token_amount, 
         total_deposit_tokens, 
         total_vault_tokens
     )?;
 
-    //Return the discounted amount
+    println!("total_deposit_tokens: {:?}, total_vault_tokens: {:?}, vault_token_amount: {:?}, users_base_tokens: {:?}", total_deposit_tokens, total_vault_tokens, vault_token_amount, users_base_tokens);
+
+    //Return
     Ok(users_base_tokens)
 }
 
@@ -1503,10 +1506,11 @@ fn get_total_deposit_tokens(
     };
     //Add buffered assets to the total deposit tokens
     total_vaulted_deposit_tokens += vt_buffer;
+    let decimal_total_vdt = Decimal::from_ratio(total_vaulted_deposit_tokens, Uint128::one());
 
     //Deduct slippage costs.
     //For buffered vt or zero'd debt, this acts as the entry fee.
-    total_vaulted_deposit_tokens = decimal_multiplication(total_vaulted_deposit_tokens, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?;
+    total_vaulted_deposit_tokens = decimal_multiplication(decimal_total_vdt, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?.to_uint_floor();
 
     //Query the underlying of the initial vault token deposit
     let underlying_deposit_token: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
@@ -1833,6 +1837,8 @@ fn handle_enter_reply(
                 config.clone(),
                 env.contract.address.to_string(),
             )?;
+
+            println!("vt_kept: {}, vt_sent_to_cdp: {}", vt_kept, vt_sent_to_cdp);
 
             
             //Deposit the calc'd amount to the CDP Position

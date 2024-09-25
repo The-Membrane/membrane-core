@@ -42,8 +42,8 @@ const LOOP_MAX: u64 = 5u64;
 const MIN_DEPOSIT_VALUE: Decimal = Decimal::percent(101_11);
 
 ////PROCEDURAL FLOW/NOTES////
-// - There is a deposit and exit fee. 
-// --The exit fee is added in manually thru the contract in get_total_deposits().
+// - There is a deposit and entry fee. 
+// --The entry fee is added in manually thru the contract in get_total_deposits().
 // -- The deposit fee is baked into the "liquid" valuation calc of the CDP position so deposits that don't get looped won't confer this fee to the vault.
 // - We need to keep a buffer of vault tokens outside of the vault to allow for easy withdrawals (todo)
 // -
@@ -372,7 +372,7 @@ fn calc_mintable(
 //NOTE: 
 //- Accrue beforehand if trying to fully unloop
 //POST LOOP NOTES:
-// - Bc we only loop once, as long as we at least start at the peg, we'll never make a trade more than 100% + slippage which is covered for by the exit fee.
+// - Bc we only loop once, as long as we at least start at the peg, we'll never make a trade more than 100% + slippage which is covered for by the entry fee.
 fn unloop_cdp(
     deps: DepsMut,
     env: Env,
@@ -833,7 +833,7 @@ fn rate_assurance(
     )?;
 
     //Check that the rates are static for everything other than exits.
-    //Exits will show an increase bc of the exit fee & calculation logic.
+    //Exits will show an increase bc of the entry fee & calculation logic.
     if !(btokens_per_one >= token_rate_assurance.pre_btokens_per_one) {
         return Err(TokenFactoryError::CustomError { val: format!("Conversation rate assurance failed, should be equal or greater than. If its 1 off just try again. Deposit tokens per 1 pre-tx: {:?} --- post-tx: {:?}", token_rate_assurance.pre_btokens_per_one, btokens_per_one) });
     }
@@ -878,9 +878,11 @@ fn enter_vault(
     TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
         pre_btokens_per_one,
     })?;
+
     //Calculate the amount of vault tokens to mint
     let vault_tokens_to_distribute = calculate_vault_tokens(
-        deposit_amount, 
+        //Reduce the deposit amount by the slippage to account for the user's actual ownership amount 
+        decimal_multiplication(deposit_amount, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?.to_uint_floor(),
         total_deposit_tokens, 
         total_vault_tokens
     )?;
@@ -916,7 +918,7 @@ fn enter_vault(
         SubMsg::reply_on_success(send_deposit_to_yield_msg, ENTER_VAULT_REPLY_ID)
     );
 
-    //Query the amount of vault tokens we'll get frmo this deposit
+    //Query the amount of vault tokens we'll get from this deposit
     let vt_received: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
         config.deposit_token.vault_addr.to_string(),
         &Vault_QueryMsg::DepositTokenConversion { deposit_token_amount: deposit_amount },
@@ -1091,25 +1093,13 @@ fn exit_vault(
     
     //Add rate assurance callback msg if this withdrawal leaves other depositors with tokens to withdraw
     if !new_vault_token_supply.is_zero() && total_deposit_tokens > deposit_tokens_to_withdraw {
-        //Get current credit amount
-        let (
-            running_credit_amount, 
-            _, 
-            _, 
-            _
-        ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone(), &mut vec![])?;
-
-        //If the vault has no debt, there is no exit fee so we don't expect the conversion rate to increase
         //UNCOMMENT
         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: env.contract.address.to_string(),
-            msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: !running_credit_amount.is_zero() })?,
+            msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: false })?,
             funds: vec![],
         }));
     }
-    //This will be more bc of the exit fee...
-    //&& bc the initial total deposit calculation takes the liquid value using CDT's peg price and not market price. 
-    //So if debt is cleared the total deposit tokens will be higher than the starting calc.
 
     //Reset Unloop Props
     UNLOOP_PROPS.save(deps.storage, &UnloopProps {
@@ -1502,11 +1492,7 @@ fn get_total_deposit_tokens(
         Ok(v) => v,
         Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to subtract the debt from the collateral in get_total_deposit_tokens, collateral value: {}, debt value: {}", collateral_value, debt_value) }),
     };
-    //Only deduct slippage costs if the position has debt 
-    if !debt_value.is_zero() {
-        //Calc value minus slippage
-        liquid_value = decimal_multiplication(liquid_value, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?;
-    }    
+    
     //Calc the amount of vaulted deposit tokens
     let mut total_vaulted_deposit_tokens = vt_token_price.get_amount(liquid_value)?;
 
@@ -1517,6 +1503,10 @@ fn get_total_deposit_tokens(
     };
     //Add buffered assets to the total deposit tokens
     total_vaulted_deposit_tokens += vt_buffer;
+
+    //Deduct slippage costs.
+    //For buffered vt or zero'd debt, this acts as the entry fee.
+    total_vaulted_deposit_tokens = decimal_multiplication(total_vaulted_deposit_tokens, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?;
 
     //Query the underlying of the initial vault token deposit
     let underlying_deposit_token: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(

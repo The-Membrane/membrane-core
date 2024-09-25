@@ -1916,55 +1916,8 @@ fn get_buffer_amounts(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-    //Initialize UNLOOP PROPS
-    UNLOOP_PROPS.save(deps.storage, &UnloopProps {
-        desired_collateral_withdrawal: Uint128::zero(),
-        loop_count: 0,
-        running_collateral_amount: Uint128::zero(),
-        running_credit_amount: Uint128::zero(),
-        vt_token_price: PriceResponse {
-            price: Decimal::zero(),
-            prices: vec![],
-            decimals: 6
-        },
-        cdt_peg_price: PriceResponse {
-            price: Decimal::zero(),
-            prices: vec![],
-            decimals: 6
-        },
-    })?;
-
-    //Reset total nonleveraged vault tokens
-    let config = CONFIG.load(deps.storage)?;
-    //Query the position for the amount of vault tokens we have
-    let vault_position: Vec<BasketPositionsResponse> = match deps.querier.query_wasm_smart::<Vec<BasketPositionsResponse>>(
-        config.cdp_contract_addr.to_string(),
-        &CDP_QueryMsg::GetBasketPositions { 
-            start_after: None, 
-            user: None,
-            user_info: Some(UserInfo {
-                position_owner: env.contract.address.to_string(),
-                position_id: config.cdp_position_id,
-            }), 
-            limit: None, 
-        },
-    ){
-        Ok(vault_position) => vault_position,
-        Err(err) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP Position for the vault token amount in migrate:") + &err.to_string() }),
-    };
-    let vault_position: PositionResponse = vault_position[0].positions[0].clone();
-    //Set running collateral amount
-    let vt_collateral_amount = vault_position.collateral_assets[0].asset.amount;
-    //Get the balance of vault tokens in the contract
-    let contract_balance_of_deposit_vault_tokens = deps.querier.query_balance(env.contract.address.to_string(), config.deposit_token.clone().vault_token)?.amount;
-
-    //Set the total nonleveraged vault tokens
-    let total_nonleveraged_vault_tokens = match vt_collateral_amount.checked_add(contract_balance_of_deposit_vault_tokens){
-        Ok(v) => v,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to add the vault token balance in the contract to the CDP collateral amount in migrate") }),
-    };
     CONFIG.update(deps.storage, |mut last_config| -> Result<_, TokenFactoryError> {
-        last_config.total_nonleveraged_vault_tokens = total_nonleveraged_vault_tokens;
+        last_config.total_nonleveraged_vault_tokens = Uint128:new(452_607_078_860_740);
         Ok(last_config)
     })?;
 

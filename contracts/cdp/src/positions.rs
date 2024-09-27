@@ -1189,7 +1189,7 @@ pub fn edit_redemption_info(
                         for id in position_ids.clone() {
                             //If the Position ID is not in the list, add it
                             if !user_positions.position_infos.iter().any(|position| position.position_id == id){
-
+                            
                                 //Get target_position
                                 let target_position = match get_target_position(storage, info.sender.clone(), id){
                                     Ok((_, pos)) => pos,
@@ -1391,7 +1391,7 @@ pub fn redeem_for_collateral(
 ) -> Result<Response, ContractError>{
     //Load State
     let config: Config = CONFIG.load(deps.storage)?;
-    let basket: Basket = BASKET.load(deps.storage)?;
+    let mut basket: Basket = BASKET.load(deps.storage)?;
 
     let mut credit_amount;
     let mut redeemable_credit = Decimal::zero();
@@ -1596,18 +1596,19 @@ pub fn redeem_for_collateral(
 
     //Burn redeemed credit
     if let Some(addr) = config.osmosis_proxy {
-        if !redeemable_credit.to_uint_floor().is_zero() {    
-            //Create burn msg
-            let burn_message = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: addr.to_string(),
-                msg: to_binary(&OsmoExecuteMsg::BurnTokens {
-                    denom: basket.credit_asset.info.to_string(),
+        //Act if a redemotion was made
+        if !redeemable_credit.to_uint_floor().is_zero() {            
+            //Create rev/burn msgs
+            let burn_and_rev_msgs = credit_burn_rev_msg(
+                config.clone(),
+                env.clone(),
+                Asset {
                     amount: redeemable_credit.to_uint_floor(),
-                    burn_from_address: env.contract.address.to_string(),
-                })?,
-                funds: vec![],
-            });
-            messages.push(burn_message);
+                    ..basket.credit_asset.clone()
+                },
+                &mut basket,
+            )?;
+            messages.extend(burn_and_rev_msgs);
         }
     }
 

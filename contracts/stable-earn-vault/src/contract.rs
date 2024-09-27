@@ -1916,10 +1916,10 @@ fn get_buffer_amounts(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-    CONFIG.update(deps.storage, |mut last_config| -> Result<_, TokenFactoryError> {
-        last_config.total_nonleveraged_vault_tokens = Uint128::new(452_607_078_860_740u128);
-        Ok(last_config)
-    })?;
+    // CONFIG.update(deps.storage, |mut last_config| -> Result<_, TokenFactoryError> {
+    //     last_config.total_nonleveraged_vault_tokens = Uint128::new(452_607_078_860_740u128);
+    //     Ok(last_config)
+    // })?;
 
     Ok(Response::default())
 }

@@ -446,7 +446,9 @@ fn get_credit_rate_of_change(
             avg_change_in_index += match decimal_multiplication(ratios[i], decimal_division(basket_asset.rate_index, cAsset.rate_index)?){
                 Ok(avg_change_in_index) => avg_change_in_index,
                 Err(err) => {
-                    panic!("{}, {}, {}", ratios[i], basket_asset.rate_index, cAsset.rate_index);
+                    return Err(StdError::GenericErr {
+                        msg: format!("Error at line 451 in rates: {}, {}, {}, {}", err, ratios[i], basket_asset.rate_index, cAsset.rate_index)
+                    })
                 }
             
             };
@@ -474,6 +476,7 @@ pub fn accrue(
     /////Accrue Interest to the Repayment Price///
     //Calc Time-elapsed and update last_Accrued
     let time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
+
 
     let mut negative_rate: bool = false;
     let price_difference: Decimal;

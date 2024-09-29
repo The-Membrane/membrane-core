@@ -2,7 +2,7 @@ use std::str::FromStr;
 use std::vec;
 
 use cosmwasm_std::{
-    attr, to_binary, Addr, Api, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo,
+    attr, to_json_binary, Addr, Api, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo,
     QuerierWrapper, QueryRequest, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg,
     WasmQuery,
 };
@@ -18,8 +18,7 @@ use membrane::osmosis_proxy::{ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQuer
 use membrane::stability_pool::ExecuteMsg as SP_ExecuteMsg;
 use membrane::math::{decimal_division, decimal_multiplication, Uint256, decimal_subtraction};
 use membrane::types::{
-    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, LiquidityInfo, Position, PoolStateResponse,
-    SupplyCap, UserInfo, PoolType, RedemptionInfo, PositionRedemption, PoolInfo, LPAssetInfo
+    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, LPAssetInfo, LiquidityInfo, PoolInfo, PoolStateResponse, PoolType, Position, PositionRedemption, RedemptionInfo, RevenueDestination, SupplyCap, UserInfo
 };
 
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
@@ -35,10 +34,10 @@ use crate::{
 
 //Liquidation reply ids
 pub const LIQ_QUEUE_REPLY_ID: u64 = 1u64;
-pub const SP_REPLY_ID: u64 = 2u64;
-pub const USER_SP_REPAY_REPLY_ID: u64 = 3u64;
-
+// pub const SP_REPLY_ID: u64 = 2u64;
+// pub const USER_SP_REPAY_REPLY_ID: u64 = 3u64;
 pub const WITHDRAW_REPLY_ID: u64 = 4u64;
+pub const REVENUE_REPLY_ID: u64 = 5u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 
@@ -90,7 +89,7 @@ pub fn deposit(
             if set_redemption {
                 edit_redemption_info(
                     deps.storage,
-                    info.clone(),
+                    info.clone().sender,
                     vec![position_id],
                     Some(true),
                     Some(1),
@@ -211,7 +210,7 @@ pub fn deposit(
             if set_redemption {
                 edit_redemption_info(
                     deps.storage,
-                    info.clone(),
+                    info.clone().sender,
                     vec![position_info.position_id],
                     Some(true),
                     Some(1),
@@ -246,7 +245,7 @@ pub fn deposit(
         if set_redemption {
             edit_redemption_info(
                 deps.storage,
-                info.clone(),
+                info.clone().sender,
                 vec![position_info.position_id],
                 Some(true),
                 Some(1),
@@ -571,7 +570,7 @@ pub fn repay(
     //Get target_position
     let (position_index, mut target_position) = get_target_position(storage, valid_owner_addr.clone(), position_id)?;
 
-    //SP accrues external before calling repay, so we only accrue if the sender isn't the SP
+    //SP accrues externally before calling repay, so we only accrue if the sender isn't the SP
     if info.sender != config.clone().stability_pool.unwrap_or(Addr::unchecked("")){   
         //Accrue interest
         accrue(
@@ -618,7 +617,7 @@ pub fn repay(
         )?;
     }
 
-    //Position's resulting debt can't be below minimum without being fully repaid
+    //Position's resulting debt value can't be below minimum without being fully repaid
     if basket.clone().credit_price.get_value(target_position.credit_amount)? < Decimal::from_ratio(config.debt_minimum, Uint128::one())
         && !target_position.credit_amount.is_zero(){
         //Router contract, Stability Pool & Liquidation Queue are allowed to.
@@ -680,14 +679,14 @@ pub fn repay(
                 ..basket.clone().credit_asset
             }, valid_addr )?;
 
-            messages.push(msg);
+            messages.push(SubMsg::new(msg));
         } else {
             let msg = withdrawal_msg(Asset {
                 amount: excess_repayment,
                 ..basket.clone().credit_asset
             }, info.sender )?;
 
-            messages.push(msg);
+            messages.push(SubMsg::new(msg));
         }                                
     }
 
@@ -712,7 +711,7 @@ pub fn repay(
     }
     
     Ok(Response::new()
-        .add_messages(messages)
+        .add_submessages(messages)
         .add_attributes(vec![
             attr("method", "repay"),
             attr("position_id", position_id),
@@ -765,7 +764,7 @@ pub fn liq_repay(
     // from LQ replies && fee handling
     let mut target_position = liquidation_propagation.clone().target_position;
     
-    let mut messages = vec![];
+    let mut messages: Vec<SubMsg> = vec![];
     let mut excess_repayment = Uint128::zero();
     //Update credit amount in target_position to account for SP's repayment
     target_position.credit_amount = match target_position.credit_amount.checked_sub(credit_asset.amount){
@@ -792,7 +791,7 @@ pub fn liq_repay(
             credit_asset.amount = target_position.credit_amount;
 
             //Add msg
-            messages.push(excess_repayment_msg);
+            messages.push(SubMsg::new(excess_repayment_msg));
 
             Uint128::zero()
         },
@@ -911,13 +910,13 @@ pub fn liq_repay(
     //Build the Execute msg w/ the full list of native tokens
     let msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-        msg: to_binary(&distribution_msg)?,
+        msg: to_json_binary(&distribution_msg)?,
         funds: coins,
     });
-    messages.push(msg);
+    messages.push(SubMsg::new(msg));
     
     Ok(Response::new()
-        .add_messages(messages)
+        .add_submessages(messages)
         .add_attribute("method", "liq_repay")
         .add_attribute("distribution_assets", format!("{:?}", distribution_assets))
         .add_attribute("distribute_for", credit_asset.amount)
@@ -1075,7 +1074,7 @@ pub fn increase_debt(
     if set_redemption {
         edit_redemption_info(
             deps.storage,
-            info.clone(),
+            info.clone().sender,
             vec![position_id.clone()],
             Some(true),
             Some(1),
@@ -1125,7 +1124,7 @@ fn check_debt_increase_state(
 /// Edit and Enable debt token Redemption for any address-owned Positions
 pub fn edit_redemption_info(
     storage: &mut dyn Storage, 
-    info: MessageInfo,
+    position_owner: Addr,
     // Position IDs to edit
     mut position_ids: Vec<Uint128>,
     // Add or remove redeemability
@@ -1168,7 +1167,7 @@ pub fn edit_redemption_info(
 
     //If a rate hike asset is in the position, USER CAN"T REMOVE REEDMPTIONS
     for id in position_ids.clone() {
-        let (_i, target_position) = get_target_position(storage, info.sender.clone(), id)?;
+        let (_i, target_position) = get_target_position(storage, position_owner.clone(), id)?;
         for cAsset in target_position.collateral_assets.clone(){
             if !called_by_contract && cAsset.hike_rates.is_some() && cAsset.hike_rates.unwrap() {
                 return Err(ContractError::CustomError { val: format!("Can't edit redemption for a position with a rate hike asset: {:?}", cAsset.asset.info) })
@@ -1184,14 +1183,14 @@ pub fn edit_redemption_info(
             match REDEMPTION_OPT_IN.load(storage, updated_premium){
                 Ok(mut users_of_premium)=> {
                     //If the user already has a PositionRedemption, add the Position to the list
-                    if let Some ((user_index, mut user_positions)) = users_of_premium.clone().into_iter().enumerate().find(|(_, user)| user.position_owner == info.sender){
+                    if let Some ((user_index, mut user_positions)) = users_of_premium.clone().into_iter().enumerate().find(|(_, user)| user.position_owner == position_owner){
                         //Iterate through the Position IDs
                         for id in position_ids.clone() {
                             //If the Position ID is not in the list, add it
                             if !user_positions.position_infos.iter().any(|position| position.position_id == id){
                             
                                 //Get target_position
-                                let target_position = match get_target_position(storage, info.sender.clone(), id){
+                                let target_position = match get_target_position(storage, position_owner.clone(), id){
                                     Ok((_, pos)) => pos,
                                     Err(_e) => return Err(ContractError::CustomError { val: String::from("User does not own this position id") })
                                 };
@@ -1219,7 +1218,7 @@ pub fn edit_redemption_info(
                             storage,
                             position_ids.clone(), 
                             max_loan_repayment.clone(), 
-                            info.clone().sender,
+                            position_owner.clone(),
                             restricted_collateral_assets.clone().unwrap_or(vec![]),
                         )?;
 
@@ -1237,7 +1236,7 @@ pub fn edit_redemption_info(
                         storage,
                         position_ids.clone(), 
                         max_loan_repayment.clone(), 
-                        info.clone().sender,
+                        position_owner.clone(),
                         restricted_collateral_assets.clone().unwrap_or(vec![]),
                     )?;
 
@@ -1263,7 +1262,7 @@ pub fn edit_redemption_info(
         if !position_ids.is_empty() && !users_of_premium.is_empty(){      
             
             //Iterate through users to find the Positions
-            if let Some ((user_index, mut user_positions)) = users_of_premium.clone().into_iter().enumerate().find(|(_, user)| user.position_owner == info.sender){
+            if let Some ((user_index, mut user_positions)) = users_of_premium.clone().into_iter().enumerate().find(|(_, user)| user.position_owner == position_owner.clone()){
                 for id in position_ids.clone() {
                     //If the Position ID is in the list, edit, update and remove from the list
                     if let Some((position_index, _)) = user_positions.clone().position_infos.clone().into_iter().enumerate().find(|(_, position)| position.position_id == id){
@@ -1287,7 +1286,7 @@ pub fn edit_redemption_info(
                         //Update maximum loan repayment
                         if let Some(max_loan_repayment) = max_loan_repayment {
                             //Get target_position
-                            let target_position = match get_target_position(storage, info.sender.clone(), id){
+                            let target_position = match get_target_position(storage, position_owner.clone(), id){
                                 Ok((_, pos)) => pos,
                                 Err(_e) => return Err(ContractError::CustomError { val: String::from("User does not own this position id") })
                             };
@@ -1396,6 +1395,8 @@ pub fn redeem_for_collateral(
     let mut credit_amount;
     let mut redeemable_credit = Decimal::zero();
     let mut collateral_sends: Vec<Asset> = vec![];
+    let mut position_removal_ids: Vec<Uint128> = vec![];    
+    let mut user_removal_addrs: Vec<Addr> = vec![];
     
     //Validate asset 
     if info.clone().funds.len() != 1 || info.clone().funds[0].denom != basket.credit_asset.info.to_string(){
@@ -1403,8 +1404,12 @@ pub fn redeem_for_collateral(
     } else {
         credit_amount = Decimal::from_ratio(Uint128::from(info.clone().funds[0].amount), Uint128::one());
     }
+
     //Set initial credit amount
     let initial_credit_amount = credit_amount.clone();
+
+    //Set debt minimum in amount, not value
+    let mut debt_minimum = basket.credit_price.get_amount(Decimal::from_ratio(config.debt_minimum, Uint128::one()))?;
 
     //Set premium range
     for premium in 0..=max_collateral_premium {
@@ -1436,29 +1441,43 @@ pub fn redeem_for_collateral(
                     ){
                         Ok(pos) => pos,
                         Err(_e) => {
-                            //Remove PositionRedemption from user
-                            user.position_infos.remove(pos_rdmpt_index);
-                            //Remove user if no more PositionRedemptions
-                            if user.position_infos.is_empty() {
-                                users_of_premium.remove(user_index);
-                            }
+                            //Add id to removal list for user
+                            position_removal_ids.push(position_redemption_info.clone().position_id);
                             continue;
                         }
                     };
-
+                    
+                    //Accrue
+                    accrue(
+                        deps.storage,
+                        deps.querier,
+                        env.clone(),
+                        config.clone(),
+                        &mut target_position,
+                        &mut basket,
+                        user.position_owner.to_string(),
+                        false,
+                    )?;
+                    //Update position to save rate index changes
+                    update_position(
+                        deps.storage, 
+                        user.clone().position_owner, 
+                        target_position.clone()
+                    )?;
+                    
                     //Remove restricted collateral assets from target_position.collateral_assets
-                    for restricted_asset in position_redemption_info.restricted_collateral_assets {
+                    for restricted_asset in position_redemption_info.clone().restricted_collateral_assets {
                         target_position.collateral_assets = target_position.collateral_assets.clone()
                             .into_iter()
                             .filter(|asset| asset.asset.info.to_string() != restricted_asset)
                             .collect::<Vec<cAsset>>();
                     }
                     if target_position.collateral_assets.is_empty() {
-                        //Remove PositionRedemption from user
-                        user.position_infos.remove(pos_rdmpt_index);
-                        //Remove user if no more PositionRedemptions
+                        //Add id to removal list for user
+                        position_removal_ids.push(position_redemption_info.clone().position_id);
+                        //Add user to removal list if no more positions
                         if user.position_infos.is_empty() {
-                            users_of_premium.remove(user_index);
+                            user_removal_addrs.push(user.clone().position_owner);
                         }
                         continue;
                     }
@@ -1476,11 +1495,37 @@ pub fn redeem_for_collateral(
                     //Calc amount of credit that can be redeemed.
                     //Max we can redeem is the target_position's credit_amount.
                     redeemable_credit = Decimal::min(
-                        Decimal::min(Decimal::from_ratio(position_redemption_info.remaining_loan_repayment, Uint128::one()), Decimal::from_ratio(target_position.credit_amount, Uint128::one())),
+                        Decimal::min(Decimal::from_ratio(position_redemption_info.remaining_loan_repayment, Uint128::one()), Decimal::from_ratio(target_position.credit_amount - debt_minimum, Uint128::one())),
                         credit_amount
                     );
+
+                    
                     //Subtract redeemable from credit_amount 
                     credit_amount = decimal_subtraction(credit_amount, redeemable_credit)?;
+                    
+                    //Calc & remove redemption fee from redeemable_credit
+                    //This is done after the credit_amount subtraction to ensure excess being sent back doesn't forego the fee
+                    let redemption_fee = decimal_multiplication(
+                        redeemable_credit, 
+                        config.redemption_fee.unwrap()
+                    )?;
+                    //Add redemption fee to revenue
+                    basket.pending_revenue += redemption_fee.to_uint_floor();
+
+                    //If the credit_amount is less than the redemption fee, subtract the fee from the redeemable_credit.
+                    //Ex: 50 sent, 50 is redeemable, 1% fee = 0.5, 50 - 0.5 = 49.5 redeemable
+                    if credit_amount < redemption_fee {
+                        redeemable_credit = decimal_subtraction(redeemable_credit, redemption_fee)?;
+                    } 
+                    //If the remaining credit_amount can fulfill the fee, we take it from there to allow full redemptions to be made
+                    //Otherwise there would always be a remainder of credit that can't be redeemed, at the size of the fee.
+                    //Ex: 100 sent, 50 is redeemable, 50 remaining credit, 1% fee = 0.5, 50 > 0.5...
+                    // 49.5 is sent back as excess. 50 is used to redeem, 0.5 is taken as the fee.
+                    else if credit_amount >= redemption_fee {
+                        //If the credit_amount is greater than the fee, subtract the fee from the credit_amount
+                        credit_amount = decimal_subtraction(credit_amount, redemption_fee)?;
+                    }
+
                     //Subtract redeemable from remaining_loan_repayment
                     user.position_infos[pos_rdmpt_index].remaining_loan_repayment = 
                         position_redemption_info.remaining_loan_repayment - 
@@ -1489,20 +1534,14 @@ pub fn redeem_for_collateral(
                     /////Set and Save user info with updated remaining_loan_repayment////
                     //If remaining_loan_repayment is zero, remove PositionRedemption from user
                     if user.position_infos[pos_rdmpt_index].remaining_loan_repayment.is_zero() {
-                        //Remove PositionRedemption from user
-                        user.position_infos.remove(pos_rdmpt_index);
-                        //Remove user if no more PositionRedemptions
+                        //Add id to removal list for user
+                        position_removal_ids.push(position_redemption_info.clone().position_id);
+                        //Add user to removal list if no more positions
                         if user.position_infos.is_empty() {
-                            users_of_premium.remove(user_index);
+                            user_removal_addrs.push(user.clone().position_owner);
                         }
                     }
-                    //Update user
-                    if !users_of_premium.is_empty() {
-                        users_of_premium[user_index] = user.clone();
-                    }
                     
-                    REDEMPTION_OPT_IN.save(deps.storage, premium, &users_of_premium)?;
-
                     // Calc credit_value
                     //redeemable_credit * credit_price
                     let credit_value =  basket.clone().credit_price.get_value(redeemable_credit.to_uint_floor())?;
@@ -1546,22 +1585,23 @@ pub fn redeem_for_collateral(
                     }
 
                     //Reload target_position
-                    let (_i, mut target_position) = get_target_position(
+                    let (_i, mut new_target_position) = get_target_position(
                         deps.storage, 
                         user.clone().position_owner, 
                         position_redemption_info.position_id
                     )?;
+                    new_target_position.credit_amount = target_position.credit_amount;
 
                     //Set position.credit_amount
-                    target_position.credit_amount -= redeemable_credit.to_uint_floor();
+                    new_target_position.credit_amount -= redeemable_credit.to_uint_floor();
 
                     //Remove from redemption_info if credit_amount is zero
-                    if target_position.credit_amount.is_zero() {
-                        //Remove PositionRedemption from user
-                        user.position_infos.remove(pos_rdmpt_index);
-                        //Remove user if no more PositionRedemptions
+                    if new_target_position.credit_amount.is_zero() {
+                        //Add id to removal list for user
+                        position_removal_ids.push(position_redemption_info.clone().position_id);
+                        //Add user to removal list if no more positions
                         if user.position_infos.is_empty() {
-                            users_of_premium.remove(user_index);
+                            user_removal_addrs.push(user.clone().position_owner);
                         }
                     }
 
@@ -1569,10 +1609,29 @@ pub fn redeem_for_collateral(
                     update_position(
                         deps.storage, 
                         user.clone().position_owner, 
-                        target_position.clone()
+                        new_target_position.clone()
                     )?;
                 }
+
+                //Remove positions from user now that we're post loop
+                user.position_infos = user.clone().position_infos
+                    .into_iter()
+                    .filter(|pos| !position_removal_ids.contains(&pos.position_id))
+                    .collect::<Vec<PositionRedemption>>();
+
+                //Update user
+                if !users_of_premium.is_empty() {
+                    users_of_premium[user_index] = user.clone();
+                }
             }
+            //Remove users from premium now that we're post loop
+            users_of_premium = users_of_premium
+                .into_iter()
+                .filter(|user| !user_removal_addrs.contains(&user.position_owner))
+                .collect::<Vec<RedemptionInfo>>();
+
+            
+            REDEMPTION_OPT_IN.save(deps.storage, premium, &users_of_premium)?;
         }
     }
 
@@ -1586,16 +1645,16 @@ pub fn redeem_for_collateral(
         coins.push(asset_to_coin(asset)?)
     }
 
-    let mut messages: Vec<CosmosMsg> = vec![];
+    let mut messages: Vec<SubMsg> = vec![];
     //Send collateral to sender
-    let collateral_msg = BankMsg::Send {
+    let collateral_msg: CosmosMsg = BankMsg::Send {
         to_address: info.clone().sender.to_string(),
         amount: coins.clone(),
-    };
-    messages.push(collateral_msg.into());
+    }.into();
+    messages.push(SubMsg::new(collateral_msg));
 
     //Burn redeemed credit
-    if let Some(addr) = config.osmosis_proxy {
+    if config.osmosis_proxy.is_some() {
         //Act if a redemotion was made
         if !redeemable_credit.to_uint_floor().is_zero() {            
             //Create rev/burn msgs
@@ -1611,20 +1670,23 @@ pub fn redeem_for_collateral(
             messages.extend(burn_and_rev_msgs);
         }
     }
+    
+    //Save updated Basket
+    BASKET.save(deps.storage, &basket)?;
 
     //If there is excess credit, send it back to sender
     if !credit_amount.is_zero() {
-        let credit_msg = BankMsg::Send {
+        let credit_msg: CosmosMsg = BankMsg::Send {
             to_address: info.clone().sender.to_string(),
             amount: vec![Coin {
                 denom: basket.credit_asset.info.to_string(),
                 amount: credit_amount.to_uint_floor(),
             }],
-        };
-        messages.push(credit_msg.into());
+        }.into();
+        messages.push(SubMsg::new(credit_msg));
 
         return Ok(Response::new()
-            .add_messages(messages)
+            .add_submessages(messages)
             .add_attributes(vec![
                 attr("action", "redeem_for_collateral"),
                 attr("sender", info.clone().sender),
@@ -1636,7 +1698,7 @@ pub fn redeem_for_collateral(
 
     //Response
     Ok(Response::new()
-        .add_messages(messages)
+        .add_submessages(messages)
         .add_attributes(vec![
         attr("action", "redeem_for_collateral"),
         attr("sender", info.clone().sender),
@@ -1705,7 +1767,7 @@ pub fn redeem_for_collateral(
                 deps.querier
                     .query::<Vec<AssetResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
                         contract_addr: config.clone().oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                        msg: to_binary(&OracleQueryMsg::Assets {
+                        msg: to_json_binary(&OracleQueryMsg::Assets {
                             asset_infos: vec![asset.clone().asset.info],
                         })?,
                     }))?;
@@ -1734,7 +1796,7 @@ pub fn redeem_for_collateral(
 
                 msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: new_liq_queue.clone().unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                    msg: to_binary(&LQ_ExecuteMsg::AddQueue {
+                    msg: to_json_binary(&LQ_ExecuteMsg::AddQueue {
                         bid_for: asset.clone().asset.info,
                         max_premium,
                         //Bid total before bids go to the waiting queue. 
@@ -1787,6 +1849,12 @@ pub fn redeem_for_collateral(
         oracle_set: false,
         frozen: false,
         rev_to_stakers: true,
+        revenue_destinations: vec![
+            RevenueDestination {
+                destination: config.clone().staking_contract.unwrap(),
+                distribution_ratio: Decimal::one(),
+            }
+        ],
     };
 
     //Denom check
@@ -1801,7 +1869,7 @@ pub fn redeem_for_collateral(
     if let Some(liquidity_contract) = config.liquidity_contract {
         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: liquidity_contract.to_string(),
-            msg: to_binary(&LiquidityExecuteMsg::AddAsset {
+            msg: to_json_binary(&LiquidityExecuteMsg::AddAsset {
                 asset: LiquidityInfo {
                     asset: new_basket.clone().credit_asset.info,
                     pool_infos: credit_pool_infos,
@@ -1881,7 +1949,7 @@ pub fn edit_basket(
         if let Some(staking_contract) = config.clone().staking_contract {
             let mbrn_denom = deps.querier.query::<Staking_Config>(&QueryRequest::Wasm(WasmQuery::Smart { 
                 contract_addr: staking_contract.to_string(), 
-                msg: to_binary(&Staking_QueryMsg::Config { })? 
+                msg: to_json_binary(&Staking_QueryMsg::Config { })? 
             }))?
             .mbrn_denom;
 
@@ -1918,7 +1986,7 @@ pub fn edit_basket(
             let pool_state = match deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
                 WasmQuery::Smart {
                     contract_addr: config.clone().osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                    msg: match to_binary(&OsmoQueryMsg::PoolState {
+                    msg: match to_json_binary(&OsmoQueryMsg::PoolState {
                         id: pool_info.pool_id,
                     }) {
                         Ok(binary) => binary,
@@ -1969,7 +2037,7 @@ pub fn edit_basket(
             //Add share_token to the oracle
             msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.clone().oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                msg: to_binary(&OracleExecuteMsg::AddAsset { 
+                msg: to_json_binary(&OracleExecuteMsg::AddAsset { 
                     asset_info: new_cAsset.clone().asset.info,
                     oracle_info: AssetOracleInfo { 
                         basket_id: Uint128::one(), 
@@ -2007,7 +2075,7 @@ pub fn edit_basket(
                 deps.querier
                     .query::<Vec<AssetResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
                         contract_addr: config.clone().oracle_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                        msg: to_binary(&OracleQueryMsg::Assets {
+                        msg: to_json_binary(&OracleQueryMsg::Assets {
                             asset_infos: vec![new_cAsset.clone().asset.info],
                         })?,
                     }))?;
@@ -2033,7 +2101,7 @@ pub fn edit_basket(
 
             msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: basket.clone().liq_queue.unwrap_or_else(|| Addr::unchecked("")).into_string(),
-                msg: to_binary(&LQ_ExecuteMsg::AddQueue {
+                msg: to_json_binary(&LQ_ExecuteMsg::AddQueue {
                     bid_for: new_cAsset.clone().asset.info,
                     max_premium,
                     //Bid total before bids go to the waiting queue. 
@@ -2055,7 +2123,7 @@ pub fn edit_basket(
 
             msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: new_queue.into_string(),
-                msg: to_binary(&LQ_ExecuteMsg::AddQueue {
+                msg: to_json_binary(&LQ_ExecuteMsg::AddQueue {
                     bid_for: new_cAsset.clone().asset.info,
                     max_premium,
                     //Bid total before bids go to the waiting queue. 
@@ -2113,7 +2181,7 @@ pub fn edit_basket(
             //Set the credit Oracle. Using EditAsset updates or adds.
             msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: oracle_contract.to_string(),
-                msg: to_binary(&OracleExecuteMsg::EditAsset {
+                msg: to_json_binary(&OracleExecuteMsg::EditAsset {
                     asset_info: basket.clone().credit_asset.info,
                     oracle_info: Some(AssetOracleInfo {
                         basket_id: basket.clone().basket_id,
@@ -2140,7 +2208,7 @@ pub fn edit_basket(
         if let Some(liquidity_contract) = config.liquidity_contract {
             msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: liquidity_contract.to_string(),
-                msg: to_binary(&LiquidityExecuteMsg::EditAsset {
+                msg: to_json_binary(&LiquidityExecuteMsg::EditAsset {
                     asset: LiquidityInfo {
                         asset: basket.clone().credit_asset.info,
                         pool_infos,
@@ -2213,6 +2281,15 @@ pub fn edit_basket(
                         }
                     }
                 })?;
+            }
+        }
+    }
+
+    //If updating revenue destinations, validate all addresses
+    if let Some(destinations) = editable_parameters.clone().revenue_destinations {
+        for dest in destinations {
+            if let Err(_) = deps.api.addr_validate(&dest.destination.to_string()){
+                return Err(ContractError::CustomError { val: format!("Attempting to add invalid address as a revenue destination: {} ", dest.destination) });
             }
         }
     }
@@ -2377,7 +2454,7 @@ pub fn credit_mint_msg(
             if config.osmosis_proxy.is_some() {
                 let message = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: config.osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                    msg: to_binary(&OsmoExecuteMsg::MintTokens {
+                    msg: to_json_binary(&OsmoExecuteMsg::MintTokens {
                         denom,
                         amount: credit_asset.amount,
                         mint_to_address: recipient.to_string(),
@@ -2400,10 +2477,10 @@ pub fn credit_burn_rev_msg(
     env: Env, 
     credit_asset: Asset,
     basket: &mut Basket,
-) -> StdResult<Vec<CosmosMsg>> {
+) -> StdResult<Vec<SubMsg>> {
 
     //Calculate the amount to burn
-    let (burn_amount, revenue_amount) = {
+    let (mut burn_amount, revenue_amount) = {
         //If not sent to stakers, burn all
         if !basket.rev_to_stakers {
             (credit_asset.amount, Uint128::zero())
@@ -2429,39 +2506,69 @@ pub fn credit_burn_rev_msg(
             (credit_asset.amount, Uint128::zero())
         }        
     };
-    //Update pending_revenue
-    basket.pending_revenue -= revenue_amount;
 
     //Initialize messages
-    let mut messages = vec![];
-    
+    let mut messages: Vec<SubMsg> = vec![];
     if let AssetInfo::NativeToken { denom } = credit_asset.clone().info {
         if let Some(addr) = config.osmosis_proxy {
+
+            //Intialize total distributed revenue amount.
+            //The difference between revenue_amount & total_distributed will be burned. This is how we allow pending revenue to get a distribution.
+            let mut total_distributed = Uint128::zero();
+            //Create DepositFee Msgs
+            if !revenue_amount.is_zero() && !basket.revenue_destinations.is_empty(){
+
+                //Iterate over destinations
+                for destination in basket.revenue_destinations.clone() {
+                    //If the distribution ratio is 0, skip
+                    if destination.distribution_ratio.is_zero() {
+                        continue;
+                    }
+                    //Calculate the amount that will be sent to the destination
+                    let destination_revenue = revenue_amount * destination.distribution_ratio;
+
+                    //Add to total_distributed
+                    total_distributed += destination_revenue;
+
+                    //Create Msg
+                    let rev_message = CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: destination.destination.to_string(),
+                        msg: to_json_binary(&Staking_ExecuteMsg::DepositFee { })?,
+                        funds: vec![ asset_to_coin(Asset {
+                            amount: destination_revenue,
+                            info: credit_asset.info.clone(),
+                        })? ],
+                    });
+                    
+                    //Distribution msgs will be submsgs that reply on error & signify an issue so that incorrect structs don't error the whole flow
+                    messages.push(SubMsg::reply_on_error(rev_message, REVENUE_REPLY_ID));
+                }
+            }
+            
+            //Update pending_revenue
+            basket.pending_revenue -= total_distributed;
+
+            //Add any leftover revenue to the burn amount.
+            //Non-distributed revenue stays in pending.
+            let undistributed_revenue = match revenue_amount.checked_sub(total_distributed){
+                Ok( revenue ) => revenue,
+                Err( _err ) => return Err(StdError::GenericErr { msg: format!("Error calculating undistributed revenue, total_distributed {} > revenue_amount {}", total_distributed, revenue_amount) }),
+            };
+            //Add to burn amount
+            burn_amount += undistributed_revenue;
+
             if !burn_amount.is_zero() {    
                 //Create burn msg
                 let burn_message = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: addr.to_string(),
-                    msg: to_binary(&OsmoExecuteMsg::BurnTokens {
+                    msg: to_json_binary(&OsmoExecuteMsg::BurnTokens {
                         denom,
                         amount: burn_amount,
                         burn_from_address: env.contract.address.to_string(),
                     })?,
                     funds: vec![],
                 });
-                messages.push(burn_message);
-            }
-
-            //Create DepositFee Msg
-            if !revenue_amount.is_zero() && config.staking_contract.is_some(){
-                let rev_message = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: config.staking_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                    msg: to_binary(&Staking_ExecuteMsg::DepositFee { })?,
-                    funds: vec![ asset_to_coin(Asset {
-                        amount: revenue_amount,
-                        ..credit_asset
-                    })? ],
-                });
-                messages.push(rev_message);
+                messages.push(SubMsg::new(burn_message));
             }
 
             Ok(messages)

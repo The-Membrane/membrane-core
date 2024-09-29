@@ -60,6 +60,7 @@ pub enum QueryMsg {
     /// Return contract config
     Config {},
     VaultTokenUnderlying { vault_token_amount: Uint128 },
+    /// Don't use the leverage in the APR Response, check here for how its calc'd and displayed on the Membrane App: https://github.com/The-Membrane/membrane-app/blob/main/components/Earn/hooks/useEarnQueries.ts#L28
     APR {},
 }
 

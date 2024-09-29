@@ -515,13 +515,26 @@ pub struct Basket {
     pub negative_rates: bool, 
     /// Freeze withdrawals and debt increases to provide time to fix vulnerabilities
     pub frozen: bool, 
-    /// Toggle to allow stakers to automatically receive rate revenue
+    /// Toggle to allow revenue to be distributed to the revenue_destinations.
+    /// If false, revenue is left in pending_revenue.
     pub rev_to_stakers: bool,
     /// % difference btwn credit TWAP and redemption price before the controller is effected.
     /// Set to 100 if you want to turn off the controller.
     pub cpc_margin_of_error: Decimal,
     /// Liquidation queue contract address
     pub liq_queue: Option<Addr>,
+    /// Revenue destinations distribution
+    /// All destinations must have a DepositFee execute msg entrypoint.
+    /// The remaining ratio space is left in pending revenue a la the 'Insurance Fund'.
+    pub revenue_destinations: Vec<RevenueDestination>,
+}
+
+#[cw_serde]
+pub struct RevenueDestination {
+    /// Revenue destination
+    pub destination: Addr,
+    /// Distribution ratio
+    pub distribution_ratio: Decimal,
 }
 
 #[cw_serde]

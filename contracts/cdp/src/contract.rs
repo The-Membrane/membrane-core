@@ -1,18 +1,19 @@
 use std::env;
+use std::str::FromStr;
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env,
-    MessageInfo, Reply, Response, StdError, StdResult, Uint128, WasmMsg,
+    attr, to_binary, to_json_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Reply, Response, StdError, StdResult, Uint128, WasmMsg
 };
 
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
-use membrane::helpers::assert_sent_native_token_balance;
+use membrane::staking::ExecuteMsg as Staking_ExecuteMsg;
+use membrane::helpers::{assert_sent_native_token_balance, asset_to_coin};
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, MigrateMsg};
 use membrane::types::{
-    cAsset, Asset, AssetInfo, Basket, UserInfo,
+    cAsset, Asset, AssetInfo, Basket, RevenueDestination, UserInfo
 };
 use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 
@@ -24,13 +25,13 @@ use crate::positions::{
     edit_basket, increase_debt,
     liq_repay, repay, redeem_for_collateral, edit_redemption_info,
     withdraw, BAD_DEBT_REPLY_ID, WITHDRAW_REPLY_ID,
-    LIQ_QUEUE_REPLY_ID, USER_SP_REPAY_REPLY_ID, create_basket,
+    LIQ_QUEUE_REPLY_ID, REVENUE_REPLY_ID, create_basket,
 };
 use crate::query::{
     query_basket_credit_interest, query_basket_debt_caps, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint
 };
 use crate::liquidations::liquidate;
-use crate::reply::{handle_liq_queue_reply, handle_withdraw_reply};
+use crate::reply::{handle_liq_queue_reply, handle_withdraw_reply, handle_revenue_reply};
 use crate::state::{ get_target_position, update_position, ContractVersion, POSITIONS, LIQUIDATION, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER, VOLATILITY };
 
 // version info for migration info
@@ -64,6 +65,7 @@ pub fn instantiate(
         collateral_twap_timeframe: msg.collateral_twap_timeframe,
         credit_twap_timeframe: msg.credit_twap_timeframe,
         rate_hike_rate: Some(Decimal::percent(30)),
+        redemption_fee: Some(Decimal::from_str("0.005").unwrap()), //0.5%
     };
 
     //Set optional config parameters
@@ -209,7 +211,7 @@ pub fn execute(
         ExecuteMsg::EditRedeemability { position_ids, redeemable, premium, max_loan_repayment, restricted_collateral_assets } => {
             edit_redemption_info(
                 deps.storage,
-                info, 
+                info.sender, 
                 position_ids, 
                 redeemable, 
                 premium, 
@@ -526,6 +528,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         LIQ_QUEUE_REPLY_ID => handle_liq_queue_reply(deps, msg, env),
         WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
+        REVENUE_REPLY_ID => handle_revenue_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
@@ -587,5 +590,54 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    Ok(Response::default())
+    //Set config's new redemption fee
+    let mut config = CONFIG.load(deps.storage)?;
+    //Set redemption fee
+    config.redemption_fee = Some(Decimal::from_str("0.005").unwrap()); //0.5%
+    CONFIG.save(deps.storage, &config)?;
+
+    //Set redemption info for position 433    
+    edit_redemption_info(
+        deps.storage,
+        Addr::unchecked("osmo1vf6e300hv2qe7r5rln8deft45ewgyytjnwfrdfcv5rgzrfy0s6cswjqf9r"),
+        vec![Uint128::new(433u128)],
+        Some(true),
+        Some(1),
+        Some(Decimal::one()),
+        None,
+        true,
+    )?;
+
+    //Set basket's new revenue distribution
+    let mut basket = BASKET.load(deps.storage)?;
+    basket.revenue_destinations = vec![
+        //Initialize the staker destination but send nada
+        RevenueDestination {
+            destination: Addr::unchecked("osmo1fty83rfxqs86jm5fmlql5e340e8pe0v9j8ez0lcc6zwt2amegwvsfp3gxj"),
+            distribution_ratio: Decimal::percent(0),
+        },        
+        //Send all revenue to the Stability Pool now
+        RevenueDestination {
+            destination: Addr::unchecked("osmo1326cxlzftxklgf92vdep2nvmqffrme0knh8dvugcn9w308ya9wpqv03vk8"),
+            distribution_ratio: Decimal::percent(100),
+        },
+    ];
+    //Turn rev distribution back on 
+    basket.rev_to_stakers = true;
+    //Set the new basket
+    BASKET.save(deps.storage, &basket)?;
+
+    //FIGURE OUT HOW TO TEST A SEND TO THE NEW DISTRIBUTIONS HERE
+    //Just send a DepositFee msg to the SP for 1 CDT
+    let test_deposit_fee_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: Addr::unchecked("osmo1326cxlzftxklgf92vdep2nvmqffrme0knh8dvugcn9w308ya9wpqv03vk8").to_string(),
+        msg: to_json_binary(&Staking_ExecuteMsg::DepositFee { })?,
+        funds: vec![ asset_to_coin(Asset {
+            amount: Uint128::new(1_000_000u128),
+            info: basket.credit_asset.info.clone(),
+        })? ],
+    });
+
+    //Return response
+    Ok(Response::default().add_message(test_deposit_fee_msg))
 }

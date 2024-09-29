@@ -8,31 +8,20 @@ use membrane::helpers::{withdrawal_msg, get_contract_balances};
 use crate::risk_engine::update_basket_tally;
 use crate::state::{LiquidationPropagation, LIQUIDATION, WITHDRAW, BASKET, get_target_position, update_position};
 
-/// On error of a user's Stability Pool repayment, leave leftover to the SP within the LQ reply.
-// #[allow(unused_variables)]
-// pub fn handle_user_sp_repay_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
-//     match msg.result.into_result() {
-//         Ok(_result) => {
-//             //Its reply on error only
-//             Ok(Response::new())
-//         }        
-//         Err(string) => {
-//             //Readd the leftover to the repay amount tally that will go to the SP after the last successful LQ call.
-//             //This was removed in the inital user repay call
-//             let mut prop: LiquidationPropagation = LIQUIDATION.load(deps.storage)?;
-
-//             let leftover = prop.clone().user_repay_amount;
-//             prop.liq_queue_leftovers += leftover;
-//             prop.user_repay_amount = Decimal::zero();
-
-//             LIQUIDATION.save(deps.storage, &prop)?;
-
-//             Ok(Response::new()
-//                 .add_attribute("error", string)
-//                 .add_attribute("repay_amount_added_to_tally", leftover.to_string()))
-//         }
-//     }
-// }
+//Signify the revenue destination that errored without halting the msg flow
+#[allow(unused_variables)]
+pub fn handle_revenue_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => {
+            //Its reply on error only
+            Ok(Response::new())
+        }        
+        Err(string) => {
+            Ok(Response::new()
+                .add_attribute("error_while_distributing_revenue", string))
+        }
+    }
+}
 
 /// Validate withdrawls by asserting that the amount withdrawn is less than or equal to the amount of the asset in the contract.
 /// Assert new cAssets amount was saved correctly.

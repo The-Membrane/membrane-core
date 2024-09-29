@@ -15,7 +15,7 @@ use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, PoolStateResponse, AssetPool};
 
 use crate::error::ContractError; 
-use crate::positions::{BAD_DEBT_REPLY_ID, USER_SP_REPAY_REPLY_ID, LIQ_QUEUE_REPLY_ID};
+use crate::positions::{BAD_DEBT_REPLY_ID, LIQ_QUEUE_REPLY_ID};
 use crate::query::{insolvency_check, get_cAsset_ratios};
 use crate::risk_engine::update_basket_tally;
 use crate::state::{get_target_position, update_position, LiquidationPropagation, Timer, BASKET, CONFIG, FREEZE_TIMER, LIQUIDATION};

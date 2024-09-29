@@ -198,6 +198,7 @@ mod tests {
                             credit_last_accrued: 0,
                             rates_last_accrued: 0,
                             oracle_set: false,
+                            revenue_destinations: vec![],
                         })?)
                     }
                 }

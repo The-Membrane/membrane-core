@@ -464,6 +464,7 @@ mod tests {
             user_info: UserInfo,
             repayment: Asset,
         },
+        DepositFee { },
     }
 
     
@@ -567,6 +568,7 @@ mod tests {
                         user_info: _,
                         repayment: _,
                     } => Ok(Response::new()),
+                    SP_MockExecuteMsg::DepositFee { } => Ok(Response::new()),
                 }
             },
             |_, _, _, _: SP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -614,6 +616,7 @@ mod tests {
                         user_info: _,
                         repayment: _,
                     } => Ok(Response::new()),
+                    SP_MockExecuteMsg::DepositFee { } => Ok(Response::new()),
                 }
             },
             |_, _, _, _: SP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -661,6 +664,9 @@ mod tests {
                         repayment: _,
                     } => Err(StdError::GenericErr {
                         msg: String::from("erroar"),
+                    }),
+                    SP_MockExecuteMsg::DepositFee { } => Err(StdError::GenericErr {
+                        msg: String::from("erroar I say"),
                     }),
                 }
             },
@@ -712,6 +718,7 @@ mod tests {
                         user_info: _,
                         repayment: _,
                     } => Ok(Response::new()),
+                    SP_MockExecuteMsg::DepositFee { } => Ok(Response::new()),
                 }
             },
             |_, _, _, _: SP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -756,6 +763,7 @@ mod tests {
                         user_info: _,
                         repayment: _,
                     } => Ok(Response::new()),
+                    SP_MockExecuteMsg::DepositFee { } => Ok(Response::new()),
                 }
             },
             |_, _, _, _: SP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -806,6 +814,7 @@ mod tests {
                         user_info: _,
                         repayment: _,
                     } => Ok(Response::new()),
+                    SP_MockExecuteMsg::DepositFee { } => Ok(Response::new()),
                 }
             },
             |_, _, _, _: SP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
@@ -1844,6 +1853,7 @@ mod tests {
             frozen: None,
             rev_to_stakers: None,
             multi_asset_supply_caps: None,
+            revenue_destinations: None,
             credit_pool_infos: None,
             take_revenue: None,
         });
@@ -1855,13 +1865,15 @@ mod tests {
 
     mod cdp {
 
+        use crate::rates::SECONDS_PER_YEAR;
+
         use super::*;
         use cosmwasm_std::{coins, BlockInfo};
         use membrane::cdp::{
             CollateralInterestResponse, Config, BasketPositionsResponse,
             ExecuteMsg, InsolvencyResponse, PositionResponse, InterestResponse, RedeemabilityResponse
         };
-        use membrane::types::{InsolventPosition, LPAssetInfo, PoolInfo, SupplyCap, UserInfo, Basket};
+        use membrane::types::{Basket, InsolventPosition, LPAssetInfo, PoolInfo, RevenueDestination, SupplyCap, UserInfo};
 
         #[test]
         fn freeze(){
@@ -1894,6 +1906,7 @@ mod tests {
                 frozen: Some(true),
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1930,6 +1943,7 @@ mod tests {
                 frozen: Some(false),
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1967,6 +1981,7 @@ mod tests {
                 frozen: Some(true),
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2001,6 +2016,7 @@ mod tests {
                 frozen: Some(false),
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2035,6 +2051,7 @@ mod tests {
                 frozen: Some(true),
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2063,6 +2080,7 @@ mod tests {
                 frozen: Some(false),
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2099,6 +2117,7 @@ mod tests {
                 frozen: Some(true),
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2128,6 +2147,7 @@ mod tests {
                 frozen: Some(false),
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2157,6 +2177,7 @@ mod tests {
                 frozen: Some(true),
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2183,6 +2204,7 @@ mod tests {
                 frozen: Some(false),
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2199,7 +2221,7 @@ mod tests {
             //Skip 12 hours
             app.set_block(BlockInfo {
                 height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(43200), //Added a year
+                time: app.block_info().time.plus_seconds(43200),
                 chain_id: app.block_info().chain_id,
             });           
 
@@ -2249,6 +2271,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2572,6 +2595,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
                 take_revenue: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -2812,6 +2836,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3060,6 +3085,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3090,6 +3116,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3181,6 +3208,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3500,6 +3528,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3530,6 +3559,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3621,6 +3651,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3810,6 +3841,7 @@ mod tests {
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
                 rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3848,6 +3880,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3878,6 +3911,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3969,6 +4003,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4087,6 +4122,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4264,6 +4300,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4417,6 +4454,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4521,6 +4559,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4551,6 +4590,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4642,6 +4682,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4818,6 +4859,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4868,6 +4910,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4930,6 +4973,16 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: Some(vec![
+                    RevenueDestination {
+                        destination: staking_contract.clone(),
+                        distribution_ratio: Decimal::percent(10),
+                    },
+                    RevenueDestination {
+                        destination: sp_addr.clone(),
+                        distribution_ratio: Decimal::percent(40),
+                    }
+                ]),
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4967,6 +5020,45 @@ mod tests {
             )
             .unwrap();
 
+            //Assert revenue is 0
+            let query_msg = QueryMsg::GetBasket { };
+            let res: Basket = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(res.pending_revenue, Uint128::zero());
+
+            //Skip a year
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position manually
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: None,
+            };
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("test"), cosmos_msg)
+                .unwrap();
+
+            //Assert revenue
+            let query_msg = QueryMsg::GetBasket { };
+            let res: Basket = app
+                .wrap()
+                .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(res.pending_revenue, Uint128::new(1428542857u128));
+
+            
+            //Check SP balance pre-revenue distribution
+            assert_eq!(
+                app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
+                vec![coin(2777777777, "credit_fulldenom")]
+            );
+
             //Successful repayment that will leave the accrued interest left
             let msg = ExecuteMsg::Repay {
                 position_id: Uint128::from(1u128),
@@ -4976,11 +5068,6 @@ mod tests {
             let cosmos_msg = cdp_contract
                 .call(msg, vec![coin(49_000_000_000, "credit_fulldenom")])
                 .unwrap();
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
-                chain_id: app.block_info().chain_id,
-            });
             app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
 
             let query_msg = QueryMsg::GetBasket { };
@@ -4988,24 +5075,20 @@ mod tests {
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            ///1428 revenue that all went to the staking contract
-            assert_eq!(res.pending_revenue.to_string(), String::from("0"));
+            //50% of the revenue stays in penfing
+            assert_eq!(res.pending_revenue, Uint128::new(714271430u128));
+            ////50% of the revenue is distributed///
+            // Staking gets 10% of the revenue
             assert_eq!(
                 app.wrap().query_all_balances(staking_contract).unwrap(),
-                vec![coin(1428542857, "credit_fulldenom")]
+                vec![coin(142854285, "credit_fulldenom")]
             );
-
-            // //Successful Mint
-            // let msg = ExecuteMsg::MintRevenue {
-            //     send_to: Some(String::from("revenue_collector")),
-            //     repay_for: None,
-            //     amount: None,
-            // };
-            // let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            // app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Mint fields are asserted in the msg handler
-            //So as long as the Osmo Proxy contract works, the mint will
+            //SP gets 40% of the revenue
+            assert_eq!(
+                app.wrap().query_all_balances(sp_addr).unwrap(),
+                vec![coin(3349194919, "credit_fulldenom")]//pre-rev: 2777777777, post-rev: 3349194919, new-rev: 571,417,142
+            );
+            // 714271430 + 142854285 + 571417142 = 1428542857 (total revenue)            
         }
 
         #[test]
@@ -5044,6 +5127,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5197,6 +5281,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5347,6 +5432,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5463,6 +5549,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5588,6 +5675,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5722,6 +5810,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5752,6 +5841,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5844,6 +5934,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5969,6 +6060,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5999,6 +6091,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6091,6 +6184,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6207,6 +6301,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6237,6 +6332,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6329,6 +6425,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6454,6 +6551,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6484,6 +6582,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6576,6 +6675,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6704,6 +6804,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6847,6 +6948,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6871,6 +6973,7 @@ mod tests {
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
                 rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7003,6 +7106,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7027,6 +7131,7 @@ mod tests {
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
                 rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7144,6 +7249,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7174,6 +7280,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7263,6 +7370,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7424,6 +7532,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7512,6 +7621,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7607,6 +7717,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7740,6 +7851,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7859,6 +7971,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7957,6 +8070,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7987,6 +8101,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8076,6 +8191,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8225,6 +8341,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8255,6 +8372,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8344,6 +8462,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8493,6 +8612,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8523,6 +8643,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8620,6 +8741,7 @@ mod tests {
                         supply_cap_ratio: Decimal::percent(50),
                     }
                 ]),
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8769,6 +8891,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8799,6 +8922,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8888,6 +9012,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8963,6 +9088,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9076,6 +9202,7 @@ mod tests {
                 cpc_multiplier: Some(Decimal::percent(50)),
                 rate_slope_multiplier: Some(Decimal::percent(2)), 
                 rate_hike_rate: Some(Decimal::one()),
+                redemption_fee: Some(Decimal::percent(1)),
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9106,6 +9233,7 @@ mod tests {
                     cpc_multiplier: Decimal::percent(50),
                     rate_slope_multiplier: Decimal::percent(2), 
                     rate_hike_rate: Some(Decimal::one()),
+                    redemption_fee: Some(Decimal::percent(1)),
                 }
             );
 
@@ -9130,6 +9258,7 @@ mod tests {
                 cpc_multiplier: None, 
                 rate_slope_multiplier: Some(Decimal::percent(3)), 
                 rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
@@ -9160,6 +9289,7 @@ mod tests {
                     cpc_multiplier: Decimal::percent(50),
                     rate_slope_multiplier: Decimal::percent(3),
                     rate_hike_rate: Some(Decimal::one()),
+                    redemption_fee: Some(Decimal::percent(1)),
                 }
             );
 
@@ -9195,6 +9325,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9300,6 +9431,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9377,6 +9509,12 @@ mod tests {
                 .call(exec_msg, vec![coin(1, "debit")])
                 .unwrap();
             let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
+            let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap();
             //This one should fail
             let res = app.execute(Addr::unchecked("owner"), cosmos_msg.clone()).unwrap_err();
         }
@@ -9408,6 +9546,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9485,6 +9624,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9600,6 +9740,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9725,6 +9866,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();           
@@ -9760,6 +9902,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap(); 
@@ -9896,6 +10039,7 @@ mod tests {
         //         frozen: None,
         //         rev_to_stakers: None,
         //         multi_asset_supply_caps: None,
+                // revenue_destinations: None,
         //         take_revenue: None,
         //     });
         //     let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -9925,6 +10069,7 @@ mod tests {
         //         frozen: None,
         //         rev_to_stakers: None,
         //         multi_asset_supply_caps: None,
+                // revenue_destinations: None,
         //         take_revenue: None,
         //     });
         //     let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -10015,6 +10160,7 @@ mod tests {
         //         frozen: None,
         //         rev_to_stakers: None,
         //         multi_asset_supply_caps: None,
+                // revenue_destinations: None,
         //         take_revenue: None,
         //     });
         //     let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -10196,6 +10342,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10263,7 +10410,7 @@ mod tests {
             };
             let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![]).unwrap();
             let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
-            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"Max loan repayment can't be greater than 100%\""));
+            assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"Max loan repayment can't be 0% or greater than 100%\""));
 
             //Success, set redeemable
             let redemption_msg = ExecuteMsg::EditRedeemability { 
@@ -10326,7 +10473,7 @@ mod tests {
             };
             let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![]).unwrap();
             let err = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
-            assert_eq!(err.root_cause().to_string(), String::from("Generic error: User does not own this position id"));
+            assert_eq!(err.root_cause().to_string(), String::from("Position doesn't exist: 0"));
             
             //No ID specified
             let redemption_msg = ExecuteMsg::EditRedeemability { 
@@ -10555,6 +10702,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10598,6 +10746,8 @@ mod tests {
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg).unwrap();
+
+
             
             ////Redeem///// (No enabled positions yet)
             //Error
@@ -10651,8 +10801,8 @@ mod tests {
             assert_eq!(
                 app.wrap().query_all_balances(Addr::unchecked("redeemer")).unwrap(),
                 vec![
-                    coin(86000_000000, "credit_fulldenom"),  
-                    coin(11600_000000, "debit"), 
+                    coin(87940_000000, "credit_fulldenom"),  
+                    coin(9800_000000, "debit"), 
                     coin(1, "not_redeemable")]
             );
 
@@ -10671,8 +10821,8 @@ mod tests {
                     ),
                 })
                 .unwrap();
-            assert_eq!(position[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(96_400_000000));
-            assert_eq!(position[0].positions[0].credit_amount, Uint128::new(0));
+            assert_eq!(position[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98200_000000));
+            assert_eq!(position[0].positions[0].credit_amount, Uint128::new(2000_000000));
 
             let position_2: Vec<BasketPositionsResponse> = app
                 .wrap()
@@ -10725,6 +10875,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10755,6 +10906,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10785,6 +10937,7 @@ mod tests {
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10877,13 +11030,14 @@ mod tests {
                         stability_pool_ratio_for_debt_cap: None,
                     },
                 ]),
-                base_interest_rate: None,
+                base_interest_rate: Some(Decimal::percent(5)),
                 credit_asset_twap_price_source: None,
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
                 rev_to_stakers: None,
                 multi_asset_supply_caps: None,
+                revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10915,6 +11069,13 @@ mod tests {
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Skip 2222222 seconds
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(2222222),
+                chain_id: app.block_info().chain_id,
+            });
 
             //Set #1 to 10% premium
             let redemption_msg = ExecuteMsg::EditRedeemability { 
@@ -10968,15 +11129,37 @@ mod tests {
             let err = app.execute(Addr::unchecked("redeemer"), cosmos_msg).unwrap_err();
             assert_eq!(err.root_cause().to_string(), String::from("Custom Error val: \"No collateral to redeem with at this max premium\""));  
 
+            
+            //Assert pre-revenue contract5 balances
+            assert_eq!(
+                app.wrap().query_all_balances("contract5").unwrap(),
+                vec![]
+            );
+
             //Successful redemption
             let redemption_msg = ExecuteMsg::RedeemCollateral { max_collateral_premium: Some(10) };          
             let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![coin(100_000_000000, "credit_fulldenom")]).unwrap();
             app.execute(Addr::unchecked("redeemer"), cosmos_msg).unwrap();
+
+            //Assert revenue was sent to contract5
+            assert_eq!(
+                app.wrap().query_all_balances("contract5").unwrap(),
+                vec![coin(75333994, "credit_fulldenom")] //50333994 (rate rev) + 25_000_000 (0.5% redemption fee rev) = 75_333_994
+            );
+
+            //Assert pending revenue is back to 0
+            let query_msg = QueryMsg::GetBasket {};
+            let res = app
+                .wrap()
+                .query_wasm_smart::<Basket>(cdp_contract.addr(), &query_msg.clone())
+                .unwrap();
+            assert_eq!(res.pending_revenue, Uint128::zero());
+
             //Assert that the collateral & excess was sent to the redeemer
             assert_eq!(
                 app.wrap().query_all_balances(Addr::unchecked("redeemer")).unwrap(),
                 vec![
-                    coin(95000_000000, "credit_fulldenom"), //excess
+                    coin(94975_000000, "credit_fulldenom"), //excess (redeemed 5000_000000 + paid 25_000_000 fee)
                     //user pays 5k for 4500 worth 
                     coin(1499_999999, "debit"),// (1499)
                     coin(1499_999999999999998500, "lp_denom"), //(1499 * 2)
@@ -11000,7 +11183,7 @@ mod tests {
                 .unwrap();
             assert_eq!(position[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98500_000001));
             assert_eq!(position[0].positions[0].collateral_assets[1].asset.amount, Uint128::new(98500_000000000000001500));
-            assert_eq!(position[0].positions[0].credit_amount, Uint128::new(45000_000000));  
+            assert_eq!(position[0].positions[0].credit_amount, Uint128::new(45050_333994));  //accrued debt
 
             //Assert remaining loan repayment is 0'd
             let query_msg = QueryMsg::GetBasketRedeemability { 
@@ -11012,16 +11195,16 @@ mod tests {
                 .wrap()
                 .query_wasm_smart::<RedeemabilityResponse>(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            //Bc the remaining loan repayment is 0'd, the position is not redeemable
-            //Length is only the 2nd position
-            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos.len(), 1 as usize);
+            //Bc the remaining loan repayment is 0'd, the 1st position is not redeemable
+            //The 2nd position got deleted bc it has fully restricted assets
+            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos.len(), 0 as usize);
 
             //Reset #1's loan repayment cap but restrict the collateral to only debit
             let redemption_msg = ExecuteMsg::EditRedeemability { 
                 position_ids: vec![Uint128::one()], 
                 redeemable: Some(true),
                 premium: Some(10),
-                max_loan_repayment: Some(Decimal::percent(10)),
+                max_loan_repayment: Some(Decimal::percent(100)),
                 restricted_collateral_assets: Some(vec![String::from("lp_denom")]),
             };
             let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![]).unwrap();
@@ -11037,23 +11220,23 @@ mod tests {
                 .wrap()
                 .query_wasm_smart::<RedeemabilityResponse>(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[1].remaining_loan_repayment, Uint128::new(4500_000000));
+            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[0].remaining_loan_repayment, Uint128::new(45050_333994));
 
             //Successful restricted redemption
             let redemption_msg = ExecuteMsg::RedeemCollateral { max_collateral_premium: None };          
-            let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![coin(4_000_000000, "credit_fulldenom")]).unwrap();
+            let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![coin(50000_000000, "credit_fulldenom")]).unwrap();
             app.execute(Addr::unchecked("redeemer"), cosmos_msg).unwrap();
             //Assert that the collateral & excess was sent to the redeemer
             assert_eq!(
                 app.wrap().query_all_balances(Addr::unchecked("redeemer")).unwrap(),
                 vec![
-                    coin(91000_000000, "credit_fulldenom"),  
-                    coin(5099_999999, "debit"), //5099 - 1499 = 3600 new debit redeemed
+                    coin(51709_414336, "credit_fulldenom"),  // redeemed 43,050,333,994 - 215,251,669.97 fee
+                    coin(40245_300593, "debit"), //40245 - 1499 = 38,746 new debit redeemed
                     coin(1499_999999999999998500, "lp_denom"), //No extra since restricted
                     coin(1, "not_redeemable")]
             );
 
-            //Assert Positions were updated
+            //Assert Positions were updated & debt minimum was held
             let position: Vec<BasketPositionsResponse> = app
                 .wrap()
                 .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetBasketPositions {
@@ -11068,12 +11251,11 @@ mod tests {
                     ),
                 })
                 .unwrap();
-            assert_eq!(position[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(94900_000001));
+            assert_eq!(position[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(59754_699407));
             assert_eq!(position[0].positions[0].collateral_assets[1].asset.amount, Uint128::new(98500_000000000000001500));
-            assert_eq!(position[0].positions[0].credit_amount, Uint128::new(41000_000000));  
+            assert_eq!(position[0].positions[0].credit_amount, Uint128::new(2000_000000));  
 
             //Assert Pos #1 remaining loan repayment is updated from a partial full
-            //while Pos #2 is still 5k bc all assets were restricted
             let query_msg = QueryMsg::GetBasketRedeemability { 
                 position_owner: None,
                 start_after: None, 
@@ -11083,8 +11265,14 @@ mod tests {
                 .wrap()
                 .query_wasm_smart::<RedeemabilityResponse>(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();            
-            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[0].remaining_loan_repayment, Uint128::new(5000_000000));
-            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[1].remaining_loan_repayment, Uint128::new(500_000000));
+            //this isn't 2k bc the accrual happens during the redemption, not before the edit redemption
+            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[0].remaining_loan_repayment, Uint128::new(2000_000000)); 
+            
+            //Attempt to redeem the rest of the debt even tho its at the minimum: error
+            let redemption_msg = ExecuteMsg::RedeemCollateral { max_collateral_premium: None };          
+            let cosmos_msg = cdp_contract.call(redemption_msg.clone(), vec![coin(45000_000000, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked("redeemer"), cosmos_msg).unwrap_err();
+            
         }
     }
 }

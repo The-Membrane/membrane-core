@@ -2,7 +2,7 @@ use cosmwasm_std::{Addr, Decimal, Uint128, StdResult, Api, StdError};
 use cosmwasm_schema::cw_serde;
 
 use crate::types::{
-    cAsset, Asset, AssetInfo, InsolventPosition,
+    cAsset, Asset, AssetInfo, InsolventPosition, RevenueDestination,
     SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType, Basket, equal, PremiumInfo,
 };
 
@@ -12,7 +12,7 @@ pub struct InstantiateMsg {
     pub owner: Option<String>,
     /// Seconds until oracle failure is accepted
     pub oracle_time_limit: u64, 
-    /// Minimum debt per position to ensure liquidatibility 
+    /// Minimum debt value per position to ensure liquidatibility 
     pub debt_minimum: Uint128, 
     /// Protocol liquidation fee to restrict self liquidations
     pub liq_fee: Decimal,
@@ -258,6 +258,9 @@ pub struct Config {
     pub rate_slope_multiplier: Decimal,
     /// Rate hike rate
     pub rate_hike_rate: Option<Decimal>,
+    /// Redemption Fee
+    //This is only optional for backwards compatibility & should never be None as we do a bare unwrap() call in redeem_for_collateral()
+    pub redemption_fee: Option<Decimal>, 
 }
 
 
@@ -321,6 +324,8 @@ pub struct UpdateConfig {
     pub rate_slope_multiplier: Option<Decimal>,
     /// Rate hike rate
     pub rate_hike_rate: Option<Decimal>,
+    /// Redemption Fee
+    pub redemption_fee: Option<Decimal>,
 }
 
 impl UpdateConfig {
@@ -397,6 +402,13 @@ impl UpdateConfig {
         if let Some(new_rate) = self.rate_hike_rate {
             config.rate_hike_rate = Some(new_rate);
         }
+        if let Some(redemption_fee) = self.redemption_fee {
+            //Enforce 0-100% range
+            if redemption_fee >= Decimal::percent(100) || redemption_fee < Decimal::zero() {
+                return Err(StdError::GenericErr{ msg: String::from("Redemption fee must be between 0-99%") });
+            }
+            config.redemption_fee = Some(redemption_fee);
+        }
         Ok(())
     }
 }
@@ -428,6 +440,8 @@ pub struct EditBasket {
     pub rev_to_stakers: Option<bool>,
     /// Take revenue, used as a way to distribute revenue
     pub take_revenue: Option<Uint128>,
+    /// Set destination ratios for revenue distribution
+    pub revenue_destinations: Option<Vec<RevenueDestination>>,
 }
 
 impl EditBasket {    
@@ -495,6 +509,21 @@ impl EditBasket {
                 Ok(val) => val,
                 Err(_) => Uint128::zero(),
             };
+        }
+        if let Some(revenue_destinations) = self.revenue_destinations {
+            for new_dest in revenue_destinations {
+                if let Some((index, _dest)) = basket.clone().revenue_destinations
+                    .into_iter()
+                    .enumerate()
+                    .find(|(_x, current_dest)| current_dest.destination == new_dest.destination)
+                {
+                    //Set new ratio
+                    basket.revenue_destinations[index].distribution_ratio = new_dest.distribution_ratio;
+                } else {
+                    //Add new destination
+                    basket.revenue_destinations.push(new_dest);
+                }
+            }
         }
         basket.oracle_set = oracle_set;
 

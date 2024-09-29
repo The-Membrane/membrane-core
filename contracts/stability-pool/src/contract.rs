@@ -1098,7 +1098,7 @@ pub fn deposit_fee(
     }
     
     //Assert that the deposit isn't spam of miniscule amounts.
-    if info.funds[0].amount < config.minimum_deposit_amount {
+    if info.funds[0].amount < config.minimum_deposit_amount && info.sender != config.positions_contract {
         return Err(ContractError::MinimumDeposit { min: config.minimum_deposit_amount });
     }
     
@@ -1208,8 +1208,7 @@ pub fn compound_fee(
     fee_list = fee_list
         .into_iter()
         .skip(events_compounded as usize)
-        .collect::<Vec<FeeEvent>>();   
-
+        .collect::<Vec<FeeEvent>>();
 
     //Set & save Asset Pool's new deposits
     asset_pool.deposits = deposits;

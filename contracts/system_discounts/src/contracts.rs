@@ -271,7 +271,7 @@ fn get_user_value_in_network(
     //     total_value += get_incentive_gauge_value(querier, config.clone(), accepted_lps, user.clone(), config.clone().minimum_time_in_network)?;
     // }
 
-    total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone())?;
+    // total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone())?;
     total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price_res.clone(), credit_price.clone().price)?;
     
     
@@ -279,75 +279,75 @@ fn get_user_value_in_network(
 }
 
 /// Return value of LPs in Osmosis Incentive Lockups
-fn get_incentive_gauge_value(
-    querier: QuerierWrapper,
-    config: Config,
-    valid_denoms: Vec<AssetInfo>,
-    user: String,
-    minimum_time_in_network: u64,
-) -> StdResult<Decimal>{
-    //Initialize user_locked_value
-    let mut user_locked_value = Decimal::zero();
+// fn get_incentive_gauge_value(
+//     querier: QuerierWrapper,
+//     config: Config,
+//     valid_denoms: Vec<AssetInfo>,
+//     user: String,
+//     minimum_time_in_network: u64,
+// ) -> StdResult<Decimal>{
+//     //Initialize user_locked_value
+//     let mut user_locked_value = Decimal::zero();
 
-    //Parse through all valid denoms
-    for denom in valid_denoms {
-        let res: AccountLockedLongerDurationDenomResponse = LockupQuerier::account_locked_longer_duration_denom(
-            &LockupQuerier::new(&querier),
-            user.clone(),
-            Some(Duration { 
-                seconds: ((minimum_time_in_network * SECONDS_PER_DAY) - 1) as i64, 
-                nanos: 0 }),
-            denom.to_string(),
-        )?;
+//     //Parse through all valid denoms
+//     for denom in valid_denoms {
+//         let res: AccountLockedLongerDurationDenomResponse = LockupQuerier::account_locked_longer_duration_denom(
+//             &LockupQuerier::new(&querier),
+//             user.clone(),
+//             Some(Duration { 
+//                 seconds: ((minimum_time_in_network * SECONDS_PER_DAY) - 1) as i64, 
+//                 nanos: 0 }),
+//             denom.to_string(),
+//         )?;
 
 
-        //Parse through all locks, price, & value
-        for user_lock_period in res.locks.clone().into_iter(){
-            //Parse thru locked coins in the lock
-            for coin in user_lock_period.coins {
-                let coin_price = match querier.query::<Vec<PriceResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
-                    contract_addr: config.clone().oracle_contract.to_string(),
-                    msg: to_binary(&Oracle_QueryMsg::Price {
-                        asset_info: AssetInfo::NativeToken { denom: coin.clone().denom },
-                        twap_timeframe: 60,
-                        oracle_time_limit: 600,
-                        basket_id: None,
-                    })?,
-                })){
-                    Ok(price) => price[0].clone(),
-                    Err(_) => continue,
-                };
+//         //Parse through all locks, price, & value
+//         for user_lock_period in res.locks.clone().into_iter(){
+//             //Parse thru locked coins in the lock
+//             for coin in user_lock_period.coins {
+//                 let coin_price = match querier.query::<Vec<PriceResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
+//                     contract_addr: config.clone().oracle_contract.to_string(),
+//                     msg: to_binary(&Oracle_QueryMsg::Price {
+//                         asset_info: AssetInfo::NativeToken { denom: coin.clone().denom },
+//                         twap_timeframe: 60,
+//                         oracle_time_limit: 600,
+//                         basket_id: None,
+//                     })?,
+//                 })){
+//                     Ok(price) => price[0].clone(),
+//                     Err(_) => continue,
+//                 };
     
-                //If price is found, add its value
-                user_locked_value += coin_price.get_value(Uint128::from_str(&coin.clone().amount).unwrap())?;
-            }
-        }
+//                 //If price is found, add its value
+//                 user_locked_value += coin_price.get_value(Uint128::from_str(&coin.clone().amount).unwrap())?;
+//             }
+//         }
 
-    }
+//     }
     
-    Ok(user_locked_value)
-}
+//     Ok(user_locked_value)
+// }
 
 /// Return value of LPs in the discount vault
-fn get_discounts_vault_value(
-    querier: QuerierWrapper,
-    discount_vault: Addr,
-    user: String,
-    minimum_time_in_network: u64,
-) -> StdResult<Decimal>{
+// fn get_discounts_vault_value(
+//     querier: QuerierWrapper,
+//     discount_vault: Addr,
+//     user: String,
+//     minimum_time_in_network: u64,
+// ) -> StdResult<Decimal>{
 
-    //Get user capital from the Gauge Vault
-    let user = querier.query::<Discount_UserResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: discount_vault.to_string(),
-        msg: to_binary(&Discount_QueryMsg::User {
-            user,
-            minimum_deposit_time: Some(minimum_time_in_network),
-        })?,
-    }))?;
+//     //Get user capital from the Gauge Vault
+//     let user = querier.query::<Discount_UserResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+//         contract_addr: discount_vault.to_string(),
+//         msg: to_binary(&Discount_QueryMsg::User {
+//             user,
+//             minimum_deposit_time: Some(minimum_time_in_network),
+//         })?,
+//     }))?;
 
-    Ok( Decimal::from_ratio(user.discount_value, Uint128::one()) )
+//     Ok( Decimal::from_ratio(user.discount_value, Uint128::one()) )
 
-}
+// }
 
 // Return value of staked MBRN & pending rewards
 fn get_staked_MBRN_value(
@@ -383,38 +383,38 @@ fn get_staked_MBRN_value(
 }
 
 /// Return user's total Stability Pool value from credit & MBRN incentives 
-fn get_sp_value(
-    querier: QuerierWrapper,
-    config: Config,
-    current_block_time: u64,
-    user: String,
-) -> StdResult<Decimal>{
+// fn get_sp_value(
+//     querier: QuerierWrapper,
+//     config: Config,
+//     current_block_time: u64,
+//     user: String,
+// ) -> StdResult<Decimal>{
 
-    //Query Stability Pool to see if the user has funds
-    let user_deposits = querier.query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().stability_pool_contract.to_string(),
-        msg: to_binary(&SP_QueryMsg::AssetPool { 
-            user: Some(user.clone()), 
-            start_after: None,
-            deposit_limit: None 
-        })?,
-    }))?
-    .deposits
-        .into_iter()
-        //Filter for user deposits deposited for a minimum_time_in_network
-        .filter(|deposit| current_block_time - deposit.deposit_time > (config.clone().minimum_time_in_network * SECONDS_PER_DAY))
-        .collect::<Vec<Deposit>>();
+//     //Query Stability Pool to see if the user has funds
+//     let user_deposits = querier.query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
+//         contract_addr: config.clone().stability_pool_contract.to_string(),
+//         msg: to_binary(&SP_QueryMsg::AssetPool { 
+//             user: Some(user.clone()), 
+//             start_after: None,
+//             deposit_limit: None 
+//         })?,
+//     }))?
+//     .deposits
+//         .into_iter()
+//         //Filter for user deposits deposited for a minimum_time_in_network
+//         .filter(|deposit| current_block_time - deposit.deposit_time > (config.clone().minimum_time_in_network * SECONDS_PER_DAY))
+//         .collect::<Vec<Deposit>>();
 
-    let total_user_deposit: Decimal = user_deposits
-        .iter()
-        .map(|user_deposit| user_deposit.amount)
-        .collect::<Vec<Decimal>>()
-        .into_iter()
-        .sum();
+//     let total_user_deposit: Decimal = user_deposits
+//         .iter()
+//         .map(|user_deposit| user_deposit.amount)
+//         .collect::<Vec<Decimal>>()
+//         .into_iter()
+//         .sum();
 
-    //Return total_value
-    Ok( total_user_deposit)
-}
+//     //Return total_value
+//     Ok( total_user_deposit)
+// }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {

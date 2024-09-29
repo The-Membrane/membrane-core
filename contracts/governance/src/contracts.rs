@@ -1374,6 +1374,7 @@ fn freeze_positions(
                     cpc_margin_of_error: None,
                     rev_to_stakers: None,
                     take_revenue: None,
+                    revenue_destinations: None,
                 }))?,
                 funds: vec![],
         })))   
@@ -1394,6 +1395,7 @@ fn freeze_positions(
                     cpc_margin_of_error: None,
                     rev_to_stakers: None,
                     take_revenue: None,
+                    revenue_destinations: None,
                 }))?,
                 funds: vec![],
         })))        

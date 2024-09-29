@@ -292,12 +292,10 @@ pub fn get_interest_rates(
 
             //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
             //// rate = 3.6%
-            //If its a rate hiked rate we add, not multiply
+            //If its a rate hiked rate we keep static
             if config.rate_hike_rate.is_some() && rates[i] == config.rate_hike_rate.unwrap() {
                 two_slope_pro_rata_rates.push(
-                    min(
-                        decimal_multiplication(rates[i], supply_proportions[i])? +  decimal_division(multiplier,Decimal::percent(100_00))?,
-                    Decimal::one())
+                    min( rates[i], Decimal::one())
                 );
             } else {
                 two_slope_pro_rata_rates.push(

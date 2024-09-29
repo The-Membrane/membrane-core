@@ -590,54 +590,54 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Set config's new redemption fee
-    let mut config = CONFIG.load(deps.storage)?;
-    //Set redemption fee
-    config.redemption_fee = Some(Decimal::from_str("0.005").unwrap()); //0.5%
-    CONFIG.save(deps.storage, &config)?;
+//     //Set config's new redemption fee
+//     let mut config = CONFIG.load(deps.storage)?;
+//     //Set redemption fee
+//     config.redemption_fee = Some(Decimal::from_str("0.005").unwrap()); //0.5%
+//     CONFIG.save(deps.storage, &config)?;
 
-    //Set redemption info for position 433    
-    edit_redemption_info(
-        deps.storage,
-        Addr::unchecked("osmo1vf6e300hv2qe7r5rln8deft45ewgyytjnwfrdfcv5rgzrfy0s6cswjqf9r"),
-        vec![Uint128::new(433u128)],
-        Some(true),
-        Some(1),
-        Some(Decimal::one()),
-        None,
-        true,
-    )?;
+//     //Set redemption info for position 433    
+//     edit_redemption_info(
+//         deps.storage,
+//         Addr::unchecked("osmo1vf6e300hv2qe7r5rln8deft45ewgyytjnwfrdfcv5rgzrfy0s6cswjqf9r"),
+//         vec![Uint128::new(433u128)],
+//         Some(true),
+//         Some(1),
+//         Some(Decimal::one()),
+//         None,
+//         true,
+//     )?;
 
-    //Set basket's new revenue distribution
-    let mut basket = BASKET.load(deps.storage)?;
-    basket.revenue_destinations = Some(vec![
-        //Initialize the staker destination but send nada
-        RevenueDestination {
-            destination: Addr::unchecked("osmo1fty83rfxqs86jm5fmlql5e340e8pe0v9j8ez0lcc6zwt2amegwvsfp3gxj"),
-            distribution_ratio: Decimal::percent(0),
-        },        
-        //Send all revenue to the Stability Pool now
-        RevenueDestination {
-            destination: Addr::unchecked("osmo1326cxlzftxklgf92vdep2nvmqffrme0knh8dvugcn9w308ya9wpqv03vk8"),
-            distribution_ratio: Decimal::percent(100),
-        },
-    ]);
-    //Turn rev distribution back on 
-    basket.rev_to_stakers = true;
-    //Set the new basket
-    BASKET.save(deps.storage, &basket)?;
+//     //Set basket's new revenue distribution
+//     let mut basket = BASKET.load(deps.storage)?;
+//     basket.revenue_destinations = Some(vec![
+//         //Initialize the staker destination but send nada
+//         RevenueDestination {
+//             destination: Addr::unchecked("osmo1fty83rfxqs86jm5fmlql5e340e8pe0v9j8ez0lcc6zwt2amegwvsfp3gxj"),
+//             distribution_ratio: Decimal::percent(0),
+//         },        
+//         //Send all revenue to the Stability Pool now
+//         RevenueDestination {
+//             destination: Addr::unchecked("osmo1326cxlzftxklgf92vdep2nvmqffrme0knh8dvugcn9w308ya9wpqv03vk8"),
+//             distribution_ratio: Decimal::percent(100),
+//         },
+//     ]);
+//     //Turn rev distribution back on 
+//     basket.rev_to_stakers = true;
+//     //Set the new basket
+//     BASKET.save(deps.storage, &basket)?;
 
-    //FIGURE OUT HOW TO TEST A SEND TO THE NEW DISTRIBUTIONS HERE
-    //Just send a DepositFee msg to the SP for 1 CDT
-    let test_deposit_fee_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: Addr::unchecked("osmo1326cxlzftxklgf92vdep2nvmqffrme0knh8dvugcn9w308ya9wpqv03vk8").to_string(),
-        msg: to_json_binary(&Staking_ExecuteMsg::DepositFee { })?,
-        funds: vec![ asset_to_coin(Asset {
-            amount: Uint128::new(1_000_000u128),
-            info: basket.credit_asset.info.clone(),
-        })? ],
-    });
+//     //FIGURE OUT HOW TO TEST A SEND TO THE NEW DISTRIBUTIONS HERE
+//     //Just send a DepositFee msg to the SP for 1 CDT
+//     let test_deposit_fee_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+//         contract_addr: Addr::unchecked("osmo1326cxlzftxklgf92vdep2nvmqffrme0knh8dvugcn9w308ya9wpqv03vk8").to_string(),
+//         msg: to_json_binary(&Staking_ExecuteMsg::DepositFee { })?,
+//         funds: vec![ asset_to_coin(Asset {
+//             amount: Uint128::new(1_000_000u128),
+//             info: basket.credit_asset.info.clone(),
+//         })? ],
+//     });
 
     //Return response
-    Ok(Response::default().add_message(test_deposit_fee_msg))
+    Ok(Response::default())
 }

@@ -403,7 +403,7 @@ impl UpdateConfig {
             config.rate_hike_rate = Some(new_rate);
         }
         if let Some(redemption_fee) = self.redemption_fee {
-            //Enforce 0-100% range
+            //Enforce 0-99% range
             if redemption_fee >= Decimal::percent(100) || redemption_fee < Decimal::zero() {
                 return Err(StdError::GenericErr{ msg: String::from("Redemption fee must be between 0-99%") });
             }
@@ -511,19 +511,22 @@ impl EditBasket {
             };
         }
         if let Some(revenue_destinations) = self.revenue_destinations {
+            let mut current_destinations =  basket.clone().revenue_destinations.unwrap();
             for new_dest in revenue_destinations {
-                if let Some((index, _dest)) = basket.clone().revenue_destinations
+                if let Some((index, _dest)) = current_destinations.clone()
                     .into_iter()
                     .enumerate()
                     .find(|(_x, current_dest)| current_dest.destination == new_dest.destination)
                 {
                     //Set new ratio
-                    basket.revenue_destinations[index].distribution_ratio = new_dest.distribution_ratio;
+                    current_destinations[index].distribution_ratio = new_dest.distribution_ratio;
                 } else {
                     //Add new destination
-                    basket.revenue_destinations.push(new_dest);
+                    current_destinations.push(new_dest);
                 }
             }
+            //Set new destinations
+            basket.revenue_destinations = Some(current_destinations);
         }
         basket.oracle_set = oracle_set;
 

@@ -526,7 +526,8 @@ pub struct Basket {
     /// Revenue destinations distribution
     /// All destinations must have a DepositFee execute msg entrypoint.
     /// The remaining ratio space is left in pending revenue a la the 'Insurance Fund'.
-    pub revenue_destinations: Vec<RevenueDestination>,
+    /// Only an Option for backwards compatibility, don't set to None.
+    pub revenue_destinations: Option<Vec<RevenueDestination>>,
 }
 
 #[cw_serde]

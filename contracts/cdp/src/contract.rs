@@ -610,7 +610,7 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
 
     //Set basket's new revenue distribution
     let mut basket = BASKET.load(deps.storage)?;
-    basket.revenue_destinations = vec![
+    basket.revenue_destinations = Some(vec![
         //Initialize the staker destination but send nada
         RevenueDestination {
             destination: Addr::unchecked("osmo1fty83rfxqs86jm5fmlql5e340e8pe0v9j8ez0lcc6zwt2amegwvsfp3gxj"),
@@ -621,7 +621,7 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
             destination: Addr::unchecked("osmo1326cxlzftxklgf92vdep2nvmqffrme0knh8dvugcn9w308ya9wpqv03vk8"),
             distribution_ratio: Decimal::percent(100),
         },
-    ];
+    ]);
     //Turn rev distribution back on 
     basket.rev_to_stakers = true;
     //Set the new basket

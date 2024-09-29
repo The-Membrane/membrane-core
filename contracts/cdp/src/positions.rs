@@ -1512,7 +1512,7 @@ pub fn redeem_for_collateral(
                     //Add redemption fee to revenue
                     basket.pending_revenue += redemption_fee.to_uint_floor();
 
-                    //If the credit_amount is less than the redemption fee, subtract the fee from the redeemable_credit.
+                    //If the remaining credit_amount is less than the redemption fee, subtract the fee from the redeemable_credit.
                     //Ex: 50 sent, 50 is redeemable, 1% fee = 0.5, 50 - 0.5 = 49.5 redeemable
                     if credit_amount < redemption_fee {
                         redeemable_credit = decimal_subtraction(redeemable_credit, redemption_fee)?;
@@ -1590,6 +1590,7 @@ pub fn redeem_for_collateral(
                         user.clone().position_owner, 
                         position_redemption_info.position_id
                     )?;
+                    //This allows us to transfer the accrued interest to the position currently in state
                     new_target_position.credit_amount = target_position.credit_amount;
 
                     //Set position.credit_amount
@@ -1655,7 +1656,7 @@ pub fn redeem_for_collateral(
 
     //Burn redeemed credit
     if config.osmosis_proxy.is_some() {
-        //Act if a redemotion was made
+        //Act if a redemption was made
         if !redeemable_credit.to_uint_floor().is_zero() {            
             //Create rev/burn msgs
             let burn_and_rev_msgs = credit_burn_rev_msg(
@@ -1849,12 +1850,12 @@ pub fn redeem_for_collateral(
         oracle_set: false,
         frozen: false,
         rev_to_stakers: true,
-        revenue_destinations: vec![
+        revenue_destinations: Some(vec![
             RevenueDestination {
                 destination: config.clone().staking_contract.unwrap(),
                 distribution_ratio: Decimal::one(),
             }
-        ],
+        ]),
     };
 
     //Denom check
@@ -2510,16 +2511,16 @@ pub fn credit_burn_rev_msg(
     //Initialize messages
     let mut messages: Vec<SubMsg> = vec![];
     if let AssetInfo::NativeToken { denom } = credit_asset.clone().info {
-        if let Some(addr) = config.osmosis_proxy {
+        if let Some(osmosis_proxy_addr) = config.osmosis_proxy {
 
             //Intialize total distributed revenue amount.
             //The difference between revenue_amount & total_distributed will be burned. This is how we allow pending revenue to get a distribution.
             let mut total_distributed = Uint128::zero();
             //Create DepositFee Msgs
-            if !revenue_amount.is_zero() && !basket.revenue_destinations.is_empty(){
+            if !revenue_amount.is_zero() && !basket.clone().revenue_destinations.unwrap().is_empty(){
 
                 //Iterate over destinations
-                for destination in basket.revenue_destinations.clone() {
+                for destination in basket.revenue_destinations.clone().unwrap() {
                     //If the distribution ratio is 0, skip
                     if destination.distribution_ratio.is_zero() {
                         continue;
@@ -2560,7 +2561,7 @@ pub fn credit_burn_rev_msg(
             if !burn_amount.is_zero() {    
                 //Create burn msg
                 let burn_message = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: addr.to_string(),
+                    contract_addr: osmosis_proxy_addr.to_string(),
                     msg: to_json_binary(&OsmoExecuteMsg::BurnTokens {
                         denom,
                         amount: burn_amount,

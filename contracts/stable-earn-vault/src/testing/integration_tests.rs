@@ -400,7 +400,7 @@ mod tests {
                             credit_last_accrued: 0,
                             rates_last_accrued: 0,
                             oracle_set: true,
-                            revenue_destinations: vec![],
+                            revenue_destinations: Some(vec![]),
                         })?)
                     },
                     CDP_MockQueryMsg::GetCollateralInterest { } => {
@@ -554,7 +554,7 @@ mod tests {
                             credit_last_accrued: 0,
                             rates_last_accrued: 0,
                             oracle_set: true,
-                            revenue_destinations: vec![],
+                            revenue_destinations: Some(vec![]),
                         })?)
                     },
                     CDP_MockQueryMsg::GetCollateralInterest { } => {

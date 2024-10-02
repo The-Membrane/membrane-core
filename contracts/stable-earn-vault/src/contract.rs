@@ -841,6 +841,7 @@ fn rate_assurance(
 
 /// Accepts USDC, deposits these to the respective Mars Supply Vault & sends user vault tokens
 /// - SubMsg deposits all vault tokens into CDP contract
+/// NOTE: Deposits will error if the vt token used as collateral is over cap in the CDP contract
 fn enter_vault(
     deps: DepsMut,
     env: Env,

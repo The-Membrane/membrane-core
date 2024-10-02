@@ -4755,11 +4755,12 @@ mod tests {
                 .wrap()
                 .query_wasm_smart::<RedeemabilityResponse>(cdp_contract.addr(), &query_msg.clone())
                 .unwrap();
-            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[0].remaining_loan_repayment, Uint128::new(0));
+            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[0].remaining_loan_repayment, Uint128::new(2000000000));
+            assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos[0].position_id, Uint128::new(1));
             assert_eq!(res.premium_infos[0].premium, 1u128);
             assert_eq!(res.premium_infos[0].users_of_premium.len(), 1);
             assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos.len(), 1);
-
+            
             //Query Basket Debt Caps
             let query_msg = QueryMsg::GetBasketDebtCaps { };
             let res: Vec<DebtCap> = app

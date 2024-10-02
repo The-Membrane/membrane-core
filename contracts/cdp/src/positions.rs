@@ -1178,7 +1178,7 @@ pub fn edit_redemption_info(
     //////Additions//////
     //Add PositionRedemption objects under the user in the desired premium while skipping duplicates, if redeemable is true or None
     if (redeemable.is_some() && redeemable.unwrap_or_else(|| false)) || redeemable.is_none(){
-        if let Some(updated_premium) = updated_premium {                
+        if let Some(updated_premium) = updated_premium {
             //Load premium we are adding to 
             match REDEMPTION_OPT_IN.load(storage, updated_premium){
                 Ok(mut users_of_premium)=> {
@@ -1200,10 +1200,11 @@ pub fn edit_redemption_info(
                                     remaining_loan_repayment: max_loan_repayment.unwrap_or(Decimal::one()) * target_position.credit_amount,
                                     restricted_collateral_assets: restricted_collateral_assets.clone().unwrap_or(vec![]),
                                 });
+
+                                //Remove the Position ID from the list, don't want to edit newly added RedemptionInfo
+                                position_ids.retain(|&x| x != id);
                             }
 
-                            //Remove the Position ID from the list, don't want to edit newly added RedemptionInfo
-                            position_ids.retain(|&x| x != id);
                         }
 
                         //Update the PositionRedemption
@@ -1212,7 +1213,7 @@ pub fn edit_redemption_info(
                         //Save the updated list
                         REDEMPTION_OPT_IN.save(storage, updated_premium, &users_of_premium)?;
                     } //Add user to the premium state
-                    else {                            
+                    else {
                         //Create new RedemptionInfo
                         let new_redemption_info = create_redemption_info(
                             storage,
@@ -1263,6 +1264,7 @@ pub fn edit_redemption_info(
             
             //Iterate through users to find the Positions
             if let Some ((user_index, mut user_positions)) = users_of_premium.clone().into_iter().enumerate().find(|(_, user)| user.position_owner == position_owner.clone()){
+                
                 for id in position_ids.clone() {
                     //If the Position ID is in the list, edit, update and remove from the list
                     if let Some((position_index, _)) = user_positions.clone().position_infos.clone().into_iter().enumerate().find(|(_, position)| position.position_id == id){

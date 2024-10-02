@@ -590,6 +590,18 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+      //Set redemption info for position 433    
+      edit_redemption_info(
+        deps.storage,
+        Addr::unchecked("osmo1vf6e300hv2qe7r5rln8deft45ewgyytjnwfrdfcv5rgzrfy0s6cswjqf9r"),
+        vec![Uint128::new(433u128)],
+        Some(true),
+        Some(1),
+        Some(Decimal::one()),
+        None,
+        true,
+    )?;
+    
     //Return response
     Ok(Response::default())
 }

@@ -296,7 +296,7 @@ pub fn get_interest_rates(
             if config.rate_hike_rate.is_some() && rates[i] == config.rate_hike_rate.unwrap() {
                 two_slope_pro_rata_rates.push(
                     min(
-                        decimal_multiplication(rates[i], supply_proportions[i])? +  decimal_division(multiplier,Decimal::percent(100_00))?,
+                        decimal_multiplication(rates[i], supply_proportions[i])? + decimal_division(multiplier,Decimal::percent(100_00))?,
                     Decimal::one())
                 );
             } else {

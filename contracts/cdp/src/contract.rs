@@ -32,7 +32,7 @@ use crate::query::{
 };
 use crate::liquidations::liquidate;
 use crate::reply::{handle_liq_queue_reply, handle_withdraw_reply, handle_revenue_reply};
-use crate::state::{ get_target_position, update_position, ContractVersion, POSITIONS, LIQUIDATION, BASKET, CONFIG, CONTRACT, OWNERSHIP_TRANSFER, VOLATILITY };
+use crate::state::{ get_target_position, update_position, ContractVersion, BASKET, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS, REDEMPTION_OPT_IN, VOLATILITY };
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cdp";
@@ -601,7 +601,9 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
         None,
         true,
     )?;
-    
+    //Query for the first premium of redemptions to check saves
+    let redemption_info = REDEMPTION_OPT_IN.load(deps.storage)?;
+    panic!("{:?}", redemption_info);
     //Return response
     Ok(Response::default())
 }

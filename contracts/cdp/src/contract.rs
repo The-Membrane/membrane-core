@@ -602,7 +602,7 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
         true,
     )?;
     //Query for the first premium of redemptions to check saves
-    let redemption_info = REDEMPTION_OPT_IN.load(deps.storage)?;
+    let redemption_info = REDEMPTION_OPT_IN.load(deps.storage, 1u128)?;
     panic!("{:?}", redemption_info);
     //Return response
     Ok(Response::default())

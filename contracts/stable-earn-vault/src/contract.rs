@@ -1337,7 +1337,7 @@ fn query_apr(
     };
     //Add our leverage to the APR & buffered tokens to the APR
     if let Some(week_apr) = apr.week_apr {
-        let apr = match week_apr.checked_mul(leverage){
+        let apr = match week_apr.apr.checked_mul(leverage){
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the weekly APR by the leverage in query_apr") }),
         };
@@ -1345,14 +1345,14 @@ fn query_apr(
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the weekly APR by the ratio of tokens in the CDP in query_apr") }),
         };
-        let buffer_apr = match decimal_multiplication(ratio_of_tokens_in_contract, week_apr){
+        let buffer_apr = match decimal_multiplication(ratio_of_tokens_in_contract, week_apr.apr){
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the weekly APR by the ratio of tokens in the contract in query_apr") }),
         };
-        aprs.week_apr = Some(loop_apr.checked_add(buffer_apr)?);
+        aprs.week_apr.apr = Some(loop_apr.checked_add(buffer_apr)?);
     }
     if let Some(month_apr) = apr.month_apr {
-        let apr = match month_apr.checked_mul(leverage){
+        let apr = match month_apr.apr.checked_mul(leverage){
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the monthly APR by the leverage in query_apr") }),
         };
@@ -1360,14 +1360,14 @@ fn query_apr(
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the monthly APR by the ratio of tokens in the CDP in query_apr") }),
         };
-        let buffer_apr = match decimal_multiplication(ratio_of_tokens_in_contract, month_apr){
+        let buffer_apr = match decimal_multiplication(ratio_of_tokens_in_contract, month_apr.apr){
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the monthly APR by the ratio of tokens in the contract in query_apr") }),
         };
-        aprs.month_apr = Some(loop_apr.checked_add(buffer_apr)?);
+        aprs.month_apr.apr = Some(loop_apr.checked_add(buffer_apr)?);
     }
     if let Some(three_month_apr) = apr.three_month_apr {
-        let apr = match three_month_apr.checked_mul(leverage){
+        let apr = match three_month_apr.apr.checked_mul(leverage){
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the 3 month APR by the leverage in query_apr") }),
         };
@@ -1375,14 +1375,14 @@ fn query_apr(
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the 3 month APR by the ratio of tokens in the CDP in query_apr") }),
         };
-        let buffer_apr = match decimal_multiplication(ratio_of_tokens_in_contract, three_month_apr){
+        let buffer_apr = match decimal_multiplication(ratio_of_tokens_in_contract, three_month_apr.apr){
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the 3 month APR by the ratio of tokens in the contract in query_apr") }),
         };
-        aprs.three_month_apr = Some(loop_apr.checked_add(buffer_apr)?);
+        aprs.three_month_apr.apr = Some(loop_apr.checked_add(buffer_apr)?);
     }
     if let Some(year_apr) = apr.year_apr {
-        let apr = match year_apr.checked_mul(leverage){
+        let apr = match year_apr.apr.checked_mul(leverage){
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the yearly APR by the leverage in query_apr") }),
         };
@@ -1390,11 +1390,11 @@ fn query_apr(
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the yearly APR by the ratio of tokens in the CDP in query_apr") }),
         };
-        let buffer_apr = match decimal_multiplication(ratio_of_tokens_in_contract, year_apr){
+        let buffer_apr = match decimal_multiplication(ratio_of_tokens_in_contract, year_apr.apr){
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the yearly APR by the ratio of tokens in the contract in query_apr") }),
         };
-        aprs.year_apr = Some(loop_apr.checked_add(buffer_apr)?);
+        aprs.year_apr.apr = Some(loop_apr.checked_add(buffer_apr)?);
     }
 
     //Query the cost of the deposit vault's vault token

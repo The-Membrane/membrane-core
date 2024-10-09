@@ -20,16 +20,19 @@ pub enum ExecuteMsg {
     UpdateConfig {
         owner: Option<String>,
         percent_to_keep_liquid: Option<Decimal>,
-        compound_activation_fee: Option<Uint128>,
-        min_time_before_next_compound: Option<u64>,
+        osmosis_proxy_contract: Option<String>,
     },
+    /// Saves the current base token claim for 1 vault token
+    CrankTotalAPR { },
+    // This queries the CDP contract to calculate the avg interest rate
+    // CrankRateAPR {
+    //     start_after: Option<String>,
+    //     position_limit: Option<u32>
+    // },
     /// Assures that for deposits & withdrawals the conversion rate is static
     /// & for compounds the conversion rate increases
     /// Only callable by the contract
-    RateAssurance {
-        deposit_or_withdraw: bool,
-        compound: bool,
-    },
+    RateAssurance { },
 }
 
 #[cw_serde]
@@ -50,20 +53,38 @@ pub struct Config {
     //Ratio to keep outside of the vault strategy for easy withdrawals
     //Only applicable bc the strategy has an unstaking period
     pub percent_to_keep_liquid: Decimal,
-    //Amount of deposit tokens sent to the caller of the compound msg
-    pub compound_activation_fee: Uint128,
-    //Maximum Compound frequency in seconds
-    pub min_time_before_next_compound: u64,
+    //UNUSED: Amount of deposit tokens sent to the caller of the compound msg.
+    //No good way to prevent spam compounds since we don't error at a loss during compounds.
+    // pub compound_activation_fee: Uint128,
     pub stability_pool_contract: Addr,
     pub osmosis_proxy_contract: Addr,
 }
 
+
+#[cw_serde]
+pub struct VTClaimCheckpoint {
+    pub vt_claim_of_checkpoint: Uint128,
+    pub time_since_last_checkpoint: u64,
+}
+
+#[cw_serde]
+pub struct ClaimTracker {
+    pub vt_claim_checkpoints: Vec<VTClaimCheckpoint>,
+    pub last_updated: u64,
+}
+
+#[cw_serde]
+pub struct APR {
+    pub apr: Decimal,
+    pub negative: bool,
+}
+
 #[cw_serde]
 pub struct APRResponse {
-    pub week_apr: Option<Decimal>,
-    pub month_apr: Option<Decimal>,
-    pub three_month_apr: Option<Decimal>,
-    pub year_apr: Option<Decimal>,
+    pub week_apr: Option<APR>,
+    pub month_apr: Option<APR>,
+    pub three_month_apr: Option<APR>,
+    pub year_apr: Option<APR>,
 }
 
 #[cw_serde]

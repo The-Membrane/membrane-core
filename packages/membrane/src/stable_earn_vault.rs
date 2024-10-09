@@ -76,6 +76,7 @@ pub struct Config {
     /// % of deposits to keep outside of the CDP to ease withdrawals
     pub withdrawal_buffer: Decimal,
     /// Stores total non-leveraged vault token amount
+    /// WARNING: Tracking Broken, which breaks the APR calcs and the Buffer.
     pub total_nonleveraged_vault_tokens: Uint128,
     /// Position ID of the vault's CDP position (set in instantiation)
     pub cdp_position_id: Uint128,

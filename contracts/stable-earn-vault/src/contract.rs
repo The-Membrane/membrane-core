@@ -34,7 +34,7 @@ const ENTER_VAULT_REPLY_ID: u64 = 1u64;
 const CDP_REPLY_ID: u64 = 2u64;
 const LOOP_REPLY_ID: u64 = 3u64;
 const UNLOOP_REPLY_ID: u64 = 4u64;
-const EXIT_VAULT_REPLY_ID: u64 = 5u64;
+const EXIT_VAULT_STRAT_REPLY_ID: u64 = 5u64;
 
 //Constants
 const SECONDS_PER_DAY: u64 = 86_400u64;
@@ -505,7 +505,7 @@ fn unloop_cdp(
                 }
             ],
         });
-        msgs.push(SubMsg::reply_on_success(exit_vault_strat, EXIT_VAULT_REPLY_ID));
+        msgs.push(SubMsg::reply_on_success(exit_vault_strat, EXIT_VAULT_STRAT_REPLY_ID));
 
 
         //Update running collateral amount
@@ -1530,7 +1530,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         CDP_REPLY_ID => handle_cdp_reply(deps, env, msg),
         LOOP_REPLY_ID => handle_loop_reply(deps, env, msg),
         UNLOOP_REPLY_ID => handle_unloop_reply(deps, env, msg),
-        EXIT_VAULT_REPLY_ID => handle_exit_deposit_token_vault_reply(deps, env, msg),
+        EXIT_VAULT_STRAT_REPLY_ID => handle_exit_deposit_token_vault_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 } 

@@ -198,7 +198,7 @@ mod tests {
                             credit_last_accrued: 0,
                             rates_last_accrued: 0,
                             oracle_set: false,
-                            revenue_destinations: vec![],
+                            revenue_destinations: Some(vec![]),
                         })?)
                     }
                 }
@@ -978,6 +978,14 @@ mod tests {
                 ]
             );
 
+            //Query AssetPool
+            let query_msg = QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None };
+            let res: AssetPool = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
+                .unwrap();
+            assert_eq!(res.credit_asset.amount, Uint128::new(100_000));
+
             //Compound Fee
             let compound_msg = ExecuteMsg::CompoundFee { 
                 num_of_events: None,
@@ -1002,6 +1010,15 @@ mod tests {
                 unstake_time: None,
             });
 
+            
+            //Query AssetPool to assert added deposit total
+            let query_msg = QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None };
+            let res: AssetPool = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
+                .unwrap();
+            assert_eq!(res.credit_asset.amount, Uint128::new(100_005));
+
             //Compound Fee: No events means no changes
             let compound_msg = ExecuteMsg::CompoundFee { 
                 num_of_events: None,
@@ -1020,6 +1037,16 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();            
             app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+
+            
+            //Query AssetPool
+            let query_msg = QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None };
+            let res: AssetPool = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
+                .unwrap();
+            assert_eq!(res.credit_asset.amount, Uint128::new(100_005));
+
             //Compound Fee
             let compound_msg = ExecuteMsg::CompoundFee { 
                 num_of_events: Some(3u32),
@@ -1043,6 +1070,14 @@ mod tests {
                 last_accrued: app.block_info().time.seconds(),
                 unstake_time: None,
             });
+
+            //Query AssetPool to assert added deposit total
+            let query_msg = QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None };
+            let res: AssetPool = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
+                .unwrap();
+            assert_eq!(res.credit_asset.amount, Uint128::new(100_020));
 
             //Compound Fee: No events means no changes
             let compound_msg = ExecuteMsg::CompoundFee { 
@@ -1089,6 +1124,15 @@ mod tests {
             app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();            
             app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg.clone()).unwrap();
+            
+            //Query AssetPool
+            let query_msg = QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None };
+            let res: AssetPool = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
+                .unwrap();
+            assert_eq!(res.credit_asset.amount, Uint128::new(400_020));
+
             //Compound Fee
             let compound_msg = ExecuteMsg::CompoundFee { 
                 num_of_events: Some(3u32),
@@ -1135,6 +1179,14 @@ mod tests {
                     unstake_time: None,
                 }
             ]);
+            
+            //Query AssetPool to assert added deposit total
+            let query_msg = QueryMsg::AssetPool { user: None, deposit_limit: None, start_after: None };
+            let res: AssetPool = app
+                .wrap()
+                .query_wasm_smart(sp_contract.addr(), &query_msg)
+                .unwrap();
+            assert_eq!(res.credit_asset.amount, Uint128::new(400_035));
 
             //Compound Fee: No events means no changes
             let compound_msg = ExecuteMsg::CompoundFee { 

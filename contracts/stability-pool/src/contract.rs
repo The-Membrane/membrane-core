@@ -1145,8 +1145,8 @@ pub fn compound_fee(
     //Set initial deposit list to the asset pool's deposits
     let mut deposits = asset_pool.clone().deposits;
 
-    //Initialize updated deposits list 
-    let mut updated_deposits: Vec<Deposit> = vec![];
+    //Initialize amount of fees compounded
+    let mut total_fees_compounded = Decimal::zero();
 
     //Loop thru the fee list and compound fees into the deposits pro-rata to the ratio of the deposit to the total deposits prior to the fee event
     for (i, fee_event) in fee_list.clone().into_iter().enumerate() {
@@ -1154,6 +1154,10 @@ pub fn compound_fee(
         if events_compounded >= max_events_to_compound {
             break;
         }
+        
+        //Add the fee event amount to the total fees compounded
+        total_fees_compounded += fee_event.fee.amount;
+
         //Find the index of the first deposit that was made at or after the fee event
         let index = deposits.clone()
             .iter()
@@ -1210,14 +1214,20 @@ pub fn compound_fee(
         .skip(events_compounded as usize)
         .collect::<Vec<FeeEvent>>();
 
-    //Set & save Asset Pool's new deposits
+    //Set Asset Pool's new deposits
     asset_pool.deposits = deposits;
+    //Add the total fees compounded to the credit asset
+    asset_pool.credit_asset.amount += total_fees_compounded.to_uint_floor();
+    //Save new asset pool
     let _ = ASSET.save(deps.storage, &asset_pool);
 
     //Save new fee list
     let _ = OUTSTANDING_FEES.save(deps.storage, &fee_list);
 
-    Ok(Response::new())
+    Ok(Response::new()
+        .add_attribute("method", "compound_fee")
+        .add_attribute("total_fees_compounded", total_fees_compounded.to_string())
+    )
 }
 
 
@@ -1568,8 +1578,16 @@ pub fn validate_assets(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Initialize Fee list
-    OUTSTANDING_FEES.save(deps.storage, &vec![])?;
+    //Fix total CDT for AssetPool
+    let mut asset_pool = ASSET.load(deps.storage)?;
+    let mut total_cdt = Uint128::zero();
 
-    Ok(Response::default())
+    for deposit in asset_pool.deposits.clone() {
+        total_cdt += deposit.amount.to_uint_floor();
+    }
+
+    asset_pool.credit_asset.amount = total_cdt;
+    ASSET.save(deps.storage, &asset_pool)?;
+
+    Ok(Response::default().add_attribute("method", "migrate").add_attribute("total_cdt", total_cdt.to_string()))
 }

@@ -1349,7 +1349,7 @@ fn query_apr(
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the weekly APR by the ratio of tokens in the contract in query_apr") }),
         };
-        aprs.week_apr.apr = Some(loop_apr.checked_add(buffer_apr)?);
+        aprs.week_apr = Some(loop_apr.checked_add(buffer_apr)?);
     }
     if let Some(month_apr) = apr.month_apr {
         let apr = match month_apr.apr.checked_mul(leverage){
@@ -1364,7 +1364,7 @@ fn query_apr(
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the monthly APR by the ratio of tokens in the contract in query_apr") }),
         };
-        aprs.month_apr.apr = Some(loop_apr.checked_add(buffer_apr)?);
+        aprs.month_apr = Some(loop_apr.checked_add(buffer_apr)?);
     }
     if let Some(three_month_apr) = apr.three_month_apr {
         let apr = match three_month_apr.apr.checked_mul(leverage){
@@ -1379,7 +1379,7 @@ fn query_apr(
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the 3 month APR by the ratio of tokens in the contract in query_apr") }),
         };
-        aprs.three_month_apr.apr = Some(loop_apr.checked_add(buffer_apr)?);
+        aprs.three_month_apr = Some(loop_apr.checked_add(buffer_apr)?);
     }
     if let Some(year_apr) = apr.year_apr {
         let apr = match year_apr.apr.checked_mul(leverage){
@@ -1394,7 +1394,7 @@ fn query_apr(
             Ok(v) => v,
             Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to multiply the yearly APR by the ratio of tokens in the contract in query_apr") }),
         };
-        aprs.year_apr.apr = Some(loop_apr.checked_add(buffer_apr)?);
+        aprs.year_apr = Some(loop_apr.checked_add(buffer_apr)?);
     }
 
     //Query the cost of the deposit vault's vault token

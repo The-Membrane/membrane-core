@@ -2,7 +2,7 @@ use std::{fs::create_dir_all, env::current_dir};
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use membrane::stability_pool_vault::{InstantiateMsg, ExecuteMsg, QueryMsg, Config};
+use membrane::stability_pool_vault::{InstantiateMsg, ExecuteMsg, QueryMsg, Config, APRResponse};
 
 fn main() {
     let mut out_dir = current_dir().unwrap();

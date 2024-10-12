@@ -85,7 +85,6 @@ mod tests {
         VaultTokenUnderlying {
             vault_token_amount: Uint128,
         },
-        APR {},
         DepositTokenConversion {
             deposit_token_amount: Uint128,
         },
@@ -115,14 +114,6 @@ mod tests {
                         vault_token_amount,
                     } => {
                         Ok(to_json_binary(&Uint128::new(5))?)
-                    },
-                    Vault_MockQueryMsg::APR {} => {
-                        Ok(to_json_binary(&NoCost_APRResponse {
-                            week_apr: Some(Decimal::percent(5)),
-                            year_apr: None,
-                            month_apr: None,
-                            three_month_apr: None,
-                        })?)
                     },
                     Vault_MockQueryMsg::DepositTokenConversion {
                         deposit_token_amount,
@@ -705,6 +696,7 @@ mod tests {
 
         use cosmwasm_std::{coin, coins, BlockInfo, Uint128};
         use membrane::stable_earn_vault::APRResponse;
+        use membrane::types::APR;
 
         use super::*;
 
@@ -781,6 +773,17 @@ mod tests {
                 .unwrap().amount;
             assert_eq!(balance, Uint128::new(0));
 
+            //Skip 8 days to test APR
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(86400*8),
+                chain_id: app.block_info().chain_id,
+            });
+            //Crank APR
+            let msg = ExecuteMsg::CrankRealizedAPR { };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
             //Query APR
             let apr: APRResponse = app
                 .wrap()
@@ -790,13 +793,29 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(
-                apr.week_apr,
-                Some(Decimal::from_str("0.049999999999849999").unwrap())
+                apr.week_apr.unwrap(),
+                APR {
+                    apr: Decimal::from_str("0").unwrap(),
+                    negative: false,
+                }
             );
             assert_eq!(
                 apr.cost,
                 Decimal::percent(1)
             );
+
+            //Skip 8 days to test APR conditional time update 
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(86400*8),
+                chain_id: app.block_info().chain_id,
+            });
+            //Crank APR
+            let msg = ExecuteMsg::CrankRealizedAPR { };
+            let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            /////We must panic to check the time update/////
         }
 
         #[test]

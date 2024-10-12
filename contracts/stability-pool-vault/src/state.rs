@@ -3,7 +3,8 @@ use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Decimal, Uint128};
 use cw_storage_plus::Item;
 
-use membrane::stability_pool_vault::{Config, VTClaimCheckpoint, ClaimTracker};
+use membrane::stability_pool_vault::Config;
+use membrane::types::{VTClaimCheckpoint, ClaimTracker};
 
 
 #[cw_serde]

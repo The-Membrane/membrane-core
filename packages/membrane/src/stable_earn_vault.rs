@@ -1,7 +1,7 @@
 
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Decimal, Uint128};
-use crate::types::VaultInfo;
+use crate::types::{VaultInfo, APR};
 
 
 #[cw_serde]
@@ -44,6 +44,8 @@ pub enum ExecuteMsg {
         /// This allows the caller to meter the potential slippage.
         max_mint_amount: Option<Uint128>,
     },
+    /// Saves the current base token claim for 1 vault token
+    CrankRealizedAPR { },
     //////////////CALLBACKS////////////////
     /// Assures that for deposits & withdrawals the conversion rate is static.
     /// We are trusting that Mars deposits will only go up.
@@ -76,7 +78,7 @@ pub struct Config {
     /// % of deposits to keep outside of the CDP to ease withdrawals
     pub withdrawal_buffer: Decimal,
     /// Stores total non-leveraged vault token amount
-    /// WARNING: Tracking Broken, which breaks the APR calcs and the Buffer.
+    /// WARNING: Tracking Broken, which breaks the Buffer.
     pub total_nonleveraged_vault_tokens: Uint128,
     /// Position ID of the vault's CDP position (set in instantiation)
     pub cdp_position_id: Uint128,
@@ -91,10 +93,10 @@ pub struct Config {
 /// config.witdrawal_buffer's percent of the vault isn't earning the levered APR, just the deposit_token's vault APR
 #[cw_serde]
 pub struct APRResponse {
-    pub week_apr: Option<Decimal>,
-    pub month_apr: Option<Decimal>,
-    pub three_month_apr: Option<Decimal>,
-    pub year_apr: Option<Decimal>,
+    pub week_apr: Option<APR>,
+    pub month_apr: Option<APR>,
+    pub three_month_apr: Option<APR>,
+    pub year_apr: Option<APR>,
     pub leverage: Decimal,
     pub cost: Decimal,
 }

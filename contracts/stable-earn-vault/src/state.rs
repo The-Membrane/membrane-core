@@ -4,6 +4,7 @@ use cosmwasm_std::{Addr, Decimal, Uint128};
 use cw_storage_plus::Item;
 
 use membrane::{oracle::PriceResponse, stable_earn_vault::Config};
+use membrane::types::ClaimTracker;
 
 
 #[cw_serde]
@@ -25,5 +26,7 @@ pub const CONFIG: Item<Config> = Item::new("config");
 pub const VAULT_TOKEN: Item<Uint128> = Item::new("vault_token");
 pub const TOKEN_RATE_ASSURANCE: Item<TokenRateAssurance> = Item::new("token_rate_assurance");
 pub const UNLOOP_PROPS: Item<UnloopProps> = Item::new("unloop_props");
+pub const CLAIM_TRACKER: Item<ClaimTracker> = Item::new("claim_tracker");
+
 
 pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");

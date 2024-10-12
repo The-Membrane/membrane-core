@@ -9,11 +9,11 @@ use membrane::math::{decimal_multiplication, decimal_division};
 use crate::error::TokenFactoryError;
 use crate::state::{CLAIM_TRACKER, TOKEN_RATE_ASSURANCE, TokenRateAssurance, CONFIG, DEPOSIT_BALANCE_AT_LAST_CLAIM, OWNERSHIP_TRANSFER, VAULT_TOKEN};
 use membrane::stability_pool_vault::{
-    calculate_base_tokens, calculate_vault_tokens, Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, APR, APRResponse, ClaimTracker, VTClaimCheckpoint
+    calculate_base_tokens, calculate_vault_tokens, Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, APR, APRResponse
 };
 use membrane::stability_pool::{ExecuteMsg as StabilityPoolExecuteMsg, QueryMsg as StabilityPoolQueryMsg, ClaimsResponse};
 use membrane::osmosis_proxy::ExecuteMsg as OsmosisProxyExecuteMsg;
-use membrane::types::AssetPool;
+use membrane::types::{AssetPool, ClaimTracker, VTClaimCheckpoint};
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
 
 // version info for migration info
@@ -77,7 +77,7 @@ pub fn execute(
         ExecuteMsg::EnterVault { } => enter_vault(deps, env, info),
         ExecuteMsg::ExitVault {  } => exit_vault(deps, env, info),
         ExecuteMsg::Compound { } => claim_and_compound_liquidations(deps, env, info),
-        ExecuteMsg::CrankTotalAPR { } => crank_total_apr(deps, env, info),
+        ExecuteMsg::CrankRealizedAPR { } => crank_realized_apr(deps, env, info),
         ExecuteMsg::RateAssurance { } => rate_assurance(deps, env, info),
     }
 }
@@ -519,7 +519,7 @@ fn update_config(
     Ok(Response::new().add_attributes(attrs))
 }
 
-fn crank_total_apr(
+fn crank_realized_apr(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
@@ -540,6 +540,23 @@ fn crank_total_apr(
         total_vault_tokens
     )?;
 
+    
+    //If the current rate is the same as the last rate, update the time since last checkpoint & return 
+    if claim_tracker.vt_claim_checkpoints.len() > 0 && claim_tracker.vt_claim_checkpoints.last().unwrap().vt_claim_of_checkpoint == btokens_per_one {
+        //Update time since last checkpoint
+        claim_tracker.vt_claim_checkpoints.last_mut().unwrap().time_since_last_checkpoint += time_since_last_checkpoint;               
+        //Update last updated time
+        claim_tracker.last_updated = env.block.time.seconds();
+        //Save Claim Tracker
+        CLAIM_TRACKER.save(deps.storage, &claim_tracker)?;
+
+        return Ok(Response::new().add_attributes(vec![
+            attr("method", "crank_realized_apr"),
+            attr("no_change_to_conversion_rate", btokens_per_one),
+            attr("added_time_to__checkpoint", time_since_last_checkpoint.to_string())
+        ]));
+    }
+
     //If the trackers total time is over a year, remove the first instance
     if claim_tracker.vt_claim_checkpoints.len() > 0 && claim_tracker.vt_claim_checkpoints.iter().map(|claim_checkpoint| claim_checkpoint.time_since_last_checkpoint).sum::<u64>() > SECONDS_PER_DAY * 365 {
         claim_tracker.vt_claim_checkpoints.remove(0);
@@ -555,7 +572,7 @@ fn crank_total_apr(
     CLAIM_TRACKER.save(deps.storage, &claim_tracker)?;
 
     Ok(Response::new().add_attributes(vec![
-        attr("method", "crank_total_apr"),
+        attr("method", "crank_realized_apr"),
         attr("new_base_token_conversion_rate", btokens_per_one),
         attr("time_since_last_checkpoint", time_since_last_checkpoint.to_string())
     ]))
@@ -683,7 +700,7 @@ fn query_apr(
                     Decimal::one() - change_ratio
                 },
             };
-            let apr = match percent_change.checked_div(Decimal::percent(52_00)){
+            let apr = match percent_change.checked_mul(Decimal::percent(52_00)){
                 Ok(apr) => apr,
                 Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the weekly APR calc using a percent change of {}", percent_change)})
             };
@@ -708,7 +725,7 @@ fn query_apr(
                     Decimal::one() - change_ratio
                 },
             };
-            let apr = match percent_change.checked_div(Decimal::percent(12_00)){
+            let apr = match percent_change.checked_mul(Decimal::percent(12_00)){
                 Ok(apr) => apr,
                 Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the monthly APR calc using a percent change of {}", percent_change)})
             };
@@ -731,7 +748,7 @@ fn query_apr(
                     Decimal::one() - change_ratio
                 },
             };
-            let apr = match percent_change.checked_div(Decimal::percent(4_00)){
+            let apr = match percent_change.checked_mul(Decimal::percent(4_00)){
                 Ok(apr) => apr,
                 Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the 3M APR calc using a percent change of {}", percent_change)})
             };

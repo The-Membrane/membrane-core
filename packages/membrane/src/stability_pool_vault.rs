@@ -1,6 +1,7 @@
 
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Decimal, StdError, Uint128};
+use crate::types::APR;
 
 pub const DEFAULT_VAULT_TOKENS_PER_STAKED_BASE_TOKEN: Uint128 = Uint128::new(1_000_000);
 
@@ -23,7 +24,7 @@ pub enum ExecuteMsg {
         osmosis_proxy_contract: Option<String>,
     },
     /// Saves the current base token claim for 1 vault token
-    CrankTotalAPR { },
+    CrankRealizedAPR { },
     // This queries the CDP contract to calculate the avg interest rate
     // CrankRateAPR {
     //     start_after: Option<String>,
@@ -60,24 +61,6 @@ pub struct Config {
     pub osmosis_proxy_contract: Addr,
 }
 
-
-#[cw_serde]
-pub struct VTClaimCheckpoint {
-    pub vt_claim_of_checkpoint: Uint128,
-    pub time_since_last_checkpoint: u64,
-}
-
-#[cw_serde]
-pub struct ClaimTracker {
-    pub vt_claim_checkpoints: Vec<VTClaimCheckpoint>,
-    pub last_updated: u64,
-}
-
-#[cw_serde]
-pub struct APR {
-    pub apr: Decimal,
-    pub negative: bool,
-}
 
 #[cw_serde]
 pub struct APRResponse {

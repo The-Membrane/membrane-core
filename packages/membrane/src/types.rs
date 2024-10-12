@@ -770,13 +770,6 @@ pub struct Lock {
     pub lock_up_duration: u64,
 }
 
-/// Earn Vault
-#[cw_serde]
-pub struct VaultInfo {
-    pub vault_addr: Addr,
-    pub deposit_token: String,
-    pub vault_token: String
-}
 
 /// Discount Vault
 #[cw_serde]
@@ -1020,4 +1013,31 @@ impl SwapAmountWithLimit {
             SwapAmountWithLimit::ExactOut { output, .. } => SwapAmount::Out(output),
         }
     }
+}
+
+///////////////VAULTS////////////////////
+#[cw_serde]
+pub struct VTClaimCheckpoint {
+    pub vt_claim_of_checkpoint: Uint128,
+    pub time_since_last_checkpoint: u64,
+}
+
+#[cw_serde]
+pub struct ClaimTracker {
+    pub vt_claim_checkpoints: Vec<VTClaimCheckpoint>,
+    pub last_updated: u64,
+}
+
+#[cw_serde]
+pub struct APR {
+    pub apr: Decimal,
+    pub negative: bool,
+}
+
+/// Earn Vault
+#[cw_serde]
+pub struct VaultInfo {
+    pub vault_addr: Addr,
+    pub deposit_token: String,
+    pub vault_token: String
 }

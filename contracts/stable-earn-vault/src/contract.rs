@@ -2067,9 +2067,25 @@ fn get_buffer_amounts(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
+    //Load VT total
+    let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;    
+    //Get total deposit tokens
+    let total_deposit_tokens = get_total_deposit_tokens(deps, env.clone(), config.clone())?;
+    //Calc the rate of vault tokens to deposit tokens
+    let btokens_per_one = calculate_base_tokens(
+        Uint128::new(1_000_000_000_000), 
+        total_deposit_tokens,
+        total_vault_tokens
+    )?;
+
     //INIT Claim Tracker
     CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
-        vt_claim_checkpoints: vec![],
+        vt_claim_checkpoints: vec![
+            VTClaimCheckpoint {
+                vt_claim_of_checkpoint: btokens_per_one * Decimal::from_str(".97370983").unwrap(),
+                time_since_last_checkpoint: env.block.time.seconds() - 86400*20, //launched 20 days ago
+            }
+        ],
         last_updated: env.block.time.seconds(),
     })?;
 

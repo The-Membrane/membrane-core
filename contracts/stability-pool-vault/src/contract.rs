@@ -558,9 +558,9 @@ fn crank_realized_apr(
     }
 
     //If the trackers total time is over a year, remove the first instance
-    if claim_tracker.vt_claim_checkpoints.len() > 0 && claim_tracker.vt_claim_checkpoints.iter().map(|claim_checkpoint| claim_checkpoint.time_since_last_checkpoint).sum::<u64>() > SECONDS_PER_DAY * 365 {
-        claim_tracker.vt_claim_checkpoints.remove(0);
-    }
+    // if claim_tracker.vt_claim_checkpoints.len() > 0 && claim_tracker.vt_claim_checkpoints.iter().map(|claim_checkpoint| claim_checkpoint.time_since_last_checkpoint).sum::<u64>() > SECONDS_PER_DAY * 365 {
+    //     claim_tracker.vt_claim_checkpoints.remove(0);
+    // }
     //Push new instance
     claim_tracker.vt_claim_checkpoints.push(VTClaimCheckpoint {
         vt_claim_of_checkpoint: btokens_per_one,
@@ -877,9 +877,9 @@ fn handle_compound_reply(
             )?;
 
             //If the trackers total time is over a year, remove the first instance
-            if claim_tracker.vt_claim_checkpoints.len() > 0 && claim_tracker.vt_claim_checkpoints.iter().map(|claim_checkpoint| claim_checkpoint.time_since_last_checkpoint).sum::<u64>() > SECONDS_PER_DAY * 365 {
-                claim_tracker.vt_claim_checkpoints.remove(0);
-            }
+            // if claim_tracker.vt_claim_checkpoints.len() > 0 && claim_tracker.vt_claim_checkpoints.iter().map(|claim_checkpoint| claim_checkpoint.time_since_last_checkpoint).sum::<u64>() > SECONDS_PER_DAY * 365 {
+            //     claim_tracker.vt_claim_checkpoints.remove(0);
+            // }
             //Push new instance
             claim_tracker.vt_claim_checkpoints.push(VTClaimCheckpoint {
                 vt_claim_of_checkpoint: btokens_per_one,

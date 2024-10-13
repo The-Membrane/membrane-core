@@ -2084,7 +2084,7 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
         vt_claim_checkpoints: vec![
             VTClaimCheckpoint {
-                vt_claim_of_checkpoint: btokens_per_one * Decimal::from_str("0.97370983").unwrap(),
+                vt_claim_of_checkpoint: btokens_per_one * Decimal::from_str("0.97222222").unwrap(),
                 time_since_last_checkpoint: env.block.time.seconds() - 86400*21, //launched 20 days ago
             }
         ],

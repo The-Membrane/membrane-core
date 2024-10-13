@@ -1304,9 +1304,9 @@ fn crank_realized_apr(
 
 
     //If the trackers total time is over a year, remove the first instance
-    if claim_tracker.vt_claim_checkpoints.len() > 0 && claim_tracker.vt_claim_checkpoints.iter().map(|claim_checkpoint| claim_checkpoint.time_since_last_checkpoint).sum::<u64>() > SECONDS_PER_DAY * 365 {
-        claim_tracker.vt_claim_checkpoints.remove(0);
-    }
+    // if claim_tracker.vt_claim_checkpoints.len() > 0 && claim_tracker.vt_claim_checkpoints.iter().map(|claim_checkpoint| claim_checkpoint.time_since_last_checkpoint).sum::<u64>() > SECONDS_PER_DAY * 365 {
+    //     claim_tracker.vt_claim_checkpoints.remove(0);
+    // }
     //Push new instance
     claim_tracker.vt_claim_checkpoints.push(VTClaimCheckpoint {
         vt_claim_of_checkpoint: btokens_per_one,
@@ -2084,8 +2084,8 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
         vt_claim_checkpoints: vec![
             VTClaimCheckpoint {
-                vt_claim_of_checkpoint: btokens_per_one * Decimal::from_str("0.97370983").unwrap(),
-                time_since_last_checkpoint: env.block.time.seconds() - 86400*20, //launched 20 days ago
+                vt_claim_of_checkpoint: btokens_per_one * Decimal::from_str("0.97736986").unwrap(),
+                time_since_last_checkpoint: env.block.time.seconds() - 86400*21, //launched 20 days ago
             }
         ],
         last_updated: env.block.time.seconds(),

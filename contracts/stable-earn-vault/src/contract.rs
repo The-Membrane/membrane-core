@@ -2067,6 +2067,8 @@ fn get_buffer_amounts(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
+    //Load config
+    let mut config = CONFIG.load(deps.storage)?;
     //Load VT total
     let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;    
     //Get total deposit tokens

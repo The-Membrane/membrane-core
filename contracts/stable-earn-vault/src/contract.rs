@@ -2070,7 +2070,7 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     //Load VT total
     let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;    
     //Get total deposit tokens
-    let total_deposit_tokens = get_total_deposit_tokens(deps, env.clone(), config.clone())?;
+    let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
     //Calc the rate of vault tokens to deposit tokens
     let btokens_per_one = calculate_base_tokens(
         Uint128::new(1_000_000_000_000), 
@@ -2082,7 +2082,7 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
         vt_claim_checkpoints: vec![
             VTClaimCheckpoint {
-                vt_claim_of_checkpoint: btokens_per_one * Decimal::from_str(".97370983").unwrap(),
+                vt_claim_of_checkpoint: btokens_per_one * Decimal::from_str("0.97370983").unwrap(),
                 time_since_last_checkpoint: env.block.time.seconds() - 86400*20, //launched 20 days ago
             }
         ],

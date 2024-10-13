@@ -9,11 +9,11 @@ use membrane::math::{decimal_multiplication, decimal_division};
 use crate::error::TokenFactoryError;
 use crate::state::{CLAIM_TRACKER, TOKEN_RATE_ASSURANCE, TokenRateAssurance, CONFIG, DEPOSIT_BALANCE_AT_LAST_CLAIM, OWNERSHIP_TRANSFER, VAULT_TOKEN};
 use membrane::stability_pool_vault::{
-    calculate_base_tokens, calculate_vault_tokens, Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, APR, APRResponse
+    calculate_base_tokens, calculate_vault_tokens, Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, APRResponse
 };
 use membrane::stability_pool::{ExecuteMsg as StabilityPoolExecuteMsg, QueryMsg as StabilityPoolQueryMsg, ClaimsResponse};
 use membrane::osmosis_proxy::ExecuteMsg as OsmosisProxyExecuteMsg;
-use membrane::types::{AssetPool, ClaimTracker, VTClaimCheckpoint};
+use membrane::types::{AssetPool, ClaimTracker, VTClaimCheckpoint, APR};
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
 
 // version info for migration info

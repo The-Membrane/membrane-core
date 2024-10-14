@@ -15,13 +15,13 @@ use membrane::math::{decimal_division, decimal_multiplication, decimal_subtracti
 
 use crate::error::TokenFactoryError;
 use crate::state::{CLAIM_TRACKER, TokenRateAssurance, UnloopProps, CONFIG, OWNERSHIP_TRANSFER, TOKEN_RATE_ASSURANCE, UNLOOP_PROPS, VAULT_TOKEN};
-use membrane::stable_earn_vault::{Config, APRResponse, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
+use membrane::stable_earn_vault::{Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 use membrane::mars_vault_token::{ExecuteMsg as Vault_ExecuteMsg, QueryMsg as Vault_QueryMsg};
 use membrane::cdp::{BasketPositionsResponse, CollateralInterestResponse, ExecuteMsg as CDP_ExecuteMsg, InterestResponse, PositionResponse, QueryMsg as CDP_QueryMsg};
 use membrane::osmosis_proxy::{ExecuteMsg as OP_ExecuteMsg};
 use membrane::oracle::QueryMsg as Oracle_QueryMsg;
 use membrane::stability_pool_vault::{
-    calculate_base_tokens, calculate_vault_tokens, APRResponse as NoCost_APRResponse
+    calculate_base_tokens, calculate_vault_tokens
 };
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
 
@@ -1329,238 +1329,241 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::VaultTokenUnderlying { vault_token_amount } => to_json_binary(&query_vault_token_underlying(deps, env, vault_token_amount)?),
-        QueryMsg::APR {} => to_json_binary(&query_apr(deps, env)?),
+        QueryMsg::ClaimTracker {} => to_json_binary(&CLAIM_TRACKER.load(deps.storage)?),
     }
 }
 
 /// Return APR for the valid durations 7, 30, 90, 365 days using the Mars Vault's APR
 /// & cost of the CDP
-fn query_apr(
-    deps: Deps,
-    env: Env,
-) -> StdResult<APRResponse> {
-    let config = CONFIG.load(deps.storage)?;
-    //Load VT total
-    let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;    
-    //Get total deposit tokens
-    let total_deposit_tokens = get_total_deposit_tokens(deps, env.clone(), config.clone())?;
-    //Calc the rate of vault tokens to deposit tokens
-    let btokens_per_one = calculate_base_tokens(
-        Uint128::new(1_000_000_000_000), 
-        total_deposit_tokens,
-        total_vault_tokens
-    )?;
-    //Initiate APRResponse
-    let mut aprs = APRResponse {
-        week_apr: None,
-        month_apr: None,
-        three_month_apr: None,
-        year_apr: None,
-        leverage: Decimal::zero(),
-        cost: Decimal::zero()
-    };
-    //Load the claim tracker    
-    let claim_tracker = CLAIM_TRACKER.load(deps.storage)?;
-    //Query the CDP Basket
-    let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
-        config.cdp_contract_addr.to_string(),
-        &CDP_QueryMsg::GetBasket { },
-    ){
-        Ok(basket) => basket,
-        Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP Basket") }),
-    };
+// fn query_apr(
+//     deps: Deps,
+//     env: Env,
+// ) -> StdResult<APRResponse> {
+//     let config = CONFIG.load(deps.storage)?;
+//     //Load VT total
+//     let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;    
+//     //Get total deposit tokens
+//     let total_deposit_tokens = get_total_deposit_tokens(deps, env.clone(), config.clone())?;
+//     //Calc the rate of vault tokens to deposit tokens
+//     let btokens_per_one = calculate_base_tokens(
+//         Uint128::new(1_000_000_000_000), 
+//         total_deposit_tokens,
+//         total_vault_tokens
+//     )?;
+//     //Initiate APRResponse
+//     let mut aprs = APRResponse {
+//         week_apr: None,
+//         month_apr: None,
+//         three_month_apr: None,
+//         year_apr: None,
+//         leverage: Decimal::zero(),
+//         cost: Decimal::zero()
+//     };
+//     //Load the claim tracker    
+//     let claim_tracker = CLAIM_TRACKER.load(deps.storage)?;
+//     //Query the CDP Basket
+//     let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
+//         config.cdp_contract_addr.to_string(),
+//         &CDP_QueryMsg::GetBasket { },
+//     ){
+//         Ok(basket) => basket,
+//         Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP Basket") }),
+//     };
 
-    ////Find the leverage of the contract////
-    //Query the collateral of the contract's CDP
-    //Query the CDP position for the amount of vault tokens we have
-    let vault_position: Vec<BasketPositionsResponse> = match deps.querier.query_wasm_smart::<Vec<BasketPositionsResponse>>(
-        config.cdp_contract_addr.to_string(),
-        &CDP_QueryMsg::GetBasketPositions { 
-            start_after: None, 
-            user: None,
-            user_info: Some(UserInfo {
-                position_owner: env.contract.address.to_string(),
-                position_id: config.cdp_position_id,
-            }), 
-            limit: None, 
-        },
-    ){
-        Ok(vault_position) => vault_position,
-        Err(err) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP Position for the vault token amount in get_total_deposit_tokens:") + &err.to_string() }),
-    };
-    let vault_position: PositionResponse = vault_position[0].positions[0].clone();
+//     ////Find the leverage of the contract////
+//     //Query the collateral of the contract's CDP
+//     //Query the CDP position for the amount of vault tokens we have
+//     let vault_position: Vec<BasketPositionsResponse> = match deps.querier.query_wasm_smart::<Vec<BasketPositionsResponse>>(
+//         config.cdp_contract_addr.to_string(),
+//         &CDP_QueryMsg::GetBasketPositions { 
+//             start_after: None, 
+//             user: None,
+//             user_info: Some(UserInfo {
+//                 position_owner: env.contract.address.to_string(),
+//                 position_id: config.cdp_position_id,
+//             }), 
+//             limit: None, 
+//         },
+//     ){
+//         Ok(vault_position) => vault_position,
+//         Err(err) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP Position for the vault token amount in get_total_deposit_tokens:") + &err.to_string() }),
+//     };
+//     let vault_position: PositionResponse = vault_position[0].positions[0].clone();
     
-    //Query the collateral token price
-    let collateral_price: PriceResponse = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
-        config.oracle_contract_addr.to_string(),
-        &Oracle_QueryMsg::Prices { 
-            asset_infos: vec![vault_position.collateral_assets[0].asset.info.clone()],            
-            twap_timeframe: 0,
-            oracle_time_limit: 0,
-        },
-    ){
-        Ok(price) => price[0].clone(),
-        Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the collateral token price") }),
-    };
+//     //Query the collateral token price
+//     let collateral_price: PriceResponse = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
+//         config.oracle_contract_addr.to_string(),
+//         &Oracle_QueryMsg::Prices { 
+//             asset_infos: vec![vault_position.collateral_assets[0].asset.info.clone()],            
+//             twap_timeframe: 0,
+//             oracle_time_limit: 0,
+//         },
+//     ){
+//         Ok(price) => price[0].clone(),
+//         Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the collateral token price") }),
+//     };
 
-    //Set running collateral amount
-    let vt_collateral_amount = vault_position.collateral_assets[0].asset.amount;
-    //Calc collateral value
-    let vt_collateral_value: Decimal = collateral_price.get_value(vt_collateral_amount)?;
-    //Set running credit amount
-    let vt_credit_amount = vault_position.credit_amount;
-    //Calc credit value
-    let vt_credit_value: Decimal = basket.credit_price.get_value(vt_credit_amount)?;
-    //Set liquid value of the CDP
-    let vt_liquid_value = match decimal_subtraction(vt_collateral_value, vt_credit_value){
-        Ok(v) => v,
-        Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to subtract the credit value from the collateral value in query_apr") }),
-    };
+//     //Set running collateral amount
+//     let vt_collateral_amount = vault_position.collateral_assets[0].asset.amount;
+//     //Calc collateral value
+//     let vt_collateral_value: Decimal = collateral_price.get_value(vt_collateral_amount)?;
+//     //Set running credit amount
+//     let vt_credit_amount = vault_position.credit_amount;
+//     //Calc credit value
+//     let vt_credit_value: Decimal = basket.credit_price.get_value(vt_credit_amount)?;
+//     //Set liquid value of the CDP
+//     let vt_liquid_value = match decimal_subtraction(vt_collateral_value, vt_credit_value){
+//         Ok(v) => v,
+//         Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to subtract the credit value from the collateral value in query_apr") }),
+//     };
     
-    //Find the leverage by dividing the value of the collateral by the liquid value of the CDP
-    let leverage = match decimal_division(vt_collateral_value, vt_liquid_value){
-        Ok(v) => v,
-        Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to divide the collateral value by the liquid value of the CDP in query_apr") }),
-    };
-    aprs.leverage = leverage;
+//     //Find the leverage by dividing the value of the collateral by the liquid value of the CDP
+//     let leverage = match decimal_division(vt_collateral_value, vt_liquid_value){
+//         Ok(v) => v,
+//         Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to divide the collateral value by the liquid value of the CDP in query_apr") }),
+//     };
+//     aprs.leverage = leverage;
     
-    let mut running_duration = 0;
-    let mut negative_apr = false;
-    //Add the present duration as Checkpoint
-    let mut claim_checkpoints = claim_tracker.vt_claim_checkpoints;
-    claim_checkpoints.push(VTClaimCheckpoint {
-        vt_claim_of_checkpoint: btokens_per_one,
-        time_since_last_checkpoint: env.block.time.seconds() - claim_tracker.last_updated,
-    });
-    //Parse instances to allocate APRs to the correct duration
-    //We reverse to get the most recent instances first
-    claim_checkpoints.reverse();
-    for claim_checkpoint in claim_checkpoints.into_iter() {
-        running_duration += claim_checkpoint.time_since_last_checkpoint;
+//     let mut running_duration = 0;
+//     let mut negative_apr = false;
+//     //Add the present duration as Checkpoint
+//     let mut claim_checkpoints = claim_tracker.vt_claim_checkpoints;
+//     claim_checkpoints.push(VTClaimCheckpoint {
+//         vt_claim_of_checkpoint: btokens_per_one,
+//         time_since_last_checkpoint: env.block.time.seconds() - claim_tracker.last_updated,
+//     });
+//     //Parse instances to allocate APRs to the correct duration
+//     //We reverse to get the most recent instances first
+//     claim_checkpoints.reverse();
+//     for claim_checkpoint in claim_checkpoints.into_iter() {
+//         running_duration += claim_checkpoint.time_since_last_checkpoint;
         
 
-        if running_duration >= SECONDS_PER_DAY * 7 && aprs.week_apr.is_none() {
+//         if running_duration >= SECONDS_PER_DAY * 7 && aprs.week_apr.is_none() {
             
-            /////Calc APR////
-            let change_ratio = match decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
-             Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one())){
-                Ok(v) => v,
-                Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to divide the base tokens per one, {}, by the vt claim, {}, of the checkpoint in query_apr (weekly)", btokens_per_one, claim_checkpoint.vt_claim_of_checkpoint) }),
-             };
+//             /////Calc APR////
+//             let change_ratio = match decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
+//              Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one())){
+//                 Ok(v) => v,
+//                 Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to divide the base tokens per one, {}, by the vt claim, {}, of the checkpoint in query_apr (weekly)", btokens_per_one, claim_checkpoint.vt_claim_of_checkpoint) }),
+//              };
 
-            let percent_change = match change_ratio.checked_sub(Decimal::one()){
-                Ok(diff) => diff,
-                //For this to happen, the slippage frmo the swap is greater than the Mars APR & redemption profits in this timeframe
-                Err(_) => {
-                    negative_apr = true;
-                    //Find the negative APR
-                    Decimal::one() - change_ratio
-                },
-            };
+//             let percent_change = match change_ratio.checked_sub(Decimal::one()){
+//                 Ok(diff) => diff,
+//                 //For this to happen, the slippage from the swap is greater than the Mars APR & redemption profits in this timeframe
+//                 Err(_) => {
+//                     negative_apr = true;
+//                     //Find the negative APR
+//                     Decimal::one() - change_ratio
+//                 },
+//             };
 
-            let apr = match percent_change.checked_mul(Decimal::percent(52_00)){
-                Ok(apr) => apr,
-                Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the weekly APR calc using a percent change of {}", percent_change)})
-            };
+//             let apr = match percent_change.checked_mul(Decimal::percent(52_00)){
+//                 Ok(apr) => apr,
+//                 Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the weekly APR calc using a percent change of {}", percent_change)})
+//             };
 
-            aprs.week_apr = Some(APR {
-                apr,
-                negative: negative_apr
-            });
+//             aprs.week_apr = Some(APR {
+//                 apr,
+//                 negative: negative_apr
+//             });
 
-            negative_apr = false;
-        } else if running_duration >= SECONDS_PER_DAY * 30 && aprs.month_apr.is_none() {
-            /////Calc APR////
-            let change_ratio = match decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
-             Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one())){
-                Ok(v) => v,
-                Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to divide the base tokens per one, {}, by the vt claim, {}, of the checkpoint in query_apr (monthly)", btokens_per_one, claim_checkpoint.vt_claim_of_checkpoint) }),
-             };
+//             negative_apr = false;
+//         } 
+//         if running_duration >= SECONDS_PER_DAY * 30 && aprs.month_apr.is_none() {
+//             /////Calc APR////
+//             let change_ratio = match decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
+//              Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one())){
+//                 Ok(v) => v,
+//                 Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to divide the base tokens per one, {}, by the vt claim, {}, of the checkpoint in query_apr (monthly)", btokens_per_one, claim_checkpoint.vt_claim_of_checkpoint) }),
+//              };
 
-            let percent_change = match change_ratio.checked_sub(Decimal::one()){
-                Ok(diff) => diff,
-                //For this to happen, the slippage frmo the swap is greater than the Mars APR & redemption profits in this timeframe
-                Err(_) => {
-                    negative_apr = true;
-                    //Find the negative APR
-                    Decimal::one() - change_ratio
-                },
-            };
-            let apr = match percent_change.checked_mul(Decimal::percent(12_00)){
-                Ok(apr) => apr,
-                Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the monthly APR calc using a percent change of {}", percent_change)})
-            };
-            aprs.month_apr = Some(APR {
-                apr,
-                negative: negative_apr
-            });
-            negative_apr = false;
-        } else if running_duration >= SECONDS_PER_DAY * 90 && aprs.three_month_apr.is_none() {
-            /////Calc APR////
-            let change_ratio = match decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
-             Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one())){
-                Ok(v) => v,
-                Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to divide the base tokens per one, {}, by the vt claim, {}, of the checkpoint in query_apr (3M)", btokens_per_one, claim_checkpoint.vt_claim_of_checkpoint) }),
-             };
+//             let percent_change = match change_ratio.checked_sub(Decimal::one()){
+//                 Ok(diff) => diff,
+//                 //For this to happen, the slippage from the swap is greater than the Mars APR & redemption profits in this timeframe
+//                 Err(_) => {
+//                     negative_apr = true;
+//                     //Find the negative APR
+//                     Decimal::one() - change_ratio
+//                 },
+//             };
+//             let apr = match percent_change.checked_mul(Decimal::percent(12_00)){
+//                 Ok(apr) => apr,
+//                 Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the monthly APR calc using a percent change of {}", percent_change)})
+//             };
+//             aprs.month_apr = Some(APR {
+//                 apr,
+//                 negative: negative_apr
+//             });
+//             negative_apr = false;
+//         } 
+//         if running_duration >= SECONDS_PER_DAY * 90 && aprs.three_month_apr.is_none() {
+//             /////Calc APR////
+//             let change_ratio = match decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
+//              Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one())){
+//                 Ok(v) => v,
+//                 Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to divide the base tokens per one, {}, by the vt claim, {}, of the checkpoint in query_apr (3M)", btokens_per_one, claim_checkpoint.vt_claim_of_checkpoint) }),
+//              };
 
-            let percent_change = match change_ratio.checked_sub(Decimal::one()){
-                Ok(diff) => diff,
-                //For this to happen, the slippage frmo the swap is greater than the Mars APR & redemption profits in this timeframe
-                Err(_) => {
-                    negative_apr = true;
-                    //Find the negative APR
-                    Decimal::one() - change_ratio
-                },
-            };
-            let apr = match percent_change.checked_mul(Decimal::percent(4_00)){
-                Ok(apr) => apr,
-                Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the 3M APR calc using a percent change of {}", percent_change)})
-            };
-            aprs.three_month_apr = Some(APR {
-                apr,
-                negative: negative_apr
-            });
-            negative_apr = false;
-        } else if running_duration >= SECONDS_PER_DAY * 365 && aprs.year_apr.is_none() {
-            /////Calc APR////
-            let change_ratio = match decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
-             Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one())){
-                Ok(v) => v,
-                Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to divide the base tokens per one, {}, by the vt claim, {}, of the checkpoint in query_apr (annual)", btokens_per_one, claim_checkpoint.vt_claim_of_checkpoint) }),
-             };
+//             let percent_change = match change_ratio.checked_sub(Decimal::one()){
+//                 Ok(diff) => diff,
+//                 //For this to happen, the slippage from the swap is greater than the Mars APR & redemption profits in this timeframe
+//                 Err(_) => {
+//                     negative_apr = true;
+//                     //Find the negative APR
+//                     Decimal::one() - change_ratio
+//                 },
+//             };
+//             let apr = match percent_change.checked_mul(Decimal::percent(4_00)){
+//                 Ok(apr) => apr,
+//                 Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the 3M APR calc using a percent change of {}", percent_change)})
+//             };
+//             aprs.three_month_apr = Some(APR {
+//                 apr,
+//                 negative: negative_apr
+//             });
+//             negative_apr = false;
+//         } 
+//         if running_duration >= SECONDS_PER_DAY * 365 && aprs.year_apr.is_none() {
+//             /////Calc APR////
+//             let change_ratio = match decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
+//              Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one())){
+//                 Ok(v) => v,
+//                 Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to divide the base tokens per one, {}, by the vt claim, {}, of the checkpoint in query_apr (annual)", btokens_per_one, claim_checkpoint.vt_claim_of_checkpoint) }),
+//              };
 
-            let percent_change = match change_ratio.checked_sub(Decimal::one()){
-                Ok(diff) => diff,
-                //For this to happen, the slippage frmo the swap is greater than the Mars APR & redemption profits in this timeframe
-                Err(_) => {
-                    negative_apr = true;
-                    //Find the negative APR
-                    Decimal::one() - change_ratio
-                },
-            };
-            let apr = percent_change;
-            aprs.year_apr = Some(APR {
-                apr,
-                negative: negative_apr
-            });   
-            negative_apr = false;  
-        }        
-    }
+//             let percent_change = match change_ratio.checked_sub(Decimal::one()){
+//                 Ok(diff) => diff,
+//                 //For this to happen, the slippage from the swap is greater than the Mars APR & redemption profits in this timeframe
+//                 Err(_) => {
+//                     negative_apr = true;
+//                     //Find the negative APR
+//                     Decimal::one() - change_ratio
+//                 },
+//             };
+//             let apr = percent_change;
+//             aprs.year_apr = Some(APR {
+//                 apr,
+//                 negative: negative_apr
+//             });   
+//             negative_apr = false;  
+//         }        
+//     }
 
-    //Query the cost of the deposit vault's vault token
-    let basket_interest: CollateralInterestResponse = match deps.querier.query_wasm_smart::<CollateralInterestResponse>(
-        config.cdp_contract_addr.to_string(),
-        &CDP_QueryMsg::GetCollateralInterest {  },
-    ){
-        Ok(basket_interest) => basket_interest,
-        Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP collateral interest rates in query_apr") }),
-    };
-    let vt_cost: Decimal = basket_interest.rates[config.vault_cost_index].clone();
-    //Set cost
-    aprs.cost = vt_cost;
+//     //Query the cost of the deposit vault's vault token
+//     let basket_interest: CollateralInterestResponse = match deps.querier.query_wasm_smart::<CollateralInterestResponse>(
+//         config.cdp_contract_addr.to_string(),
+//         &CDP_QueryMsg::GetCollateralInterest {  },
+//     ){
+//         Ok(basket_interest) => basket_interest,
+//         Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP collateral interest rates in query_apr") }),
+//     };
+//     let vt_cost: Decimal = basket_interest.rates[config.vault_cost_index].clone();
+//     //Set cost
+//     aprs.cost = vt_cost;
 
-    Ok(aprs)
-}
+//     Ok(aprs)
+// }
 
 /// Return underlying deposit token amount for an amount of vault tokens
 fn query_vault_token_underlying(
@@ -2069,27 +2072,10 @@ fn get_buffer_amounts(
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
     //Load config
     let mut config = CONFIG.load(deps.storage)?;
-    //Load VT total
-    let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;    
-    //Get total deposit tokens
-    let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
-    //Calc the rate of vault tokens to deposit tokens
-    let btokens_per_one = calculate_base_tokens(
-        Uint128::new(1_000_000_000_000), 
-        total_deposit_tokens,
-        total_vault_tokens
-    )?;
-
-    //INIT Claim Tracker
-    CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
-        vt_claim_checkpoints: vec![
-            VTClaimCheckpoint {
-                vt_claim_of_checkpoint: btokens_per_one * Decimal::from_str("0.97222222").unwrap(),
-                time_since_last_checkpoint: env.block.time.seconds() - 86400*21, //launched 20 days ago
-            }
-        ],
-        last_updated: env.block.time.seconds(),
-    })?;
+    //Load claim tracker
+    let mut claim_tracker = CLAIM_TRACKER.load(deps.storage)?;
+    claim_tracker.vt_claim_checkpoints[1].time_since_last_checkpoint = 0;
+    claim_tracker.vt_claim_checkpoints[1].time_since_last_checkpoint = 86400*21;
 
     Ok(Response::default())
 }

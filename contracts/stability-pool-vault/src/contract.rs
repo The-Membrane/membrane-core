@@ -9,7 +9,7 @@ use membrane::math::{decimal_multiplication, decimal_division};
 use crate::error::TokenFactoryError;
 use crate::state::{CLAIM_TRACKER, TOKEN_RATE_ASSURANCE, TokenRateAssurance, CONFIG, DEPOSIT_BALANCE_AT_LAST_CLAIM, OWNERSHIP_TRANSFER, VAULT_TOKEN};
 use membrane::stability_pool_vault::{
-    calculate_base_tokens, calculate_vault_tokens, Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, APRResponse
+    calculate_base_tokens, calculate_vault_tokens, Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg
 };
 use membrane::stability_pool::{ExecuteMsg as StabilityPoolExecuteMsg, QueryMsg as StabilityPoolQueryMsg, ClaimsResponse};
 use membrane::osmosis_proxy::ExecuteMsg as OsmosisProxyExecuteMsg;
@@ -643,145 +643,148 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::VaultTokenUnderlying { vault_token_amount } => to_json_binary(&query_vault_token_underlying(deps, env, vault_token_amount)?),
-        QueryMsg::APR {} => to_json_binary(&query_apr(deps, env)?),
+        QueryMsg::ClaimTracker {} => to_json_binary(&CLAIM_TRACKER.load(deps.storage)?),
     }
 }
 
 /// Return APR for the valid durations 7, 30, 90, 365 days
-fn query_apr(
-    deps: Deps,
-    env: Env,
-) -> StdResult<APRResponse> {
-    //Load config
-    let config = CONFIG.load(deps.storage)?;
-    //Load VT total
-    let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
-    //Calc the rate of vault tokens to deposit tokens
-    let btokens_per_one = calculate_base_tokens(
-        Uint128::new(1_000_000), 
-        config.clone().total_deposit_tokens, 
-        total_vault_tokens
-    )?;
+// fn query_apr(
+//     deps: Deps,
+//     env: Env,
+// ) -> StdResult<APRResponse> {
+//     //Load config
+//     let config = CONFIG.load(deps.storage)?;
+//     //Load VT total
+//     let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
+//     //Calc the rate of vault tokens to deposit tokens
+//     let btokens_per_one = calculate_base_tokens(
+//         Uint128::new(1_000_000), 
+//         config.clone().total_deposit_tokens, 
+//         total_vault_tokens
+//     )?;
 
-    let claim_tracker = CLAIM_TRACKER.load(deps.storage)?;
-    let mut aprs = APRResponse {
-        week_apr: None,
-        month_apr: None,
-        three_month_apr: None,
-        year_apr: None,        
-    };
-    let mut running_duration = 0;
-    let mut negative_apr = false;
-    //Add the present duration as Checkpoint
-    let mut claim_checkpoints = claim_tracker.vt_claim_checkpoints;
-    claim_checkpoints.push(VTClaimCheckpoint {
-        vt_claim_of_checkpoint: btokens_per_one,
-        time_since_last_checkpoint: env.block.time.seconds() - claim_tracker.last_updated,
-    });
-    //Parse instances to allocate APRs to the correct duration
-    //We reverse to get the most recent instances first
-    claim_checkpoints.reverse();
-    for claim_checkpoint in claim_checkpoints.into_iter() {
-        running_duration += claim_checkpoint.time_since_last_checkpoint;
+//     let claim_tracker = CLAIM_TRACKER.load(deps.storage)?;
+//     let mut aprs = APRResponse {
+//         week_apr: None,
+//         month_apr: None,
+//         three_month_apr: None,
+//         year_apr: None,        
+//     };
+//     let mut running_duration = 0;
+//     let mut negative_apr = false;
+//     //Add the present duration as Checkpoint
+//     let mut claim_checkpoints = claim_tracker.vt_claim_checkpoints;
+//     claim_checkpoints.push(VTClaimCheckpoint {
+//         vt_claim_of_checkpoint: btokens_per_one,
+//         time_since_last_checkpoint: env.block.time.seconds() - claim_tracker.last_updated,
+//     });
+//     //Parse instances to allocate APRs to the correct duration
+//     //We reverse to get the most recent instances first
+//     claim_checkpoints.reverse();
+//     for claim_checkpoint in claim_checkpoints.into_iter() {
+//         running_duration += claim_checkpoint.time_since_last_checkpoint;
         
 
-        if running_duration >= SECONDS_PER_DAY * 7 && aprs.week_apr.is_none() {
+//         if running_duration >= SECONDS_PER_DAY * 7 && aprs.week_apr.is_none() {
             
-            /////Calc APR////
-            let change_ratio = decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
-             Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one()))?;
+//             /////Calc APR////
+//             let change_ratio = decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
+//              Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one()))?;
 
-            let percent_change = match change_ratio.checked_sub(Decimal::one()){
-                Ok(diff) => diff,
-                //For this to happen, a compound has to be >10% slippage, a risk the vault users take
-                Err(_) => {
-                    negative_apr = true;
-                    //Find the negative APR
-                    Decimal::one() - change_ratio
-                },
-            };
-            let apr = match percent_change.checked_mul(Decimal::percent(52_00)){
-                Ok(apr) => apr,
-                Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the weekly APR calc using a percent change of {}", percent_change)})
-            };
+//             let percent_change = match change_ratio.checked_sub(Decimal::one()){
+//                 Ok(diff) => diff,
+//                 //For this to happen, a compound has to be >10% slippage, a risk the vault users take
+//                 Err(_) => {
+//                     negative_apr = true;
+//                     //Find the negative APR
+//                     Decimal::one() - change_ratio
+//                 },
+//             };
+//             let apr = match percent_change.checked_mul(Decimal::percent(52_00)){
+//                 Ok(apr) => apr,
+//                 Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the weekly APR calc using a percent change of {}", percent_change)})
+//             };
 
-            aprs.week_apr = Some(APR {
-                apr,
-                negative: negative_apr
-            });
+//             aprs.week_apr = Some(APR {
+//                 apr,
+//                 negative: negative_apr
+//             });
 
-            negative_apr = false;
-        } else if running_duration >= SECONDS_PER_DAY * 30 && aprs.month_apr.is_none() {
-            /////Calc APR////
-            let change_ratio = decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
-             Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one()))?;
+//             negative_apr = false;
+//         }
+//         if running_duration >= SECONDS_PER_DAY * 30 && aprs.month_apr.is_none() {
+//             /////Calc APR////
+//             let change_ratio = decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
+//              Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one()))?;
 
-            let percent_change = match change_ratio.checked_sub(Decimal::one()){
-                Ok(diff) => diff,
-                //For this to happen, a compound has to be >10% slippage, a risk the vault users take
-                Err(_) => {
-                    negative_apr = true;
-                    //Find the negative APR
-                    Decimal::one() - change_ratio
-                },
-            };
-            let apr = match percent_change.checked_mul(Decimal::percent(12_00)){
-                Ok(apr) => apr,
-                Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the monthly APR calc using a percent change of {}", percent_change)})
-            };
-            aprs.month_apr = Some(APR {
-                apr,
-                negative: negative_apr
-            });
-            negative_apr = false;
-        } else if running_duration >= SECONDS_PER_DAY * 90 && aprs.three_month_apr.is_none() {
-            /////Calc APR////
-            let change_ratio = decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
-             Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one()))?;
+//             let percent_change = match change_ratio.checked_sub(Decimal::one()){
+//                 Ok(diff) => diff,
+//                 //For this to happen, a compound has to be >10% slippage, a risk the vault users take
+//                 Err(_) => {
+//                     negative_apr = true;
+//                     //Find the negative APR
+//                     Decimal::one() - change_ratio
+//                 },
+//             };
+//             let apr = match percent_change.checked_mul(Decimal::percent(12_00)){
+//                 Ok(apr) => apr,
+//                 Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the monthly APR calc using a percent change of {}", percent_change)})
+//             };
+//             aprs.month_apr = Some(APR {
+//                 apr,
+//                 negative: negative_apr
+//             });
+//             negative_apr = false;
+//         }
+//         if running_duration >= SECONDS_PER_DAY * 90 && aprs.three_month_apr.is_none() {
+//             /////Calc APR////
+//             let change_ratio = decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
+//              Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one()))?;
 
-            let percent_change = match change_ratio.checked_sub(Decimal::one()){
-                Ok(diff) => diff,
-                //For this to happen, a compound has to be >10% slippage, a risk the vault users take
-                Err(_) => {
-                    negative_apr = true;
-                    //Find the negative APR
-                    Decimal::one() - change_ratio
-                },
-            };
-            let apr = match percent_change.checked_mul(Decimal::percent(4_00)){
-                Ok(apr) => apr,
-                Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the 3M APR calc using a percent change of {}", percent_change)})
-            };
-            aprs.three_month_apr = Some(APR {
-                apr,
-                negative: negative_apr
-            });
-            negative_apr = false;
-        } else if running_duration >= SECONDS_PER_DAY * 365 && aprs.year_apr.is_none() {
-            /////Calc APR////
-            let change_ratio = decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
-             Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one()))?;
+//             let percent_change = match change_ratio.checked_sub(Decimal::one()){
+//                 Ok(diff) => diff,
+//                 //For this to happen, a compound has to be >10% slippage, a risk the vault users take
+//                 Err(_) => {
+//                     negative_apr = true;
+//                     //Find the negative APR
+//                     Decimal::one() - change_ratio
+//                 },
+//             };
+//             let apr = match percent_change.checked_mul(Decimal::percent(4_00)){
+//                 Ok(apr) => apr,
+//                 Err(_) => return Err(StdError::GenericErr {msg: format!("Errored on the 3M APR calc using a percent change of {}", percent_change)})
+//             };
+//             aprs.three_month_apr = Some(APR {
+//                 apr,
+//                 negative: negative_apr
+//             });
+//             negative_apr = false;
+//         } 
+//         if running_duration >= SECONDS_PER_DAY * 365 && aprs.year_apr.is_none() {
+//             /////Calc APR////
+//             let change_ratio = decimal_division(Decimal::from_ratio(btokens_per_one, Uint128::one()),
+//              Decimal::from_ratio(claim_checkpoint.vt_claim_of_checkpoint, Uint128::one()))?;
 
-            let percent_change = match change_ratio.checked_sub(Decimal::one()){
-                Ok(diff) => diff,
-                //For this to happen, a compound has to be >10% slippage, a risk the vault users take
-                Err(_) => {
-                    negative_apr = true;
-                    //Find the negative APR
-                    Decimal::one() - change_ratio
-                },
-            };
-            let apr = percent_change;
-            aprs.year_apr = Some(APR {
-                apr,
-                negative: negative_apr
-            });   
-            negative_apr = false;  
-        }        
-    }
+//             let percent_change = match change_ratio.checked_sub(Decimal::one()){
+//                 Ok(diff) => diff,
+//                 //For this to happen, a compound has to be >10% slippage, a risk the vault users take
+//                 Err(_) => {
+//                     negative_apr = true;
+//                     //Find the negative APR
+//                     Decimal::one() - change_ratio
+//                 },
+//             };
+//             let apr = percent_change;
+//             aprs.year_apr = Some(APR {
+//                 apr,
+//                 negative: negative_apr
+//             });   
+//             negative_apr = false;  
+//         }        
+//     }
 
-    Ok(aprs)
-}
+//     Ok(aprs)
+// }
 
 /// Return underlying deposit token amount for an amount of vault tokens
 fn query_vault_token_underlying(

@@ -41,7 +41,7 @@ pub enum QueryMsg {
     /// Return contract config
     Config {},
     VaultTokenUnderlying { vault_token_amount: Uint128 },
-    APR {},
+    ClaimTracker {},
 }
 
 #[cw_serde]
@@ -59,15 +59,6 @@ pub struct Config {
     // pub compound_activation_fee: Uint128,
     pub stability_pool_contract: Addr,
     pub osmosis_proxy_contract: Addr,
-}
-
-
-#[cw_serde]
-pub struct APRResponse {
-    pub week_apr: Option<APR>,
-    pub month_apr: Option<APR>,
-    pub three_month_apr: Option<APR>,
-    pub year_apr: Option<APR>,
 }
 
 #[cw_serde]

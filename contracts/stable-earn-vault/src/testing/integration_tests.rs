@@ -2,10 +2,9 @@ mod tests {
 
     use crate::helpers::EarnVaultContract;
 
-    use membrane::stability_pool_vault::APRResponse as NoCost_APRResponse;
     use membrane::stable_earn_vault::{ExecuteMsg, InstantiateMsg, QueryMsg, Config};
     // use membrane::mars_redbank::{Market, UserCollateralResponse, InterestRateModel};
-    use membrane::types::{AssetInfo, Asset, VaultInfo, AssetPool, cAsset, UserInfo, Basket};
+    use membrane::types::{ClaimTracker, VTClaimCheckpoint, AssetInfo, Asset, VaultInfo, AssetPool, cAsset, UserInfo, Basket};
     use membrane::cdp::{PositionResponse, BasketPositionsResponse, CollateralInterestResponse, InterestResponse};
     use membrane::oracle::PriceResponse;
     use cosmwasm_std::{
@@ -695,7 +694,6 @@ mod tests {
         use std::str::FromStr;
 
         use cosmwasm_std::{coin, coins, BlockInfo, Uint128};
-        use membrane::stable_earn_vault::APRResponse;
         use membrane::types::APR;
 
         use super::*;
@@ -784,27 +782,25 @@ mod tests {
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
-            //Query APR
-            let apr: APRResponse = app
+            //Query historical claims state
+            let claim_tracker: ClaimTracker = app
                 .wrap()
                 .query_wasm_smart(
                     vault_contract.addr(),
-                    &QueryMsg::APR {},
+                    &QueryMsg::ClaimTracker {},
                 )
                 .unwrap();
             assert_eq!(
-                apr.week_apr.unwrap(),
-                APR {
-                    apr: Decimal::from_str("0").unwrap(),
-                    negative: false,
-                }
-            );
-            assert_eq!(
-                apr.cost,
-                Decimal::percent(1)
+                claim_tracker.vt_claim_checkpoints,
+                vec![
+                    VTClaimCheckpoint {
+                        vt_claim_of_checkpoint: Uint128::new(308641),
+                        time_since_last_checkpoint: 691200,
+                    }
+                ]
             );
 
-            //Skip 8 days to test APR conditional time update 
+            //Skip 8 days to test Claim conditional time update 
             app.set_block(BlockInfo {
                 height: app.block_info().height,
                 time: app.block_info().time.plus_seconds(86400*8),
@@ -814,8 +810,24 @@ mod tests {
             let msg = ExecuteMsg::CrankRealizedAPR { };
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            /////We must panic to check the time update/////
+            
+            //Query historical claims state
+            let claim_tracker: ClaimTracker = app
+                .wrap()
+                .query_wasm_smart(
+                    vault_contract.addr(),
+                    &QueryMsg::ClaimTracker {},
+                )
+                .unwrap();
+            assert_eq!(
+                claim_tracker.vt_claim_checkpoints,
+                vec![
+                    VTClaimCheckpoint {
+                        vt_claim_of_checkpoint: Uint128::new(308641),
+                        time_since_last_checkpoint: 1382400,
+                    }
+                ]
+            );
         }
 
         #[test]

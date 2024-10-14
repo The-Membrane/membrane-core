@@ -63,7 +63,7 @@ pub enum QueryMsg {
     Config {},
     VaultTokenUnderlying { vault_token_amount: Uint128 },
     /// Don't use the leverage in the APR Response, check here for how its calc'd and displayed on the Membrane App: https://github.com/The-Membrane/membrane-app/blob/main/components/Earn/hooks/useEarnQueries.ts#L28
-    APR {},
+    ClaimTracker {},
 }
 
 #[cw_serde]
@@ -88,17 +88,6 @@ pub struct Config {
     pub deposit_cap: Uint128,
     pub swap_slippage: Decimal,
     pub vault_cost_index: usize,
-}
-
-/// config.witdrawal_buffer's percent of the vault isn't earning the levered APR, just the deposit_token's vault APR
-#[cw_serde]
-pub struct APRResponse {
-    pub week_apr: Option<APR>,
-    pub month_apr: Option<APR>,
-    pub three_month_apr: Option<APR>,
-    pub year_apr: Option<APR>,
-    pub leverage: Decimal,
-    pub cost: Decimal,
 }
 
 #[cw_serde]

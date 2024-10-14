@@ -50,6 +50,7 @@ pub struct Config {
     pub vault_token: String,
     pub deposit_token: String,
     //Deposit token tally that includes tokens in the vault
+    //UNUSED & only updated on entry.
     pub total_deposit_tokens: Uint128,
     //Ratio to keep outside of the vault strategy for easy withdrawals
     //Only applicable bc the strategy has an unstaking period

@@ -82,6 +82,31 @@ pub fn execute(
     }
 }
 
+fn get_total_deposit_tokens(
+    deps: Deps,
+    env: Env,
+    config: Config,
+) -> StdResult<Uint128> {
+    //Get deposits in the withdrawal buffer
+    let buffered_deposit_tokens = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
+
+    //Query for deposits in the SP asset pool
+    let asset_pool: AssetPool = deps.querier.query_wasm_smart::<AssetPool> (
+        config.stability_pool_contract.to_string(),
+        &StabilityPoolQueryMsg::AssetPool { 
+            user: Some(env.contract.address.to_string()),
+            deposit_limit: None,
+            start_after: None,
+        },
+    )?;
+    let total_pool_deposits = asset_pool.deposits.into_iter().map(|deposit| deposit.amount).sum::<Decimal>().to_uint_floor();
+    // println!("here {}, {}", buffered_deposit_tokens, total_pool_deposits);
+    //Parse deposits and calculate the total deposits
+    let total_deposit_tokens = buffered_deposit_tokens + total_pool_deposits;
+
+    Ok(total_deposit_tokens)
+}
+
 ///Rate assurance
 /// Ensures that the conversion rate is static for deposits & withdrawals
 fn rate_assurance(
@@ -103,16 +128,18 @@ fn rate_assurance(
     //Load Vault token supply
     let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
 
+    let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
+
     //Calc the rate of deposit tokens to vault tokens
     let vtokens_per_one = calculate_vault_tokens(
         Uint128::new(1_000_000), 
-        config.clone().total_deposit_tokens, 
+        total_deposit_tokens.clone(),
         total_vault_tokens
     )?;
     //Calc the rate of vault tokens to deposit tokens
     let btokens_per_one = calculate_base_tokens(
         Uint128::new(1_000_000), 
-        config.clone().total_deposit_tokens, 
+        total_deposit_tokens, 
         total_vault_tokens
     )?;
 
@@ -162,17 +189,18 @@ fn enter_vault(
     let deposit_amount = info.funds[0].amount;
 
     //////Calculate the amount of vault tokens to mint////
+    let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
     //Get the total amount of vault tokens circulating
     let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
     //Calc & save token rates
     let pre_vtokens_per_one = calculate_vault_tokens(
         Uint128::new(1_000_000), 
-        config.clone().total_deposit_tokens, 
+        total_deposit_tokens, 
         total_vault_tokens
     )?;
     let pre_btokens_per_one = calculate_base_tokens(
         Uint128::new(1_000_000), 
-        config.clone().total_deposit_tokens, 
+        total_deposit_tokens, 
         total_vault_tokens
     )?;
     TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
@@ -182,13 +210,15 @@ fn enter_vault(
     //Calculate the amount of vault tokens to mint
     let vault_tokens_to_distribute = calculate_vault_tokens(
         deposit_amount, 
-        config.clone().total_deposit_tokens, 
+        total_deposit_tokens, 
         total_vault_tokens
     )?;
     ////////////////////////////////////////////////////
     
-    //Update the total deposit tokens after we mint the vault token
-    config.total_deposit_tokens += deposit_amount;
+    //Update the total deposit tokens after vault tokens are minted
+    let total_deposit_tokens = total_deposit_tokens + deposit_amount;    
+    //Update config's total deposit tokens
+    config.total_deposit_tokens = total_deposit_tokens;
 
     let mut msgs = vec![];
     //Mint vault tokens to the sender
@@ -213,7 +243,7 @@ fn enter_vault(
     let contract_balance_of_deposit_tokens = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
     let total_balance_minus_new_deposit = contract_balance_of_deposit_tokens - deposit_amount;
     //Calculate ratio of deposit tokens in the contract to the total deposit tokens
-    let ratio_of_tokens_in_contract = decimal_division(Decimal::from_ratio(total_balance_minus_new_deposit, Uint128::one()), Decimal::from_ratio(config.total_deposit_tokens, Uint128::one()))?;
+    let ratio_of_tokens_in_contract = decimal_division(Decimal::from_ratio(total_balance_minus_new_deposit, Uint128::one()), Decimal::from_ratio(total_deposit_tokens, Uint128::one()))?;
 
     //Calculate what is sent and what is kept
     let mut deposit_sent_to_yield: Uint128 = Uint128::zero();
@@ -221,7 +251,7 @@ fn enter_vault(
     //If the ratio is less than the percent_to_keep_liquid, calculate the amount of deposit tokens to send to the yield strategy
     if ratio_of_tokens_in_contract < config.percent_to_keep_liquid {
         //Calculate the amount of deposit tokens that would make the ratio equal to the percent_to_keep_liquid
-        let desired_ratio_tokens = decimal_multiplication(Decimal::from_ratio(config.total_deposit_tokens, Uint128::one()), config.percent_to_keep_liquid)?;
+        let desired_ratio_tokens = decimal_multiplication(Decimal::from_ratio(total_deposit_tokens, Uint128::one()), config.percent_to_keep_liquid)?;
         let tokens_to_fill_ratio = desired_ratio_tokens.to_uint_floor() - total_balance_minus_new_deposit;
         //How much do we send to the yield strategy
         if tokens_to_fill_ratio >= deposit_amount {
@@ -235,7 +265,7 @@ fn enter_vault(
     {
         deposit_sent_to_yield = deposit_amount;
     }
-    println!("{}, {}, {}", ratio_of_tokens_in_contract, config.percent_to_keep_liquid, deposit_sent_to_yield);
+    // println!("{}, {}, {}", ratio_of_tokens_in_contract, config.percent_to_keep_liquid, deposit_sent_to_yield);
 
     //Send the deposit tokens to the yield strategy
     if !deposit_sent_to_yield.is_zero() {
@@ -295,7 +325,7 @@ fn exit_vault(
         Err(_) => ClaimsResponse { claims: vec![] },
     };
 
-    let total_deposit_tokens = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
+    let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
     if total_deposit_tokens.is_zero() {
         return Err(TokenFactoryError::ZeroDepositTokens {});
     }
@@ -320,12 +350,12 @@ fn exit_vault(
     //Calc & save token rates
     let pre_vtokens_per_one = calculate_vault_tokens(
         Uint128::new(1_000_000), 
-        config.clone().total_deposit_tokens, 
+        total_deposit_tokens, 
         total_vault_tokens
     )?;
     let pre_btokens_per_one = calculate_base_tokens(
         Uint128::new(1_000_000), 
-        config.clone().total_deposit_tokens, 
+        total_deposit_tokens, 
         total_vault_tokens
     )?;
     TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
@@ -335,7 +365,7 @@ fn exit_vault(
     //Calculate the amount of deposit tokens to withdraw
     let mut deposit_tokens_to_withdraw = calculate_base_tokens(
         vault_tokens, 
-        config.clone().total_deposit_tokens, 
+        total_deposit_tokens, 
         total_vault_tokens
     )?;
     ////////////////////////////////////////////////////
@@ -357,11 +387,6 @@ fn exit_vault(
     };
     //Update the total vault tokens
     VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
-    //Update the total deposit tokens
-    config.total_deposit_tokens = match config.total_deposit_tokens.checked_sub(deposit_tokens_to_withdraw){
-        Ok(v) => v,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to subtract deposit token total supply: {} - {}", config.total_deposit_tokens, deposit_tokens_to_withdraw) }),
-    };
     //Save the updated config
     CONFIG.save(deps.storage, &config)?;
 
@@ -531,12 +556,15 @@ fn crank_realized_apr(
     //Update Claim tracker
     let mut claim_tracker = CLAIM_TRACKER.load(deps.storage)?;
     //Calculate time since last claim
-    let time_since_last_checkpoint = env.block.time.seconds() - claim_tracker.last_updated;       
-    
+    let time_since_last_checkpoint = env.block.time.seconds() - claim_tracker.last_updated;
+    //Get the total deposit tokens
+    let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
+    config.total_deposit_tokens = total_deposit_tokens;
+    CONFIG.save(deps.storage, &config)?;
     //Calc the rate of vault tokens to deposit tokens
     let btokens_per_one = calculate_base_tokens(
         Uint128::new(1_000_000), 
-        config.clone().total_deposit_tokens, 
+        total_deposit_tokens, 
         total_vault_tokens
     )?;
 
@@ -789,7 +817,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 /// Return underlying deposit token amount for an amount of vault tokens
 fn query_vault_token_underlying(
     deps: Deps,
-    _env: Env,
+    env: Env,
     vault_token_amount: Uint128,
 ) -> StdResult<Uint128> {
     let config = CONFIG.load(deps.storage)?;
@@ -806,18 +834,23 @@ fn query_vault_token_underlying(
     )?;
     let asset_pool_deposit_tokens = asset_pool.credit_asset.amount;
     //Query the Stability Pool balanace for its total deposit tokens
-    let total_deposit_tokens = deps.querier.query_balance(config.stability_pool_contract.clone(), config.deposit_token.clone())?.amount;
-    
+    let sp_total_deposit_tokens = deps.querier.query_balance(config.stability_pool_contract.clone(), config.deposit_token.clone())?.amount;
+
     // If the Stability Pool has less deposit tokens than it thinks it does in state, return a discounted amount
     /////This is hack insurance & guarantees that underlying queries return less if the SP has been exploited////////
     let mut deposit_discount = Decimal::one();
-    if total_deposit_tokens < asset_pool_deposit_tokens {
-        deposit_discount = Decimal::from_ratio(total_deposit_tokens, asset_pool_deposit_tokens);
+    if sp_total_deposit_tokens < asset_pool_deposit_tokens {
+        deposit_discount = Decimal::from_ratio(sp_total_deposit_tokens, asset_pool_deposit_tokens);
     }
+    
+    //Get contract's total deposit tokens
+    let total_deposit_tokens = get_total_deposit_tokens(deps, env.clone(), config.clone())?;
+    // println!("{}, {}, {}, {}", sp_total_deposit_tokens, asset_pool_deposit_tokens, deposit_discount, total_deposit_tokens);
+
     //Calc the amount of deposit tokens the user owns pre-discount
     let users_base_tokens = calculate_base_tokens(
         vault_token_amount,
-        config.total_deposit_tokens,
+        total_deposit_tokens,
         total_vault_tokens
     )?;
     //Apply the discount
@@ -847,6 +880,7 @@ fn handle_compound_reply(
             //Load state
             let mut config = CONFIG.load(deps.storage)?; 
             let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
+            let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
 
             //Load previous deposit token balance
             let prev_balance = DEPOSIT_BALANCE_AT_LAST_CLAIM.load(deps.storage)?;
@@ -865,8 +899,8 @@ fn handle_compound_reply(
             
             //Calc the amount of deposit tokens that were compounded
             let compounded_amount = current_balance - prev_balance;
-            //Update the total deposit tokens
-            config.total_deposit_tokens += compounded_amount;
+            //Update the config's total deposit tokens
+            config.total_deposit_tokens = total_deposit_tokens;
             //Update Claim tracker
             let mut claim_tracker = CLAIM_TRACKER.load(deps.storage)?;
             //Calculate time since last claim
@@ -875,7 +909,7 @@ fn handle_compound_reply(
             //Calc the rate of vault tokens to deposit tokens
             let btokens_per_one = calculate_base_tokens(
                 Uint128::new(1_000_000), 
-                config.clone().total_deposit_tokens, 
+                total_deposit_tokens, 
                 total_vault_tokens
             )?;
 

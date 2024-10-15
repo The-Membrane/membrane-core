@@ -2071,12 +2071,12 @@ fn get_buffer_amounts(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
     //Load claim tracker
-    let mut claim_tracker = CLAIM_TRACKER.load(deps.storage)?;
-    claim_tracker.vt_claim_checkpoints[0].time_since_last_checkpoint = 0;
-    claim_tracker.vt_claim_checkpoints[1].time_since_last_checkpoint = 86400*21;
+    // let mut claim_tracker = CLAIM_TRACKER.load(deps.storage)?;
+    // claim_tracker.vt_claim_checkpoints[0].time_since_last_checkpoint = 0;
+    // claim_tracker.vt_claim_checkpoints[1].time_since_last_checkpoint = 86400*21;
 
-    //Save claim tracker
-    CLAIM_TRACKER.save(deps.storage, &claim_tracker)?;
+    // //Save claim tracker
+    // CLAIM_TRACKER.save(deps.storage, &claim_tracker)?;
 
     Ok(Response::default())
 }

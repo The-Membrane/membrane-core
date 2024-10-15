@@ -192,15 +192,17 @@ fn enter_vault(
     let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
     //Get the total amount of vault tokens circulating
     let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
+    //Update the total deposit tokens after vault tokens are minted
+    let pre_deposit_total_deposit_tokens = total_deposit_tokens - deposit_amount;
     //Calc & save token rates
     let pre_vtokens_per_one = calculate_vault_tokens(
         Uint128::new(1_000_000), 
-        total_deposit_tokens, 
+        pre_deposit_total_deposit_tokens, 
         total_vault_tokens
     )?;
     let pre_btokens_per_one = calculate_base_tokens(
         Uint128::new(1_000_000), 
-        total_deposit_tokens, 
+        pre_deposit_total_deposit_tokens, 
         total_vault_tokens
     )?;
     TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
@@ -210,13 +212,11 @@ fn enter_vault(
     //Calculate the amount of vault tokens to mint
     let vault_tokens_to_distribute = calculate_vault_tokens(
         deposit_amount, 
-        total_deposit_tokens, 
+        pre_deposit_total_deposit_tokens, 
         total_vault_tokens
     )?;
     ////////////////////////////////////////////////////
     
-    //Update the total deposit tokens after vault tokens are minted
-    let total_deposit_tokens = total_deposit_tokens + deposit_amount;    
     //Update config's total deposit tokens
     config.total_deposit_tokens = total_deposit_tokens;
 

@@ -310,7 +310,6 @@ fn exit_vault(
     info: MessageInfo,
 ) -> Result<Response, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
-    let mut msgs = vec![];
 
     //Query claims from the Stability Pool.
     //Error is there are claims.
@@ -380,7 +379,7 @@ fn exit_vault(
         },
     )?;
     //Calc total TVL in the SP
-    let contract_SP_tvl: Uint128 = asset_pool.deposits.into_iter()
+    let contract_SP_tvl: Uint128 = asset_pool.deposits.clone().into_iter()
         .map(|deposit| deposit.amount)
         .sum::<Decimal>().to_uint_floor();
 
@@ -411,7 +410,7 @@ fn exit_vault(
             }],
         });
         //Set unstake amount to either the SP TVL or the desired withdrawal amount
-        let unstake_amount = Math::min(deposit_tokens_to_withdraw, contract_SP_tvl);
+        let unstake_amount = deposit_tokens_to_withdraw.min(contract_SP_tvl);
         //Unstake 
         let unstake_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.stability_pool_contract.to_string(),
@@ -436,7 +435,7 @@ fn exit_vault(
             burn_from_address: env.contract.address.to_string(),
         }.into();
         //Send back the rest of the vault tokens
-        let vault_tokens_to_send = vault_tokens.checked_sub(vault_tokens_to_burn){
+        let vault_tokens_to_send = match vault_tokens.checked_sub(vault_tokens_to_burn){
             Ok(v) => v,
             Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to subtract vault tokens to send: {} - {}", vault_tokens, vault_tokens_to_burn) }),
         };
@@ -499,7 +498,7 @@ fn exit_vault(
 
 
     //Parse deposits and calculate the amount of deposits that are withdrawable
-    let withdrawable_amount = asset_pool.deposits.into_iter()
+    let withdrawable_amount = asset_pool.deposits.clone().into_iter()
         .filter(|deposit| deposit.unstake_time.is_some() && deposit.unstake_time.unwrap() + SECONDS_PER_DAY <= env.block.time.seconds())
         .map(|deposit| deposit.amount)
         .sum::<Decimal>().to_uint_floor();
@@ -510,7 +509,7 @@ fn exit_vault(
     
     
     //Set unstake amount to either the SP TVL or deposit_tokens_to_withdraw
-    let unstake_amount = Math::min(deposit_tokens_to_withdraw, contract_SP_tvl);
+    let unstake_amount = deposit_tokens_to_withdraw.min(contract_SP_tvl);;
     //Unstake the deposit tokens from the Stability Pool
     let unstake_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.stability_pool_contract.to_string(),
@@ -530,7 +529,7 @@ fn exit_vault(
         .add_message(unstake_tokens_msg)
         .add_message(send_deposit_tokens_msg)
         .add_message(assurance);
-    
+
     Ok(res)
 }
 

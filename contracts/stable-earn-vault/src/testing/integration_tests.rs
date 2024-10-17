@@ -1,6 +1,7 @@
 mod tests {
 
     use crate::helpers::EarnVaultContract;
+    use std::str::FromStr;
 
     use membrane::stable_earn_vault::{ExecuteMsg, InstantiateMsg, QueryMsg, Config};
     // use membrane::mars_redbank::{Market, UserCollateralResponse, InterestRateModel};
@@ -164,17 +165,11 @@ mod tests {
                         basket_id
                     } => {
                         let mut prices = vec![];
-                        if asset_info.to_string() == String::from("credit_fulldenom") {
+                        if asset_info.to_string() == String::from("cdt") {
                             prices.push(PriceResponse {
                                 prices: vec![],
-                                price: Decimal::percent(98),
+                                price: Decimal::from_str("0.993").unwrap(),
                                 decimals: 6,
-                            });
-                        } else if asset_info.to_string() == String::from("lp_denom") {
-                            prices.push(PriceResponse {
-                                prices: vec![],
-                                price: Decimal::from_ratio(2u128, 1u128),
-                                decimals: 18,
                             });
                         } else {
                             prices.push(PriceResponse {

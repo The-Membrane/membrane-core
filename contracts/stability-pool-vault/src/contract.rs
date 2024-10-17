@@ -310,6 +310,7 @@ fn exit_vault(
     info: MessageInfo,
 ) -> Result<Response, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
+    let mut msgs = vec![];
 
     //Query claims from the Stability Pool.
     //Error is there are claims.
@@ -368,7 +369,113 @@ fn exit_vault(
         total_deposit_tokens, 
         total_vault_tokens
     )?;
-    ////////////////////////////////////////////////////
+    //////////////////////////////////////////////////// 
+    //Query the SP asset pool
+    let asset_pool: AssetPool = deps.querier.query_wasm_smart::<AssetPool> (
+        config.stability_pool_contract.to_string(),
+        &StabilityPoolQueryMsg::AssetPool { 
+            user: Some(env.contract.address.to_string()),
+            deposit_limit: None,
+            start_after: None,
+        },
+    )?;
+    //Calc total TVL in the SP
+    let contract_SP_tvl: Uint128 = asset_pool.deposits.into_iter()
+        .map(|deposit| deposit.amount)
+        .sum::<Decimal>().to_uint_floor();
+
+    
+    //Instantiate rate assurance callback msg
+    let assurance = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: env.contract.address.to_string(),
+        msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
+        funds: vec![],
+    });
+    
+
+    //Check contract's balance of deposit tokens
+    let contract_balance_of_deposit_tokens = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
+
+    //If the contract has less deposit tokens than the amount to withdraw
+    // - Send the contract's balance to the user
+    // - Unstake the desired withdrawal amount or the contact's TVL from the SP
+    // - Calc the amount of vault tokens back the deposit_tokens actually being sent to the user, burn these
+    // - Send back the rest of the vault tokens
+    if contract_balance_of_deposit_tokens < deposit_tokens_to_withdraw {
+        //Send the contract's balance to the user
+        let send_deposit_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+            to_address: info.sender.to_string(),
+            amount: vec![Coin {
+                denom: config.deposit_token.clone(),
+                amount: contract_balance_of_deposit_tokens,
+            }],
+        });
+        //Set unstake amount to either the SP TVL or the desired withdrawal amount
+        let unstake_amount = Math::min(deposit_tokens_to_withdraw, contract_SP_tvl);
+        //Unstake 
+        let unstake_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.stability_pool_contract.to_string(),
+            msg: to_json_binary(&StabilityPoolExecuteMsg::Withdraw {
+                amount: unstake_amount,
+            })?,
+            funds: vec![],
+        });
+        //Calc the amount of vault tokens that back the withdrawable amount (contract_balance_of_deposit_tokens)
+        let vault_tokens_to_burn = calculate_vault_tokens(
+            contract_balance_of_deposit_tokens, 
+            total_deposit_tokens, 
+            total_vault_tokens
+        )?;
+        //Burn vault tokens
+        let burn_vault_tokens_msg: CosmosMsg = TokenFactory::MsgBurn {
+            sender: env.contract.address.to_string(), 
+            amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
+                denom: config.vault_token.clone(),
+                amount: vault_tokens_to_burn.to_string(),
+            }), 
+            burn_from_address: env.contract.address.to_string(),
+        }.into();
+        //Send back the rest of the vault tokens
+        let vault_tokens_to_send = vault_tokens.checked_sub(vault_tokens_to_burn){
+            Ok(v) => v,
+            Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to subtract vault tokens to send: {} - {}", vault_tokens, vault_tokens_to_burn) }),
+        };
+        let send_vault_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+            to_address: info.sender.to_string(),
+            amount: vec![Coin {
+                denom: config.vault_token.clone(),
+                amount: vault_tokens_to_send,
+            }],
+        });
+        //Update the total vault tokens
+        let new_vault_token_supply = match total_vault_tokens.checked_sub(vault_tokens_to_burn){
+            Ok(v) => v,
+            Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to subtract vault token total supply: {} - {}", total_vault_tokens, vault_tokens) }),
+        };
+        VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
+        //Save the updated config
+        CONFIG.save(deps.storage, &config)?;
+
+        return Ok(Response::new()
+            .add_attribute("method", "exit_vault")
+            .add_attribute("vault_tokens_burnt", vault_tokens_to_burn)
+            .add_attribute("deposit_tokens_withdrawn", contract_balance_of_deposit_tokens)
+            .add_message(burn_vault_tokens_msg)
+            .add_message(send_deposit_tokens_msg)
+            .add_message(send_vault_tokens_msg)
+            .add_message(unstake_tokens_msg)
+            .add_message(assurance)
+        );
+    }
+
+    //Send withdrawn tokens to the user
+    let send_deposit_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+        to_address: info.sender.to_string(),
+        amount: vec![Coin {
+            denom: config.deposit_token.clone(),
+            amount: deposit_tokens_to_withdraw,
+        }],
+    });
     
     //Burn vault tokens
     let burn_vault_tokens_msg: CosmosMsg = TokenFactory::MsgBurn {
@@ -377,7 +484,7 @@ fn exit_vault(
             denom: config.vault_token.clone(),
             amount: vault_tokens.to_string(),
         }), 
-        burn_from_address: info.sender.to_string(),
+        burn_from_address: env.contract.address.to_string(),
     }.into();
 
     //Update the total vault tokens
@@ -390,26 +497,7 @@ fn exit_vault(
     //Save the updated config
     CONFIG.save(deps.storage, &config)?;
 
-    //Send withdrawn tokens to the user
-    let send_deposit_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
-        to_address: info.sender.to_string(),
-        amount: vec![Coin {
-            denom: config.deposit_token.clone(),
-            amount: deposit_tokens_to_withdraw,
-        }],
-    });
 
-
-    ///Yield specific code//////
-    //Query the SP asset pool
-    let asset_pool: AssetPool = deps.querier.query_wasm_smart::<AssetPool> (
-        config.stability_pool_contract.to_string(),
-        &StabilityPoolQueryMsg::AssetPool { 
-            user: Some(env.contract.address.to_string()),
-            deposit_limit: None,
-            start_after: None,
-        },
-    )?;
     //Parse deposits and calculate the amount of deposits that are withdrawable
     let withdrawable_amount = asset_pool.deposits.into_iter()
         .filter(|deposit| deposit.unstake_time.is_some() && deposit.unstake_time.unwrap() + SECONDS_PER_DAY <= env.block.time.seconds())
@@ -420,21 +508,18 @@ fn exit_vault(
     //bc the SP withdraws & unstakes in the same msg 
     deposit_tokens_to_withdraw += withdrawable_amount;
     
+    
+    //Set unstake amount to either the SP TVL or deposit_tokens_to_withdraw
+    let unstake_amount = Math::min(deposit_tokens_to_withdraw, contract_SP_tvl);
     //Unstake the deposit tokens from the Stability Pool
     let unstake_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.stability_pool_contract.to_string(),
         msg: to_json_binary(&StabilityPoolExecuteMsg::Withdraw {
-            amount: deposit_tokens_to_withdraw,
+            amount: unstake_amount,
         })?,
         funds: vec![],
     });
 
-    //Add rate assurance callback msg
-    let assurance = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: env.contract.address.to_string(),
-        msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
-        funds: vec![],
-    });
 
     //Create Response 
     let res = Response::new()
@@ -445,7 +530,7 @@ fn exit_vault(
         .add_message(unstake_tokens_msg)
         .add_message(send_deposit_tokens_msg)
         .add_message(assurance);
-
+    
     Ok(res)
 }
 

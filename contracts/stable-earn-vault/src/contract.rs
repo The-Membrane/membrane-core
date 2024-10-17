@@ -210,9 +210,26 @@ fn loop_cdp(
     let config = CONFIG.load(deps.storage)?;
     let mut msgs = vec![];
     
-    //Ensure price is above 99.5% of peg
+    //Ensure price is above 99% of peg
     //We want to ensure loops keep redemptions at 99% of peg profitable or even
-    let (_, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(99) + config.swap_slippage)?;
+    let (cdt_market_price, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(99))?;
+
+    // Calc swap slippage based on the difference between the market and peg price.
+    // Maximum slippage is 0.5% (0.005).
+    let mut max_slippage = config.swap_slippage;
+    let peg_ratio = decimal_division(cdt_market_price.price, cdt_peg_price.price)?;
+    if peg_ratio > Decimal::percent(99) && peg_ratio < Decimal::percent(99) + config.swap_slippage {
+        max_slippage = match peg_ratio.checked_sub(Decimal::percent(99)){
+            Ok(v) => v,
+            Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to calculate the max slippage in loop {:?}", peg_ratio) }),
+        };
+    }
+    // panic!("max_slippage: {}, {}, {}", max_slippage, peg_ratio, config.swap_slippage);
+    //So if market price is .991, slippage should be .001
+    //If market price is .995, slippage should be .005
+    //If market price is .999, slippage should be .005
+    //This allows the vault to loop at prices lower than the max (0.995 - 0.99) 
+    //..but not at rates that are unprofitable when redeeming
 
     let (
         running_credit_amount, 
@@ -274,7 +291,7 @@ fn loop_cdp(
         contract_addr: config.osmosis_proxy_contract_addr.to_string(),
         msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps { 
             token_out: config.deposit_token.deposit_token.clone(),
-            max_slippage: config.swap_slippage,
+            max_slippage,
         })?,
         funds: vec![
             Coin {
@@ -300,7 +317,7 @@ fn loop_cdp(
 fn test_looping_peg_price(
     querier: QuerierWrapper,
     config: Config,
-    desired_peg_price: Decimal,
+    desired_peg_price: Decimal, // Desired ratio between market and peg price 
 ) -> Result<(PriceResponse, PriceResponse), TokenFactoryError>{
     //Query basket for CDT peg price
     let basket: Basket = match  querier.query_wasm_smart::<Basket>(
@@ -373,8 +390,10 @@ fn calc_mintable(
 //..to withdraw for a user
 //NOTE: 
 //- Accrue beforehand if trying to fully unloop
+//- All exits unloop at least once to ensure the vault has enough LTV space to cover the minimum debt in a single loop at all times.
+//..this is inefficient and can be changed to allow regular withdrawals until the minimum liquid value is reached ($91)
 //POST LOOP NOTES:
-// - Bc we only loop once, as long as we at least start at the peg, we'll never make a trade more than 100% + slippage which is covered for by the entry fee.
+// - Bc we only loop once, as long as our market price ceiling to start is at most the peg, we'll never make a trade more than, 100% + slippage, which is covered for by the entry fee.
 fn unloop_cdp(
     deps: DepsMut,
     env: Env,
@@ -760,10 +779,10 @@ fn calc_withdrawable_collateral(
     let debt_value = cdt_price.get_value(debt)?;
     //Calc LTV
     let ltv = decimal_division(debt_value, max(vault_tokens_value, Decimal::one()))?;
-    //Calc the distance of the LTV to 90%
-    let ltv_space_to_withdraw = match Decimal::percent(90).checked_sub(ltv){
+    //Calc the distance of the LTV to 89% (the max borrowable LTV is 90 so we want to leave a 1% buffer to bypass and tiny precision errors)
+    let ltv_space_to_withdraw = match Decimal::percent(89).checked_sub(ltv){
         Ok(v) => v,
-        Err(_) => return Err(StdError::GenericErr { msg: format!("LTV over 90%: {} > 0.9", ltv) }),
+        Err(_) => return Err(StdError::GenericErr { msg: format!("LTV over 89%: {} > 0.89", ltv) }),
     };
     //Calc the value of the vault tokens we withdraw
     //It's either clearing the debt (accounting for the swap slippage) or using the LTV space
@@ -1032,16 +1051,7 @@ fn exit_vault(
         Ok(vault_tokens) => vault_tokens,
         Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the Mars Vault Token for the deposit token conversion amount") }),
     };
-    
-    //Update config's tracking of non-leveraged vault tokens
-    // config.total_nonleveraged_vault_tokens = match config.total_nonleveraged_vault_tokens.checked_sub(mars_vault_tokens_to_withdraw){
-    //     Ok(v) => v,
-    //     Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to subtract config non-leveraged vault tokens: {} - {}", config.total_nonleveraged_vault_tokens, mars_vault_tokens_to_withdraw) }),
-    // };
-    //Save the updated config
-    // CONFIG.save(deps.storage, &config)?;
-
-    
+        
     //Get the amount of vault tokens in the contract    
     let contract_balance_of_deposit_vault_tokens = deps.querier.query_balance(env.clone().contract.address.to_string(), config.deposit_token.clone().vault_token)?.amount;
 
@@ -1688,6 +1698,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     }
 } 
 
+//This is used when the VT collateral is withdrawn from the CDP, exited from the vault & needs to be swapped to CDT
 fn handle_exit_deposit_token_vault_reply(
     deps: DepsMut,
     env: Env,

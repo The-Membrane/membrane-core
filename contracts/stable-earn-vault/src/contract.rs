@@ -457,6 +457,7 @@ fn unloop_cdp(
             unloop_props.cdt_peg_price.clone(),
             unloop_props.running_collateral_amount,
             unloop_props.running_credit_amount,
+            false,
             false
         )?;
         // panic!("withdrawable_collateral: {}, running_collateral_amount: {}, running_credit_amount: {}", withdrawable_collateral, unloop_props.running_collateral_amount, unloop_props.running_credit_amount );
@@ -768,6 +769,7 @@ fn calc_withdrawable_collateral(
     vault_tokens: Uint128,
     debt: Uint128,
     in_reply: bool, //If this is in a reply, we don't want to return an error for being under debt minimum
+    in_exit: bool, //If this is in an exit, we want to ensure the we leave enough collateral to cover the minimum debt if doing a withdrawal without loops
 ) -> StdResult<(Uint128, Decimal)>{ //withdrawal_amount, withdraw_value
     //If debt is 0, quick return 
     if debt.is_zero() {
@@ -790,6 +792,19 @@ fn calc_withdrawable_collateral(
         decimal_division(decimal_multiplication(vault_tokens_value, ltv_space_to_withdraw)?, Decimal::percent(90))?,
         decimal_multiplication(debt_value, Decimal::one() + swap_slippage)?,
     );
+
+    //If this is in an exit,
+    // we want to ensure the we leave enough collateral to cover the minimum debt if doing a withdrawal without loops
+    if in_exit {
+        if withdrawable_value > MIN_DEPOSIT_VALUE {
+            withdrawable_value = match withdrawable_value.checked_sub(MIN_DEPOSIT_VALUE){
+                Ok(v) => v,
+                Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to subtract MIN_DEPOSIT_VALUE from withdrawable_value: {} - {}", withdrawable_value, MIN_DEPOSIT_VALUE) }),
+            };
+        } else {
+            return Ok((Uint128::zero(), Decimal::zero()))
+        }
+    }
 
     /////If withdrawable_value puts the debt value below $100, make sure to leave the withdraw buffer ($100) for a full unloop////
     let minimum_debt_value = Decimal::percent(101_00);
@@ -1052,16 +1067,69 @@ fn exit_vault(
         Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the Mars Vault Token for the deposit token conversion amount") }),
     };
         
-    //Get the amount of vault tokens in the contract    
+    //Get the amount of vault tokens in the contract
     let contract_balance_of_deposit_vault_tokens = deps.querier.query_balance(env.clone().contract.address.to_string(), config.deposit_token.clone().vault_token)?.amount;
 
     //Calc the amount of vt tokens to withdraw from the CDP position
-    let vtokens_to_unloop_from_cdp = match mars_vault_tokens_to_withdraw.checked_sub(contract_balance_of_deposit_vault_tokens){
+    let mut vtokens_to_unloop_from_cdp = match mars_vault_tokens_to_withdraw.checked_sub(contract_balance_of_deposit_vault_tokens){
         Ok(v) => v,
         Err(_) => Uint128::zero(), //This means contract balance is larger and we don't need to unloop any extra
-    };    
+    };
     
-    //Withdraw tokens from CDP Position
+    ////Withdraw tokens from CDP Position///
+    //Get running totals for CDP position & prices
+    let (
+        running_credit_amount, 
+        running_collateral_amount, 
+        vt_token_price, 
+        cdt_market_price
+    ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone(), &mut vec![])?;
+
+    //Get CDT peg price
+    let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
+        config.cdp_contract_addr.to_string(),
+        &CDP_QueryMsg::GetBasket {  },
+    ){
+        Ok(basket) => basket,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in unloop") }),
+    };
+    let cdt_peg_price: PriceResponse = basket.credit_price.clone();
+    
+    //Check if we can withdraw enough to fully cover the necessary exit, if not we'll unloop to do it
+    let (withdrawable_collateral, _withdrawable_value_w_slippage) = calc_withdrawable_collateral(
+        config.clone().swap_slippage, 
+        vt_token_price.clone(),
+        cdt_peg_price.clone(),
+        running_collateral_amount,
+        running_credit_amount,
+        false,
+        true
+    )?;
+
+    if withdrawable_collateral >= vtokens_to_unloop_from_cdp {
+        let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.cdp_contract_addr.to_string(),
+            msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
+                position_id: config.cdp_position_id,
+                assets: vec![
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: config.deposit_token.clone().vault_token,
+                        },
+                        amount: vtokens_to_unloop_from_cdp.clone(),
+                    }
+                ],
+                send_to: None,
+            })?,
+            funds: vec![],
+        });
+        msgs.push(withdraw_msg);
+
+        //Set needed tokens to 0 so we skip the upcoming unloop msg
+        vtokens_to_unloop_from_cdp = Uint128::zero();
+    }
+
+
     //..which requires us to unloop
     if !vtokens_to_unloop_from_cdp.is_zero() {
         let unloop_to_withdraw = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1794,7 +1862,8 @@ fn handle_unloop_reply(
                 unloop_props.cdt_peg_price.clone(),
                 unloop_props.running_collateral_amount,
                 unloop_props.running_credit_amount,
-                true
+                true,
+                false
             )?;
         // panic!("withdrawable_collateral: {}, desired: {}, running_collateral_amount: {}, running_credit_amount: {}", withdrawable_collateral, unloop_props.desired_collateral_withdrawal.clone(), unloop_props.running_collateral_amount, unloop_props.running_credit_amount );
 

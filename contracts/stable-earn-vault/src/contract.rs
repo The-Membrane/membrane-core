@@ -1024,11 +1024,56 @@ fn exit_vault(
         pre_btokens_per_one,
     })?;
     //Calculate the amount of deposit tokens to withdraw
-    let deposit_tokens_to_withdraw = calculate_base_tokens(
+    let mut deposit_tokens_to_withdraw = calculate_base_tokens(
         vault_tokens, 
         total_deposit_tokens, 
         total_vault_tokens
     )?;
+    //////Calculate exit fee if the current price is above 99% of the peg////
+    //Query basket for CDT peg price
+    let basket: Basket = match  deps.querier.query_wasm_smart::<Basket>(
+        config.cdp_contract_addr.to_string(),
+        &CDP_QueryMsg::GetBasket {  },
+    ){
+        Ok(basket) => basket,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in test_looping_peg_price") }),
+    };
+    let cdt_peg_price: PriceResponse = basket.credit_price;
+
+    //Check that CDT market price is equal or above 99% of peg
+    let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
+        config.oracle_contract_addr.to_string(),
+        &Oracle_QueryMsg::Price {
+            asset_info: AssetInfo::NativeToken { denom: config.clone().cdt_denom },
+            twap_timeframe: 0, //We want current swap price
+            oracle_time_limit: 0,
+            basket_id: None
+        },
+    ){
+        Ok(prices) => prices,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the cdt price in post unloop") }),
+    };
+    let cdt_market_price: PriceResponse = prices[0].clone();
+
+    //Compare peg_ratio to 99%
+    let peg_ratio = decimal_division(cdt_market_price.price, cdt_peg_price.price)?;
+    if peg_ratio > Decimal::percent(99) {
+        let exit_fee = match peg_ratio.checked_sub(Decimal::percent(99)){
+            Ok(v) => v,
+            Err(_) => Decimal::zero(),
+        };
+
+        //Incorporate the exit fee into the deposit tokens to withdraw
+        deposit_tokens_to_withdraw = match decimal_multiplication(
+            Decimal::from_ratio(deposit_tokens_to_withdraw, Uint128::one()),
+            decimal_subtraction(Decimal::one(),exit_fee)?
+        ) {
+            Ok(v) => v.to_uint_floor(),
+            Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to subtract exit fee from deposit tokens to withdraw: {} - {}", deposit_tokens_to_withdraw, exit_fee) }),
+        };
+    }
+    //The lowest possible conversion rate for loops is 99% of peg so to ensure exits don't lose the vault principal... (there are slippage costs paid for by the entry fee)
+    //..we account for worst case conversion rate losses by charging an exit fee if the current price is above 99% of the peg
     ////////////////////////////////////////////////////
     
     //Burn vault tokens

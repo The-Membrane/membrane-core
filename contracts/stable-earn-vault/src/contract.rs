@@ -910,7 +910,8 @@ fn enter_vault(
     let decimal_deposit_amount = Decimal::from_ratio(deposit_amount, Uint128::one());
     //Calculate the amount of vault tokens to mint
     let vault_tokens_to_distribute = calculate_vault_tokens(
-        //Reduce the deposit amount by the slippage to account for the user's actual ownership amount 
+        //Reduce the deposit amount by the slippage to account for the user's actual ownership amount.
+        //This is the entry fee.
         decimal_multiplication(decimal_deposit_amount, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?.to_uint_floor(),
         total_deposit_tokens, 
         total_vault_tokens
@@ -1105,11 +1106,11 @@ fn exit_vault(
     msgs.push(send_deposit_to_user_msg);
 
     //After the withdrawal, callback to see if we need to update the config's total_nonleveraged_vault_tokens
-    msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: env.contract.address.to_string(),
-        msg: to_json_binary(&ExecuteMsg::UpdateNonleveragedVaultTokens { })?,
-        funds: vec![],
-    }));
+    // msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+    //     contract_addr: env.contract.address.to_string(),
+    //     msg: to_json_binary(&ExecuteMsg::UpdateNonleveragedVaultTokens { })?,
+    //     funds: vec![],
+    // }));
     
     //Add rate assurance callback msg if this withdrawal leaves other depositors with tokens to withdraw
     if !new_vault_token_supply.is_zero() && total_deposit_tokens > deposit_tokens_to_withdraw {
@@ -1677,7 +1678,8 @@ fn get_total_deposit_tokens(
 
     //Deduct slippage costs.
     //For buffered vt or zero'd debt, this acts as the entry fee.
-    total_vaulted_deposit_tokens = decimal_multiplication(decimal_total_vdt, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?.to_uint_floor();
+    // total_vaulted_deposit_tokens = decimal_multiplication(decimal_total_vdt, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?.to_uint_floor();\
+    //^Commented out bc the entry fee is taken on deposit. This line messes up value calcs.
 
     //Query the underlying of the initial vault token deposit
     let underlying_deposit_token: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(

@@ -392,23 +392,27 @@ fn exit_vault(
     });
     
 
+    //Parse deposits and calculate the amount of deposits that are withdrawable
+    let withdrawable_amount = asset_pool.deposits.clone().into_iter()
+        .filter(|deposit| deposit.unstake_time.is_some() && deposit.unstake_time.unwrap() + SECONDS_PER_DAY <= env.block.time.seconds())
+        .map(|deposit| deposit.amount)
+        .sum::<Decimal>().to_uint_floor();
+    
     //Check contract's balance of deposit tokens
     let contract_balance_of_deposit_tokens = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
 
-    //If the contract has less deposit tokens than the amount to withdraw
+    //Calc the total balance of liquid deposit tokens after the withdrawal
+    let contract_balance_post_SP_withdrawal = withdrawable_amount + contract_balance_of_deposit_tokens;
+
+    //If the contract will have less deposit tokens than the amount to withdraw
     // - Send the contract's balance to the user
-    // - Unstake the desired withdrawal amount or the contact's TVL from the SP
-    // - Calc the amount of vault tokens back the deposit_tokens actually being sent to the user, burn these
+    // - Unstake the desired withdrawal amount or the contract's TVL from the SP
+    // - Calc the amount of vault tokens that represent the deposit_tokens actually being sent to the user, burn these
     // - Send back the rest of the vault tokens
-    if contract_balance_of_deposit_tokens < deposit_tokens_to_withdraw {
-        //Send the contract's balance to the user
-        let send_deposit_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
-            to_address: info.sender.to_string(),
-            amount: vec![Coin {
-                denom: config.deposit_token.clone(),
-                amount: contract_balance_of_deposit_tokens,
-            }],
-        });
+    if contract_balance_post_SP_withdrawal < deposit_tokens_to_withdraw {        
+        //Add the withdrawable amount to the deposit tokens to withdraw
+        //bc the SP withdraws & unstakes in the same msg 
+        deposit_tokens_to_withdraw += withdrawable_amount;
         //Set unstake amount to either the SP TVL or the desired withdrawal amount
         let unstake_amount = deposit_tokens_to_withdraw.min(contract_SP_tvl);
         //Unstake 
@@ -419,9 +423,19 @@ fn exit_vault(
             })?,
             funds: vec![],
         });
-        //Calc the amount of vault tokens that back the withdrawable amount (contract_balance_of_deposit_tokens)
+
+        //Send the contract's balance to the user
+        let send_deposit_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+            to_address: info.sender.to_string(),
+            amount: vec![Coin {
+                denom: config.deposit_token.clone(),
+                amount: contract_balance_post_SP_withdrawal,
+            }],
+        });
+        
+        //Calc the amount of vault tokens that back the withdrawable amount (contract_balance_post_SP_withdrawal)
         let vault_tokens_to_burn = calculate_vault_tokens(
-            contract_balance_of_deposit_tokens, 
+            contract_balance_post_SP_withdrawal, 
             total_deposit_tokens, 
             total_vault_tokens
         )?;
@@ -458,16 +472,16 @@ fn exit_vault(
         return Ok(Response::new()
             .add_attribute("method", "exit_vault")
             .add_attribute("vault_tokens_burnt", vault_tokens_to_burn)
-            .add_attribute("deposit_tokens_withdrawn", contract_balance_of_deposit_tokens)
+            .add_attribute("deposit_tokens_withdrawn", contract_balance_post_SP_withdrawal)
             .add_message(burn_vault_tokens_msg)
+            .add_message(unstake_tokens_msg)
             .add_message(send_deposit_tokens_msg)
             .add_message(send_vault_tokens_msg)
-            .add_message(unstake_tokens_msg)
             .add_message(assurance)
         );
     }
 
-    //Send withdrawn tokens to the user
+    //Send withdrawn tokens to the user (Contract buffer has enough to naked send)
     let send_deposit_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
         to_address: info.sender.to_string(),
         amount: vec![Coin {
@@ -496,20 +510,13 @@ fn exit_vault(
     //Save the updated config
     CONFIG.save(deps.storage, &config)?;
 
-
-    //Parse deposits and calculate the amount of deposits that are withdrawable
-    let withdrawable_amount = asset_pool.deposits.clone().into_iter()
-        .filter(|deposit| deposit.unstake_time.is_some() && deposit.unstake_time.unwrap() + SECONDS_PER_DAY <= env.block.time.seconds())
-        .map(|deposit| deposit.amount)
-        .sum::<Decimal>().to_uint_floor();
-
     //Add the withdrawable amount to the deposit tokens to withdraw
     //bc the SP withdraws & unstakes in the same msg 
-    deposit_tokens_to_withdraw += withdrawable_amount;
-    
+    deposit_tokens_to_withdraw += withdrawable_amount;    
+    //We're withdrawing to replenish the buffer
     
     //Set unstake amount to either the SP TVL or deposit_tokens_to_withdraw
-    let unstake_amount = deposit_tokens_to_withdraw.min(contract_SP_tvl);;
+    let unstake_amount = deposit_tokens_to_withdraw.min(contract_SP_tvl);
     //Unstake the deposit tokens from the Stability Pool
     let unstake_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.stability_pool_contract.to_string(),

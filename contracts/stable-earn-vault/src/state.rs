@@ -14,12 +14,15 @@ pub struct TokenRateAssurance {
 
 #[cw_serde]
 pub struct UnloopProps {
-    pub desired_collateral_withdrawal: Uint128,
+    pub sender: String,
+    pub owned_collateral: Uint128,
+    pub debt_to_clear: Uint128,
     pub loop_count: u64,
     pub running_collateral_amount: Uint128,
     pub running_credit_amount: Uint128,
     pub vt_token_price: PriceResponse,
     pub cdt_peg_price: PriceResponse,
+    pub cdt_market_price: PriceResponse,
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");

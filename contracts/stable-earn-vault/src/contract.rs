@@ -45,7 +45,7 @@ const MIN_DEPOSIT_VALUE: Decimal = Decimal::percent(101_11);
 // - There is a deposit and entry fee. 
 // --The entry fee is added in manually thru the contract in get_total_deposits().
 // -- The deposit fee is baked into the "liquid" valuation calc of the CDP position so deposits that don't get looped won't confer this fee to the vault.
-// - We need to keep a buffer of vault tokens outside of the vault to allow for easy withdrawals (todo)
+// - We need to keep a buffer of vault tokens outside of the vault to allow for easy withdrawals. Buffer will likely break exit debt clearance logic. (todo)
 // -
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -115,7 +115,8 @@ pub fn instantiate(
     CONFIG.save(deps.storage, &config)?;
     VAULT_TOKEN.save(deps.storage, &vault_tokens_to_distribute)?;
     UNLOOP_PROPS.save(deps.storage, &UnloopProps {
-        desired_collateral_withdrawal: Uint128::zero(),
+        sender: String::from(""),   
+        owned_collateral: Uint128::zero(),
         loop_count: 0,
         running_collateral_amount: Uint128::zero(),
         running_credit_amount: Uint128::zero(),
@@ -431,28 +432,53 @@ fn unloop_cdp(
         
         //Ensure price is at or below peg
         //This will ensure unloops aren't unprofitable for remaining users
-        //(todo!) CAN REMOVE: Exit fee handles this assurances.
+        //(todo!) CAN REMOVE: Cost conferred to the user "handles" this assurance.
         if decimal_division(cdt_market_price.price, cdt_peg_price.price)? > Decimal::one() {
             return Err(TokenFactoryError::CustomError { val: String::from("CDT price is above peg, can't unloop.") });
         }
 
+        
+        ///// 3) Get debt clearance amount/////    
+        //Calc the value of the vault tokens
+        let vault_tokens_value = vt_token_price.clone().get_value(running_collateral_amount)?;
+        //Calc the value of the CDT debt
+        let debt_value = cdt_peg_price.clone().get_value(running_credit_amount)?;
+        //Calc debt_to_clear
+        let liquid_value = decimal_subtraction(vault_tokens_value, debt_value)?;
+        let leverage = decimal_division(vault_tokens_value, liquid_value)?;
+        let owned_collateral = decimal_multiplication(Decimal::from_ratio(desired_collateral_withdrawal, Uint128::one()), leverage)?;
+        let withdrawal_value = vt_token_price.clone().get_value(desired_collateral_withdrawal)?;
+        let ltv = decimal_division(debt_value, vault_tokens_value)?;
+        let debt_value_to_clear = decimal_multiplication(withdrawal_value, ltv)?;
+        let debt_to_clear = cdt_peg_price.clone().get_amount(debt_value_to_clear)?;
+
+
         //Set unloop props
         unloop_props = UnloopProps {
-            desired_collateral_withdrawal: desired_collateral_withdrawal.clone(),
+            sender: info.sender.clone().to_string(),
+            owned_collateral: owned_collateral.clone().to_uint_floor(),
+            debt_to_clear: debt_to_clear.clone(),
             loop_count: 0,
             running_collateral_amount: running_collateral_amount.clone(),
             running_credit_amount: running_credit_amount.clone(),
             vt_token_price: vt_token_price.clone(),
             cdt_peg_price: cdt_peg_price.clone(),
+            cdt_market_price: cdt_market_price.clone(),
         };        
     }
 
-    // panic!("running_credit_amount: {}, running_collateral_amount: {}", running_credit_amount, running_collateral_amount);
+     
+    //To exit without leaving remaining depositors with liabilities, the exitooor must unloop the debt they owe as well.
+    // Ex: $100 collateral --- $50 debt = $50 liquid value (deposit value). If all $50 wanted to exit, the vault would fully unloop.
+    //...If only half wanted to exit, the vault would unloop $25 of debt & $50 of collateral bc its in 2x leverage.
+    
+    //3) Get debt clearance amount
+    //4) Clear that debt
 
-    ////Loop: Create an unloop msg instance////
-    if !unloop_props.running_credit_amount.is_zero() && unloop_props.loop_count < LOOP_MAX {
-        //1) Withdraw as much vault token as possible
-        let (withdrawable_collateral, _withdrawable_value_w_slippage) = calc_withdrawable_collateral(
+    //4) Clear as much of the debt as possible in this loop 
+    if !unloop_props.running_credit_amount.is_zero() && unloop_props.loop_count < LOOP_MAX && !unloop_props.debt_to_clear.is_zero() {
+        //1) Withdraw vault token to swap and clear CDT debt
+        let (_withdrawable_collateral, withdrawable_value_minus_slippage) = calc_withdrawable_collateral(
             config.clone().swap_slippage, 
             unloop_props.vt_token_price.clone(),
             unloop_props.cdt_peg_price.clone(),
@@ -460,69 +486,38 @@ fn unloop_cdp(
             unloop_props.running_credit_amount,
             false
         )?;
-        // Set minimum debt value
-        let minimum_debt_value = Decimal::percent(101_00);
-                
-        //Find minimum_ltv_space_as_collateral
-        let minimum_ltv_space_as_collateral = unloop_props.vt_token_price.clone().get_amount(minimum_debt_value)?;
 
-        //Set min_adjusted_desired_collateral_withdrawal
-        //This is the desired collateral withdrawal + $101 to ensure we are always at least leaving the min LTV space to fully unloop the vault
-        let min_adjusted_desired_collateral_withdrawal = minimum_ltv_space_as_collateral + desired_collateral_withdrawal;
+        //Set value needed to clear the debt
+        let debt_to_clear_value = unloop_props.cdt_market_price.clone().get_value(unloop_props.debt_to_clear)?;
+        let debt_to_clear_value_plus_slippage = decimal_multiplication(debt_to_clear_value, Decimal::one() + config.swap_slippage)?;        
+        //Excess due to overcalculated slippage is vault profit
 
-        //Set withdrawable collateral to the desired collateral withdrawal if it's less
-        let withdrawable_collateral = min(withdrawable_collateral, min_adjusted_desired_collateral_withdrawal.clone());
-        //This ensures we're always unlooping at least once to withdraw 
+        //Can we withdraw more than the value needed to clear the debt?
+        let withdrawable_value_minus_slippage = min(withdrawable_value_minus_slippage, debt_to_clear_value_plus_slippage.clone());
+        //We're always unlooping at least once to withdraw 
         //& the unloop amount can be dynamic based on the desired withdrawal
 
-
-        //1a) If this withdraw hits the min_adjusted_desired_collateral_withdrawal then we stop
-        // - Always unloop at least once to withdraw & unloop an extra $101 to ensure the vault has enough ltv space to cover the minimum debt in a single loop.
-        if withdrawable_collateral >= min_adjusted_desired_collateral_withdrawal.clone() && unloop_props.loop_count > 0 {
-            //Early return if we hit the min ltv space + desired collateral withdrawal threshold
-            let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.cdp_contract_addr.to_string(),
-                msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
-                    position_id: config.cdp_position_id,
-                    assets: vec![
-                        Asset {
-                            info: AssetInfo::NativeToken {
-                                denom: config.deposit_token.clone().vault_token,
-                            },
-                            //We only withdraw the desired_collateral_withdrawal in order to leave the min_LTV_amount as leftover withdrawal space
-                            amount: desired_collateral_withdrawal.clone(), 
-                        }
-                    ],
-                    send_to: None,
-                })?,
-                funds: vec![],
-            });
-            msgs.push(SubMsg::new(withdraw_msg));
-            //The exit_vault fn handles the exit & withdrawal of the vault tokens to send the deposit_token to the user
-                
-            return Ok(Response::new()
-            .add_attribute("method", "unloop_cdp")
-            .add_attribute("withdrawn_collateral", withdrawable_collateral)
-            .add_submessages(msgs));
-        } else {
-            let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.cdp_contract_addr.to_string(),
-                msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
-                    position_id: config.cdp_position_id,
-                    assets: vec![
-                        Asset {
-                            info: AssetInfo::NativeToken {
-                                denom: config.deposit_token.clone().vault_token,
-                            },
-                            amount: withdrawable_collateral,
-                        }
-                    ],
-                    send_to: None,
-                })?,
-                funds: vec![],
-            });
-            msgs.push(SubMsg::new(withdraw_msg));
-        }
+        //Get withdrawable collateral
+        let withdrawable_collateral = unloop_props.vt_token_price.clone().get_amount(withdrawable_value_minus_slippage)?;
+        //Create withdraw msg
+        let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.cdp_contract_addr.to_string(),
+            msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
+                position_id: config.cdp_position_id,
+                assets: vec![
+                    Asset {
+                        info: AssetInfo::NativeToken {
+                            denom: config.deposit_token.clone().vault_token,
+                        },
+                        amount: withdrawable_collateral,
+                    }
+                ],
+                send_to: None,
+            })?,
+            funds: vec![],
+        });
+        msgs.push(SubMsg::new(withdraw_msg));
+        
         //2) Exit vault
         let exit_vault_strat =  CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.deposit_token.vault_addr.to_string(),
@@ -536,6 +531,14 @@ fn unloop_cdp(
         });
         msgs.push(SubMsg::reply_on_success(exit_vault_strat, EXIT_VAULT_STRAT_REPLY_ID));
 
+        //Update owned_collateral
+        unloop_props.owned_collateral = match unloop_props.owned_collateral.checked_sub(withdrawable_collateral){
+            Ok(v) => v,
+            //This should never happen.
+            //The only way this errors is if the debt is greater than the collateral amount || the conversion rate to swap for CDT is so bad the value of collateral can't reoup the debt
+            Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to subtract owned_collateral: {} - {}", unloop_props.owned_collateral, withdrawable_collateral) }),
+        };
+        //Owned collateral is used to transfer the cost of the withdrawal to the user
 
         //Update running collateral amount
         unloop_props.running_collateral_amount = match unloop_props.running_collateral_amount.checked_sub(withdrawable_collateral){
@@ -549,8 +552,8 @@ fn unloop_cdp(
         ///// Split off into a submsg here /////
         //1) repay debt
         //2) increment loop
-        //3) Check if withdrawable collateral is >= desired_collateral_withdrawal
-        //4) If not, reloop by calling with the same desired_collateral_withdrawal
+        //3) Check if allotted debt is cleared 
+        //4) If not, reloop
         
     } else if unloop_props.running_credit_amount.is_zero() {
         //Attempt a normal withdrawal if the debt is 0 
@@ -563,7 +566,7 @@ fn unloop_cdp(
                         info: AssetInfo::NativeToken {
                             denom: config.deposit_token.clone().vault_token,
                         },
-                        amount: unloop_props.desired_collateral_withdrawal.clone(),
+                        amount: unloop_props.owned_collateral.clone(),
                     }
                 ],
                 send_to: None,
@@ -1016,8 +1019,7 @@ fn exit_vault(
     if vault_tokens.is_zero() {
         return Err(TokenFactoryError::CustomError { val: String::from("Need to send more than 0 vault tokens") });
     }
-
-    //////Calculate the amount of deposit tokens to withdraw////
+   
     //Get total deposit tokens
     let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
     //Get the total amount of vault tokens circulating
@@ -1031,58 +1033,73 @@ fn exit_vault(
     TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
         pre_btokens_per_one,
     })?;
-    //Calculate the amount of deposit tokens to withdraw
+    //Get amount of tokens to exit
     let mut deposit_tokens_to_withdraw = calculate_base_tokens(
         vault_tokens, 
         total_deposit_tokens, 
         total_vault_tokens
     )?;
-    //////Calculate exit fee if the current price is above 99% of the peg////
-    //Query basket for CDT peg price
-    let basket: Basket = match  deps.querier.query_wasm_smart::<Basket>(
-        config.cdp_contract_addr.to_string(),
-        &CDP_QueryMsg::GetBasket {  },
+
+    ///////NO EXIT FEE///////////// 
+    // The unlooper eats the conversion rate && the slippage.
+    
+    //Query how many vault tokens we need to withdraw from the CDP Position for the deposit token withdrawal
+    let mars_vault_tokens_to_withdraw: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
+        config.deposit_token.vault_addr.to_string(),
+        &Vault_QueryMsg::DepositTokenConversion { deposit_token_amount: deposit_tokens_to_withdraw },
     ){
-        Ok(basket) => basket,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP basket in test_looping_peg_price") }),
+        Ok(vault_tokens) => vault_tokens,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the Mars Vault Token for the deposit token conversion amount") }),
     };
-    let cdt_peg_price: PriceResponse = basket.credit_price;
+        
+    //Get the amount of vault tokens in the contract
+    let contract_balance_of_deposit_vault_tokens = deps.querier.query_balance(env.clone().contract.address.to_string(), config.deposit_token.clone().vault_token)?.amount;
 
-    //Check that CDT market price is equal or above 99% of peg
-    let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
-        config.oracle_contract_addr.to_string(),
-        &Oracle_QueryMsg::Price {
-            asset_info: AssetInfo::NativeToken { denom: config.clone().cdt_denom },
-            twap_timeframe: 0, //We want current swap price
-            oracle_time_limit: 0,
-            basket_id: None
-        },
-    ){
-        Ok(prices) => prices,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the cdt price in post unloop") }),
+    //Calc the amount of vt tokens to withdraw from the CDP position
+    let vtokens_to_unloop_from_cdp = match mars_vault_tokens_to_withdraw.checked_sub(contract_balance_of_deposit_vault_tokens){
+        Ok(v) => v,
+        Err(_) => Uint128::zero(), //This means contract balance is larger and we don't need to unloop any extra
     };
-    let cdt_market_price: PriceResponse = prices[0].clone();
-
-    //Compare peg_ratio to 99%
-    let peg_ratio = decimal_division(cdt_market_price.price, cdt_peg_price.price)?;
-    if peg_ratio > Decimal::percent(99) {
-        let exit_fee = match peg_ratio.checked_sub(Decimal::percent(99)){
-            Ok(v) => v,
-            Err(_) => Decimal::zero(),
-        };
-
-        //Incorporate the exit fee into the deposit tokens to withdraw
-        deposit_tokens_to_withdraw = match decimal_multiplication(
-            Decimal::from_ratio(deposit_tokens_to_withdraw, Uint128::one()),
-            decimal_subtraction(Decimal::one(), exit_fee)?
-        ) {
-            Ok(v) => v.to_uint_floor(),
-            Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to subtract exit fee from deposit tokens to withdraw: {} - {}", deposit_tokens_to_withdraw, exit_fee) }),
-        };
+        
+    ////Withdraw tokens from CDP Position///
+    //..which requires us to unloop
+    if !vtokens_to_unloop_from_cdp.is_zero() {
+        let unloop_to_withdraw = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::UnloopCDP { 
+                desired_collateral_withdrawal: vtokens_to_unloop_from_cdp,
+                })?,
+            funds: vec![],
+        });
+        // println!("deposit_tokens_to_withdraw: {:?}", deposit_tokens_to_withdraw);
+        msgs.push(unloop_to_withdraw);
     }
-    //The lowest possible conversion rate for loops is 99% of peg so to ensure exits don't lose the vault principal... (there are slippage costs paid for by the entry fee)
-    //..we account for worst case conversion rate losses by charging an exit fee if the current price is above 99% of the peg
-    ////////////////////////////////////////////////////
+
+    //Reset Unloop Props
+    UNLOOP_PROPS.save(deps.storage, &UnloopProps {
+        sender: String::from(""),
+        owned_collateral: Uint128::zero(),
+        debt_to_clear: Uint128::zero(),
+        loop_count: 0,
+        running_collateral_amount: Uint128::zero(),
+        running_credit_amount: Uint128::zero(),
+        vt_token_price: PriceResponse {
+            price: Decimal::zero(),
+            prices: vec![],
+            decimals: 6
+        },
+        cdt_peg_price: PriceResponse {
+            price: Decimal::zero(),
+            prices: vec![],
+            decimals: 6
+        },
+        cdt_market_price: PriceResponse {
+            price: Decimal::zero(),
+            prices: vec![],
+            decimals: 6
+        },
+    })?;
+
     
     //Burn vault tokens
     let burn_vault_tokens_msg: CosmosMsg = TokenFactory::MsgBurn {
@@ -1102,97 +1119,16 @@ fn exit_vault(
         Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to subtract vault token total supply: {} - {}", total_vault_tokens, vault_tokens) }),
     };
     VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
-
-    //Query how many vault tokens we need to withdraw from the CDP Position for the deposit token withdrawal
-    let mars_vault_tokens_to_withdraw: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
-        config.deposit_token.vault_addr.to_string(),
-        &Vault_QueryMsg::DepositTokenConversion { deposit_token_amount: deposit_tokens_to_withdraw },
-    ){
-        Ok(vault_tokens) => vault_tokens,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the Mars Vault Token for the deposit token conversion amount") }),
-    };
-        
-    //Get the amount of vault tokens in the contract
-    let contract_balance_of_deposit_vault_tokens = deps.querier.query_balance(env.clone().contract.address.to_string(), config.deposit_token.clone().vault_token)?.amount;
-
-    //Calc the amount of vt tokens to withdraw from the CDP position
-    let vtokens_to_unloop_from_cdp = match mars_vault_tokens_to_withdraw.checked_sub(contract_balance_of_deposit_vault_tokens){
-        Ok(v) => v,
-        Err(_) => Uint128::zero(), //This means contract balance is larger and we don't need to unloop any extra
-    };
-    
-    ////Withdraw tokens from CDP Position///
-    //..which requires us to unloop
-    if !vtokens_to_unloop_from_cdp.is_zero() {
-        let unloop_to_withdraw = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: env.contract.address.to_string(),
-            msg: to_json_binary(&ExecuteMsg::UnloopCDP { 
-                desired_collateral_withdrawal: vtokens_to_unloop_from_cdp,
-                })?,
-            funds: vec![],
-        });
-        // println!("deposit_tokens_to_withdraw: {:?}", deposit_tokens_to_withdraw);
-        msgs.push(unloop_to_withdraw);
-    }
-
-    //Withdraw deposit tokens from the yield strategy
-    let withdraw_deposit_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.deposit_token.vault_addr.to_string(),
-        msg: to_json_binary(&Vault_ExecuteMsg::ExitVault { })?,
-        funds: vec![
-            Coin {
-                denom: config.deposit_token.vault_token.clone(),
-                amount: mars_vault_tokens_to_withdraw,
-            }
-        ],
-    });
-    msgs.push(withdraw_deposit_tokens_msg);
-
-    //Send the deposit tokens to the user
-    let send_deposit_to_user_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
-        to_address: info.sender.to_string(),
-        amount: vec![Coin {
-            denom: config.deposit_token.deposit_token.clone(),
-            amount: deposit_tokens_to_withdraw - Uint128::one(), //Vault rounding error
-        }],
-    });
-    msgs.push(send_deposit_to_user_msg);
-
-    //After the withdrawal, callback to see if we need to update the config's total_nonleveraged_vault_tokens
-    // msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-    //     contract_addr: env.contract.address.to_string(),
-    //     msg: to_json_binary(&ExecuteMsg::UpdateNonleveragedVaultTokens { })?,
-    //     funds: vec![],
-    // }));
-    
+       
     //Add rate assurance callback msg if this withdrawal leaves other depositors with tokens to withdraw
-    // if !new_vault_token_supply.is_zero() && total_deposit_tokens > deposit_tokens_to_withdraw {
-    //     //UNCOMMENT (NO)
-    //     msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-    //         contract_addr: env.contract.address.to_string(),
-    //         msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: false })?,
-    //         funds: vec![],
-    //     }));
-    // }
-    //////^Commented bc we expect the rate to go down due to slippage after the unloop//////
-
-    //Reset Unloop Props
-    UNLOOP_PROPS.save(deps.storage, &UnloopProps {
-        desired_collateral_withdrawal: Uint128::zero(),
-        loop_count: 0,
-        running_collateral_amount: Uint128::zero(),
-        running_credit_amount: Uint128::zero(),
-        vt_token_price: PriceResponse {
-            price: Decimal::zero(),
-            prices: vec![],
-            decimals: 6
-        },
-        cdt_peg_price: PriceResponse {
-            price: Decimal::zero(),
-            prices: vec![],
-            decimals: 6
-        },
-    })?;
+    if !new_vault_token_supply.is_zero() && total_deposit_tokens > deposit_tokens_to_withdraw {
+        //UNCOMMENT
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::RateAssurance { exit: false })?,
+            funds: vec![],
+        }));
+    } 
 
     //Create Response 
     let res = Response::new()
@@ -1667,7 +1603,7 @@ fn get_total_deposit_tokens(
     deps: Deps,
     env: Env,
     config: Config,
-) -> StdResult<Uint128> {
+) -> StdResult<Uint128> { //total deposit tokens
     //Get CDT price
     let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
         config.cdp_contract_addr.to_string(),
@@ -1728,9 +1664,9 @@ fn get_total_deposit_tokens(
     };
     //Add buffered assets to the total deposit tokens
     total_vaulted_deposit_tokens += vt_buffer;
-    let decimal_total_vdt = Decimal::from_ratio(total_vaulted_deposit_tokens, Uint128::one());
-
+    
     //Deduct slippage costs.
+    // let decimal_total_vdt = Decimal::from_ratio(total_vaulted_deposit_tokens, Uint128::one());
     //For buffered vt or zero'd debt, this acts as the entry fee.
     // total_vaulted_deposit_tokens = decimal_multiplication(decimal_total_vdt, decimal_subtraction(Decimal::one(), config.swap_slippage)?)?.to_uint_floor();\
     //^Commented out bc the entry fee is taken on deposit. This line messes up value calcs.
@@ -1804,10 +1740,10 @@ fn handle_exit_deposit_token_vault_reply(
 }
 
 
-//1) repay debt
+//1) repay debt 
 //2) increment loop (state variable)
-//3) Check if withdrawable collateral is >= min_adjusted_desired_collateral_withdrawal
-//4) If not, reloop by calling with the same desired_collateral_withdrawal        
+//3) Check if debt is cleared by updating debt_to_clear
+//4) If not, reloop 
 fn handle_unloop_reply(
     deps: DepsMut,
     env: Env,
@@ -1847,31 +1783,19 @@ fn handle_unloop_reply(
                 Ok(v) => v,
                 Err(_) => Uint128::zero(), //excess will sit in the contract for later bc the CDP will send it back when we repay
             };
-        
-            //3) Check if withdrawable collateral is >= min_adjusted_desired_collateral_withdrawal
-            let (withdrawable_collateral, _withdrawable_value) = calc_withdrawable_collateral(
-                config.clone().swap_slippage, 
-                unloop_props.vt_token_price.clone(),
-                unloop_props.cdt_peg_price.clone(),
-                unloop_props.running_collateral_amount,
-                unloop_props.running_credit_amount,
-                true
-            )?;
-        // panic!("withdrawable_collateral: {}, desired: {}, running_collateral_amount: {}, running_credit_amount: {}", withdrawable_collateral, unloop_props.desired_collateral_withdrawal.clone(), unloop_props.running_collateral_amount, unloop_props.running_credit_amount );
-            
-            // Set minimum debt value
-            let minimum_debt_value = Decimal::percent(101_00);
-                    
-            //Find minimum_ltv_space_as_collateral
-            let minimum_ltv_space_as_collateral = unloop_props.vt_token_price.clone().get_amount(minimum_debt_value)?;
 
-            //Set min_adjusted_desired_collateral_withdrawal
-            //This is the desired collateral withdrawal + $101 to ensure we are always at least leaving the min LTV space to fully unloop the vault
-            let min_adjusted_desired_collateral_withdrawal = minimum_ltv_space_as_collateral + unloop_props.desired_collateral_withdrawal;
+            //3) Check if debt is cleared by updating debt_to_clear
+            unloop_props.debt_to_clear = match unloop_props.debt_to_clear.checked_sub(cdt_balance){
+                Ok(v) => v,
+                Err(_) => Uint128::zero(),
+            };
 
-            //If this withdraw hits the min_adjusted_desired_collateral_withdrawal, we send the desired collateral withdrawal
-            if withdrawable_collateral >= min_adjusted_desired_collateral_withdrawal {
-                //Send the desired collateral withdrawal at the end of the msgs
+            //If debt is clear, we're done.
+            //- Withdraw the remaining owned collateral.
+            //- Exit the vault token vault.
+            //- Send the deposit tokens to the user.
+            if unloop_props.debt_to_clear.is_zero(){
+                //Withdraw the remaining owned collateral
                 let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: config.cdp_contract_addr.to_string(),
                     msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
@@ -1880,9 +1804,8 @@ fn handle_unloop_reply(
                             Asset {
                                 info: AssetInfo::NativeToken {
                                     denom: config.deposit_token.clone().vault_token,
-                                },                                
-                                //We only withdraw the desired_collateral_withdrawal in order to leave the min_LTV_amount as leftover withdrawal space
-                                amount: unloop_props.desired_collateral_withdrawal.clone(),
+                                },
+                                amount: unloop_props.owned_collateral.clone(),
                             }
                         ],
                         send_to: None,
@@ -1890,39 +1813,57 @@ fn handle_unloop_reply(
                     funds: vec![],
                 });
                 msgs.push(withdraw_msg);
-            }
-            //if this is the last loop & the withdrawable collateral is less than the min_adjusted_desired_collateral_withdrawal, error
-            else if unloop_props.loop_count >= LOOP_MAX {
+                //Exit the vault token vault 
+                let withdraw_deposit_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: config.deposit_token.vault_addr.to_string(),
+                    msg: to_json_binary(&Vault_ExecuteMsg::ExitVault { })?,
+                    funds: vec![
+                        Coin {
+                            denom: config.deposit_token.vault_token.clone(),
+                            amount: unloop_props.owned_collateral.clone(),
+                        }
+                    ],
+                });
+                msgs.push(withdraw_deposit_tokens_msg);
 
-                //Reverse min adjusted threshold for withdrable collateral so the error msg sends the correct value for possible deposit tokens to withdraw
-                let withdrawable_collateral = match withdrawable_collateral.checked_sub(minimum_ltv_space_as_collateral){
-                    Ok(v) => v,
-                    Err(_) => Uint128::zero(),
-                };
-
-                //Query how many deposit tokens we'll get for this collateral
-                let deposit_token_amount = match deps.querier.query_wasm_smart::<Uint128>(
+                //Query the backing for the strategy's vault tokens
+                let vt_backing: Uint128 = match deps.querier.query_wasm_smart::<Uint128>(
                     config.deposit_token.vault_addr.to_string(),
-                    &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount:  withdrawable_collateral.clone() },
+                    &Vault_QueryMsg::VaultTokenUnderlying { 
+                        vault_token_amount: unloop_props.owned_collateral.clone()
+                    },
                 ){
-                    Ok(deposit_token_amount) => deposit_token_amount,
-                    Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the Mars Vault Token for the collateral conversion amount in unloop") }),
+                    Ok(backing) => backing,
+                    Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the Mars Vault Token for the backing amount in unloop reply") }),
                 };
 
-                //Error if debt is 0 and the desired withdrawal is not met.
+                //Send the deposit tokens to the user
+                let send_deposit_to_user_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+                    to_address: unloop_props.sender,
+                    amount: vec![Coin {
+                        denom: config.deposit_token.deposit_token.clone(),
+                        amount: vt_backing - Uint128::one(), //Vault rounding error
+                    }],
+                });
+                msgs.push(send_deposit_to_user_msg);
+            }
+            //if this is the last loop & the debt is not cleared, error
+            else if unloop_props.loop_count >= LOOP_MAX {
+                //Error if debt is 0 and the debt isnt cleared
                 //This should be unreachable.
                 if unloop_props.running_credit_amount.is_zero(){
                     return Err(StdError::GenericErr { msg: format!("Failed to hit the desired collateral withdrawal in unloop reply yet debt is 0. Either exit_vault is asking for too much and the remaining balance is actually in the contract OR the vault owns less than it says your tokens are worth.") });
                 } 
-                return Err(StdError::GenericErr { msg: format!("Failed to hit the min adjusted desired collateral withdrawal: {} in unloop reply, the most deposit token we can withdraw in 1 tx is {}", min_adjusted_desired_collateral_withdrawal, deposit_token_amount) });
+                return Err(StdError::GenericErr { msg: format!("Failed to clear the debt, {} leftover CDT, for this exit in {} loops, attempt to withdraw less at once", unloop_props.debt_to_clear, LOOP_MAX) });
             } 
-            //4) If not & debt != 0, reloop by calling with the same desired_collateral_withdrawal            
+            //4) If not & debt != 0, reloop by calling with the owned collateral
+            // After the first loop the desired collateral withdrawal doesn't matter but owned collateral would be the wrong value if it did.     
             else if !unloop_props.running_credit_amount.is_zero(){
                 //Create unloop msg
                 let unloop_msg = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: env.contract.address.to_string(),
                     msg: to_json_binary(&ExecuteMsg::UnloopCDP { 
-                        desired_collateral_withdrawal: unloop_props.desired_collateral_withdrawal,
+                        desired_collateral_withdrawal: unloop_props.owned_collateral.clone(),
                     })?,
                     funds: vec![],
                 });
@@ -1937,7 +1878,7 @@ fn handle_unloop_reply(
                 .add_attribute("method", "handle_unloop_reply")
                 .add_attribute("loop_count", unloop_props.loop_count.to_string())                
                 .add_attribute("cdt_swapped_for", cdt_balance)
-                .add_attribute("withdrawable_collateral", withdrawable_collateral)
+                .add_attribute("unloop_props", format!("{:?}", unloop_props))
                 .add_messages(msgs);
 
             return Ok(res);
@@ -2159,13 +2100,9 @@ fn get_buffer_amounts(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-    //Load claim tracker
-    // let mut claim_tracker = CLAIM_TRACKER.load(deps.storage)?;
-    // claim_tracker.vt_claim_checkpoints[0].time_since_last_checkpoint = 0;
-    // claim_tracker.vt_claim_checkpoints[1].time_since_last_checkpoint = 86400*21;
-
-    // //Save claim tracker
-    // CLAIM_TRACKER.save(deps.storage, &claim_tracker)?;
+    //Delete old UNLOOP_PROPS
+    UNLOOP_PROPS.remove(deps.storage);
+    //New struct will save on the next exit vault
 
     Ok(Response::default())
 }

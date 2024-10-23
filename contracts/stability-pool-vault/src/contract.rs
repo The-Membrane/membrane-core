@@ -325,6 +325,17 @@ fn exit_vault(
         Err(_) => ClaimsResponse { claims: vec![] },
     };
 
+
+    //////CHECK WITHDRAWAL QUEUE///////
+    /// - We burn all VTs & simply add the user to a new state object called the withdrawal queue
+    /// - Withdrawals that aren't fulfilled by the buffer unstake from the SP & claim the unstake amount in the queue
+    /// - Whenever a user goes to exit, we check the queue & if they're in it, we set their withdrawal amount to the saved queue'd amount
+    /// -- Key here is that the queue is virtually FIFO so the withdrawals before the current user are subtracted from the contract's serviceable amount (rn this is called contract_balance_post_SP_withdrawal)
+    /// - If they send VTs && they're in the queue, we simply add the VT's backing to their potential total 
+    /// - All exits will need to calc the queue total and subtract it from the contract's serviceable amount 
+    /// -- but queue'd exits only subtract what's in front of them.
+    /// -- To make this easy we save the state as a vec! of WithdrawalQueue objects & use the enumerated index to split the array at the user's index
+
     let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
     if total_deposit_tokens.is_zero() {
         return Err(TokenFactoryError::ZeroDepositTokens {});

@@ -1,7 +1,6 @@
 use cosmwasm_std::{Addr, Decimal};
 use cosmwasm_schema::cw_serde;
 
-
 #[cw_serde]
 pub struct InstantiateMsg {
     /// Contract owner, defaults to info.sender
@@ -79,6 +78,8 @@ pub struct UpdateConfig {
     pub discount_vault_contract: Option<(String, bool)>, //Addr + Add or remove
     /// Minimum time in network to be eligible for discounts, in days
     pub minimum_time_in_network: Option<u64>,
+    /// Add or Update a static discount
+    pub static_discount: Option<UserDiscountResponse>,
 }
 
 #[cw_serde]

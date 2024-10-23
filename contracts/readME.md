@@ -3,3 +3,5 @@ Contracts with test code to comment/uncomment before production ready
 - Staking
 - Liquidation Queue
 - Oracle
+- SEV
+- SPV

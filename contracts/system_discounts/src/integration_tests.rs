@@ -104,6 +104,7 @@ mod tests {
                             credit_last_accrued: 0,
                             rates_last_accrued: 0,
                             oracle_set: false,
+                            revenue_destinations: None,
                         })?)
                     },
                 }
@@ -510,9 +511,57 @@ mod tests {
                 lockdrop_contract: Some(String::from("new_lockdrop_contract")), 
                 discount_vault_contract: Some((String::from("new_discount_vault_contract"), true)), 
                 minimum_time_in_network: Some(14),
+                static_discount: Some(UserDiscountResponse {
+                    user: String::from("user"),
+                    discount: Decimal::percent(101),
+                }),
             });
             let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            
+            //Query Static Discount
+            let discount: UserDiscountResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    discounts_contract.addr(),
+                    &QueryMsg::UserDiscount {
+                        user: String::from("user"),
+                    },
+                )
+                .unwrap();
+            assert_eq!(discount.discount.to_string(), String::from("1"));
+            
+            //Successful UpdateConfig
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
+                owner: None,  
+                positions_contract: None, 
+                oracle_contract:None, 
+                staking_contract: None, 
+                stability_pool_contract: None, 
+                lockdrop_contract: None, 
+                discount_vault_contract: None, 
+                minimum_time_in_network: None, 
+                static_discount: Some(UserDiscountResponse {
+                    user: String::from("user"),
+                    discount: Decimal::percent(99),
+                }),
+            });
+            let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            
+            //Query Static Discount
+            let discount: UserDiscountResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    discounts_contract.addr(),
+                    &QueryMsg::UserDiscount {
+                        user: String::from("user"),
+                    },
+                )
+                .unwrap();
+            assert_eq!(discount.discount.to_string(), String::from("0.99"));
 
             
             //Query Config
@@ -547,6 +596,7 @@ mod tests {
                 lockdrop_contract: None,
                 discount_vault_contract: None,
                 minimum_time_in_network: None,
+                static_discount: None,
             });
             let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
@@ -585,6 +635,7 @@ mod tests {
                 lockdrop_contract: None, 
                 discount_vault_contract: Some((String::from("contract3"), false)), 
                 minimum_time_in_network: None,
+                static_discount: None,
             });
             let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();

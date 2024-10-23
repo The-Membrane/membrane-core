@@ -19,7 +19,7 @@ use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
 use membrane::types::{AssetInfo, Basket, Deposit, AssetPool};
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, OWNERSHIP_TRANSFER};
+use crate::state::{CONFIG, OWNERSHIP_TRANSFER, STATIC_DISCOUNTS};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "system_discounts";
@@ -73,6 +73,7 @@ pub fn instantiate(
     }
 
     CONFIG.save(deps.storage, &config)?;
+    STATIC_DISCOUNTS.save(deps.storage, &vec![])?;
 
     Ok(Response::new()
         .add_attribute("config", format!("{:?}", config))
@@ -154,6 +155,23 @@ fn update_config(
     if let Some(time) = update.minimum_time_in_network {
         config.minimum_time_in_network = time;
     }
+    if let Some(mut new_discount) = update.static_discount {
+        //Load static discounts
+        let mut static_discounts = STATIC_DISCOUNTS.load(deps.storage)?;
+        //Max discount is 1
+        if new_discount.discount > Decimal::one() {
+            new_discount.discount = Decimal::one();
+        }
+        //If its already in the list, update the discount.
+        //Else, add it
+        if let Some((index, discount)) = static_discounts.clone().into_iter().enumerate().find(|(_, diss)| diss.user == new_discount.user){
+            static_discounts[index] = new_discount;
+        } else {
+            static_discounts.push(new_discount);
+        }
+        //Save new state object 
+        STATIC_DISCOUNTS.save(deps.storage, &static_discounts)?;
+    }
 
     //Save Config
     CONFIG.save(deps.storage, &config)?;
@@ -176,6 +194,15 @@ fn get_discount(
     env: Env,
     user: String, 
 )-> StdResult<UserDiscountResponse>{
+    
+    //Load static discounts
+    let static_discounts = STATIC_DISCOUNTS.load(deps.storage)?;
+    //If its already in the list, update the discount.
+    //Else, add it
+    if let Some(discount) = static_discounts.into_iter().find(|diss| diss.user == user){
+        return Ok(discount)
+    } 
+
     //Load Config
     let config = CONFIG.load(deps.storage)?;
 
@@ -418,5 +445,12 @@ fn get_staked_MBRN_value(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    //initialize static discounts
+    STATIC_DISCOUNTS.save(deps.storage, &vec![
+        UserDiscountResponse {
+            user: String::from("osmo1vf6e300hv2qe7r5rln8deft45ewgyytjnwfrdfcv5rgzrfy0s6cswjqf9r"),
+            discount: Decimal::one()
+        }
+    ])?;
     Ok(Response::default())
 }

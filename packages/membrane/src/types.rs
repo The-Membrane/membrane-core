@@ -770,7 +770,6 @@ pub struct Lock {
     pub lock_up_duration: u64,
 }
 
-
 /// Discount Vault
 #[cw_serde]
 pub struct VaultUser {

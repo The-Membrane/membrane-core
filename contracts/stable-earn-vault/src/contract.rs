@@ -890,6 +890,22 @@ fn enter_vault(
 ) -> Result<Response, TokenFactoryError> {
     //Load State
     let mut config = CONFIG.load(deps.storage)?;
+
+    //Load position's info
+    let (
+        vault_credit_amount, 
+        _, 
+        _, 
+        _
+    ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone(), &mut vec![])?;
+
+    //No deposits if the vault debt is over 200 CDT
+    if vault_credit_amount > Uint128::new(200_000_000){
+        return Err(TokenFactoryError::CustomError { val: String::from("Vault debt is over 200 CDT, no deposits allowed") });
+    }
+
+
+
  
     //Assert the only token sent is the deposit token
     if info.funds.len() != 1 {

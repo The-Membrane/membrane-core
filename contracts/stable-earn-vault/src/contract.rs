@@ -1858,7 +1858,7 @@ fn handle_unloop_reply(
 
                 //Send the deposit tokens to the user
                 let send_deposit_to_user_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
-                    to_address: unloop_props.sender,
+                    to_address: unloop_props.clone().sender,
                     amount: vec![Coin {
                         denom: config.deposit_token.deposit_token.clone(),
                         amount: vt_backing - Uint128::one(), //Vault rounding error
@@ -1890,7 +1890,7 @@ fn handle_unloop_reply(
             }            
            
             //Save updated unloop props
-            UNLOOP_PROPS.save(deps.storage, &unloop_props)?;
+            UNLOOP_PROPS.save(deps.storage, &unloop_props.clone())?;
 
             //Create Response
             let res = Response::new()

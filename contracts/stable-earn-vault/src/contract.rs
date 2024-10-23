@@ -115,7 +115,8 @@ pub fn instantiate(
     CONFIG.save(deps.storage, &config)?;
     VAULT_TOKEN.save(deps.storage, &vault_tokens_to_distribute)?;
     UNLOOP_PROPS.save(deps.storage, &UnloopProps {
-        sender: String::from(""),   
+        sender: String::from(""),
+        debt_to_clear: Uint128::zero(),
         owned_collateral: Uint128::zero(),
         loop_count: 0,
         running_collateral_amount: Uint128::zero(),
@@ -130,6 +131,11 @@ pub fn instantiate(
             prices: vec![],
             decimals: 6
         },
+        cdt_market_price: PriceResponse {
+            price: Decimal::zero(),
+            prices: vec![],
+            decimals: 6
+        }
     })?;
     CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
         vt_claim_checkpoints: vec![],
@@ -903,9 +909,6 @@ fn enter_vault(
     if vault_credit_amount > Uint128::new(200_000_000){
         return Err(TokenFactoryError::CustomError { val: String::from("Vault debt is over 200 CDT, no deposits allowed") });
     }
-
-
-
  
     //Assert the only token sent is the deposit token
     if info.funds.len() != 1 {

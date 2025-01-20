@@ -40,7 +40,7 @@ const INITIATE_EXIT_REPLY_ID: u64 = 6u64;
 //Constants
 const SECONDS_PER_DAY: u64 = 86_400u64;
 const LOOP_MAX: u64 = 5u64;
-const MIN_DEPOSIT_VALUE: Decimal = Decimal::percent(101_11);
+const MIN_DEPOSIT_VALUE: Decimal = Decimal::percent(21_11);
 
 ////PROCEDURAL FLOW/NOTES////
 // - There is a deposit and entry fee. 
@@ -238,7 +238,7 @@ fn accrue_before_exit(
 }
 
 //LOOP NOTES: 
-// - Loop to leave a 101 CDT LTV gap to allow easier unlooping under the minimum
+// - Loop to leave a 21 CDT LTV gap to allow easier unlooping under the minimum
 // - Don't loop if CDT price is below 99% + slippage of peg
 // - We don't loop the buffer of vault tokens in the contract
 //POST LOOP NOTES:
@@ -305,15 +305,15 @@ fn loop_cdp(
         running_credit_amount
     )?;
         
-    //Leave a 101 CDT LTV gap to allow easier unlooping under the minimum debt (100)
-    //$101 min deposit is $91 of LTV space which is ~101 withdrawal space so we can always fulfill the minimum debt of 100
+    //Leave a 21 CDT LTV gap to allow easier unlooping under the minimum debt (100)
+    //$21 min deposit is $91 of LTV space which is ~21 withdrawal space so we can always fulfill the minimum debt of 100
     if min_deposit_value < MIN_DEPOSIT_VALUE {
         return Err(TokenFactoryError::CustomError { val: format!("Minimum deposit value for this loop: {}, is less than our minimum used to ensure unloopability: {}", min_deposit_value, MIN_DEPOSIT_VALUE) })
     }
 
-    //If amount to mint is greater than max_mint_amount, set it to max_mint_amount while retaining the minimum 101 CDT LTV gap
+    //If amount to mint is greater than max_mint_amount, set it to max_mint_amount while retaining the minimum 21 CDT LTV gap
     let amount_to_mint = match max_mint_amount {
-        Some(max_mint_amount) => min(amount_to_mint, max(max_mint_amount, Uint128::new(102_000_000))), //Retain the minimum 101 CDT LTV gap + buffer
+        Some(max_mint_amount) => min(amount_to_mint, max(max_mint_amount, Uint128::new(102_000_000))), //Retain the minimum 21 CDT LTV gap + buffer
         None => amount_to_mint,
     };
 
@@ -889,7 +889,7 @@ fn calc_withdrawable_collateral(
 
 
     /////If withdrawable_value puts the debt value below $100, make sure to leave the minimum debt so the CDP doesn't error
-    let minimum_debt_value = Decimal::percent(101_00);
+    let minimum_debt_value = MIN_DEPOSIT_VALUE;
     //We've failed if debt value is ever more than withdrawable value, we don't want to reach this
     if debt_value > withdrawable_value && decimal_subtraction(debt_value, withdrawable_value)? < minimum_debt_value {
         //Calc the difference
@@ -905,7 +905,7 @@ fn calc_withdrawable_collateral(
     //We should never get here, 
     //If this errors the CDP repay function would've errored later.
     else if !in_reply && debt_value < minimum_debt_value {
-        return Err(StdError::GenericErr { msg: format!("Debt value: ({}), is less than minimum debt value: ({}), which will error in the CDP repay function anyway. Someone needs to add more capital to the contract's CDP, whose position ID is in the config, to create more withdrawal space to totally unloop.", debt_value, minimum_debt_value) })
+        return Err(StdError::GenericErr { msg: format!("Debt value: ({}), is less than minimum debt value: ({}), which will error in the CDP repay function anyway. Someone needs to add more capital to the contract's CDP, whose position ID is in the config, to create more withdrawal space to totally unloop or simply repay the current debt.", debt_value, minimum_debt_value) })
     }
 
     //Set minimum withdrawn & swapped value

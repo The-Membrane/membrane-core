@@ -313,7 +313,7 @@ fn loop_cdp(
 
     //If amount to mint is greater than max_mint_amount, set it to max_mint_amount while retaining the minimum 21 CDT LTV gap
     let amount_to_mint = match max_mint_amount {
-        Some(max_mint_amount) => min(amount_to_mint, max(max_mint_amount, Uint128::new(102_000_000))), //Retain the minimum 21 CDT LTV gap + buffer
+        Some(max_mint_amount) => min(amount_to_mint, max(max_mint_amount, Uint128::new(21_000_000))), //Retain the minimum 21 CDT LTV gap + buffer
         None => amount_to_mint,
     };
 

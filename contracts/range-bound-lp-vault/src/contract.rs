@@ -2563,6 +2563,14 @@ fn handle_cl_position_creation_reply(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
+    let mut user_intent_state = USER_INTENT_STATE.load(deps.storage, "osmo1lgdwng93exmdfjkerg7spadkl9tzc22v549tp7".to_string())?;
+
+    user_intent_state.intents.purchase_intents = vec![];
+
+    USER_INTENT_STATE.save(deps.storage, "osmo1lgdwng93exmdfjkerg7spadkl9tzc22v549tp7".to_string(), &user_intent_state)?;
+
+
+
     Ok(Response::default())
 }

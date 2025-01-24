@@ -55,7 +55,7 @@ pub enum ExecuteMsg {
         reduce_vault_tokens: Option<ReduceTokens>,
     },
     /// Fulfill intents for a user. Send fees to the caller.
-    FulFillUserIntents { users: Vec<String> },
+    FulFillUserIntents { user: String },
     /// Let CDP contract use VTs in user intents to repay debt.
     RepayUserDebt { 
         user_info: UserInfo,

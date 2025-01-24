@@ -150,7 +150,7 @@ pub fn execute(
         ExecuteMsg::ExitVault { send_to, swap_to_cdt } => exit_vault(deps, env, info, send_to, swap_to_cdt),
         ExecuteMsg::ManageVault { rebalance_sale_max } => manage_vault(deps, env, info, rebalance_sale_max),
         ExecuteMsg::SetUserIntents { intents, reduce_vault_tokens } => set_intents(deps, env, info, intents, reduce_vault_tokens),
-        ExecuteMsg::FulFillUserIntents { users } => fulfill_intents(deps, env, info, users),
+        ExecuteMsg::FulFillUserIntents { user } => fulfill_intents(deps, env, info, user),
         ExecuteMsg::RepayUserDebt { user_info, repayment } => repay_user_debt(deps, env, info, user_info, repayment),
         ExecuteMsg::CrankRealizedAPR { } => crank_realized_apr(deps, env, info),
         ExecuteMsg::RateAssurance { } => rate_assurance(deps, env, info),
@@ -1327,7 +1327,7 @@ fn fulfill_intents(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    users: Vec<String>,
+    user: String,
 ) -> Result<Response, TokenFactoryError> {
     //Load config
     let config = CONFIG.load(deps.storage)?;
@@ -1353,94 +1353,90 @@ fn fulfill_intents(
         total_vault_tokens
     )?;
 
-    //Iterate over users
-    for user in users.clone() {
-
-        //Validate user
-        let mut user_intent_state = USER_INTENT_STATE.load(deps.storage, user.clone())?;
-        //Shouldn't be possible
-        if user_intent_state.intents.purchase_intents.len() == 0 { 
-            continue;
-        }
-
-        //If the current rate is greater than the user's last rate, exit the increased % and fulfill the compound/purchase intents
-        match decimal_division(
-            Decimal::from_ratio(current_conversion_rate, Uint128::one()),
-            Decimal::from_ratio(user_intent_state.intents.last_conversion_rate, Uint128::one())
-        ) {
-            Ok(rate) => {
-                if rate > Decimal::one() {
-                    let profit = rate - Decimal::one();
-                    let total_vault_tokens_to_exit= user_intent_state.vault_tokens * profit;
-                    //Subtract the exit amount from the user's vault tokens
-                    user_intent_state.vault_tokens -= total_vault_tokens_to_exit;
-                    //Calc the amount that goes to the caller as a fee
-                    let vault_tokens_to_caller = total_vault_tokens_to_exit * user_intent_state.fee_to_caller;
-                    //Calc the amount that goes to the user
-                    let vault_tokens_to_exit_for_user = total_vault_tokens_to_exit - vault_tokens_to_caller;
-                           
-                    //Create exit vault msg for the fee amount
-                    let exit_vault_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: env.contract.address.to_string(),
-                        msg: to_json_binary(&ExecuteMsg::ExitVault { send_to: Some(info.sender.clone().to_string()), swap_to_cdt: false })?,
-                        funds: vec![
-                            Coin {
-                                denom: config.vault_token.clone(),
-                                amount: vault_tokens_to_caller.clone(),
-                            },
-                        ],
-                    });
-
-                    //Exit and send the fee to the caller
-                    let caller_fee_exit_submsg = SubMsg::new(exit_vault_msg);
-                    //Add to submsgs
-                    submsgs.push(caller_fee_exit_submsg);
-
-                    //Exit the vault with the user's profit
-                    let exit_vault_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: env.contract.address.to_string(),
-                        msg: to_json_binary(&ExecuteMsg::ExitVault { send_to: None, swap_to_cdt: false })?,
-                        funds: vec![
-                            Coin {
-                                denom: config.vault_token.clone(),
-                                amount: vault_tokens_to_exit_for_user.clone(),
-                            },
-                        ],
-                    });
-
-                    //Swap CDT to fulfill the intents post-exit//
-                    let fulfill_submsg = SubMsg::reply_on_success(exit_vault_msg, PURCHASE_POST_EXIT_REPLY_ID);
-                    //Add to submsgs
-                    submsgs.push(fulfill_submsg);
-                
-                    //Save intent data for the reply
-                    INTENT_PROPAGATION.save(deps.storage, &IntentProp {
-                        intents: user_intent_state.clone().intents,
-                        prev_cdt_balance: deps.querier.query_balance(env.contract.address.to_string(), config.range_tokens.ceiling_deposit_token.clone())?.amount,
-                        prev_usdc_balance: deps.querier.query_balance(env.contract.address.to_string(), config.range_tokens.floor_deposit_token.clone())?.amount,
-                    })?;
-                    
-                    //Set the user's last conversion rate
-                    user_intent_state.intents.last_conversion_rate = current_conversion_rate;
-                    
-                    //Update the user's state
-                    USER_INTENT_STATE.save(deps.storage, user.clone(), &user_intent_state)?;
-                } else {
-                    //Nothing to profit take, error
-                    return Err(TokenFactoryError::CustomError { val: format!("Current conversion rate: {} isn't greater than the user's last rate: {}", current_conversion_rate, user_intent_state.intents.last_conversion_rate) });
-                }
-            },
-            Err(err) => {
-                //Error calculating rate
-                return Err(TokenFactoryError::CustomError { val: format!("Error calculating profit percentage: {}", err) });
-            }
-        };
+    //Validate user
+    let mut user_intent_state = USER_INTENT_STATE.load(deps.storage, user.clone())?;
+    //Shouldn't be possible
+    if user_intent_state.intents.purchase_intents.len() == 0 { 
+        return Err(TokenFactoryError::CustomError { val: String::from("User has no intents to fulfill") });
     }
+
+    //If the current rate is greater than the user's last rate, exit the increased % and fulfill the compound/purchase intents
+    match decimal_division(
+        Decimal::from_ratio(current_conversion_rate, Uint128::one()),
+        Decimal::from_ratio(user_intent_state.intents.last_conversion_rate, Uint128::one())
+    ) {
+        Ok(rate) => {
+            if rate > Decimal::one() {
+                let profit = rate - Decimal::one();
+                let total_vault_tokens_to_exit= user_intent_state.vault_tokens * profit;
+                //Subtract the exit amount from the user's vault tokens
+                user_intent_state.vault_tokens -= total_vault_tokens_to_exit;
+                //Calc the amount that goes to the caller as a fee
+                let vault_tokens_to_caller = total_vault_tokens_to_exit * user_intent_state.fee_to_caller;
+                //Calc the amount that goes to the user
+                let vault_tokens_to_exit_for_user = total_vault_tokens_to_exit - vault_tokens_to_caller;
+                        
+                //Create exit vault msg for the fee amount
+                let exit_vault_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: env.contract.address.to_string(),
+                    msg: to_json_binary(&ExecuteMsg::ExitVault { send_to: Some(info.sender.clone().to_string()), swap_to_cdt: false })?,
+                    funds: vec![
+                        Coin {
+                            denom: config.vault_token.clone(),
+                            amount: vault_tokens_to_caller.clone(),
+                        },
+                    ],
+                });
+
+                //Exit and send the fee to the caller
+                let caller_fee_exit_submsg = SubMsg::new(exit_vault_msg);
+                //Add to submsgs
+                submsgs.push(caller_fee_exit_submsg);
+
+                //Exit the vault with the user's profit
+                let exit_vault_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: env.contract.address.to_string(),
+                    msg: to_json_binary(&ExecuteMsg::ExitVault { send_to: None, swap_to_cdt: false })?,
+                    funds: vec![
+                        Coin {
+                            denom: config.vault_token.clone(),
+                            amount: vault_tokens_to_exit_for_user.clone(),
+                        },
+                    ],
+                });
+
+                //Swap CDT to fulfill the intents post-exit//
+                let fulfill_submsg = SubMsg::reply_on_success(exit_vault_msg, PURCHASE_POST_EXIT_REPLY_ID);
+                //Add to submsgs
+                submsgs.push(fulfill_submsg);
+            
+                //Save intent data for the reply
+                INTENT_PROPAGATION.save(deps.storage, &IntentProp {
+                    intents: user_intent_state.clone().intents,
+                    prev_cdt_balance: deps.querier.query_balance(env.contract.address.to_string(), config.range_tokens.ceiling_deposit_token.clone())?.amount,
+                    prev_usdc_balance: deps.querier.query_balance(env.contract.address.to_string(), config.range_tokens.floor_deposit_token.clone())?.amount,
+                })?;
+                
+                //Set the user's last conversion rate
+                user_intent_state.intents.last_conversion_rate = current_conversion_rate;
+                
+                //Update the user's state
+                USER_INTENT_STATE.save(deps.storage, user.clone(), &user_intent_state)?;
+            } else {
+                //Nothing to profit take, error
+                return Err(TokenFactoryError::CustomError { val: format!("Current conversion rate: {} isn't greater than the user's last rate: {}", current_conversion_rate, user_intent_state.intents.last_conversion_rate) });
+            }
+        },
+        Err(err) => {
+            //Error calculating rate
+            return Err(TokenFactoryError::CustomError { val: format!("Error calculating profit percentage: {}", err) });
+        }
+    };
 
     //Create response
     Ok(Response::new()
         .add_attribute("method", "fulfill_intents")
-        .add_attribute("users", format!("{:?}", users))
+        .add_attribute("users", user)
         .add_submessages(submsgs)
     )
 }
@@ -2564,13 +2560,6 @@ fn handle_cl_position_creation_reply(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-    let mut user_intent_state = USER_INTENT_STATE.load(deps.storage, "osmo1lgdwng93exmdfjkerg7spadkl9tzc22v549tp7".to_string())?;
-
-    user_intent_state.intents.purchase_intents = vec![];
-
-    USER_INTENT_STATE.save(deps.storage, "osmo1lgdwng93exmdfjkerg7spadkl9tzc22v549tp7".to_string(), &user_intent_state)?;
-
-
 
     Ok(Response::default())
 }

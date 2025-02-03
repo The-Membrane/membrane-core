@@ -34,6 +34,9 @@ const PAGINATION_DEFAULT_LIMIT: u64 = 30;
 const LIQUIDATION_REPLY_ID: u64 = 1u64;
 const ACCRUE_REPLY_ID: u64 = 2u64;
 
+//Contract
+const RANGE_BOUND_VAULT: &str = "osmo17rvvd6jc9javy3ytr0cjcypxs20ru22kkhrpwx7j3ym02znuz0vqa37ffx";
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
@@ -111,6 +114,7 @@ fn check_claims(
     sp_claims: bool,
     lq_claims: bool,
     vote: Option<Vec<u64>>,
+    rangebound_vault: Option<String>,
 ) -> Result<Response, ContractError>{
     //Load config
     let config: Config = CONFIG.load(deps.storage)?;
@@ -193,6 +197,20 @@ fn check_claims(
                 unvoted_proposals.push(id);
             }
         }
+    }
+
+    //Save Range Bound Vault conversion rate and user's VT balance
+    if let Some(user) = rangebound_vault {
+        let mut rangebound_info = RangeBoundInfo {
+            last_conversion_rate: Uint128::zero(),
+            last_vt_balance: Uint128::zero(),
+        };
+        //Query Range Bound Vault for conversion rate
+        let conversion_rate: Uint128 = deps.querier.query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart { 
+            contract_addr: RANGE_BOUND_VAULT.clone(), 
+            msg: to_json_binary(&QueryMsg::ConversionRate {  })?
+        }))?;
+        USER_RANGEBOUND_INFO.save(deps.storage, vault, &rangebound_info)?;
     }
 
     //Save Claim Check

@@ -130,3 +130,11 @@ pub struct UserStatsResponse {
     ///Stats
     pub stats: UserStats,
 }
+
+#[cw_serde]
+pub struct RangeBoundInfo {
+    /// Last Conversion Rate
+    pub last_conversion_rate: Uint128,
+    /// Last VT Balance
+    pub last_vt_balance: Uint128,
+}

@@ -2,7 +2,7 @@ use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Uint128};
 use cw_storage_plus::{Item, Map};
 
-use membrane::points_system::{Config, ClaimCheck, UserStats};
+use membrane::points_system::{Config, ClaimCheck, UserStats, RangeBoundInfo};
 
 #[cw_serde]
 pub struct LiquidationPropagation {
@@ -17,6 +17,7 @@ pub struct LiquidationPropagation {
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const USER_STATS: Map<Addr, UserStats> = Map::new("user_stats"); 
+pub const USER_RANGEBOUND_INFO: Map<Addr, RangeBoundInfo> = Map::new("user_rangebound_info");
 pub const CLAIM_CHECK: Item<ClaimCheck> = Item::new("claim_check");
 pub const LIQ_PROPAGATION: Item<LiquidationPropagation> = Item::new("cdp_balances");
 

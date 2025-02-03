@@ -37,6 +37,8 @@ pub enum ExecuteMsg {
         lq_claims: bool,
         /// Proposal ID
         vote: Option<Vec<u64>>,
+        /// User address
+        rangebound_user: Option<String>,
     }, 
     /// Recheck claims & give points for checked claims
     GivePoints {
@@ -45,6 +47,8 @@ pub enum ExecuteMsg {
         lq_claims: bool,
         /// Proposal ID
         vote: Option<Vec<u64>>,
+        /// User address
+        rangebound_user: Option<String>,
     },
     /// Liquidate & send fees to caller (Points for liquidator and liquidatee)
     Liquidate {
@@ -124,6 +128,7 @@ pub struct UserStats {
     /// Claimable points
     pub claimable_points: Decimal,
 }
+
 
 #[cw_serde]
 pub struct UserStatsResponse {

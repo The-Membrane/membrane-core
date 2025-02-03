@@ -15,11 +15,11 @@ use membrane::liq_queue::{QueryMsg as LIQ_QueryMsg, ClaimsResponse as LQ_ClaimsR
 use membrane::governance::{QueryMsg as GOV_QueryMsg, Proposal};
 use membrane::oracle::QueryMsg as Oracle_QueryMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
-use membrane::stability_pool_vault::QueryMsg as Vault_QueryMsg;
-use membrane::types::{Asset, AssetInfo, Basket, UserInfo};
+use membrane::types::{AssetInfo, Basket, UserInfo};
+use membrane::range_bound_lp_vault::QueryMsg as RB_QueryMsg;
 
 use crate::error::ContractError;
-use crate::state::{LiquidationPropagation, VaultConversionRate, VaultInfo, CLAIM_CHECK, CONFIG, LIQ_PROPAGATION, OWNERSHIP_TRANSFER, USER_STATS, VAULT_INFO};
+use crate::state::{LiquidationPropagation, VaultConversionRate, CLAIM_CHECK, CONFIG, LIQ_PROPAGATION, OWNERSHIP_TRANSFER, USER_STATS, USER_VAULT_CONVERSION_RATES};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "points_system";
@@ -34,6 +34,10 @@ const PAGINATION_DEFAULT_LIMIT: u64 = 30;
 //Reply IDs
 const LIQUIDATION_REPLY_ID: u64 = 1u64;
 const ACCRUE_REPLY_ID: u64 = 2u64;
+
+//Contract
+const RANGE_BOUND_VAULT: &str = "osmo17rvvd6jc9javy3ytr0cjcypxs20ru22kkhrpwx7j3ym02znuz0vqa37ffx";
+const RANGE_BOUND_VAULT_TOKEN: &str = "factory/osmo17rvvd6jc9javy3ytr0cjcypxs20ru22kkhrpwx7j3ym02znuz0vqa37ffx/cdt-usdc-range-bound-lp";
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -93,8 +97,8 @@ pub fn execute(
     match msg {
         ExecuteMsg::UpdateConfig { owner, cdt_denom, oracle_contract, positions_contract, stability_pool_contract, liq_queue_contract, governance_contract, osmosis_proxy_contract, mbrn_per_point, max_mbrn_distribution, points_per_dollar } => update_config(deps, info, owner, cdt_denom, oracle_contract, positions_contract, stability_pool_contract, liq_queue_contract, governance_contract, osmosis_proxy_contract, mbrn_per_point, max_mbrn_distribution, points_per_dollar),
         ExecuteMsg::Liquidate { position_id, position_owner } => liquidate_for_user(deps, env, info, position_id, position_owner),
-        ExecuteMsg::CheckClaims { cdp_repayment, sp_claims, lq_claims, vote } => check_claims(deps, env, info, cdp_repayment, sp_claims, lq_claims, vote),
-        ExecuteMsg::GivePoints { cdp_repayment, sp_claims, lq_claims, vote } => give_points(deps, env, info, cdp_repayment, sp_claims, lq_claims, vote),
+        ExecuteMsg::CheckClaims { cdp_repayment, sp_claims, lq_claims, vote, rangebound_user } => check_claims(deps, env, info, cdp_repayment, sp_claims, lq_claims, vote, rangebound_user),
+        ExecuteMsg::GivePoints { cdp_repayment, sp_claims, lq_claims, vote, rangebound_user } => give_points(deps, env, info, cdp_repayment, sp_claims, lq_claims, vote, rangebound_user),
         ExecuteMsg::ClaimMBRN {} => claim_mbrn_from_points(deps, env, info),
     }
 }
@@ -112,6 +116,7 @@ fn check_claims(
     sp_claims: bool,
     lq_claims: bool,
     vote: Option<Vec<u64>>,
+    rangebound_user: Option<String>,
 ) -> Result<Response, ContractError>{
     //Load config
     let config: Config = CONFIG.load(deps.storage)?;
@@ -196,6 +201,70 @@ fn check_claims(
         }
     }
 
+    //Save Range Bound Vault conversion rate and user's VT balance
+    if let Some(user) = rangebound_user {
+        let user_addr = deps.api.addr_validate(&user)?;
+
+        //Load User's Vault Conversion info
+        let mut user_info = match USER_VAULT_CONVERSION_RATES.load(deps.storage, user_addr.clone()){
+            Ok(info) => info,
+            Err(_) => vec![]
+        };
+
+        //Create Range Bound Vault Conversion Rate info
+        let mut rangebound_info = VaultConversionRate {
+            vault_address: String::from(RANGE_BOUND_VAULT),
+            last_conversion_rate: Uint128::zero(),
+            last_vt_balance: Uint128::zero(),
+        };
+        let mut found: Option<usize> = None;
+
+        //Find User's Range Bound Vault info
+        if user_info.len() > 0 {
+            if let Some((index, rb_info)) = user_info.clone().into_iter().enumerate().find(|(index, x)| x.vault_address == RANGE_BOUND_VAULT){
+                rangebound_info = rb_info;
+                found = Some(index);
+            }
+        }
+        //Query user's wallet for VT balance
+        let user_vt_balance: Uint128 = match deps.querier.query_balance(user, String::from(RANGE_BOUND_VAULT_TOKEN)){
+            Ok(balance) => balance.amount,
+            Err(_) => Uint128::zero(),
+        };
+
+        if user_vt_balance == Uint128::zero() {
+            return Err(ContractError::Std(StdError::generic_err("User has no VT balance")));
+        }
+
+        //Query Range Bound Vault for conversion rate
+        let conversion_rate: Uint128 = match deps.querier.query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart { 
+            contract_addr: RANGE_BOUND_VAULT.to_string().clone(), 
+            msg: to_json_binary(&RB_QueryMsg::VaultTokenUnderlying { vault_token_amount: Uint128::new(1000000000000u128) })?
+        })){
+            Ok(rate) => rate,
+            Err(_) => return Err(ContractError::Std(StdError::generic_err("Failed to query Range Bound Vault for conversion rate"))),
+        };
+
+        //Override both rate and balance if the user's balance is higher
+        if user_vt_balance > rangebound_info.last_vt_balance {
+            rangebound_info.last_vt_balance = user_vt_balance;
+            rangebound_info.last_conversion_rate = conversion_rate;
+        } else {
+            //Otherwise only save balance if it's lower or equal
+            rangebound_info.last_vt_balance = user_vt_balance;
+        }
+
+        if let Some(found) = found {
+            //Update user's Range Bound Vault info
+            user_info[found] = rangebound_info;
+        } else {
+            //Add user's Range Bound Vault info
+            user_info.push(rangebound_info);
+        }
+        //Save user info
+        USER_VAULT_CONVERSION_RATES.save(deps.storage, user_addr, &user_info)?;
+    }
+
     //Save Claim Check
     CLAIM_CHECK.save(deps.storage, &
         ClaimCheck {
@@ -235,6 +304,7 @@ fn give_points(
     sp_claims: bool,
     lq_claims: bool,
     vote: Option<Vec<u64>>,
+    rangebound_user: Option<String>,
 ) -> Result<Response, ContractError>{
     //Load config
     let config: Config = CONFIG.load(deps.storage)?;
@@ -246,11 +316,6 @@ fn give_points(
         return Err(ContractError::Unauthorized {});
     }
 
-    //Give points needs to be in the same block as the claim check
-    if env.block.time.seconds() != claim_check.check_time {
-        return Err(ContractError::Std(StdError::generic_err("Claim check is outdated")));
-    }
-
     //Get CDP Basket    
     let basket: Basket = deps.querier.query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart { 
         contract_addr: config.clone().positions_contract.to_string(), 
@@ -258,8 +323,13 @@ fn give_points(
     }))?;
     
     let mut revenue_paid: Uint128 = Uint128::zero();
+    let mut attrs: Vec<Attribute> = vec![];
     //1) Check CDP repayment?
     if cdp_repayment {
+        //Check if the claim check is outdated
+        if claim_check.check_time != env.block.time.seconds() {
+            return Err(ContractError::Std(StdError::generic_err("Claim Check is outdated")));
+        }
         //Get CDP's pending revenue
         revenue_paid = match claim_check.cdp_pending_revenue.checked_sub(basket.pending_revenue){
             Ok(amount) => amount,
@@ -270,6 +340,10 @@ fn give_points(
     let mut sp_claim_diff: Vec<Coin> = vec![];
     //2) Check SP claims?
     if sp_claims {
+        //Check if the claim check is outdated
+        if claim_check.check_time != env.block.time.seconds() {
+            return Err(ContractError::Std(StdError::generic_err("Claim Check is outdated")));
+        }
         //Get SP's pending claims
         let sp_current_claims: ClaimsResponse = match deps.querier.query::<ClaimsResponse>(&QueryRequest::Wasm(WasmQuery::Smart { 
             contract_addr: config.clone().stability_pool_contract.to_string(), 
@@ -310,6 +384,10 @@ fn give_points(
     let mut lq_claim_diff: Vec<Coin> = vec![];
     //3) Check Liquidation claims?
     if lq_claims {
+        //Check if the claim check is outdated
+        if claim_check.check_time != env.block.time.seconds() {
+            return Err(ContractError::Std(StdError::generic_err("Claim Check is outdated")));
+        }
         //Get Liquidation's pending claims
         let lq_current_claims: Vec<LQ_ClaimsResponse> = deps.querier.query::<Vec<LQ_ClaimsResponse>>(&QueryRequest::Wasm(WasmQuery::Smart { 
             contract_addr: config.clone().liq_queue_contract.to_string(), 
@@ -349,6 +427,10 @@ fn give_points(
     let mut newly_voted_proposals: Vec<u64> = vec![];
     //4) Check Governance votes?
     if let Some(votes) = vote {
+        //Check if the claim check is outdated
+        if claim_check.check_time != env.block.time.seconds() {
+            return Err(ContractError::Std(StdError::generic_err("Claim Check is outdated")));
+        }
         //Filter out proposal IDs that aren't in the claim check
         let votes = votes.into_iter().filter(|x| claim_check.vote_pending.contains(x)).collect::<Vec<u64>>();
 
@@ -380,6 +462,72 @@ fn give_points(
             }
         }
     }
+    if let Some(user) = rangebound_user {
+        //Validate user address
+        let user_addr = deps.api.addr_validate(&user)?;
+        //Load User's Vault Conversion info
+        let mut user_info = USER_VAULT_CONVERSION_RATES.load(deps.storage, user_addr.clone())?;
+
+        let mut found: Option<usize> = None;
+        
+        //Find User's Range Bound Vault info
+        let rangebound_info = match user_info.clone().into_iter().enumerate().find(|(_, x)| x.vault_address == RANGE_BOUND_VAULT){
+            Some((index, info)) => {
+                found = Some(index);
+                info
+            },
+            None => return Err(ContractError::Std(StdError::generic_err(format!("{} has no Range Bound Vault info", user.clone())))),
+        };
+        //Query user's wallet for VT balance
+        let user_vt_balance: Uint128 = match deps.querier.query_balance(user.clone(), String::from(RANGE_BOUND_VAULT_TOKEN)){
+            Ok(balance) => balance.amount,
+            Err(_) => Uint128::zero(),
+        };
+        //If balance is less than the last balance, delete the user's info
+        if user_vt_balance < rangebound_info.last_vt_balance {
+            user_info.remove(found.unwrap());
+
+        } else {
+            //Otherwise give points on the difference of the conversion rates * the VT initial balance
+            //Query Range Bound Vault for conversion rate
+            let conversion_rate: Uint128 = match deps.querier.query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart { 
+                contract_addr: RANGE_BOUND_VAULT.to_string().clone(), 
+                msg: to_json_binary(&RB_QueryMsg::VaultTokenUnderlying { vault_token_amount: Uint128::new(1000000000000u128) })?
+            })){
+                Ok(rate) => rate,
+                Err(_) => return Err(ContractError::Std(StdError::generic_err("Failed to query Range Bound Vault for conversion rate"))),
+            };
+            //Calc conversion rate difference
+            let rate_diff = match conversion_rate.checked_sub(rangebound_info.last_conversion_rate){
+                Ok(diff) => diff,
+                Err(_) => return Err(ContractError::Std(StdError::generic_err(format!("{} conversion rate difference is negative", user)))),
+            };
+            //Calc points to give
+            let points_to_give = decimal_multiplication(
+                Decimal::from_ratio(rate_diff, Uint128::one()) , 
+                Decimal::from_ratio(rangebound_info.last_vt_balance, Uint128::one()
+            ))?;
+
+            //Add these points to revenue paid
+            revenue_paid += points_to_give.to_uint_floor();
+            attrs.push(attr("range_bound_yield", points_to_give.to_string()));
+
+            //Update user's Range Bound Vault info
+            user_info[found.unwrap()] = VaultConversionRate {
+                vault_address: String::from(RANGE_BOUND_VAULT),
+                last_conversion_rate: conversion_rate,
+                last_vt_balance: user_vt_balance,
+            };
+
+        }
+
+        //Save or Remove user info
+        if user_info.len() == 0 {
+            USER_VAULT_CONVERSION_RATES.remove(deps.storage, user_addr);
+        } else {
+            USER_VAULT_CONVERSION_RATES.save(deps.storage, user_addr, &user_info)?;
+        }
+    }
 
     //Delete Claim Check
     CLAIM_CHECK.remove(deps.storage);
@@ -398,62 +546,14 @@ fn give_points(
     )?;
 
     //Set attributes
-    let mut attrs: Vec<Attribute> = vec![];
-        attrs.push(attr("revenue_paid", revenue_paid));
-        attrs.push(attr("sp_claim_diff", format!("{:?}", sp_claim_diff)));
-        attrs.push(attr("lq_claim_diff", format!("{:?}", lq_claim_diff)));
-        attrs.push(attr("newly_voted_proposals", format!("{:?}", newly_voted_proposals)));
+    attrs.push(attr("revenue_paid", revenue_paid));
+    attrs.push(attr("sp_claim_diff", format!("{:?}", sp_claim_diff)));
+    attrs.push(attr("lq_claim_diff", format!("{:?}", lq_claim_diff)));
+    attrs.push(attr("newly_voted_proposals", format!("{:?}", newly_voted_proposals)));
 
 
 
     Ok(Response::new().add_attributes(attrs))
-}
-
-fn save_vault_conversion_rates(
-    deps: DepsMut,
-    info: MessageInfo,
-) -> Result<Response, ContractError>{
-    //Load vault info state for all vaults
-    let vault_infos: Vec<VaultInfo> = VAULT_INFO.load(deps.storage)?;
-    //Query the user's balances
-    let user_balances = deps.querier.query_all_balances(&info.sender)?;
-    //Search for any vault tokens
-    let vault_tokens = user_balances.into_iter().filter(|x| vault_infos.iter().any(|vault| vault.vault_token_denom == x.denom )).collect::<Vec<Coin>>();
-
-    //Get conversation rates for each found vault token
-    let conversion_rates = vault_tokens.into_iter().map(|token| {
-        //find token in vault infos
-        let vault_info = vault_infos.iter().find(|x| x.vault_token_denom == token.denom).unwrap();
-        //Query for conversion rate
-        let conversion_rate: Uint128 = deps.querier.query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart { 
-            contract_addr: vault_info.vault_address.clone(), 
-            msg: to_json_binary(&Vault_QueryMsg::VaultTokenUnderlying {  
-                vault_token_amount: vault_info.single_vault_token
-            })?
-        }))?;
-        //Return conversion rate object
-        return Ok(VaultConversionRate {
-            vault_address: vault_info.vault_address.clone(),
-            last_conversion_rate: Uint128::zero(),
-            total_vault_tokens: Asset {
-                amount: token.amount,
-                info: AssetInfo::NativeToken { denom: token.denom },
-            },
-        });
-    }).collect::<StdResult<Vec<VaultConversionRate>>>()?;
-
-    //Load user's existing conversion rates
-
-    //Give points for any existing conversion rates.
-    //We use the minimum of the user's vault tokens to calculate points. If they got more or exited some, it won't help their points.
-
-    //Add vault conversion rates to the user.
-    //Replace any existing, add otherwise.
-
-
-
-
-    Ok(Response::new())
 }
 
 /// Liquidate a position

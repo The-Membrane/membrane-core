@@ -21,7 +21,7 @@ pub struct VaultConversionRate {
     ///Deposit Token Conversion Rate for 1 vault token
     pub last_conversion_rate: Uint128,
     /// Total Vault Tokens
-    pub total_vault_tokens: Asset,
+    pub last_vt_balance: Uint128,
 }
 
 #[cw_serde]

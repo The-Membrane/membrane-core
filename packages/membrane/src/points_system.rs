@@ -74,6 +74,12 @@ pub enum QueryMsg {
         limit: Option<u64>,
         start_after: Option<String>,
      },
+     // Return user's vault conversion rates
+     UserConversionRates { 
+         user: Option<String>,
+         limit: Option<u64>,
+         start_after: Option<String>,
+      },
 }
 
 
@@ -136,4 +142,23 @@ pub struct UserStatsResponse {
     pub user: Addr,
     ///Stats
     pub stats: UserStats,
+}
+
+
+#[cw_serde]
+pub struct VaultConversionRate {
+    ///Vault Address
+    pub vault_address: String,
+    ///Deposit Token Conversion Rate for 1 vault token
+    pub last_conversion_rate: Uint128,
+    /// Total Vault Tokens
+    pub last_vt_balance: Uint128,
+}
+
+#[cw_serde]
+pub struct UserConversionResponse {
+    /// User address
+    pub user: Addr,
+    ///Stats
+    pub conversion_rates: Vec<VaultConversionRate>,
 }

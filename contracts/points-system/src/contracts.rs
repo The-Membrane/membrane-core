@@ -7,7 +7,7 @@ use cw2::set_contract_version;
 
 use cw_storage_plus::Bound;
 use membrane::oracle::PriceResponse;
-use membrane::points_system::{ClaimCheck, Config, ExecuteMsg, InstantiateMsg, QueryMsg, UserStats, UserStatsResponse};
+use membrane::points_system::{ClaimCheck, Config, ExecuteMsg, InstantiateMsg, QueryMsg, VaultConversionRate, UserConversionResponse, UserStats, UserStatsResponse};
 use membrane::math::decimal_multiplication;
 use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, MigrateMsg, QueryMsg as CDP_QueryMsg};
 use membrane::stability_pool::{QueryMsg as SP_QueryMsg, ClaimsResponse};
@@ -19,7 +19,7 @@ use membrane::types::{AssetInfo, Basket, UserInfo};
 use membrane::range_bound_lp_vault::QueryMsg as RB_QueryMsg;
 
 use crate::error::ContractError;
-use crate::state::{LiquidationPropagation, VaultConversionRate, CLAIM_CHECK, CONFIG, LIQ_PROPAGATION, OWNERSHIP_TRANSFER, USER_STATS, USER_VAULT_CONVERSION_RATES};
+use crate::state::{LiquidationPropagation, CLAIM_CHECK, CONFIG, LIQ_PROPAGATION, OWNERSHIP_TRANSFER, USER_STATS, USER_VAULT_CONVERSION_RATES};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "points_system";
@@ -973,6 +973,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::ClaimCheck {} => to_json_binary(&CLAIM_CHECK.load(deps.storage)?),
         QueryMsg::UserStats { user, limit, start_after } => to_json_binary(&query_user_stats(deps, user, limit, start_after)?),
+        QueryMsg::UserConversionRates { user, limit, start_after } => to_json_binary(&query_user_conversion_rates(deps, user, limit, start_after)?),
     }
 }
 
@@ -1015,6 +1016,48 @@ fn query_user_stats(
     }
 
     Ok(user_stats)
+}
+
+
+/// Return a list of users with their vault conversion rates
+fn query_user_conversion_rates(
+    deps: Deps,
+    user: Option<String>,
+    limit: Option<u64>, //User limit
+    start_after: Option<String>, //user
+) -> StdResult<Vec<UserConversionResponse>> {
+    if let Some(user) = user {
+        let user = deps.api.addr_validate(&user)?;
+        let conversion_rates = USER_VAULT_CONVERSION_RATES.load(deps.storage, user.clone())?;
+        return Ok(vec![
+            UserConversionResponse {
+            user,
+            conversion_rates
+        }]);
+    };
+
+    let limit = limit.unwrap_or(PAGINATION_DEFAULT_LIMIT) as usize;
+    let start = if let Some(start) = start_after {
+        let start_after_addr = deps.api.addr_validate(&start)?;
+        Some(Bound::exclusive(start_after_addr))
+    } else {
+        None
+    };
+
+    let mut user_rates: Vec<UserConversionResponse> = vec![];
+    for user in USER_VAULT_CONVERSION_RATES
+        .range(deps.storage, start, None, Order::Ascending)
+        .take(limit)
+    {
+        let (user, conversion_rates) = user?;
+        user_rates.push(
+            UserConversionResponse {
+            user,
+            conversion_rates
+        });
+    }
+
+    Ok(user_rates)
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

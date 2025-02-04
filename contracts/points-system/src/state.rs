@@ -2,7 +2,7 @@ use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Uint128};
 use cw_storage_plus::{Item, Map};
 
-use membrane::{points_system::{ClaimCheck, Config, UserStats}, types::Asset};
+use membrane::{points_system::{ClaimCheck, Config, UserStats, VaultConversionRate}, types::Asset};
 
 #[cw_serde]
 pub struct LiquidationPropagation {
@@ -14,15 +14,6 @@ pub struct LiquidationPropagation {
     pub liquidatee: Addr,
 }
 
-#[cw_serde]
-pub struct VaultConversionRate {
-    ///Vault Address
-    pub vault_address: String,
-    ///Deposit Token Conversion Rate for 1 vault token
-    pub last_conversion_rate: Uint128,
-    /// Total Vault Tokens
-    pub last_vt_balance: Uint128,
-}
 
 #[cw_serde]
 pub struct VaultInfo {

@@ -1772,22 +1772,22 @@ pub fn redeem_for_collateral(
                     };
                     
                     //Accrue
-                    accrue(
-                        deps.storage,
-                        deps.querier,
-                        env.clone(),
-                        config.clone(),
-                        &mut target_position,
-                        &mut basket,
-                        user.position_owner.to_string(),
-                        false,
-                    )?;
-                    //Update position to save rate index changes
-                    update_position(
-                        deps.storage, 
-                        user.clone().position_owner, 
-                        target_position.clone()
-                    )?;
+                    // accrue(
+                    //     deps.storage,
+                    //     deps.querier,
+                    //     env.clone(),
+                    //     config.clone(),
+                    //     &mut target_position,
+                    //     &mut basket,
+                    //     user.position_owner.to_string(),
+                    //     false,
+                    // )?;
+                    // //Update position to save rate index changes
+                    // update_position(
+                    //     deps.storage, 
+                    //     user.clone().position_owner, 
+                    //     target_position.clone()
+                    // )?;
                     
                     //Remove restricted collateral assets from target_position.collateral_assets
                     for restricted_asset in position_redemption_info.clone().restricted_collateral_assets {
@@ -1796,7 +1796,7 @@ pub fn redeem_for_collateral(
                             .filter(|asset| asset.asset.info.to_string() != restricted_asset)
                             .collect::<Vec<cAsset>>();
                     }
-                    if target_position.collateral_assets.is_empty() {
+                    if target_position.collateral_assets.is_empty() || target_position.credit_amount.is_zero() {
                         //Add id to removal list for user
                         position_removal_ids.push(position_redemption_info.clone().position_id);
                         //Add user to removal list if no more positions
@@ -1819,7 +1819,10 @@ pub fn redeem_for_collateral(
                     //Calc amount of credit that can be redeemed.
                     //Max we can redeem is the target_position's credit_amount.
                     redeemable_credit = Decimal::min(
-                        Decimal::min(Decimal::from_ratio(position_redemption_info.remaining_loan_repayment, Uint128::one()), Decimal::from_ratio(target_position.credit_amount - debt_minimum, Uint128::one())),
+                        Decimal::min(
+                            Decimal::from_ratio(position_redemption_info.remaining_loan_repayment, Uint128::one()),
+                            Decimal::from_ratio(target_position.credit_amount, Uint128::one())
+                        ),
                         credit_amount
                     );
 
@@ -1945,8 +1948,13 @@ pub fn redeem_for_collateral(
                     .collect::<Vec<PositionRedemption>>();
 
                 //Update user
-                if !users_of_premium.is_empty() {
+                if !users_of_premium.is_empty() && users_of_premium.len() > user_index {
                     users_of_premium[user_index] = user.clone();
+                }
+
+                //Add user to removal list if no more positions
+                if user.position_infos.is_empty() {
+                    user_removal_addrs.push(user.clone().position_owner);
                 }
             }
             //Remove users from premium now that we're post loop
